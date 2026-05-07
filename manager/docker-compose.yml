@@ -1,0 +1,65 @@
+# Manager: a thin TypeScript backend that runs the swarm-hls-stream deploy
+# scripts on demand and tracks per-profile port_prefix in PostgreSQL.
+#
+# IMPORTANT — REPO_HOST_PATH
+# --------------------------
+# The manager API container shells out to `bash deploy.sh ...` which in turn
+# runs `docker compose ... up` against the host daemon (via the mounted
+# /var/run/docker.sock). The bind mounts inside swarm-hls-stream's compose file
+# (e.g. ${BEE_UPLOADER_DATA_DIR}:/home/bee/.bee, ../engines/srs/...) are
+# resolved by the host daemon, NOT by the API container. To make those paths
+# valid we mount the host repo at the SAME absolute path inside the container,
+# so "/Users/.../streaming-infra-manager/swarm-hls-stream/deploy/data/..." means
+# the same thing in both places.
+#
+# Set REPO_HOST_PATH in manager/.env (or your shell) to the absolute host path
+# of this checkout before running `docker compose up`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: manager
+      POSTGRES_USER: manager
+    volumes:
+      - manager-pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U manager -d manager" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    profiles: [ "full" ]
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    # REPO_HOST_PATH is consumed two ways:
+    #   1. inside the container (as the running app's repo path) — flows in via env_file
+    #   2. by compose itself for the bind mount + working_dir (interpolated below;
+    #      the `:?...` validation aborts `up` early if it isn't set)
+    environment:
+      DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
+      MANAGER_PORT: "9876"
+    ports:
+      - "${MANAGER_PORT:-9876}:9876"
+    # Run with the repo as cwd — keeps deploy script behavior identical to a
+    # human running it from a terminal.
+    working_dir: ${REPO_HOST_PATH:?set REPO_HOST_PATH in manager/.env to the
+      absolute path of streaming-infra-manager}
+    volumes:
+      # Talk to the host daemon (Docker-out-of-Docker pattern).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mirror the host repo path inside the container so bind mounts in the
+      # downstream compose file resolve correctly on the host daemon.
+      - ${REPO_HOST_PATH}:${REPO_HOST_PATH}
+
+volumes:
+  manager-pg:
