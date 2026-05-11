@@ -1,5 +1,5 @@
 # Manager: a thin TypeScript backend that runs the swarm-hls-stream deploy
-# scripts on demand and tracks per-profile port_prefix in PostgreSQL.
+# scripts on demand and tracks per-profile port_slot in PostgreSQL.
 #
 # The manager API container shells out to `bash deploy.sh ...` which in turn
 # runs `docker compose ... up` against the host daemon (via the mounted

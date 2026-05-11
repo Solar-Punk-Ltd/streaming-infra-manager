@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { Profile, ProfileKind, ProfileStatus } from '../types.js';
 
 const PROFILE_COLUMNS = `
-  name, port_prefix, kind, notes,
+  name, port_slot, kind, notes,
   status, last_error, last_error_at,
   created_at, updated_at
 `;
@@ -21,40 +21,40 @@ export class ProfileRepository {
 
   async list(): Promise<Profile[]> {
     const result = await this.pool.query<Profile>(
-      `SELECT ${PROFILE_COLUMNS} FROM profiles ORDER BY port_prefix ASC`,
+      `SELECT ${PROFILE_COLUMNS} FROM profiles ORDER BY port_slot ASC`,
     );
     return result.rows;
   }
 
   async insert(
     name: string,
-    portPrefix: number,
+    portSlot: number,
     kind: ProfileKind,
     notes: string | null,
     status: ProfileStatus,
   ): Promise<Profile> {
     const result = await this.pool.query<Profile>(
-      `INSERT INTO profiles (name, port_prefix, kind, notes, status)
+      `INSERT INTO profiles (name, port_slot, kind, notes, status)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, portPrefix, kind, notes, status],
+      [name, portSlot, kind, notes, status],
     );
     return result.rows[0]!;
   }
 
-  async deleteByName(name: string): Promise<{ port_prefix: number } | null> {
-    const result = await this.pool.query<{ port_prefix: number }>(
-      'DELETE FROM profiles WHERE name = $1 RETURNING port_prefix',
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const result = await this.pool.query<{ port_slot: number }>(
+      'DELETE FROM profiles WHERE name = $1 RETURNING port_slot',
       [name],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  async getUsedPortsInOrder(): Promise<number[]> {
-    const result = await this.pool.query<{ port_prefix: number }>(
-      'SELECT port_prefix FROM profiles ORDER BY port_prefix ASC',
+  async getUsedSlotsInOrder(): Promise<number[]> {
+    const result = await this.pool.query<{ port_slot: number }>(
+      'SELECT port_slot FROM profiles ORDER BY port_slot ASC',
     );
-    return result.rows.map((row) => row.port_prefix);
+    return result.rows.map((row) => row.port_slot);
   }
 
   /**

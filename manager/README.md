@@ -1,7 +1,7 @@
 # Manager API
 
 Thin TypeScript backend that runs the `swarm-hls-stream` deploy scripts on
-demand and tracks each profile's `port_prefix` in PostgreSQL so two profiles
+demand and tracks each profile's `port_slot` in PostgreSQL so two profiles
 on the same host can never collide on a port.
 
 ## Stack
@@ -9,7 +9,7 @@ on the same host can never collide on a port.
 Aligned with `swarm-hls-stream/packages/stream-uploader`:
 
 - **Express 5** + ESM + **TypeScript**
-- **PostgreSQL 16** — single source of truth for `port_prefix` allocations (1–9)
+- **PostgreSQL 16** — single source of truth for `port_slot` allocations (1–999)
 - **Yup** — request body / params validation at the API edge
 - **dotenv** — config from `.env`
 - **Docker-out-of-Docker** — the API container spawns `bash deploy.sh ...`,
@@ -89,19 +89,19 @@ All command endpoints stream output as Server-Sent Events
 
 | Method | Path              | Body                                              | Notes                                                                              |
 | ------ | ----------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_prefix` (1–9), seeds `<repo>/.env.<name>` from `.env`. |
-| GET    | `/profiles`       | —                                                 | List ordered by `port_prefix`.                                                     |
+| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds `<repo>/.env.<name>` from `.env`. |
+| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                                       |
 | GET    | `/profiles/:name` | —                                                 | Single profile.                                                                    |
-| DELETE | `/profiles/:name` | —                                                 | Releases the prefix and deletes `.env.<name>`. **Run `clean` first if needed.**    |
+| DELETE | `/profiles/:name` | —                                                 | Releases the slot and deletes `.env.<name>`. **Run `clean` first if needed.**      |
 
 ### Actions (per profile, SSE)
 
 | Method | Path                     | Body                                               | Maps to                                                   |
 | ------ | ------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
-| POST   | `/profiles/:name/deploy` | `{ services?: string[] }`                          | `deploy.sh --profile=<name> --portPrefix=<n> [services]`  |
-| POST   | `/profiles/:name/stop`   | `{ services?: string[] }`                          | `stop.sh   --profile=<name> --portPrefix=<n> [services]`  |
-| POST   | `/profiles/:name/clean`  | `{ volumes?: bool, all?: bool, services?: [...] }` | `clean.sh  --profile=<name> --portPrefix=<n> --yes [...]` |
-| GET    | `/profiles/:name/health` | —                                                  | `health.sh --profile=<name> --portPrefix=<n>`             |
+| POST   | `/profiles/:name/deploy` | `{ services?: string[] }`                          | `deploy.sh --profile=<name> --portSlot=<n> [services]`  |
+| POST   | `/profiles/:name/stop`   | `{ services?: string[] }`                          | `stop.sh   --profile=<name> --portSlot=<n> [services]`  |
+| POST   | `/profiles/:name/clean`  | `{ volumes?: bool, all?: bool, services?: [...] }` | `clean.sh  --profile=<name> --portSlot=<n> --yes [...]` |
+| GET    | `/profiles/:name/health` | —                                                  | `health.sh --profile=<name> --portSlot=<n>`             |
 
 When `services` is omitted:
 
@@ -119,12 +119,12 @@ When `services` is omitted:
 ## Example session
 
 ```bash
-# Allocate streamer1 (port_prefix=1)
+# Allocate streamer1 (port_slot=1)
 curl -sS -X POST localhost:9876/profiles \
   -H 'content-type: application/json' \
   -d '{"name":"streamer1","kind":"streamer"}'
 
-# Allocate viewer1 (port_prefix=2)
+# Allocate viewer1 (port_slot=2)
 curl -sS -X POST localhost:9876/profiles \
   -H 'content-type: application/json' \
   -d '{"name":"viewer1","kind":"viewer"}'
@@ -147,7 +147,7 @@ curl    -X DELETE localhost:9876/profiles/streamer1
 
 ## Limitations (intentional, v1)
 
-- **Max 9 managed profiles per host** — `--portPrefix` is a single digit.
+- **Max 999 managed profiles per host** — `--portSlot` is an integer 1–999.
 - **No auth.** Internal/test tool; deploy behind a firewall.
 - **Synchronous SSE.** A deploy holds an HTTP connection open for its duration;
   client disconnect kills the child.

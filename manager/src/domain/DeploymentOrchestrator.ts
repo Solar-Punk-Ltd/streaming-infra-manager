@@ -117,7 +117,7 @@ export class DeploymentOrchestrator {
   ): Promise<RunHandle> {
     const args: string[] = [
       `--profile=${profile.name}`,
-      `--portPrefix=${profile.port_prefix}`,
+      `--portSlot=${profile.port_slot}`,
       '--yes',
     ];
     if (input.volumes) args.push('--volumes');
@@ -133,7 +133,7 @@ export class DeploymentOrchestrator {
         await this.repo.deleteByName(profile.name);
         deleteProfileEnv(profile.name);
         logger.info(
-          `[Orchestrator] Removed profile ${profile.name} (released prefix ${profile.port_prefix})`,
+          `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
         );
       },
     });
@@ -222,7 +222,7 @@ export class DeploymentOrchestrator {
   private buildScriptArgs(profile: Profile, services: string[]): string[] {
     return [
       `--profile=${profile.name}`,
-      `--portPrefix=${profile.port_prefix}`,
+      `--portSlot=${profile.port_slot}`,
       ...services,
     ];
   }

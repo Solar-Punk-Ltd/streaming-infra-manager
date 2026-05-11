@@ -4,7 +4,7 @@ import { ValidationError as YupValidationError } from 'yup';
 import { ProfileBusyError } from '../../domain/DeploymentOrchestrator.js';
 import { Logger } from '../../domain/Logger.js';
 import {
-  AllPrefixesUsedError,
+  AllSlotsUsedError,
   ProfileExistsError,
   ProfileNotFoundError,
 } from '../../domain/ProfileService.js';
@@ -42,8 +42,8 @@ export function errorHandler(
     });
     return;
   }
-  if (err instanceof AllPrefixesUsedError) {
-    res.status(503).json({ error: 'all_prefixes_used', message: err.message });
+  if (err instanceof AllSlotsUsedError) {
+    res.status(503).json({ error: 'all_slots_used', message: err.message });
     return;
   }
 

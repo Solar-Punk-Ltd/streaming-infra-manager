@@ -18,12 +18,12 @@ export class ProfileExistsError extends Error {
   }
 }
 
-export class AllPrefixesUsedError extends Error {
+export class AllSlotsUsedError extends Error {
   constructor() {
     super(
-      'All port prefixes 1-9 are already allocated. Delete a profile to free one.',
+      'All port slots 1-999 are already allocated. Delete a profile to free one.',
     );
-    this.name = 'AllPrefixesUsedError';
+    this.name = 'AllSlotsUsedError';
   }
 }
 
@@ -46,7 +46,7 @@ export class ProfileService {
   ) {}
 
   /**
-   * Allocate prefix + persist row in DEPLOYING + seed env file + spawn
+   * Allocate slot + persist row in DEPLOYING + seed env file + spawn
    * deploy.sh. Returns the freshly-inserted row immediately; the caller
    * polls GET /profiles/:name to watch the status flip to RUNNING/ERROR.
    */
@@ -61,11 +61,11 @@ export class ProfileService {
 
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const prefix = await this.pickFreePrefix();
+      const slot = await this.pickFreeSlot();
       try {
         const row = await this.repo.insert(
           input.name,
-          prefix,
+          slot,
           input.kind,
           input.notes ?? null,
           'DEPLOYING',
@@ -79,7 +79,7 @@ export class ProfileService {
         }
 
         logger.info(
-          `[ProfileService] Created profile ${input.name} (kind=${input.kind}, prefix=${prefix})`,
+          `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${slot})`,
         );
 
         try {
@@ -96,8 +96,8 @@ export class ProfileService {
       } catch (err) {
         const pgErr = err as PgError;
         if (pgErr.code === '23505' && pgErr.constraint !== 'profiles_pkey') {
-          // Unique violation on port_prefix — concurrent allocation. Retry.
-          logger.warn(`[ProfileService] Prefix ${prefix} race; retrying`);
+          // Unique violation on port_slot — concurrent allocation. Retry.
+          logger.warn(`[ProfileService] Slot ${slot} race; retrying`);
           continue;
         }
         if (pgErr.code === '23505' && pgErr.constraint === 'profiles_pkey') {
@@ -106,7 +106,7 @@ export class ProfileService {
         throw err;
       }
     }
-    throw new AllPrefixesUsedError();
+    throw new AllSlotsUsedError();
   }
 
   async list(): Promise<Profile[]> {
@@ -131,11 +131,11 @@ export class ProfileService {
     return { ...profile, status: 'REMOVING' };
   }
 
-  private async pickFreePrefix(): Promise<number> {
-    const used = new Set(await this.repo.getUsedPortsInOrder());
-    for (let i = 1; i <= 9; i++) {
+  private async pickFreeSlot(): Promise<number> {
+    const used = new Set(await this.repo.getUsedSlotsInOrder());
+    for (let i = 1; i <= 999; i++) {
       if (!used.has(i)) return i;
     }
-    throw new AllPrefixesUsedError();
+    throw new AllSlotsUsedError();
   }
 }

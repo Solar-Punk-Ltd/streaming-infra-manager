@@ -60,7 +60,7 @@ export const TRANSITIONAL_STATUSES: readonly ProfileStatus[] = [
 /** Shape returned to API clients (and stored in DB). */
 export interface Profile {
   name: string;
-  port_prefix: number;
+  port_slot: number;
   kind: ProfileKind;
   notes: string | null;
   status: ProfileStatus;
