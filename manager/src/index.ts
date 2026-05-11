@@ -1,6 +1,7 @@
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
+import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
 import { Logger } from './domain/Logger.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
@@ -43,10 +44,21 @@ async function main(): Promise<void> {
   await database.migrate();
 
   const profileRepository = new ProfileRepository(database.pool);
-  const profileService = new ProfileService(profileRepository);
+
+  const orphans = await profileRepository.resetOrphanedTransitions();
+  if (orphans.length > 0) {
+    logger.warn(
+      `[Boot] reset orphaned transitional states: ${orphans.join(', ')}`,
+    );
+  }
 
   const scriptRunner = new ScriptRunner();
-  const deployService = new DeployService(profileService, scriptRunner);
+  const orchestrator = new DeploymentOrchestrator(
+    profileRepository,
+    scriptRunner,
+  );
+  const profileService = new ProfileService(profileRepository, orchestrator);
+  const deployService = new DeployService(profileService, orchestrator);
 
   apiServer = startApiServer(
     { database, profileService, deployService },

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 const { Pool } = pg;
+type Pool = pg.Pool;
 
 import { Logger } from './Logger.js';
 

@@ -1,15 +1,16 @@
 import { existsSync, copyFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { config } from './config.js';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
- * Paths into the swarm-hls-stream submodule. The repoRoot mirrors the host's
- * absolute path inside the manager container (see manager/docker-compose.yml)
- * so any bind mount that the deploy script asks `docker compose` to make is
- * valid on the host daemon side.
+ * Paths into the swarm-hls-stream submodule. Resolved relative to this file so
+ * the same code works in:
+ *   - dev (`pnpm dev` from manager/, ts source at src/utils/repo.ts)
+ *   - prod (Docker image with manager built at /app/dist and submodule at
+ *     /app/swarm-hls-stream — baked in by the Dockerfile)
  */
-export const SUBMODULE = join(config.repoRoot, 'swarm-hls-stream');
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const SUBMODULE = resolve(HERE, '../../swarm-hls-stream');
 export const SCRIPTS_DIR = join(SUBMODULE, 'deploy', 'scripts');
 
 export const SCRIPT_DEPLOY = join(SCRIPTS_DIR, 'deploy.sh');

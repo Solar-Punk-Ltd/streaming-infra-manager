@@ -2,8 +2,6 @@ import { Request, Response, Router } from 'express';
 
 import { DeployService } from '../../domain/DeployService.js';
 import {
-  cleanBodySchema,
-  CleanBody,
   deployBodySchema,
   DeployBody,
   stopBodySchema,
@@ -15,10 +13,6 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { pipeRunHandleToSSE } from '../sse.js';
 
-/**
- * Profile-scoped actions: deploy / stop / clean / health.
- * All four stream their script's output back as SSE.
- */
 export function createActionsRouter(deployService: DeployService): Router {
   const router = Router();
 
@@ -26,7 +20,7 @@ export function createActionsRouter(deployService: DeployService): Router {
     req: Request,
     res: Response,
     action: ActionKind,
-    input: { services?: string[]; volumes?: boolean; all?: boolean } = {},
+    input: { services?: string[] } = {},
   ) => {
     const profileName = req.params.name as string;
     const handle = await deployService.run(profileName, action, input);
@@ -56,20 +50,6 @@ export function createActionsRouter(deployService: DeployService): Router {
       const body = req.body as StopBody;
       await runAction(req, res, 'stop', {
         services: body.services as string[] | undefined,
-      });
-    }),
-  );
-
-  router.post(
-    '/profiles/:name/clean',
-    validateParams(profileNameSchema),
-    validateBody(cleanBodySchema),
-    asyncHandler(async (req: Request, res: Response) => {
-      const body = req.body as CleanBody;
-      await runAction(req, res, 'clean', {
-        services: body.services as string[] | undefined,
-        volumes: body.volumes ?? undefined,
-        all: body.all ?? undefined,
       });
     }),
   );

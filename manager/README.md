@@ -71,7 +71,6 @@ relevant. The pattern is intentionally identical to
 
 ```bash
 cp manager/.env.sample manager/.env
-# Edit manager/.env — set REPO_HOST_PATH to the absolute host path of this checkout.
 cd manager
 docker compose up --build -d
 curl localhost:9876/healthz                      # {"status":"ok"}
@@ -145,16 +144,6 @@ curl -N -X POST localhost:9876/profiles/streamer1/clean \
   -H 'content-type: application/json' -d '{"volumes":true}'
 curl    -X DELETE localhost:9876/profiles/streamer1
 ```
-
-## Why `REPO_HOST_PATH` mirroring?
-
-The API container talks to the **host's** Docker daemon. Bind mounts inside
-`swarm-hls-stream/deploy/docker-compose.yml` (data dirs, SRS conf templates)
-are resolved by the daemon using the path _as the host sees it_. If the API
-container saw the repo at `/repo` and asked the daemon to bind-mount
-`/repo/swarm-hls-stream/deploy/data/bee-uploader`, the host would have no
-such path. Mirroring the host path inside the container side-steps the
-entire class of bug.
 
 ## Limitations (intentional, v1)
 

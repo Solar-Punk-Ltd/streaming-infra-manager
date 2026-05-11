@@ -10,10 +10,6 @@ import { ProfileKind } from '../../types.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 
-/**
- * `profileService` is injected — keeps the route layer free of DB / FS knowledge
- * and lets us swap a stub in for tests.
- */
 export function createProfilesRouter(profileService: ProfileService): Router {
   const router = Router();
 
@@ -27,7 +23,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         kind: (body.kind ?? 'custom') as ProfileKind,
         notes: body.notes ?? null,
       });
-      res.status(201).json(profile);
+      res.status(202).json(profile);
     }),
   );
 
@@ -52,8 +48,8 @@ export function createProfilesRouter(profileService: ProfileService): Router {
     '/:name',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const result = await profileService.delete(req.params.name as string);
-      res.json(result);
+      const profile = await profileService.remove(req.params.name as string);
+      res.status(202).json(profile);
     }),
   );
 

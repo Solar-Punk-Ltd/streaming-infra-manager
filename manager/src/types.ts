@@ -28,12 +28,44 @@ export const KIND_DEFAULT_SERVICES: Record<
   custom: [],
 };
 
+/**
+ * Profile lifecycle status — matches the CHECK constraint in 001_init.sql.
+ *
+ * Transitional states (in-flight script runs):
+ *   DEPLOYING — deploy.sh running
+ *   STOPPING  — stop.sh running
+ *   REMOVING  — clean.sh running, row will be deleted on success
+ *
+ * Terminal states (idle, accept new triggers):
+ *   RUNNING   — last deploy succeeded
+ *   STOPPED   — last stop succeeded
+ *   ERROR     — last script run failed; last_error has the message
+ */
+export const PROFILE_STATUSES = [
+  'DEPLOYING',
+  'RUNNING',
+  'STOPPING',
+  'STOPPED',
+  'REMOVING',
+  'ERROR',
+] as const;
+export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
+
+export const TRANSITIONAL_STATUSES: readonly ProfileStatus[] = [
+  'DEPLOYING',
+  'STOPPING',
+  'REMOVING',
+];
+
 /** Shape returned to API clients (and stored in DB). */
 export interface Profile {
   name: string;
   port_prefix: number;
   kind: ProfileKind;
   notes: string | null;
+  status: ProfileStatus;
+  last_error: string | null;
+  last_error_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }

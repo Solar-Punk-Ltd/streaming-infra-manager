@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
+import { ProfileBusyError } from '../../domain/DeploymentOrchestrator.js';
 import { Logger } from '../../domain/Logger.js';
 import {
   AllPrefixesUsedError,
@@ -31,6 +32,14 @@ export function errorHandler(
   }
   if (err instanceof ProfileExistsError) {
     res.status(409).json({ error: 'profile_exists', name: err.name });
+    return;
+  }
+  if (err instanceof ProfileBusyError) {
+    res.status(409).json({
+      error: 'profile_busy',
+      name: err.name,
+      status: err.currentStatus,
+    });
     return;
   }
   if (err instanceof AllPrefixesUsedError) {

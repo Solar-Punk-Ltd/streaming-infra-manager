@@ -1,6 +1,10 @@
-import { deleteProfileEnv, ensureProfileEnv } from '../utils/repo.js';
-import { Profile, ProfileKind } from '../types.js';
+import { Profile, ProfileKind, TRANSITIONAL_STATUSES } from '../types.js';
+import { ensureProfileEnv } from '../utils/repo.js';
 
+import {
+  DeploymentOrchestrator,
+  ProfileBusyError,
+} from './DeploymentOrchestrator.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 
@@ -35,20 +39,22 @@ interface PgError {
   constraint?: string;
 }
 
-/**
- * Orchestrates profile lifecycle: picks a free port_prefix, persists the row,
- * and creates the per-profile env file the deploy script needs.
- *
- * Race-safe: the unique-prefix constraint catches concurrent allocations and
- * the loser retries with a freshly-picked prefix.
- */
 export class ProfileService {
-  constructor(private readonly repo: ProfileRepository) {}
+  constructor(
+    private readonly repo: ProfileRepository,
+    private readonly orchestrator: DeploymentOrchestrator,
+  ) {}
 
+  /**
+   * Allocate prefix + persist row in DEPLOYING + seed env file + spawn
+   * deploy.sh. Returns the freshly-inserted row immediately; the caller
+   * polls GET /profiles/:name to watch the status flip to RUNNING/ERROR.
+   */
   async create(input: {
     name: string;
     kind: ProfileKind;
     notes?: string | null;
+    services?: string[];
   }): Promise<Profile> {
     const existing = await this.repo.findByName(input.name);
     if (existing) throw new ProfileExistsError(input.name);
@@ -62,10 +68,9 @@ export class ProfileService {
           prefix,
           input.kind,
           input.notes ?? null,
+          'DEPLOYING',
         );
 
-        // Seed the env file so deploy.sh's require_env passes. Roll back the
-        // DB row if seeding fails — keeps state consistent.
         try {
           ensureProfileEnv(input.name);
         } catch (err) {
@@ -76,6 +81,17 @@ export class ProfileService {
         logger.info(
           `[ProfileService] Created profile ${input.name} (kind=${input.kind}, prefix=${prefix})`,
         );
+
+        try {
+          await this.orchestrator.startInitialDeploy(row, input.services);
+        } catch (err) {
+          await this.repo.markError(
+            input.name,
+            err instanceof Error ? err.message : String(err),
+          );
+          throw err;
+        }
+
         return row;
       } catch (err) {
         const pgErr = err as PgError;
@@ -103,14 +119,16 @@ export class ProfileService {
     return row;
   }
 
-  async delete(name: string): Promise<{ released_prefix: number }> {
-    const released = await this.repo.deleteByName(name);
-    if (!released) throw new ProfileNotFoundError(name);
-    deleteProfileEnv(name);
-    logger.info(
-      `[ProfileService] Deleted profile ${name} (released prefix ${released.port_prefix})`,
-    );
-    return { released_prefix: released.port_prefix };
+  async remove(
+    name: string,
+    input: { volumes?: boolean; all?: boolean } = {},
+  ): Promise<Profile> {
+    const profile = await this.getByName(name);
+    if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {
+      throw new ProfileBusyError(name, profile.status);
+    }
+    await this.orchestrator.startRemove(profile, input);
+    return { ...profile, status: 'REMOVING' };
   }
 
   private async pickFreePrefix(): Promise<number> {
