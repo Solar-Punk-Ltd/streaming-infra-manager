@@ -55,6 +55,12 @@ export class ProfileService {
     kind: ProfileKind;
     notes?: string | null;
     services?: string[];
+    /**
+     * Optional --host override forwarded to deploy.sh. When set, every enabled
+     * service in config.json is routed to this target (ssh alias, user@host,
+     * or "localhost") instead of its per-service config target.
+     */
+    host?: string;
   }): Promise<Profile> {
     const existing = await this.repo.findByName(input.name);
     if (existing) throw new ProfileExistsError(input.name);
@@ -83,7 +89,9 @@ export class ProfileService {
         );
 
         try {
-          await this.orchestrator.startInitialDeploy(row, input.services);
+          await this.orchestrator.startInitialDeploy(row, input.services, {
+            host: input.host,
+          });
         } catch (err) {
           await this.repo.markError(
             input.name,

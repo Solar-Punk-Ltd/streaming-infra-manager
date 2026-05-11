@@ -30,6 +30,7 @@ export class ProfileBusyError extends Error {
 }
 
 const STDERR_TAIL_BYTES = 4096;
+const STDOUT_TAIL_BYTES = 4096;
 
 interface JobConfig {
   profileName: string;
@@ -84,11 +85,16 @@ export class DeploymentOrchestrator {
   async startInitialDeploy(
     profile: Profile,
     services: string[] | undefined,
+    opts: { host?: string } = {},
   ): Promise<RunHandle> {
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, this.resolveServices(profile, services)),
+      args: this.buildScriptArgs(
+        profile,
+        this.resolveServices(profile, services),
+        opts.host,
+      ),
       onSuccess: () => this.repo.markTerminal(profile.name, 'RUNNING'),
     });
   }
@@ -177,17 +183,22 @@ export class DeploymentOrchestrator {
 
     const handle = this.runner.run(cfg.script, cfg.args, { cwd: SUBMODULE });
 
-    // Buffer just enough stderr to surface a useful error message in the row.
+    // Buffer both streams — deploy.sh writes most errors to stdout, docker
+    // build writes them to stderr; we want whatever's useful in the failure msg.
     let stderrTail = '';
+    let stdoutTail = '';
     handle.emitter.on('stderr', (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
     });
+    handle.emitter.on('stdout', (chunk: string) => {
+      stdoutTail = (stdoutTail + chunk).slice(-STDOUT_TAIL_BYTES);
+    });
 
     handle.emitter.on('done', ({ code }: { code: number }) => {
-      void this.finalizeJob(cfg, code, stderrTail);
+      void this.finalizeJob(cfg, code, stderrTail, stdoutTail);
     });
     handle.emitter.on('error', (err: Error) => {
-      void this.finalizeJob(cfg, -1, err.message);
+      void this.finalizeJob(cfg, -1, err.message, stdoutTail);
     });
 
     return handle;
@@ -197,6 +208,7 @@ export class DeploymentOrchestrator {
     cfg: JobConfig,
     code: number,
     stderrTail: string,
+    stdoutTail: string,
   ): Promise<void> {
     try {
       if (code === 0) {
@@ -204,10 +216,12 @@ export class DeploymentOrchestrator {
         logger.info(`[Orchestrator] ${cfg.profileName} ← success`);
       } else {
         const message =
-          stderrTail.trim() || `${cfg.script} exited with code ${code}`;
+          stderrTail.trim() ||
+          stdoutTail.trim() ||
+          `${cfg.script} exited with code ${code}`;
         await this.repo.markError(cfg.profileName, message);
         logger.warn(
-          `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})`,
+          `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
         );
       }
     } catch (err) {
@@ -219,12 +233,18 @@ export class DeploymentOrchestrator {
     }
   }
 
-  private buildScriptArgs(profile: Profile, services: string[]): string[] {
-    return [
+  private buildScriptArgs(
+    profile: Profile,
+    services: string[],
+    host?: string,
+  ): string[] {
+    const args = [
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
-      ...services,
     ];
+    if (host) args.push(`--host=${host}`);
+    args.push(...services);
+    return args;
   }
 
   private resolveServices(

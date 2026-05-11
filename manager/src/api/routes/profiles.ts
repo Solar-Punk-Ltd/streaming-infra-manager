@@ -22,6 +22,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         name: body.name,
         kind: (body.kind ?? 'custom') as ProfileKind,
         notes: body.notes ?? null,
+        host: body.host ?? undefined,
       });
       res.status(202).json(profile);
     }),
