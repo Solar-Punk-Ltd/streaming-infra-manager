@@ -4,9 +4,18 @@ import { Profile, ProfileKind, ProfileStatus } from '../types.js';
 
 const PROFILE_COLUMNS = `
   name, port_slot, kind, notes,
+  components, feed_owner, feed_topic, private_key, stamp_id,
   status, last_error, last_error_at,
   created_at, updated_at
 `;
+
+export interface ProfileExtras {
+  components?: string[] | null;
+  feed_owner?: string | null;
+  feed_topic?: string | null;
+  private_key?: string | null;
+  stamp_id?: string | null;
+}
 
 export class ProfileRepository {
   constructor(private readonly pool: Pool) {}
@@ -32,12 +41,27 @@ export class ProfileRepository {
     kind: ProfileKind,
     notes: string | null,
     status: ProfileStatus,
+    extras: ProfileExtras = {},
   ): Promise<Profile> {
     const result = await this.pool.query<Profile>(
-      `INSERT INTO profiles (name, port_slot, kind, notes, status)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO profiles (
+         name, port_slot, kind, notes, status,
+         components, feed_owner, feed_topic, private_key, stamp_id
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, portSlot, kind, notes, status],
+      [
+        name,
+        portSlot,
+        kind,
+        notes,
+        status,
+        extras.components ?? null,
+        extras.feed_owner ?? null,
+        extras.feed_topic ?? null,
+        extras.private_key ?? null,
+        extras.stamp_id ?? null,
+      ],
     );
     return result.rows[0]!;
   }
@@ -57,11 +81,6 @@ export class ProfileRepository {
     return result.rows.map((row) => row.port_slot);
   }
 
-  /**
-   * Compare-and-swap status transition. Updates the row only if its current
-   * status is in `allowedFrom`. Returns the updated row, or null when the
-   * caller lost the race / the profile is in a state that can't transition.
-   */
   async transitionStatus(
     name: string,
     next: ProfileStatus,
@@ -106,11 +125,6 @@ export class ProfileRepository {
     );
   }
 
-  /**
-   * On boot, any profile stuck in a transitional state is unrecoverable —
-   * the in-process orchestrator that owned it died. Flip them to ERROR so
-   * the user can retry. Returns the affected names for logging.
-   */
   async resetOrphanedTransitions(): Promise<string[]> {
     const result = await this.pool.query<{ name: string; status: string }>(
       `UPDATE profiles

@@ -1,4 +1,4 @@
-import { existsSync, copyFileSync, unlinkSync } from 'node:fs';
+import { existsSync, copyFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,8 @@ export function baseEnvPath(): string {
  * profile env file is missing, so creating it on profile registration avoids
  * a confusing first-deploy failure.
  */
+
+// TODO refactor to alwass seed not lookup
 export function ensureProfileEnv(name: string): boolean {
   const dest = profileEnvPath(name);
   if (existsSync(dest)) return false;
@@ -45,6 +47,36 @@ export function ensureProfileEnv(name: string): boolean {
   }
   copyFileSync(base, dest);
   return true;
+}
+
+/**
+ * Parse `.env.<name>` into a flat KEY→VALUE map. Returns an empty object if
+ * the file is missing. Ignores blank lines and `#`-comments. Strips matched
+ * surrounding single or double quotes from values; does not interpret
+ * backslash escapes.
+ */
+export function parseProfileEnv(name: string): Record<string, string> {
+  const path = profileEnvPath(name);
+  if (!existsSync(path)) return {};
+
+  const out: Record<string, string> = {};
+  const text = readFileSync(path, 'utf8');
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
 }
 
 /** Best-effort delete of the per-profile env file. */
