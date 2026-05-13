@@ -7,7 +7,7 @@ import {
   SUBMODULE,
   deleteProfileEnv,
   parseProfileEnv,
-} from '../utils/repo.js';
+} from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
