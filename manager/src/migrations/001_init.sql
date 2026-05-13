@@ -10,10 +10,11 @@ CREATE TABLE profiles (
   port_slot      SMALLINT NOT NULL UNIQUE,
   kind           TEXT NOT NULL DEFAULT 'custom',
   notes          TEXT,
-  -- Lifecycle status. Transitions are driven by HTTP triggers + async script runs.
-  -- Transitional states (DEPLOYING/STOPPING/REMOVING) reject concurrent triggers
-  -- with 409. On manager restart, any row stuck in a transitional state is reset
-  -- to ERROR (the in-process orchestrator that would update it is gone).
+  components     TEXT[],
+  feed_owner     TEXT,
+  feed_topic     TEXT,
+  private_key    TEXT,
+  stamp_id       TEXT,
   status         TEXT NOT NULL DEFAULT 'DEPLOYING',
   last_error     TEXT,
   last_error_at  TIMESTAMPTZ,
@@ -29,3 +30,15 @@ CREATE TABLE profiles (
 
 CREATE INDEX profiles_kind_idx ON profiles (kind);
 CREATE INDEX profiles_status_idx ON profiles (status);
+
+CREATE TABLE containers (
+  profile_name   TEXT NOT NULL REFERENCES profiles(name) ON DELETE CASCADE,
+  service        TEXT NOT NULL,
+  ports          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  env            JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (profile_name, service)
+);
+
+CREATE INDEX containers_profile_idx ON containers (profile_name);

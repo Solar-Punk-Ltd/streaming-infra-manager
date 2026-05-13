@@ -1,8 +1,4 @@
-import {
-  KIND_DEFAULT_SERVICES,
-  Profile,
-  ProfileStatus,
-} from '../types.js';
+import { KIND_DEFAULT_SERVICES, Profile, ProfileStatus } from '../types.js';
 import {
   SCRIPT_CLEAN,
   SCRIPT_DEPLOY,
@@ -10,8 +6,11 @@ import {
   SCRIPT_STOP,
   SUBMODULE,
   deleteProfileEnv,
+  parseProfileEnv,
 } from '../utils/repo.js';
 
+import { ContainerRepository } from './ContainerRepository.js';
+import { buildContainerSnapshot } from './containerKeysSpec.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
@@ -59,6 +58,7 @@ interface JobConfig {
 export class DeploymentOrchestrator {
   constructor(
     private readonly repo: ProfileRepository,
+    private readonly containers: ContainerRepository,
     private readonly runner: ScriptRunner,
   ) {}
 
@@ -66,13 +66,17 @@ export class DeploymentOrchestrator {
     profile: Profile,
     services: string[] | undefined,
   ): Promise<RunHandle> {
+    const resolved = this.resolveServices(profile, services);
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, this.resolveServices(profile, services)),
+      args: this.buildScriptArgs(profile, resolved),
       transitionTo: 'DEPLOYING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-      onSuccess: () => this.repo.markTerminal(profile.name, 'RUNNING'),
+      onSuccess: async () => {
+        await this.repo.markTerminal(profile.name, 'RUNNING');
+        await this.snapshotContainers(profile.name, resolved);
+      },
     });
   }
 
@@ -87,15 +91,15 @@ export class DeploymentOrchestrator {
     services: string[] | undefined,
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
+    const resolved = this.resolveServices(profile, services);
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(
-        profile,
-        this.resolveServices(profile, services),
-        opts.host,
-      ),
-      onSuccess: () => this.repo.markTerminal(profile.name, 'RUNNING'),
+      args: this.buildScriptArgs(profile, resolved, opts.host),
+      onSuccess: async () => {
+        await this.repo.markTerminal(profile.name, 'RUNNING');
+        await this.snapshotContainers(profile.name, resolved);
+      },
     });
   }
 
@@ -150,11 +154,9 @@ export class DeploymentOrchestrator {
    * the route layer has a single dependency.
    */
   startHealth(profile: Profile): RunHandle {
-    return this.runner.run(
-      SCRIPT_HEALTH,
-      this.buildScriptArgs(profile, []),
-      { cwd: SUBMODULE },
-    );
+    return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
+      cwd: SUBMODULE,
+    });
   }
 
   // --- internals ---
@@ -252,7 +254,33 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
   ): string[] {
     if (requested && requested.length > 0) return requested;
+    if (profile.components && profile.components.length > 0) {
+      return [...profile.components];
+    }
     return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
   }
-}
 
+  /**
+   * Snapshot the per-service slice of `.env.<profile>` into the containers
+   * table on successful deploy. Best-effort: a failure here only logs and
+   * does not flip the deploy to ERROR.
+   */
+  private async snapshotContainers(
+    profileName: string,
+    services: string[],
+  ): Promise<void> {
+    try {
+      const env = parseProfileEnv(profileName);
+      for (const service of services) {
+        const snapshot = buildContainerSnapshot(service, env);
+        await this.containers.upsert(profileName, snapshot);
+      }
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] failed to snapshot containers for ${profileName}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+}

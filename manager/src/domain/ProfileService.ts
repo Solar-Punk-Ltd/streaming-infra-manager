@@ -54,13 +54,12 @@ export class ProfileService {
     name: string;
     kind: ProfileKind;
     notes?: string | null;
-    services?: string[];
-    /**
-     * Optional --host override forwarded to deploy.sh. When set, every enabled
-     * service in config.json is routed to this target (ssh alias, user@host,
-     * or "localhost") instead of its per-service config target.
-     */
+    components?: string[];
     host?: string;
+    feed_owner?: string;
+    feed_topic?: string;
+    private_key?: string;
+    stamp_id?: string;
   }): Promise<Profile> {
     const existing = await this.repo.findByName(input.name);
     if (existing) throw new ProfileExistsError(input.name);
@@ -75,6 +74,16 @@ export class ProfileService {
           input.kind,
           input.notes ?? null,
           'DEPLOYING',
+          {
+            components:
+              input.components && input.components.length > 0
+                ? input.components
+                : null,
+            feed_owner: input.feed_owner ?? null,
+            feed_topic: input.feed_topic ?? null,
+            private_key: input.private_key ?? null,
+            stamp_id: input.stamp_id ?? null,
+          },
         );
 
         try {
@@ -89,7 +98,7 @@ export class ProfileService {
         );
 
         try {
-          await this.orchestrator.startInitialDeploy(row, input.services, {
+          await this.orchestrator.startInitialDeploy(row, input.components, {
             host: input.host,
           });
         } catch (err) {

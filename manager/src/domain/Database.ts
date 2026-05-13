@@ -13,11 +13,6 @@ const MIGRATIONS_DIR = join(here, '..', 'migrations');
 
 const logger = Logger.getInstance();
 
-/**
- * Thin wrapper over a pg.Pool. Owns lifecycle (connect, migrate, close) and
- * exposes the pool to repositories. Constructed once in `index.ts` and passed
- * down — no global state.
- */
 export class Database {
   public readonly pool: Pool;
 
@@ -25,10 +20,6 @@ export class Database {
     this.pool = new Pool({ connectionString, max: 10 });
   }
 
-  /**
-   * Apply migrations in src/migrations/*.sql in lexicographic order. Each file
-   * runs once; tracked in `_migrations`. Idempotent — safe to call on every boot.
-   */
   async migrate(): Promise<void> {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS _migrations (

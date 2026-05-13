@@ -1,4 +1,5 @@
 import { ApiServerHandle, startApiServer } from './api/server.js';
+import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
   await database.migrate();
 
   const profileRepository = new ProfileRepository(database.pool);
+  const containerRepository = new ContainerRepository(database.pool);
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
   const scriptRunner = new ScriptRunner();
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
+    containerRepository,
     scriptRunner,
   );
   const profileService = new ProfileService(profileRepository, orchestrator);
