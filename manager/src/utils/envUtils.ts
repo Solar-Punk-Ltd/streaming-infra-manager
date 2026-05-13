@@ -1,14 +1,7 @@
-import { existsSync, copyFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/**
- * Paths into the swarm-hls-stream submodule. Resolved relative to this file so
- * the same code works in:
- *   - dev (`pnpm dev` from manager/, ts source at src/utils/repo.ts)
- *   - prod (Docker image with manager built at /app/dist and submodule at
- *     /app/swarm-hls-stream — baked in by the Dockerfile)
- */
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const SUBMODULE = resolve(HERE, '../../swarm-hls-stream');
 export const SCRIPTS_DIR = join(SUBMODULE, 'deploy', 'scripts');
@@ -26,35 +19,6 @@ export function baseEnvPath(): string {
   return join(SUBMODULE, '.env');
 }
 
-/**
- * Seed `.env.<name>` from the base `.env` if it doesn't exist. The deploy
- * script's `require_env` errors out for non-default profiles when the per-
- * profile env file is missing, so creating it on profile registration avoids
- * a confusing first-deploy failure.
- */
-
-// TODO refactor to alwass seed not lookup
-export function ensureProfileEnv(name: string): boolean {
-  const dest = profileEnvPath(name);
-  if (existsSync(dest)) return false;
-
-  const base = baseEnvPath();
-  if (!existsSync(base)) {
-    throw new Error(
-      `Cannot seed .env.${name}: base file ${base} not found. ` +
-        `Set up swarm-hls-stream/.env first.`,
-    );
-  }
-  copyFileSync(base, dest);
-  return true;
-}
-
-/**
- * Parse `.env.<name>` into a flat KEY→VALUE map. Returns an empty object if
- * the file is missing. Ignores blank lines and `#`-comments. Strips matched
- * surrounding single or double quotes from values; does not interpret
- * backslash escapes.
- */
 export function parseProfileEnv(name: string): Record<string, string> {
   const path = profileEnvPath(name);
   if (!existsSync(path)) return {};
@@ -79,7 +43,6 @@ export function parseProfileEnv(name: string): Record<string, string> {
   return out;
 }
 
-/** Best-effort delete of the per-profile env file. */
 export function deleteProfileEnv(name: string): boolean {
   const path = profileEnvPath(name);
   if (!existsSync(path)) return false;

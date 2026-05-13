@@ -1,5 +1,4 @@
 import { Profile, ProfileKind, TRANSITIONAL_STATUSES } from '../types.js';
-import { ensureProfileEnv } from '../utils/repo.js';
 
 import {
   DeploymentOrchestrator,
@@ -85,13 +84,6 @@ export class ProfileService {
             stamp_id: input.stamp_id ?? null,
           },
         );
-
-        try {
-          ensureProfileEnv(input.name);
-        } catch (err) {
-          await this.repo.deleteByName(input.name);
-          throw err;
-        }
 
         logger.info(
           `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${slot})`,
