@@ -23,6 +23,11 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         kind: (body.kind ?? 'custom') as ProfileKind,
         notes: body.notes ?? null,
         host: body.host ?? undefined,
+        components: body.components as string[] | undefined,
+        feed_owner: body.feed_owner ?? undefined,
+        feed_topic: body.feed_topic ?? undefined,
+        private_key: body.private_key ?? undefined,
+        stamp_id: body.stamp_id ?? undefined,
       });
       res.status(202).json(profile);
     }),
