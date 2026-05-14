@@ -58,6 +58,7 @@ export class ProfileService {
     feed_owner?: string;
     feed_topic?: string;
     private_key?: string;
+    public_key?: string;
     stamp_id?: string;
   }): Promise<Profile> {
     const existing = await this.repo.findByName(input.name);
@@ -81,6 +82,7 @@ export class ProfileService {
             feed_owner: input.feed_owner ?? null,
             feed_topic: input.feed_topic ?? null,
             private_key: input.private_key ?? null,
+            public_key: input.public_key ?? null,
             stamp_id: input.stamp_id ?? null,
           },
         );

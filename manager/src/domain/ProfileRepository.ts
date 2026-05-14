@@ -4,7 +4,7 @@ import { Profile, ProfileKind, ProfileStatus } from '../types.js';
 
 const PROFILE_COLUMNS = `
   name, port_slot, kind, notes,
-  components, feed_owner, feed_topic, private_key, stamp_id,
+  components, feed_owner, feed_topic, private_key, public_key, stamp_id,
   status, last_error, last_error_at,
   created_at, updated_at
 `;
@@ -14,6 +14,7 @@ export interface ProfileExtras {
   feed_owner?: string | null;
   feed_topic?: string | null;
   private_key?: string | null;
+  public_key?: string | null;
   stamp_id?: string | null;
 }
 
@@ -46,9 +47,9 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
-         components, feed_owner, feed_topic, private_key, stamp_id
+         components, feed_owner, feed_topic, private_key, public_key, stamp_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -60,6 +61,7 @@ export class ProfileRepository {
         extras.feed_owner ?? null,
         extras.feed_topic ?? null,
         extras.private_key ?? null,
+        extras.public_key ?? null,
         extras.stamp_id ?? null,
       ],
     );

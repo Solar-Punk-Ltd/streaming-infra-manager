@@ -67,6 +67,7 @@ export interface Profile {
   feed_owner: string | null;
   feed_topic: string | null;
   private_key: string | null;
+  public_key: string | null;
   stamp_id: string | null;
   status: ProfileStatus;
   last_error: string | null;

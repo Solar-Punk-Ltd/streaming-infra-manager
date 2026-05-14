@@ -14,6 +14,7 @@ CREATE TABLE profiles (
   feed_owner     TEXT,
   feed_topic     TEXT,
   private_key    TEXT,
+  public_key     TEXT,
   stamp_id       TEXT,
   status         TEXT NOT NULL DEFAULT 'DEPLOYING',
   last_error     TEXT,
