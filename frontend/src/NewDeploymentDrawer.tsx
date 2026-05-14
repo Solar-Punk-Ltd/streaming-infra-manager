@@ -172,6 +172,7 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
         feed_owner: hasClient && feedOwner.trim() ? feedOwner.trim() : undefined,
         feed_topic: hasClient && feedTopic.trim() ? feedTopic.trim() : undefined,
         private_key: hasStreamUploader && privateKey.trim() ? privateKey.trim() : undefined,
+        public_key: hasStreamUploader && derivedAddress ? derivedAddress : undefined,
         stamp_id: hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
       });
       onCreated(profile);

@@ -93,6 +93,7 @@ export interface CreateProfileBody {
   feed_owner?: string;
   feed_topic?: string;
   private_key?: string;
+  public_key?: string;
   stamp_id?: string;
 }
 

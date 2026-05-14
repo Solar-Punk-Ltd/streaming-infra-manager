@@ -27,6 +27,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         feed_owner: body.feed_owner ?? undefined,
         feed_topic: body.feed_topic ?? undefined,
         private_key: body.private_key ?? undefined,
+        public_key: body.public_key ?? undefined,
         stamp_id: body.stamp_id ?? undefined,
       });
       res.status(202).json(profile);

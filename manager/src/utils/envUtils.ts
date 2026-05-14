@@ -19,8 +19,7 @@ export function baseEnvPath(): string {
   return join(SUBMODULE, '.env');
 }
 
-export function parseProfileEnv(name: string): Record<string, string> {
-  const path = profileEnvPath(name);
+function parseEnvFile(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
 
   const out: Record<string, string> = {};
@@ -41,6 +40,10 @@ export function parseProfileEnv(name: string): Record<string, string> {
     out[key] = value;
   }
   return out;
+}
+
+export function parseBaseEnv(): Record<string, string> {
+  return parseEnvFile(baseEnvPath());
 }
 
 export function deleteProfileEnv(name: string): boolean {

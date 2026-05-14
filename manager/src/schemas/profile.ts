@@ -39,6 +39,9 @@ export const createProfileSchema = object({
   private_key: string()
     .notRequired()
     .matches(PRIVATE_KEY_RE, 'private_key must be 0x + 64 hex chars'),
+  public_key: string()
+    .notRequired()
+    .matches(ETH_ADDRESS_RE, 'public_key must be a 0x-prefixed Ethereum address'),
   stamp_id: string()
     .notRequired()
     .matches(STAMP_ID_RE, 'stamp_id must be 32-byte hex (optionally 0x-prefixed)'),

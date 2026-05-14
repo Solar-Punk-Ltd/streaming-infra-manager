@@ -6,7 +6,7 @@ import {
   SCRIPT_STOP,
   SUBMODULE,
   deleteProfileEnv,
-  parseProfileEnv,
+  parseBaseEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
@@ -30,6 +30,19 @@ export class ProfileBusyError extends Error {
 
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
+
+// Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
+const PORT_VAR_DEFAULTS: Record<string, number> = {
+  API_PORT: 10000,
+  SRS_SRT_PORT: 10001,
+  SRS_RTMP_PORT: 10002,
+  SRS_HTTP_PORT: 10003,
+  CLIENT_PORT: 10004,
+  BEE_UPLOADER_API_PORT: 10005,
+  BEE_UPLOADER_P2P_PORT: 10006,
+  BEE_GATEWAY_API_PORT: 10007,
+  BEE_GATEWAY_P2P_PORT: 10008,
+};
 
 interface JobConfig {
   profileName: string;
@@ -75,7 +88,7 @@ export class DeploymentOrchestrator {
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
         await this.repo.markTerminal(profile.name, 'RUNNING');
-        await this.snapshotContainers(profile.name, resolved);
+        await this.snapshotContainers(profile, resolved);
       },
     });
   }
@@ -98,7 +111,7 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, resolved, opts.host),
       onSuccess: async () => {
         await this.repo.markTerminal(profile.name, 'RUNNING');
-        await this.snapshotContainers(profile.name, resolved);
+        await this.snapshotContainers(profile, resolved);
       },
     });
   }
@@ -245,6 +258,10 @@ export class DeploymentOrchestrator {
       `--portSlot=${profile.port_slot}`,
     ];
     if (host) args.push(`--host=${host}`);
+    if (profile.feed_owner) args.push(`--feed-owner=${profile.feed_owner}`);
+    if (profile.feed_topic) args.push(`--feed-topic=${profile.feed_topic}`);
+    if (profile.private_key) args.push(`--private-key=${profile.private_key}`);
+    if (profile.stamp_id) args.push(`--stamp-id=${profile.stamp_id}`);
     args.push(...services);
     return args;
   }
@@ -266,21 +283,59 @@ export class DeploymentOrchestrator {
    * does not flip the deploy to ERROR.
    */
   private async snapshotContainers(
-    profileName: string,
+    profile: Profile,
     services: string[],
   ): Promise<void> {
     try {
-      const env = parseProfileEnv(profileName);
+      const env = this.buildEffectiveEnv(profile);
       for (const service of services) {
         const snapshot = buildContainerSnapshot(service, env);
-        await this.containers.upsert(profileName, snapshot);
+        await this.containers.upsert(profile.name, snapshot);
       }
     } catch (err) {
       logger.warn(
-        `[Orchestrator] failed to snapshot containers for ${profileName}: ${
+        `[Orchestrator] failed to snapshot containers for ${profile.name}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
     }
+  }
+
+  /**
+   * Reconstruct what deploy.sh actually fed to docker compose: base .env, then
+   * port-slot resolution (mirrors _lib.sh::apply_port_slot), then the
+   * per-profile parameter overrides. The per-profile .env file is no longer
+   * written to disk, so we can't just read it back.
+   */
+  private buildEffectiveEnv(profile: Profile): Record<string, string> {
+    const env = parseBaseEnv();
+
+    for (const [name, def] of Object.entries(PORT_VAR_DEFAULTS)) {
+      if (profile.port_slot === 0) {
+        if (env[name] === undefined || env[name] === '') {
+          env[name] = String(def);
+        }
+      } else {
+        env[name] = String(def + profile.port_slot * 10);
+      }
+    }
+    if (env.API_PORT) env.SRS_ADAPTER_PORT = env.API_PORT;
+
+    // Parameter overrides — same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
+    if (profile.feed_owner) {
+      env.VITE_APP_OWNER = profile.feed_owner.replace(/^0x/, '');
+    }
+    if (profile.feed_topic) {
+      env.STREAM_LIST_TOPIC = profile.feed_topic;
+      env.VITE_APP_RAW_TOPIC = profile.feed_topic;
+    }
+    if (profile.private_key) {
+      env.STREAM_KEY = profile.private_key;
+    }
+    if (profile.stamp_id) {
+      env.STAMP = profile.stamp_id.replace(/^0x/, '');
+    }
+
+    return env;
   }
 }
