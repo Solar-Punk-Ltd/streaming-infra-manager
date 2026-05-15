@@ -36,7 +36,10 @@ export function containersFor(profile: Profile): Container[] {
   }));
 }
 
-export function clientUrl(profile: Profile, host = window.location.hostname): string | null {
+export function clientUrl(
+  profile: Profile,
+  host = window.location.hostname,
+): string | null {
   // Only profiles that include the `client` service expose a viewer URL.
   if (!SERVICES_BY_KIND[profile.kind].includes('client')) return null;
   return `http://${host}:${portFor(4, profile.port_slot)}`;
@@ -49,7 +52,13 @@ const MOCK_PROFILES: Profile[] = [
   mock('streamer-bravo', 2, 'streamer', 'RUNNING'),
   mock('streamer-charlie', 3, 'streamer', 'DEPLOYING'),
   mock('viewer-delta', 4, 'viewer', 'STOPPED'),
-  mock('custom-echo', 5, 'custom', 'ERROR', 'docker compose failed: pull access denied'),
+  mock(
+    'custom-echo',
+    5,
+    'custom',
+    'ERROR',
+    'docker compose failed: pull access denied',
+  ),
 ];
 
 function mock(
@@ -73,7 +82,10 @@ function mock(
   };
 }
 
-export async function fetchProfiles(): Promise<{ profiles: Profile[]; usedMock: boolean }> {
+export async function fetchProfiles(): Promise<{
+  profiles: Profile[];
+  usedMock: boolean;
+}> {
   try {
     const res = await fetch('/profiles');
     if (!res.ok) throw new Error(String(res.status));
@@ -97,9 +109,80 @@ export interface CreateProfileBody {
   stamp_id?: string;
 }
 
+async function postAction(
+  name: string,
+  action: 'deploy' | 'stop',
+): Promise<void> {
+  const res = await fetch(`/profiles/${encodeURIComponent(name)}/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) {
+    let msg = `${action} failed (${res.status})`;
+    try {
+      const err = (await res.json()) as { error?: string; message?: string };
+      msg = err.error ?? err.message ?? msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+
+  await res.text().catch(() => undefined);
+}
+
+export function deployProfile(name: string): Promise<void> {
+  return postAction(name, 'deploy');
+}
+
+export function stopProfile(name: string): Promise<void> {
+  return postAction(name, 'stop');
+}
+
+export async function deleteProfile(name: string): Promise<void> {
+  const res = await fetch(`/profiles/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    let msg = `delete failed (${res.status})`;
+    try {
+      const err = (await res.json()) as { error?: string; message?: string };
+      msg = err.error ?? err.message ?? msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+}
+
 export async function createProfile(body: CreateProfileBody): Promise<Profile> {
   const res = await fetch('/profiles', {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = `request failed (${res.status})`;
+    try {
+      const err = (await res.json()) as { error?: string; message?: string };
+      msg = err.error ?? err.message ?? msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return (await res.json()) as Profile;
+}
+
+export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
+
+export async function updateProfile(
+  name: string,
+  body: UpdateProfileBody,
+): Promise<Profile> {
+  const res = await fetch(`/profiles/${encodeURIComponent(name)}`, {
+    method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });

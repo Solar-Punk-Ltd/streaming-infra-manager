@@ -6,14 +6,25 @@ import {
   Button,
   CircularProgress,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Snackbar,
+  Stack,
   Toolbar,
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import EditIcon from '@mui/icons-material/Edit';
+import StopIcon from '@mui/icons-material/Stop';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
-import { fetchProfiles } from './data';
+import { deleteProfile, deployProfile, fetchProfiles, stopProfile } from './data';
 import type { Profile } from './types';
 
 export function App() {
@@ -21,12 +32,18 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [usedMock, setUsedMock] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<{ severity: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
   const load = useCallback(() => {
     fetchProfiles()
       .then(({ profiles: ps, usedMock }) => {
         setProfiles(ps);
         setUsedMock(usedMock);
+        setSelected((prev) => prev.filter((n) => ps.some((p) => p.name === n)));
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -40,6 +57,54 @@ export function App() {
     load();
   };
 
+  const nothingSelected = selected.length === 0 || busy;
+  const oneSelected = selected.length === 1 && !busy;
+
+  const runOnSelected = async (
+    verb: string,
+    fn: (name: string) => Promise<void>,
+  ) => {
+    setBusy(true);
+    const names = [...selected];
+    const results = await Promise.allSettled(names.map((n) => fn(n)));
+    const failed = results
+      .map((r, i) => ({ r, name: names[i] }))
+      .filter(({ r }) => r.status === 'rejected');
+    if (failed.length === 0) {
+      setToast({ severity: 'success', message: `${verb} ${names.length} deployment${names.length === 1 ? '' : 's'}` });
+    } else {
+      const first = failed[0].r as PromiseRejectedResult;
+      setToast({
+        severity: 'error',
+        message: `${verb} failed for ${failed.map((f) => f.name).join(', ')}: ${first.reason instanceof Error ? first.reason.message : String(first.reason)}`,
+      });
+    }
+    setBusy(false);
+    load();
+  };
+
+  const handleStart = () => {
+    void runOnSelected('Started', deployProfile);
+  };
+  const handleModify = () => {
+    if (selected.length !== 1 || !profiles) return;
+    const target = profiles.find((p) => p.name === selected[0]);
+    if (!target) return;
+    setSelectedProfile(target);
+    setDrawerOpen(true);
+  };
+  const handleStop = () => {
+    void runOnSelected('Stopped', stopProfile);
+  };
+  const handleRemove = () => {
+    if (selected.length === 0) return;
+    setRemoveConfirmOpen(true);
+  };
+  const confirmRemove = async () => {
+    setRemoveConfirmOpen(false);
+    await runOnSelected('Removed', deleteProfile);
+  };
+
   return (
     <>
       <AppBar position="static" color="default" elevation={0}>
@@ -50,7 +115,10 @@ export function App() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setDrawerOpen(true)}
+            onClick={() => {
+              setSelectedProfile(null);
+              setDrawerOpen(true);
+            }}
           >
             New deployment
           </Button>
@@ -66,18 +134,114 @@ export function App() {
         )}
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<PlayArrowIcon />}
+            disabled={nothingSelected}
+            onClick={handleStart}
+          >
+            Start
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<EditIcon />}
+            disabled={!oneSelected}
+            onClick={handleModify}
+          >
+            Modify
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<StopIcon />}
+            disabled={nothingSelected}
+            onClick={handleStop}
+          >
+            Stop
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteIcon />}
+            disabled={nothingSelected}
+            onClick={handleRemove}
+          >
+            Remove
+          </Button>
+          <Box sx={{ flexGrow: 1 }} />
+          <Typography variant="body2" color="text.secondary">
+            {selected.length} selected
+          </Typography>
+        </Stack>
+
         {!profiles ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
             <CircularProgress />
           </Box>
         ) : (
-          <DeploymentsTable profiles={profiles} />
+          <DeploymentsTable
+            profiles={profiles}
+            selected={selected}
+            onSelectedChange={setSelected}
+          />
         )}
       </Container>
 
+      <Dialog
+        open={removeConfirmOpen}
+        onClose={() => setRemoveConfirmOpen(false)}
+        aria-labelledby="remove-confirm-title"
+      >
+        <DialogTitle id="remove-confirm-title">
+          Remove {selected.length === 1 ? 'deployment' : `${selected.length} deployments`}?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This stops the containers and deletes the profile record. Data volumes
+            on the host are <strong>not</strong> automatically removed. This action
+            cannot be undone.
+          </DialogContentText>
+          <Box sx={{ mt: 2, fontFamily: 'monospace', fontSize: 13 }}>
+            {selected.join(', ')}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveConfirmOpen(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmRemove}>
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={6000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        {toast ? (
+          <Alert
+            severity={toast.severity}
+            variant="filled"
+            onClose={() => setToast(null)}
+            sx={{ maxWidth: 480 }}
+          >
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
+
       <NewDeploymentDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        selectedProfile={selectedProfile}
+        onClose={() => {
+          setDrawerOpen(false);
+          setSelectedProfile(null);
+        }}
         onCreated={handleCreated}
       />
     </>

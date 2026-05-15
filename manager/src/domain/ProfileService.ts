@@ -79,6 +79,7 @@ export class ProfileService {
               input.components && input.components.length > 0
                 ? input.components
                 : null,
+            host: input.host ?? null,
             feed_owner: input.feed_owner ?? null,
             feed_topic: input.feed_topic ?? null,
             private_key: input.private_key ?? null,
@@ -127,6 +128,53 @@ export class ProfileService {
   async getByName(name: string): Promise<Profile> {
     const row = await this.repo.findByName(name);
     if (!row) throw new ProfileNotFoundError(name);
+    return row;
+  }
+
+  async update(
+    name: string,
+    input: {
+      notes?: string | null;
+      feed_owner?: string;
+      feed_topic?: string;
+      private_key?: string;
+      public_key?: string;
+      stamp_id?: string;
+    },
+  ): Promise<Profile> {
+    const existing = await this.getByName(name);
+    if (
+      (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
+    ) {
+      throw new ProfileBusyError(name, existing.status);
+    }
+
+    const row = await this.repo.updateEditable(
+      name,
+      existing.kind,
+      input.notes ?? null,
+      {
+        components: existing.components,
+        feed_owner: input.feed_owner ?? null,
+        feed_topic: input.feed_topic ?? null,
+        private_key: input.private_key ?? null,
+        public_key: input.public_key ?? null,
+        stamp_id: input.stamp_id ?? null,
+      },
+    );
+    if (!row) throw new ProfileNotFoundError(name);
+
+    logger.info(`[ProfileService] Updated profile ${name}; redeploying`);
+
+    try {
+      await this.orchestrator.startDeploy(row, row.components ?? undefined);
+    } catch (err) {
+      await this.repo.markError(
+        name,
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err;
+    }
     return row;
   }
 

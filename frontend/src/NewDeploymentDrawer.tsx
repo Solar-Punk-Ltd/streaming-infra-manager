@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -22,7 +22,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import CasinoIcon from '@mui/icons-material/Casino';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
-import { createProfile } from './data';
+import { createProfile, updateProfile } from './data';
 import type { Profile, ProfileKind } from './types';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -48,7 +48,11 @@ const KIND_DEFAULTS: Record<ProfileKind, Component[]> = {
 };
 
 const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
-  { value: 'streamer', label: 'streamer', hint: 'srs + stream-uploader + bee-uploader' },
+  {
+    value: 'streamer',
+    label: 'streamer',
+    hint: 'srs + stream-uploader + bee-uploader',
+  },
   { value: 'viewer', label: 'viewer', hint: 'client + bee-gateway' },
   { value: 'custom', label: 'custom', hint: 'pick any combination' },
 ];
@@ -57,12 +61,21 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: (profile: Profile) => void;
+  selectedProfile?: Profile | null;
 }
 
-export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
+export function NewDeploymentDrawer({
+  open,
+  onClose,
+  onCreated,
+  selectedProfile,
+}: Props) {
+  const isEdit = !!selectedProfile;
   const [name, setName] = useState('');
   const [kind, setKind] = useState<ProfileKind>('viewer');
-  const [components, setComponents] = useState<Component[]>(KIND_DEFAULTS.viewer);
+  const [components, setComponents] = useState<Component[]>(
+    KIND_DEFAULTS.viewer,
+  );
   const [host, setHost] = useState('');
   const [feedOwner, setFeedOwner] = useState('');
   const [feedTopic, setFeedTopic] = useState('');
@@ -71,6 +84,26 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (selectedProfile) {
+      setName(selectedProfile.name);
+      setKind(selectedProfile.kind);
+      setComponents(
+        selectedProfile.components && selectedProfile.components.length > 0
+          ? (selectedProfile.components as Component[])
+          : KIND_DEFAULTS[selectedProfile.kind],
+      );
+      setHost(selectedProfile.host ?? '');
+      setFeedOwner(selectedProfile.feed_owner ?? '');
+      setFeedTopic(selectedProfile.feed_topic ?? '');
+      setPrivateKey(selectedProfile.private_key ?? '');
+      setStampId(selectedProfile.stamp_id ?? '');
+      setNotes(selectedProfile.notes ?? '');
+      setSubmitError(null);
+    }
+  }, [open, selectedProfile]);
 
   const isCustom = kind === 'custom';
   const hasComponent = (c: Component) => components.includes(c);
@@ -114,9 +147,12 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
       ? 'printable ASCII, max 128 chars'
       : null;
   const clientFieldsMissing =
-    hasClient && (feedOwner.trim().length === 0 || feedTopic.trim().length === 0);
+    hasClient &&
+    (feedOwner.trim().length === 0 || feedTopic.trim().length === 0);
   const privateKeyError =
-    hasStreamUploader && privateKey.length > 0 && !PRIVATE_KEY_RE.test(privateKey)
+    hasStreamUploader &&
+    privateKey.length > 0 &&
+    !PRIVATE_KEY_RE.test(privateKey)
       ? 'expected 0x + 64 hex chars'
       : null;
   const stampIdError =
@@ -163,23 +199,41 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const profile = await createProfile({
-        name,
+      const common = {
         kind,
         notes: notes.trim() ? notes.trim() : null,
-        host: host.trim() || 'localhost',
         components,
-        feed_owner: hasClient && feedOwner.trim() ? feedOwner.trim() : undefined,
-        feed_topic: hasClient && feedTopic.trim() ? feedTopic.trim() : undefined,
-        private_key: hasStreamUploader && privateKey.trim() ? privateKey.trim() : undefined,
-        public_key: hasStreamUploader && derivedAddress ? derivedAddress : undefined,
-        stamp_id: hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
-      });
+        feed_owner:
+          hasClient && feedOwner.trim() ? feedOwner.trim() : undefined,
+        feed_topic:
+          hasClient && feedTopic.trim() ? feedTopic.trim() : undefined,
+        private_key:
+          hasStreamUploader && privateKey.trim()
+            ? privateKey.trim()
+            : undefined,
+        public_key:
+          hasStreamUploader && derivedAddress ? derivedAddress : undefined,
+        stamp_id:
+          hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
+      };
+      const profile = isEdit
+        ? await updateProfile(selectedProfile!.name, common)
+        : await createProfile({
+            ...common,
+            name,
+            host: host.trim() || 'localhost',
+          });
       onCreated(profile);
       reset();
       onClose();
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : 'failed to create deployment');
+      setSubmitError(
+        e instanceof Error
+          ? e.message
+          : isEdit
+            ? 'failed to update deployment'
+            : 'failed to create deployment',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -190,9 +244,13 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
       <Box sx={{ width: { xs: '100vw', sm: 420 }, p: 3 }}>
         <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            New deployment
+            {isEdit ? `Modify ${selectedProfile!.name}` : 'New deployment'}
           </Typography>
-          <IconButton onClick={handleClose} disabled={submitting} aria-label="close">
+          <IconButton
+            onClick={handleClose}
+            disabled={submitting}
+            aria-label="close"
+          >
             <CloseIcon />
           </IconButton>
         </Stack>
@@ -203,9 +261,13 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            autoFocus
+            autoFocus={!isEdit}
+            disabled={isEdit}
             error={!!nameError}
-            helperText={nameError ?? 'e.g. viewer-alpha'}
+            helperText={
+              nameError ??
+              (isEdit ? 'locked — names are immutable' : 'e.g. viewer-alpha')
+            }
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
@@ -214,7 +276,12 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
             select
             value={kind}
             onChange={(e) => onKindChange(e.target.value as ProfileKind)}
-            helperText={KINDS.find((k) => k.value === kind)?.hint}
+            disabled={isEdit}
+            helperText={
+              isEdit
+                ? 'locked — kind cannot change after first deploy'
+                : KINDS.find((k) => k.value === kind)?.hint
+            }
           >
             {KINDS.map((k) => (
               <MenuItem key={k.value} value={k.value}>
@@ -226,7 +293,7 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
           <FormControl
             component="fieldset"
             error={!!componentsError}
-            disabled={!isCustom}
+            disabled={isEdit || !isCustom}
           >
             <FormLabel component="legend">Components</FormLabel>
             <FormGroup>
@@ -241,7 +308,10 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
                     />
                   }
                   label={
-                    <Typography sx={{ fontFamily: 'monospace' }} variant="body2">
+                    <Typography
+                      sx={{ fontFamily: 'monospace' }}
+                      variant="body2"
+                    >
                       {c}
                     </Typography>
                   }
@@ -249,7 +319,12 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
               ))}
             </FormGroup>
             <FormHelperText>
-              {componentsError ?? (isCustom ? 'pick any combination' : 'locked by kind')}
+              {componentsError ??
+                (isEdit
+                  ? 'locked — components cannot change after first deploy'
+                  : isCustom
+                    ? 'pick any combination'
+                    : 'locked by kind')}
             </FormHelperText>
           </FormControl>
 
@@ -257,8 +332,14 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
             label="Host"
             value={host}
             onChange={(e) => setHost(e.target.value)}
+            disabled={isEdit}
             error={!!hostError}
-            helperText={hostError ?? 'optional — defaults to "localhost"'}
+            helperText={
+              hostError ??
+              (isEdit
+                ? 'locked — host cannot change after first deploy (data is not migrated)'
+                : 'optional — defaults to "localhost"')
+            }
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
@@ -297,7 +378,11 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
                   htmlInput: { style: { fontFamily: 'monospace' } },
                   inputLabel: { shrink: true },
                 }}
-                helperText={derivedAddress ? 'derived from private key' : 'will appear once a valid private key is entered'}
+                helperText={
+                  derivedAddress
+                    ? 'derived from private key'
+                    : 'will appear once a valid private key is entered'
+                }
               />
 
               <TextField
@@ -306,7 +391,9 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
                 onChange={(e) => setStampId(e.target.value)}
                 error={!!stampIdError}
                 helperText={stampIdError ?? 'optional — Swarm postage batch id'}
-                slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
+                slotProps={{
+                  htmlInput: { style: { fontFamily: 'monospace' } },
+                }}
               />
             </>
           )}
@@ -320,7 +407,9 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
                 required
                 error={!!feedOwnerError}
                 helperText={feedOwnerError ?? '0x-prefixed Ethereum address'}
-                slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
+                slotProps={{
+                  htmlInput: { style: { fontFamily: 'monospace' } },
+                }}
               />
 
               <TextField
@@ -330,7 +419,9 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
                 required
                 error={!!feedTopicError}
                 helperText={feedTopicError ?? 'topic string'}
-                slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
+                slotProps={{
+                  htmlInput: { style: { fontFamily: 'monospace' } },
+                }}
               />
             </>
           )}
@@ -348,9 +439,11 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
           {submitError && <Alert severity="error">{submitError}</Alert>}
 
           <Stack direction="row" spacing={1} alignItems="center" sx={{ pt: 1 }}>
-            <Button onClick={reset} disabled={submitting} color="inherit">
-              Reset
-            </Button>
+            {!isEdit && (
+              <Button onClick={reset} disabled={submitting} color="inherit">
+                Reset
+              </Button>
+            )}
             <Box sx={{ flexGrow: 1 }} />
             <Button onClick={handleClose} disabled={submitting}>
               Cancel
@@ -361,7 +454,7 @@ export function NewDeploymentDrawer({ open, onClose, onCreated }: Props) {
               disabled={!canSubmit}
               startIcon={submitting ? <CircularProgress size={16} /> : null}
             >
-              Deploy
+              {isEdit ? 'Save & Redeploy' : 'Deploy'}
             </Button>
           </Stack>
         </Stack>
