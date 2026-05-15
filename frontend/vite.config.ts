@@ -12,6 +12,14 @@ export default defineConfig({
     proxy: {
       '/profiles': MANAGER_URL,
       '/healthz': MANAGER_URL,
+      // SSE — disable any buffering / timeouts so events stream live.
+      '/events': {
+        target: MANAGER_URL,
+        changeOrigin: true,
+        ws: false,
+        proxyTimeout: 0,
+        timeout: 0,
+      },
     },
   },
 });

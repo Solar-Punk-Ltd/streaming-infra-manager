@@ -138,41 +138,48 @@ export class ProfileRepository {
   }
 
   /** Mark a profile as ERROR with a message. Best-effort, no CAS. */
-  async markError(name: string, message: string): Promise<void> {
-    await this.pool.query(
+  async markError(name: string, message: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
              last_error = $2,
              last_error_at = NOW(),
              updated_at = NOW()
-       WHERE name = $1`,
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
       [name, message],
     );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
   /** Move to a terminal status (RUNNING / STOPPED) on script success. */
-  async markTerminal(name: string, status: ProfileStatus): Promise<void> {
-    await this.pool.query(
+  async markTerminal(
+    name: string,
+    status: ProfileStatus,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
-       WHERE name = $1`,
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
       [name, status],
     );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  async resetOrphanedTransitions(): Promise<string[]> {
-    const result = await this.pool.query<{ name: string; status: string }>(
+  async resetOrphanedTransitions(): Promise<Profile[]> {
+    const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
              last_error = 'manager restarted while ' || status,
              last_error_at = NOW(),
              updated_at = NOW()
        WHERE status IN ('DEPLOYING', 'STOPPING', 'REMOVING')
-       RETURNING name, status`,
+       RETURNING ${PROFILE_COLUMNS}`,
     );
-    return result.rows.map((r) => r.name);
+    return result.rows;
   }
 }
