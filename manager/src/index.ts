@@ -3,6 +3,7 @@ import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
+import { EventBus } from './domain/EventBus.js';
 import { Logger } from './domain/Logger.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
@@ -44,14 +45,20 @@ async function main(): Promise<void> {
   database = new Database(config.databaseUrl);
   await database.migrate();
 
+  const eventBus = new EventBus();
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
     logger.warn(
-      `[Boot] reset orphaned transitional states: ${orphans.join(', ')}`,
+      `[Boot] reset orphaned transitional states: ${orphans
+        .map((p) => p.name)
+        .join(', ')}`,
     );
+    for (const profile of orphans) {
+      eventBus.publish({ type: 'profile.changed', profile });
+    }
   }
 
   const scriptRunner = new ScriptRunner();
@@ -59,12 +66,17 @@ async function main(): Promise<void> {
     profileRepository,
     containerRepository,
     scriptRunner,
+    eventBus,
   );
-  const profileService = new ProfileService(profileRepository, orchestrator);
+  const profileService = new ProfileService(
+    profileRepository,
+    orchestrator,
+    eventBus,
+  );
   const deployService = new DeployService(profileService, orchestrator);
 
   apiServer = startApiServer(
-    { database, profileService, deployService },
+    { database, profileService, deployService, eventBus },
     config.port,
     config.host,
   );

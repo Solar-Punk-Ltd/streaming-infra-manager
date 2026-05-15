@@ -24,7 +24,12 @@ import DeleteIcon from '@mui/icons-material/Delete';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
-import { deleteProfile, deployProfile, fetchProfiles, stopProfile } from './data';
+import {
+  deleteProfile,
+  deployProfile,
+  fetchProfiles,
+  stopProfile,
+} from './data';
 import type { Profile } from './types';
 
 export function App() {
@@ -35,7 +40,10 @@ export function App() {
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ severity: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [toast, setToast] = useState<{
+    severity: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
   const load = useCallback(() => {
@@ -52,8 +60,35 @@ export function App() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const source = new EventSource('/events');
+    source.addEventListener('profile.changed', (ev: MessageEvent<string>) => {
+      const { profile } = JSON.parse(ev.data) as { profile: Profile };
+      setProfiles((prev) => {
+        if (!prev) return [profile];
+        const idx = prev.findIndex((p) => p.name === profile.name);
+        if (idx === -1) return [profile, ...prev];
+        const next = prev.slice();
+        next[idx] = profile;
+        return next;
+      });
+    });
+    source.addEventListener('profile.deleted', (ev: MessageEvent<string>) => {
+      const { name } = JSON.parse(ev.data) as { name: string };
+      setProfiles((prev) =>
+        prev ? prev.filter((p) => p.name !== name) : prev,
+      );
+      setSelected((prev) => prev.filter((n) => n !== name));
+    });
+    return () => source.close();
+  }, []);
+
   const handleCreated = (profile: Profile) => {
-    setProfiles((prev) => (prev ? [profile, ...prev.filter((p) => p.name !== profile.name)] : [profile]));
+    setProfiles((prev) =>
+      prev
+        ? [profile, ...prev.filter((p) => p.name !== profile.name)]
+        : [profile],
+    );
     load();
   };
 
@@ -71,7 +106,10 @@ export function App() {
       .map((r, i) => ({ r, name: names[i] }))
       .filter(({ r }) => r.status === 'rejected');
     if (failed.length === 0) {
-      setToast({ severity: 'success', message: `${verb} ${names.length} deployment${names.length === 1 ? '' : 's'}` });
+      setToast({
+        severity: 'success',
+        message: `${verb} ${names.length} deployment${names.length === 1 ? '' : 's'}`,
+      });
     } else {
       const first = failed[0].r as PromiseRejectedResult;
       setToast({
@@ -80,7 +118,6 @@ export function App() {
       });
     }
     setBusy(false);
-    load();
   };
 
   const handleStart = () => {
@@ -128,11 +165,15 @@ export function App() {
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {usedMock && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            Backend at <code>/profiles</code> unreachable — showing mock data. Start the manager
-            and reload to use live data.
+            Backend at <code>/profiles</code> unreachable — showing mock data.
+            Start the manager and reload to use live data.
           </Alert>
         )}
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
         <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
           <Button
@@ -197,13 +238,17 @@ export function App() {
         aria-labelledby="remove-confirm-title"
       >
         <DialogTitle id="remove-confirm-title">
-          Remove {selected.length === 1 ? 'deployment' : `${selected.length} deployments`}?
+          Remove{' '}
+          {selected.length === 1
+            ? 'deployment'
+            : `${selected.length} deployments`}
+          ?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This stops the containers and deletes the profile record. Data volumes
-            on the host are <strong>not</strong> automatically removed. This action
-            cannot be undone.
+            This stops the containers and deletes the profile record. Data
+            volumes on the host are <strong>not</strong> automatically removed.
+            This action cannot be undone.
           </DialogContentText>
           <Box sx={{ mt: 2, fontFamily: 'monospace', fontSize: 13 }}>
             {selected.join(', ')}

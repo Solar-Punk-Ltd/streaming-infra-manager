@@ -4,6 +4,7 @@ import {
   DeploymentOrchestrator,
   ProfileBusyError,
 } from './DeploymentOrchestrator.js';
+import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 
@@ -42,6 +43,7 @@ export class ProfileService {
   constructor(
     private readonly repo: ProfileRepository,
     private readonly orchestrator: DeploymentOrchestrator,
+    private readonly events: EventBus,
   ) {}
 
   /**
@@ -91,16 +93,20 @@ export class ProfileService {
         logger.info(
           `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${slot})`,
         );
+        this.events.publish({ type: 'profile.changed', profile: row });
 
         try {
           await this.orchestrator.startInitialDeploy(row, input.components, {
             host: input.host,
           });
         } catch (err) {
-          await this.repo.markError(
+          const errored = await this.repo.markError(
             input.name,
             err instanceof Error ? err.message : String(err),
           );
+          if (errored) {
+            this.events.publish({ type: 'profile.changed', profile: errored });
+          }
           throw err;
         }
 
@@ -165,14 +171,18 @@ export class ProfileService {
     if (!row) throw new ProfileNotFoundError(name);
 
     logger.info(`[ProfileService] Updated profile ${name}; redeploying`);
+    this.events.publish({ type: 'profile.changed', profile: row });
 
     try {
       await this.orchestrator.startDeploy(row, row.components ?? undefined);
     } catch (err) {
-      await this.repo.markError(
+      const errored = await this.repo.markError(
         name,
         err instanceof Error ? err.message : String(err),
       );
+      if (errored) {
+        this.events.publish({ type: 'profile.changed', profile: errored });
+      }
       throw err;
     }
     return row;

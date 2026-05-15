@@ -11,6 +11,7 @@ import {
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
@@ -73,6 +74,7 @@ export class DeploymentOrchestrator {
     private readonly repo: ProfileRepository,
     private readonly containers: ContainerRepository,
     private readonly runner: ScriptRunner,
+    private readonly events: EventBus,
   ) {}
 
   async startDeploy(
@@ -87,7 +89,10 @@ export class DeploymentOrchestrator {
       transitionTo: 'DEPLOYING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
-        await this.repo.markTerminal(profile.name, 'RUNNING');
+        const updated = await this.repo.markTerminal(profile.name, 'RUNNING');
+        if (updated) {
+          this.events.publish({ type: 'profile.changed', profile: updated });
+        }
         await this.snapshotContainers(profile, resolved);
       },
     });
@@ -110,7 +115,10 @@ export class DeploymentOrchestrator {
       script: SCRIPT_DEPLOY,
       args: this.buildScriptArgs(profile, resolved, opts.host),
       onSuccess: async () => {
-        await this.repo.markTerminal(profile.name, 'RUNNING');
+        const updated = await this.repo.markTerminal(profile.name, 'RUNNING');
+        if (updated) {
+          this.events.publish({ type: 'profile.changed', profile: updated });
+        }
         await this.snapshotContainers(profile, resolved);
       },
     });
@@ -126,7 +134,12 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
-      onSuccess: () => this.repo.markTerminal(profile.name, 'STOPPED'),
+      onSuccess: async () => {
+        const updated = await this.repo.markTerminal(profile.name, 'STOPPED');
+        if (updated) {
+          this.events.publish({ type: 'profile.changed', profile: updated });
+        }
+      },
     });
   }
 
@@ -155,6 +168,7 @@ export class DeploymentOrchestrator {
       onSuccess: async () => {
         await this.repo.deleteByName(profile.name);
         deleteProfileEnv(profile.name);
+        this.events.publish({ type: 'profile.deleted', name: profile.name });
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
         );
@@ -190,6 +204,7 @@ export class DeploymentOrchestrator {
           current?.status ?? 'REMOVING',
         );
       }
+      this.events.publish({ type: 'profile.changed', profile: transitioned });
     }
 
     logger.info(
@@ -234,7 +249,10 @@ export class DeploymentOrchestrator {
           stderrTail.trim() ||
           stdoutTail.trim() ||
           `${cfg.script} exited with code ${code}`;
-        await this.repo.markError(cfg.profileName, message);
+        const errored = await this.repo.markError(cfg.profileName, message);
+        if (errored) {
+          this.events.publish({ type: 'profile.changed', profile: errored });
+        }
         logger.warn(
           `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
         );
