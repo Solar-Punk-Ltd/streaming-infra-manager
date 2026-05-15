@@ -4,13 +4,14 @@ import { Profile, ProfileKind, ProfileStatus } from '../types.js';
 
 const PROFILE_COLUMNS = `
   name, port_slot, kind, notes,
-  components, feed_owner, feed_topic, private_key, public_key, stamp_id,
+  components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
   status, last_error, last_error_at,
   created_at, updated_at
 `;
 
 export interface ProfileExtras {
   components?: string[] | null;
+  host?: string | null;
   feed_owner?: string | null;
   feed_topic?: string | null;
   private_key?: string | null;
@@ -47,9 +48,9 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
-         components, feed_owner, feed_topic, private_key, public_key, stamp_id
+         components, host, feed_owner, feed_topic, private_key, public_key, stamp_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -58,6 +59,7 @@ export class ProfileRepository {
         notes,
         status,
         extras.components ?? null,
+        extras.host ?? null,
         extras.feed_owner ?? null,
         extras.feed_topic ?? null,
         extras.private_key ?? null,
@@ -66,6 +68,40 @@ export class ProfileRepository {
       ],
     );
     return result.rows[0]!;
+  }
+
+  async updateEditable(
+    name: string,
+    kind: ProfileKind,
+    notes: string | null,
+    extras: ProfileExtras = {},
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET kind = $2,
+             notes = $3,
+             components = $4,
+             feed_owner = $5,
+             feed_topic = $6,
+             private_key = $7,
+             public_key = $8,
+             stamp_id = $9,
+             updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [
+        name,
+        kind,
+        notes,
+        extras.components ?? null,
+        extras.feed_owner ?? null,
+        extras.feed_topic ?? null,
+        extras.private_key ?? null,
+        extras.public_key ?? null,
+        extras.stamp_id ?? null,
+      ],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
   async deleteByName(name: string): Promise<{ port_slot: number } | null> {

@@ -64,6 +64,7 @@ export interface Profile {
   kind: ProfileKind;
   notes: string | null;
   components: string[] | null;
+  host: string | null;
   feed_owner: string | null;
   feed_topic: string | null;
   private_key: string | null;

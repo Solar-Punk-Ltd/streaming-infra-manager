@@ -251,12 +251,13 @@ export class DeploymentOrchestrator {
   private buildScriptArgs(
     profile: Profile,
     services: string[],
-    host?: string,
+    hostOverride?: string,
   ): string[] {
     const args = [
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
     ];
+    const host = hostOverride ?? profile.host ?? 'localhost';
     if (host) args.push(`--host=${host}`);
     if (profile.feed_owner) args.push(`--feed-owner=${profile.feed_owner}`);
     if (profile.feed_topic) args.push(`--feed-topic=${profile.feed_topic}`);

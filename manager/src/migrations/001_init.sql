@@ -11,6 +11,7 @@ CREATE TABLE profiles (
   kind           TEXT NOT NULL DEFAULT 'custom',
   notes          TEXT,
   components     TEXT[],
+  host           TEXT,
   feed_owner     TEXT,
   feed_topic     TEXT,
   private_key    TEXT,

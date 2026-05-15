@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Box,
+  Checkbox,
   Collapse,
   IconButton,
   Link,
@@ -20,7 +21,15 @@ import { StatusChip } from './StatusChip';
 import { clientUrl, containersFor } from './data';
 import type { Profile } from './types';
 
-function Row({ profile }: { profile: Profile }) {
+function Row({
+  profile,
+  selected,
+  onToggleSelect,
+}: {
+  profile: Profile;
+  selected: boolean;
+  onToggleSelect: (name: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const url = clientUrl(profile);
   const containers = containersFor(profile);
@@ -33,6 +42,14 @@ function Row({ profile }: { profile: Profile }) {
         onClick={toggle}
         sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }}
       >
+        <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            size="small"
+            checked={selected}
+            onChange={() => onToggleSelect(profile.name)}
+            inputProps={{ 'aria-label': `select ${profile.name}` }}
+          />
+        </TableCell>
         <TableCell padding="checkbox">
           <IconButton
             size="small"
@@ -62,7 +79,7 @@ function Row({ profile }: { profile: Profile }) {
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell sx={{ p: 0, borderBottom: open ? undefined : 'unset' }} colSpan={6}>
+        <TableCell sx={{ p: 0, borderBottom: open ? undefined : 'unset' }} colSpan={7}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2, px: 4, backgroundColor: 'action.hover' }}>
               <Typography variant="overline" color="text.secondary">Containers</Typography>
@@ -92,12 +109,45 @@ function Row({ profile }: { profile: Profile }) {
   );
 }
 
-export function DeploymentsTable({ profiles }: { profiles: Profile[] }) {
+export function DeploymentsTable({
+  profiles,
+  selected,
+  onSelectedChange,
+}: {
+  profiles: Profile[];
+  selected: string[];
+  onSelectedChange: (names: string[]) => void;
+}) {
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  const toggleOne = (name: string) => {
+    const next = new Set(selectedSet);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    onSelectedChange(profiles.map((p) => p.name).filter((n) => next.has(n)));
+  };
+
+  const allChecked = profiles.length > 0 && profiles.every((p) => selectedSet.has(p.name));
+  const someChecked = profiles.some((p) => selectedSet.has(p.name)) && !allChecked;
+
+  const toggleAll = () => {
+    onSelectedChange(allChecked ? [] : profiles.map((p) => p.name));
+  };
+
   return (
     <TableContainer component={Paper} variant="outlined">
       <Table size="small">
         <TableHead>
           <TableRow>
+            <TableCell padding="checkbox">
+              <Checkbox
+                size="small"
+                checked={allChecked}
+                indeterminate={someChecked}
+                onChange={toggleAll}
+                inputProps={{ 'aria-label': 'select all deployments' }}
+              />
+            </TableCell>
             <TableCell />
             <TableCell>Name</TableCell>
             <TableCell>Kind</TableCell>
@@ -107,7 +157,14 @@ export function DeploymentsTable({ profiles }: { profiles: Profile[] }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {profiles.map((p) => <Row key={p.name} profile={p} />)}
+          {profiles.map((p) => (
+            <Row
+              key={p.name}
+              profile={p}
+              selected={selectedSet.has(p.name)}
+              onToggleSelect={toggleOne}
+            />
+          ))}
         </TableBody>
       </Table>
     </TableContainer>
