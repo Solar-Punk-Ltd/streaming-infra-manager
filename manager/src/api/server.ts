@@ -39,7 +39,7 @@ export function startApiServer(
   app.use(requestLogger);
   app.use(express.json({ limit: '256kb' }));
 
-  app.use('/healthz', createHealthRouter(deps.database));
+  app.use('/health', createHealthRouter(deps.database));
   app.use('/events', createEventsRouter(deps.eventBus));
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/', createActionsRouter(deps.deployService));
