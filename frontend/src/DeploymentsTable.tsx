@@ -18,7 +18,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 
 import { StatusChip } from './StatusChip';
-import { clientUrl, containersFor } from './data';
+import { clientUrl } from './data';
 import type { Profile } from './types';
 
 function Row({
@@ -32,7 +32,7 @@ function Row({
 }) {
   const [open, setOpen] = useState(false);
   const url = clientUrl(profile);
-  const containers = containersFor(profile);
+  const containers = profile.containers;
   const toggle = () => setOpen((o) => !o);
 
   return (
@@ -91,14 +91,26 @@ function Row({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {containers.map((c) => (
-                    <TableRow key={c.service}>
-                      <TableCell sx={{ fontFamily: 'monospace' }}>{c.service}</TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace' }}>
-                        {c.ports.map((p) => `${p.label}:${p.port}`).join('  ·  ')}
+                  {containers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={2}>
+                        <Typography variant="body2" color="text.disabled">
+                          No container snapshot recorded yet.
+                        </Typography>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    containers.map((c) => (
+                      <TableRow key={c.service}>
+                        <TableCell sx={{ fontFamily: 'monospace' }}>{c.service}</TableCell>
+                        <TableCell sx={{ fontFamily: 'monospace' }}>
+                          {Object.entries(c.ports)
+                            .map(([key, port]) => `${key}:${port}`)
+                            .join('  ·  ')}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </Box>

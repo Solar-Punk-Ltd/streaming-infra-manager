@@ -1,48 +1,14 @@
-import type { Container, Profile, ProfileKind } from './types';
-
-// Slot N → service ports. Mirrors swarm-hls-stream/deploy/scripts/_lib.sh PORT_VARS.
-function portFor(offset: number, slot: number): number {
-  return 10000 + offset + slot * 10;
-}
-
-const SERVICES_BY_KIND: Record<ProfileKind, string[]> = {
-  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
-  viewer: ['client', 'bee-gateway'],
-  custom: ['srs', 'stream-uploader', 'bee-uploader', 'client', 'bee-gateway'],
-};
-
-const PORTS_BY_SERVICE: Record<string, (slot: number) => Container['ports']> = {
-  srs: (s) => [
-    { label: 'SRT', port: portFor(1, s) },
-    { label: 'RTMP', port: portFor(2, s) },
-    { label: 'HTTP', port: portFor(3, s) },
-  ],
-  'stream-uploader': (s) => [{ label: 'API', port: portFor(0, s) }],
-  'bee-uploader': (s) => [
-    { label: 'API', port: portFor(5, s) },
-    { label: 'P2P', port: portFor(6, s) },
-  ],
-  client: (s) => [{ label: 'HTTP', port: portFor(4, s) }],
-  'bee-gateway': (s) => [
-    { label: 'API', port: portFor(7, s) },
-    { label: 'P2P', port: portFor(8, s) },
-  ],
-};
-
-export function containersFor(profile: Profile): Container[] {
-  return SERVICES_BY_KIND[profile.kind].map((service) => ({
-    service,
-    ports: PORTS_BY_SERVICE[service](profile.port_slot),
-  }));
-}
+import type { Profile, ProfileKind } from './types';
 
 export function clientUrl(
   profile: Profile,
   host = window.location.hostname,
 ): string | null {
-  // Only profiles that include the `client` service expose a viewer URL.
-  if (!SERVICES_BY_KIND[profile.kind].includes('client')) return null;
-  return `http://${host}:${portFor(4, profile.port_slot)}`;
+  const client = profile.containers.find((c) => c.service === 'client');
+  if (!client) return null;
+  const port = client.ports.CLIENT_PORT;
+  if (!port) return null;
+  return `http://${host}:${port}`;
 }
 
 // --- mock fallback so the prototype is judgable without the backend running ---
@@ -79,6 +45,7 @@ function mock(
     last_error_at: lastError ? now : null,
     created_at: now,
     updated_at: now,
+    containers: [],
   };
 }
 

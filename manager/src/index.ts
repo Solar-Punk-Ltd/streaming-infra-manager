@@ -59,7 +59,11 @@ async function main(): Promise<void> {
         .join(', ')}`,
     );
     for (const profile of orphans) {
-      eventBus.publish({ type: 'profile.changed', profile });
+      const withContainers = await containerRepository.withContainers(profile);
+      eventBus.publish({
+        type: 'profile.changed',
+        profile: withContainers,
+      });
     }
   }
 
@@ -72,6 +76,7 @@ async function main(): Promise<void> {
   );
   const profileService = new ProfileService(
     profileRepository,
+    containerRepository,
     orchestrator,
     eventBus,
   );

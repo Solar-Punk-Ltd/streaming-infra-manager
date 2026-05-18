@@ -1,5 +1,7 @@
 import { Pool } from 'pg';
 
+import { ApiContainer, Profile, ProfileWithContainers } from '../types.js';
+
 import { ContainerSnapshot } from './containerKeysSpec.js';
 
 export interface ContainerRow {
@@ -43,5 +45,15 @@ export class ContainerRepository {
       [profileName],
     );
     return r.rows;
+  }
+
+  async listApiContainers(profileName: string): Promise<ApiContainer[]> {
+    const rows = await this.listForProfile(profileName);
+    return rows.map((row) => ({ service: row.service, ports: row.ports }));
+  }
+
+  async withContainers(profile: Profile): Promise<ProfileWithContainers> {
+    const containers = await this.listApiContainers(profile.name);
+    return { ...profile, containers };
   }
 }

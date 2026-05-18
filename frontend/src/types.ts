@@ -8,6 +8,11 @@ export type ProfileStatus =
   | 'REMOVING'
   | 'ERROR';
 
+export interface Container {
+  service: string;
+  ports: Record<string, number>;
+}
+
 export interface Profile {
   name: string;
   port_slot: number;
@@ -25,9 +30,5 @@ export interface Profile {
   last_error_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface Container {
-  service: string;
-  ports: { label: string; port: number }[];
+  containers: Container[];
 }

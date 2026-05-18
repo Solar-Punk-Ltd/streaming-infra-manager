@@ -1,7 +1,12 @@
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { Profile, ProfileKind, TRANSITIONAL_STATUSES } from '../types.js';
+import {
+  ProfileKind,
+  ProfileWithContainers,
+  TRANSITIONAL_STATUSES,
+} from '../types.js';
 
+import { ContainerRepository } from './ContainerRepository.js';
 import {
   DeploymentOrchestrator,
   ProfileBusyError,
@@ -44,9 +49,14 @@ interface PgError {
 export class ProfileService {
   constructor(
     private readonly repo: ProfileRepository,
+    private readonly containers: ContainerRepository,
     private readonly orchestrator: DeploymentOrchestrator,
     private readonly events: EventBus,
   ) {}
+
+  private publishChanged(profile: ProfileWithContainers): void {
+    this.events.publish({ type: 'profile.changed', profile });
+  }
 
   /**
    * Allocate slot + persist row in DEPLOYING + seed env file + spawn
@@ -64,7 +74,7 @@ export class ProfileService {
     private_key?: string;
     public_key?: string;
     stamp_id?: string;
-  }): Promise<Profile> {
+  }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) throw new ProfileExistsError(input.name);
 
@@ -95,7 +105,8 @@ export class ProfileService {
         logger.info(
           `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${slot})`,
         );
-        this.events.publish({ type: 'profile.changed', profile: row });
+        const withContainers = await this.containers.withContainers(row);
+        this.publishChanged(withContainers);
 
         try {
           await this.orchestrator.startInitialDeploy(row, input.components, {
@@ -107,12 +118,12 @@ export class ProfileService {
             getErrorMessage(err),
           );
           if (errored) {
-            this.events.publish({ type: 'profile.changed', profile: errored });
+            this.publishChanged(await this.containers.withContainers(errored));
           }
           throw err;
         }
 
-        return row;
+        return withContainers;
       } catch (err) {
         const pgErr = err as PgError;
         if (pgErr.code === '23505' && pgErr.constraint !== 'profiles_pkey') {
@@ -129,14 +140,15 @@ export class ProfileService {
     throw new AllSlotsUsedError();
   }
 
-  async list(): Promise<Profile[]> {
-    return this.repo.list();
+  async list(): Promise<ProfileWithContainers[]> {
+    const rows = await this.repo.list();
+    return Promise.all(rows.map((row) => this.containers.withContainers(row)));
   }
 
-  async getByName(name: string): Promise<Profile> {
+  async getByName(name: string): Promise<ProfileWithContainers> {
     const row = await this.repo.findByName(name);
     if (!row) throw new ProfileNotFoundError(name);
-    return row;
+    return this.containers.withContainers(row);
   }
 
   async update(
@@ -149,7 +161,7 @@ export class ProfileService {
       public_key?: string;
       stamp_id?: string;
     },
-  ): Promise<Profile> {
+  ): Promise<ProfileWithContainers> {
     const existing = await this.getByName(name);
     if (
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
@@ -173,24 +185,28 @@ export class ProfileService {
     if (!row) throw new ProfileNotFoundError(name);
 
     logger.info(`[ProfileService] Updated profile ${name}; redeploying`);
-    this.events.publish({ type: 'profile.changed', profile: row });
+    const withContainers: ProfileWithContainers = {
+      ...row,
+      containers: existing.containers,
+    };
+    this.publishChanged(withContainers);
 
     try {
       await this.orchestrator.startDeploy(row, row.components ?? undefined);
     } catch (err) {
       const errored = await this.repo.markError(name, getErrorMessage(err));
       if (errored) {
-        this.events.publish({ type: 'profile.changed', profile: errored });
+        this.publishChanged(await this.containers.withContainers(errored));
       }
       throw err;
     }
-    return row;
+    return withContainers;
   }
 
   async remove(
     name: string,
     input: { volumes?: boolean; all?: boolean } = {},
-  ): Promise<Profile> {
+  ): Promise<ProfileWithContainers> {
     const profile = await this.getByName(name);
     if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {
       throw new ProfileBusyError(name, profile.status);
