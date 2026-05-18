@@ -8,10 +8,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
-    "declaration": false,
+    "declaration": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts", "../common/errorUtils.ts"]
+  "include": ["src/**/*.ts"]
 }

@@ -1,4 +1,4 @@
-import { ActionInput, ActionKind } from '../types.js';
+import { ActionInput, ActionKind } from '../types/index.js';
 
 import { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
 import { ProfileService } from './ProfileService.js';

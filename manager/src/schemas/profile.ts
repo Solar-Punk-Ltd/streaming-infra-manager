@@ -1,6 +1,6 @@
 import { array, object, string, InferType } from 'yup';
 
-import { ALL_SERVICES, PROFILE_KINDS } from '../types.js';
+import { ALL_SERVICES, PROFILE_KINDS } from '../types/index.js';
 
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 

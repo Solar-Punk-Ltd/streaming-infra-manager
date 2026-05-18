@@ -8,7 +8,7 @@ import {
   profileNameSchema,
   updateProfileSchema,
 } from '../../schemas/profile.js';
-import { ProfileKind } from '../../types.js';
+import { ProfileKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 

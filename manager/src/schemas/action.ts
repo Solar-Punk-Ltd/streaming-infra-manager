@@ -1,6 +1,6 @@
 import { array, object, string, InferType } from 'yup';
 
-import { ALL_SERVICES } from '../types.js';
+import { ALL_SERVICES } from '../types/index.js';
 
 const serviceList = array()
   .of(string().required().oneOf([...ALL_SERVICES], 'unknown service'))

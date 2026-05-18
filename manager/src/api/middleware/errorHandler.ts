@@ -1,13 +1,17 @@
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '@streaming-infra-manager/common';
 import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
-import { ProfileBusyError } from '../../domain/DeploymentOrchestrator.js';
-import { Logger } from '../../domain/Logger.js';
 import {
   AllSlotsUsedError,
+  ProfileBusyError,
   ProfileExistsError,
   ProfileNotFoundError,
-} from '../../domain/ProfileService.js';
+} from '../../domain/errors/index.js';
+import { Logger } from '../../domain/Logger.js';
 
 const logger = Logger.getInstance();
 
@@ -27,17 +31,17 @@ export function errorHandler(
     return;
   }
   if (err instanceof ProfileNotFoundError) {
-    res.status(404).json({ error: 'profile_not_found', name: err.name });
+    res.status(404).json({ error: 'profile_not_found', name: err.profileName });
     return;
   }
   if (err instanceof ProfileExistsError) {
-    res.status(409).json({ error: 'profile_exists', name: err.name });
+    res.status(409).json({ error: 'profile_exists', name: err.profileName });
     return;
   }
   if (err instanceof ProfileBusyError) {
     res.status(409).json({
       error: 'profile_busy',
-      name: err.name,
+      name: err.profileName,
       status: err.currentStatus,
     });
     return;
@@ -47,8 +51,11 @@ export function errorHandler(
     return;
   }
 
-  const message = err instanceof Error ? err.message : String(err);
-  logger.error(`[HTTP] ${req.method} ${req.originalUrl} unhandled:`, message);
-  if (err instanceof Error && err.stack) logger.error(err.stack);
+  logger.error(
+    `[HTTP] ${req.method} ${req.originalUrl} unhandled:`,
+    getErrorMessage(err),
+  );
+  const stack = getErrorStack(err);
+  if (stack) logger.error(stack);
   res.status(500).json({ error: 'internal_error' });
 }

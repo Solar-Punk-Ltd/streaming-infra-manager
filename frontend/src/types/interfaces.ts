@@ -1,12 +1,9 @@
-export type ProfileKind = 'streamer' | 'viewer' | 'custom';
+import type { ProfileKind, ProfileStatus } from './types';
 
-export type ProfileStatus =
-  | 'DEPLOYING'
-  | 'RUNNING'
-  | 'STOPPING'
-  | 'STOPPED'
-  | 'REMOVING'
-  | 'ERROR';
+export interface Container {
+  service: string;
+  ports: Record<string, number>;
+}
 
 export interface Profile {
   name: string;
@@ -25,9 +22,18 @@ export interface Profile {
   last_error_at: string | null;
   created_at: string;
   updated_at: string;
+  containers: Container[];
 }
 
-export interface Container {
-  service: string;
-  ports: { label: string; port: number }[];
+export interface CreateProfileBody {
+  name: string;
+  kind: ProfileKind;
+  notes?: string | null;
+  host?: string;
+  components?: string[];
+  feed_owner?: string;
+  feed_topic?: string;
+  private_key?: string;
+  public_key?: string;
+  stamp_id?: string;
 }

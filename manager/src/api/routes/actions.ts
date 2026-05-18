@@ -8,7 +8,7 @@ import {
   StopBody,
 } from '../../schemas/action.js';
 import { profileNameSchema } from '../../schemas/profile.js';
-import { ALL_SERVICES, ActionKind } from '../../types.js';
+import { ALL_SERVICES, ActionKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { pipeRunHandleToSSE } from '../sse.js';
@@ -62,7 +62,6 @@ export function createActionsRouter(deployService: DeployService): Router {
     }),
   );
 
-  /** GET /services — handy for clients that want the canonical list. */
   router.get('/services', (_req: Request, res: Response) => {
     res.json({ services: [...ALL_SERVICES] });
   });
