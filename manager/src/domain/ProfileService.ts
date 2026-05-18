@@ -4,42 +4,21 @@ import {
   ProfileKind,
   ProfileWithContainers,
   TRANSITIONAL_STATUSES,
-} from '../types.js';
+} from '../types/index.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
+import { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
 import {
-  DeploymentOrchestrator,
+  AllSlotsUsedError,
   ProfileBusyError,
-} from './DeploymentOrchestrator.js';
+  ProfileExistsError,
+  ProfileNotFoundError,
+} from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 
 const logger = Logger.getInstance();
-
-/** Domain errors so the API layer can map to HTTP status codes cleanly. */
-export class ProfileExistsError extends Error {
-  constructor(public readonly name: string) {
-    super(`Profile already exists: ${name}`);
-    this.name = 'ProfileExistsError';
-  }
-}
-
-export class AllSlotsUsedError extends Error {
-  constructor() {
-    super(
-      'All port slots 1-999 are already allocated. Delete a profile to free one.',
-    );
-    this.name = 'AllSlotsUsedError';
-  }
-}
-
-export class ProfileNotFoundError extends Error {
-  constructor(public readonly name: string) {
-    super(`Profile not found: ${name}`);
-    this.name = 'ProfileNotFoundError';
-  }
-}
 
 interface PgError {
   code?: string;

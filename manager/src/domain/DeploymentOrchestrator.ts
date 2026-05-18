@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { KIND_DEFAULT_SERVICES, Profile, ProfileStatus } from '../types.js';
+import { KIND_DEFAULT_SERVICES, Profile, ProfileStatus } from '../types/index.js';
 import {
   SCRIPT_CLEAN,
   SCRIPT_DEPLOY,
@@ -13,23 +13,13 @@ import {
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { ProfileBusyError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
 
 const logger = Logger.getInstance();
-
-/** Thrown when a trigger collides with an in-flight transition. */
-export class ProfileBusyError extends Error {
-  constructor(
-    public readonly name: string,
-    public readonly currentStatus: ProfileStatus,
-  ) {
-    super(`Profile ${name} is busy (status=${currentStatus})`);
-    this.name = 'ProfileBusyError';
-  }
-}
 
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;

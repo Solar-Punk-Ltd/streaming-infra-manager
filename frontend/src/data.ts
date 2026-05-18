@@ -1,4 +1,8 @@
-import type { Profile, ProfileKind } from './types';
+import type {
+  CreateProfileBody,
+  Profile,
+  UpdateProfileBody,
+} from './types';
 
 export function clientUrl(
   profile: Profile,
@@ -16,19 +20,6 @@ export async function fetchProfiles(): Promise<Profile[]> {
   if (!res.ok) throw new Error(`fetch profiles failed (${res.status})`);
   const body = (await res.json()) as { profiles: Profile[] };
   return body.profiles;
-}
-
-export interface CreateProfileBody {
-  name: string;
-  kind: ProfileKind;
-  notes?: string | null;
-  host?: string;
-  components?: string[];
-  feed_owner?: string;
-  feed_topic?: string;
-  private_key?: string;
-  public_key?: string;
-  stamp_id?: string;
 }
 
 async function postAction(
@@ -96,8 +87,6 @@ export async function createProfile(body: CreateProfileBody): Promise<Profile> {
   }
   return (await res.json()) as Profile;
 }
-
-export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
 
 export async function updateProfile(
   name: string,

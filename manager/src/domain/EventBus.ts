@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import { ProfileWithContainers } from '../types.js';
+import { ProfileWithContainers } from '../types/index.js';
 
 export type ProfileEvent =
   | { type: 'profile.changed'; profile: ProfileWithContainers }

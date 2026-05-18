@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-import { Profile, ProfileKind, ProfileStatus } from '../types.js';
+import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 
 const PROFILE_COLUMNS = `
   name, port_slot, kind, notes,

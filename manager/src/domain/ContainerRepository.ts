@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-import { ApiContainer, Profile, ProfileWithContainers } from '../types.js';
+import { ApiContainer, Profile, ProfileWithContainers } from '../types/index.js';
 
 import { ContainerSnapshot } from './containerKeysSpec.js';
 
