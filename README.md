@@ -9,7 +9,7 @@ stack. Targets two dedicated servers:
 
 ## Layout
 
-- `swarm-hls-stream/` — git submodule pointing at
+- `manager/swarm-hls-stream/` — git submodule pointing at
   [Solar-Punk-Ltd/swarm-hls-stream](https://github.com/Solar-Punk-Ltd/swarm-hls-stream)
   (`main`). This is the upstream application source: `packages/stream-uploader`,
   `packages/client`, `packages/cli`, and `engines/srs`. Docker images for the
@@ -17,7 +17,7 @@ stack. Targets two dedicated servers:
 
 ## Cloning this repository
 
-This repo uses a **git submodule** (the `swarm-hls-stream/` directory). A plain
+This repo uses a **git submodule** (the `manager/swarm-hls-stream/` directory). A plain
 `git clone` will leave that directory empty, which will break every later step.
 Use one of the two flows below.
 
@@ -29,11 +29,11 @@ cd streaming-infra-manager
 ```
 
 The `--recurse-submodules` flag tells git to also fetch the contents of every
-submodule. After this completes, `swarm-hls-stream/` will be populated.
+submodule. After this completes, `manager/swarm-hls-stream/` will be populated.
 
 ### Option B — you already cloned without the flag
 
-If you ran a plain `git clone` and `swarm-hls-stream/` is empty, run this once
+If you ran a plain `git clone` and `manager/swarm-hls-stream/` is empty, run this once
 inside the repo:
 
 ```sh
@@ -48,7 +48,7 @@ won't overwrite committed work.
 ### How to tell it worked
 
 ```sh
-ls swarm-hls-stream/packages
+ls manager/swarm-hls-stream/packages
 # should print:  cli  client  stream-uploader
 ```
 
