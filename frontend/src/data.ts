@@ -11,56 +11,11 @@ export function clientUrl(
   return `http://${host}:${port}`;
 }
 
-// --- mock fallback so the prototype is judgable without the backend running ---
-
-const MOCK_PROFILES: Profile[] = [
-  mock('viewer-alpha', 1, 'viewer', 'RUNNING'),
-  mock('streamer-bravo', 2, 'streamer', 'RUNNING'),
-  mock('streamer-charlie', 3, 'streamer', 'DEPLOYING'),
-  mock('viewer-delta', 4, 'viewer', 'STOPPED'),
-  mock(
-    'custom-echo',
-    5,
-    'custom',
-    'ERROR',
-    'docker compose failed: pull access denied',
-  ),
-];
-
-function mock(
-  name: string,
-  slot: number,
-  kind: ProfileKind,
-  status: Profile['status'],
-  lastError: string | null = null,
-): Profile {
-  const now = new Date().toISOString();
-  return {
-    name,
-    port_slot: slot,
-    kind,
-    notes: null,
-    status,
-    last_error: lastError,
-    last_error_at: lastError ? now : null,
-    created_at: now,
-    updated_at: now,
-    containers: [],
-  };
-}
-
-export async function fetchProfiles(): Promise<{
-  profiles: Profile[];
-  usedMock: boolean;
-}> {
-  try {
-    const res = await fetch('/profiles');
-    if (!res.ok) throw new Error(String(res.status));
-    const body = (await res.json()) as { profiles: Profile[] };
-    return { profiles: body.profiles, usedMock: false };
-  } catch {
-    return { profiles: MOCK_PROFILES, usedMock: true };
-  }
+export async function fetchProfiles(): Promise<Profile[]> {
+  const res = await fetch('/profiles');
+  if (!res.ok) throw new Error(`fetch profiles failed (${res.status})`);
+  const body = (await res.json()) as { profiles: Profile[] };
+  return body.profiles;
 }
 
 export interface CreateProfileBody {

@@ -37,7 +37,6 @@ import type { Profile } from './types';
 export function App() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [usedMock, setUsedMock] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -50,9 +49,8 @@ export function App() {
 
   const load = useCallback(() => {
     fetchProfiles()
-      .then(({ profiles: ps, usedMock }) => {
+      .then((ps) => {
         setProfiles(ps);
-        setUsedMock(usedMock);
         setSelected((prev) => prev.filter((n) => ps.some((p) => p.name === n)));
       })
       .catch((e: Error) => setError(e.message));
@@ -179,12 +177,6 @@ export function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        {usedMock && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Backend at <code>/profiles</code> unreachable — showing mock data.
-            Start the manager and reload to use live data.
-          </Alert>
-        )}
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
