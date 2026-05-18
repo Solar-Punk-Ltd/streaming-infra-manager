@@ -1,3 +1,5 @@
+import { getErrorStack } from '@streaming-infra-manager/common';
+
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
@@ -91,11 +93,13 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection:', reason);
-  if (reason instanceof Error && reason.stack) logger.error(reason.stack);
+  const stack = getErrorStack(reason);
+  if (stack) logger.error(stack);
 });
 
 main().catch((err) => {
   logger.error('Fatal startup error:', err);
-  if (err instanceof Error && err.stack) logger.error(err.stack);
+  const stack = getErrorStack(err);
+  if (stack) logger.error(stack);
   process.exit(1);
 });

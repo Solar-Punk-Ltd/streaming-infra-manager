@@ -22,6 +22,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import CasinoIcon from '@mui/icons-material/Casino';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
 import { createProfile, updateProfile } from './data';
 import type { Profile, ProfileKind } from './types';
 
@@ -228,11 +230,10 @@ export function NewDeploymentDrawer({
       onClose();
     } catch (e) {
       setSubmitError(
-        e instanceof Error
-          ? e.message
-          : isEdit
-            ? 'failed to update deployment'
-            : 'failed to create deployment',
+        getErrorMessage(
+          e,
+          isEdit ? 'failed to update deployment' : 'failed to create deployment',
+        ),
       );
     } finally {
       setSubmitting(false);

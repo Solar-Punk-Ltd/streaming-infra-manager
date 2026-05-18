@@ -22,6 +22,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import StopIcon from '@mui/icons-material/Stop';
 import DeleteIcon from '@mui/icons-material/Delete';
 
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
 import {
@@ -65,12 +67,20 @@ export function App() {
     source.addEventListener('profile.changed', (ev: MessageEvent<string>) => {
       const { profile } = JSON.parse(ev.data) as { profile: Profile };
       setProfiles((prev) => {
-        if (!prev) return [profile];
+        if (!prev) {
+          return [profile];
+        }
+
         const idx = prev.findIndex((p) => p.name === profile.name);
-        if (idx === -1) return [profile, ...prev];
-        const next = prev.slice();
-        next[idx] = profile;
-        return next;
+
+        if (idx === -1) {
+          return [profile, ...prev];
+        }
+
+        const copy = prev.slice();
+        copy[idx] = profile;
+
+        return copy;
       });
     });
     source.addEventListener('profile.deleted', (ev: MessageEvent<string>) => {
@@ -108,13 +118,13 @@ export function App() {
     if (failed.length === 0) {
       setToast({
         severity: 'success',
-        message: `${verb} ${names.length} deployment${names.length === 1 ? '' : 's'}`,
+        message: `${verb} ${names.length} ${names.length === 1 ? 'deployment' : 'deployments'}`,
       });
     } else {
       const first = failed[0].r as PromiseRejectedResult;
       setToast({
         severity: 'error',
-        message: `${verb} failed for ${failed.map((f) => f.name).join(', ')}: ${first.reason instanceof Error ? first.reason.message : String(first.reason)}`,
+        message: `${verb} failed for ${failed.map((f) => f.name).join(', ')}: ${getErrorMessage(first.reason)}`,
       });
     }
     setBusy(false);
@@ -123,20 +133,26 @@ export function App() {
   const handleStart = () => {
     void runOnSelected('Started', deployProfile);
   };
+
   const handleModify = () => {
     if (selected.length !== 1 || !profiles) return;
+
     const target = profiles.find((p) => p.name === selected[0]);
     if (!target) return;
+
     setSelectedProfile(target);
     setDrawerOpen(true);
   };
+
   const handleStop = () => {
     void runOnSelected('Stopped', stopProfile);
   };
+
   const handleRemove = () => {
     if (selected.length === 0) return;
     setRemoveConfirmOpen(true);
   };
+
   const confirmRemove = async () => {
     setRemoveConfirmOpen(false);
     await runOnSelected('Removed', deleteProfile);

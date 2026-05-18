@@ -1,3 +1,5 @@
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
 import { KIND_DEFAULT_SERVICES, Profile, ProfileStatus } from '../types.js';
 import {
   SCRIPT_CLEAN,
@@ -261,7 +263,7 @@ export class DeploymentOrchestrator {
       // The terminal-state update itself failed. Log; nothing else we can do.
       logger.error(
         `[Orchestrator] failed to finalize ${cfg.profileName}:`,
-        err instanceof Error ? err.message : String(err),
+        getErrorMessage(err),
       );
     }
   }
@@ -313,9 +315,7 @@ export class DeploymentOrchestrator {
       }
     } catch (err) {
       logger.warn(
-        `[Orchestrator] failed to snapshot containers for ${profile.name}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[Orchestrator] failed to snapshot containers for ${profile.name}: ${getErrorMessage(err)}`,
       );
     }
   }

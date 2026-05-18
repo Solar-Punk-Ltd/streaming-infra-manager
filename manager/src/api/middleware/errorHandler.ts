@@ -1,3 +1,7 @@
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '@streaming-infra-manager/common';
 import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
@@ -47,8 +51,11 @@ export function errorHandler(
     return;
   }
 
-  const message = err instanceof Error ? err.message : String(err);
-  logger.error(`[HTTP] ${req.method} ${req.originalUrl} unhandled:`, message);
-  if (err instanceof Error && err.stack) logger.error(err.stack);
+  logger.error(
+    `[HTTP] ${req.method} ${req.originalUrl} unhandled:`,
+    getErrorMessage(err),
+  );
+  const stack = getErrorStack(err);
+  if (stack) logger.error(stack);
   res.status(500).json({ error: 'internal_error' });
 }

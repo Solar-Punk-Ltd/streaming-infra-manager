@@ -1,3 +1,5 @@
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
 import { Profile, ProfileKind, TRANSITIONAL_STATUSES } from '../types.js';
 
 import {
@@ -102,7 +104,7 @@ export class ProfileService {
         } catch (err) {
           const errored = await this.repo.markError(
             input.name,
-            err instanceof Error ? err.message : String(err),
+            getErrorMessage(err),
           );
           if (errored) {
             this.events.publish({ type: 'profile.changed', profile: errored });
@@ -176,10 +178,7 @@ export class ProfileService {
     try {
       await this.orchestrator.startDeploy(row, row.components ?? undefined);
     } catch (err) {
-      const errored = await this.repo.markError(
-        name,
-        err instanceof Error ? err.message : String(err),
-      );
+      const errored = await this.repo.markError(name, getErrorMessage(err));
       if (errored) {
         this.events.publish({ type: 'profile.changed', profile: errored });
       }
