@@ -87,21 +87,20 @@ All command endpoints stream output as Server-Sent Events
 
 ### Profiles
 
-| Method | Path              | Body                                              | Notes                                                                              |
-| ------ | ----------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds `<repo>/.env.<name>` from `.env`. |
-| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                                       |
-| GET    | `/profiles/:name` | —                                                 | Single profile.                                                                    |
-| DELETE | `/profiles/:name` | —                                                 | Releases the slot and deletes `.env.<name>`. **Run `clean` first if needed.**      |
+| Method | Path              | Body                                              | Notes                                                         |
+| ------ | ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds from `.env`. |
+| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                  |
+| GET    | `/profiles/:name` | —                                                 | Single profile.                                               |
+| DELETE | `/profiles/:name` | —                                                 | Releases the slot.                                            |
 
 ### Actions (per profile, SSE)
 
-| Method | Path                     | Body                                               | Maps to                                                   |
-| ------ | ------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
-| POST   | `/profiles/:name/deploy` | `{ services?: string[] }`                          | `deploy.sh --profile=<name> --portSlot=<n> [services]`  |
-| POST   | `/profiles/:name/stop`   | `{ services?: string[] }`                          | `stop.sh   --profile=<name> --portSlot=<n> [services]`  |
-| POST   | `/profiles/:name/clean`  | `{ volumes?: bool, all?: bool, services?: [...] }` | `clean.sh  --profile=<name> --portSlot=<n> --yes [...]` |
-| GET    | `/profiles/:name/health` | —                                                  | `health.sh --profile=<name> --portSlot=<n>`             |
+| Method | Path                     | Body                      | Maps to                                                |
+| ------ | ------------------------ | ------------------------- | ------------------------------------------------------ |
+| POST   | `/profiles/:name/deploy` | `{ services?: string[] }` | `deploy.sh --profile=<name> --portSlot=<n> [services]` |
+| POST   | `/profiles/:name/stop`   | `{ services?: string[] }` | `stop.sh   --profile=<name> --portSlot=<n> [services]` |
+| GET    | `/profiles/:name/health` | —                         | `health.sh --profile=<name> --portSlot=<n>`            |
 
 When `services` is omitted:
 
