@@ -8,8 +8,14 @@ import {
 
 const HEARTBEAT_MS = 15_000;
 
-export function createEventsRouter(bus: EventBus): Router {
+export interface EventsRouter {
+  router: Router;
+  closeAll(): void;
+}
+
+export function createEventsRouter(bus: EventBus): EventsRouter {
   const router = Router();
+  const active = new Set<Response>();
 
   router.get('/', (_req: Request, res: Response) => {
     if (bus.listenerCount() >= MAX_EVENT_CLIENTS) {
@@ -36,6 +42,8 @@ export function createEventsRouter(bus: EventBus): Router {
       res.write(': heartbeat\n\n');
     }, HEARTBEAT_MS);
 
+    active.add(res);
+
     let cleaned = false;
     const cleanup = (): void => {
       if (cleaned) {
@@ -46,6 +54,7 @@ export function createEventsRouter(bus: EventBus): Router {
       clearInterval(heartbeat);
 
       unsubscribe();
+      active.delete(res);
       res.end();
     };
 
@@ -53,5 +62,14 @@ export function createEventsRouter(bus: EventBus): Router {
     res.on('error', cleanup);
   });
 
-  return router;
+  return {
+    router,
+    closeAll(): void {
+      for (const res of active) {
+        res.end();
+        res.socket?.destroy();
+      }
+      active.clear();
+    },
+  };
 }

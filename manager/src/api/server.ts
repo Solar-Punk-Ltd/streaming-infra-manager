@@ -18,6 +18,8 @@ import { createProfilesRouter } from './routes/profiles.js';
 
 const logger = Logger.getInstance();
 
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
 export interface ApiDeps {
   database: Database;
   profileService: ProfileService;
@@ -39,8 +41,10 @@ export function startApiServer(
   app.use(requestLogger);
   app.use(express.json({ limit: '256kb' }));
 
+  const events = createEventsRouter(deps.eventBus);
+
   app.use('/health', createHealthRouter(deps.database));
-  app.use('/events', createEventsRouter(deps.eventBus));
+  app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/', createActionsRouter(deps.deployService));
 
@@ -55,10 +59,21 @@ export function startApiServer(
 
   return {
     async close() {
+      events.closeAll();
+
       return new Promise<void>((resolve, reject) => {
+        const forceTimer = setTimeout(() => {
+          logger.warn(
+            `[ApiServer] Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms, forcing close`,
+          );
+          server.closeAllConnections?.();
+        }, SHUTDOWN_TIMEOUT_MS);
+
         server.close((err) => {
-          if (err) reject(err);
-          else {
+          clearTimeout(forceTimer);
+          if (err) {
+            reject(err);
+          } else {
             logger.info('[ApiServer] Server closed');
             resolve();
           }
