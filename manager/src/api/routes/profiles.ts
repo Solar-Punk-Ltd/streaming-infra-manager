@@ -23,14 +23,14 @@ export function createProfilesRouter(profileService: ProfileService): Router {
       const profile = await profileService.create({
         name: body.name,
         kind: (body.kind ?? 'custom') as ProfileKind,
-        notes: body.notes ?? null,
-        host: body.host ?? undefined,
+        notes: body.notes,
+        host: body.host,
         components: body.components as string[] | undefined,
-        feed_owner: body.feed_owner ?? undefined,
-        feed_topic: body.feed_topic ?? undefined,
-        private_key: body.private_key ?? undefined,
-        public_key: body.public_key ?? undefined,
-        stamp_id: body.stamp_id ?? undefined,
+        feed_owner: body.feed_owner,
+        feed_topic: body.feed_topic,
+        private_key: body.private_key,
+        public_key: body.public_key,
+        stamp_id: body.stamp_id,
       });
       res.status(202).json(profile);
     }),
@@ -60,12 +60,12 @@ export function createProfilesRouter(profileService: ProfileService): Router {
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as UpdateProfileInput;
       const profile = await profileService.update(req.params.name as string, {
-        notes: body.notes ?? null,
-        feed_owner: body.feed_owner ?? undefined,
-        feed_topic: body.feed_topic ?? undefined,
-        private_key: body.private_key ?? undefined,
-        public_key: body.public_key ?? undefined,
-        stamp_id: body.stamp_id ?? undefined,
+        notes: body.notes,
+        feed_owner: body.feed_owner,
+        feed_topic: body.feed_topic,
+        private_key: body.private_key,
+        public_key: body.public_key,
+        stamp_id: body.stamp_id,
       });
       res.status(202).json(profile);
     }),
