@@ -7,5 +7,7 @@ npm-debug.log
 *.log
 .DS_Store
 
-!swarm-hls-stream/.env
-!swarm-hls-stream/.env.*
+!manager/swarm-hls-stream/.env
+!manager/swarm-hls-stream/.env.*
+
+swarm-hls-stream

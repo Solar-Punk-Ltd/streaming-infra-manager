@@ -1,27 +1,32 @@
-# --- manager build stage ----------------------------------------------------
 FROM node:22-alpine AS build
-WORKDIR /app
+WORKDIR /repo
+RUN npm install -g pnpm@9
 
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+# Workspace manifests first so the install layer caches when sources change.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY common/package.json ./common/
+COPY manager/package.json ./manager/
+COPY frontend/package.json ./frontend/
 
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+RUN pnpm install --frozen-lockfile --filter @streaming-infra-manager/api...
+
+COPY common ./common
+COPY manager ./manager
+
+RUN pnpm --filter @streaming-infra-manager/api... build
+
+# Produces a self-contained tree at /out with prod node_modules + dist.
+RUN pnpm deploy --filter=@streaming-infra-manager/api --prod /out
 
 # --- swarm-hls-stream build stage -------------------------------------------
-# Pre-builds the workspace packages so deploy.sh's `build_if_needed` skips the
-# pnpm install at runtime — the runtime image carries no pnpm.
 FROM node:22-alpine AS shls-build
 WORKDIR /shls
-# python3/make/g++ for native module builds (esbuild, @swc/core, @parcel/watcher).
-# pnpm 9 — matches lockfileVersion 9.0 in swarm-hls-stream/pnpm-lock.yaml and
-# avoids pnpm 10/11's interactive build-script approval prompt.
+
 RUN apk add --no-cache python3 make g++ \
  && npm install -g pnpm@9
 
-COPY swarm-hls-stream/package.json swarm-hls-stream/pnpm-workspace.yaml swarm-hls-stream/pnpm-lock.yaml ./
-COPY swarm-hls-stream/packages ./packages
+COPY manager/swarm-hls-stream/package.json manager/swarm-hls-stream/pnpm-workspace.yaml manager/swarm-hls-stream/pnpm-lock.yaml ./
+COPY manager/swarm-hls-stream/packages ./packages
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm -r build
@@ -30,25 +35,15 @@ RUN pnpm -r build
 FROM node:22-alpine
 WORKDIR /app
 
-# bash + jq are required by deploy/scripts/*.sh.
-# docker-cli + docker-cli-compose talk to the host daemon via the mounted socket.
-# rsync + openssh-client are only needed when a profile deploys to a remote target.
 RUN apk add --no-cache \
       bash jq \
       docker-cli docker-cli-compose \
       rsync openssh-client \
       ca-certificates
 
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY --from=build /out ./
 
-COPY --from=build /app/dist ./dist
-
-# Bake the swarm-hls-stream tree into the image. The deploy scripts plus their
-# referenced compose files / Dockerfiles / configs all live in here.
-# .dockerignore excludes node_modules + dist (rebuilt above) and re-includes
-# swarm-hls-stream/.env* so the reference env files ship with the image.
-COPY swarm-hls-stream ./swarm-hls-stream
+COPY manager/swarm-hls-stream ./swarm-hls-stream
 COPY --from=shls-build /shls/packages/stream-uploader/dist ./swarm-hls-stream/packages/stream-uploader/dist
 COPY --from=shls-build /shls/packages/client/dist ./swarm-hls-stream/packages/client/dist
 

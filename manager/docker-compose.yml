@@ -27,7 +27,9 @@ services:
 
   api:
     profiles: [ "full" ]
-    build: .
+    build:
+      context: ..
+      dockerfile: manager/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
