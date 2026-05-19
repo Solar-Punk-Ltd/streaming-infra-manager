@@ -71,9 +71,6 @@ curl -sS -X POST localhost:9876/profiles \
   -H 'content-type: application/json' \
   -d '{"name":"viewer1","kind":"viewer"}'
 
-# Edit per-profile env (STAMP, STREAM_KEY, *_DATA_DIR, etc.)
-$EDITOR swarm-hls-stream/.env.streamer1
-$EDITOR swarm-hls-stream/.env.viewer1
 
 # Deploy and watch the logs stream
 curl -N -X POST localhost:9876/profiles/streamer1/deploy \
