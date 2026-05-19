@@ -6,8 +6,6 @@ on the same host can never collide on a port.
 
 ## Stack
 
-Aligned with `swarm-hls-stream/packages/stream-uploader`:
-
 - **Express 5** + ESM + **TypeScript**
 - **PostgreSQL 16** — single source of truth for `port_slot` allocations (1–999)
 - **Yup** — request body / params validation at the API edge
@@ -16,69 +14,14 @@ Aligned with `swarm-hls-stream/packages/stream-uploader`:
   which calls `docker compose` against the host daemon via a mounted
   `/var/run/docker.sock`
 
-## Layout
-
-```
-manager/
-├── Dockerfile
-├── package.json
-├── tsconfig.json
-└── src/
-    ├── index.ts              # bootstrap: build deps tree, start server, graceful shutdown
-    ├── api/
-    │   ├── server.ts         # express app + middleware wiring (deps injected)
-    │   ├── sse.ts            # bridge ScriptRunner output → Server-Sent Events
-    │   ├── middleware/       # asyncHandler, errorHandler, notFound, requestLogger, validate
-    │   └── routes/           # health, profiles, actions  (each is `createXxxRouter(deps)`)
-    ├── libs/                 # service layer
-    │   ├── Logger.ts             singleton, same as stream-uploader
-    │   ├── Database.ts           pg pool + migration runner
-    │   ├── ProfileRepository.ts  raw SQL — pure data access
-    │   ├── ProfileService.ts     port allocation, env file seeding, domain errors
-    │   ├── ScriptRunner.ts       spawn bash → EventEmitter
-    │   └── DeployService.ts      maps (profile, action, input) → script invocation
-    ├── schemas/              # yup validators (profile, action)
-    ├── utils/                # config, repo path helpers
-    ├── types.ts              # shared types (ProfileKind, ServiceName, defaults)
-    └── migrations/001_init.sql
-```
-
-### Dependency injection
-
-No DI container — just constructor / factory injection, the same pattern used
-by `stream-uploader`. `index.ts` wires everything top-down:
-
-```text
-Database               <-- DATABASE_URL
-   └─ ProfileRepository (pool)
-        └─ ProfileService (repo)         ──────┐
-ScriptRunner                                   │
-   └─ DeployService (profileService, runner) ──┤
-                                               ▼
-                              startApiServer({ database, profileService, deployService })
-                                               │
-                              createProfilesRouter(profileService)
-                              createActionsRouter(deployService)
-                              createHealthRouter(database)
-```
-
-That means service classes never reach for globals: tests can construct any
-service with stubs and routes can mount with whatever implementation is
-relevant. The pattern is intentionally identical to
-`swarm-hls-stream/packages/stream-uploader/src/api/server.ts`.
-
 ## Quick start (one host, "localhost" deploys)
 
 ```bash
 cp manager/.env.sample manager/.env
 cd manager
 docker compose up --build -d
-curl localhost:9876/healthz                      # {"status":"ok"}
+curl localhost:9876/health                      # {"status":"ok"}
 ```
-
-The plan is to run a manager container on every host, with each manager
-deploying only to "localhost" — see `swarm-hls-stream/deploy/config.json`
-for the topology side of that.
 
 ## API
 
@@ -87,21 +30,20 @@ All command endpoints stream output as Server-Sent Events
 
 ### Profiles
 
-| Method | Path              | Body                                              | Notes                                                                              |
-| ------ | ----------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds `<repo>/.env.<name>` from `.env`. |
-| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                                       |
-| GET    | `/profiles/:name` | —                                                 | Single profile.                                                                    |
-| DELETE | `/profiles/:name` | —                                                 | Releases the slot and deletes `.env.<name>`. **Run `clean` first if needed.**      |
+| Method | Path              | Body                                              | Notes                                                         |
+| ------ | ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds from `.env`. |
+| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                  |
+| GET    | `/profiles/:name` | —                                                 | Single profile.                                               |
+| DELETE | `/profiles/:name` | —                                                 | Releases the slot.                                            |
 
 ### Actions (per profile, SSE)
 
-| Method | Path                     | Body                                               | Maps to                                                   |
-| ------ | ------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
-| POST   | `/profiles/:name/deploy` | `{ services?: string[] }`                          | `deploy.sh --profile=<name> --portSlot=<n> [services]`  |
-| POST   | `/profiles/:name/stop`   | `{ services?: string[] }`                          | `stop.sh   --profile=<name> --portSlot=<n> [services]`  |
-| POST   | `/profiles/:name/clean`  | `{ volumes?: bool, all?: bool, services?: [...] }` | `clean.sh  --profile=<name> --portSlot=<n> --yes [...]` |
-| GET    | `/profiles/:name/health` | —                                                  | `health.sh --profile=<name> --portSlot=<n>`             |
+| Method | Path                     | Body                      | Maps to                                                |
+| ------ | ------------------------ | ------------------------- | ------------------------------------------------------ |
+| POST   | `/profiles/:name/deploy` | `{ services?: string[] }` | `deploy.sh --profile=<name> --portSlot=<n> [services]` |
+| POST   | `/profiles/:name/stop`   | `{ services?: string[] }` | `stop.sh   --profile=<name> --portSlot=<n> [services]` |
+| GET    | `/profiles/:name/health` | —                         | `health.sh --profile=<name> --portSlot=<n>`            |
 
 When `services` is omitted:
 
@@ -113,7 +55,7 @@ When `services` is omitted:
 
 | Method | Path        | Notes                             |
 | ------ | ----------- | --------------------------------- |
-| GET    | `/healthz`  | DB ping. Returns `{status:"ok"}`. |
+| GET    | `/health`   | DB ping. Returns `{status:"ok"}`. |
 | GET    | `/services` | List of valid service names.      |
 
 ## Example session

@@ -53,7 +53,6 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
   ],
 };
 
-/** Subset of SERVICE_ENV_KEYS that represent host-exposed ports. */
 export const SERVICE_PORT_KEYS: Record<string, readonly string[]> = {
   srs: ['SRS_SRT_PORT', 'SRS_ADAPTER_PORT'],
   'stream-uploader': ['API_PORT'],

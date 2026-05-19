@@ -39,6 +39,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
     process.exit(0);
   } catch (error) {
     logger.error('Error during graceful shutdown:', error);
+    const stack = getErrorStack(error);
+    if (stack) {
+      logger.error(stack);
+    }
     process.exit(1);
   }
 }
@@ -99,12 +103,17 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection:', reason);
   const stack = getErrorStack(reason);
-  if (stack) logger.error(stack);
+  if (stack) {
+    logger.error(stack);
+  }
 });
 
 main().catch((err) => {
   logger.error('Fatal startup error:', err);
   const stack = getErrorStack(err);
-  if (stack) logger.error(stack);
+  if (stack) {
+    logger.error(stack);
+  }
+
   process.exit(1);
 });
