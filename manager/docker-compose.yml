@@ -1,0 +1,48 @@
+# Manager: a thin TypeScript backend that runs the swarm-hls-stream deploy
+# scripts on demand and tracks per-profile port_slot in PostgreSQL.
+#
+# The manager API container shells out to `bash deploy.sh ...` which in turn
+# runs `docker compose ... up` against the host daemon (via the mounted
+# /var/run/docker.sock). The swarm-hls-stream tree is baked into the image at
+# /app/swarm-hls-stream by the Dockerfile — the API process invokes scripts
+# from there directly.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: manager
+      POSTGRES_USER: manager
+    volumes:
+      - manager-pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U manager -d manager" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    profiles: [ "full" ]
+    build:
+      context: ..
+      dockerfile: manager/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
+      MANAGER_PORT: "9876"
+    ports:
+      - "${MANAGER_PORT:-9876}:9876"
+    volumes:
+      # Talk to the host daemon (Docker-out-of-Docker pattern).
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  manager-pg:

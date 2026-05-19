@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/.tsbuildinfo
+npm-debug.log
+.env
+.env.*
+*.log
+.DS_Store
+
+!manager/swarm-hls-stream/.env
+!manager/swarm-hls-stream/.env.*
+
+swarm-hls-stream

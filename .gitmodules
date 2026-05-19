@@ -1,0 +1,4 @@
+[submodule "swarm-hls-stream"]
+	path = manager/swarm-hls-stream
+	url = https://github.com/Solar-Punk-Ltd/swarm-hls-stream.git
+	branch = main
