@@ -7,8 +7,5 @@ npm-debug.log
 *.log
 .DS_Store
 
-# Keep swarm-hls-stream's .env* in the image — it's the reference env file the
-# deploy scripts (and per-profile seeding in repo.ts) read from. The deploy
-# script will eventually override its values, but for now it ships verbatim.
 !swarm-hls-stream/.env
 !swarm-hls-stream/.env.*
