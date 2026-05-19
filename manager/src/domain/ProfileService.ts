@@ -151,13 +151,18 @@ export class ProfileService {
       public_key: input.public_key,
       stamp_id: input.stamp_id,
     });
-    if (!row) throw new ProfileNotFoundError(name);
+
+    if (!row) {
+      throw new ProfileNotFoundError(name);
+    }
 
     logger.info(`[ProfileService] Updated profile ${name}; redeploying`);
+
     const withContainers: ProfileWithContainers = {
       ...row,
       containers: existing.containers,
     };
+
     this.publishChanged(withContainers);
 
     try {
@@ -169,7 +174,8 @@ export class ProfileService {
       }
       throw err;
     }
-    return withContainers;
+
+    return this.containers.withContainers(row);
   }
 
   async remove(
