@@ -93,11 +93,17 @@ async function main(): Promise<void> {
   );
 }
 
+function stop() {
+  setTimeout(() => process.exit(1), 1000).unref();
+}
+
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
+
+  stop();
 });
 
 process.on('unhandledRejection', (reason) => {
@@ -106,6 +112,8 @@ process.on('unhandledRejection', (reason) => {
   if (stack) {
     logger.error(stack);
   }
+
+  stop();
 });
 
 main().catch((err) => {
@@ -115,5 +123,5 @@ main().catch((err) => {
     logger.error(stack);
   }
 
-  process.exit(1);
+  stop();
 });

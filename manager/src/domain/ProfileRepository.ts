@@ -93,9 +93,9 @@ export class ProfileRepository {
   async updateEditable(
     name: string,
     kind: ProfileKind,
-    data: ProfileWriteData = {},
+    dataWithOptionalValues: ProfileWriteData = {},
   ): Promise<Profile | null> {
-    const d = nullify(data);
+    const data = nullify(dataWithOptionalValues);
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET kind = $2,
@@ -112,13 +112,13 @@ export class ProfileRepository {
       [
         name,
         kind,
-        d.notes,
-        d.components,
-        d.feed_owner,
-        d.feed_topic,
-        d.private_key,
-        d.public_key,
-        d.stamp_id,
+        data.notes,
+        data.components,
+        data.feed_owner,
+        data.feed_topic,
+        data.private_key,
+        data.public_key,
+        data.stamp_id,
       ],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;

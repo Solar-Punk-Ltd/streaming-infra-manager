@@ -67,13 +67,6 @@ export type CreateProfileInput = InferType<typeof createProfileSchema>;
 
 export const updateProfileSchema = object({
   notes: string().nullable().notRequired().max(500),
-  components: array()
-    .of(
-      string()
-        .required()
-        .oneOf([...ALL_SERVICES]),
-    )
-    .notRequired(),
   feed_owner: string()
     .notRequired()
     .matches(
