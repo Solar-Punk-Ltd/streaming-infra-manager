@@ -9,7 +9,7 @@ const PROFILE_COLUMNS = `
   name, port_slot, kind, notes,
   components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
   status, last_error, last_error_at,
-  created_at, updated_at
+  created_at, updated_at, group_id
 `;
 
 export interface ProfileWriteData {
@@ -21,6 +21,7 @@ export interface ProfileWriteData {
   private_key?: string | null;
   public_key?: string | null;
   stamp_id?: string | null;
+  group_id?: number | null;
 }
 
 export class ProfileRepository {
@@ -57,9 +58,9 @@ export class ProfileRepository {
       const result = await client.query<Profile>(
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
-           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id
+           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id, group_id
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
          FROM generate_series(1, 999) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
@@ -78,6 +79,7 @@ export class ProfileRepository {
           dataWithNullFields.private_key,
           dataWithNullFields.public_key,
           dataWithNullFields.stamp_id,
+          dataWithNullFields.group_id,
         ],
       );
       await client.query('COMMIT');
@@ -150,7 +152,6 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  /** Mark a profile as ERROR with a message. Best-effort, no CAS. */
   async markError(name: string, message: string): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
@@ -165,7 +166,6 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  /** Move to a terminal status (RUNNING / STOPPED) on script success. */
   async markTerminal(
     name: string,
     status: ProfileStatus,

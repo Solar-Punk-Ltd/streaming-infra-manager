@@ -8,6 +8,7 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AllSlotsUsedError,
   ProfileBusyError,
+  GroupExistsError,
   ProfileExistsError,
   ProfileNotFoundError,
 } from '../../domain/errors/index.js';
@@ -44,6 +45,10 @@ export function errorHandler(
       name: err.profileName,
       status: err.currentStatus,
     });
+    return;
+  }
+  if (err instanceof GroupExistsError) {
+    res.status(409).json({ error: 'group_exists', name: err.name });
     return;
   }
   if (err instanceof AllSlotsUsedError) {

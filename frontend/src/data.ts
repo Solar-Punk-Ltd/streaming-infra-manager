@@ -1,7 +1,8 @@
 import type {
   CreateProfileBody,
+  DeploymentGroup,
   Profile,
-  UpdateProfileBody,
+  ProfileKind,
 } from './types';
 
 export function clientUrl(
@@ -86,6 +87,54 @@ export async function createProfile(body: CreateProfileBody): Promise<Profile> {
     throw new Error(msg);
   }
   return (await res.json()) as Profile;
+}
+
+export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
+
+export interface CreateGroupBody {
+  group_name: string;
+  size: number;
+  kind: ProfileKind;
+  notes?: string | null;
+  host?: string;
+  components?: string[];
+  feed_owner?: string;
+  feed_topic?: string;
+  private_key?: string;
+  public_key?: string;
+  stamp_id?: string;
+}
+
+export async function createDeploymentGroup(
+  body: CreateGroupBody,
+): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
+  const res = await fetch('/groups', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = `request failed (${res.status})`;
+    try {
+      const err = (await res.json()) as { error?: string; message?: string };
+      msg = err.error ?? err.message ?? msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
+export async function fetchGroups(): Promise<DeploymentGroup[]> {
+  try {
+    const res = await fetch('/groups');
+    if (!res.ok) throw new Error(String(res.status));
+    const body = (await res.json()) as { groups: DeploymentGroup[] };
+    return body.groups;
+  } catch {
+    return [];
+  }
 }
 
 export async function updateProfile(

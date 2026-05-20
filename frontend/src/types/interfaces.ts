@@ -23,6 +23,14 @@ export interface Profile {
   created_at: string;
   updated_at: string;
   containers: Container[];
+  group_id?: number | null;
+}
+
+export interface DeploymentGroup {
+  id: number;
+  name: string;
+  size: number;
+  created_at: string;
 }
 
 export interface CreateProfileBody {

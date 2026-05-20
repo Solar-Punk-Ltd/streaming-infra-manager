@@ -11,6 +11,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/profiles': MANAGER_URL,
+      '/groups': MANAGER_URL,
       '/health': MANAGER_URL,
       // SSE — disable any buffering / timeouts so events stream live.
       '/events': {

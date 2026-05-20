@@ -24,7 +24,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { createProfile, updateProfile } from './data';
+import { createDeploymentGroup, createProfile, updateProfile } from './data';
 import type { Profile, ProfileKind } from './types';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -63,6 +63,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: (profile: Profile) => void;
+  onGroupCreated?: (profiles: Profile[]) => void;
   selectedProfile?: Profile | null;
 }
 
@@ -70,9 +71,12 @@ export function NewDeploymentDrawer({
   open,
   onClose,
   onCreated,
+  onGroupCreated,
   selectedProfile,
 }: Props) {
   const isEdit = !!selectedProfile;
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupSize, setGroupSize] = useState(2);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<ProfileKind>('viewer');
   const [components, setComponents] = useState<Component[]>(
@@ -164,6 +168,10 @@ export function NewDeploymentDrawer({
   const componentsError =
     components.length === 0 ? 'select at least one component' : null;
   const notesError = notes.length > 500 ? 'max 500 chars' : null;
+  const groupSizeError =
+    groupMode && (!Number.isInteger(groupSize) || groupSize < 1)
+      ? 'must be a positive integer'
+      : null;
 
   const canSubmit =
     !submitting &&
@@ -176,7 +184,8 @@ export function NewDeploymentDrawer({
     !privateKeyError &&
     !stampIdError &&
     !componentsError &&
-    !notesError;
+    !notesError &&
+    !groupSizeError;
 
   const reset = () => {
     setName('');
@@ -188,6 +197,8 @@ export function NewDeploymentDrawer({
     setPrivateKey('');
     setStampId('');
     setNotes('');
+    setGroupMode(false);
+    setGroupSize(2);
     setSubmitError(null);
   };
 
@@ -218,21 +229,36 @@ export function NewDeploymentDrawer({
         stamp_id:
           hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
       };
-      const profile = isEdit
-        ? await updateProfile(selectedProfile!.name, common)
-        : await createProfile({
-            ...common,
-            name,
-            host: host.trim() || 'localhost',
-          });
-      onCreated(profile);
-      reset();
-      onClose();
+      if (!isEdit && groupMode) {
+        const result = await createDeploymentGroup({
+          ...common,
+          group_name: name,
+          size: groupSize,
+          host: host.trim() || 'localhost',
+        });
+        if (onGroupCreated) onGroupCreated(result.profiles);
+        else result.profiles.forEach((p) => onCreated(p));
+        reset();
+        onClose();
+      } else {
+        const profile = isEdit
+          ? await updateProfile(selectedProfile!.name, common)
+          : await createProfile({
+              ...common,
+              name,
+              host: host.trim() || 'localhost',
+            });
+        onCreated(profile);
+        reset();
+        onClose();
+      }
     } catch (e) {
       setSubmitError(
         getErrorMessage(
           e,
-          isEdit ? 'failed to update deployment' : 'failed to create deployment',
+          isEdit
+            ? 'failed to update deployment'
+            : 'failed to create deployment',
         ),
       );
     } finally {
@@ -257,8 +283,21 @@ export function NewDeploymentDrawer({
         </Stack>
 
         <Stack spacing={2}>
+          {!isEdit && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={groupMode}
+                  onChange={(e) => setGroupMode(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="Deploy as group"
+            />
+          )}
+
           <TextField
-            label="Name"
+            label={groupMode ? 'Group name' : 'Name'}
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -267,10 +306,31 @@ export function NewDeploymentDrawer({
             error={!!nameError}
             helperText={
               nameError ??
-              (isEdit ? 'locked — names are immutable' : 'e.g. viewer-alpha')
+              (isEdit
+                ? 'locked — names are immutable'
+                : groupMode
+                  ? 'members will be named <group>-profile-1, <group>-profile-2, …'
+                  : 'e.g. viewer-alpha')
             }
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
+
+          {!isEdit && groupMode && (
+            <TextField
+              label="Size"
+              type="number"
+              value={groupSize}
+              onChange={(e) => setGroupSize(parseInt(e.target.value, 10) || 0)}
+              error={!!groupSizeError}
+              helperText={
+                groupSizeError ??
+                (groupSize > 20
+                  ? `${groupSize} profiles will be created and deployed — large group, double-check before submitting`
+                  : 'number of deployments to create')
+              }
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+            />
+          )}
 
           <TextField
             label="Kind"
@@ -455,7 +515,11 @@ export function NewDeploymentDrawer({
               disabled={!canSubmit}
               startIcon={submitting ? <CircularProgress size={16} /> : null}
             >
-              {isEdit ? 'Save & Redeploy' : 'Deploy'}
+              {isEdit
+                ? 'Save & Redeploy'
+                : groupMode
+                  ? `Deploy group (${groupSize})`
+                  : 'Deploy'}
             </Button>
           </Stack>
         </Stack>
