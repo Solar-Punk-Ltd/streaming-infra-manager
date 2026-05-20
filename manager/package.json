@@ -10,7 +10,7 @@
     "database:stop": "docker compose -p streaming-infra-manager -f ./docker-compose.yml stop postgres",
     "stack:start": "docker compose -p streaming-infra-manager -f ./docker-compose.yml --profile full up -d --build",
     "stack:stop": "docker compose -p streaming-infra-manager -f ./docker-compose.yml --profile full down",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --conditions=development src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
