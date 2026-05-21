@@ -270,27 +270,6 @@ export class ProfileService {
       this.publishChanged(withContainers);
     }
 
-    for (const p of profiles) {
-      try {
-        await this.orchestrator.startInitialDeploy(p, input.components, {
-          host: input.host,
-        });
-      } catch (err) {
-        const errored = await this.repo.markError(
-          p.name,
-          err instanceof Error ? err.message : String(err),
-        );
-        if (errored) {
-          // TODO remove copy paste
-          const withContainers = await this.containers.withContainers(errored);
-          this.publishChanged(withContainers);
-        }
-        logger.warn(
-          `[ProfileService] Group ${group.name}: member ${p.name} deploy dispatch failed`,
-        );
-      }
-    }
-
     return { group, profiles: profilesWithContainers };
   }
 }

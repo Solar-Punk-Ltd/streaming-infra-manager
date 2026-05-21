@@ -74,7 +74,7 @@ export class DeploymentGroupRepository {
              components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
              group_id
            )
-           SELECT $1, s.n, $2, $3, 'DEPLOYING', $4, $5, $6, $7, $8, $9, $10, $11
+           SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11
            FROM generate_series(1, 999) AS s(n)
            LEFT JOIN profiles p ON p.port_slot = s.n
            WHERE p.port_slot IS NULL
