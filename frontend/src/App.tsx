@@ -58,7 +58,7 @@ export function App() {
       .catch((e: Error) => setError(e.message));
     fetchGroups()
       .then(setGroups)
-      .catch(() => undefined);
+      .catch((e: Error) => setError(e.message));
   }, []);
 
   useEffect(() => {
@@ -102,7 +102,6 @@ export function App() {
         ? [profile, ...prev.filter((p) => p.name !== profile.name)]
         : [profile],
     );
-    load();
   };
 
   const nothingSelected = selected.length === 0 || busy;
@@ -183,11 +182,7 @@ export function App() {
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {error && (
-          <Alert
-            severity="error"
-            sx={{ mb: 2 }}
-            onClose={() => setError(null)}
-          >
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
@@ -305,7 +300,10 @@ export function App() {
           setDrawerOpen(false);
           setSelectedProfile(null);
         }}
-        onCreated={handleCreated}
+        onCreated={(profile) => {
+          handleCreated(profile);
+          load();
+        }}
         onGroupCreated={(members) => {
           members.forEach(handleCreated);
           load();
