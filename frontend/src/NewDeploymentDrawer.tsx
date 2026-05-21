@@ -25,6 +25,19 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { createDeploymentGroup, createProfile, updateProfile } from './data';
+import {
+  componentsHelperText,
+  feedOwnerHelperText,
+  feedTopicHelperText,
+  groupSizeHelperText,
+  hostHelperText,
+  kindHelperText,
+  nameHelperText,
+  notesHelperText,
+  privateKeyHelperText,
+  publicKeyHelperText,
+  stampIdHelperText,
+} from './helperText';
 import type { Profile, ProfileKind } from './types';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -302,14 +315,7 @@ export function NewDeploymentDrawer({
             autoFocus={!isEdit}
             disabled={isEdit}
             error={!!nameError}
-            helperText={
-              nameError ??
-              (isEdit
-                ? 'locked — names are immutable'
-                : groupMode
-                  ? 'members will be named <group>-profile-1, <group>-profile-2, …'
-                  : 'e.g. viewer-alpha')
-            }
+            helperText={nameHelperText(nameError, isEdit, groupMode)}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
@@ -320,12 +326,7 @@ export function NewDeploymentDrawer({
               value={groupSize}
               onChange={(e) => setGroupSize(parseInt(e.target.value, 10) || 0)}
               error={!!groupSizeError}
-              helperText={
-                groupSizeError ??
-                (groupSize > 20
-                  ? `${groupSize} profiles will be created and deployed — large group, double-check before submitting`
-                  : 'number of deployments to create')
-              }
+              helperText={groupSizeHelperText(groupSizeError, groupSize)}
               slotProps={{ htmlInput: { min: 1, step: 1 } }}
             />
           )}
@@ -336,11 +337,10 @@ export function NewDeploymentDrawer({
             value={kind}
             onChange={(e) => onKindChange(e.target.value as ProfileKind)}
             disabled={isEdit}
-            helperText={
-              isEdit
-                ? 'locked — kind cannot change after first deploy'
-                : KINDS.find((k) => k.value === kind)?.hint
-            }
+            helperText={kindHelperText(
+              isEdit,
+              KINDS.find((k) => k.value === kind)?.hint,
+            )}
           >
             {KINDS.map((k) => (
               <MenuItem key={k.value} value={k.value}>
@@ -378,12 +378,7 @@ export function NewDeploymentDrawer({
               ))}
             </FormGroup>
             <FormHelperText>
-              {componentsError ??
-                (isEdit
-                  ? 'locked — components cannot change after first deploy'
-                  : isCustom
-                    ? 'pick any combination'
-                    : 'locked by kind')}
+              {componentsHelperText(componentsError, isEdit, isCustom)}
             </FormHelperText>
           </FormControl>
 
@@ -393,12 +388,7 @@ export function NewDeploymentDrawer({
             onChange={(e) => setHost(e.target.value)}
             disabled={isEdit}
             error={!!hostError}
-            helperText={
-              hostError ??
-              (isEdit
-                ? 'locked — host cannot change after first deploy (data is not migrated)'
-                : 'optional — defaults to "localhost"')
-            }
+            helperText={hostHelperText(hostError, isEdit)}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
@@ -409,7 +399,7 @@ export function NewDeploymentDrawer({
                 value={privateKey}
                 onChange={(e) => setPrivateKey(e.target.value)}
                 error={!!privateKeyError}
-                helperText={privateKeyError ?? 'optional — 0x + 64 hex chars'}
+                helperText={privateKeyHelperText(privateKeyError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                   input: {
@@ -437,11 +427,7 @@ export function NewDeploymentDrawer({
                   htmlInput: { style: { fontFamily: 'monospace' } },
                   inputLabel: { shrink: true },
                 }}
-                helperText={
-                  derivedAddress
-                    ? 'derived from private key'
-                    : 'will appear once a valid private key is entered'
-                }
+                helperText={publicKeyHelperText(derivedAddress)}
               />
 
               <TextField
@@ -449,7 +435,7 @@ export function NewDeploymentDrawer({
                 value={stampId}
                 onChange={(e) => setStampId(e.target.value)}
                 error={!!stampIdError}
-                helperText={stampIdError ?? 'optional — Swarm postage batch id'}
+                helperText={stampIdHelperText(stampIdError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -465,7 +451,7 @@ export function NewDeploymentDrawer({
                 onChange={(e) => setFeedOwner(e.target.value)}
                 required
                 error={!!feedOwnerError}
-                helperText={feedOwnerError ?? '0x-prefixed Ethereum address'}
+                helperText={feedOwnerHelperText(feedOwnerError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -477,7 +463,7 @@ export function NewDeploymentDrawer({
                 onChange={(e) => setFeedTopic(e.target.value)}
                 required
                 error={!!feedTopicError}
-                helperText={feedTopicError ?? 'topic string'}
+                helperText={feedTopicHelperText(feedTopicError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -492,7 +478,7 @@ export function NewDeploymentDrawer({
             multiline
             minRows={3}
             error={!!notesError}
-            helperText={notesError ?? `${notes.length}/500`}
+            helperText={notesHelperText(notesError, notes.length)}
           />
 
           {submitError && <Alert severity="error">{submitError}</Alert>}
