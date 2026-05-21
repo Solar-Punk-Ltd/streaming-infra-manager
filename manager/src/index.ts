@@ -4,6 +4,7 @@ import { ApiServerHandle, startApiServer } from './api/server.js';
 import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
+import { DeploymentGroupRepository } from './domain/DeploymentGroupRepository.js';
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
 import { EventBus } from './domain/EventBus.js';
 import { Logger } from './domain/Logger.js';
@@ -78,11 +79,15 @@ async function main(): Promise<void> {
     scriptRunner,
     eventBus,
   );
+  const deploymentGroupRepository = new DeploymentGroupRepository(
+    database.pool,
+  );
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
     orchestrator,
     eventBus,
+    deploymentGroupRepository,
   );
   const deployService = new DeployService(profileService, orchestrator);
 

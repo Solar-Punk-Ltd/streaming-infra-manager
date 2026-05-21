@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import {
+  Alert,
+  AlertTitle,
   Box,
   Checkbox,
   Collapse,
@@ -11,8 +14,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import { useState } from 'react';
 
 import { StatusChip } from './StatusChip';
 import { clientUrl } from './data';
@@ -22,10 +24,12 @@ export function DeploymentsTableRow({
   profile,
   selected,
   onToggleSelect,
+  indent = false,
 }: {
   profile: Profile;
   selected: boolean;
   onToggleSelect: (name: string) => void;
+  indent?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const url = clientUrl(profile);
@@ -50,7 +54,9 @@ export function DeploymentsTableRow({
         <TableCell padding="checkbox">
           {open ? <KeyboardArrowDownIcon /> : <KeyboardArrowRightIcon />}
         </TableCell>
-        <TableCell sx={{ fontFamily: 'monospace' }}>{profile.name}</TableCell>
+        <TableCell sx={{ fontFamily: 'monospace', pl: indent ? 4 : undefined }}>
+          {profile.name}
+        </TableCell>
         <TableCell>{profile.kind}</TableCell>
         <TableCell align="right">{profile.port_slot}</TableCell>
         <TableCell>
@@ -80,6 +86,25 @@ export function DeploymentsTableRow({
         >
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2, px: 4, backgroundColor: 'action.hover' }}>
+              {profile.last_error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <AlertTitle>
+                    Last error
+                    {profile.last_error_at &&
+                      ` · ${new Date(profile.last_error_at).toLocaleString()}`}
+                  </AlertTitle>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {profile.last_error}
+                  </Typography>
+                </Alert>
+              )}
               <Typography variant="overline" color="text.secondary">
                 Containers
               </Typography>

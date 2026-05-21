@@ -29,13 +29,15 @@ import { NewDeploymentDrawer } from './NewDeploymentDrawer';
 import {
   deleteProfile,
   deployProfile,
+  fetchGroups,
   fetchProfiles,
   stopProfile,
 } from './data';
-import type { Profile } from './types';
+import type { DeploymentGroup, Profile } from './types';
 
 export function App() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [groups, setGroups] = useState<DeploymentGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
@@ -53,6 +55,9 @@ export function App() {
         setProfiles(ps);
         setSelected((prev) => prev.filter((n) => ps.some((p) => p.name === n)));
       })
+      .catch((e: Error) => setError(e.message));
+    fetchGroups()
+      .then(setGroups)
       .catch((e: Error) => setError(e.message));
   }, []);
 
@@ -91,12 +96,14 @@ export function App() {
     return () => source.close();
   }, []);
 
-  const handleCreated = (profile: Profile) => {
-    setProfiles((prev) =>
-      prev
-        ? [profile, ...prev.filter((p) => p.name !== profile.name)]
-        : [profile],
-    );
+  const handleCreated = (profiles: Profile[]) => {
+    profiles.forEach((profile) => {
+      setProfiles((prev) =>
+        prev
+          ? [profile, ...prev.filter((p) => p.name !== profile.name)]
+          : [profile],
+      );
+    });
     load();
   };
 
@@ -178,7 +185,7 @@ export function App() {
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
@@ -234,6 +241,7 @@ export function App() {
         ) : (
           <DeploymentsTable
             profiles={profiles}
+            groups={groups}
             selected={selected}
             onSelectedChange={setSelected}
           />
@@ -295,7 +303,9 @@ export function App() {
           setDrawerOpen(false);
           setSelectedProfile(null);
         }}
-        onCreated={handleCreated}
+        onCreated={(profiles) => {
+          handleCreated(profiles);
+        }}
       />
     </>
   );

@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   Checkbox,
   Paper,
@@ -9,20 +8,48 @@ import {
   TableHead,
   TableRow,
 } from '@mui/material';
+import { useMemo } from 'react';
 
+import { DeploymentsTableGroupRow } from './DeploymentsTableGroupRow';
 import { DeploymentsTableRow } from './DeploymentsTableRow';
-import type { Profile } from './types';
+import type { DeploymentGroup, Profile } from './types';
 
 export function DeploymentsTable({
   profiles,
+  groups,
   selected,
   onSelectedChange,
 }: {
   profiles: Profile[];
+  groups: DeploymentGroup[];
   selected: string[];
   onSelectedChange: (names: string[]) => void;
 }) {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  const { ungrouped, grouped } = useMemo(() => {
+    const groupsById = new Map(groups.map((g) => [g.id, g] as const));
+    const byGroup = new Map<number, Profile[]>();
+    const flat: Profile[] = [];
+    for (const p of profiles) {
+      if (p.group_id != null && groupsById.has(p.group_id)) {
+        const arr = byGroup.get(p.group_id) ?? [];
+        arr.push(p);
+        byGroup.set(p.group_id, arr);
+      } else {
+        flat.push(p);
+      }
+    }
+    const groupedList: { group: DeploymentGroup; members: Profile[] }[] = [];
+    for (const g of groups) {
+      const members = byGroup.get(g.id);
+      if (members && members.length > 0) {
+        members.sort((a, b) => a.port_slot - b.port_slot);
+        groupedList.push({ group: g, members });
+      }
+    }
+    return { ungrouped: flat, grouped: groupedList };
+  }, [profiles, groups]);
 
   const toggleOne = (name: string) => {
     const next = new Set(selectedSet);
@@ -63,7 +90,16 @@ export function DeploymentsTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {profiles.map((p) => (
+          {grouped.map(({ group, members }) => (
+            <DeploymentsTableGroupRow
+              key={`group-${group.id}`}
+              group={group}
+              members={members}
+              selectedSet={selectedSet}
+              onSelectedChange={onSelectedChange}
+            />
+          ))}
+          {ungrouped.map((p) => (
             <DeploymentsTableRow
               key={p.name}
               profile={p}

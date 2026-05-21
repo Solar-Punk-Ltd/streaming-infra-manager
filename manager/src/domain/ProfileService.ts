@@ -1,6 +1,13 @@
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import {
+  DeploymentGroupRepository,
+  SharedProfileParams,
+} from './DeploymentGroupRepository.js';
+
+import {
+  DeploymentGroup,
+  Profile,
   ProfileKind,
   ProfileWithContainers,
   TRANSITIONAL_STATUSES,
@@ -10,6 +17,7 @@ import { ContainerRepository } from './ContainerRepository.js';
 import { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
 import {
   AllSlotsUsedError,
+  GroupExistsError,
   ProfileBusyError,
   ProfileExistsError,
   ProfileNotFoundError,
@@ -33,6 +41,7 @@ export class ProfileService {
     private readonly containers: ContainerRepository,
     private readonly orchestrator: DeploymentOrchestrator,
     private readonly events: EventBus,
+    private readonly groupRepo: DeploymentGroupRepository,
   ) {}
 
   private publishChanged(profile: ProfileWithContainers): void {
@@ -105,7 +114,8 @@ export class ProfileService {
         getErrorMessage(err),
       );
       if (errored) {
-        this.publishChanged(await this.containers.withContainers(errored));
+        const withContainers = await this.containers.withContainers(errored);
+        this.publishChanged(withContainers);
       }
       throw err;
     }
@@ -188,5 +198,78 @@ export class ProfileService {
     }
     await this.orchestrator.startRemove(profile, input);
     return { ...profile, status: 'REMOVING' };
+  }
+
+  async listGroups(): Promise<DeploymentGroup[]> {
+    return this.groupRepo.list();
+  }
+
+  async createGroup(input: {
+    group_name: string;
+    size: number;
+    kind: ProfileKind;
+    notes?: string | null;
+    components?: string[];
+    host?: string;
+    feed_owner?: string;
+    feed_topic?: string;
+    private_key?: string;
+    public_key?: string;
+    stamp_id?: string;
+  }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
+    const existingGroup = await this.groupRepo.findByName(input.group_name);
+    if (existingGroup) {
+      throw new GroupExistsError(input.group_name);
+    }
+
+    const usedNames = new Set((await this.repo.list()).map((p) => p.name));
+
+    // todo string array
+    const members: { name: string }[] = [];
+    let n = 1;
+    while (members.length < input.size) {
+      let candidate = `${input.group_name}-profile-${n}`;
+      while (usedNames.has(candidate)) {
+        n += 1;
+        candidate = `${input.group_name}-profile-${n}`;
+      }
+
+      usedNames.add(candidate);
+      members.push({ name: candidate });
+      n += 1;
+    }
+
+    const shared: SharedProfileParams = {
+      kind: input.kind,
+      notes: input.notes ?? null,
+      components:
+        input.components && input.components.length > 0
+          ? input.components
+          : null,
+      host: input.host ?? null,
+      feed_owner: input.feed_owner ?? null,
+      feed_topic: input.feed_topic ?? null,
+      private_key: input.private_key ?? null,
+      public_key: input.public_key ?? null,
+      stamp_id: input.stamp_id ?? null,
+    };
+
+    const { group, profiles } = await this.groupRepo.createGroupWithMembers(
+      input.group_name,
+      members,
+      shared,
+    );
+
+    logger.info(
+      `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)`,
+    );
+    const profilesWithContainers: ProfileWithContainers[] = [];
+    for (const p of profiles) {
+      const withContainers = await this.containers.withContainers(p);
+      profilesWithContainers.push(withContainers);
+      this.publishChanged(withContainers);
+    }
+
+    return { group, profiles: profilesWithContainers };
   }
 }

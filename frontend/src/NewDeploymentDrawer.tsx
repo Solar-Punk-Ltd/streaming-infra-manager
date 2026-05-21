@@ -24,7 +24,20 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { createProfile, updateProfile } from './data';
+import { createDeploymentGroup, createProfile, updateProfile } from './data';
+import {
+  componentsHelperText,
+  feedOwnerHelperText,
+  feedTopicHelperText,
+  groupSizeHelperText,
+  hostHelperText,
+  kindHelperText,
+  nameHelperText,
+  notesHelperText,
+  privateKeyHelperText,
+  publicKeyHelperText,
+  stampIdHelperText,
+} from './helperText';
 import type { Profile, ProfileKind } from './types';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -62,7 +75,7 @@ const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: (profile: Profile) => void;
+  onCreated: (profiles: Profile[]) => void;
   selectedProfile?: Profile | null;
 }
 
@@ -73,6 +86,8 @@ export function NewDeploymentDrawer({
   selectedProfile,
 }: Props) {
   const isEdit = !!selectedProfile;
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupSize, setGroupSize] = useState(2);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<ProfileKind>('viewer');
   const [components, setComponents] = useState<Component[]>(
@@ -164,6 +179,10 @@ export function NewDeploymentDrawer({
   const componentsError =
     components.length === 0 ? 'select at least one component' : null;
   const notesError = notes.length > 500 ? 'max 500 chars' : null;
+  const groupSizeError =
+    groupMode && (!Number.isInteger(groupSize) || groupSize < 1)
+      ? 'must be a positive integer'
+      : null;
 
   const canSubmit =
     !submitting &&
@@ -176,7 +195,8 @@ export function NewDeploymentDrawer({
     !privateKeyError &&
     !stampIdError &&
     !componentsError &&
-    !notesError;
+    !notesError &&
+    !groupSizeError;
 
   const reset = () => {
     setName('');
@@ -188,6 +208,8 @@ export function NewDeploymentDrawer({
     setPrivateKey('');
     setStampId('');
     setNotes('');
+    setGroupMode(false);
+    setGroupSize(2);
     setSubmitError(null);
   };
 
@@ -218,21 +240,36 @@ export function NewDeploymentDrawer({
         stamp_id:
           hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
       };
-      const profile = isEdit
-        ? await updateProfile(selectedProfile!.name, common)
-        : await createProfile({
-            ...common,
-            name,
-            host: host.trim() || 'localhost',
-          });
-      onCreated(profile);
-      reset();
-      onClose();
+      if (!isEdit && groupMode) {
+        const result = await createDeploymentGroup({
+          ...common,
+          group_name: name,
+          size: groupSize,
+          host: host.trim() || 'localhost',
+        });
+
+        onCreated(result.profiles);
+        reset();
+        onClose();
+      } else {
+        const profile = isEdit
+          ? await updateProfile(selectedProfile!.name, common)
+          : await createProfile({
+              ...common,
+              name,
+              host: host.trim() || 'localhost',
+            });
+        onCreated([profile]);
+        reset();
+        onClose();
+      }
     } catch (e) {
       setSubmitError(
         getErrorMessage(
           e,
-          isEdit ? 'failed to update deployment' : 'failed to create deployment',
+          isEdit
+            ? 'failed to update deployment'
+            : 'failed to create deployment',
         ),
       );
     } finally {
@@ -257,20 +294,42 @@ export function NewDeploymentDrawer({
         </Stack>
 
         <Stack spacing={2}>
+          {!isEdit && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={groupMode}
+                  onChange={(e) => setGroupMode(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="Deploy as group"
+            />
+          )}
+
           <TextField
-            label="Name"
+            label={groupMode ? 'Group name' : 'Name'}
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             autoFocus={!isEdit}
             disabled={isEdit}
             error={!!nameError}
-            helperText={
-              nameError ??
-              (isEdit ? 'locked — names are immutable' : 'e.g. viewer-alpha')
-            }
+            helperText={nameHelperText(nameError, isEdit, groupMode)}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
+
+          {!isEdit && groupMode && (
+            <TextField
+              label="Size"
+              type="number"
+              value={groupSize}
+              onChange={(e) => setGroupSize(parseInt(e.target.value, 10) || 0)}
+              error={!!groupSizeError}
+              helperText={groupSizeHelperText(groupSizeError, groupSize)}
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+            />
+          )}
 
           <TextField
             label="Kind"
@@ -278,11 +337,10 @@ export function NewDeploymentDrawer({
             value={kind}
             onChange={(e) => onKindChange(e.target.value as ProfileKind)}
             disabled={isEdit}
-            helperText={
-              isEdit
-                ? 'locked — kind cannot change after first deploy'
-                : KINDS.find((k) => k.value === kind)?.hint
-            }
+            helperText={kindHelperText(
+              isEdit,
+              KINDS.find((k) => k.value === kind)?.hint,
+            )}
           >
             {KINDS.map((k) => (
               <MenuItem key={k.value} value={k.value}>
@@ -320,12 +378,7 @@ export function NewDeploymentDrawer({
               ))}
             </FormGroup>
             <FormHelperText>
-              {componentsError ??
-                (isEdit
-                  ? 'locked — components cannot change after first deploy'
-                  : isCustom
-                    ? 'pick any combination'
-                    : 'locked by kind')}
+              {componentsHelperText(componentsError, isEdit, isCustom)}
             </FormHelperText>
           </FormControl>
 
@@ -335,12 +388,7 @@ export function NewDeploymentDrawer({
             onChange={(e) => setHost(e.target.value)}
             disabled={isEdit}
             error={!!hostError}
-            helperText={
-              hostError ??
-              (isEdit
-                ? 'locked — host cannot change after first deploy (data is not migrated)'
-                : 'optional — defaults to "localhost"')
-            }
+            helperText={hostHelperText(hostError, isEdit)}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
@@ -351,7 +399,7 @@ export function NewDeploymentDrawer({
                 value={privateKey}
                 onChange={(e) => setPrivateKey(e.target.value)}
                 error={!!privateKeyError}
-                helperText={privateKeyError ?? 'optional — 0x + 64 hex chars'}
+                helperText={privateKeyHelperText(privateKeyError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                   input: {
@@ -379,11 +427,7 @@ export function NewDeploymentDrawer({
                   htmlInput: { style: { fontFamily: 'monospace' } },
                   inputLabel: { shrink: true },
                 }}
-                helperText={
-                  derivedAddress
-                    ? 'derived from private key'
-                    : 'will appear once a valid private key is entered'
-                }
+                helperText={publicKeyHelperText(derivedAddress)}
               />
 
               <TextField
@@ -391,7 +435,7 @@ export function NewDeploymentDrawer({
                 value={stampId}
                 onChange={(e) => setStampId(e.target.value)}
                 error={!!stampIdError}
-                helperText={stampIdError ?? 'optional — Swarm postage batch id'}
+                helperText={stampIdHelperText(stampIdError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -407,7 +451,7 @@ export function NewDeploymentDrawer({
                 onChange={(e) => setFeedOwner(e.target.value)}
                 required
                 error={!!feedOwnerError}
-                helperText={feedOwnerError ?? '0x-prefixed Ethereum address'}
+                helperText={feedOwnerHelperText(feedOwnerError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -419,7 +463,7 @@ export function NewDeploymentDrawer({
                 onChange={(e) => setFeedTopic(e.target.value)}
                 required
                 error={!!feedTopicError}
-                helperText={feedTopicError ?? 'topic string'}
+                helperText={feedTopicHelperText(feedTopicError)}
                 slotProps={{
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
@@ -434,7 +478,7 @@ export function NewDeploymentDrawer({
             multiline
             minRows={3}
             error={!!notesError}
-            helperText={notesError ?? `${notes.length}/500`}
+            helperText={notesHelperText(notesError, notes.length)}
           />
 
           {submitError && <Alert severity="error">{submitError}</Alert>}
@@ -455,7 +499,11 @@ export function NewDeploymentDrawer({
               disabled={!canSubmit}
               startIcon={submitting ? <CircularProgress size={16} /> : null}
             >
-              {isEdit ? 'Save & Redeploy' : 'Deploy'}
+              {isEdit
+                ? 'Save & Redeploy'
+                : groupMode
+                  ? `Deploy group (${groupSize})`
+                  : 'Deploy'}
             </Button>
           </Stack>
         </Stack>

@@ -8,9 +8,10 @@ const MANAGER_URL =
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 5080,
     proxy: {
       '/profiles': MANAGER_URL,
+      '/groups': MANAGER_URL,
       '/health': MANAGER_URL,
       // SSE — disable any buffering / timeouts so events stream live.
       '/events': {
