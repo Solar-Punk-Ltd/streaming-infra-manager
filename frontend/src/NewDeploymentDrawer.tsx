@@ -62,8 +62,7 @@ const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: (profile: Profile) => void;
-  onGroupCreated?: (profiles: Profile[]) => void;
+  onCreated: (profiles: Profile[]) => void;
   selectedProfile?: Profile | null;
 }
 
@@ -71,7 +70,6 @@ export function NewDeploymentDrawer({
   open,
   onClose,
   onCreated,
-  onGroupCreated,
   selectedProfile,
 }: Props) {
   const isEdit = !!selectedProfile;
@@ -236,8 +234,8 @@ export function NewDeploymentDrawer({
           size: groupSize,
           host: host.trim() || 'localhost',
         });
-        if (onGroupCreated) onGroupCreated(result.profiles);
-        else result.profiles.forEach((p) => onCreated(p));
+
+        onCreated(result.profiles);
         reset();
         onClose();
       } else {
@@ -248,7 +246,7 @@ export function NewDeploymentDrawer({
               name,
               host: host.trim() || 'localhost',
             });
-        onCreated(profile);
+        onCreated([profile]);
         reset();
         onClose();
       }

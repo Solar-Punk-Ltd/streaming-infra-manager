@@ -96,12 +96,15 @@ export function App() {
     return () => source.close();
   }, []);
 
-  const handleCreated = (profile: Profile) => {
-    setProfiles((prev) =>
-      prev
-        ? [profile, ...prev.filter((p) => p.name !== profile.name)]
-        : [profile],
-    );
+  const handleCreated = (profiles: Profile[]) => {
+    profiles.forEach((profile) => {
+      setProfiles((prev) =>
+        prev
+          ? [profile, ...prev.filter((p) => p.name !== profile.name)]
+          : [profile],
+      );
+    });
+    load();
   };
 
   const nothingSelected = selected.length === 0 || busy;
@@ -300,13 +303,8 @@ export function App() {
           setDrawerOpen(false);
           setSelectedProfile(null);
         }}
-        onCreated={(profile) => {
-          handleCreated(profile);
-          load();
-        }}
-        onGroupCreated={(members) => {
-          members.forEach(handleCreated);
-          load();
+        onCreated={(profiles) => {
+          handleCreated(profiles);
         }}
       />
     </>
