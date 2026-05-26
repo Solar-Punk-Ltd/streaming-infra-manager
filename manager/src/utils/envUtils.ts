@@ -3,7 +3,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const SUBMODULE = resolve(HERE, '../../swarm-hls-stream');
+// Default: the swarm-hls-stream submodule sits next to the manager source tree.
+// On the deploy server the submodule lives outside the image (bind-mounted
+// from the host) so the path differs from the in-image one — SHLS_ROOT lets
+// docker-compose.yml point at the bind-mount without code changes.
+export const SUBMODULE =
+  process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
 export const SCRIPTS_DIR = join(SUBMODULE, 'deploy', 'scripts');
 
 export const SCRIPT_DEPLOY = join(SCRIPTS_DIR, 'deploy.sh');

@@ -1,3 +1,15 @@
+# Manager API image.
+#
+# NOTE: swarm-hls-stream is NOT baked into this image. It is bind-mounted from
+# the host at runtime (see manager/docker-compose.yml) at the SAME absolute
+# path on both sides. This matters because the api process shells out to
+# `docker compose ... up` against compose files inside that tree; the docker
+# daemon runs on the host, so any relative volume in those compose files is
+# resolved against the host filesystem. Matching paths keeps that consistent.
+#
+# The swarm-hls-stream packages must therefore be built on the host before
+# deploy — the deploy script (deploy/deploy.sh) handles that.
+
 FROM node:22-alpine AS build
 WORKDIR /repo
 RUN npm install -g pnpm@9
@@ -18,19 +30,6 @@ RUN pnpm --filter @streaming-infra-manager/api... build
 # Produces a self-contained tree at /out with prod node_modules + dist.
 RUN pnpm deploy --filter=@streaming-infra-manager/api --prod /out
 
-# --- swarm-hls-stream build stage -------------------------------------------
-FROM node:22-alpine AS shls-build
-WORKDIR /shls
-
-RUN apk add --no-cache python3 make g++ \
- && npm install -g pnpm@9
-
-COPY manager/swarm-hls-stream/package.json manager/swarm-hls-stream/pnpm-workspace.yaml manager/swarm-hls-stream/pnpm-lock.yaml ./
-COPY manager/swarm-hls-stream/packages ./packages
-
-RUN pnpm install --frozen-lockfile
-RUN pnpm -r build
-
 # --- runtime stage ----------------------------------------------------------
 FROM node:22-alpine
 WORKDIR /app
@@ -42,10 +41,6 @@ RUN apk add --no-cache \
       ca-certificates
 
 COPY --from=build /out ./
-
-COPY manager/swarm-hls-stream ./swarm-hls-stream
-COPY --from=shls-build /shls/packages/stream-uploader/dist ./swarm-hls-stream/packages/stream-uploader/dist
-COPY --from=shls-build /shls/packages/client/dist ./swarm-hls-stream/packages/client/dist
 
 ENV NODE_ENV=production
 EXPOSE 9876
