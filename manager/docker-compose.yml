@@ -29,9 +29,11 @@ services:
       DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
       MANAGER_PORT: "9876"
       SHLS_ROOT: /home/solarpunk/streaming-infra-manager/manager/swarm-hls-stream
+      BEE_DATA_ROOT: ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/solarpunk/streaming-infra-manager:/home/solarpunk/streaming-infra-manager
+      - ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}:${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
 
   web:
     build:

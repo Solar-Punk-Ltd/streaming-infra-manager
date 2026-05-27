@@ -42,7 +42,8 @@ rsync -avz --delete \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
 echo "==> Remote build + up"
-ssh "$SSH_TARGET" "cd ${REMOTE_PATH}/manager && docker compose up -d --build"
+ssh "$SSH_TARGET" "cd ${REMOTE_PATH}/manager && BEE_DATA_ROOT=\$HOME/streaming-infra-manager-data docker compose up -d --build"
+
 
 echo "==> Done."
 echo "Tunnel: ssh -L 8080:localhost:8080 ${SSH_TARGET}"

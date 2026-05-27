@@ -1,6 +1,10 @@
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { KIND_DEFAULT_SERVICES, Profile, ProfileStatus } from '../types/index.js';
+import {
+  KIND_DEFAULT_SERVICES,
+  Profile,
+  ProfileStatus,
+} from '../types/index.js';
 import {
   SCRIPT_CLEAN,
   SCRIPT_DEPLOY,
@@ -23,6 +27,16 @@ const logger = Logger.getInstance();
 
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
+
+const BEE_DATA_ROOT =
+  process.env.BEE_DATA_ROOT ?? '~/streaming-infra-manager-data';
+
+function beeDataDirsFor(profileName: string): Record<string, string> {
+  return {
+    BEE_UPLOADER_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-uploader`,
+    BEE_GATEWAY_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-gateway`,
+  };
+}
 
 // Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
 const PORT_VAR_DEFAULTS: Record<string, number> = {
@@ -163,6 +177,7 @@ export class DeploymentOrchestrator {
   startHealth(profile: Profile): RunHandle {
     return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
       cwd: SUBMODULE,
+      env: beeDataDirsFor(profile.name),
     });
   }
 
@@ -189,7 +204,10 @@ export class DeploymentOrchestrator {
       `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${cfg.args.join(' ')}`,
     );
 
-    const handle = this.runner.run(cfg.script, cfg.args, { cwd: SUBMODULE });
+    const handle = this.runner.run(cfg.script, cfg.args, {
+      cwd: SUBMODULE,
+      env: beeDataDirsFor(cfg.profileName),
+    });
 
     // Buffer both streams — deploy.sh writes most errors to stdout, docker
     // build writes them to stderr; we want whatever's useful in the failure msg.
@@ -293,6 +311,8 @@ export class DeploymentOrchestrator {
 
   private buildEffectiveEnv(profile: Profile): Record<string, string> {
     const env = parseBaseEnv();
+
+    Object.assign(env, beeDataDirsFor(profile.name));
 
     for (const [name, def] of Object.entries(PORT_VAR_DEFAULTS)) {
       if (profile.port_slot === 0) {
