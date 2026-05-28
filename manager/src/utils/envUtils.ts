@@ -53,7 +53,11 @@ export function parseBaseEnv(): Record<string, string> {
 
 export function deleteProfileEnv(name: string): boolean {
   const path = profileEnvPath(name);
-  if (!existsSync(path)) return false;
+
+  if (!existsSync(path)) {
+    return false;
+  }
+
   unlinkSync(path);
   return true;
 }

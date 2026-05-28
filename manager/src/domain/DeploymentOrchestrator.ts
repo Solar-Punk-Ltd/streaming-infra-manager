@@ -174,7 +174,9 @@ export class DeploymentOrchestrator {
       '--yes',
       '--volumes',
     ];
-    if (input.all) args.push('--all');
+    if (input.all) {
+      args.push('--all');
+    }
 
     return this.runJob({
       profileName: profile.name,
@@ -183,9 +185,9 @@ export class DeploymentOrchestrator {
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
+        await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(profile.name);
-        await this.removeProfileDataDir(profile.name);
         this.eventBus.publish({ type: 'profile.deleted', name: profile.name });
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
@@ -260,24 +262,34 @@ export class DeploymentOrchestrator {
       if (code === 0) {
         await cfg.onSuccess();
         logger.info(`[Orchestrator] ${cfg.profileName} ← success`);
-      } else {
-        const message =
-          stderrTail.trim() ||
-          stdoutTail.trim() ||
-          `${cfg.script} exited with code ${code}`;
+        return;
+      }
+      const message =
+        stderrTail.trim() ||
+        stdoutTail.trim() ||
+        `${cfg.script} exited with code ${code}`;
+      const errored = await this.profiles.markError(cfg.profileName, message);
+      if (errored) {
+        await this.publishChanged(errored);
+      }
+      logger.warn(
+        `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
+      );
+    } catch (err) {
+      const message = getErrorMessage(err);
+      logger.error(
+        `[Orchestrator] failed to finalize ${cfg.profileName}: ${message}`,
+      );
+      try {
         const errored = await this.profiles.markError(cfg.profileName, message);
         if (errored) {
           await this.publishChanged(errored);
         }
-        logger.warn(
-          `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
+      } catch (markErr) {
+        logger.error(
+          `[Orchestrator] failed to mark ${cfg.profileName} ERROR: ${getErrorMessage(markErr)}`,
         );
       }
-    } catch (err) {
-      logger.error(
-        `[Orchestrator] failed to finalize ${cfg.profileName}:`,
-        getErrorMessage(err),
-      );
     }
   }
 
@@ -317,20 +329,13 @@ export class DeploymentOrchestrator {
       /[/\\]/.test(profileName) ||
       profileName.includes('..')
     ) {
-      logger.warn(
-        `[Orchestrator] refusing to remove data dir for suspicious name "${profileName}"`,
+      throw new Error(
+        `refusing to remove data dir for suspicious name "${profileName}"`,
       );
-      return;
     }
     const dir = profileDataRoot(profileName);
-    try {
-      await rm(dir, { recursive: true, force: true });
-      logger.info(`[Orchestrator] removed data dir ${dir}`);
-    } catch (err) {
-      logger.warn(
-        `[Orchestrator] failed to remove data dir ${dir}: ${getErrorMessage(err)}`,
-      );
-    }
+    await rm(dir, { recursive: true, force: true });
+    logger.info(`[Orchestrator] removed data dir ${dir}`);
   }
 
   private async snapshotContainers(
