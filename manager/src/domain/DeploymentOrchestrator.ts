@@ -33,7 +33,7 @@ const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
 const BEE_DATA_ROOT =
-  process.env.BEE_DATA_ROOT ?? '~/streaming-infra-manager-data';
+  process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
 
 function beeDataDirsFor(profileName: string): Record<string, string> {
   return {
@@ -42,19 +42,8 @@ function beeDataDirsFor(profileName: string): Record<string, string> {
   };
 }
 
-function expandHome(p: string): string {
-  if (p === '~') {
-    return homedir();
-  }
-  if (p.startsWith('~/')) {
-    return join(homedir(), p.slice(2));
-  }
-
-  return p;
-}
-
 function profileDataRoot(profileName: string): string {
-  return join(expandHome(BEE_DATA_ROOT), profileName);
+  return join(BEE_DATA_ROOT, profileName);
 }
 
 // Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
