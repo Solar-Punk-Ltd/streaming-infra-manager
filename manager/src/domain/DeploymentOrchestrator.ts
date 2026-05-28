@@ -274,7 +274,6 @@ export class DeploymentOrchestrator {
         );
       }
     } catch (err) {
-      // The terminal-state update itself failed. Log; nothing else we can do.
       logger.error(
         `[Orchestrator] failed to finalize ${cfg.profileName}:`,
         getErrorMessage(err),
