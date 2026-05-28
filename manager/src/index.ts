@@ -12,8 +12,31 @@ import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { config } from './utils/config.js';
+import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
+
+function redactDatabaseUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return '<unparseable>';
+  }
+}
+
+function logStartupConfig(): void {
+  logger.info('[Boot] configuration:');
+  logger.info(`[Boot]   listen: ${config.host}:${config.port}`);
+  logger.info(
+    `[Boot]   publicHost: ${config.publicHost || '(unset → localhost)'}`,
+  );
+  logger.info(`[Boot]   serverHost (resolved): ${resolveServerHost()}`);
+  logger.info(`[Boot]   logLevel: ${config.logLevel}`);
+  logger.info(`[Boot]   database: ${redactDatabaseUrl(config.databaseUrl)}`);
+}
 
 let apiServer: ApiServerHandle | undefined;
 let database: Database | undefined;
@@ -49,6 +72,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  logStartupConfig();
+
   database = new Database(config.databaseUrl);
   await database.migrate();
 
