@@ -190,7 +190,7 @@ export class ProfileService {
 
   async remove(
     name: string,
-    input: { volumes?: boolean; all?: boolean } = {},
+    input: { all?: boolean } = {},
   ): Promise<ProfileWithContainers> {
     const profile = await this.getByName(name);
     if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {

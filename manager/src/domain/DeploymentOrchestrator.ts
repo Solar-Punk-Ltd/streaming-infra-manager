@@ -1,3 +1,7 @@
+import { rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import {
@@ -36,6 +40,21 @@ function beeDataDirsFor(profileName: string): Record<string, string> {
     BEE_UPLOADER_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-uploader`,
     BEE_GATEWAY_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-gateway`,
   };
+}
+
+function expandHome(p: string): string {
+  if (p === '~') {
+    return homedir();
+  }
+  if (p.startsWith('~/')) {
+    return join(homedir(), p.slice(2));
+  }
+
+  return p;
+}
+
+function profileDataRoot(profileName: string): string {
+  return join(expandHome(BEE_DATA_ROOT), profileName);
 }
 
 // Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
@@ -147,14 +166,14 @@ export class DeploymentOrchestrator {
 
   async startRemove(
     profile: Profile,
-    input: { volumes?: boolean; all?: boolean } = {},
+    input: { all?: boolean } = {},
   ): Promise<RunHandle> {
     const args: string[] = [
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
       '--yes',
+      '--volumes',
     ];
-    if (input.volumes) args.push('--volumes');
     if (input.all) args.push('--all');
 
     return this.runJob({
@@ -166,6 +185,7 @@ export class DeploymentOrchestrator {
       onSuccess: async () => {
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(profile.name);
+        await this.removeProfileDataDir(profile.name);
         this.eventBus.publish({ type: 'profile.deleted', name: profile.name });
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
@@ -290,6 +310,28 @@ export class DeploymentOrchestrator {
       return [...profile.components];
     }
     return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
+  }
+
+  private async removeProfileDataDir(profileName: string): Promise<void> {
+    if (
+      !profileName ||
+      /[/\\]/.test(profileName) ||
+      profileName.includes('..')
+    ) {
+      logger.warn(
+        `[Orchestrator] refusing to remove data dir for suspicious name "${profileName}"`,
+      );
+      return;
+    }
+    const dir = profileDataRoot(profileName);
+    try {
+      await rm(dir, { recursive: true, force: true });
+      logger.info(`[Orchestrator] removed data dir ${dir}`);
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] failed to remove data dir ${dir}: ${getErrorMessage(err)}`,
+      );
+    }
   }
 
   private async snapshotContainers(
