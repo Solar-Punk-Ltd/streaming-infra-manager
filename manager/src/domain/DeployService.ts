@@ -23,10 +23,7 @@ export class DeployService {
       case 'stop':
         return this.orchestrator.startStop(profile, input.services);
       case 'clean':
-        return this.orchestrator.startRemove(profile, {
-          volumes: input.volumes,
-          all: input.all,
-        });
+        return this.orchestrator.startRemove(profile, { all: input.all });
       case 'health':
         return this.orchestrator.startHealth(profile);
     }

@@ -271,8 +271,8 @@ export function App() {
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This stops the containers and deletes the profile record. Data
-            volumes on the host are <strong>not</strong> automatically removed.
+            This stops the containers, deletes the profile record, and{' '}
+            <strong>wipes the deployment's data directory</strong> on the host.
             This action cannot be undone.
           </DialogContentText>
           <Box sx={{ mt: 2, fontFamily: 'monospace', fontSize: 13 }}>

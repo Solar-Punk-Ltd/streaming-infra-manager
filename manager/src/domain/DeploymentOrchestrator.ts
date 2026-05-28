@@ -1,3 +1,6 @@
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import {
@@ -29,13 +32,17 @@ const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
 const BEE_DATA_ROOT =
-  process.env.BEE_DATA_ROOT ?? '~/streaming-infra-manager-data';
+  process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
 
 function beeDataDirsFor(profileName: string): Record<string, string> {
   return {
     BEE_UPLOADER_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-uploader`,
     BEE_GATEWAY_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-gateway`,
   };
+}
+
+function profileDataRoot(profileName: string): string {
+  return join(BEE_DATA_ROOT, profileName);
 }
 
 // Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
@@ -147,15 +154,17 @@ export class DeploymentOrchestrator {
 
   async startRemove(
     profile: Profile,
-    input: { volumes?: boolean; all?: boolean } = {},
+    input: { all?: boolean } = {},
   ): Promise<RunHandle> {
     const args: string[] = [
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
       '--yes',
+      '--volumes',
     ];
-    if (input.volumes) args.push('--volumes');
-    if (input.all) args.push('--all');
+    if (input.all) {
+      args.push('--all');
+    }
 
     return this.runJob({
       profileName: profile.name,
@@ -164,6 +173,7 @@ export class DeploymentOrchestrator {
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
+        await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(profile.name);
         this.eventBus.publish({ type: 'profile.deleted', name: profile.name });
@@ -240,25 +250,34 @@ export class DeploymentOrchestrator {
       if (code === 0) {
         await cfg.onSuccess();
         logger.info(`[Orchestrator] ${cfg.profileName} ← success`);
-      } else {
-        const message =
-          stderrTail.trim() ||
-          stdoutTail.trim() ||
-          `${cfg.script} exited with code ${code}`;
+        return;
+      }
+      const message =
+        stderrTail.trim() ||
+        stdoutTail.trim() ||
+        `${cfg.script} exited with code ${code}`;
+      const errored = await this.profiles.markError(cfg.profileName, message);
+      if (errored) {
+        await this.publishChanged(errored);
+      }
+      logger.warn(
+        `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
+      );
+    } catch (err) {
+      const message = getErrorMessage(err);
+      logger.error(
+        `[Orchestrator] failed to finalize ${cfg.profileName}: ${message}`,
+      );
+      try {
         const errored = await this.profiles.markError(cfg.profileName, message);
         if (errored) {
           await this.publishChanged(errored);
         }
-        logger.warn(
-          `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
+      } catch (markErr) {
+        logger.error(
+          `[Orchestrator] failed to mark ${cfg.profileName} ERROR: ${getErrorMessage(markErr)}`,
         );
       }
-    } catch (err) {
-      // The terminal-state update itself failed. Log; nothing else we can do.
-      logger.error(
-        `[Orchestrator] failed to finalize ${cfg.profileName}:`,
-        getErrorMessage(err),
-      );
     }
   }
 
@@ -290,6 +309,21 @@ export class DeploymentOrchestrator {
       return [...profile.components];
     }
     return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
+  }
+
+  private async removeProfileDataDir(profileName: string): Promise<void> {
+    if (
+      !profileName ||
+      /[/\\]/.test(profileName) ||
+      profileName.includes('..')
+    ) {
+      throw new Error(
+        `refusing to remove data dir for suspicious name "${profileName}"`,
+      );
+    }
+    const dir = profileDataRoot(profileName);
+    await rm(dir, { recursive: true, force: true });
+    logger.info(`[Orchestrator] removed data dir ${dir}`);
   }
 
   private async snapshotContainers(
