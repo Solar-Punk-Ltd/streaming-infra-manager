@@ -5,15 +5,39 @@ import type {
   ProfileKind,
 } from './types';
 
-export function clientUrl(
-  profile: Profile,
-  host = window.location.hostname,
-): string | null {
+const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
+
+/**
+ * The address to reach a profile's components: the profile's own host when it
+ * names a concrete server, otherwise the manager-reported server host.
+ */
+export function hostFor(profile: Profile, serverHost: string): string {
+  const profileHost = profile.host?.trim() ?? '';
+  if (!LOCAL_HOSTS.has(profileHost)) return profileHost;
+  return serverHost || window.location.hostname;
+}
+
+export function componentUrl(host: string, port: number): string {
+  return `http://${host}:${port}`;
+}
+
+export function clientUrl(profile: Profile, serverHost: string): string | null {
   const client = profile.containers.find((c) => c.service === 'client');
   if (!client) return null;
   const port = client.ports.CLIENT_PORT;
   if (!port) return null;
-  return `http://${host}:${port}`;
+  return componentUrl(hostFor(profile, serverHost), port);
+}
+
+export async function fetchServerHost(): Promise<string> {
+  try {
+    const res = await fetch('/config');
+    if (!res.ok) throw new Error(String(res.status));
+    const body = (await res.json()) as { host: string };
+    return body.host;
+  } catch {
+    return window.location.hostname;
+  }
 }
 
 export async function fetchProfiles(): Promise<Profile[]> {

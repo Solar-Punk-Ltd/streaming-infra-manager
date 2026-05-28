@@ -13,6 +13,7 @@ export default defineConfig({
       '/profiles': MANAGER_URL,
       '/groups': MANAGER_URL,
       '/health': MANAGER_URL,
+      '/config': MANAGER_URL,
       // SSE — disable any buffering / timeouts so events stream live.
       '/events': {
         target: MANAGER_URL,

@@ -42,7 +42,28 @@ rsync -avz --delete \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
 echo "==> Remote build + up"
-ssh "$SSH_TARGET" "cd ${REMOTE_PATH}/manager && BEE_DATA_ROOT=\$HOME/streaming-infra-manager-data docker compose up -d --build"
+# Detect the server's primary IP on the host (the manager runs in a container,
+# so it can't see the host's real address itself) and pass it through as
+# PUBLIC_HOST for building component URLs.
+ssh "$SSH_TARGET" bash -s <<REMOTE
+set -euo pipefail
+cd ${REMOTE_PATH}/manager
+
+echo "[deploy] hostname -I → '\$(hostname -I)'"
+PUBLIC_HOST="\$(hostname -I | awk '{print \$1}')"
+echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}'"
+if [ -z "\${PUBLIC_HOST}" ]; then
+    echo "[deploy] WARNING: PUBLIC_HOST is empty; component URLs will fall back to localhost" >&2
+fi
+
+export PUBLIC_HOST
+export BEE_DATA_ROOT="\${HOME}/streaming-infra-manager-data"
+docker compose up -d --build
+
+echo "[deploy] PUBLIC_HOST seen inside api container:"
+docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' || \
+    echo "[deploy] (could not exec into api container to verify)"
+REMOTE
 
 
 echo "==> Done."

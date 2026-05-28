@@ -12,6 +12,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { createActionsRouter } from './routes/actions.js';
+import { createConfigRouter } from './routes/config.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
 import { createHealthRouter } from './routes/health.js';
@@ -45,6 +46,7 @@ export function startApiServer(
   const events = createEventsRouter(deps.eventBus);
 
   app.use('/health', createHealthRouter(deps.database));
+  app.use('/config', createConfigRouter());
   app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/groups', createGroupsRouter(deps.profileService));

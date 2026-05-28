@@ -16,6 +16,7 @@ function optional(name: string, fallback: string): string {
 export interface AppConfig {
   port: number;
   host: string;
+  publicHost: string;
   databaseUrl: string;
   logLevel: string;
 }
@@ -23,6 +24,7 @@ export interface AppConfig {
 export const config: AppConfig = {
   port: Number(optional('MANAGER_PORT', '9876')),
   host: optional('MANAGER_HOST', '0.0.0.0'),
+  publicHost: optional('PUBLIC_HOST', ''),
   databaseUrl: required('DATABASE_URL'),
   logLevel: optional('LOG_LEVEL', 'info'),
 };

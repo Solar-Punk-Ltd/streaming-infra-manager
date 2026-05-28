@@ -17,7 +17,8 @@ import {
 import { useState } from 'react';
 
 import { StatusChip } from './StatusChip';
-import { clientUrl } from './data';
+import { useServerHost } from './ServerHostContext';
+import { clientUrl, componentUrl, hostFor } from './data';
 import type { Profile } from './types';
 
 export function DeploymentsTableRow({
@@ -32,7 +33,9 @@ export function DeploymentsTableRow({
   indent?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const url = clientUrl(profile);
+  const serverHost = useServerHost();
+  const url = clientUrl(profile, serverHost);
+  const host = hostFor(profile, serverHost);
   const containers = profile.containers;
   const toggle = () => setOpen((o) => !o);
 
@@ -131,9 +134,24 @@ export function DeploymentsTableRow({
                           {c.service}
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace' }}>
-                          {Object.entries(c.ports)
-                            .map(([key, port]) => `${key}:${port}`)
-                            .join('  ·  ')}
+                          {Object.entries(c.ports).map(([key, port], i) => (
+                            <Box
+                              key={key}
+                              component="span"
+                              sx={{ whiteSpace: 'nowrap' }}
+                            >
+                              {i > 0 && '  ·  '}
+                              {key}:
+                              <Link
+                                href={componentUrl(host, port)}
+                                target="_blank"
+                                rel="noopener"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {port}
+                              </Link>
+                            </Box>
+                          ))}
                         </TableCell>
                       </TableRow>
                     ))

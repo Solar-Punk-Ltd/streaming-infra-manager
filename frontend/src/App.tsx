@@ -26,11 +26,13 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
+import { ServerHostProvider } from './ServerHostContext';
 import {
   deleteProfile,
   deployProfile,
   fetchGroups,
   fetchProfiles,
+  fetchServerHost,
   stopProfile,
 } from './data';
 import type { DeploymentGroup, Profile } from './types';
@@ -38,6 +40,9 @@ import type { DeploymentGroup, Profile } from './types';
 export function App() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [groups, setGroups] = useState<DeploymentGroup[]>([]);
+  const [serverHost, setServerHost] = useState<string>(
+    window.location.hostname,
+  );
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
@@ -64,6 +69,10 @@ export function App() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    fetchServerHost().then(setServerHost).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const source = new EventSource('/events');
@@ -164,7 +173,7 @@ export function App() {
   };
 
   return (
-    <>
+    <ServerHostProvider value={serverHost}>
       <AppBar position="static" color="default" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
@@ -307,6 +316,6 @@ export function App() {
           handleCreated(profiles);
         }}
       />
-    </>
+    </ServerHostProvider>
   );
 }

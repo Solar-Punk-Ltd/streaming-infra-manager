@@ -28,6 +28,7 @@ services:
     environment:
       DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
       MANAGER_PORT: "9876"
+      PUBLIC_HOST: ${PUBLIC_HOST:-}
       SHLS_ROOT: /home/solarpunk/streaming-infra-manager/manager/swarm-hls-stream
       BEE_DATA_ROOT: ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
     volumes:
