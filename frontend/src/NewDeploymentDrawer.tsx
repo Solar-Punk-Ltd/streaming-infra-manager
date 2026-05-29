@@ -28,7 +28,6 @@ import { createDeploymentGroup, createProfile, updateProfile } from './data';
 import {
   componentsHelperText,
   feedOwnerHelperText,
-  feedTopicHelperText,
   groupSizeHelperText,
   hostHelperText,
   kindHelperText,
@@ -43,7 +42,6 @@ import type { Profile, ProfileKind } from './types';
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/;
 const FEED_OWNER_RE = /^0x[0-9a-fA-F]{40}$/;
-const FEED_TOPIC_RE = /^[\x20-\x7E]{1,128}$/;
 const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
@@ -95,7 +93,6 @@ export function NewDeploymentDrawer({
   );
   const [host, setHost] = useState('');
   const [feedOwner, setFeedOwner] = useState('');
-  const [feedTopic, setFeedTopic] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [stampId, setStampId] = useState('');
   const [notes, setNotes] = useState('');
@@ -114,7 +111,6 @@ export function NewDeploymentDrawer({
       );
       setHost(selectedProfile.host ?? '');
       setFeedOwner(selectedProfile.feed_owner ?? '');
-      setFeedTopic(selectedProfile.feed_topic ?? '');
       setPrivateKey(selectedProfile.private_key ?? '');
       setStampId(selectedProfile.stamp_id ?? '');
       setNotes(selectedProfile.notes ?? '');
@@ -159,13 +155,7 @@ export function NewDeploymentDrawer({
     hasClient && feedOwner.length > 0 && !FEED_OWNER_RE.test(feedOwner)
       ? 'expected 0x + 40 hex chars (Ethereum address)'
       : null;
-  const feedTopicError =
-    hasClient && feedTopic.length > 0 && !FEED_TOPIC_RE.test(feedTopic)
-      ? 'printable ASCII, max 128 chars'
-      : null;
-  const clientFieldsMissing =
-    hasClient &&
-    (feedOwner.trim().length === 0 || feedTopic.trim().length === 0);
+  const clientFieldsMissing = hasClient && feedOwner.trim().length === 0;
   const privateKeyError =
     hasStreamUploader &&
     privateKey.length > 0 &&
@@ -190,7 +180,6 @@ export function NewDeploymentDrawer({
     !nameError &&
     !hostError &&
     !feedOwnerError &&
-    !feedTopicError &&
     !clientFieldsMissing &&
     !privateKeyError &&
     !stampIdError &&
@@ -204,7 +193,6 @@ export function NewDeploymentDrawer({
     setComponents(KIND_DEFAULTS.viewer);
     setHost('');
     setFeedOwner('');
-    setFeedTopic('');
     setPrivateKey('');
     setStampId('');
     setNotes('');
@@ -229,8 +217,6 @@ export function NewDeploymentDrawer({
         components,
         feed_owner:
           hasClient && feedOwner.trim() ? feedOwner.trim() : undefined,
-        feed_topic:
-          hasClient && feedTopic.trim() ? feedTopic.trim() : undefined,
         private_key:
           hasStreamUploader && privateKey.trim()
             ? privateKey.trim()
@@ -444,31 +430,17 @@ export function NewDeploymentDrawer({
           )}
 
           {hasClient && (
-            <>
-              <TextField
-                label="Feed Owner Public Key"
-                value={feedOwner}
-                onChange={(e) => setFeedOwner(e.target.value)}
-                required
-                error={!!feedOwnerError}
-                helperText={feedOwnerHelperText(feedOwnerError)}
-                slotProps={{
-                  htmlInput: { style: { fontFamily: 'monospace' } },
-                }}
-              />
-
-              <TextField
-                label="Feed Topic"
-                value={feedTopic}
-                onChange={(e) => setFeedTopic(e.target.value)}
-                required
-                error={!!feedTopicError}
-                helperText={feedTopicHelperText(feedTopicError)}
-                slotProps={{
-                  htmlInput: { style: { fontFamily: 'monospace' } },
-                }}
-              />
-            </>
+            <TextField
+              label="Feed Owner Public Key"
+              value={feedOwner}
+              onChange={(e) => setFeedOwner(e.target.value)}
+              required
+              error={!!feedOwnerError}
+              helperText={feedOwnerHelperText(feedOwnerError)}
+              slotProps={{
+                htmlInput: { style: { fontFamily: 'monospace' } },
+              }}
+            />
           )}
 
           <TextField
