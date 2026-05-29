@@ -1,17 +1,21 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   Alert,
   AlertTitle,
   Box,
   Checkbox,
   Collapse,
+  IconButton,
   Link,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useState } from 'react';
@@ -33,11 +37,24 @@ export function DeploymentsTableRow({
   indent?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const serverHost = useServerHost();
   const url = clientUrl(profile, serverHost);
   const host = hostFor(profile, serverHost);
   const containers = profile.containers;
   const toggle = () => setOpen((o) => !o);
+
+  const copyUrl = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => {
+        setCopiedKey((current) => (current === key ? null : current));
+      }, 1200);
+    } catch {
+      // clipboard unavailable — ignore
+    }
+  };
 
   return (
     <>
@@ -134,24 +151,50 @@ export function DeploymentsTableRow({
                           {c.service}
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace' }}>
-                          {Object.entries(c.ports).map(([key, port], i) => (
-                            <Box
-                              key={key}
-                              component="span"
-                              sx={{ whiteSpace: 'nowrap' }}
-                            >
-                              {i > 0 && '  ·  '}
-                              {key}:
-                              <Link
-                                href={componentUrl(host, port)}
-                                target="_blank"
-                                rel="noopener"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {port}
-                              </Link>
-                            </Box>
-                          ))}
+                          <Stack spacing={0.5}>
+                            {Object.entries(c.ports).map(([key, port]) => {
+                              const href = componentUrl(host, port);
+                              const copyKey = `${c.service}:${key}`;
+                              return (
+                                <Stack
+                                  key={key}
+                                  direction="row"
+                                  alignItems="center"
+                                  spacing={1}
+                                  sx={{ whiteSpace: 'nowrap' }}
+                                >
+                                  <Box component="span">
+                                    {key}:{port}
+                                  </Box>
+                                  <Box sx={{ flexGrow: 1 }} />
+                                  <Link
+                                    href={href}
+                                    target="_blank"
+                                    rel="noopener"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {href}
+                                  </Link>
+                                  <Tooltip
+                                    title={
+                                      copiedKey === copyKey ? 'Copied' : 'Copy URL'
+                                    }
+                                  >
+                                    <IconButton
+                                      size="small"
+                                      aria-label={`copy ${href}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        copyUrl(copyKey, href);
+                                      }}
+                                    >
+                                      <ContentCopyIcon fontSize="inherit" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              );
+                            })}
+                          </Stack>
                         </TableCell>
                       </TableRow>
                     ))
