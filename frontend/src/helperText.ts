@@ -59,8 +59,5 @@ export const stampIdHelperText = (error: FieldError): string =>
 export const feedOwnerHelperText = (error: FieldError): string =>
   error || '0x-prefixed Ethereum address';
 
-export const feedTopicHelperText = (error: FieldError): string =>
-  error || 'topic string';
-
 export const notesHelperText = (error: FieldError, length: number): string =>
   error || `${length}/500`;
