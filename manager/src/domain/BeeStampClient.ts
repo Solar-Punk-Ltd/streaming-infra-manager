@@ -7,6 +7,9 @@
  */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+// Buying a stamp submits an on-chain transaction (Gnosis Chain) and the bee API
+// blocks until it's mined — well beyond the read timeout.
+const BUY_TIMEOUT_MS = 180_000;
 
 export interface BeeAddresses {
   ethereum: string;
@@ -79,6 +82,7 @@ export class BeeStampClient {
       'POST',
       `/stamps/${encodeURIComponent(input.amount)}/${input.depth}${query}`,
       headers,
+      BUY_TIMEOUT_MS,
     );
   }
 
@@ -86,6 +90,7 @@ export class BeeStampClient {
     method: string,
     path: string,
     headers: Record<string, string> = {},
+    timeoutMs: number = this.timeoutMs,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     let res: Response;
@@ -93,7 +98,7 @@ export class BeeStampClient {
       res = await fetch(url, {
         method,
         headers,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
