@@ -43,6 +43,14 @@ export function createActionsRouter(deployService: DeployService): Router {
   );
 
   router.post(
+    '/profiles/:name/deploy-uploader',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      await runAction(req, res, 'deploy-uploader');
+    }),
+  );
+
+  router.post(
     '/profiles/:name/stop',
     validateParams(profileNameSchema),
     validateBody(stopBodySchema),

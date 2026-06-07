@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -17,15 +18,21 @@ import {
   bootstrapSubmoduleDefaults,
   deleteProfileEnv,
   parseBaseEnv,
+  writeProfileStampEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
-import { ProfileBusyError } from './errors/index.js';
+import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
+import {
+  hasUsableStamp,
+  splitDeployableServices,
+  STREAM_UPLOADER_SERVICE,
+} from './stampLogic.js';
 
 const logger = Logger.getInstance();
 
@@ -89,22 +96,9 @@ export class DeploymentOrchestrator {
     services: string[] | undefined,
   ): Promise<RunHandle> {
     const resolved = this.resolveServices(profile, services);
-    return this.runJob({
-      profileName: profile.name,
-      script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, resolved),
+    return this.deployResolved(profile, resolved, {
       transitionTo: 'DEPLOYING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-      onSuccess: async () => {
-        const updated = await this.profiles.markTerminal(
-          profile.name,
-          'RUNNING',
-        );
-        await this.snapshotContainers(profile, resolved);
-        if (updated) {
-          await this.publishChanged(updated);
-        }
-      },
     });
   }
 
@@ -114,21 +108,95 @@ export class DeploymentOrchestrator {
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
     const resolved = this.resolveServices(profile, services);
+    return this.deployResolved(profile, resolved, { host: opts.host });
+  }
+
+  /**
+   * Incremental "deploy the held-back uploader" once a usable stamp exists.
+   * Requires a stamp — otherwise the uploader would just be held back again.
+   */
+  async startDeployUploader(profile: Profile): Promise<RunHandle> {
+    if (!hasUsableStamp(profile)) {
+      throw new StampRequiredError(profile.name);
+    }
+    return this.deployResolved(profile, [STREAM_UPLOADER_SERVICE], {
+      transitionTo: 'DEPLOYING',
+      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+    });
+  }
+
+  /**
+   * Shared deploy path: hold back the stream-uploader when there is no usable
+   * stamp, write the per-profile STAMP env when the uploader IS deployed, then
+   * run deploy.sh with the deployable set (or short-circuit if empty).
+   */
+  private async deployResolved(
+    profile: Profile,
+    resolved: string[],
+    opts: {
+      transitionTo?: ProfileStatus;
+      allowedFrom?: readonly ProfileStatus[];
+      host?: string;
+    },
+  ): Promise<RunHandle> {
+    const { deploy, heldBack } = splitDeployableServices(profile, resolved);
+
+    if (heldBack.length > 0) {
+      logger.info(
+        `[Orchestrator] ${profile.name}: holding back ${heldBack.join(', ')} — no usable stamp yet`,
+      );
+    }
+
+    // When the uploader IS being deployed a usable stamp is present; make the
+    // submodule's STAMP guard read a non-empty value from .env.<profile> so it
+    // never hits its interactive prompt (which would EOF-abort under our runner).
+    if (profile.stamp_id && deploy.includes(STREAM_UPLOADER_SERVICE)) {
+      const written = writeProfileStampEnv(profile.name, profile.stamp_id);
+      if (written) {
+        logger.info(`[Orchestrator] ${profile.name}: wrote stamp env ${written}`);
+      }
+    }
+
+    // Nothing deployable yet (e.g. an uploader-only custom profile without a
+    // stamp): never call deploy.sh with an empty filter — that deploys ALL
+    // config services. Mark RUNNING; pendingStamp surfaces the held-back state.
+    if (deploy.length === 0) {
+      return this.completeWithoutScript(profile);
+    }
+
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, resolved, opts.host),
+      args: this.buildScriptArgs(profile, deploy, opts.host),
+      transitionTo: opts.transitionTo,
+      allowedFrom: opts.allowedFrom,
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, resolved);
+        await this.snapshotContainers(profile, deploy);
         if (updated) {
           await this.publishChanged(updated);
         }
       },
     });
+  }
+
+  /**
+   * Finish a deploy that has no services to run (everything held back). Marks
+   * the profile RUNNING and returns a no-op handle so callers can await/pipe it
+   * exactly like a real script run.
+   */
+  private async completeWithoutScript(profile: Profile): Promise<RunHandle> {
+    await this.ensureSubmoduleDefaults();
+    const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
+    if (updated) {
+      await this.publishChanged(updated);
+    }
+    const emitter = new EventEmitter();
+    setImmediate(() => emitter.emit('done', { code: 0 }));
+    return { emitter, kill: () => undefined };
   }
 
   async startStop(

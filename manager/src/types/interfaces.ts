@@ -34,6 +34,11 @@ export interface ApiContainer {
 
 export interface ProfileWithContainers extends Profile {
   containers: ApiContainer[];
+  /**
+   * Derived: the profile wants the stream-uploader but has no usable stamp yet,
+   * so the uploader is held back ("Stamp required"). The rest of the stack runs.
+   */
+  pendingStamp: boolean;
 }
 
 export interface ActionInput {

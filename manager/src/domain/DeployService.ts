@@ -20,6 +20,8 @@ export class DeployService {
     switch (action) {
       case 'deploy':
         return this.orchestrator.startDeploy(profile, input.services);
+      case 'deploy-uploader':
+        return this.orchestrator.startDeployUploader(profile);
       case 'stop':
         return this.orchestrator.startStop(profile, input.services);
       case 'clean':

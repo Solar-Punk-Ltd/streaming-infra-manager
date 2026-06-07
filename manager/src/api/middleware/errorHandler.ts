@@ -11,6 +11,7 @@ import {
   GroupExistsError,
   ProfileExistsError,
   ProfileNotFoundError,
+  StampRequiredError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
 
@@ -49,6 +50,10 @@ export function errorHandler(
   }
   if (err instanceof GroupExistsError) {
     res.status(409).json({ error: 'group_exists', name: err.name });
+    return;
+  }
+  if (err instanceof StampRequiredError) {
+    res.status(409).json({ error: 'stamp_required', name: err.profileName });
     return;
   }
   if (err instanceof AllSlotsUsedError) {

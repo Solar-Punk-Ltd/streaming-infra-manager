@@ -25,6 +25,7 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { isPendingStamp } from './stampLogic.js';
 
 const logger = Logger.getInstance();
 
@@ -171,6 +172,7 @@ export class ProfileService {
     const withContainers: ProfileWithContainers = {
       ...row,
       containers: existing.containers,
+      pendingStamp: isPendingStamp(row),
     };
 
     this.publishChanged(withContainers);
