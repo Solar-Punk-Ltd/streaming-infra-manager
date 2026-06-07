@@ -41,6 +41,7 @@ const SRS_SRT_BASE_PORT = 10001;
 export function srtPublishUrl(
   profile: Profile,
   serverHost: string,
+  passphrase?: string | null,
 ): string | null {
   const srs = profile.containers.find((c) => c.service === 'srs');
   const port =
@@ -50,17 +51,27 @@ export function srtPublishUrl(
       : null);
   if (!port) return null;
   const host = hostFor(profile, serverHost);
-  return `srt://${host}:${port}?streamid=#!::r=${SRT_DEFAULT_APP_STREAM},m=publish`;
+  const base = `srt://${host}:${port}?streamid=#!::r=${SRT_DEFAULT_APP_STREAM},m=publish`;
+  return passphrase ? `${base}&passphrase=${passphrase}` : base;
 }
 
-export async function fetchServerHost(): Promise<string> {
+export interface ServerConfig {
+  host: string;
+  /** Global SRT passphrase, or null when SRT runs unencrypted. */
+  srtPassphrase: string | null;
+}
+
+export async function fetchServerConfig(): Promise<ServerConfig> {
   try {
     const res = await fetch('/config');
     if (!res.ok) throw new Error(String(res.status));
-    const body = (await res.json()) as { host: string };
-    return body.host;
+    const body = (await res.json()) as {
+      host: string;
+      srtPassphrase?: string | null;
+    };
+    return { host: body.host, srtPassphrase: body.srtPassphrase ?? null };
   } catch {
-    return window.location.hostname;
+    return { host: window.location.hostname, srtPassphrase: null };
   }
 }
 

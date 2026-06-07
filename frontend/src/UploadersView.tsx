@@ -86,9 +86,11 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 export function UploadersView({
   profiles,
   onChanged,
+  srtPassphrase,
 }: {
   profiles: Profile[] | null;
   onChanged: () => void;
+  srtPassphrase: string | null;
 }) {
   if (!profiles) {
     return (
@@ -115,7 +117,12 @@ export function UploadersView({
   return (
     <Stack spacing={1}>
       {uploaderProfiles.map((p) => (
-        <UploaderCard key={p.name} profile={p} onChanged={onChanged} />
+        <UploaderCard
+          key={p.name}
+          profile={p}
+          onChanged={onChanged}
+          srtPassphrase={srtPassphrase}
+        />
       ))}
     </Stack>
   );
@@ -124,9 +131,11 @@ export function UploadersView({
 function UploaderCard({
   profile,
   onChanged,
+  srtPassphrase,
 }: {
   profile: Profile;
   onChanged: () => void;
+  srtPassphrase: string | null;
 }) {
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
@@ -143,7 +152,7 @@ function UploaderCard({
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
 
   const serverHost = useServerHost();
-  const streamUrl = srtPublishUrl(profile, serverHost);
+  const streamUrl = srtPublishUrl(profile, serverHost, srtPassphrase);
 
   const load = useCallback(async () => {
     setLoading(true);

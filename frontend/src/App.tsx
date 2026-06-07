@@ -39,7 +39,7 @@ import {
   deployUploader,
   fetchGroups,
   fetchProfiles,
-  fetchServerHost,
+  fetchServerConfig,
   stopProfile,
 } from './data';
 import type { DeploymentGroup, Profile } from './types';
@@ -50,6 +50,7 @@ export function App() {
   const [serverHost, setServerHost] = useState<string>(
     window.location.hostname,
   );
+  const [srtPassphrase, setSrtPassphrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
@@ -81,7 +82,12 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
-    fetchServerHost().then(setServerHost).catch(() => undefined);
+    fetchServerConfig()
+      .then((cfg) => {
+        setServerHost(cfg.host);
+        setSrtPassphrase(cfg.srtPassphrase);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -308,7 +314,11 @@ export function App() {
         {view === 'resources' && <ResourcesView />}
 
         {view === 'uploaders' && (
-          <UploadersView profiles={profiles} onChanged={load} />
+          <UploadersView
+            profiles={profiles}
+            onChanged={load}
+            srtPassphrase={srtPassphrase}
+          />
         )}
       </Container>
 
