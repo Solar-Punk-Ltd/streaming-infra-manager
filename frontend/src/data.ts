@@ -232,17 +232,20 @@ export interface BuyStampInput {
   immutable?: boolean;
 }
 
+/** Best-effort extraction of the API's error message, falling back to `fallback`. */
+async function extractApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const err = (await res.json()) as { error?: string; message?: string };
+    return err.message ?? err.error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.message ?? err.error ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(await extractApiError(res, `request failed (${res.status})`));
   }
   return (await res.json()) as T;
 }
@@ -276,14 +279,7 @@ export async function buyStamp(
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    let msg = `buy failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.message ?? err.error ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(await extractApiError(res, `buy failed (${res.status})`));
   }
   return (await res.json()) as { batchID: string };
 }
@@ -298,14 +294,9 @@ export async function setStamp(
     body: JSON.stringify({ stamp_id: stampId }),
   });
   if (!res.ok) {
-    let msg = `set stamp failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.message ?? err.error ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `set stamp failed (${res.status})`),
+    );
   }
   return (await res.json()) as Profile;
 }

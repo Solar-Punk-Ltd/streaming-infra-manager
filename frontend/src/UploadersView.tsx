@@ -56,6 +56,11 @@ function shortHex(hex: string, lead = 8, tail = 6): string {
   return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
 }
 
+/** Compare batch ids regardless of an optional 0x prefix. */
+function sameBatch(a: string, b: string): boolean {
+  return a.replace(/^0x/, '') === b.replace(/^0x/, '');
+}
+
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -164,7 +169,7 @@ function UploaderCard({
   // that lands (profile gains a stamp) or the batch reports usable.
   useEffect(() => {
     if (!waitingBatch) return;
-    const norm = (h: string) => h.replace(/^0x/, '');
+    const batch = waitingBatch;
     let attempts = 0;
     const MAX_ATTEMPTS = 120; // ~10 min at 5s
     const id = setInterval(async () => {
@@ -172,7 +177,7 @@ function UploaderCard({
       try {
         const fresh = await fetchStamps(profile.name);
         setStamps(fresh);
-        const match = fresh.find((s) => norm(s.batchID) === norm(waitingBatch));
+        const match = fresh.find((s) => sameBatch(s.batchID, batch));
         if ((match && match.usable) || attempts >= MAX_ATTEMPTS) {
           setWaitingBatch(null);
         }
@@ -184,9 +189,10 @@ function UploaderCard({
   }, [waitingBatch, profile.name]);
 
   // The backend pushes profile.changed (SSE) when it auto-sets the stamp.
+  const stampSet = !!profile.stamp_id?.trim();
   useEffect(() => {
-    if (waitingBatch && hasStamp(profile)) setWaitingBatch(null);
-  }, [profile, waitingBatch]);
+    if (waitingBatch && stampSet) setWaitingBatch(null);
+  }, [stampSet, waitingBatch]);
 
   const runAction = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -362,8 +368,7 @@ function UploaderCard({
                     stamps.map((s) => {
                       const isCurrent =
                         !!profile.stamp_id &&
-                        profile.stamp_id.replace(/^0x/, '') ===
-                          s.batchID.replace(/^0x/, '');
+                        sameBatch(profile.stamp_id, s.batchID);
                       return (
                         <TableRow key={s.batchID}>
                           <TableCell sx={{ fontFamily: 'monospace' }}>

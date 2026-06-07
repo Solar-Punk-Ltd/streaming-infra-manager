@@ -74,7 +74,8 @@ export async function bootstrapSubmoduleDefaults(): Promise<string[]> {
 /** Replace an existing `KEY=` line, or append one if absent. */
 function upsertEnvLine(text: string, key: string, value: string): string {
   const line = `${key}=${value}`;
-  const pattern = new RegExp(`^${key}=.*$`, 'm');
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedKey}=.*$`, 'm');
   if (pattern.test(text)) {
     return text.replace(pattern, line);
   }
@@ -102,6 +103,11 @@ export function writeProfileStampEnv(
 ): string | null {
   const stamp = stampId.replace(/^0x/, '').trim();
   if (!stamp) return null;
+  // Defensive: callers validate stamp_id as hex, but never let a stray value
+  // inject newlines / extra KEY= lines into the env file.
+  if (!/^[0-9a-fA-F]+$/.test(stamp)) {
+    throw new Error('refusing to write a non-hex STAMP to the env file');
+  }
 
   const base = existsSync(baseEnvPath())
     ? readFileSync(baseEnvPath(), 'utf8')

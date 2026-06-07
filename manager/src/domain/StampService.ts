@@ -127,9 +127,13 @@ export class StampService {
     const key = `${name}:${batchID}`;
     if (this.awaitingUsable.has(key)) return;
     this.awaitingUsable.add(key);
-    void this.runUsableWait(name, batchID).finally(() =>
-      this.awaitingUsable.delete(key),
-    );
+    void this.runUsableWait(name, batchID)
+      .catch((err) =>
+        logger.error(
+          `[StampService] ${name}: usable-wait for ${batchID} failed: ${getErrorMessage(err)}`,
+        ),
+      )
+      .finally(() => this.awaitingUsable.delete(key));
   }
 
   /**
