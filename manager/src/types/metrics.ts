@@ -22,6 +22,36 @@ export interface HostMetrics {
   diskUsedBytes: number | null;
   /** Total size of the host root filesystem, bytes. null when unavailable. */
   diskTotalBytes: number | null;
+  /**
+   * Whole-host network throughput (physical interfaces, excludes loopback and
+   * docker/veth virtual links). Cumulative bytes since boot + per-second rate.
+   * null when /host/proc/net/dev is unreadable; rates are 0 on the first sample.
+   */
+  netRxBytes: number | null;
+  netTxBytes: number | null;
+  netRxRate: number | null;
+  netTxRate: number | null;
+  /**
+   * Whole-host disk I/O across physical block devices (from /proc/diskstats).
+   * Cumulative bytes since boot + per-second rate. null when unreadable.
+   */
+  diskReadBytes: number | null;
+  diskWriteBytes: number | null;
+  diskReadRate: number | null;
+  diskWriteRate: number | null;
+}
+
+/**
+ * The host minus our infra. CPU and memory are an exact subtraction (our usage
+ * is a strict subset of the host's). Network and disk I/O are NOT included here
+ * — they can't be cleanly subtracted (container veth/blkio vs host NIC/diskstats
+ * measure different points), so the UI shows host-vs-ours side by side instead.
+ */
+export interface OutsideTotals {
+  /** host CPU − infra CPU, in share-of-one-core×100 (same scale as InfraTotals). null if host CPU unknown. */
+  cpuPercent: number | null;
+  /** host memory used − infra memory. null if host memory unknown. */
+  memUsageBytes: number | null;
 }
 
 export interface ContainerMetrics {
@@ -81,5 +111,7 @@ export interface MetricsSnapshot {
   timestamp: string;
   host: HostMetrics;
   infra: InfraTotals;
+  /** Host minus our infra (CPU + memory; see OutsideTotals). */
+  outside: OutsideTotals;
   containers: ContainerMetrics[];
 }

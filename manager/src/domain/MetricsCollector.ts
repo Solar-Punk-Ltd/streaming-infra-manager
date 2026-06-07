@@ -3,8 +3,10 @@ import Docker from 'dockerode';
 
 import {
   ContainerMetrics,
+  HostMetrics,
   InfraTotals,
   MetricsSnapshot,
+  OutsideTotals,
 } from '../types/index.js';
 
 import { HostCollector } from './HostCollector.js';
@@ -128,10 +130,12 @@ export class MetricsCollector {
       this.collectContainers(),
     ]);
 
+    const infra = aggregateInfra(containers);
     return {
       timestamp: new Date().toISOString(),
       host,
-      infra: aggregateInfra(containers),
+      infra,
+      outside: computeOutside(host, infra),
       containers,
     };
   }
@@ -328,6 +332,24 @@ function sumBlockIo(stats: Docker.ContainerStats): {
     else if (op === 'write') blkWriteBytes += entry.value ?? 0;
   }
   return { blkReadBytes, blkWriteBytes };
+}
+
+/**
+ * Host minus our infra. CPU and memory subtract exactly (our usage is a strict
+ * subset of the host's). host.cpuPercent is 0–100 of the whole box, so ×ncpu
+ * puts it on the same share-of-one-core×100 scale as infra.cpuPercent.
+ */
+function computeOutside(host: HostMetrics, infra: InfraTotals): OutsideTotals {
+  return {
+    cpuPercent:
+      host.cpuPercent != null
+        ? Math.max(0, host.cpuPercent * host.ncpu - infra.cpuPercent)
+        : null,
+    memUsageBytes:
+      host.memUsedBytes != null
+        ? Math.max(0, host.memUsedBytes - infra.memUsageBytes)
+        : null,
+  };
 }
 
 function aggregateInfra(containers: ContainerMetrics[]): InfraTotals {

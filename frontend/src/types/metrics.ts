@@ -11,6 +11,22 @@ export interface HostMetrics {
   memTotalBytes: number;
   diskUsedBytes: number | null;
   diskTotalBytes: number | null;
+  /** Whole-host network throughput (physical NICs). */
+  netRxBytes: number | null;
+  netTxBytes: number | null;
+  netRxRate: number | null;
+  netTxRate: number | null;
+  /** Whole-host disk I/O across physical block devices. */
+  diskReadBytes: number | null;
+  diskWriteBytes: number | null;
+  diskReadRate: number | null;
+  diskWriteRate: number | null;
+}
+
+/** Host minus our infra (exact for CPU + memory only; see MetricsSnapshot). */
+export interface OutsideTotals {
+  cpuPercent: number | null;
+  memUsageBytes: number | null;
 }
 
 export interface ContainerMetrics {
@@ -52,5 +68,6 @@ export interface MetricsSnapshot {
   timestamp: string;
   host: HostMetrics;
   infra: InfraTotals;
+  outside: OutsideTotals;
   containers: ContainerMetrics[];
 }

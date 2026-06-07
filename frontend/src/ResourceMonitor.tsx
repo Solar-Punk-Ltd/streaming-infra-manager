@@ -30,6 +30,7 @@ import type {
   HostMetrics,
   InfraTotals,
   MetricsSnapshot,
+  OutsideTotals,
 } from './types';
 
 /** Optional live extras layered on top of the snapshot. */
@@ -226,6 +227,16 @@ function HostSection({
           segments={diskSegments}
           footnote="Whole root filesystem"
         />
+        <StatCard
+          title="Network"
+          value={`↓ ${formatBytes(host.netRxBytes)}  ↑ ${formatBytes(host.netTxBytes)}`}
+          sub={`now ↓ ${formatRate(host.netRxRate)}  ↑ ${formatRate(host.netTxRate)}`}
+        />
+        <StatCard
+          title="Disk I/O"
+          value={`R ${formatBytes(host.diskReadBytes)}  W ${formatBytes(host.diskWriteBytes)}`}
+          sub={`now R ${formatRate(host.diskReadRate)}  W ${formatRate(host.diskWriteRate)}`}
+        />
       </Box>
       <Legend />
     </Box>
@@ -304,6 +315,72 @@ function InfraSummary({
           title="Containers"
           value={String(infra.containerCount)}
           sub="running"
+        />
+      </Box>
+    </Box>
+  );
+}
+
+function OutsideSection({
+  host,
+  infra,
+  outside,
+}: {
+  host: HostMetrics;
+  infra: InfraTotals;
+  outside: OutsideTotals;
+}) {
+  const outsideCpuShare =
+    outside.cpuPercent != null && host.ncpu > 0
+      ? (outside.cpuPercent / (host.ncpu * 100)) * 100
+      : null;
+
+  return (
+    <Box>
+      <Typography variant="h6">Outside our infra</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        The host minus what this tool deployed. CPU and memory are exact (our
+        usage is a subset of the host’s); network and disk I/O can’t be cleanly
+        subtracted, so host and ours are shown side by side.
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' },
+          gap: 2,
+        }}
+      >
+        <StatCard
+          title="CPU (host − ours)"
+          value={
+            outside.cpuPercent != null
+              ? `${formatCores(outside.cpuPercent)} cores`
+              : '—'
+          }
+          sub={
+            outsideCpuShare != null
+              ? `${formatPercent(outsideCpuShare)} of host`
+              : undefined
+          }
+        />
+        <StatCard
+          title="Memory (host − ours)"
+          value={formatBytes(outside.memUsageBytes)}
+          sub={
+            outside.memUsageBytes != null && host.memTotalBytes
+              ? `${formatSharePercent(outside.memUsageBytes, host.memTotalBytes)} of host`
+              : undefined
+          }
+        />
+        <StatCard
+          title="Network (host vs ours)"
+          value={`Host now ↓ ${formatRate(host.netRxRate)} ↑ ${formatRate(host.netTxRate)}`}
+          sub={`Ours now ↓ ${formatRate(infra.netRxRate)} ↑ ${formatRate(infra.netTxRate)}`}
+        />
+        <StatCard
+          title="Disk I/O (host vs ours)"
+          value={`Host now R ${formatRate(host.diskReadRate)} W ${formatRate(host.diskWriteRate)}`}
+          sub={`Ours now R ${formatRate(infra.blkReadRate)} W ${formatRate(infra.blkWriteRate)}`}
         />
       </Box>
     </Box>
@@ -547,6 +624,11 @@ export function ResourceMonitor({
   return (
     <Stack spacing={3}>
       <HostSection host={snapshot.host} infra={snapshot.infra} />
+      <OutsideSection
+        host={snapshot.host}
+        infra={snapshot.infra}
+        outside={snapshot.outside}
+      />
       <InfraSummary infra={snapshot.infra} host={snapshot.host} />
       <ContainerTable snapshot={snapshot} extras={extras} />
     </Stack>
