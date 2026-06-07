@@ -8,6 +8,7 @@ import { DeploymentGroupRepository } from './domain/DeploymentGroupRepository.js
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
 import { EventBus } from './domain/EventBus.js';
 import { Logger } from './domain/Logger.js';
+import { MetricsCollector } from './domain/MetricsCollector.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
@@ -41,6 +42,7 @@ function logStartupConfig(): void {
 
 let apiServer: ApiServerHandle | undefined;
 let database: Database | undefined;
+let metricsCollector: MetricsCollector | undefined;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -52,6 +54,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
 
   try {
+    if (metricsCollector) {
+      metricsCollector.stop();
+      metricsCollector = undefined;
+    }
     if (apiServer) {
       await apiServer.close();
       apiServer = undefined;
@@ -122,8 +128,10 @@ async function main(): Promise<void> {
   );
   const deployService = new DeployService(profileService, orchestrator);
 
+  metricsCollector = new MetricsCollector();
+
   apiServer = startApiServer(
-    { database, profileService, deployService, eventBus },
+    { database, profileService, deployService, eventBus, metricsCollector },
     config.port,
     config.host,
   );

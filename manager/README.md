@@ -58,6 +58,66 @@ When `services` is omitted:
 | GET    | `/health`   | DB ping. Returns `{status:"ok"}`. |
 | GET    | `/services` | List of valid service names.      |
 
+### Resource metrics
+
+Real-time CPU / memory / network / disk usage at three nested layers: the
+**host** (the whole box, including non-Docker usage), the **infra** (the sum of
+all our containers), and **per container** (grouped by compose project, i.e.
+profile).
+
+| Method | Path              | Notes                                                              |
+| ------ | ----------------- | ----------------------------------------------------------------- |
+| GET    | `/metrics`        | Latest snapshot as JSON. `503` until the first sample is ready.    |
+| GET    | `/metrics/stream` | Server-Sent Events; one `snapshot` event every ~2s while watching. |
+
+Sampling is gated: the collector only polls Docker while at least one client is
+connected to `/metrics/stream` (or immediately after a `/metrics` request).
+
+Snapshot shape:
+
+```jsonc
+{
+  "timestamp": "2026-06-07T14:30:00.000Z",
+  "host":  { "cpuPercent": 37.2, "ncpu": 8,
+             "memUsedBytes": 9663676416, "memTotalBytes": 33554432000,
+             "diskUsedBytes": 81604378624, "diskTotalBytes": 512110190592 },
+  "infra": { "cpuPercent": 142.5, "memUsageBytes": 5368709120,
+             "netRxRate": 10485, "netTxRate": 20971, "containerCount": 6 },
+  "containers": [
+    { "id": "abc123…", "name": "streamer1-srs-1",
+      "project": "streamer1", "service": "srs", "state": "running",
+      "cpuPercent": 72.4, "memUsageBytes": 268435456,
+      "memLimitBytes": 2147483648, "memPercent": 12.5,
+      "netRxBytes": 1048576, "netTxBytes": 2097152,
+      "netRxRate": 5120, "netTxRate": 10240,
+      "blkReadBytes": 0, "blkWriteBytes": 4096,
+      "blkReadRate": 0, "blkWriteRate": 2048, "pids": 14 }
+  ]
+}
+```
+
+Notes:
+
+- `cpuPercent` is share-of-one-core × 100, so an 8-core box tops out at 800 and
+  the host field is normalised to 0–100. `*Rate` fields are bytes/second derived
+  from deltas, so they read `0` on the first sample after (re)connecting.
+- **Host CPU/RAM/disk need read-only host mounts** (`/proc → /host/proc`,
+  `/ → /host/rootfs`, already wired in `docker-compose.yml`). Without them,
+  host fields fall back to capacity-only / `null`; infra and per-container
+  numbers still work from the docker socket alone. Adding the mounts requires a
+  redeploy.
+
+Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
+exposes the web port; for the API use the manager port directly on the host):
+
+```bash
+# one-shot
+curl -sS localhost:9876/metrics | jq
+
+# live stream (Ctrl-C to stop)
+curl -N localhost:9876/metrics/stream
+```
+
 ## Example session
 
 ```bash
