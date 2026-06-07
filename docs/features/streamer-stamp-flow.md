@@ -1,7 +1,17 @@
 ## Streamer / Postage-Stamp Deploy Flow — Plan
 
-Status: **planned, not yet implemented** (resume anchor for implementation).
-Ticket: SPDV-1278. Branch: `feat/basic-server-diagnostic-SPDV-1278`.
+Status: **implemented** (Phases 1–4). Ticket: SPDV-1278.
+Branch: `feat/basic-server-diagnostic-SPDV-1278`.
+
+Implemented in commits:
+- `fab9b78` Phase 1 — backend: hold back stream-uploader until a usable stamp.
+- `591a680` Phase 2 — frontend: stamp-required state + deploy-uploader action.
+- `114e8aa` Phase 3 — backend: stamp management via bee HTTP API.
+- `d6d2462` Phase 4 — frontend: Uploaders tab.
+
+Not yet exercised on the server: deploy the manager stack
+(`./deploy/deploy.sh manager-host`) and verify a streamer profile deploys with
+the uploader held back, then buy/set a stamp and deploy the uploader.
 
 ## Problem
 
