@@ -29,6 +29,30 @@ export function clientUrl(profile: Profile, serverHost: string): string | null {
   return componentUrl(hostFor(profile, serverHost), port);
 }
 
+/** Default SRT app/stream the publisher can change; maps to SRS [app]/[stream]. */
+const SRT_DEFAULT_APP_STREAM = 'live/stream';
+const SRS_SRT_BASE_PORT = 10001;
+
+/**
+ * Ready-to-copy SRT publish URL for a streamer profile (OBS/FFmpeg target).
+ * Uses the deployed srs container's published SRT port, falling back to the
+ * slot's default (base + slot*10). Returns null when no SRT port is known yet.
+ */
+export function srtPublishUrl(
+  profile: Profile,
+  serverHost: string,
+): string | null {
+  const srs = profile.containers.find((c) => c.service === 'srs');
+  const port =
+    srs?.ports.SRS_SRT_PORT ??
+    (profile.port_slot > 0
+      ? SRS_SRT_BASE_PORT + profile.port_slot * 10
+      : null);
+  if (!port) return null;
+  const host = hostFor(profile, serverHost);
+  return `srt://${host}:${port}?streamid=#!::r=${SRT_DEFAULT_APP_STREAM},m=publish`;
+}
+
 export async function fetchServerHost(): Promise<string> {
   try {
     const res = await fetch('/config');

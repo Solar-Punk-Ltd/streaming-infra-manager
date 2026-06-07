@@ -42,8 +42,10 @@ import {
   fetchStampWallet,
   hasStamp,
   setStamp,
+  srtPublishUrl,
 } from './data';
 import { formatTokenBalance, formatTtl } from './format';
+import { useServerHost } from './ServerHostContext';
 import { StampRequiredChip } from './StatusChip';
 import type { Profile } from './types';
 
@@ -139,6 +141,9 @@ function UploaderCard({
   const [label, setLabel] = useState('');
   const [immutable, setImmutable] = useState(false);
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
+
+  const serverHost = useServerHost();
+  const streamUrl = srtPublishUrl(profile, serverHost);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -297,6 +302,32 @@ function UploaderCard({
               usable — this can take a few minutes. It will be set automatically.
             </Alert>
           )}
+
+          <Box>
+            <Typography variant="overline" color="text.secondary">
+              Stream here (SRT publish)
+            </Typography>
+            {streamUrl ? (
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                >
+                  {streamUrl}
+                </Typography>
+                <CopyButton value={streamUrl} label="stream URL" />
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.disabled">
+                Deploy the streamer to get its SRT port.
+              </Typography>
+            )}
+            <Typography variant="caption" color="text.secondary">
+              Point OBS / FFmpeg here. Change <code>live/stream</code> to your
+              app/stream; if the deployment sets an SRT passphrase, append{' '}
+              <code>&amp;passphrase=…</code>.
+            </Typography>
+          </Box>
 
           <Box>
             <Typography variant="overline" color="text.secondary">
