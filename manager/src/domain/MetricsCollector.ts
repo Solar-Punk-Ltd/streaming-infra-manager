@@ -18,6 +18,13 @@ const SERVICE_LABEL = 'com.docker.compose.service';
 
 type Listener = (snapshot: MetricsSnapshot) => void;
 
+/**
+ * Returns the set of compose-project names the tool deployed (= profile names).
+ * Used to scope "our infra" to what we manage, excluding unrelated containers
+ * on the same host (e.g. a standalone bee cluster).
+ */
+type KnownProjectsProvider = () => Promise<Set<string>>;
+
 /** Cumulative counters from the previous sample, used to derive per-second rates. */
 interface PrevCounters {
   netRxBytes: number;
@@ -40,12 +47,24 @@ export class MetricsCollector {
   private timer: NodeJS.Timeout | null = null;
   private latest: MetricsSnapshot | null = null;
   private sampling = false;
+  private knownProjects: KnownProjectsProvider | null = null;
+  /** Last successfully resolved project set, reused if the lookup transiently fails. */
+  private lastKnownProjects: Set<string> | null = null;
 
   constructor(
     private readonly docker: Docker = new Docker(),
     private readonly host: HostCollector = new HostCollector(),
     private readonly intervalMs: number = SAMPLE_INTERVAL_MS,
   ) {}
+
+  /**
+   * Scope "our infra" (and the per-container view) to containers whose compose
+   * project matches a name from this provider. Without it, every container on
+   * the host is counted.
+   */
+  setKnownProjectsProvider(provider: KnownProjectsProvider): void {
+    this.knownProjects = provider;
+  }
 
   getLatest(): MetricsSnapshot | null {
     return this.latest;
@@ -120,16 +139,41 @@ export class MetricsCollector {
   private async collectContainers(): Promise<ContainerMetrics[]> {
     const list = await this.docker.listContainers({ all: false });
 
-    // Drop rate baselines for containers that are no longer running.
-    const liveIds = new Set(list.map((info) => info.Id));
+    // Scope to containers the tool deployed (compose project = profile name) so
+    // "our infra" excludes unrelated stacks on the same host (e.g. bee cluster).
+    const known = await this.resolveKnownProjects();
+    const scoped = known
+      ? list.filter((info) => {
+          const project = info.Labels?.[PROJECT_LABEL];
+          return !!project && known.has(project);
+        })
+      : list;
+
+    // Drop rate baselines for containers that are no longer in scope/running.
+    const liveIds = new Set(scoped.map((info) => info.Id));
     for (const id of this.prev.keys()) {
       if (!liveIds.has(id)) this.prev.delete(id);
     }
 
     const results = await Promise.all(
-      list.map((info) => this.statContainer(info)),
+      scoped.map((info) => this.statContainer(info)),
     );
     return results.filter((c): c is ContainerMetrics => c !== null);
+  }
+
+  /** Resolve the tool's project set, reusing the last good value on failure. */
+  private async resolveKnownProjects(): Promise<Set<string> | null> {
+    if (!this.knownProjects) return null;
+    try {
+      const set = await this.knownProjects();
+      this.lastKnownProjects = set;
+      return set;
+    } catch (err) {
+      logger.warn(
+        `[MetricsCollector] could not resolve known projects: ${getErrorMessage(err)}`,
+      );
+      return this.lastKnownProjects;
+    }
   }
 
   private async statContainer(

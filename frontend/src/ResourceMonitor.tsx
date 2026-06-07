@@ -96,7 +96,7 @@ function Legend() {
   return (
     <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
       <LegendItem color={INFRA_COLOR} label="Our infra" />
-      <LegendItem color={OTHER_COLOR} label="Other host usage" />
+      <LegendItem color={OTHER_COLOR} label="Outside our infra" />
       <LegendItem color="action.hover" label="Free" />
     </Stack>
   );
@@ -172,10 +172,23 @@ function HostSection({
       : 0;
   const diskSegments: Segment[] = [{ fraction: diskFrac, color: OTHER_COLOR }];
 
+  // "Outside our infra" = host usage we didn't deploy (other containers incl.
+  // the bee cluster, plus system). Absolute values for the card footnotes.
+  const infraCores = infra.cpuPercent / 100;
+  const hostUsedCores =
+    host.cpuPercent != null ? (host.cpuPercent * host.ncpu) / 100 : 0;
+  const outsideCores = Math.max(0, hostUsedCores - infraCores);
+  const outsideMemBytes =
+    host.memUsedBytes != null
+      ? Math.max(0, host.memUsedBytes - infra.memUsageBytes)
+      : null;
+
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Host
+      <Typography variant="h6">Host — all resources</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        The whole machine. “Outside our infra” is everything we didn’t deploy —
+        other containers (incl. the bee cluster) and system processes.
       </Typography>
       <Box
         sx={{
@@ -193,18 +206,18 @@ function HostSection({
             host.cpuPercent != null ? host.cpuPercent * host.ncpu : null,
           )} / ${host.ncpu} cores`}
           segments={cpuSegments}
-          footnote={`Our infra: ${formatCores(infra.cpuPercent)} cores (${formatPercent(
+          footnote={`Our infra ${infraCores.toFixed(2)} cores (${formatPercent(
             infraCpuFrac * 100,
-          )} of host)`}
+          )} of host) · Outside ${outsideCores.toFixed(2)} cores`}
         />
         <HostCard
           title="Memory"
           headline={formatPercent(hostMemFrac * 100)}
           sub={`${formatBytes(host.memUsedBytes)} / ${formatBytes(host.memTotalBytes)}`}
           segments={memSegments}
-          footnote={`Our infra: ${formatBytes(infra.memUsageBytes)} (${formatPercent(
+          footnote={`Our infra ${formatBytes(infra.memUsageBytes)} (${formatPercent(
             infraMemFrac * 100,
-          )} of host)`}
+          )} of host) · Outside ${formatBytes(outsideMemBytes)}`}
         />
         <HostCard
           title="Disk"
@@ -252,8 +265,10 @@ function InfraSummary({
 }) {
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Our infra
+      <Typography variant="h6">Our infra — deployed by this tool</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        Only containers this tool started, grouped per profile. Other stacks on
+        the host are excluded.
       </Typography>
       <Box
         sx={{
@@ -493,7 +508,7 @@ function ContainerTable({
   return (
     <Box>
       <Typography variant="h6" sx={{ mb: 1 }}>
-        Per container
+        Per container (our infra only)
       </Typography>
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
