@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +50,25 @@ function parseEnvFile(path: string): Record<string, string> {
 
 export function parseBaseEnv(): Record<string, string> {
   return parseEnvFile(baseEnvPath());
+}
+
+const BOOTSTRAP_FILES = [
+  { src: join(SUBMODULE, '.env.sample'), dst: join(SUBMODULE, '.env') },
+  {
+    src: join(SUBMODULE, 'deploy', 'config.sample.json'),
+    dst: join(SUBMODULE, 'deploy', 'config.json'),
+  },
+];
+
+export async function bootstrapSubmoduleDefaults(): Promise<string[]> {
+  const created: string[] = [];
+  for (const { src, dst } of BOOTSTRAP_FILES) {
+    if (!existsSync(dst) && existsSync(src)) {
+      await copyFile(src, dst);
+      created.push(dst);
+    }
+  }
+  return created;
 }
 
 export function deleteProfileEnv(name: string): boolean {

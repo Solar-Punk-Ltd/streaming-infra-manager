@@ -12,6 +12,7 @@ import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { config } from './utils/config.js';
+import { bootstrapSubmoduleDefaults } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -73,6 +74,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 async function main(): Promise<void> {
   logStartupConfig();
+
+  const bootstrapped = await bootstrapSubmoduleDefaults();
+  for (const file of bootstrapped) {
+    logger.info(`[Boot] created missing default: ${file}`);
+  }
 
   database = new Database(config.databaseUrl);
   await database.migrate();
