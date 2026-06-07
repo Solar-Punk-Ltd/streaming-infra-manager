@@ -13,6 +13,8 @@ import {
   DialogTitle,
   Snackbar,
   Stack,
+  Tab,
+  Tabs,
   Toolbar,
   Typography,
 } from '@mui/material';
@@ -26,7 +28,9 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
+import { ResourceMonitor } from './ResourceMonitor';
 import { ServerHostProvider } from './ServerHostContext';
+import { MOCK_SNAPSHOT } from './resourceMonitorMock';
 import {
   deleteProfile,
   deployProfile,
@@ -53,6 +57,7 @@ export function App() {
     message: string;
   } | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [view, setView] = useState<'deployments' | 'resources'>('deployments');
 
   const load = useCallback(() => {
     fetchProfiles()
@@ -193,67 +198,95 @@ export function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Tabs
+          value={view}
+          onChange={(_e, v) => setView(v as 'deployments' | 'resources')}
+          sx={{ mb: 2 }}
+        >
+          <Tab value="deployments" label="Deployments" />
+          <Tab value="resources" label="Resources" />
+        </Tabs>
+
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
 
-        <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<PlayArrowIcon />}
-            disabled={nothingSelected}
-            onClick={handleStart}
-          >
-            Start
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<EditIcon />}
-            disabled={!oneSelected}
-            onClick={handleModify}
-          >
-            Modify
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<StopIcon />}
-            disabled={nothingSelected}
-            onClick={handleStop}
-          >
-            Stop
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            disabled={nothingSelected}
-            onClick={handleRemove}
-          >
-            Remove
-          </Button>
-          <Box sx={{ flexGrow: 1 }} />
-          <Typography variant="body2" color="text.secondary">
-            {selected.length} selected
-          </Typography>
-        </Stack>
+        {view === 'deployments' && (
+          <>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ mb: 2 }}
+              alignItems="center"
+            >
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<PlayArrowIcon />}
+                disabled={nothingSelected}
+                onClick={handleStart}
+              >
+                Start
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<EditIcon />}
+                disabled={!oneSelected}
+                onClick={handleModify}
+              >
+                Modify
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<StopIcon />}
+                disabled={nothingSelected}
+                onClick={handleStop}
+              >
+                Stop
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                disabled={nothingSelected}
+                onClick={handleRemove}
+              >
+                Remove
+              </Button>
+              <Box sx={{ flexGrow: 1 }} />
+              <Typography variant="body2" color="text.secondary">
+                {selected.length} selected
+              </Typography>
+            </Stack>
 
-        {!profiles ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <DeploymentsTable
-            profiles={profiles}
-            groups={groups}
-            selected={selected}
-            onSelectedChange={setSelected}
-          />
+            {!profiles ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <DeploymentsTable
+                profiles={profiles}
+                groups={groups}
+                selected={selected}
+                onSelectedChange={setSelected}
+              />
+            )}
+          </>
+        )}
+
+        {view === 'resources' && (
+          <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Preview with mock data — layout review only. Live data wiring is
+              the next step.
+            </Alert>
+            <ResourceMonitor snapshot={MOCK_SNAPSHOT} />
+          </>
         )}
       </Container>
 
