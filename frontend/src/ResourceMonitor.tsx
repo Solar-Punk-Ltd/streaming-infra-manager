@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Chip,
@@ -17,12 +17,23 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import { formatBytes, formatCores, formatPercent, formatRate } from './format';
+import { Sparkline } from './Sparkline';
 import type {
   ContainerMetrics,
   HostMetrics,
   InfraTotals,
   MetricsSnapshot,
 } from './types';
+
+/** Optional live extras layered on top of the snapshot. */
+export interface MonitorExtras {
+  /** containerId → recent cpuPercent samples, for sparklines. */
+  history?: Map<string, number[]>;
+  /** project → on-disk footprint in bytes (null = none / not yet loaded). */
+  diskByProject?: Map<string, number | null>;
+  /** Called when a profile group is shown, to lazily load its disk size. */
+  onExpandProject?: (project: string) => void;
+}
 
 const INFRA_COLOR = 'primary.main';
 const OTHER_COLOR = 'rgba(255,255,255,0.22)';
@@ -300,7 +311,15 @@ function groupByProject(containers: ContainerMetrics[]): Group[] {
     .sort((a, b) => b.cpuPercent - a.cpuPercent);
 }
 
-function ContainerRow({ c, ncpu }: { c: ContainerMetrics; ncpu: number }) {
+function ContainerRow({
+  c,
+  ncpu,
+  history,
+}: {
+  c: ContainerMetrics;
+  ncpu: number;
+  history?: number[];
+}) {
   const cpuBar = ncpu > 0 ? c.cpuPercent / ncpu : 0; // % of whole box
   return (
     <TableRow>
@@ -313,10 +332,13 @@ function ContainerRow({ c, ncpu }: { c: ContainerMetrics; ncpu: number }) {
           variant="outlined"
         />
       </TableCell>
-      <TableCell sx={{ minWidth: 120 }}>
-        <Typography variant="body2">
-          {formatCores(c.cpuPercent)} cores
-        </Typography>
+      <TableCell sx={{ minWidth: 150 }}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Typography variant="body2" sx={{ minWidth: 64 }}>
+            {formatCores(c.cpuPercent)} cores
+          </Typography>
+          {history && <Sparkline values={history} />}
+        </Stack>
         <UsageBar
           segments={[{ fraction: cpuBar / 100, color: INFRA_COLOR }]}
           height={6}
@@ -344,8 +366,25 @@ function ContainerRow({ c, ncpu }: { c: ContainerMetrics; ncpu: number }) {
   );
 }
 
-function GroupBlock({ group, ncpu }: { group: Group; ncpu: number }) {
+function GroupBlock({
+  group,
+  ncpu,
+  extras,
+}: {
+  group: Group;
+  ncpu: number;
+  extras: MonitorExtras;
+}) {
   const [open, setOpen] = useState(true);
+  const { history, diskByProject, onExpandProject } = extras;
+
+  // Lazily ask for this profile's disk footprint whenever it's expanded.
+  useEffect(() => {
+    if (open) onExpandProject?.(group.project);
+  }, [open, group.project, onExpandProject]);
+
+  const diskSize = diskByProject?.get(group.project);
+
   return (
     <>
       <TableRow
@@ -368,6 +407,14 @@ function GroupBlock({ group, ncpu }: { group: Group; ncpu: number }) {
               label={`${group.containers.length} containers`}
               variant="outlined"
             />
+            {diskSize != null && (
+              <Chip
+                size="small"
+                label={`data ${formatBytes(diskSize)}`}
+                variant="outlined"
+                color="info"
+              />
+            )}
           </Stack>
         </TableCell>
         <TableCell>
@@ -384,13 +431,24 @@ function GroupBlock({ group, ncpu }: { group: Group; ncpu: number }) {
       </TableRow>
       {open &&
         group.containers.map((c) => (
-          <ContainerRow key={c.id} c={c} ncpu={ncpu} />
+          <ContainerRow
+            key={c.id}
+            c={c}
+            ncpu={ncpu}
+            history={history?.get(c.id)}
+          />
         ))}
     </>
   );
 }
 
-function ContainerTable({ snapshot }: { snapshot: MetricsSnapshot }) {
+function ContainerTable({
+  snapshot,
+  extras,
+}: {
+  snapshot: MetricsSnapshot;
+  extras: MonitorExtras;
+}) {
   const groups = useMemo(
     () => groupByProject(snapshot.containers),
     [snapshot.containers],
@@ -416,7 +474,12 @@ function ContainerTable({ snapshot }: { snapshot: MetricsSnapshot }) {
           </TableHead>
           <TableBody>
             {groups.map((g) => (
-              <GroupBlock key={g.project} group={g} ncpu={snapshot.host.ncpu} />
+              <GroupBlock
+                key={g.project}
+                group={g}
+                ncpu={snapshot.host.ncpu}
+                extras={extras}
+              />
             ))}
           </TableBody>
         </Table>
@@ -425,12 +488,15 @@ function ContainerTable({ snapshot }: { snapshot: MetricsSnapshot }) {
   );
 }
 
-export function ResourceMonitor({ snapshot }: { snapshot: MetricsSnapshot }) {
+export function ResourceMonitor({
+  snapshot,
+  ...extras
+}: { snapshot: MetricsSnapshot } & MonitorExtras) {
   return (
     <Stack spacing={3}>
       <HostSection host={snapshot.host} infra={snapshot.infra} />
       <InfraSummary infra={snapshot.infra} host={snapshot.host} />
-      <ContainerTable snapshot={snapshot} />
+      <ContainerTable snapshot={snapshot} extras={extras} />
     </Stack>
   );
 }

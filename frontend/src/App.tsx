@@ -28,9 +28,8 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
-import { ResourceMonitor } from './ResourceMonitor';
+import { ResourcesView } from './ResourcesView';
 import { ServerHostProvider } from './ServerHostContext';
-import { MOCK_SNAPSHOT } from './resourceMonitorMock';
 import {
   deleteProfile,
   deployProfile,
@@ -279,15 +278,7 @@ export function App() {
           </>
         )}
 
-        {view === 'resources' && (
-          <>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Preview with mock data — layout review only. Live data wiring is
-              the next step.
-            </Alert>
-            <ResourceMonitor snapshot={MOCK_SNAPSHOT} />
-          </>
-        )}
+        {view === 'resources' && <ResourcesView />}
       </Container>
 
       <Dialog

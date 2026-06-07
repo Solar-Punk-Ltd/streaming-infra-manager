@@ -22,6 +22,14 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
       },
+      // Metrics: JSON one-shot, SSE stream, and on-demand disk lookups.
+      '/metrics': {
+        target: MANAGER_URL,
+        changeOrigin: true,
+        ws: false,
+        proxyTimeout: 0,
+        timeout: 0,
+      },
     },
   },
 });

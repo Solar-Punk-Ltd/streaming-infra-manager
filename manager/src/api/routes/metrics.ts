@@ -1,5 +1,6 @@
 import { Request, Response, Router } from 'express';
 
+import { getProfileDiskUsage } from '../../domain/DiskUsage.js';
 import { MetricsCollector } from '../../domain/MetricsCollector.js';
 
 const HEARTBEAT_MS = 15_000;
@@ -29,6 +30,14 @@ export function createMetricsRouter(collector: MetricsCollector): Router {
       return;
     }
     res.json(snapshot);
+  });
+
+  // On-demand: on-disk footprint of a profile's data dir. null sizeBytes means
+  // no data dir (e.g. the manager's own stack) or the lookup failed.
+  router.get('/disk/:project', async (req: Request, res: Response) => {
+    const project = String(req.params.project);
+    const sizeBytes = await getProfileDiskUsage(project);
+    res.json({ project, sizeBytes });
   });
 
   router.get('/stream', (_req: Request, res: Response) => {
