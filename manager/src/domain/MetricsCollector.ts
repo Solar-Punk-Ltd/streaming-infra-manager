@@ -221,6 +221,11 @@ export class MetricsCollector {
 
 /** CPU usage as a share of one core × 100, matching the docker CLI formula. */
 function computeCpuPercent(stats: Docker.ContainerStats): number {
+  // No precpu baseline yet (first stats read for this container) — the delta
+  // would be lifetime-total, not "now", which inflates the value. Report 0
+  // and let the next sample produce a real delta.
+  if (!stats.precpu_stats.system_cpu_usage) return 0;
+
   const cpuDelta =
     stats.cpu_stats.cpu_usage.total_usage -
     (stats.precpu_stats.cpu_usage?.total_usage ?? 0);

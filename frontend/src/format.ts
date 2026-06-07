@@ -43,7 +43,13 @@ export function formatSharePercent(
   used: number | null | undefined,
   total: number | null | undefined,
 ): string {
-  if (used == null || total == null || !Number.isFinite(used) || !total) {
+  if (
+    used == null ||
+    total == null ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
     return '—';
   }
   const pct = (used / total) * 100;

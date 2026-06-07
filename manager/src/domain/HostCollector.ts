@@ -35,6 +35,8 @@ export class HostCollector {
   private readonly procPath: string;
   private readonly rootfsPath: string;
   private prevCpu: CpuTimes | null = null;
+  /** Core count is fixed for the host's lifetime — read it once and cache. */
+  private cachedNcpu = 0;
 
   constructor(
     procPath: string = process.env.HOST_PROC ??
@@ -95,20 +97,28 @@ export class HostCollector {
       const used = ((totalDelta - idleDelta) / totalDelta) * 100;
       return Math.max(0, Math.min(100, used));
     } catch (err) {
-      logger.debug?.(`[HostCollector] readCpu failed: ${getErrorMessage(err)}`);
+      // Drop the baseline so a later recovery doesn't compute a stale,
+      // multi-interval delta that would spike the reading.
+      this.prevCpu = null;
+      logger.debug(`[HostCollector] readCpu failed: ${getErrorMessage(err)}`);
       return null;
     }
   }
 
   private async readNcpu(): Promise<number> {
+    if (this.cachedNcpu > 0) return this.cachedNcpu;
     try {
       const text = await readFile(join(this.procPath, 'stat'), 'utf8');
       const cores = text.split('\n').filter((l) => /^cpu\d+ /.test(l)).length;
-      if (cores > 0) return cores;
+      if (cores > 0) {
+        this.cachedNcpu = cores;
+        return cores;
+      }
     } catch {
       // fall through to os.cpus()
     }
-    return os.cpus().length;
+    this.cachedNcpu = os.cpus().length;
+    return this.cachedNcpu;
   }
 
   private async readMem(): Promise<{
@@ -127,7 +137,7 @@ export class HostCollector {
       if (total === undefined || available === undefined) return null;
       return { usedBytes: total - available, totalBytes: total };
     } catch (err) {
-      logger.debug?.(`[HostCollector] readMem failed: ${getErrorMessage(err)}`);
+      logger.debug(`[HostCollector] readMem failed: ${getErrorMessage(err)}`);
       return null;
     }
   }
@@ -144,7 +154,7 @@ export class HostCollector {
       const usedBytes = (Number(fs.blocks) - Number(fs.bfree)) * blockSize;
       return { usedBytes, totalBytes };
     } catch (err) {
-      logger.debug?.(`[HostCollector] readDisk failed: ${getErrorMessage(err)}`);
+      logger.debug(`[HostCollector] readDisk failed: ${getErrorMessage(err)}`);
       return null;
     }
   }

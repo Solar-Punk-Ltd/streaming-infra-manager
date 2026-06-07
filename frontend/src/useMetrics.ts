@@ -31,7 +31,13 @@ export function useMetrics(): UseMetrics {
     source.onerror = () => setConnected(false);
 
     source.addEventListener('snapshot', (ev: MessageEvent<string>) => {
-      const snap = JSON.parse(ev.data) as MetricsSnapshot;
+      let snap: MetricsSnapshot;
+      try {
+        snap = JSON.parse(ev.data) as MetricsSnapshot;
+      } catch {
+        // Ignore a malformed frame rather than tearing down the stream.
+        return;
+      }
 
       const history = historyRef.current;
       const seen = new Set<string>();
