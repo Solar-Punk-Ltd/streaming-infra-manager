@@ -24,6 +24,11 @@ export interface Profile {
   updated_at: string;
   containers: Container[];
   group_id?: number | null;
+  /**
+   * Derived by the API: the profile wants the stream-uploader but has no usable
+   * stamp yet, so the uploader is held back ("Stamp required").
+   */
+  pendingStamp?: boolean;
 }
 
 export interface DeploymentGroup {

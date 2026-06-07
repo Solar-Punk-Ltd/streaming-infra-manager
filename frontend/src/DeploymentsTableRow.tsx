@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 
-import { StatusChip } from './StatusChip';
+import { StampRequiredChip, StatusChip } from './StatusChip';
 import { useServerHost } from './ServerHostContext';
 import { clientUrl, componentUrl, hostFor } from './data';
 import type { Profile } from './types';
@@ -80,7 +80,10 @@ export function DeploymentsTableRow({
         <TableCell>{profile.kind}</TableCell>
         <TableCell align="right">{profile.port_slot}</TableCell>
         <TableCell>
-          <StatusChip status={profile.status} />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <StatusChip status={profile.status} />
+            {profile.pendingStamp && <StampRequiredChip />}
+          </Stack>
         </TableCell>
         <TableCell>
           {url ? (
@@ -106,6 +109,17 @@ export function DeploymentsTableRow({
         >
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2, px: 4, backgroundColor: 'action.hover' }}>
+              {profile.pendingStamp && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <AlertTitle>Stamp required</AlertTitle>
+                  <Typography variant="body2">
+                    The <code>stream-uploader</code> is held back until a usable
+                    postage stamp is provided — the rest of the stack is running.
+                    Add a stamp (Modify → Stamp ID), then use{' '}
+                    <strong>Deploy uploader</strong> to complete the stack.
+                  </Typography>
+                </Alert>
+              )}
               {profile.last_error && (
                 <Alert severity="error" sx={{ mb: 2 }}>
                   <AlertTitle>

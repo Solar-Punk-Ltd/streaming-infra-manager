@@ -23,6 +23,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import EditIcon from '@mui/icons-material/Edit';
 import StopIcon from '@mui/icons-material/Stop';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
@@ -31,8 +32,10 @@ import { NewDeploymentDrawer } from './NewDeploymentDrawer';
 import { ResourcesView } from './ResourcesView';
 import { ServerHostProvider } from './ServerHostContext';
 import {
+  canDeployUploader,
   deleteProfile,
   deployProfile,
+  deployUploader,
   fetchGroups,
   fetchProfiles,
   fetchServerHost,
@@ -122,6 +125,11 @@ export function App() {
 
   const nothingSelected = selected.length === 0 || busy;
   const oneSelected = selected.length === 1 && !busy;
+  const selectedOne =
+    profiles && selected.length === 1
+      ? (profiles.find((p) => p.name === selected[0]) ?? null)
+      : null;
+  const canUploader = !busy && !!selectedOne && canDeployUploader(selectedOne);
 
   const runOnSelected = async (
     verb: string,
@@ -164,6 +172,10 @@ export function App() {
 
   const handleStop = () => {
     void runOnSelected('Stopped', stopProfile);
+  };
+
+  const handleDeployUploader = () => {
+    void runOnSelected('Deployed uploader for', deployUploader);
   };
 
   const handleRemove = () => {
@@ -237,6 +249,15 @@ export function App() {
                 onClick={handleModify}
               >
                 Modify
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<CloudUploadIcon />}
+                disabled={!canUploader}
+                onClick={handleDeployUploader}
+              >
+                Deploy uploader
               </Button>
               <Button
                 size="small"

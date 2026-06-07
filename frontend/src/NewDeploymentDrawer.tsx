@@ -426,6 +426,13 @@ export function NewDeploymentDrawer({
                   htmlInput: { style: { fontFamily: 'monospace' } },
                 }}
               />
+
+              <Alert severity="info" variant="outlined">
+                Stamp is optional — deploy now and add it later. Without one the{' '}
+                <code>stream-uploader</code> is held back (&ldquo;Stamp
+                required&rdquo;) while the rest of the stack runs. Provide a
+                stamp, then use <strong>Deploy uploader</strong>.
+              </Alert>
             </>
           )}
 

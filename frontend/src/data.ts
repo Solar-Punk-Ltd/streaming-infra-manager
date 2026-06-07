@@ -47,9 +47,46 @@ export async function fetchProfiles(): Promise<Profile[]> {
   return body.profiles;
 }
 
+const STREAM_UPLOADER = 'stream-uploader';
+
+const KIND_DEFAULT_COMPONENTS: Record<ProfileKind, string[]> = {
+  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
+  viewer: ['client', 'bee-gateway'],
+  custom: [],
+};
+
+/** Services the profile deploys by default (explicit components or kind defaults). */
+export function profileServices(profile: Profile): string[] {
+  if (profile.components && profile.components.length > 0) {
+    return profile.components;
+  }
+  return KIND_DEFAULT_COMPONENTS[profile.kind] ?? [];
+}
+
+export function profileNeedsUploader(profile: Profile): boolean {
+  return profileServices(profile).includes(STREAM_UPLOADER);
+}
+
+export function hasStamp(profile: Profile): boolean {
+  return !!(profile.stamp_id && profile.stamp_id.trim());
+}
+
+export function uploaderDeployed(profile: Profile): boolean {
+  return profile.containers.some((c) => c.service === STREAM_UPLOADER);
+}
+
+/** A stamp exists and the held-back uploader still needs deploying. */
+export function canDeployUploader(profile: Profile): boolean {
+  return (
+    profileNeedsUploader(profile) &&
+    hasStamp(profile) &&
+    !uploaderDeployed(profile)
+  );
+}
+
 async function postAction(
   name: string,
-  action: 'deploy' | 'stop',
+  action: 'deploy' | 'stop' | 'deploy-uploader',
 ): Promise<void> {
   const res = await fetch(`/profiles/${encodeURIComponent(name)}/${action}`, {
     method: 'POST',
@@ -76,6 +113,10 @@ export function deployProfile(name: string): Promise<void> {
 
 export function stopProfile(name: string): Promise<void> {
   return postAction(name, 'stop');
+}
+
+export function deployUploader(name: string): Promise<void> {
+  return postAction(name, 'deploy-uploader');
 }
 
 export async function deleteProfile(name: string): Promise<void> {

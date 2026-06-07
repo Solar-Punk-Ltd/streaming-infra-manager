@@ -54,7 +54,7 @@ export const publicKeyHelperText = (derivedAddress: string | null): string =>
     : 'will appear once a valid private key is entered';
 
 export const stampIdHelperText = (error: FieldError): string =>
-  error || 'optional — Swarm postage batch id';
+  error || 'optional — add later; uploader waits until a stamp is set';
 
 export const feedOwnerHelperText = (error: FieldError): string =>
   error || '0x-prefixed Ethereum address';
