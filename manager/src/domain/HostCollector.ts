@@ -30,7 +30,6 @@ interface IoCounter {
   ts: number;
 }
 
-/** Per-second rates from the delta against the previous counter sample. */
 function ratesFrom(
   prev: IoCounter | null,
   a: number,

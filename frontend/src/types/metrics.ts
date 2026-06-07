@@ -11,12 +11,10 @@ export interface HostMetrics {
   memTotalBytes: number;
   diskUsedBytes: number | null;
   diskTotalBytes: number | null;
-  /** Whole-host network throughput (physical NICs). */
   netRxBytes: number | null;
   netTxBytes: number | null;
   netRxRate: number | null;
   netTxRate: number | null;
-  /** Whole-host disk I/O across physical block devices. */
   diskReadBytes: number | null;
   diskWriteBytes: number | null;
   diskReadRate: number | null;

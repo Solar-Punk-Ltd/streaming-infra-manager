@@ -58,7 +58,6 @@ function shortHex(hex: string, lead = 8, tail = 6): string {
   return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
 }
 
-/** Compare batch ids regardless of an optional 0x prefix. */
 function sameBatch(a: string, b: string): boolean {
   return a.replace(/^0x/, '') === b.replace(/^0x/, '');
 }

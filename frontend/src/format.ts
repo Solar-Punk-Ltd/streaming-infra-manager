@@ -1,5 +1,3 @@
-/** Human-readable formatting for resource metrics. */
-
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
 
 /** 1610612736 → "1.5 GB". null/undefined → "—". */
@@ -14,7 +12,6 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${value.toFixed(value >= 100 || exp === 0 ? 0 : 1)} ${UNITS[exp]}`;
 }
 
-/** bytes-per-second → "1.5 MB/s". */
 export function formatRate(bytesPerSec: number | null | undefined): string {
   if (bytesPerSec == null || !Number.isFinite(bytesPerSec)) return '—';
   return `${formatBytes(bytesPerSec)}/s`;
@@ -44,7 +41,6 @@ export function formatTokenBalance(
   return `${whole.toString()}.${frac}`;
 }
 
-/** Batch TTL seconds → "12d 4h", "3h 20m", or "expired". -1 → "unknown". */
 export function formatTtl(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds)) return '—';
   if (seconds < 0) return 'unknown';
@@ -57,13 +53,11 @@ export function formatTtl(seconds: number | null | undefined): string {
   return `${minutes}m`;
 }
 
-/** CPU percent (share-of-one-core × 100) → cores, e.g. 250 → "2.50". */
 export function formatCores(cpuPercent: number | null | undefined): string {
   if (cpuPercent == null || !Number.isFinite(cpuPercent)) return '—';
   return (cpuPercent / 100).toFixed(2);
 }
 
-/** 37.236 → "37%". null → "—". */
 export function formatPercent(
   percent: number | null | undefined,
   digits = 0,

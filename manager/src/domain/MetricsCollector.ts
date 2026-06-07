@@ -27,7 +27,6 @@ type Listener = (snapshot: MetricsSnapshot) => void;
  */
 type KnownProjectsProvider = () => Promise<Set<string>>;
 
-/** Cumulative counters from the previous sample, used to derive per-second rates. */
 interface PrevCounters {
   netRxBytes: number;
   netTxBytes: number;
@@ -83,7 +82,6 @@ export class MetricsCollector {
     };
   }
 
-  /** Begin sampling. Idempotent — safe to call on every new subscriber. */
   start(): void {
     if (this.timer) return;
     logger.info('[MetricsCollector] sampling started');
@@ -91,7 +89,6 @@ export class MetricsCollector {
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
   }
 
-  /** Stop sampling and forget rate baselines so the next start is clean. */
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
@@ -153,7 +150,6 @@ export class MetricsCollector {
         })
       : list;
 
-    // Drop rate baselines for containers that are no longer in scope/running.
     const liveIds = new Set(scoped.map((info) => info.Id));
     for (const id of this.prev.keys()) {
       if (!liveIds.has(id)) this.prev.delete(id);
@@ -165,7 +161,6 @@ export class MetricsCollector {
     return results.filter((c): c is ContainerMetrics => c !== null);
   }
 
-  /** Resolve the tool's project set, reusing the last good value on failure. */
   private async resolveKnownProjects(): Promise<Set<string> | null> {
     if (!this.knownProjects) return null;
     try {
@@ -233,7 +228,6 @@ export class MetricsCollector {
     };
   }
 
-  /** Derive per-second rates from the delta against the previous sample. */
   private computeRates(
     id: string,
     cur: PrevCounters,

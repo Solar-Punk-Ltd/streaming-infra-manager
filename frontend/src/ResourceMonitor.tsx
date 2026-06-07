@@ -51,7 +51,6 @@ interface Segment {
   color: string;
 }
 
-/** Horizontal stacked bar; segments are fractions (0–1) of the full width. */
 function UsageBar({
   segments,
   height = 12,
@@ -166,7 +165,6 @@ function HostSection({
     { fraction: Math.max(0, hostMemFrac - infraMemFrac), color: OTHER_COLOR },
   ];
 
-  // Disk — host only (we don't track our stack's on-disk footprint here).
   const diskFrac =
     host.diskUsedBytes != null && host.diskTotalBytes
       ? host.diskUsedBytes / host.diskTotalBytes

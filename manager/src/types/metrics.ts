@@ -10,17 +10,11 @@
  */
 
 export interface HostMetrics {
-  /** Aggregate host CPU usage across all cores, 0–100. null when /host/proc is unavailable. */
   cpuPercent: number | null;
-  /** Number of logical cores. */
   ncpu: number;
-  /** RAM in use (total - available), bytes. null when unavailable. */
   memUsedBytes: number | null;
-  /** Total physical RAM, bytes. */
   memTotalBytes: number;
-  /** Disk used on the host root filesystem, bytes. null when unavailable. */
   diskUsedBytes: number | null;
-  /** Total size of the host root filesystem, bytes. null when unavailable. */
   diskTotalBytes: number | null;
   /**
    * Whole-host network throughput (physical interfaces, excludes loopback and
@@ -57,61 +51,42 @@ export interface OutsideTotals {
 export interface ContainerMetrics {
   id: string;
   name: string;
-  /** com.docker.compose.project label → the profile a container belongs to. */
   project: string | null;
-  /** com.docker.compose.service label → the service within the profile. */
   service: string | null;
-  /** Docker container state, e.g. "running". */
   state: string;
-  /** CPU usage as a share of one core × 100 (so 250 = 2.5 cores). */
   cpuPercent: number;
   memUsageBytes: number;
   memLimitBytes: number;
-  /** memUsageBytes / memLimitBytes × 100. */
   memPercent: number;
-  /** Cumulative bytes received/sent since the container started. */
   netRxBytes: number;
   netTxBytes: number;
-  /** Throughput over the last sample interval, bytes/second. */
   netRxRate: number;
   netTxRate: number;
-  /** Cumulative block I/O since the container started. */
   blkReadBytes: number;
   blkWriteBytes: number;
-  /** Block I/O over the last sample interval, bytes/second. */
   blkReadRate: number;
   blkWriteRate: number;
-  /** Number of processes/threads in the container. */
   pids: number;
 }
 
 export interface InfraTotals {
-  /** Sum of every container's cpuPercent. */
   cpuPercent: number;
-  /** Sum of every container's memUsageBytes. */
   memUsageBytes: number;
-  /** Sum of cumulative network bytes across containers. */
   netRxBytes: number;
   netTxBytes: number;
-  /** Sum of every container's network throughput, bytes/second. */
   netRxRate: number;
   netTxRate: number;
-  /** Sum of cumulative block I/O across containers. */
   blkReadBytes: number;
   blkWriteBytes: number;
-  /** Sum of every container's block I/O throughput, bytes/second. */
   blkReadRate: number;
   blkWriteRate: number;
-  /** Number of containers included in the totals. */
   containerCount: number;
 }
 
 export interface MetricsSnapshot {
-  /** ISO-8601 timestamp of when the sample was taken. */
   timestamp: string;
   host: HostMetrics;
   infra: InfraTotals;
-  /** Host minus our infra (CPU + memory; see OutsideTotals). */
   outside: OutsideTotals;
   containers: ContainerMetrics[];
 }

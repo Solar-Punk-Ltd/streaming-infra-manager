@@ -71,7 +71,6 @@ export async function bootstrapSubmoduleDefaults(): Promise<string[]> {
   return created;
 }
 
-/** Replace an existing `KEY=` line, or append one if absent. */
 function upsertEnvLine(text: string, key: string, value: string): string {
   const line = `${key}=${value}`;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

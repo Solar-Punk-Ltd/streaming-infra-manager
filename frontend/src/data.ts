@@ -29,7 +29,6 @@ export function clientUrl(profile: Profile, serverHost: string): string | null {
   return componentUrl(hostFor(profile, serverHost), port);
 }
 
-/** Default SRT app/stream the publisher can change; maps to SRS [app]/[stream]. */
 const SRT_DEFAULT_APP_STREAM = 'live/stream';
 const SRS_SRT_BASE_PORT = 10001;
 
@@ -57,7 +56,6 @@ export function srtPublishUrl(
 
 export interface ServerConfig {
   host: string;
-  /** Global SRT passphrase, or null when SRT runs unencrypted. */
   srtPassphrase: string | null;
 }
 
@@ -90,7 +88,6 @@ const KIND_DEFAULT_COMPONENTS: Record<ProfileKind, string[]> = {
   custom: [],
 };
 
-/** Services the profile deploys by default (explicit components or kind defaults). */
 export function profileServices(profile: Profile): string[] {
   if (profile.components && profile.components.length > 0) {
     return profile.components;

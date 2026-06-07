@@ -36,7 +36,6 @@ const USABLE_WAIT_MS = 15 * 60 * 1_000;
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Factory so tests can inject a fake client. */
 export type BeeClientFactory = (baseUrl: string) => BeeStampClient;
 
 /**
@@ -122,7 +121,6 @@ export class StampService {
     }
   }
 
-  /** Fire-and-forget poll loop; de-duped per (profile, batch). */
   private awaitUsableAndSet(name: string, batchID: string): void {
     const key = `${name}:${batchID}`;
     if (this.awaitingUsable.has(key)) return;
