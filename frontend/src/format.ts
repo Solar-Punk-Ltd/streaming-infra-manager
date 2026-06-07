@@ -34,3 +34,20 @@ export function formatPercent(
   if (percent == null || !Number.isFinite(percent)) return '—';
   return `${percent.toFixed(digits)}%`;
 }
+
+/**
+ * `used / total` as a percentage, with decimals scaled to the magnitude so
+ * tiny shares stay legible (0.04%) while big ones stay clean (37%).
+ */
+export function formatSharePercent(
+  used: number | null | undefined,
+  total: number | null | undefined,
+): string {
+  if (used == null || total == null || !Number.isFinite(used) || !total) {
+    return '—';
+  }
+  const pct = (used / total) * 100;
+  if (!Number.isFinite(pct)) return '—';
+  const digits = pct >= 10 ? 0 : pct >= 1 ? 1 : 2;
+  return `${pct.toFixed(digits)}%`;
+}

@@ -11,12 +11,19 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-import { formatBytes, formatCores, formatPercent, formatRate } from './format';
+import {
+  formatBytes,
+  formatCores,
+  formatPercent,
+  formatRate,
+  formatSharePercent,
+} from './format';
 import { Sparkline } from './Sparkline';
 import type {
   ContainerMetrics,
@@ -243,10 +250,6 @@ function InfraSummary({
   infra: InfraTotals;
   host: HostMetrics;
 }) {
-  const cpuOfHost = host.ncpu > 0 ? infra.cpuPercent / host.ncpu : 0;
-  const memOfHost = host.memTotalBytes
-    ? (infra.memUsageBytes / host.memTotalBytes) * 100
-    : 0;
   return (
     <Box>
       <Typography variant="h6" sx={{ mb: 1 }}>
@@ -261,13 +264,13 @@ function InfraSummary({
       >
         <StatCard
           title="CPU"
-          value={`${formatCores(infra.cpuPercent)} cores`}
-          sub={`${formatPercent(cpuOfHost)} of host`}
+          value={`${formatSharePercent(infra.cpuPercent, host.ncpu * 100)} of host`}
+          sub={`${formatCores(infra.cpuPercent)} cores`}
         />
         <StatCard
           title="Memory"
-          value={formatBytes(infra.memUsageBytes)}
-          sub={`${formatPercent(memOfHost)} of host`}
+          value={`${formatSharePercent(infra.memUsageBytes, host.memTotalBytes)} of host`}
+          sub={formatBytes(infra.memUsageBytes)}
         />
         <StatCard
           title="Network"
@@ -314,13 +317,16 @@ function groupByProject(containers: ContainerMetrics[]): Group[] {
 function ContainerRow({
   c,
   ncpu,
+  memTotalBytes,
   history,
 }: {
   c: ContainerMetrics;
   ncpu: number;
+  memTotalBytes: number;
   history?: number[];
 }) {
-  const cpuBar = ncpu > 0 ? c.cpuPercent / ncpu : 0; // % of whole box
+  const cpuFraction = ncpu > 0 ? c.cpuPercent / 100 / ncpu : 0; // of whole box
+  const memFraction = memTotalBytes > 0 ? c.memUsageBytes / memTotalBytes : 0;
   return (
     <TableRow>
       <TableCell sx={{ pl: 6 }}>{c.service ?? c.name}</TableCell>
@@ -334,22 +340,28 @@ function ContainerRow({
       </TableCell>
       <TableCell sx={{ minWidth: 150 }}>
         <Stack direction="row" alignItems="center" spacing={1}>
-          <Typography variant="body2" sx={{ minWidth: 64 }}>
-            {formatCores(c.cpuPercent)} cores
-          </Typography>
+          <Tooltip title={`${formatCores(c.cpuPercent)} cores`}>
+            <Typography variant="body2" sx={{ minWidth: 56 }}>
+              {formatSharePercent(c.cpuPercent, ncpu * 100)}
+            </Typography>
+          </Tooltip>
           {history && <Sparkline values={history} />}
         </Stack>
         <UsageBar
-          segments={[{ fraction: cpuBar / 100, color: INFRA_COLOR }]}
+          segments={[{ fraction: cpuFraction, color: INFRA_COLOR }]}
           height={6}
         />
       </TableCell>
       <TableCell sx={{ minWidth: 140 }}>
-        <Typography variant="body2">
-          {formatBytes(c.memUsageBytes)} / {formatBytes(c.memLimitBytes)}
-        </Typography>
+        <Tooltip
+          title={`${formatBytes(c.memUsageBytes)} / ${formatBytes(c.memLimitBytes)} limit`}
+        >
+          <Typography variant="body2">
+            {formatSharePercent(c.memUsageBytes, memTotalBytes)}
+          </Typography>
+        </Tooltip>
         <UsageBar
-          segments={[{ fraction: c.memPercent / 100, color: INFRA_COLOR }]}
+          segments={[{ fraction: memFraction, color: INFRA_COLOR }]}
           height={6}
         />
       </TableCell>
@@ -369,10 +381,12 @@ function ContainerRow({
 function GroupBlock({
   group,
   ncpu,
+  memTotalBytes,
   extras,
 }: {
   group: Group;
   ncpu: number;
+  memTotalBytes: number;
   extras: MonitorExtras;
 }) {
   const [open, setOpen] = useState(true);
@@ -418,14 +432,18 @@ function GroupBlock({
           </Stack>
         </TableCell>
         <TableCell>
-          <Typography variant="body2">
-            {formatCores(group.cpuPercent)} cores
-          </Typography>
+          <Tooltip title={`${formatCores(group.cpuPercent)} cores`}>
+            <Typography variant="body2">
+              {formatSharePercent(group.cpuPercent, ncpu * 100)}
+            </Typography>
+          </Tooltip>
         </TableCell>
         <TableCell>
-          <Typography variant="body2">
-            {formatBytes(group.memUsageBytes)}
-          </Typography>
+          <Tooltip title={formatBytes(group.memUsageBytes)}>
+            <Typography variant="body2">
+              {formatSharePercent(group.memUsageBytes, memTotalBytes)}
+            </Typography>
+          </Tooltip>
         </TableCell>
         <TableCell colSpan={3} />
       </TableRow>
@@ -435,6 +453,7 @@ function GroupBlock({
             key={c.id}
             c={c}
             ncpu={ncpu}
+            memTotalBytes={memTotalBytes}
             history={history?.get(c.id)}
           />
         ))}
@@ -478,6 +497,7 @@ function ContainerTable({
                 key={g.project}
                 group={g}
                 ncpu={snapshot.host.ncpu}
+                memTotalBytes={snapshot.host.memTotalBytes}
                 extras={extras}
               />
             ))}
