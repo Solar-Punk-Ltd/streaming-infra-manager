@@ -347,52 +347,48 @@ function ContainerRow({
           variant="outlined"
         />
       </TableCell>
-      <TableCell sx={{ minWidth: 150 }}>
+      <TableCell sx={{ minWidth: 160 }}>
         <Stack direction="row" alignItems="center" spacing={1}>
-          <Tooltip title={`${formatCores(c.cpuPercent)} cores`}>
-            <Typography variant="body2" sx={{ minWidth: 56 }}>
-              {formatSharePercent(c.cpuPercent, ncpu * 100)}
-            </Typography>
-          </Tooltip>
+          <Typography variant="body2" sx={{ minWidth: 52 }}>
+            {formatSharePercent(c.cpuPercent, ncpu * 100)}
+          </Typography>
           {history && <Sparkline values={history} />}
         </Stack>
+        <Typography variant="caption" color="text.secondary">
+          {formatCores(c.cpuPercent)} cores
+        </Typography>
         <UsageBar
           segments={[{ fraction: cpuFraction, color: INFRA_COLOR }]}
           height={6}
         />
       </TableCell>
-      <TableCell sx={{ minWidth: 140 }}>
-        <Tooltip
-          title={`${formatBytes(c.memUsageBytes)} / ${formatBytes(c.memLimitBytes)} limit`}
-        >
-          <Typography variant="body2">
-            {formatSharePercent(c.memUsageBytes, memTotalBytes)}
-          </Typography>
-        </Tooltip>
+      <TableCell sx={{ minWidth: 150 }}>
+        <Typography variant="body2">
+          {formatSharePercent(c.memUsageBytes, memTotalBytes)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {formatBytes(c.memUsageBytes)} / {formatBytes(c.memLimitBytes)}
+        </Typography>
         <UsageBar
           segments={[{ fraction: memFraction, color: INFRA_COLOR }]}
           height={6}
         />
       </TableCell>
       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-        <Tooltip
-          title={`now ↓ ${formatRate(c.netRxRate)}  ↑ ${formatRate(c.netTxRate)}`}
-        >
-          <Box component="span">
-            ↓ {formatBytes(c.netRxBytes)}
-            <br />↑ {formatBytes(c.netTxBytes)}
-          </Box>
-        </Tooltip>
+        <Typography variant="body2">
+          ↓ {formatBytes(c.netRxBytes)} ↑ {formatBytes(c.netTxBytes)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          now ↓ {formatRate(c.netRxRate)} ↑ {formatRate(c.netTxRate)}
+        </Typography>
       </TableCell>
       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-        <Tooltip
-          title={`now R ${formatRate(c.blkReadRate)}  W ${formatRate(c.blkWriteRate)}`}
-        >
-          <Box component="span">
-            R {formatBytes(c.blkReadBytes)}
-            <br />W {formatBytes(c.blkWriteBytes)}
-          </Box>
-        </Tooltip>
+        <Typography variant="body2">
+          R {formatBytes(c.blkReadBytes)} W {formatBytes(c.blkWriteBytes)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          now R {formatRate(c.blkReadRate)} W {formatRate(c.blkWriteRate)}
+        </Typography>
       </TableCell>
       <TableCell align="right">{c.pids}</TableCell>
     </TableRow>
