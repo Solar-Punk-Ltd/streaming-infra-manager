@@ -12,6 +12,7 @@ import { MetricsCollector } from './domain/MetricsCollector.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
+import { StampService } from './domain/StampService.js';
 import { config } from './utils/config.js';
 import { bootstrapSubmoduleDefaults } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
@@ -127,11 +128,23 @@ async function main(): Promise<void> {
     deploymentGroupRepository,
   );
   const deployService = new DeployService(profileService, orchestrator);
+  const stampService = new StampService(
+    profileRepository,
+    containerRepository,
+    eventBus,
+  );
 
   metricsCollector = new MetricsCollector();
 
   apiServer = startApiServer(
-    { database, profileService, deployService, eventBus, metricsCollector },
+    {
+      database,
+      profileService,
+      deployService,
+      stampService,
+      eventBus,
+      metricsCollector,
+    },
     config.port,
     config.host,
   );

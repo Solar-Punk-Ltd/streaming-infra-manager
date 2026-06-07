@@ -7,6 +7,7 @@ import { ValidationError as YupValidationError } from 'yup';
 
 import {
   AllSlotsUsedError,
+  BeeNodeError,
   ProfileBusyError,
   GroupExistsError,
   ProfileExistsError,
@@ -54,6 +55,14 @@ export function errorHandler(
   }
   if (err instanceof StampRequiredError) {
     res.status(409).json({ error: 'stamp_required', name: err.profileName });
+    return;
+  }
+  if (err instanceof BeeNodeError) {
+    res.status(502).json({
+      error: 'bee_node_unreachable',
+      name: err.profileName,
+      message: err.message,
+    });
     return;
   }
   if (err instanceof AllSlotsUsedError) {

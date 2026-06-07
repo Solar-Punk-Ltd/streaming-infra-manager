@@ -24,6 +24,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Reach host-published bee node ports (per-profile stamp management) from
+    # inside the container via host.docker.internal — see StampService.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file: .env
     environment:
       DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
