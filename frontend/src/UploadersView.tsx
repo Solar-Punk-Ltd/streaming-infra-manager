@@ -133,6 +133,7 @@ function UploaderCard({
   const [depth, setDepth] = useState(DEFAULT_DEPTH);
   const [label, setLabel] = useState('');
   const [immutable, setImmutable] = useState(false);
+  const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -158,6 +159,35 @@ function UploaderCard({
     void load();
   }, [load]);
 
+  // While a freshly-bought batch is settling, poll the stamp list so its
+  // "usable" flag flips live. The backend auto-sets it when usable; clear once
+  // that lands (profile gains a stamp) or the batch reports usable.
+  useEffect(() => {
+    if (!waitingBatch) return;
+    const norm = (h: string) => h.replace(/^0x/, '');
+    let attempts = 0;
+    const MAX_ATTEMPTS = 120; // ~10 min at 5s
+    const id = setInterval(async () => {
+      attempts += 1;
+      try {
+        const fresh = await fetchStamps(profile.name);
+        setStamps(fresh);
+        const match = fresh.find((s) => norm(s.batchID) === norm(waitingBatch));
+        if ((match && match.usable) || attempts >= MAX_ATTEMPTS) {
+          setWaitingBatch(null);
+        }
+      } catch {
+        if (attempts >= MAX_ATTEMPTS) setWaitingBatch(null);
+      }
+    }, 5_000);
+    return () => clearInterval(id);
+  }, [waitingBatch, profile.name]);
+
+  // The backend pushes profile.changed (SSE) when it auto-sets the stamp.
+  useEffect(() => {
+    if (waitingBatch && hasStamp(profile)) setWaitingBatch(null);
+  }, [profile, waitingBatch]);
+
   const runAction = async (fn: () => Promise<void>) => {
     setBusy(true);
     setActionError(null);
@@ -172,7 +202,7 @@ function UploaderCard({
 
   const onBuy = () =>
     runAction(async () => {
-      await buyStamp(profile.name, {
+      const { batchID } = await buyStamp(profile.name, {
         amount: amount.trim(),
         depth: Number(depth),
         label: label.trim() || undefined,
@@ -180,7 +210,8 @@ function UploaderCard({
       });
       setAmount('');
       setLabel('');
-      // Batch becomes usable after a few blocks — reload to show it.
+      // Batch becomes usable after a few blocks — track it and poll.
+      setWaitingBatch(batchID);
       await load();
     });
 
@@ -252,6 +283,12 @@ function UploaderCard({
           {actionError && (
             <Alert severity="error" onClose={() => setActionError(null)}>
               {actionError}
+            </Alert>
+          )}
+          {waitingBatch && (
+            <Alert severity="info" icon={<CircularProgress size={18} />}>
+              Waiting for stamp <code>{shortHex(waitingBatch)}</code> to become
+              usable — this can take a few minutes. It will be set automatically.
             </Alert>
           )}
 

@@ -26,6 +26,16 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
+// Mirror swarm-cli / bee-js `waitForUsablePostageStamp`: after a buy, poll the
+// node until the batch reports `usable`. A fresh batch can take minutes to
+// propagate, so this runs in the background — the HTTP buy returns the batchID
+// immediately and the stamp is auto-set when it becomes usable.
+const USABLE_POLL_MS = 3_000;
+const USABLE_WAIT_MS = 15 * 60 * 1_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Factory so tests can inject a fake client. */
 export type BeeClientFactory = (baseUrl: string) => BeeStampClient;
 
@@ -43,6 +53,9 @@ export function beeApiUrlFor(profile: Profile): string {
 }
 
 export class StampService {
+  /** batchIDs currently being awaited, to avoid duplicate poll loops. */
+  private readonly awaitingUsable = new Set<string>();
+
   constructor(
     private readonly profiles: ProfileRepository,
     private readonly containers: ContainerRepository,
@@ -71,6 +84,9 @@ export class StampService {
     logger.info(
       `[StampService] ${name}: bought stamp ${result.batchID} (amount=${input.amount}, depth=${input.depth})`,
     );
+    // Don't block the HTTP response — poll for usability in the background and
+    // auto-set the stamp when it lands (mirrors swarm-cli's wait-usable).
+    this.awaitUsableAndSet(name, result.batchID);
     return result;
   }
 
@@ -104,5 +120,65 @@ export class StampService {
     } catch (err) {
       throw new BeeNodeError(name, getErrorMessage(err));
     }
+  }
+
+  /** Fire-and-forget poll loop; de-duped per (profile, batch). */
+  private awaitUsableAndSet(name: string, batchID: string): void {
+    const key = `${name}:${batchID}`;
+    if (this.awaitingUsable.has(key)) return;
+    this.awaitingUsable.add(key);
+    void this.runUsableWait(name, batchID).finally(() =>
+      this.awaitingUsable.delete(key),
+    );
+  }
+
+  /**
+   * Poll `GET /stamps/{batchID}` until it reports usable (bee-js parity), then
+   * set it as the profile's active stamp — but only if none is set yet, so we
+   * never silently swap a stamp already in use. Publishes profile.changed so
+   * the UI flips to "Stamp set" and enables "Deploy uploader".
+   */
+  private async runUsableWait(name: string, batchID: string): Promise<void> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) return;
+    const client = this.clientFactory(beeApiUrlFor(profile));
+
+    const start = Date.now();
+    while (Date.now() - start < USABLE_WAIT_MS) {
+      await sleep(USABLE_POLL_MS);
+      let usable = false;
+      try {
+        const stamp = await client.getStamp(batchID);
+        usable = stamp.usable;
+      } catch {
+        // Node may not have indexed the fresh batch yet — keep polling.
+        continue;
+      }
+      if (!usable) continue;
+
+      const current = await this.profiles.findByName(name);
+      if (!current) return;
+      if (current.stamp_id) {
+        logger.info(
+          `[StampService] ${name}: stamp ${batchID} usable; profile already has a stamp, not overriding`,
+        );
+        return;
+      }
+      const updated = await this.profiles.updateStampId(name, batchID);
+      if (updated) {
+        const withContainers = await this.containers.withContainers(updated);
+        this.events.publish({
+          type: 'profile.changed',
+          profile: withContainers,
+        });
+        logger.info(
+          `[StampService] ${name}: stamp ${batchID} usable → set as active`,
+        );
+      }
+      return;
+    }
+    logger.warn(
+      `[StampService] ${name}: stamp ${batchID} not usable within ${USABLE_WAIT_MS}ms`,
+    );
   }
 }
