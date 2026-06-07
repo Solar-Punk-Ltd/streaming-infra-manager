@@ -30,6 +30,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
 import { ResourcesView } from './ResourcesView';
+import { UploadersView } from './UploadersView';
 import { ServerHostProvider } from './ServerHostContext';
 import {
   canDeployUploader,
@@ -59,7 +60,9 @@ export function App() {
     message: string;
   } | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
-  const [view, setView] = useState<'deployments' | 'resources'>('deployments');
+  const [view, setView] = useState<
+    'deployments' | 'resources' | 'uploaders'
+  >('deployments');
 
   const load = useCallback(() => {
     fetchProfiles()
@@ -211,11 +214,14 @@ export function App() {
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <Tabs
           value={view}
-          onChange={(_e, v) => setView(v as 'deployments' | 'resources')}
+          onChange={(_e, v) =>
+            setView(v as 'deployments' | 'resources' | 'uploaders')
+          }
           sx={{ mb: 2 }}
         >
           <Tab value="deployments" label="Deployments" />
           <Tab value="resources" label="Resources" />
+          <Tab value="uploaders" label="Uploaders" />
         </Tabs>
 
         {error && (
@@ -300,6 +306,10 @@ export function App() {
         )}
 
         {view === 'resources' && <ResourcesView />}
+
+        {view === 'uploaders' && (
+          <UploadersView profiles={profiles} onChanged={load} />
+        )}
       </Container>
 
       <Dialog

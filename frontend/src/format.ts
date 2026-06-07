@@ -20,6 +20,43 @@ export function formatRate(bytesPerSec: number | null | undefined): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
+/**
+ * Format a base-unit integer string (e.g. wei) to a decimal token amount.
+ * Uses BigInt to avoid precision loss. xDAI: decimals=18; BZZ (PLUR): 16.
+ */
+export function formatTokenBalance(
+  raw: string | null | undefined,
+  decimals: number,
+  fractionDigits = 4,
+): string {
+  if (raw == null || raw === '') return '—';
+  let value: bigint;
+  try {
+    value = BigInt(raw);
+  } catch {
+    return raw;
+  }
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const rem = value % base;
+  const scaled = (rem * 10n ** BigInt(fractionDigits)) / base;
+  const frac = scaled.toString().padStart(fractionDigits, '0');
+  return `${whole.toString()}.${frac}`;
+}
+
+/** Batch TTL seconds → "12d 4h", "3h 20m", or "expired". -1 → "unknown". */
+export function formatTtl(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  if (seconds < 0) return 'unknown';
+  if (seconds === 0) return 'expired';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 /** CPU percent (share-of-one-core × 100) → cores, e.g. 250 → "2.50". */
 export function formatCores(cpuPercent: number | null | undefined): string {
   if (cpuPercent == null || !Number.isFinite(cpuPercent)) return '—';
