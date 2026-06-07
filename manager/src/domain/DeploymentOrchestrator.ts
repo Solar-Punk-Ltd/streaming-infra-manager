@@ -14,6 +14,7 @@ import {
   SCRIPT_HEALTH,
   SCRIPT_STOP,
   SUBMODULE,
+  bootstrapSubmoduleDefaults,
   deleteProfileEnv,
   parseBaseEnv,
 } from '../utils/envUtils.js';
@@ -184,14 +185,30 @@ export class DeploymentOrchestrator {
     });
   }
 
-  startHealth(profile: Profile): RunHandle {
+  async startHealth(profile: Profile): Promise<RunHandle> {
+    await this.ensureSubmoduleDefaults();
     return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
       cwd: SUBMODULE,
       env: beeDataDirsFor(profile.name),
     });
   }
 
+  /**
+   * Guarantee the submodule's runtime config (.env, deploy/config.json) exists
+   * before any script runs. The files are created once from their *.sample and
+   * are gitignored, so a `deploy.sh` rsync --delete can wipe them between runs;
+   * recreating here keeps profile actions working without a manager restart.
+   */
+  private async ensureSubmoduleDefaults(): Promise<void> {
+    const created = await bootstrapSubmoduleDefaults();
+    for (const file of created) {
+      logger.info(`[Orchestrator] created missing default: ${file}`);
+    }
+  }
+
   private async runJob(cfg: JobConfig): Promise<RunHandle> {
+    await this.ensureSubmoduleDefaults();
+
     if (cfg.transitionTo && cfg.allowedFrom) {
       const transitioned = await this.profiles.transitionStatus(
         cfg.profileName,

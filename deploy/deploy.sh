@@ -50,8 +50,6 @@ rsync -avz --delete \
     --exclude '*.tsbuildinfo' \
     --exclude '.DS_Store' \
     --exclude 'manager/swarm-hls-stream/deploy/data/' \
-    --exclude 'manager/swarm-hls-stream/.env' \
-    --exclude 'manager/swarm-hls-stream/deploy/config.json' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
 echo "==> Remote build + up"
