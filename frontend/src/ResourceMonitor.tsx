@@ -258,7 +258,10 @@ function InfraSummary({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' },
+          gridTemplateColumns: {
+            xs: '1fr 1fr',
+            md: 'repeat(5, 1fr)',
+          },
           gap: 2,
         }}
       >
@@ -274,8 +277,13 @@ function InfraSummary({
         />
         <StatCard
           title="Network"
-          value={`↓ ${formatRate(infra.netRxRate)}`}
-          sub={`↑ ${formatRate(infra.netTxRate)}`}
+          value={`↓ ${formatBytes(infra.netRxBytes)}  ↑ ${formatBytes(infra.netTxBytes)}`}
+          sub={`now ↓ ${formatRate(infra.netRxRate)}  ↑ ${formatRate(infra.netTxRate)}`}
+        />
+        <StatCard
+          title="Disk I/O"
+          value={`R ${formatBytes(infra.blkReadBytes)}  W ${formatBytes(infra.blkWriteBytes)}`}
+          sub={`now R ${formatRate(infra.blkReadRate)}  W ${formatRate(infra.blkWriteRate)}`}
         />
         <StatCard
           title="Containers"
@@ -366,12 +374,24 @@ function ContainerRow({
         />
       </TableCell>
       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-        ↓ {formatRate(c.netRxRate)}
-        <br />↑ {formatRate(c.netTxRate)}
+        <Tooltip
+          title={`now ↓ ${formatRate(c.netRxRate)}  ↑ ${formatRate(c.netTxRate)}`}
+        >
+          <Box component="span">
+            ↓ {formatBytes(c.netRxBytes)}
+            <br />↑ {formatBytes(c.netTxBytes)}
+          </Box>
+        </Tooltip>
       </TableCell>
       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-        R {formatRate(c.blkReadRate)}
-        <br />W {formatRate(c.blkWriteRate)}
+        <Tooltip
+          title={`now R ${formatRate(c.blkReadRate)}  W ${formatRate(c.blkWriteRate)}`}
+        >
+          <Box component="span">
+            R {formatBytes(c.blkReadBytes)}
+            <br />W {formatBytes(c.blkWriteBytes)}
+          </Box>
+        </Tooltip>
       </TableCell>
       <TableCell align="right">{c.pids}</TableCell>
     </TableRow>

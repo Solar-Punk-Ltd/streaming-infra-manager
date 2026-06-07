@@ -37,8 +37,14 @@ export interface ContainerMetrics {
 export interface InfraTotals {
   cpuPercent: number;
   memUsageBytes: number;
+  netRxBytes: number;
+  netTxBytes: number;
   netRxRate: number;
   netTxRate: number;
+  blkReadBytes: number;
+  blkWriteBytes: number;
+  blkReadRate: number;
+  blkWriteRate: number;
   containerCount: number;
 }
 

@@ -60,9 +60,18 @@ export interface InfraTotals {
   cpuPercent: number;
   /** Sum of every container's memUsageBytes. */
   memUsageBytes: number;
+  /** Sum of cumulative network bytes across containers. */
+  netRxBytes: number;
+  netTxBytes: number;
   /** Sum of every container's network throughput, bytes/second. */
   netRxRate: number;
   netTxRate: number;
+  /** Sum of cumulative block I/O across containers. */
+  blkReadBytes: number;
+  blkWriteBytes: number;
+  /** Sum of every container's block I/O throughput, bytes/second. */
+  blkReadRate: number;
+  blkWriteRate: number;
   /** Number of containers included in the totals. */
   containerCount: number;
 }
