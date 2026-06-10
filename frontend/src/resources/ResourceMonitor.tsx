@@ -6,8 +6,8 @@ import { OutsideSection } from './OutsideSection';
 import { InfraSummary } from './InfraSummary';
 import { ContainerTable } from './ContainerTable';
 
-/** Optional live extras layered on top of the snapshot. */
-export interface MonitorExtras {
+/** Live data layered on top of the snapshot. */
+export interface LiveMetricsProps {
   /** containerId → recent cpuPercent samples, for sparklines. */
   history?: Map<string, number[]>;
   /** project → on-disk footprint in bytes (null = none / not yet loaded). */
@@ -18,8 +18,10 @@ export interface MonitorExtras {
 
 export function ResourceMonitor({
   snapshot,
-  ...extras
-}: { snapshot: MetricsSnapshot } & MonitorExtras) {
+  history,
+  diskByProject,
+  onExpandProject,
+}: { snapshot: MetricsSnapshot } & LiveMetricsProps) {
   return (
     <Stack spacing={3}>
       <HostSection host={snapshot.host} infra={snapshot.infra} />
@@ -29,7 +31,12 @@ export function ResourceMonitor({
         outside={snapshot.outside}
       />
       <InfraSummary infra={snapshot.infra} host={snapshot.host} />
-      <ContainerTable snapshot={snapshot} extras={extras} />
+      <ContainerTable
+        snapshot={snapshot}
+        history={history}
+        diskByProject={diskByProject}
+        onExpandProject={onExpandProject}
+      />
     </Stack>
   );
 }

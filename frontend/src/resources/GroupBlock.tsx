@@ -8,7 +8,7 @@ import {
   formatCores,
   formatSharePercent,
 } from '../format';
-import type { MonitorExtras } from './ResourceMonitor';
+import type { LiveMetricsProps } from './ResourceMonitor';
 import { ContainerRow } from './ContainerRow';
 import type { Group } from './grouping';
 
@@ -16,15 +16,15 @@ export function GroupBlock({
   group,
   ncpu,
   memTotalBytes,
-  extras,
+  history,
+  diskByProject,
+  onExpandProject,
 }: {
   group: Group;
   ncpu: number;
   memTotalBytes: number;
-  extras: MonitorExtras;
-}) {
+} & LiveMetricsProps) {
   const [open, setOpen] = useState(true);
-  const { history, diskByProject, onExpandProject } = extras;
 
   // Lazily ask for this profile's disk footprint whenever it's expanded.
   useEffect(() => {

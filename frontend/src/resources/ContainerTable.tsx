@@ -12,17 +12,16 @@ import {
 } from '@mui/material';
 
 import type { MetricsSnapshot } from '../types';
-import type { MonitorExtras } from './ResourceMonitor';
+import type { LiveMetricsProps } from './ResourceMonitor';
 import { GroupBlock } from './GroupBlock';
 import { groupByProject } from './grouping';
 
 export function ContainerTable({
   snapshot,
-  extras,
-}: {
-  snapshot: MetricsSnapshot;
-  extras: MonitorExtras;
-}) {
+  history,
+  diskByProject,
+  onExpandProject,
+}: { snapshot: MetricsSnapshot } & LiveMetricsProps) {
   const groups = useMemo(
     () => groupByProject(snapshot.containers),
     [snapshot.containers],
@@ -53,7 +52,9 @@ export function ContainerTable({
                 group={g}
                 ncpu={snapshot.host.ncpu}
                 memTotalBytes={snapshot.host.memTotalBytes}
-                extras={extras}
+                history={history}
+                diskByProject={diskByProject}
+                onExpandProject={onExpandProject}
               />
             ))}
           </TableBody>
