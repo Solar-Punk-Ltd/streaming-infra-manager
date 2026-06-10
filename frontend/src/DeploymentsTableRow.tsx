@@ -22,7 +22,7 @@ import { useState } from 'react';
 
 import { StampRequiredChip, StatusChip } from './StatusChip';
 import { useServerHost } from './ServerHostContext';
-import { clientUrl, componentUrl, hostFor } from './data';
+import { clientUrl, componentUrl, hostFor } from './urls';
 import type { Profile } from './types';
 
 export function DeploymentsTableRow({

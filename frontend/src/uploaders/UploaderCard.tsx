@@ -27,20 +27,18 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
+import { canDeployUploader, deployUploader, hasUsableStamp } from '../data';
+import { srtPublishUrl } from '../urls';
 import {
   type BeeAddress,
   type BeeStamp,
   type BeeWallet,
   buyStamp,
-  canDeployUploader,
-  deployUploader,
   fetchStampAddress,
   fetchStamps,
   fetchStampWallet,
-  hasUsableStamp,
   setStamp,
-  srtPublishUrl,
-} from '../data';
+} from './stampApi';
 import { formatTokenBalance, formatTtl } from '../format';
 import { useServerHost } from '../ServerHostContext';
 import { StampRequiredChip } from '../StatusChip';

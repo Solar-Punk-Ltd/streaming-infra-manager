@@ -5,6 +5,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
+import { extractApiError } from './http';
 import type {
   CreateProfileBody,
   DeploymentGroup,
@@ -15,55 +16,6 @@ import type {
 // Gating rules are shared with the manager so both layers agree on
 // "needs a stamp / has a stamp".
 export { hasUsableStamp } from '@streaming-infra-manager/common';
-
-const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
-
-/**
- * The address to reach a profile's components: the profile's own host when it
- * names a concrete server, otherwise the manager-reported server host.
- */
-export function hostFor(profile: Profile, serverHost: string): string {
-  const profileHost = profile.host?.trim() ?? '';
-  if (!LOCAL_HOSTS.has(profileHost)) return profileHost;
-  return serverHost || window.location.hostname;
-}
-
-export function componentUrl(host: string, port: number): string {
-  return `http://${host}:${port}`;
-}
-
-export function clientUrl(profile: Profile, serverHost: string): string | null {
-  const client = profile.containers.find((c) => c.service === 'client');
-  if (!client) return null;
-  const port = client.ports.CLIENT_PORT;
-  if (!port) return null;
-  return componentUrl(hostFor(profile, serverHost), port);
-}
-
-const SRT_DEFAULT_APP_STREAM = 'live/stream';
-const SRS_SRT_BASE_PORT = 10001;
-
-/**
- * Ready-to-copy SRT publish URL for a streamer profile (OBS/FFmpeg target).
- * Uses the deployed srs container's published SRT port, falling back to the
- * slot's default (base + slot*10). Returns null when no SRT port is known yet.
- */
-export function srtPublishUrl(
-  profile: Profile,
-  serverHost: string,
-  passphrase?: string | null,
-): string | null {
-  const srs = profile.containers.find((c) => c.service === 'srs');
-  const port =
-    srs?.ports.SRS_SRT_PORT ??
-    (profile.port_slot > 0
-      ? SRS_SRT_BASE_PORT + profile.port_slot * 10
-      : null);
-  if (!port) return null;
-  const host = hostFor(profile, serverHost);
-  const base = `srt://${host}:${port}?streamid=#!::r=${SRT_DEFAULT_APP_STREAM},m=publish`;
-  return passphrase ? `${base}&passphrase=${passphrase}` : base;
-}
 
 export interface ServerConfig {
   host: string;
@@ -199,106 +151,6 @@ export async function fetchGroups(): Promise<DeploymentGroup[]> {
   } catch {
     return [];
   }
-}
-
-export interface BeeAddress {
-  ethereum: string;
-  overlay?: string;
-}
-
-export interface BeeWallet {
-  bzzBalance: string;
-  nativeTokenBalance: string;
-}
-
-export interface BeeStamp {
-  batchID: string;
-  utilization: number;
-  usable: boolean;
-  label?: string;
-  depth: number;
-  amount: string;
-  bucketDepth: number;
-  blockNumber: number;
-  immutableFlag: boolean;
-  exists: boolean;
-  batchTTL: number;
-}
-
-export interface BuyStampInput {
-  amount: string;
-  depth: number;
-  label?: string;
-  immutable?: boolean;
-}
-
-/** Best-effort extraction of the API's error message, falling back to `fallback`. */
-async function extractApiError(res: Response, fallback: string): Promise<string> {
-  try {
-    const err = (await res.json()) as { error?: string; message?: string };
-    return err.message ?? err.error ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  if (!res.ok) {
-    throw new Error(await extractApiError(res, `request failed (${res.status})`));
-  }
-  return (await res.json()) as T;
-}
-
-export function fetchStampAddress(name: string): Promise<BeeAddress> {
-  return getJson<BeeAddress>(
-    `/profiles/${encodeURIComponent(name)}/stamp/address`,
-  );
-}
-
-export function fetchStampWallet(name: string): Promise<BeeWallet> {
-  return getJson<BeeWallet>(
-    `/profiles/${encodeURIComponent(name)}/stamp/wallet`,
-  );
-}
-
-export async function fetchStamps(name: string): Promise<BeeStamp[]> {
-  const body = await getJson<{ stamps: BeeStamp[] }>(
-    `/profiles/${encodeURIComponent(name)}/stamp/stamps`,
-  );
-  return body.stamps;
-}
-
-export async function buyStamp(
-  name: string,
-  input: BuyStampInput,
-): Promise<{ batchID: string }> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}/stamp/buy`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) {
-    throw new Error(await extractApiError(res, `buy failed (${res.status})`));
-  }
-  return (await res.json()) as { batchID: string };
-}
-
-export async function setStamp(
-  name: string,
-  stampId: string,
-): Promise<Profile> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}/stamp/set`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ stamp_id: stampId }),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `set stamp failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as Profile;
 }
 
 export async function updateProfile(
