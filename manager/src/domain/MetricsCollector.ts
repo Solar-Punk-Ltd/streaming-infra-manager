@@ -20,7 +20,7 @@ const SERVICE_LABEL = 'com.docker.compose.service';
 
 type Listener = (snapshot: MetricsSnapshot) => void;
 
-type KnownProjectsProvider = () => Promise<Set<string>>;
+type ManagedProjectsProvider = () => Promise<Set<string>>;
 
 interface PrevCounters {
   netRxBytes: number;
@@ -36,8 +36,8 @@ export class MetricsCollector {
   private timer: NodeJS.Timeout | null = null;
   private latest: MetricsSnapshot | null = null;
   private sampling = false;
-  private knownProjects: KnownProjectsProvider | null = null;
-  private lastKnownProjects: Set<string> | null = null;
+  private managedProjects: ManagedProjectsProvider | null = null;
+  private lastManagedProjects: Set<string> | null = null;
 
   constructor(
     private readonly docker: Docker = new Docker(),
@@ -45,8 +45,8 @@ export class MetricsCollector {
     private readonly intervalMs: number = SAMPLE_INTERVAL_MS,
   ) {}
 
-  setKnownProjectsProvider(provider: KnownProjectsProvider): void {
-    this.knownProjects = provider;
+  setManagedProjectsProvider(provider: ManagedProjectsProvider): void {
+    this.managedProjects = provider;
   }
 
   getLatest(): MetricsSnapshot | null {
@@ -121,11 +121,11 @@ export class MetricsCollector {
   private async collectContainers(): Promise<ContainerMetrics[]> {
     const list = await this.docker.listContainers({ all: false });
 
-    const known = await this.resolveKnownProjects();
-    const scoped = known
+    const managed = await this.resolveManagedProjects();
+    const scoped = managed
       ? list.filter((info) => {
           const project = info.Labels?.[PROJECT_LABEL];
-          return !!project && known.has(project);
+          return !!project && managed.has(project);
         })
       : list;
 
@@ -140,17 +140,17 @@ export class MetricsCollector {
     return results.filter((c): c is ContainerMetrics => c !== null);
   }
 
-  private async resolveKnownProjects(): Promise<Set<string> | null> {
-    if (!this.knownProjects) return null;
+  private async resolveManagedProjects(): Promise<Set<string> | null> {
+    if (!this.managedProjects) return null;
     try {
-      const set = await this.knownProjects();
-      this.lastKnownProjects = set;
+      const set = await this.managedProjects();
+      this.lastManagedProjects = set;
       return set;
     } catch (err) {
       logger.warn(
-        `[MetricsCollector] could not resolve known projects: ${getErrorMessage(err)}`,
+        `[MetricsCollector] could not resolve managed projects: ${getErrorMessage(err)}`,
       );
-      return this.lastKnownProjects;
+      return this.lastManagedProjects;
     }
   }
 

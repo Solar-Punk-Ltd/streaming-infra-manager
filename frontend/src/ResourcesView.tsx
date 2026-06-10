@@ -10,7 +10,7 @@ import { useMetrics } from './useMetrics';
  * user navigates away) and lazily loads each profile's disk footprint.
  */
 export function ResourcesView() {
-  const { snapshot, history, connected, fetchDisk } = useMetrics();
+  const { snapshot, history, connected, fetchProfileDiskBytes } = useMetrics();
   const [diskByProject, setDiskByProject] = useState<
     Map<string, number | null>
   >(new Map());
@@ -20,11 +20,11 @@ export function ResourcesView() {
     (project: string) => {
       if (requested.current.has(project)) return;
       requested.current.add(project);
-      void fetchDisk(project).then((size) =>
+      void fetchProfileDiskBytes(project).then((size) =>
         setDiskByProject((prev) => new Map(prev).set(project, size)),
       );
     },
-    [fetchDisk],
+    [fetchProfileDiskBytes],
   );
 
   if (!snapshot) {

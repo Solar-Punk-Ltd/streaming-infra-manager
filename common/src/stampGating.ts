@@ -27,12 +27,12 @@ export function servicesNeedStamp(services: readonly string[]): boolean {
   return services.includes(STREAM_UPLOADER_SERVICE);
 }
 
-export function hasUsableStamp(profile: StampGatedProfile): boolean {
+export function hasStampId(profile: StampGatedProfile): boolean {
   return Boolean(profile.stamp_id && profile.stamp_id.trim());
 }
 
 export function isPendingStamp(profile: StampGatedProfile): boolean {
   return (
-    servicesNeedStamp(defaultServicesFor(profile)) && !hasUsableStamp(profile)
+    servicesNeedStamp(defaultServicesFor(profile)) && !hasStampId(profile)
   );
 }

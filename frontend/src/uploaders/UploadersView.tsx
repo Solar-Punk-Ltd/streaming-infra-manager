@@ -1,5 +1,10 @@
 import { Alert, Box, CircularProgress, Stack } from '@mui/material';
 
+import {
+  defaultServicesFor,
+  servicesNeedStamp,
+} from '@streaming-infra-manager/common';
+
 import type { Profile } from '../types';
 import { UploaderCard } from './UploaderCard';
 
@@ -20,8 +25,8 @@ export function UploadersView({
     );
   }
 
-  const uploaderProfiles = profiles.filter(
-    (p) => p.kind === 'streamer' || !!p.components?.includes('stream-uploader'),
+  const uploaderProfiles = profiles.filter((p) =>
+    servicesNeedStamp(defaultServicesFor(p)),
   );
 
   if (uploaderProfiles.length === 0) {

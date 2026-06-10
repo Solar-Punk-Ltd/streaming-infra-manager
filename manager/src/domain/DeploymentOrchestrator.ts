@@ -26,7 +26,7 @@ import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
 import {
   defaultServicesFor,
-  hasUsableStamp,
+  hasStampId,
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
@@ -109,7 +109,7 @@ export class DeploymentOrchestrator {
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
-    if (!hasUsableStamp(profile)) {
+    if (!hasStampId(profile)) {
       throw new StampRequiredError(profile.name);
     }
     return this.deployServices(profile, [STREAM_UPLOADER_SERVICE], {
@@ -135,16 +135,19 @@ export class DeploymentOrchestrator {
       host?: string;
     },
   ): Promise<RunHandle> {
-    const { deploy, heldBack } = splitDeployableServices(profile, services);
+    const { deployNow, heldBackForStamp } = splitDeployableServices(
+      profile,
+      services,
+    );
 
-    if (heldBack.length > 0) {
+    if (heldBackForStamp.length > 0) {
       logger.info(
-        `[Orchestrator] ${profile.name}: holding back ${heldBack.join(', ')} — no usable stamp yet`,
+        `[Orchestrator] ${profile.name}: holding back ${heldBackForStamp.join(', ')} — no usable stamp yet`,
       );
     }
 
     // deploy.sh's STAMP guard reads .env.<profile>; a non-empty value skips its interactive prompt.
-    if (profile.stamp_id && deploy.includes(STREAM_UPLOADER_SERVICE)) {
+    if (profile.stamp_id && deployNow.includes(STREAM_UPLOADER_SERVICE)) {
       const written = writeProfileStampEnv(profile.name, profile.stamp_id);
       if (written) {
         logger.info(`[Orchestrator] ${profile.name}: wrote stamp env ${written}`);
@@ -152,14 +155,14 @@ export class DeploymentOrchestrator {
     }
 
     // An empty service filter would make deploy.sh deploy every configured service.
-    if (deploy.length === 0) {
+    if (deployNow.length === 0) {
       return this.completeWithoutScript(profile, opts);
     }
 
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, deploy, opts.host),
+      args: this.buildScriptArgs(profile, deployNow, opts.host),
       transitionTo: opts.transitionTo,
       allowedFrom: opts.allowedFrom,
       onSuccess: async () => {
@@ -167,7 +170,7 @@ export class DeploymentOrchestrator {
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, deploy);
+        await this.snapshotContainers(profile, deployNow);
         if (updated) {
           await this.publishChanged(updated);
         }

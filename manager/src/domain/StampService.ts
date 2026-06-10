@@ -47,7 +47,7 @@ export function beeApiUrlFor(profile: Profile): string {
 }
 
 export class StampService {
-  private readonly awaitingUsable = new Set<string>();
+  private readonly pendingUsableWaits = new Set<string>();
 
   constructor(
     private readonly profiles: ProfileRepository,
@@ -141,15 +141,15 @@ export class StampService {
 
   private awaitUsableAndSet(name: string, batchID: string): void {
     const key = `${name}:${batchID}`;
-    if (this.awaitingUsable.has(key)) return;
-    this.awaitingUsable.add(key);
+    if (this.pendingUsableWaits.has(key)) return;
+    this.pendingUsableWaits.add(key);
     void this.runUsableWait(name, batchID)
       .catch((err) =>
         logger.error(
           `[StampService] ${name}: usable-wait for ${batchID} failed: ${getErrorMessage(err)}`,
         ),
       )
-      .finally(() => this.awaitingUsable.delete(key));
+      .finally(() => this.pendingUsableWaits.delete(key));
   }
 
   private async runUsableWait(name: string, batchID: string): Promise<void> {

@@ -1,6 +1,6 @@
 import {
   defaultServicesFor,
-  hasUsableStamp,
+  hasStampId,
   servicesNeedStamp,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -13,7 +13,7 @@ import type {
   ProfileKind,
 } from './types';
 
-export { hasUsableStamp } from '@streaming-infra-manager/common';
+export { hasStampId } from '@streaming-infra-manager/common';
 
 export interface ServerConfig {
   host: string;
@@ -50,7 +50,7 @@ function uploaderDeployed(profile: Profile): boolean {
 export function canDeployUploader(profile: Profile): boolean {
   return (
     servicesNeedStamp(defaultServicesFor(profile)) &&
-    hasUsableStamp(profile) &&
+    hasStampId(profile) &&
     !uploaderDeployed(profile)
   );
 }

@@ -27,7 +27,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { canDeployUploader, deployUploader, hasUsableStamp } from '../data';
+import { canDeployUploader, deployUploader, hasStampId } from '../data';
 import { srtPublishUrl } from '../urls';
 import {
   type BeeAddress,
@@ -197,7 +197,7 @@ export function UploaderCard({
           </Typography>
           {profile.pendingStamp ? (
             <StampRequiredChip />
-          ) : hasUsableStamp(profile) ? (
+          ) : hasStampId(profile) ? (
             <Chip
               size="small"
               color="success"

@@ -8,7 +8,7 @@ export interface UseMetrics {
   snapshot: MetricsSnapshot | null;
   history: Map<string, number[]>;
   connected: boolean;
-  fetchDisk: (project: string) => Promise<number | null>;
+  fetchProfileDiskBytes: (project: string) => Promise<number | null>;
 }
 
 // Subscribing also gates the backend: it samples Docker only while someone listens.
@@ -50,7 +50,7 @@ export function useMetrics(): UseMetrics {
     return () => source.close();
   }, []);
 
-  const fetchDisk = useCallback(
+  const fetchProfileDiskBytes = useCallback(
     async (project: string): Promise<number | null> => {
       try {
         const res = await fetch(`/metrics/disk/${encodeURIComponent(project)}`);
@@ -64,5 +64,10 @@ export function useMetrics(): UseMetrics {
     [],
   );
 
-  return { snapshot, history: historyRef.current, connected, fetchDisk };
+  return {
+    snapshot,
+    history: historyRef.current,
+    connected,
+    fetchProfileDiskBytes,
+  };
 }

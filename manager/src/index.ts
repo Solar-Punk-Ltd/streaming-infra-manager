@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   );
 
   metricsCollector = new MetricsCollector();
-  metricsCollector.setKnownProjectsProvider(
+  metricsCollector.setManagedProjectsProvider(
     async () => new Set((await profileRepository.list()).map((p) => p.name)),
   );
 

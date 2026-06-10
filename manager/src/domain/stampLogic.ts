@@ -1,5 +1,5 @@
 import {
-  hasUsableStamp,
+  hasStampId,
   servicesNeedStamp,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -8,15 +8,15 @@ import { Profile } from '../types/index.js';
 
 export {
   defaultServicesFor,
-  hasUsableStamp,
+  hasStampId,
   isPendingStamp,
   servicesNeedStamp,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
 export interface DeploySplit {
-  deploy: string[];
-  heldBack: string[];
+  deployNow: string[];
+  heldBackForStamp: string[];
 }
 
 // Keeps deploy.sh's interactive STAMP prompt from firing under the stdin-less runner.
@@ -24,11 +24,13 @@ export function splitDeployableServices(
   profile: Profile,
   services: readonly string[],
 ): DeploySplit {
-  if (hasUsableStamp(profile) || !servicesNeedStamp(services)) {
-    return { deploy: [...services], heldBack: [] };
+  if (hasStampId(profile) || !servicesNeedStamp(services)) {
+    return { deployNow: [...services], heldBackForStamp: [] };
   }
   return {
-    deploy: services.filter((service) => service !== STREAM_UPLOADER_SERVICE),
-    heldBack: [STREAM_UPLOADER_SERVICE],
+    deployNow: services.filter(
+      (service) => service !== STREAM_UPLOADER_SERVICE,
+    ),
+    heldBackForStamp: [STREAM_UPLOADER_SERVICE],
   };
 }
