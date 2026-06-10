@@ -4,11 +4,7 @@ import { join } from 'node:path';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import {
-  KIND_DEFAULT_SERVICES,
-  Profile,
-  ProfileStatus,
-} from '../types/index.js';
+import { Profile, ProfileStatus } from '../types/index.js';
 import {
   SCRIPT_CLEAN,
   SCRIPT_DEPLOY,
@@ -29,6 +25,7 @@ import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
 import {
+  defaultServicesFor,
   hasUsableStamp,
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
@@ -93,10 +90,9 @@ export class DeploymentOrchestrator {
 
   async startDeploy(
     profile: Profile,
-    services: string[] | undefined,
+    requested: string[] | undefined,
   ): Promise<RunHandle> {
-    const resolved = this.resolveServices(profile, services);
-    return this.deployResolved(profile, resolved, {
+    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
       transitionTo: 'DEPLOYING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
     });
@@ -104,11 +100,12 @@ export class DeploymentOrchestrator {
 
   async startInitialDeploy(
     profile: Profile,
-    services: string[] | undefined,
+    requested: string[] | undefined,
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
-    const resolved = this.resolveServices(profile, services);
-    return this.deployResolved(profile, resolved, { host: opts.host });
+    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
+      host: opts.host,
+    });
   }
 
   /**
@@ -119,10 +116,19 @@ export class DeploymentOrchestrator {
     if (!hasUsableStamp(profile)) {
       throw new StampRequiredError(profile.name);
     }
-    return this.deployResolved(profile, [STREAM_UPLOADER_SERVICE], {
+    return this.deployServices(profile, [STREAM_UPLOADER_SERVICE], {
       transitionTo: 'DEPLOYING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
     });
+  }
+
+  /** Requested services win; otherwise the profile's components / kind defaults. */
+  private servicesToDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): string[] {
+    if (requested && requested.length > 0) return requested;
+    return defaultServicesFor(profile);
   }
 
   /**
@@ -130,16 +136,16 @@ export class DeploymentOrchestrator {
    * stamp, write the per-profile STAMP env when the uploader IS deployed, then
    * run deploy.sh with the deployable set (or short-circuit if empty).
    */
-  private async deployResolved(
+  private async deployServices(
     profile: Profile,
-    resolved: string[],
+    services: string[],
     opts: {
       transitionTo?: ProfileStatus;
       allowedFrom?: readonly ProfileStatus[];
       host?: string;
     },
   ): Promise<RunHandle> {
-    const { deploy, heldBack } = splitDeployableServices(profile, resolved);
+    const { deploy, heldBack } = splitDeployableServices(profile, services);
 
     if (heldBack.length > 0) {
       logger.info(
@@ -407,17 +413,6 @@ export class DeploymentOrchestrator {
     if (profile.stamp_id) args.push(`--stamp-id=${profile.stamp_id}`);
     args.push(...services);
     return args;
-  }
-
-  private resolveServices(
-    profile: Profile,
-    requested: string[] | undefined,
-  ): string[] {
-    if (requested && requested.length > 0) return requested;
-    if (profile.components && profile.components.length > 0) {
-      return [...profile.components];
-    }
-    return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
   }
 
   private async removeProfileDataDir(profileName: string): Promise<void> {

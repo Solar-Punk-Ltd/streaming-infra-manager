@@ -56,13 +56,13 @@ export interface DeploySplit {
  */
 export function splitDeployableServices(
   profile: Profile,
-  resolved: readonly string[],
+  services: readonly string[],
 ): DeploySplit {
-  if (hasUsableStamp(profile) || !servicesNeedStamp(resolved)) {
-    return { deploy: [...resolved], heldBack: [] };
+  if (hasUsableStamp(profile) || !servicesNeedStamp(services)) {
+    return { deploy: [...services], heldBack: [] };
   }
   return {
-    deploy: resolved.filter((service) => service !== STREAM_UPLOADER_SERVICE),
+    deploy: services.filter((service) => service !== STREAM_UPLOADER_SERVICE),
     heldBack: [STREAM_UPLOADER_SERVICE],
   };
 }
