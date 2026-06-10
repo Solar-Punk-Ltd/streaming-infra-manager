@@ -24,10 +24,7 @@ export interface Profile {
   updated_at: string;
   containers: Container[];
   group_id?: number | null;
-  /**
-   * Derived by the API: the profile wants the stream-uploader but has no usable
-   * stamp yet, so the uploader is held back ("Stamp required").
-   */
+  /** Derived: uploader held back until a usable stamp is set. */
   pendingStamp?: boolean;
 }
 

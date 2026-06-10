@@ -25,8 +25,9 @@ export function servicesNeedStamp(services: readonly string[]): boolean {
 }
 
 /**
- * Phase 1 definition of "usable": the profile has a non-empty stamp_id. Phase 3
- * will additionally poll the bee node for real usability (TTL / funds).
+ * "Usable" here only means a non-empty stamp_id. On-node validity (exists,
+ * not expired) is verified against the bee node when the uploader is actually
+ * deployed — see StampService.assertStampUsable.
  */
 export function hasUsableStamp(profile: Profile): boolean {
   return Boolean(profile.stamp_id && profile.stamp_id.trim());
