@@ -4,13 +4,18 @@ import { Profile, ProfileWithContainers } from '../types/index.js';
 
 import {
   BeeAddresses,
+  BeeHttpError,
   BeeStamp,
   BeeStampClient,
   BeeWallet,
   BuyStampInput,
 } from './BeeStampClient.js';
 import { ContainerRepository } from './ContainerRepository.js';
-import { BeeNodeError, ProfileNotFoundError } from './errors/index.js';
+import {
+  BeeNodeError,
+  ProfileNotFoundError,
+  StampNotUsableError,
+} from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -104,6 +109,41 @@ export class StampService {
     const withContainers = await this.containers.withContainers(updated);
     this.events.publish({ type: 'profile.changed', profile: withContainers });
     return withContainers;
+  }
+
+  /**
+   * Best-effort guard before deploying the uploader: reject when the bee node
+   * positively reports the stamp as unknown (404) or not usable (expired / not
+   * yet propagated). When the node can't be reached we proceed — an offline
+   * bee shouldn't block a deploy the stamp may well survive.
+   */
+  async assertStampUsable(name: string, stampId: string): Promise<void> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const client = this.clientFactory(beeApiUrlFor(profile));
+    let stamp: BeeStamp;
+    try {
+      stamp = await client.getStamp(stampId.replace(/^0x/, ''));
+    } catch (err) {
+      if (err instanceof BeeHttpError && err.status === 404) {
+        throw new StampNotUsableError(
+          name,
+          'the configured stamp is unknown to this bee node',
+        );
+      }
+      logger.warn(
+        `[StampService] ${name}: could not verify stamp usability, proceeding: ${getErrorMessage(err)}`,
+      );
+      return;
+    }
+    if (!stamp.usable) {
+      const reason =
+        stamp.batchTTL === 0
+          ? 'the configured stamp has expired'
+          : 'the configured stamp is not usable yet';
+      throw new StampNotUsableError(name, reason);
+    }
   }
 
   private async call<T>(

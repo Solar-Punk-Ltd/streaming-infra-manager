@@ -127,11 +127,15 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
   );
-  const deployService = new DeployService(profileService, orchestrator);
   const stampService = new StampService(
     profileRepository,
     containerRepository,
     eventBus,
+  );
+  const deployService = new DeployService(
+    profileService,
+    orchestrator,
+    stampService,
   );
 
   metricsCollector = new MetricsCollector();

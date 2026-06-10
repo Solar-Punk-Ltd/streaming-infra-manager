@@ -12,6 +12,7 @@ import {
   GroupExistsError,
   ProfileExistsError,
   ProfileNotFoundError,
+  StampNotUsableError,
   StampRequiredError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
@@ -55,6 +56,14 @@ export function errorHandler(
   }
   if (err instanceof StampRequiredError) {
     res.status(409).json({ error: 'stamp_required', name: err.profileName });
+    return;
+  }
+  if (err instanceof StampNotUsableError) {
+    res.status(409).json({
+      error: 'stamp_not_usable',
+      name: err.profileName,
+      message: err.message,
+    });
     return;
   }
   if (err instanceof BeeNodeError) {

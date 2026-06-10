@@ -7,6 +7,17 @@
  */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+/** Non-2xx bee response; carries the status so callers can branch (e.g. 404). */
+export class BeeHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'BeeHttpError';
+  }
+}
 // Buying a stamp submits an on-chain transaction (Gnosis Chain) and the bee API
 // blocks until it's mined — well beyond the read timeout.
 const BUY_TIMEOUT_MS = 180_000;
@@ -108,7 +119,10 @@ export class BeeStampClient {
     const text = await res.text();
     if (!res.ok) {
       const detail = text.trim().slice(0, 500) || `HTTP ${res.status}`;
-      throw new Error(`bee ${method} ${path} → ${res.status}: ${detail}`);
+      throw new BeeHttpError(
+        res.status,
+        `bee ${method} ${path} → ${res.status}: ${detail}`,
+      );
     }
 
     try {
