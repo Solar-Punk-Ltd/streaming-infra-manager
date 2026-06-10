@@ -1,5 +1,21 @@
 import { Box } from '@mui/material';
 
+function toPolylinePoints(
+  values: number[],
+  width: number,
+  height: number,
+  floor: number,
+): string {
+  const max = Math.max(...values, floor);
+  return values
+    .map((value, i) => {
+      const x = (i / (values.length - 1)) * width;
+      const y = height - (Math.min(value, max) / max) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
 export function Sparkline({
   values,
   width = 64,
@@ -17,14 +33,7 @@ export function Sparkline({
     return <Box sx={{ width, height }} />;
   }
 
-  const max = Math.max(...values, floor);
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * width;
-      const y = height - (Math.min(v, max) / max) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+  const points = toPolylinePoints(values, width, height, floor);
 
   return (
     <Box component="svg" width={width} height={height} sx={{ display: 'block' }}>

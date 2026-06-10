@@ -8,6 +8,7 @@ import {
 } from '../format';
 import { Sparkline } from '../Sparkline';
 import type { ContainerMetrics } from '../types';
+import { cpuFractionOfHost, fractionOf } from './metricsMath';
 import { INFRA_COLOR, UsageBar } from './UsageBar';
 
 export function ContainerRow({
@@ -21,8 +22,8 @@ export function ContainerRow({
   memTotalBytes: number;
   history?: number[];
 }) {
-  const cpuFraction = ncpu > 0 ? c.cpuPercent / 100 / ncpu : 0;
-  const memFraction = memTotalBytes > 0 ? c.memUsageBytes / memTotalBytes : 0;
+  const cpuFraction = cpuFractionOfHost(c.cpuPercent, ncpu);
+  const memFraction = fractionOf(c.memUsageBytes, memTotalBytes);
   return (
     <TableRow>
       <TableCell sx={{ pl: 6 }}>{c.service ?? c.name}</TableCell>

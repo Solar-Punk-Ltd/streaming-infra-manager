@@ -9,6 +9,7 @@ import {
   formatSharePercent,
 } from '../format';
 import type { HostMetrics, InfraTotals, OutsideTotals } from '../types';
+import { fractionOf } from './metricsMath';
 import { StatCard } from './StatCard';
 
 export function OutsideSection({
@@ -21,8 +22,8 @@ export function OutsideSection({
   outside: OutsideTotals;
 }) {
   const outsideCpuShare =
-    outside.cpuPercent != null && host.ncpu > 0
-      ? (outside.cpuPercent / (host.ncpu * 100)) * 100
+    outside.cpuPercent != null
+      ? fractionOf(outside.cpuPercent, host.ncpu * 100) * 100
       : null;
 
   return (

@@ -21,7 +21,11 @@ export function ResourceMonitor({
 }: { snapshot: MetricsSnapshot } & LiveMetricsProps) {
   return (
     <Stack spacing={3}>
-      <HostSection host={snapshot.host} infra={snapshot.infra} />
+      <HostSection
+        host={snapshot.host}
+        infra={snapshot.infra}
+        outside={snapshot.outside}
+      />
       <OutsideSection
         host={snapshot.host}
         infra={snapshot.infra}

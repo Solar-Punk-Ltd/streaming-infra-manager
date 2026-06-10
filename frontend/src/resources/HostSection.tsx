@@ -6,8 +6,13 @@ import {
   formatPercent,
   formatRate,
 } from '../format';
-import type { HostMetrics, InfraTotals } from '../types';
+import type { HostMetrics, InfraTotals, OutsideTotals } from '../types';
 import { INFRA_COLOR, OTHER_COLOR, UsageBar, type Segment } from './UsageBar';
+import {
+  coresFromCorePercent,
+  cpuFractionOfHost,
+  fractionOf,
+} from './metricsMath';
 import { StatCard } from './StatCard';
 
 function HostCard({
@@ -80,40 +85,31 @@ function Legend() {
 export function HostSection({
   host,
   infra,
+  outside,
 }: {
   host: HostMetrics;
   infra: InfraTotals;
+  outside: OutsideTotals;
 }) {
-  const hostCpuFrac = host.cpuPercent != null ? host.cpuPercent / 100 : 0;
-  const infraCpuFrac = host.ncpu > 0 ? infra.cpuPercent / 100 / host.ncpu : 0;
+  const hostCpuFrac = fractionOf(host.cpuPercent, 100);
+  const infraCpuFrac = cpuFractionOfHost(infra.cpuPercent, host.ncpu);
   const cpuSegments: Segment[] = [
     { fraction: infraCpuFrac, color: INFRA_COLOR },
     { fraction: Math.max(0, hostCpuFrac - infraCpuFrac), color: OTHER_COLOR },
   ];
 
-  const memTotal = host.memTotalBytes || 1;
-  const hostMemFrac =
-    host.memUsedBytes != null ? host.memUsedBytes / memTotal : 0;
-  const infraMemFrac = infra.memUsageBytes / memTotal;
+  const hostMemFrac = fractionOf(host.memUsedBytes, host.memTotalBytes);
+  const infraMemFrac = fractionOf(infra.memUsageBytes, host.memTotalBytes);
   const memSegments: Segment[] = [
     { fraction: infraMemFrac, color: INFRA_COLOR },
     { fraction: Math.max(0, hostMemFrac - infraMemFrac), color: OTHER_COLOR },
   ];
 
-  const diskFrac =
-    host.diskUsedBytes != null && host.diskTotalBytes
-      ? host.diskUsedBytes / host.diskTotalBytes
-      : 0;
+  const diskFrac = fractionOf(host.diskUsedBytes, host.diskTotalBytes);
   const diskSegments: Segment[] = [{ fraction: diskFrac, color: OTHER_COLOR }];
 
-  const infraCores = infra.cpuPercent / 100;
-  const hostUsedCores =
-    host.cpuPercent != null ? (host.cpuPercent * host.ncpu) / 100 : 0;
-  const outsideCores = Math.max(0, hostUsedCores - infraCores);
-  const outsideMemBytes =
-    host.memUsedBytes != null
-      ? Math.max(0, host.memUsedBytes - infra.memUsageBytes)
-      : null;
+  const infraCores = coresFromCorePercent(infra.cpuPercent);
+  const outsideCores = coresFromCorePercent(outside.cpuPercent ?? 0);
 
   return (
     <Box>
@@ -149,7 +145,7 @@ export function HostSection({
           segments={memSegments}
           footnote={`Our infra ${formatBytes(infra.memUsageBytes)} (${formatPercent(
             infraMemFrac * 100,
-          )} of host) · Outside ${formatBytes(outsideMemBytes)}`}
+          )} of host) · Outside ${formatBytes(outside.memUsageBytes)}`}
         />
         <HostCard
           title="Disk"
