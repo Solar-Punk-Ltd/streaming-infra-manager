@@ -44,6 +44,14 @@ import {
 } from './data';
 import type { DeploymentGroup, Profile } from './types';
 
+type AppView = 'deployments' | 'resources' | 'uploaders';
+
+const APP_TABS: { value: AppView; label: string }[] = [
+  { value: 'deployments', label: 'Deployments' },
+  { value: 'resources', label: 'Resources' },
+  { value: 'uploaders', label: 'Uploaders' },
+];
+
 export function App() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [groups, setGroups] = useState<DeploymentGroup[]>([]);
@@ -61,9 +69,7 @@ export function App() {
     message: string;
   } | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
-  const [view, setView] = useState<
-    'deployments' | 'resources' | 'uploaders'
-  >('deployments');
+  const [view, setView] = useState<AppView>('deployments');
 
   const load = useCallback(() => {
     fetchProfiles()
@@ -220,14 +226,12 @@ export function App() {
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <Tabs
           value={view}
-          onChange={(_e, v) =>
-            setView(v as 'deployments' | 'resources' | 'uploaders')
-          }
+          onChange={(_e, v) => setView(v as AppView)}
           sx={{ mb: 2 }}
         >
-          <Tab value="deployments" label="Deployments" />
-          <Tab value="resources" label="Resources" />
-          <Tab value="uploaders" label="Uploaders" />
+          {APP_TABS.map((tab) => (
+            <Tab key={tab.value} value={tab.value} label={tab.label} />
+          ))}
         </Tabs>
 
         {error && (

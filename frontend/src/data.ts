@@ -55,10 +55,9 @@ export function canDeployUploader(profile: Profile): boolean {
   );
 }
 
-async function postAction(
-  name: string,
-  action: 'deploy' | 'stop' | 'deploy-uploader',
-): Promise<void> {
+type ProfileAction = 'deploy' | 'stop' | 'deploy-uploader';
+
+async function postAction(name: string, action: ProfileAction): Promise<void> {
   const res = await fetch(`/profiles/${encodeURIComponent(name)}/${action}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
