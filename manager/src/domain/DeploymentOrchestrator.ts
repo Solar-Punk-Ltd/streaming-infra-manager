@@ -161,7 +161,7 @@ export class DeploymentOrchestrator {
     // stamp): never call deploy.sh with an empty filter — that deploys ALL
     // config services. Mark RUNNING; pendingStamp surfaces the held-back state.
     if (deploy.length === 0) {
-      return this.completeWithoutScript(profile);
+      return this.completeWithoutScript(profile, opts);
     }
 
     return this.runJob({
@@ -188,8 +188,32 @@ export class DeploymentOrchestrator {
    * the profile RUNNING and returns a no-op handle so callers can await/pipe it
    * exactly like a real script run.
    */
-  private async completeWithoutScript(profile: Profile): Promise<RunHandle> {
+  private async completeWithoutScript(
+    profile: Profile,
+    opts: {
+      transitionTo?: ProfileStatus;
+      allowedFrom?: readonly ProfileStatus[];
+    },
+  ): Promise<RunHandle> {
     await this.ensureSubmoduleDefaults();
+
+    // Same status gating as runJob — without it a held-back deploy could
+    // overwrite a transitional status or report success while another job runs.
+    if (opts.transitionTo && opts.allowedFrom) {
+      const transitioned = await this.profiles.transitionStatus(
+        profile.name,
+        opts.transitionTo,
+        opts.allowedFrom,
+      );
+      if (!transitioned) {
+        const current = await this.profiles.findByName(profile.name);
+        throw new ProfileBusyError(
+          profile.name,
+          current?.status ?? 'REMOVING',
+        );
+      }
+    }
+
     const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
     if (updated) {
       await this.publishChanged(updated);
