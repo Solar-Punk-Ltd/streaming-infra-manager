@@ -4,9 +4,11 @@ import type { MetricsSnapshot } from './types';
 
 const HISTORY_LEN = 40;
 
+export type CpuHistoryByContainer = Map<string, number[]>;
+
 export interface UseMetrics {
   snapshot: MetricsSnapshot | null;
-  history: Map<string, number[]>;
+  history: CpuHistoryByContainer;
   connected: boolean;
   fetchProfileDiskBytes: (project: string) => Promise<number | null>;
 }
@@ -15,7 +17,7 @@ export interface UseMetrics {
 export function useMetrics(): UseMetrics {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
-  const historyRef = useRef<Map<string, number[]>>(new Map());
+  const historyRef = useRef<CpuHistoryByContainer>(new Map());
 
   useEffect(() => {
     const source = new EventSource('/metrics/stream');

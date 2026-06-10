@@ -1,13 +1,14 @@
 import { Stack } from '@mui/material';
 
 import type { MetricsSnapshot } from '../types';
+import type { CpuHistoryByContainer } from '../useMetrics';
 import { HostSection } from './HostSection';
 import { OutsideSection } from './OutsideSection';
 import { InfraSummary } from './InfraSummary';
 import { ContainerTable } from './ContainerTable';
 
 export interface LiveMetricsProps {
-  history?: Map<string, number[]>;
+  history?: CpuHistoryByContainer;
   diskByProject?: Map<string, number | null>;
   onExpandProject?: (project: string) => void;
 }
