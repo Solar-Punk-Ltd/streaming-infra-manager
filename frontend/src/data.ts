@@ -126,14 +126,9 @@ async function postAction(
     body: '{}',
   });
   if (!res.ok) {
-    let msg = `${action} failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `${action} failed (${res.status})`),
+    );
   }
 
   await res.text().catch(() => undefined);
@@ -156,14 +151,7 @@ export async function deleteProfile(name: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) {
-    let msg = `delete failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(await extractApiError(res, `delete failed (${res.status})`));
   }
 }
 
@@ -174,14 +162,9 @@ export async function createProfile(body: CreateProfileBody): Promise<Profile> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as Profile;
 }
@@ -210,14 +193,9 @@ export async function createDeploymentGroup(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
 }
@@ -343,14 +321,9 @@ export async function updateProfile(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as Profile;
 }
