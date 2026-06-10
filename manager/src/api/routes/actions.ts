@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 
 import { DeployService } from '../../domain/DeployService.js';
+import { STREAM_UPLOADER_SERVICE } from '../../domain/stampLogic.js';
 import {
   deployBodySchema,
   DeployBody,
@@ -46,7 +47,14 @@ export function createActionsRouter(deployService: DeployService): Router {
     '/profiles/:name/deploy-uploader',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      await runAction(req, res, 'deploy-uploader');
+      const profileName = req.params.name as string;
+      const handle = await deployService.run(profileName, 'deploy-uploader');
+      // The action runs the submodule's deploy.sh scoped to the uploader —
+      // report that, not a nonexistent "deploy-uploader.sh".
+      pipeRunHandleToSSE(res, handle, {
+        script: 'deploy.sh',
+        args: [`--profile=${profileName}`, STREAM_UPLOADER_SERVICE],
+      });
     }),
   );
 
