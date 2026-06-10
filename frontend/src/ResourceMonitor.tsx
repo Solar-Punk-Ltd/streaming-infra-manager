@@ -515,7 +515,15 @@ function GroupBlock({
       >
         <TableCell colSpan={2}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <IconButton size="small">
+            <IconButton
+              size="small"
+              aria-label={`${open ? 'collapse' : 'expand'} ${group.project}`}
+              aria-expanded={open}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen((v) => !v);
+              }}
+            >
               {open ? (
                 <ExpandMoreIcon fontSize="small" />
               ) : (
