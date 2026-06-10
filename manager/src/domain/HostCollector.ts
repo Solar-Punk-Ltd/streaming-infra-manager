@@ -13,9 +13,10 @@ const logger = Logger.getInstance();
 
 const KIB = 1024;
 const SECTOR_SIZE = 512;
-// Skip loopback and virtual/container interfaces — count real NICs only.
+
+// Count real NICs only — skip loopback and virtual/container links.
 const VIRTUAL_IFACE_RE = /^(lo$|veth|docker|br-|virbr|tap|tun|cni|flannel|kube)/;
-// Whole physical block devices (not partitions, loop, dm, ram).
+// Whole physical block devices — skip partitions, loop, dm, ram.
 const PHYSICAL_DISK_RE = /^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|mmcblk\d+)$/;
 
 interface CpuTimes {
@@ -23,50 +24,106 @@ interface CpuTimes {
   idle: number;
 }
 
-/** A pair of cumulative byte counters with the time they were read. */
-interface IoCounter {
-  a: number;
-  b: number;
-  ts: number;
+interface NetTotals {
+  rxBytes: number;
+  txBytes: number;
 }
 
-function ratesFrom(
-  prev: IoCounter | null,
-  a: number,
-  b: number,
-  now: number,
-): { aRate: number; bRate: number } {
-  if (!prev) return { aRate: 0, bRate: 0 };
-  const elapsedSec = (now - prev.ts) / 1000;
-  if (!Number.isFinite(elapsedSec) || elapsedSec <= 0) {
-    return { aRate: 0, bRate: 0 };
+interface DiskIoTotals {
+  readBytes: number;
+  writeBytes: number;
+}
+
+// /proc/net/dev data line: "iface: <8 rx columns starting with bytes> <8 tx columns starting with bytes>".
+const NET_RX_BYTES_COLUMN = 0;
+const NET_TX_BYTES_COLUMN = 8;
+
+function parseNetDevTotals(text: string): NetTotals {
+  let rxBytes = 0;
+  let txBytes = 0;
+  for (const line of text.split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const iface = line.slice(0, colon).trim();
+    if (!iface || VIRTUAL_IFACE_RE.test(iface)) continue;
+    const columns = line.slice(colon + 1).trim().split(/\s+/).map(Number);
+    if (columns.length < 16) continue;
+    rxBytes += columns[NET_RX_BYTES_COLUMN] || 0;
+    txBytes += columns[NET_TX_BYTES_COLUMN] || 0;
   }
-  return {
-    aRate: Math.max(0, (a - prev.a) / elapsedSec),
-    bRate: Math.max(0, (b - prev.b) / elapsedSec),
-  };
+  return { rxBytes, txBytes };
 }
 
-/**
- * Reads whole-host CPU / RAM / disk usage.
- *
- * Docker does not namespace /proc/stat or /proc/meminfo by default, so a
- * container reading them already sees the host's numbers. We still prefer the
- * explicit bind-mounted /host/proc when present (see docker-compose.yml) and
- * fall back to /proc so the collector works in any environment. Disk is the
- * one exception: statfs reflects the calling mount namespace, so we read the
- * bind-mounted host root (/host/rootfs) when available, else "/".
- *
- * Every read degrades independently to null rather than throwing, so one
- * unreadable source never takes down a whole sample.
- */
+// /proc/diskstats line: "major minor name reads readsMerged sectorsRead ... writes writesMerged sectorsWritten ...".
+const DISK_NAME_COLUMN = 2;
+const DISK_SECTORS_READ_COLUMN = 5;
+const DISK_SECTORS_WRITTEN_COLUMN = 9;
+
+function parseDiskstatsTotals(text: string): DiskIoTotals {
+  let readBytes = 0;
+  let writeBytes = 0;
+  for (const line of text.split('\n')) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 10) continue;
+    if (!PHYSICAL_DISK_RE.test(columns[DISK_NAME_COLUMN] ?? '')) continue;
+    readBytes +=
+      (Number(columns[DISK_SECTORS_READ_COLUMN]) || 0) * SECTOR_SIZE;
+    writeBytes +=
+      (Number(columns[DISK_SECTORS_WRITTEN_COLUMN]) || 0) * SECTOR_SIZE;
+  }
+  return { readBytes, writeBytes };
+}
+
+// /proc/stat "cpu" line: user nice system idle iowait irq softirq steal ...
+function parseCpuTimes(text: string): CpuTimes | null {
+  const line = text.split('\n').find((l) => l.startsWith('cpu '));
+  if (!line) return null;
+  const parts = line.trim().split(/\s+/).slice(1).map(Number);
+  const idle = (parts[3] ?? 0) + (parts[4] ?? 0);
+  const total = parts.reduce(
+    (sum, n) => sum + (Number.isFinite(n) ? n : 0),
+    0,
+  );
+  return { total, idle };
+}
+
+function parseMeminfo(
+  text: string,
+): { usedBytes: number; totalBytes: number } | null {
+  const values = new Map<string, number>();
+  for (const line of text.split('\n')) {
+    const match = line.match(/^(\w+):\s+(\d+)\s*kB$/);
+    if (match) values.set(match[1], Number(match[2]) * KIB);
+  }
+  const total = values.get('MemTotal');
+  const available = values.get('MemAvailable');
+  if (total === undefined || available === undefined) return null;
+  return { usedBytes: total - available, totalBytes: total };
+}
+
+function elapsedSeconds(nowTs: number, previousTs: number): number | null {
+  const seconds = (nowTs - previousTs) / 1000;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+function perSecond(
+  current: number,
+  previous: number,
+  seconds: number,
+): number {
+  return Math.max(0, (current - previous) / seconds);
+}
+
+// Docker does not namespace /proc, so the bind-mounted /host/proc (or plain
+// /proc) already shows host numbers. Disk space is the exception: statfs
+// follows the mount namespace, hence /host/rootfs. Every read degrades to null
+// independently so one unreadable source never breaks a whole sample.
 export class HostCollector {
   private readonly procPath: string;
   private readonly rootfsPath: string;
   private prevCpu: CpuTimes | null = null;
-  private prevNet: IoCounter | null = null;
-  private prevDisk: IoCounter | null = null;
-  /** Core count is fixed for the host's lifetime — read it once and cache. */
+  private prevNet: (NetTotals & { ts: number }) | null = null;
+  private prevDiskIo: (DiskIoTotals & { ts: number }) | null = null;
   private cachedNcpu = 0;
 
   constructor(
@@ -109,36 +166,52 @@ export class HostCollector {
     };
   }
 
-  /**
-   * Whole-host network throughput from /proc/net/dev. Sums physical interfaces
-   * only (loopback and docker/veth virtual links are excluded). Columns after
-   * "iface:" are rx: bytes packets …(8) then tx: bytes packets …, so rx bytes
-   * is index 0 and tx bytes is index 8.
-   */
-  private async readNet(): Promise<{
-    rxBytes: number;
-    txBytes: number;
-    rxRate: number;
-    txRate: number;
-  } | null> {
+  private async readCpu(): Promise<number | null> {
+    try {
+      const text = await readFile(join(this.procPath, 'stat'), 'utf8');
+      const current = parseCpuTimes(text);
+      if (!current) return null;
+
+      const prev = this.prevCpu;
+      this.prevCpu = current;
+      if (!prev) return null;
+
+      const totalDelta = current.total - prev.total;
+      const idleDelta = current.idle - prev.idle;
+      if (totalDelta <= 0) return null;
+
+      const used = ((totalDelta - idleDelta) / totalDelta) * 100;
+      return Math.max(0, Math.min(100, used));
+    } catch (err) {
+      // Drop the baseline so a later recovery doesn't compute a stale multi-interval delta.
+      this.prevCpu = null;
+      logger.debug(`[HostCollector] readCpu failed: ${getErrorMessage(err)}`);
+      return null;
+    }
+  }
+
+  private async readNet(): Promise<
+    (NetTotals & { rxRate: number; txRate: number }) | null
+  > {
     try {
       const text = await readFile(join(this.procPath, 'net/dev'), 'utf8');
-      let rx = 0;
-      let tx = 0;
-      for (const raw of text.split('\n')) {
-        const colon = raw.indexOf(':');
-        if (colon < 0) continue;
-        const iface = raw.slice(0, colon).trim();
-        if (!iface || VIRTUAL_IFACE_RE.test(iface)) continue;
-        const cols = raw.slice(colon + 1).trim().split(/\s+/).map(Number);
-        if (cols.length < 16) continue;
-        rx += cols[0] || 0;
-        tx += cols[8] || 0;
-      }
+      const totals = parseNetDevTotals(text);
       const now = Date.now();
-      const { aRate, bRate } = ratesFrom(this.prevNet, rx, tx, now);
-      this.prevNet = { a: rx, b: tx, ts: now };
-      return { rxBytes: rx, txBytes: tx, rxRate: aRate, txRate: bRate };
+      const prev = this.prevNet;
+      this.prevNet = { ...totals, ts: now };
+
+      const seconds = prev ? elapsedSeconds(now, prev.ts) : null;
+      return {
+        ...totals,
+        rxRate:
+          prev && seconds
+            ? perSecond(totals.rxBytes, prev.rxBytes, seconds)
+            : 0,
+        txRate:
+          prev && seconds
+            ? perSecond(totals.txBytes, prev.txBytes, seconds)
+            : 0,
+      };
     } catch (err) {
       this.prevNet = null;
       logger.debug(`[HostCollector] readNet failed: ${getErrorMessage(err)}`);
@@ -146,83 +219,33 @@ export class HostCollector {
     }
   }
 
-  /**
-   * Whole-host disk I/O from /proc/diskstats. Sums whole physical devices only
-   * (partitions, loop, dm, ram excluded). Fields: major minor name reads
-   * reads_merged sectors_read … writes writes_merged sectors_written …, so
-   * sectors read is index 5 and sectors written is index 9; bytes = sectors×512.
-   */
-  private async readDiskIo(): Promise<{
-    readBytes: number;
-    writeBytes: number;
-    readRate: number;
-    writeRate: number;
-  } | null> {
+  private async readDiskIo(): Promise<
+    (DiskIoTotals & { readRate: number; writeRate: number }) | null
+  > {
     try {
       const text = await readFile(join(this.procPath, 'diskstats'), 'utf8');
-      let readBytes = 0;
-      let writeBytes = 0;
-      for (const raw of text.split('\n')) {
-        const f = raw.trim().split(/\s+/);
-        if (f.length < 10) continue;
-        if (!PHYSICAL_DISK_RE.test(f[2] ?? '')) continue;
-        readBytes += (Number(f[5]) || 0) * SECTOR_SIZE;
-        writeBytes += (Number(f[9]) || 0) * SECTOR_SIZE;
-      }
+      const totals = parseDiskstatsTotals(text);
       const now = Date.now();
-      const { aRate, bRate } = ratesFrom(
-        this.prevDisk,
-        readBytes,
-        writeBytes,
-        now,
-      );
-      this.prevDisk = { a: readBytes, b: writeBytes, ts: now };
+      const prev = this.prevDiskIo;
+      this.prevDiskIo = { ...totals, ts: now };
+
+      const seconds = prev ? elapsedSeconds(now, prev.ts) : null;
       return {
-        readBytes,
-        writeBytes,
-        readRate: aRate,
-        writeRate: bRate,
+        ...totals,
+        readRate:
+          prev && seconds
+            ? perSecond(totals.readBytes, prev.readBytes, seconds)
+            : 0,
+        writeRate:
+          prev && seconds
+            ? perSecond(totals.writeBytes, prev.writeBytes, seconds)
+            : 0,
       };
     } catch (err) {
-      this.prevDisk = null;
-      logger.debug(`[HostCollector] readDiskIo failed: ${getErrorMessage(err)}`);
-      return null;
-    }
-  }
-
-  /**
-   * Aggregate CPU usage across all cores, 0–100. Needs two samples to compute
-   * a delta, so the very first call returns null.
-   */
-  private async readCpu(): Promise<number | null> {
-    try {
-      const text = await readFile(join(this.procPath, 'stat'), 'utf8');
-      const line = text.split('\n').find((l) => l.startsWith('cpu '));
-      if (!line) return null;
-
-      const parts = line.trim().split(/\s+/).slice(1).map(Number);
-      // user nice system idle iowait irq softirq steal guest guest_nice
-      const idle = (parts[3] ?? 0) + (parts[4] ?? 0); // idle + iowait
-      const total = parts.reduce(
-        (sum, n) => sum + (Number.isFinite(n) ? n : 0),
-        0,
+      this.prevDiskIo = null;
+      logger.debug(
+        `[HostCollector] readDiskIo failed: ${getErrorMessage(err)}`,
       );
-
-      const prev = this.prevCpu;
-      this.prevCpu = { total, idle };
-      if (!prev) return null;
-
-      const totalDelta = total - prev.total;
-      const idleDelta = idle - prev.idle;
-      if (totalDelta <= 0) return null;
-
-      const used = ((totalDelta - idleDelta) / totalDelta) * 100;
-      return Math.max(0, Math.min(100, used));
-    } catch (err) {
-      // Drop the baseline so a later recovery doesn't compute a stale,
-      // multi-interval delta that would spike the reading.
-      this.prevCpu = null;
-      logger.debug(`[HostCollector] readCpu failed: ${getErrorMessage(err)}`);
       return null;
     }
   }
@@ -249,15 +272,7 @@ export class HostCollector {
   } | null> {
     try {
       const text = await readFile(join(this.procPath, 'meminfo'), 'utf8');
-      const values = new Map<string, number>();
-      for (const raw of text.split('\n')) {
-        const match = raw.match(/^(\w+):\s+(\d+)\s*kB$/);
-        if (match) values.set(match[1], Number(match[2]) * KIB);
-      }
-      const total = values.get('MemTotal');
-      const available = values.get('MemAvailable');
-      if (total === undefined || available === undefined) return null;
-      return { usedBytes: total - available, totalBytes: total };
+      return parseMeminfo(text);
     } catch (err) {
       logger.debug(`[HostCollector] readMem failed: ${getErrorMessage(err)}`);
       return null;
