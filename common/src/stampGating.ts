@@ -1,5 +1,3 @@
-// Shared by the manager and the frontend so both derive the same stamp gating.
-
 export const STREAM_UPLOADER_SERVICE = 'stream-uploader';
 
 export const KIND_DEFAULT_SERVICES = {

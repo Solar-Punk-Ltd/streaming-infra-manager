@@ -6,7 +6,6 @@ export function fractionOf(
   return used / total;
 }
 
-// container/infra cpuPercent is share-of-one-core × 100; the host has ncpu cores.
 export function cpuFractionOfHost(
   cpuCorePercent: number,
   ncpu: number,
