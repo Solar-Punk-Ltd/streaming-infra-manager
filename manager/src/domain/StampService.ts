@@ -31,10 +31,8 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
-// Mirror swarm-cli / bee-js `waitForUsablePostageStamp`: after a buy, poll the
-// node until the batch reports `usable`. A fresh batch can take minutes to
-// propagate, so this runs in the background — the HTTP buy returns the batchID
-// immediately and the stamp is auto-set when it becomes usable.
+// bee-js `waitForUsablePostageStamp` parity: a fresh batch takes minutes to
+// become usable, so the wait polls in the background instead of blocking the buy.
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;
 
@@ -88,8 +86,6 @@ export class StampService {
     logger.info(
       `[StampService] ${name}: bought stamp ${result.batchID} (amount=${input.amount}, depth=${input.depth})`,
     );
-    // Don't block the HTTP response — poll for usability in the background and
-    // auto-set the stamp when it lands (mirrors swarm-cli's wait-usable).
     this.awaitUsableAndSet(name, result.batchID);
     return result;
   }
