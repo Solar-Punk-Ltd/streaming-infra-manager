@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -19,23 +19,17 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { canDeployUploader, deployUploader, hasStampId } from '../data';
 import { srtPublishUrl } from '../urls';
-import {
-  type BeeAddress,
-  type BeeWallet,
-  buyStamp,
-  fetchStampAddress,
-  fetchStamps,
-  fetchStampWallet,
-  setStamp,
-} from './stampApi';
+import { buyStamp, setStamp } from './stampApi';
 import type { BuyStampInput } from './stampApi';
 import { useServerHost } from '../ServerHostContext';
 import { StampRequiredChip } from '../StatusChip';
 import { CopyButton } from '../CopyButton';
 import type { Profile } from '../types';
 import { NodeFunding } from './NodeFunding';
-import { StampTable, shortHex, sameBatch } from './StampTable';
+import { StampTable, shortHex } from './StampTable';
 import { BuyStampForm } from './BuyStampForm';
+import { useBeeNode } from './useBeeNode';
+import { useWaitForUsableStamp } from './useWaitForUsableStamp';
 
 export function UploaderCard({
   profile,
@@ -46,73 +40,24 @@ export function UploaderCard({
   onChanged: () => void;
   srtPassphrase: string | null;
 }) {
-  const [address, setAddress] = useState<BeeAddress | null>(null);
-  const [wallet, setWallet] = useState<BeeWallet | null>(null);
-  const [stamps, setStamps] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
-
   const serverHost = useServerHost();
   const streamUrl = srtPublishUrl(profile, serverHost, srtPassphrase);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    const [a, w, s] = await Promise.allSettled([
-      fetchStampAddress(profile.name),
-      fetchStampWallet(profile.name),
-      fetchStamps(profile.name),
-    ]);
-    if (a.status === 'fulfilled') setAddress(a.value);
-    if (w.status === 'fulfilled') setWallet(w.value);
-    if (s.status === 'fulfilled') setStamps(s.value);
-    const firstFail = [a, w, s].find((r) => r.status === 'rejected');
-    if (firstFail && firstFail.status === 'rejected') {
-      setLoadError(
-        `bee node unreachable — ${getErrorMessage(firstFail.reason)}`,
-      );
-    }
-    setLoading(false);
-  }, [profile.name]);
+  const { address, wallet, stamps, loading, loadError, reload, refreshStamps } =
+    useBeeNode(profile.name);
+  const { waitingBatch, waitForStamp } = useWaitForUsableStamp(
+    refreshStamps,
+    hasStampId(profile),
+  );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!waitingBatch) return;
-    const batch = waitingBatch;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 120; // ~10 min at 5s
-    const id = setInterval(async () => {
-      attempts += 1;
-      try {
-        const fresh = await fetchStamps(profile.name);
-        setStamps(fresh);
-        const match = fresh.find((s) => sameBatch(s.batchID, batch));
-        if ((match && match.usable) || attempts >= MAX_ATTEMPTS) {
-          setWaitingBatch(null);
-        }
-      } catch {
-        if (attempts >= MAX_ATTEMPTS) setWaitingBatch(null);
-      }
-    }, 5_000);
-    return () => clearInterval(id);
-  }, [waitingBatch, profile.name]);
-
-  const stampSet = !!profile.stamp_id?.trim();
-  useEffect(() => {
-    if (waitingBatch && stampSet) setWaitingBatch(null);
-  }, [stampSet, waitingBatch]);
-
-  const runAction = async (fn: () => Promise<void>) => {
+  const runAction = async (action: () => Promise<void>) => {
     setBusy(true);
     setActionError(null);
     try {
-      await fn();
+      await action();
     } catch (e) {
       setActionError(getErrorMessage(e));
     } finally {
@@ -120,24 +65,30 @@ export function UploaderCard({
     }
   };
 
-  const onBuy = (input: BuyStampInput) =>
+  const handleBuyStamp = (input: BuyStampInput) =>
     runAction(async () => {
       const { batchID } = await buyStamp(profile.name, input);
-      setWaitingBatch(batchID);
-      await load();
+      waitForStamp(batchID);
+      await reload();
     });
 
-  const onUse = (batchID: string) =>
+  const handleUseStamp = (batchID: string) =>
     runAction(async () => {
       await setStamp(profile.name, batchID);
       onChanged();
     });
 
-  const onDeployUploader = () =>
+  const handleDeployUploader = () =>
     runAction(async () => {
       await deployUploader(profile.name);
       onChanged();
     });
+
+  const stampChip = profile.pendingStamp ? (
+    <StampRequiredChip />
+  ) : hasStampId(profile) ? (
+    <Chip size="small" color="success" variant="outlined" label="Stamp set" />
+  ) : null;
 
   return (
     <Accordion>
@@ -151,16 +102,7 @@ export function UploaderCard({
           <Typography sx={{ fontFamily: 'monospace', flexGrow: 1 }}>
             {profile.name}
           </Typography>
-          {profile.pendingStamp ? (
-            <StampRequiredChip />
-          ) : hasStampId(profile) ? (
-            <Chip
-              size="small"
-              color="success"
-              variant="outlined"
-              label="Stamp set"
-            />
-          ) : null}
+          {stampChip}
         </Stack>
       </AccordionSummary>
       <AccordionDetails>
@@ -169,7 +111,7 @@ export function UploaderCard({
             <Button
               size="small"
               startIcon={<RefreshIcon />}
-              onClick={() => void load()}
+              onClick={() => void reload()}
               disabled={loading}
             >
               Refresh
@@ -178,7 +120,7 @@ export function UploaderCard({
             <Button
               size="small"
               variant="contained"
-              onClick={onDeployUploader}
+              onClick={handleDeployUploader}
               disabled={busy || !canDeployUploader(profile)}
             >
               Deploy uploader
@@ -233,12 +175,12 @@ export function UploaderCard({
             loading={loading}
             currentStampId={profile.stamp_id}
             busy={busy}
-            onUse={onUse}
+            onUse={handleUseStamp}
           />
 
           <Divider />
 
-          <BuyStampForm busy={busy} onBuy={onBuy} />
+          <BuyStampForm busy={busy} onBuy={handleBuyStamp} />
         </Stack>
       </AccordionDetails>
     </Accordion>
