@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 
-import { ResourceMonitor } from './ResourceMonitor';
+import { ResourceMonitor } from './resources/ResourceMonitor';
 import { useMetrics } from './useMetrics';
 
 /**

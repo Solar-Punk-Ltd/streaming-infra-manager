@@ -30,7 +30,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
 import { ResourcesView } from './ResourcesView';
-import { UploadersView } from './UploadersView';
+import { UploadersView } from './uploaders/UploadersView';
 import { ServerHostProvider } from './ServerHostContext';
 import {
   canDeployUploader,

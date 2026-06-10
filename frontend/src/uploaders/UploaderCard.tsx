@@ -11,7 +11,6 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
-  IconButton,
   Link,
   Paper,
   Stack,
@@ -21,11 +20,9 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
@@ -43,11 +40,12 @@ import {
   hasStamp,
   setStamp,
   srtPublishUrl,
-} from './data';
-import { formatTokenBalance, formatTtl } from './format';
-import { useServerHost } from './ServerHostContext';
-import { StampRequiredChip } from './StatusChip';
-import type { Profile } from './types';
+} from '../data';
+import { formatTokenBalance, formatTtl } from '../format';
+import { useServerHost } from '../ServerHostContext';
+import { StampRequiredChip } from '../StatusChip';
+import { CopyButton } from '../CopyButton';
+import type { Profile } from '../types';
 
 const BZZ_DECIMALS = 16;
 const XDAI_DECIMALS = 18;
@@ -62,72 +60,7 @@ function sameBatch(a: string, b: string): boolean {
   return a.replace(/^0x/, '') === b.replace(/^0x/, '');
 }
 
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // clipboard unavailable — ignore
-    }
-  };
-  return (
-    <Tooltip title={copied ? 'Copied' : `Copy ${label}`}>
-      <IconButton size="small" aria-label={`copy ${label}`} onClick={copy}>
-        <ContentCopyIcon fontSize="inherit" />
-      </IconButton>
-    </Tooltip>
-  );
-}
-
-export function UploadersView({
-  profiles,
-  onChanged,
-  srtPassphrase,
-}: {
-  profiles: Profile[] | null;
-  onChanged: () => void;
-  srtPassphrase: string | null;
-}) {
-  if (!profiles) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  const uploaderProfiles = profiles.filter(
-    (p) => p.kind === 'streamer' || !!p.components?.includes('stream-uploader'),
-  );
-
-  if (uploaderProfiles.length === 0) {
-    return (
-      <Alert severity="info">
-        No uploader instances yet. Deploy a streamer (or a custom profile with
-        the <code>stream-uploader</code> component) to manage postage stamps
-        here.
-      </Alert>
-    );
-  }
-
-  return (
-    <Stack spacing={1}>
-      {uploaderProfiles.map((p) => (
-        <UploaderCard
-          key={p.name}
-          profile={p}
-          onChanged={onChanged}
-          srtPassphrase={srtPassphrase}
-        />
-      ))}
-    </Stack>
-  );
-}
-
-function UploaderCard({
+export function UploaderCard({
   profile,
   onChanged,
   srtPassphrase,
