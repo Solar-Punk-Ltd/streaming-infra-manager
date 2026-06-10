@@ -15,7 +15,15 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   };
   return (
     <Tooltip title={copied ? 'Copied' : `Copy ${label}`}>
-      <IconButton size="small" aria-label={`copy ${label}`} onClick={copy}>
+      <IconButton
+        size="small"
+        aria-label={`copy ${label}`}
+        onClick={(e) => {
+          // Usable inside clickable rows without triggering their handlers.
+          e.stopPropagation();
+          void copy();
+        }}
+      >
         <ContentCopyIcon fontSize="inherit" />
       </IconButton>
     </Tooltip>

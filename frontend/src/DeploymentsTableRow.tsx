@@ -1,13 +1,11 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   Alert,
   AlertTitle,
   Box,
   Checkbox,
   Collapse,
-  IconButton,
   Link,
   Stack,
   Table,
@@ -15,11 +13,11 @@ import {
   TableCell,
   TableHead,
   TableRow,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import { useState } from 'react';
 
+import { CopyButton } from './CopyButton';
 import { StampRequiredChip, StatusChip } from './StatusChip';
 import { useServerHost } from './ServerHostContext';
 import { clientUrl, componentUrl, hostFor } from './urls';
@@ -37,24 +35,11 @@ export function DeploymentsTableRow({
   indent?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const serverHost = useServerHost();
   const url = clientUrl(profile, serverHost);
   const host = hostFor(profile, serverHost);
   const containers = profile.containers;
   const toggle = () => setOpen((o) => !o);
-
-  const copyUrl = async (key: string, value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedKey(key);
-      setTimeout(() => {
-        setCopiedKey((current) => (current === key ? null : current));
-      }, 1200);
-    } catch {
-      // clipboard unavailable — ignore
-    }
-  };
 
   return (
     <>
@@ -168,7 +153,6 @@ export function DeploymentsTableRow({
                           <Stack spacing={0.5}>
                             {Object.entries(c.ports).map(([key, port]) => {
                               const href = componentUrl(host, port);
-                              const copyKey = `${c.service}:${key}`;
                               return (
                                 <Stack
                                   key={key}
@@ -189,22 +173,7 @@ export function DeploymentsTableRow({
                                   >
                                     {href}
                                   </Link>
-                                  <Tooltip
-                                    title={
-                                      copiedKey === copyKey ? 'Copied' : 'Copy URL'
-                                    }
-                                  >
-                                    <IconButton
-                                      size="small"
-                                      aria-label={`copy ${href}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        copyUrl(copyKey, href);
-                                      }}
-                                    >
-                                      <ContentCopyIcon fontSize="inherit" />
-                                    </IconButton>
-                                  </Tooltip>
+                                  <CopyButton value={href} label={href} />
                                 </Stack>
                               );
                             })}
