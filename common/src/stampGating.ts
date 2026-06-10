@@ -1,8 +1,4 @@
-/**
- * Stamp gating shared by the manager and the frontend so both derive the same
- * answer to "does this profile need a postage stamp, and does it have one".
- * Only the stream-uploader has that prerequisite.
- */
+// Shared by the manager and the frontend so both derive the same stamp gating.
 
 export const STREAM_UPLOADER_SERVICE = 'stream-uploader';
 
@@ -12,7 +8,6 @@ export const KIND_DEFAULT_SERVICES = {
   custom: [],
 } as const;
 
-/** The minimal profile shape the gating rules read. */
 export interface StampGatedProfile {
   kind: string;
   components?: string[] | null;
@@ -32,16 +27,10 @@ export function servicesNeedStamp(services: readonly string[]): boolean {
   return services.includes(STREAM_UPLOADER_SERVICE);
 }
 
-/**
- * "Usable" here only means a non-empty stamp_id. On-node validity (exists,
- * not expired) is verified against the bee node when the uploader is actually
- * deployed — see the manager's StampService.assertStampUsable.
- */
 export function hasUsableStamp(profile: StampGatedProfile): boolean {
   return Boolean(profile.stamp_id && profile.stamp_id.trim());
 }
 
-/** The profile wants the uploader but has no stamp yet ("Stamp required"). */
 export function isPendingStamp(profile: StampGatedProfile): boolean {
   return (
     servicesNeedStamp(defaultServicesFor(profile)) && !hasUsableStamp(profile)

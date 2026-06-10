@@ -24,6 +24,5 @@ export function groupByProject(containers: ContainerMetrics[]): Group[] {
       cpuPercent: list.reduce((s, c) => s + c.cpuPercent, 0),
       memUsageBytes: list.reduce((s, c) => s + c.memUsageBytes, 0),
     }))
-    // Stable alphabetical order so rows don't jump around as usage changes.
     .sort((a, b) => a.project.localeCompare(b.project));
 }

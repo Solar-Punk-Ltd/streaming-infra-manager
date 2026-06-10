@@ -6,8 +6,6 @@ import {
 
 import { Profile } from '../types/index.js';
 
-// The gating rules live in @streaming-infra-manager/common so the frontend
-// derives the exact same "needs a stamp / has a stamp" answers.
 export {
   defaultServicesFor,
   hasUsableStamp,
@@ -17,17 +15,11 @@ export {
 } from '@streaming-infra-manager/common';
 
 export interface DeploySplit {
-  /** Services to hand to deploy.sh now. */
   deploy: string[];
-  /** Services deferred until a usable stamp exists. */
   heldBack: string[];
 }
 
-/**
- * Drop the stream-uploader from the deploy set when there is no usable stamp,
- * so the submodule's interactive STAMP guard never fires (it would EOF-abort
- * under the manager's stdin-less ScriptRunner).
- */
+// Keeps deploy.sh's interactive STAMP prompt from firing under the stdin-less runner.
 export function splitDeployableServices(
   profile: Profile,
   services: readonly string[],

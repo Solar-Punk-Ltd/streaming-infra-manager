@@ -24,7 +24,6 @@ export interface Profile {
   updated_at: string;
   containers: Container[];
   group_id?: number | null;
-  /** Derived: uploader held back until a usable stamp is set. */
   pendingStamp?: boolean;
 }
 

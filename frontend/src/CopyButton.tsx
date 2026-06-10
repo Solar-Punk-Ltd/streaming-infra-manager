@@ -19,7 +19,6 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
         size="small"
         aria-label={`copy ${label}`}
         onClick={(e) => {
-          // Usable inside clickable rows without triggering their handlers.
           e.stopPropagation();
           void copy();
         }}

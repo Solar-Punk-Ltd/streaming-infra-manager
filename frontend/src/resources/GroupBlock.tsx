@@ -26,7 +26,6 @@ export function GroupBlock({
 } & LiveMetricsProps) {
   const [open, setOpen] = useState(true);
 
-  // Lazily ask for this profile's disk footprint whenever it's expanded.
   useEffect(() => {
     if (open) onExpandProject?.(group.project);
   }, [open, group.project, onExpandProject]);

@@ -1,14 +1,5 @@
-/**
- * Thin client for a bee node's HTTP API (the per-profile bee-uploader node).
- * Uses Node's global fetch — no bee-js / submodule node_modules needed in the
- * api container. Only the endpoints required for postage-stamp management.
- *
- * Bee API reference: https://docs.ethswarm.org/api/
- */
-
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** Non-2xx bee response; carries the status so callers can branch (e.g. 404). */
 export class BeeHttpError extends Error {
   constructor(
     public readonly status: number,
@@ -18,8 +9,7 @@ export class BeeHttpError extends Error {
     this.name = 'BeeHttpError';
   }
 }
-// Buying a stamp submits an on-chain transaction (Gnosis Chain) and the bee API
-// blocks until it's mined — well beyond the read timeout.
+
 const BUY_TIMEOUT_MS = 180_000;
 
 export interface BeeAddresses {
@@ -29,9 +19,7 @@ export interface BeeAddresses {
 }
 
 export interface BeeWallet {
-  /** PLUR (1 BZZ = 1e16 PLUR), as a decimal string. */
   bzzBalance: string;
-  /** wei xDAI, as a decimal string. */
   nativeTokenBalance: string;
 }
 
@@ -46,7 +34,6 @@ export interface BeeStamp {
   blockNumber: number;
   immutableFlag: boolean;
   exists: boolean;
-  /** Seconds of remaining life, or -1 when unknown. */
   batchTTL: number;
 }
 

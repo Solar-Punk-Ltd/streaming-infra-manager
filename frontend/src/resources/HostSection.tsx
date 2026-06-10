@@ -84,7 +84,6 @@ export function HostSection({
   host: HostMetrics;
   infra: InfraTotals;
 }) {
-  // CPU — fractions of the whole box (ncpu cores).
   const hostCpuFrac = host.cpuPercent != null ? host.cpuPercent / 100 : 0;
   const infraCpuFrac = host.ncpu > 0 ? infra.cpuPercent / 100 / host.ncpu : 0;
   const cpuSegments: Segment[] = [
@@ -92,7 +91,6 @@ export function HostSection({
     { fraction: Math.max(0, hostCpuFrac - infraCpuFrac), color: OTHER_COLOR },
   ];
 
-  // Memory.
   const memTotal = host.memTotalBytes || 1;
   const hostMemFrac =
     host.memUsedBytes != null ? host.memUsedBytes / memTotal : 0;
@@ -108,8 +106,6 @@ export function HostSection({
       : 0;
   const diskSegments: Segment[] = [{ fraction: diskFrac, color: OTHER_COLOR }];
 
-  // "Outside our infra" = host usage we didn't deploy (other containers incl.
-  // the bee cluster, plus system). Absolute values for the card footnotes.
   const infraCores = infra.cpuPercent / 100;
   const hostUsedCores =
     host.cpuPercent != null ? (host.cpuPercent * host.ncpu) / 100 : 0;

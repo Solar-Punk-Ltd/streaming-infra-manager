@@ -126,7 +126,6 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  /** Set only the stamp id (no redeploy side effects). */
   async updateStampId(
     name: string,
     stampId: string,

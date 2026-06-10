@@ -31,8 +31,6 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
-// bee-js `waitForUsablePostageStamp` parity: a fresh batch takes minutes to
-// become usable, so the wait polls in the background instead of blocking the buy.
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;
 
@@ -41,12 +39,6 @@ const sleep = (ms: number): Promise<void> =>
 
 export type BeeClientFactory = (baseUrl: string) => BeeStampClient;
 
-/**
- * Resolve the bee-uploader node's API base URL for a profile. Ports follow the
- * slot scheme (10005 + slot*10); the node is published on the host, reached
- * from the api container via host.docker.internal (see extra_hosts in
- * docker-compose.yml). Remote-host profiles use their host verbatim.
- */
 export function beeApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = (profile.host ?? '').trim();
@@ -55,7 +47,6 @@ export function beeApiUrlFor(profile: Profile): string {
 }
 
 export class StampService {
-  /** batchIDs currently being awaited, to avoid duplicate poll loops. */
   private readonly awaitingUsable = new Set<string>();
 
   constructor(
@@ -90,10 +81,6 @@ export class StampService {
     return result;
   }
 
-  /**
-   * Persist a stamp id on the profile WITHOUT redeploying. The caller then uses
-   * the "deploy uploader" action to bring the held-back uploader up.
-   */
   async setStamp(name: string, stampId: string): Promise<ProfileWithContainers> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
@@ -107,12 +94,7 @@ export class StampService {
     return withContainers;
   }
 
-  /**
-   * Best-effort guard before deploying the uploader: reject when the bee node
-   * positively reports the stamp as unknown (404) or not usable (expired / not
-   * yet propagated). When the node can't be reached we proceed — an offline
-   * bee shouldn't block a deploy the stamp may well survive.
-   */
+  // Best-effort: only a definite unknown (404) or not-usable answer from bee blocks the deploy.
   async assertStampUsable(name: string, stampId: string): Promise<void> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
@@ -170,12 +152,6 @@ export class StampService {
       .finally(() => this.awaitingUsable.delete(key));
   }
 
-  /**
-   * Poll `GET /stamps/{batchID}` until it reports usable (bee-js parity), then
-   * set it as the profile's active stamp — but only if none is set yet, so we
-   * never silently swap a stamp already in use. Publishes profile.changed so
-   * the UI flips to "Stamp set" and enables "Deploy uploader".
-   */
   private async runUsableWait(name: string, batchID: string): Promise<void> {
     const profile = await this.profiles.findByName(name);
     if (!profile) return;
@@ -189,7 +165,6 @@ export class StampService {
         const stamp = await client.getStamp(batchID);
         usable = stamp.usable;
       } catch {
-        // Node may not have indexed the fresh batch yet — keep polling.
         continue;
       }
       if (!usable) continue;

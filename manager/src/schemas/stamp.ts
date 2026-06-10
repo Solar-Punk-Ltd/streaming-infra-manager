@@ -3,11 +3,9 @@ import { boolean, number, object, string, InferType } from 'yup';
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
 export const buyStampSchema = object({
-  // Bee expects a per-chunk amount as a positive integer string (PLUR).
   amount: string()
     .required('amount is required')
     .matches(/^[1-9][0-9]*$/, 'amount must be a positive integer'),
-  // Batch depth: bee requires >= 17; cap defensively.
   depth: number()
     .required('depth is required')
     .integer('depth must be an integer')

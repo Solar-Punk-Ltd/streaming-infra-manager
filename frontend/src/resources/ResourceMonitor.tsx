@@ -6,13 +6,9 @@ import { OutsideSection } from './OutsideSection';
 import { InfraSummary } from './InfraSummary';
 import { ContainerTable } from './ContainerTable';
 
-/** Live data layered on top of the snapshot. */
 export interface LiveMetricsProps {
-  /** containerId → recent cpuPercent samples, for sparklines. */
   history?: Map<string, number[]>;
-  /** project → on-disk footprint in bytes (null = none / not yet loaded). */
   diskByProject?: Map<string, number | null>;
-  /** Called when a profile group is shown, to lazily load its disk size. */
   onExpandProject?: (project: string) => void;
 }
 

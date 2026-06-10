@@ -12,7 +12,7 @@ export const ALL_SERVICES = [
   'client',
 ] as const;
 
-/** Default service set per profile kind (shared with the frontend via common). */
+/** Default service set per profile kind. Overridable per request. */
 export const KIND_DEFAULT_SERVICES: Record<ProfileKind, readonly ServiceName[]> =
   SHARED_KIND_DEFAULT_SERVICES;
 

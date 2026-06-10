@@ -139,9 +139,6 @@ async function main(): Promise<void> {
   );
 
   metricsCollector = new MetricsCollector();
-  // Scope "our infra" metrics to containers this tool deployed (compose project
-  // = profile name), so unrelated stacks on the host (e.g. a bee cluster) are
-  // counted as "outside our infra", not part of our totals.
   metricsCollector.setKnownProjectsProvider(
     async () => new Set((await profileRepository.list()).map((p) => p.name)),
   );

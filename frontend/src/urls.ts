@@ -2,10 +2,6 @@ import type { Profile } from './types';
 
 const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
 
-/**
- * The address to reach a profile's components: the profile's own host when it
- * names a concrete server, otherwise the manager-reported server host.
- */
 export function hostFor(profile: Profile, serverHost: string): string {
   const profileHost = profile.host?.trim() ?? '';
   if (!LOCAL_HOSTS.has(profileHost)) return profileHost;
@@ -27,11 +23,6 @@ export function clientUrl(profile: Profile, serverHost: string): string | null {
 const SRT_DEFAULT_APP_STREAM = 'live/stream';
 const SRS_SRT_BASE_PORT = 10001;
 
-/**
- * Ready-to-copy SRT publish URL for a streamer profile (OBS/FFmpeg target).
- * Uses the deployed srs container's published SRT port, falling back to the
- * slot's default (base + slot*10). Returns null when no SRT port is known yet.
- */
 export function srtPublishUrl(
   profile: Profile,
   serverHost: string,

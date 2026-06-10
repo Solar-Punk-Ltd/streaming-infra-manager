@@ -108,10 +108,6 @@ export class DeploymentOrchestrator {
     });
   }
 
-  /**
-   * Incremental "deploy the held-back uploader" once a usable stamp exists.
-   * Requires a stamp — otherwise the uploader would just be held back again.
-   */
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
     if (!hasUsableStamp(profile)) {
       throw new StampRequiredError(profile.name);
@@ -122,7 +118,6 @@ export class DeploymentOrchestrator {
     });
   }
 
-  /** Requested services win; otherwise the profile's components / kind defaults. */
   private servicesToDeploy(
     profile: Profile,
     requested: string[] | undefined,
@@ -131,11 +126,6 @@ export class DeploymentOrchestrator {
     return defaultServicesFor(profile);
   }
 
-  /**
-   * Shared deploy path: hold back the stream-uploader when there is no usable
-   * stamp, write the per-profile STAMP env when the uploader IS deployed, then
-   * run deploy.sh with the deployable set (or short-circuit if empty).
-   */
   private async deployServices(
     profile: Profile,
     services: string[],
@@ -153,9 +143,7 @@ export class DeploymentOrchestrator {
       );
     }
 
-    // When the uploader IS being deployed a usable stamp is present; make the
-    // submodule's STAMP guard read a non-empty value from .env.<profile> so it
-    // never hits its interactive prompt (which would EOF-abort under our runner).
+    // deploy.sh's STAMP guard reads .env.<profile>; a non-empty value skips its interactive prompt.
     if (profile.stamp_id && deploy.includes(STREAM_UPLOADER_SERVICE)) {
       const written = writeProfileStampEnv(profile.name, profile.stamp_id);
       if (written) {
@@ -163,9 +151,7 @@ export class DeploymentOrchestrator {
       }
     }
 
-    // Nothing deployable yet (e.g. an uploader-only custom profile without a
-    // stamp): never call deploy.sh with an empty filter — that deploys ALL
-    // config services. Mark RUNNING; pendingStamp surfaces the held-back state.
+    // An empty service filter would make deploy.sh deploy every configured service.
     if (deploy.length === 0) {
       return this.completeWithoutScript(profile, opts);
     }
@@ -189,11 +175,6 @@ export class DeploymentOrchestrator {
     });
   }
 
-  /**
-   * Finish a deploy that has no services to run (everything held back). Marks
-   * the profile RUNNING and returns a no-op handle so callers can await/pipe it
-   * exactly like a real script run.
-   */
   private async completeWithoutScript(
     profile: Profile,
     opts: {
@@ -203,8 +184,6 @@ export class DeploymentOrchestrator {
   ): Promise<RunHandle> {
     await this.ensureSubmoduleDefaults();
 
-    // Same status gating as runJob — without it a held-back deploy could
-    // overwrite a transitional status or report success while another job runs.
     if (opts.transitionTo && opts.allowedFrom) {
       const transitioned = await this.profiles.transitionStatus(
         profile.name,
@@ -291,12 +270,7 @@ export class DeploymentOrchestrator {
     });
   }
 
-  /**
-   * Guarantee the submodule's runtime config (.env, deploy/config.json) exists
-   * before any script runs. The files are created once from their *.sample and
-   * are gitignored, so a `deploy.sh` rsync --delete can wipe them between runs;
-   * recreating here keeps profile actions working without a manager restart.
-   */
+  // rsync --delete on deploy wipes these gitignored files; recreate before every script run.
   private async ensureSubmoduleDefaults(): Promise<void> {
     const created = await bootstrapSubmoduleDefaults();
     for (const file of created) {
@@ -314,8 +288,6 @@ export class DeploymentOrchestrator {
         cfg.allowedFrom,
       );
       if (!transitioned) {
-        // Either already in a transitional state, or row vanished. Re-fetch
-        // so the caller can produce a useful 409.
         const current = await this.profiles.findByName(cfg.profileName);
         throw new ProfileBusyError(
           cfg.profileName,
@@ -334,8 +306,6 @@ export class DeploymentOrchestrator {
       env: beeDataDirsFor(cfg.profileName),
     });
 
-    // Buffer both streams — deploy.sh writes most errors to stdout, docker
-    // build writes them to stderr; we want whatever's useful in the failure msg.
     let stderrTail = '';
     let stdoutTail = '';
     handle.emitter.on('stderr', (chunk: string) => {

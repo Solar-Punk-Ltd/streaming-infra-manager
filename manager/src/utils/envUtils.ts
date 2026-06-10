@@ -82,28 +82,14 @@ function upsertEnvLine(text: string, key: string, value: string): string {
   return `${text}${needsNewline ? '\n' : ''}${line}\n`;
 }
 
-/**
- * Write `.env.<profile>` as a full copy of base `.env` with STAMP set, so the
- * submodule's `check_stamp` guard (which greps STAMP from the env file it reads)
- * sees a non-empty value and never hits its interactive "Continue anyway?"
- * prompt — that prompt would EOF-abort under the manager's stdin-less runner.
- *
- * It must be a COMPLETE env file (not just the STAMP line): deploy.sh switches
- * ENV_FILE to `.env.<profile>` when present and uses it as compose's
- * `--env-file`, so a partial file would drop every other value. The
- * authoritative per-container STAMP still flows via the `--stamp-id` CLI
- * override (.env.deploy), so the value written here only needs to be non-empty.
- *
- * No-ops when the stamp is blank. Returns the path written, or null if skipped.
- */
+// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
+// compose's --env-file, so this must be a full copy of base .env, not just STAMP.
 export function writeProfileStampEnv(
   name: string,
   stampId: string,
 ): string | null {
   const stamp = stampId.replace(/^0x/, '').trim();
   if (!stamp) return null;
-  // Defensive: callers validate stamp_id as hex, but never let a stray value
-  // inject newlines / extra KEY= lines into the env file.
   if (!/^[0-9a-fA-F]+$/.test(stamp)) {
     throw new Error('refusing to write a non-hex STAMP to the env file');
   }

@@ -13,8 +13,6 @@ import type {
   ProfileKind,
 } from './types';
 
-// Gating rules are shared with the manager so both layers agree on
-// "needs a stamp / has a stamp".
 export { hasUsableStamp } from '@streaming-infra-manager/common';
 
 export interface ServerConfig {
@@ -49,7 +47,6 @@ function uploaderDeployed(profile: Profile): boolean {
   );
 }
 
-/** A stamp exists and the held-back uploader still needs deploying. */
 export function canDeployUploader(profile: Profile): boolean {
   return (
     servicesNeedStamp(defaultServicesFor(profile)) &&

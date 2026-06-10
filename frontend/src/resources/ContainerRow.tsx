@@ -21,7 +21,7 @@ export function ContainerRow({
   memTotalBytes: number;
   history?: number[];
 }) {
-  const cpuFraction = ncpu > 0 ? c.cpuPercent / 100 / ncpu : 0; // of whole box
+  const cpuFraction = ncpu > 0 ? c.cpuPercent / 100 / ncpu : 0;
   const memFraction = memTotalBytes > 0 ? c.memUsageBytes / memTotalBytes : 0;
   return (
     <TableRow>

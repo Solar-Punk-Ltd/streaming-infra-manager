@@ -20,11 +20,6 @@ const SERVICE_LABEL = 'com.docker.compose.service';
 
 type Listener = (snapshot: MetricsSnapshot) => void;
 
-/**
- * Returns the set of compose-project names the tool deployed (= profile names).
- * Used to scope "our infra" to what we manage, excluding unrelated containers
- * on the same host (e.g. a standalone bee cluster).
- */
 type KnownProjectsProvider = () => Promise<Set<string>>;
 
 interface PrevCounters {
@@ -35,13 +30,6 @@ interface PrevCounters {
   readTimeMs: number;
 }
 
-/**
- * Samples Docker for per-container resource usage on an interval, combines it
- * with whole-host metrics, and fans the resulting snapshot out to subscribers
- * (the SSE route). Sampling is gated on demand: the interval only runs while at
- * least one subscriber is attached, so we never poll Docker when nobody is
- * watching.
- */
 export class MetricsCollector {
   private readonly listeners = new Set<Listener>();
   private readonly prev = new Map<string, PrevCounters>();
@@ -49,7 +37,6 @@ export class MetricsCollector {
   private latest: MetricsSnapshot | null = null;
   private sampling = false;
   private knownProjects: KnownProjectsProvider | null = null;
-  /** Last successfully resolved project set, reused if the lookup transiently fails. */
   private lastKnownProjects: Set<string> | null = null;
 
   constructor(
@@ -58,11 +45,6 @@ export class MetricsCollector {
     private readonly intervalMs: number = SAMPLE_INTERVAL_MS,
   ) {}
 
-  /**
-   * Scope "our infra" (and the per-container view) to containers whose compose
-   * project matches a name from this provider. Without it, every container on
-   * the host is counted.
-   */
   setKnownProjectsProvider(provider: KnownProjectsProvider): void {
     this.knownProjects = provider;
   }
@@ -99,7 +81,6 @@ export class MetricsCollector {
   }
 
   private async tick(): Promise<void> {
-    // Skip if the previous sample is still in flight (slow Docker daemon).
     if (this.sampling) return;
     this.sampling = true;
     try {
@@ -140,8 +121,6 @@ export class MetricsCollector {
   private async collectContainers(): Promise<ContainerMetrics[]> {
     const list = await this.docker.listContainers({ all: false });
 
-    // Scope to containers the tool deployed (compose project = profile name) so
-    // "our infra" excludes unrelated stacks on the same host (e.g. bee cluster).
     const known = await this.resolveKnownProjects();
     const scoped = known
       ? list.filter((info) => {
@@ -261,11 +240,8 @@ export class MetricsCollector {
   }
 }
 
-/** CPU usage as a share of one core × 100, matching the docker CLI formula. */
 function computeCpuPercent(stats: Docker.ContainerStats): number {
-  // No precpu baseline yet (first stats read for this container) — the delta
-  // would be lifetime-total, not "now", which inflates the value. Report 0
-  // and let the next sample produce a real delta.
+  // docker CLI formula; the first read has no precpu baseline, so report 0.
   if (!stats.precpu_stats.system_cpu_usage) return 0;
 
   const cpuDelta =
@@ -289,8 +265,7 @@ function computeMemory(stats: Docker.ContainerStats): {
   memPercent: number;
 } {
   const rawUsage = stats.memory_stats.usage ?? 0;
-  // Exclude page cache so the number matches `docker stats`. cgroup v2 reports
-  // inactive_file; v1 reports cache/total_inactive_file.
+  // Subtract page cache (cgroup v2 inactive_file / v1 cache) to match docker stats.
   const sub = stats.memory_stats.stats as Record<string, number> | undefined;
   const cache =
     sub?.inactive_file ?? sub?.total_inactive_file ?? sub?.cache ?? 0;
@@ -328,11 +303,7 @@ function sumBlockIo(stats: Docker.ContainerStats): {
   return { blkReadBytes, blkWriteBytes };
 }
 
-/**
- * Host minus our infra. CPU and memory subtract exactly (our usage is a strict
- * subset of the host's). host.cpuPercent is 0–100 of the whole box, so ×ncpu
- * puts it on the same share-of-one-core×100 scale as infra.cpuPercent.
- */
+// host.cpuPercent is 0–100 for the whole box; ×ncpu puts it on infra's core×100 scale.
 function computeOutside(host: HostMetrics, infra: InfraTotals): OutsideTotals {
   return {
     cpuPercent:

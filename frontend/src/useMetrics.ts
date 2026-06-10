@@ -2,23 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { MetricsSnapshot } from './types';
 
-/** How many recent CPU samples to keep per container for sparklines. */
 const HISTORY_LEN = 40;
 
 export interface UseMetrics {
   snapshot: MetricsSnapshot | null;
-  /** containerId → recent cpuPercent samples (oldest first). */
   history: Map<string, number[]>;
   connected: boolean;
-  /** Lazily fetch a profile's on-disk footprint (bytes, or null). */
   fetchDisk: (project: string) => Promise<number | null>;
 }
 
-/**
- * Subscribes to the manager's metrics SSE stream while mounted (which also
- * gates the backend's sampling — it stops polling Docker when no one is
- * watching) and maintains a short per-container CPU history for sparklines.
- */
+// Subscribing also gates the backend: it samples Docker only while someone listens.
 export function useMetrics(): UseMetrics {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -35,7 +28,6 @@ export function useMetrics(): UseMetrics {
       try {
         snap = JSON.parse(ev.data) as MetricsSnapshot;
       } catch {
-        // Ignore a malformed frame rather than tearing down the stream.
         return;
       }
 
@@ -48,7 +40,6 @@ export function useMetrics(): UseMetrics {
         if (arr.length > HISTORY_LEN) arr.splice(0, arr.length - HISTORY_LEN);
         history.set(c.id, arr);
       }
-      // Forget containers that are gone.
       for (const id of [...history.keys()]) {
         if (!seen.has(id)) history.delete(id);
       }

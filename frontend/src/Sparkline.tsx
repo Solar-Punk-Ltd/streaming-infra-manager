@@ -1,9 +1,5 @@
 import { Box } from '@mui/material';
 
-/**
- * Tiny inline-SVG trend line. Auto-scales to its own max (with a small floor
- * so an idle series stays visually flat rather than amplifying noise).
- */
 export function Sparkline({
   values,
   width = 64,
@@ -15,7 +11,6 @@ export function Sparkline({
   width?: number;
   height?: number;
   color?: string;
-  /** Minimum value the y-axis spans, so near-zero series read as flat. */
   floor?: number;
 }) {
   if (values.length < 2) {

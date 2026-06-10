@@ -1,4 +1,3 @@
-/** Best-effort extraction of the API's error message, falling back to `fallback`. */
 export async function extractApiError(
   res: Response,
   fallback: string,
