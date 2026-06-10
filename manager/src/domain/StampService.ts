@@ -4,7 +4,6 @@ import { Profile, ProfileWithContainers } from '../types/index.js';
 
 import {
   BeeAddresses,
-  BeeHttpError,
   BeeStamp,
   BeeStampClient,
   BeeWallet,
@@ -12,6 +11,7 @@ import {
 } from './BeeStampClient.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
+  BeeHttpError,
   BeeNodeError,
   ProfileNotFoundError,
   StampNotUsableError,

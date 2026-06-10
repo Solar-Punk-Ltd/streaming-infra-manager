@@ -1,15 +1,6 @@
+import { BeeHttpError } from './errors/BeeHttpError.js';
+
 const DEFAULT_TIMEOUT_MS = 10_000;
-
-export class BeeHttpError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'BeeHttpError';
-  }
-}
-
 const BUY_TIMEOUT_MS = 180_000;
 
 export interface BeeAddresses {
