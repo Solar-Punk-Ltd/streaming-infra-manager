@@ -28,8 +28,7 @@ import { NodeFunding } from './NodeFunding';
 import { StampTable, shortHex } from './StampTable';
 import { BuyStampForm } from './BuyStampForm';
 import { StreamPublishUrl } from './StreamPublishUrl';
-import { useBeeNode } from './useBeeNode';
-import { useWaitForUsableStamp } from './useWaitForUsableStamp';
+import { useBeeUtils } from './useBeeUtils';
 
 export function UploaderCard({
   profile,
@@ -43,12 +42,16 @@ export function UploaderCard({
   const serverHost = useServerHost();
   const streamUrl = srtPublishUrl(profile, serverHost, srtPassphrase);
 
-  const { address, wallet, stamps, loading, loadError, reload, refreshStamps } =
-    useBeeNode(profile.name);
-  const { waitingBatch, waitForStamp } = useWaitForUsableStamp(
-    refreshStamps,
-    hasStampId(profile),
-  );
+  const {
+    address,
+    wallet,
+    stamps,
+    loading,
+    loadError,
+    reload,
+    waitingBatch,
+    waitForStamp,
+  } = useBeeUtils(profile);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
