@@ -37,7 +37,7 @@ import {
   fetchStampAddress,
   fetchStamps,
   fetchStampWallet,
-  hasStamp,
+  hasUsableStamp,
   setStamp,
   srtPublishUrl,
 } from '../data';
@@ -199,7 +199,7 @@ export function UploaderCard({
           </Typography>
           {profile.pendingStamp ? (
             <StampRequiredChip />
-          ) : hasStamp(profile) ? (
+          ) : hasUsableStamp(profile) ? (
             <Chip
               size="small"
               color="success"

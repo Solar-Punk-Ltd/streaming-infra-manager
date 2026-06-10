@@ -1,47 +1,20 @@
-import { KIND_DEFAULT_SERVICES } from '../types/constants.js';
+import {
+  hasUsableStamp,
+  servicesNeedStamp,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
+
 import { Profile } from '../types/index.js';
 
-/**
- * Stamp gating logic, kept in one place so the orchestrator, the profile
- * service and the API serializer all agree on what "needs a stamp" means.
- *
- * The only service with a prerequisite is the stream-uploader: it needs a
- * usable postage stamp before it can upload. Everything else deploys freely.
- */
-
-export const STREAM_UPLOADER_SERVICE = 'stream-uploader';
-
-/** Services this profile deploys by default (explicit components or kind defaults). */
-export function defaultServicesFor(profile: Profile): string[] {
-  if (profile.components && profile.components.length > 0) {
-    return [...profile.components];
-  }
-  return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
-}
-
-/** A service set "needs a stamp" iff it includes the stream-uploader. */
-export function servicesNeedStamp(services: readonly string[]): boolean {
-  return services.includes(STREAM_UPLOADER_SERVICE);
-}
-
-/**
- * "Usable" here only means a non-empty stamp_id. On-node validity (exists,
- * not expired) is verified against the bee node when the uploader is actually
- * deployed — see StampService.assertStampUsable.
- */
-export function hasUsableStamp(profile: Profile): boolean {
-  return Boolean(profile.stamp_id && profile.stamp_id.trim());
-}
-
-/**
- * Derived API field: the profile wants the uploader but has no usable stamp, so
- * the uploader is held back and surfaced as "Stamp required".
- */
-export function isPendingStamp(profile: Profile): boolean {
-  return (
-    servicesNeedStamp(defaultServicesFor(profile)) && !hasUsableStamp(profile)
-  );
-}
+// The gating rules live in @streaming-infra-manager/common so the frontend
+// derives the exact same "needs a stamp / has a stamp" answers.
+export {
+  defaultServicesFor,
+  hasUsableStamp,
+  isPendingStamp,
+  servicesNeedStamp,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
 
 export interface DeploySplit {
   /** Services to hand to deploy.sh now. */

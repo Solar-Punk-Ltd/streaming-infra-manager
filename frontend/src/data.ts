@@ -1,9 +1,20 @@
+import {
+  defaultServicesFor,
+  hasUsableStamp,
+  servicesNeedStamp,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
+
 import type {
   CreateProfileBody,
   DeploymentGroup,
   Profile,
   ProfileKind,
 } from './types';
+
+// Gating rules are shared with the manager so both layers agree on
+// "needs a stamp / has a stamp".
+export { hasUsableStamp } from '@streaming-infra-manager/common';
 
 const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
 
@@ -80,38 +91,17 @@ export async function fetchProfiles(): Promise<Profile[]> {
   return body.profiles;
 }
 
-const STREAM_UPLOADER = 'stream-uploader';
-
-const KIND_DEFAULT_COMPONENTS: Record<ProfileKind, string[]> = {
-  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
-  viewer: ['client', 'bee-gateway'],
-  custom: [],
-};
-
-export function profileServices(profile: Profile): string[] {
-  if (profile.components && profile.components.length > 0) {
-    return profile.components;
-  }
-  return KIND_DEFAULT_COMPONENTS[profile.kind] ?? [];
-}
-
-export function profileNeedsUploader(profile: Profile): boolean {
-  return profileServices(profile).includes(STREAM_UPLOADER);
-}
-
-export function hasStamp(profile: Profile): boolean {
-  return !!(profile.stamp_id && profile.stamp_id.trim());
-}
-
-export function uploaderDeployed(profile: Profile): boolean {
-  return profile.containers.some((c) => c.service === STREAM_UPLOADER);
+function uploaderDeployed(profile: Profile): boolean {
+  return profile.containers.some(
+    (c) => c.service === STREAM_UPLOADER_SERVICE,
+  );
 }
 
 /** A stamp exists and the held-back uploader still needs deploying. */
 export function canDeployUploader(profile: Profile): boolean {
   return (
-    profileNeedsUploader(profile) &&
-    hasStamp(profile) &&
+    servicesNeedStamp(defaultServicesFor(profile)) &&
+    hasUsableStamp(profile) &&
     !uploaderDeployed(profile)
   );
 }
