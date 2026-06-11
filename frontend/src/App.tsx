@@ -144,7 +144,8 @@ export function App() {
     profiles && selected.length === 1
       ? (profiles.find((p) => p.name === selected[0]) ?? null)
       : null;
-  const canUploader = !busy && !!selectedOne && canDeployUploader(selectedOne);
+  const uploaderDeployable =
+    !busy && !!selectedOne && canDeployUploader(selectedOne);
 
   const runOnSelected = async (
     verb: string,
@@ -270,7 +271,7 @@ export function App() {
                 size="small"
                 variant="outlined"
                 startIcon={<CloudUploadIcon />}
-                disabled={!canUploader}
+                disabled={!uploaderDeployable}
                 onClick={handleDeployUploader}
               >
                 Deploy uploader
