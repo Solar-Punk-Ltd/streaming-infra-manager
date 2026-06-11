@@ -126,6 +126,21 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
+  async updateStampId(
+    name: string,
+    stampId: string,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET stamp_id = $2,
+             updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name, stampId],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
   async deleteByName(name: string): Promise<{ port_slot: number } | null> {
     const result = await this.pool.query<{ port_slot: number }>(
       'DELETE FROM profiles WHERE name = $1 RETURNING port_slot',

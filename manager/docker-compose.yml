@@ -24,6 +24,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Reach host-published bee node ports (per-profile stamp management) from
+    # inside the container via host.docker.internal — see StampService.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file: .env
     environment:
       DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
@@ -35,6 +39,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/solarpunk/streaming-infra-manager:/home/solarpunk/streaming-infra-manager
       - ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}:${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
+      # Read-only host visibility for the resource monitor (see HostCollector):
+      #   /host/proc   → host CPU + RAM usage (/proc/stat, /proc/meminfo)
+      #   /host/rootfs → host disk used/total (statfs on the root filesystem)
+      - /proc:/host/proc:ro
+      - /:/host/rootfs:ro
 
   web:
     build:

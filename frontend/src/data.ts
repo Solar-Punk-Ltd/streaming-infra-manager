@@ -1,3 +1,11 @@
+import {
+  defaultServicesFor,
+  hasStampId,
+  servicesNeedStamp,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
+
+import { extractApiError } from './http';
 import type {
   CreateProfileBody,
   DeploymentGroup,
@@ -5,38 +13,24 @@ import type {
   ProfileKind,
 } from './types';
 
-const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
+export { hasStampId } from '@streaming-infra-manager/common';
 
-/**
- * The address to reach a profile's components: the profile's own host when it
- * names a concrete server, otherwise the manager-reported server host.
- */
-export function hostFor(profile: Profile, serverHost: string): string {
-  const profileHost = profile.host?.trim() ?? '';
-  if (!LOCAL_HOSTS.has(profileHost)) return profileHost;
-  return serverHost || window.location.hostname;
+export interface ServerConfig {
+  host: string;
+  srtPassphrase: string | null;
 }
 
-export function componentUrl(host: string, port: number): string {
-  return `http://${host}:${port}`;
-}
-
-export function clientUrl(profile: Profile, serverHost: string): string | null {
-  const client = profile.containers.find((c) => c.service === 'client');
-  if (!client) return null;
-  const port = client.ports.CLIENT_PORT;
-  if (!port) return null;
-  return componentUrl(hostFor(profile, serverHost), port);
-}
-
-export async function fetchServerHost(): Promise<string> {
+export async function fetchServerConfig(): Promise<ServerConfig> {
   try {
     const res = await fetch('/config');
     if (!res.ok) throw new Error(String(res.status));
-    const body = (await res.json()) as { host: string };
-    return body.host;
+    const body = (await res.json()) as {
+      host: string;
+      srtPassphrase?: string | null;
+    };
+    return { host: body.host, srtPassphrase: body.srtPassphrase ?? null };
   } catch {
-    return window.location.hostname;
+    return { host: window.location.hostname, srtPassphrase: null };
   }
 }
 
@@ -47,24 +41,32 @@ export async function fetchProfiles(): Promise<Profile[]> {
   return body.profiles;
 }
 
-async function postAction(
-  name: string,
-  action: 'deploy' | 'stop',
-): Promise<void> {
+function uploaderDeployed(profile: Profile): boolean {
+  return profile.containers.some(
+    (c) => c.service === STREAM_UPLOADER_SERVICE,
+  );
+}
+
+export function canDeployUploader(profile: Profile): boolean {
+  return (
+    servicesNeedStamp(defaultServicesFor(profile)) &&
+    hasStampId(profile) &&
+    !uploaderDeployed(profile)
+  );
+}
+
+type ProfileAction = 'deploy' | 'stop' | 'deploy-uploader';
+
+async function postAction(name: string, action: ProfileAction): Promise<void> {
   const res = await fetch(`/profiles/${encodeURIComponent(name)}/${action}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: '{}',
   });
   if (!res.ok) {
-    let msg = `${action} failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `${action} failed (${res.status})`),
+    );
   }
 
   await res.text().catch(() => undefined);
@@ -78,19 +80,16 @@ export function stopProfile(name: string): Promise<void> {
   return postAction(name, 'stop');
 }
 
+export function deployUploader(name: string): Promise<void> {
+  return postAction(name, 'deploy-uploader');
+}
+
 export async function deleteProfile(name: string): Promise<void> {
   const res = await fetch(`/profiles/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   });
   if (!res.ok) {
-    let msg = `delete failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(await extractApiError(res, `delete failed (${res.status})`));
   }
 }
 
@@ -101,14 +100,9 @@ export async function createProfile(body: CreateProfileBody): Promise<Profile> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as Profile;
 }
@@ -137,14 +131,9 @@ export async function createDeploymentGroup(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
 }
@@ -170,14 +159,9 @@ export async function updateProfile(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = `request failed (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string; message?: string };
-      msg = err.error ?? err.message ?? msg;
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
   }
   return (await res.json()) as Profile;
 }

@@ -34,6 +34,8 @@ export interface ApiContainer {
 
 export interface ProfileWithContainers extends Profile {
   containers: ApiContainer[];
+  /** Derived: uploader held back until a usable stamp is set. */
+  pendingStamp: boolean;
 }
 
 export interface ActionInput {

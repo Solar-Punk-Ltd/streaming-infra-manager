@@ -24,6 +24,7 @@ export interface Profile {
   updated_at: string;
   containers: Container[];
   group_id?: number | null;
+  pendingStamp?: boolean;
 }
 
 export interface DeploymentGroup {

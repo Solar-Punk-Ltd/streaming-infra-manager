@@ -1,30 +1,35 @@
+import { EventEmitter } from 'node:events';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import {
-  KIND_DEFAULT_SERVICES,
-  Profile,
-  ProfileStatus,
-} from '../types/index.js';
+import { Profile, ProfileStatus } from '../types/index.js';
 import {
   SCRIPT_CLEAN,
   SCRIPT_DEPLOY,
   SCRIPT_HEALTH,
   SCRIPT_STOP,
   SUBMODULE,
+  bootstrapSubmoduleDefaults,
   deleteProfileEnv,
   parseBaseEnv,
+  writeProfileStampEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
-import { ProfileBusyError } from './errors/index.js';
+import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
+import {
+  defaultServicesFor,
+  hasStampId,
+  splitDeployableServices,
+  STREAM_UPLOADER_SERVICE,
+} from './stampLogic.js';
 
 const logger = Logger.getInstance();
 
@@ -85,21 +90,87 @@ export class DeploymentOrchestrator {
 
   async startDeploy(
     profile: Profile,
-    services: string[] | undefined,
+    requested: string[] | undefined,
   ): Promise<RunHandle> {
-    const resolved = this.resolveServices(profile, services);
+    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
+      transitionTo: 'DEPLOYING',
+      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+    });
+  }
+
+  async startInitialDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+    opts: { host?: string } = {},
+  ): Promise<RunHandle> {
+    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
+      host: opts.host,
+    });
+  }
+
+  async startDeployUploader(profile: Profile): Promise<RunHandle> {
+    if (!hasStampId(profile)) {
+      throw new StampRequiredError(profile.name);
+    }
+    return this.deployServices(profile, [STREAM_UPLOADER_SERVICE], {
+      transitionTo: 'DEPLOYING',
+      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+    });
+  }
+
+  private servicesToDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): string[] {
+    if (requested && requested.length > 0) return requested;
+    return defaultServicesFor(profile);
+  }
+
+  private async deployServices(
+    profile: Profile,
+    services: string[],
+    opts: {
+      transitionTo?: ProfileStatus;
+      allowedFrom?: readonly ProfileStatus[];
+      host?: string;
+    },
+  ): Promise<RunHandle> {
+    const { deployNow, heldBackForStamp } = splitDeployableServices(
+      profile,
+      services,
+    );
+
+    if (heldBackForStamp.length > 0) {
+      logger.info(
+        `[Orchestrator] ${profile.name}: holding back ${heldBackForStamp.join(', ')} — no usable stamp yet`,
+      );
+    }
+
+    // deploy.sh's STAMP guard reads .env.<profile>; a non-empty value skips its interactive prompt.
+    if (profile.stamp_id && deployNow.includes(STREAM_UPLOADER_SERVICE)) {
+      const written = writeProfileStampEnv(profile.name, profile.stamp_id);
+      if (written) {
+        logger.info(`[Orchestrator] ${profile.name}: wrote stamp env ${written}`);
+      }
+    }
+
+    // An empty service filter would make deploy.sh deploy every configured service.
+    if (deployNow.length === 0) {
+      return this.completeWithoutScript(profile, opts);
+    }
+
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, resolved),
-      transitionTo: 'DEPLOYING',
-      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+      args: this.buildScriptArgs(profile, deployNow, opts.host),
+      transitionTo: opts.transitionTo,
+      allowedFrom: opts.allowedFrom,
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, resolved);
+        await this.snapshotContainers(profile, deployNow);
         if (updated) {
           await this.publishChanged(updated);
         }
@@ -107,27 +178,37 @@ export class DeploymentOrchestrator {
     });
   }
 
-  async startInitialDeploy(
+  private async completeWithoutScript(
     profile: Profile,
-    services: string[] | undefined,
-    opts: { host?: string } = {},
+    opts: {
+      transitionTo?: ProfileStatus;
+      allowedFrom?: readonly ProfileStatus[];
+    },
   ): Promise<RunHandle> {
-    const resolved = this.resolveServices(profile, services);
-    return this.runJob({
-      profileName: profile.name,
-      script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, resolved, opts.host),
-      onSuccess: async () => {
-        const updated = await this.profiles.markTerminal(
+    await this.ensureSubmoduleDefaults();
+
+    if (opts.transitionTo && opts.allowedFrom) {
+      const transitioned = await this.profiles.transitionStatus(
+        profile.name,
+        opts.transitionTo,
+        opts.allowedFrom,
+      );
+      if (!transitioned) {
+        const current = await this.profiles.findByName(profile.name);
+        throw new ProfileBusyError(
           profile.name,
-          'RUNNING',
+          current?.status ?? 'REMOVING',
         );
-        await this.snapshotContainers(profile, resolved);
-        if (updated) {
-          await this.publishChanged(updated);
-        }
-      },
-    });
+      }
+    }
+
+    const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
+    if (updated) {
+      await this.publishChanged(updated);
+    }
+    const emitter = new EventEmitter();
+    setImmediate(() => emitter.emit('done', { code: 0 }));
+    return { emitter, kill: () => undefined };
   }
 
   async startStop(
@@ -184,14 +265,25 @@ export class DeploymentOrchestrator {
     });
   }
 
-  startHealth(profile: Profile): RunHandle {
+  async startHealth(profile: Profile): Promise<RunHandle> {
+    await this.ensureSubmoduleDefaults();
     return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
       cwd: SUBMODULE,
       env: beeDataDirsFor(profile.name),
     });
   }
 
+  // rsync --delete on deploy wipes these gitignored files; recreate before every script run.
+  private async ensureSubmoduleDefaults(): Promise<void> {
+    const created = await bootstrapSubmoduleDefaults();
+    for (const file of created) {
+      logger.info(`[Orchestrator] created missing default: ${file}`);
+    }
+  }
+
   private async runJob(cfg: JobConfig): Promise<RunHandle> {
+    await this.ensureSubmoduleDefaults();
+
     if (cfg.transitionTo && cfg.allowedFrom) {
       const transitioned = await this.profiles.transitionStatus(
         cfg.profileName,
@@ -199,8 +291,6 @@ export class DeploymentOrchestrator {
         cfg.allowedFrom,
       );
       if (!transitioned) {
-        // Either already in a transitional state, or row vanished. Re-fetch
-        // so the caller can produce a useful 409.
         const current = await this.profiles.findByName(cfg.profileName);
         throw new ProfileBusyError(
           cfg.profileName,
@@ -219,8 +309,6 @@ export class DeploymentOrchestrator {
       env: beeDataDirsFor(cfg.profileName),
     });
 
-    // Buffer both streams — deploy.sh writes most errors to stdout, docker
-    // build writes them to stderr; we want whatever's useful in the failure msg.
     let stderrTail = '';
     let stdoutTail = '';
     handle.emitter.on('stderr', (chunk: string) => {
@@ -298,17 +386,6 @@ export class DeploymentOrchestrator {
     if (profile.stamp_id) args.push(`--stamp-id=${profile.stamp_id}`);
     args.push(...services);
     return args;
-  }
-
-  private resolveServices(
-    profile: Profile,
-    requested: string[] | undefined,
-  ): string[] {
-    if (requested && requested.length > 0) return requested;
-    if (profile.components && profile.components.length > 0) {
-      return [...profile.components];
-    }
-    return [...(KIND_DEFAULT_SERVICES[profile.kind] ?? [])];
   }
 
   private async removeProfileDataDir(profileName: string): Promise<void> {

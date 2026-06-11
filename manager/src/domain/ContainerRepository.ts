@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { ApiContainer, Profile, ProfileWithContainers } from '../types/index.js';
 
 import { ContainerSnapshot } from './containerKeysSpec.js';
+import { isPendingStamp } from './stampLogic.js';
 
 export interface ContainerRow {
   profile_name: string;
@@ -54,6 +55,6 @@ export class ContainerRepository {
 
   async withContainers(profile: Profile): Promise<ProfileWithContainers> {
     const containers = await this.listApiContainers(profile.name);
-    return { ...profile, containers };
+    return { ...profile, containers, pendingStamp: isPendingStamp(profile) };
   }
 }

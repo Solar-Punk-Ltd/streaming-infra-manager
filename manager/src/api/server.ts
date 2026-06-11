@@ -6,7 +6,9 @@ import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EventBus } from '../domain/EventBus.js';
 import { Logger } from '../domain/Logger.js';
+import { MetricsCollector } from '../domain/MetricsCollector.js';
 import { ProfileService } from '../domain/ProfileService.js';
+import { StampService } from '../domain/StampService.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
@@ -16,7 +18,9 @@ import { createConfigRouter } from './routes/config.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
 import { createHealthRouter } from './routes/health.js';
+import { createMetricsRouter } from './routes/metrics.js';
 import { createProfilesRouter } from './routes/profiles.js';
+import { createStampRouter } from './routes/stamp.js';
 
 const logger = Logger.getInstance();
 
@@ -26,7 +30,9 @@ export interface ApiDeps {
   database: Database;
   profileService: ProfileService;
   deployService: DeployService;
+  stampService: StampService;
   eventBus: EventBus;
+  metricsCollector: MetricsCollector;
 }
 
 export interface ApiServerHandle {
@@ -47,10 +53,12 @@ export function startApiServer(
 
   app.use('/health', createHealthRouter(deps.database));
   app.use('/config', createConfigRouter());
+  app.use('/metrics', createMetricsRouter(deps.metricsCollector));
   app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/', createActionsRouter(deps.deployService));
+  app.use('/', createStampRouter(deps.stampService));
 
   app.use(notFound);
   app.use(errorHandler);

@@ -26,6 +26,17 @@ REMOTE_PATH="/home/solarpunk/streaming-infra-manager"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+echo "==> Checking manager/.env"
+ENV_FILE="manager/.env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: $ENV_FILE not found. Copy manager/.env.sample and fill in the required values." >&2
+    exit 1
+fi
+if ! grep -q "POSTGRES_PASSWORD=.\+" "$ENV_FILE"; then
+    echo "ERROR: POSTGRES_PASSWORD is missing or empty in $ENV_FILE." >&2
+    exit 1
+fi
+
 echo "==> Building swarm-hls-stream locally (so dist/ ships over rsync)"
 # swarm-hls-stream has its own pnpm workspace, separate from the parent repo.
 pnpm -C manager/swarm-hls-stream install --frozen-lockfile

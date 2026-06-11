@@ -14,3 +14,14 @@ const COLOR: Record<ProfileStatus, 'default' | 'success' | 'warning' | 'error' |
 export function StatusChip({ status }: { status: ProfileStatus }) {
   return <Chip size="small" label={status} color={COLOR[status]} variant="outlined" />;
 }
+
+export function StampRequiredChip() {
+  return (
+    <Chip
+      size="small"
+      label="Stamp required"
+      color="warning"
+      variant="outlined"
+    />
+  );
+}

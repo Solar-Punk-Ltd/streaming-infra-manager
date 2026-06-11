@@ -13,6 +13,8 @@ import {
   DialogTitle,
   Snackbar,
   Stack,
+  Tab,
+  Tabs,
   Toolbar,
   Typography,
 } from '@mui/material';
@@ -21,21 +23,34 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import EditIcon from '@mui/icons-material/Edit';
 import StopIcon from '@mui/icons-material/Stop';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { DeploymentsTable } from './DeploymentsTable';
 import { NewDeploymentDrawer } from './NewDeploymentDrawer';
+import { ResourcesView } from './ResourcesView';
+import { UploadersView } from './uploaders/UploadersView';
 import { ServerHostProvider } from './ServerHostContext';
 import {
+  canDeployUploader,
   deleteProfile,
   deployProfile,
+  deployUploader,
   fetchGroups,
   fetchProfiles,
-  fetchServerHost,
+  fetchServerConfig,
   stopProfile,
 } from './data';
 import type { DeploymentGroup, Profile } from './types';
+
+type AppView = 'deployments' | 'resources' | 'uploaders';
+
+const APP_TABS: { value: AppView; label: string }[] = [
+  { value: 'deployments', label: 'Deployments' },
+  { value: 'resources', label: 'Resources' },
+  { value: 'uploaders', label: 'Uploaders' },
+];
 
 export function App() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -43,6 +58,7 @@ export function App() {
   const [serverHost, setServerHost] = useState<string>(
     window.location.hostname,
   );
+  const [srtPassphrase, setSrtPassphrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
@@ -53,6 +69,7 @@ export function App() {
     message: string;
   } | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [view, setView] = useState<AppView>('deployments');
 
   const load = useCallback(() => {
     fetchProfiles()
@@ -71,7 +88,12 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
-    fetchServerHost().then(setServerHost).catch(() => undefined);
+    fetchServerConfig()
+      .then((cfg) => {
+        setServerHost(cfg.host);
+        setSrtPassphrase(cfg.srtPassphrase);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -118,6 +140,11 @@ export function App() {
 
   const nothingSelected = selected.length === 0 || busy;
   const oneSelected = selected.length === 1 && !busy;
+  const selectedOne =
+    profiles && selected.length === 1
+      ? (profiles.find((p) => p.name === selected[0]) ?? null)
+      : null;
+  const canUploader = !busy && !!selectedOne && canDeployUploader(selectedOne);
 
   const runOnSelected = async (
     verb: string,
@@ -162,6 +189,10 @@ export function App() {
     void runOnSelected('Stopped', stopProfile);
   };
 
+  const handleDeployUploader = () => {
+    void runOnSelected('Deployed uploader for', deployUploader);
+  };
+
   const handleRemove = () => {
     if (selected.length === 0) return;
     setRemoveConfirmOpen(true);
@@ -193,66 +224,104 @@ export function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Tabs
+          value={view}
+          onChange={(_e, v) => setView(v as AppView)}
+          sx={{ mb: 2 }}
+        >
+          {APP_TABS.map((tab) => (
+            <Tab key={tab.value} value={tab.value} label={tab.label} />
+          ))}
+        </Tabs>
+
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
 
-        <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<PlayArrowIcon />}
-            disabled={nothingSelected}
-            onClick={handleStart}
-          >
-            Start
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<EditIcon />}
-            disabled={!oneSelected}
-            onClick={handleModify}
-          >
-            Modify
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<StopIcon />}
-            disabled={nothingSelected}
-            onClick={handleStop}
-          >
-            Stop
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            disabled={nothingSelected}
-            onClick={handleRemove}
-          >
-            Remove
-          </Button>
-          <Box sx={{ flexGrow: 1 }} />
-          <Typography variant="body2" color="text.secondary">
-            {selected.length} selected
-          </Typography>
-        </Stack>
+        {view === 'deployments' && (
+          <>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ mb: 2 }}
+              alignItems="center"
+            >
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<PlayArrowIcon />}
+                disabled={nothingSelected}
+                onClick={handleStart}
+              >
+                Start
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<EditIcon />}
+                disabled={!oneSelected}
+                onClick={handleModify}
+              >
+                Modify
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<CloudUploadIcon />}
+                disabled={!canUploader}
+                onClick={handleDeployUploader}
+              >
+                Deploy uploader
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<StopIcon />}
+                disabled={nothingSelected}
+                onClick={handleStop}
+              >
+                Stop
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                disabled={nothingSelected}
+                onClick={handleRemove}
+              >
+                Remove
+              </Button>
+              <Box sx={{ flexGrow: 1 }} />
+              <Typography variant="body2" color="text.secondary">
+                {selected.length} selected
+              </Typography>
+            </Stack>
 
-        {!profiles ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <DeploymentsTable
+            {!profiles ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <DeploymentsTable
+                profiles={profiles}
+                groups={groups}
+                selected={selected}
+                onSelectedChange={setSelected}
+              />
+            )}
+          </>
+        )}
+
+        {view === 'resources' && <ResourcesView />}
+
+        {view === 'uploaders' && (
+          <UploadersView
             profiles={profiles}
-            groups={groups}
-            selected={selected}
-            onSelectedChange={setSelected}
+            onChanged={load}
+            srtPassphrase={srtPassphrase}
           />
         )}
       </Container>

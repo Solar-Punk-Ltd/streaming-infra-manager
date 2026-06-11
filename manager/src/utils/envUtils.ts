@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +50,58 @@ function parseEnvFile(path: string): Record<string, string> {
 
 export function parseBaseEnv(): Record<string, string> {
   return parseEnvFile(baseEnvPath());
+}
+
+const BOOTSTRAP_FILES = [
+  { src: join(SUBMODULE, '.env.sample'), dst: join(SUBMODULE, '.env') },
+  {
+    src: join(SUBMODULE, 'deploy', 'config.sample.json'),
+    dst: join(SUBMODULE, 'deploy', 'config.json'),
+  },
+];
+
+export async function bootstrapSubmoduleDefaults(): Promise<string[]> {
+  const created: string[] = [];
+  for (const { src, dst } of BOOTSTRAP_FILES) {
+    if (!existsSync(dst) && existsSync(src)) {
+      await copyFile(src, dst);
+      created.push(dst);
+    }
+  }
+  return created;
+}
+
+function upsertEnvLine(text: string, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedKey}=.*$`, 'm');
+  if (pattern.test(text)) {
+    return text.replace(pattern, line);
+  }
+  const needsNewline = text.length > 0 && !text.endsWith('\n');
+  return `${text}${needsNewline ? '\n' : ''}${line}\n`;
+}
+
+// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
+// compose's --env-file, so this must be a full copy of base .env, not just STAMP.
+export function writeProfileStampEnv(
+  name: string,
+  stampId: string,
+): string | null {
+  const stamp = stampId.replace(/^0x/, '').trim();
+  if (!stamp) return null;
+  if (!/^[0-9a-fA-F]+$/.test(stamp)) {
+    throw new Error('refusing to write a non-hex STAMP to the env file');
+  }
+
+  const base = existsSync(baseEnvPath())
+    ? readFileSync(baseEnvPath(), 'utf8')
+    : '';
+  const contents = upsertEnvLine(base, 'STAMP', stamp);
+
+  const path = profileEnvPath(name);
+  writeFileSync(path, contents, 'utf8');
+  return path;
 }
 
 export function deleteProfileEnv(name: string): boolean {

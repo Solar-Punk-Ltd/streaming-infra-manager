@@ -8,10 +8,13 @@ import { DeploymentGroupRepository } from './domain/DeploymentGroupRepository.js
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
 import { EventBus } from './domain/EventBus.js';
 import { Logger } from './domain/Logger.js';
+import { MetricsCollector } from './domain/MetricsCollector.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
+import { StampService } from './domain/StampService.js';
 import { config } from './utils/config.js';
+import { bootstrapSubmoduleDefaults } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -40,6 +43,7 @@ function logStartupConfig(): void {
 
 let apiServer: ApiServerHandle | undefined;
 let database: Database | undefined;
+let metricsCollector: MetricsCollector | undefined;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -51,6 +55,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
 
   try {
+    if (metricsCollector) {
+      metricsCollector.stop();
+      metricsCollector = undefined;
+    }
     if (apiServer) {
       await apiServer.close();
       apiServer = undefined;
@@ -73,6 +81,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 async function main(): Promise<void> {
   logStartupConfig();
+
+  const bootstrapped = await bootstrapSubmoduleDefaults();
+  for (const file of bootstrapped) {
+    logger.info(`[Boot] created missing default: ${file}`);
+  }
 
   database = new Database(config.databaseUrl);
   await database.migrate();
@@ -114,10 +127,31 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
   );
-  const deployService = new DeployService(profileService, orchestrator);
+  const stampService = new StampService(
+    profileRepository,
+    containerRepository,
+    eventBus,
+  );
+  const deployService = new DeployService(
+    profileService,
+    orchestrator,
+    stampService,
+  );
+
+  metricsCollector = new MetricsCollector();
+  metricsCollector.setManagedProjectsProvider(
+    async () => new Set((await profileRepository.list()).map((p) => p.name)),
+  );
 
   apiServer = startApiServer(
-    { database, profileService, deployService, eventBus },
+    {
+      database,
+      profileService,
+      deployService,
+      stampService,
+      eventBus,
+      metricsCollector,
+    },
     config.port,
     config.host,
   );
