@@ -10,6 +10,13 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'SRS_ADAPTER_PORT',
     'SRS_MEDIA_PATH',
   ],
+  ome: [
+    'OME_SRT_PORT',
+    'OME_HLS_PORT',
+    'OME_ADAPTER_HOST',
+    'OME_ADAPTER_PORT',
+    'OME_HLS_URL',
+  ],
   'stream-uploader': [
     'API_PORT',
     'BEE_URL',
@@ -55,6 +62,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
 
 export const SERVICE_PORT_KEYS: Record<string, readonly string[]> = {
   srs: ['SRS_SRT_PORT', 'SRS_ADAPTER_PORT'],
+  ome: ['OME_SRT_PORT', 'OME_HLS_PORT'],
   'stream-uploader': ['API_PORT'],
   'bee-uploader': ['BEE_UPLOADER_API_PORT', 'BEE_UPLOADER_P2P_PORT'],
   'bee-gateway': ['BEE_GATEWAY_API_PORT', 'BEE_GATEWAY_P2P_PORT'],

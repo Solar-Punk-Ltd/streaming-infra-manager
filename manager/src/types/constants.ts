@@ -9,6 +9,7 @@ export const ALL_SERVICES = [
   'bee-gateway',
   'stream-uploader',
   'srs',
+  'ome',
   'client',
 ] as const;
 

@@ -2,7 +2,10 @@ import { EventEmitter } from 'node:events';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  engineForComponents,
+  getErrorMessage,
+} from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
 import {
@@ -14,7 +17,7 @@ import {
   bootstrapSubmoduleDefaults,
   deleteProfileEnv,
   parseBaseEnv,
-  writeProfileStampEnv,
+  writeProfileEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
@@ -63,6 +66,22 @@ const PORT_VAR_DEFAULTS: Record<string, number> = {
   BEE_GATEWAY_P2P_PORT: 10008,
 };
 
+const OME_PORT_BASES = {
+  OME_SRT_PORT: PORT_VAR_DEFAULTS.SRS_SRT_PORT!,
+  OME_HLS_PORT: PORT_VAR_DEFAULTS.SRS_HTTP_PORT!,
+} as const;
+
+function omePortsFor(portSlot: number): {
+  omeSrtPort?: number;
+  omeHlsPort?: number;
+} {
+  if (portSlot <= 0) return {};
+  return {
+    omeSrtPort: OME_PORT_BASES.OME_SRT_PORT + portSlot * 10,
+    omeHlsPort: OME_PORT_BASES.OME_HLS_PORT + portSlot * 10,
+  };
+}
+
 interface JobConfig {
   profileName: string;
   script: string;
@@ -92,10 +111,14 @@ export class DeploymentOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<RunHandle> {
-    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
-      transitionTo: 'DEPLOYING',
-      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-    });
+    return this.deployServices(
+      profile,
+      this.servicesToDeploy(profile, requested),
+      {
+        transitionTo: 'DEPLOYING',
+        allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+      },
+    );
   }
 
   async startInitialDeploy(
@@ -103,9 +126,13 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
-    return this.deployServices(profile, this.servicesToDeploy(profile, requested), {
-      host: opts.host,
-    });
+    return this.deployServices(
+      profile,
+      this.servicesToDeploy(profile, requested),
+      {
+        host: opts.host,
+      },
+    );
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
@@ -146,18 +173,23 @@ export class DeploymentOrchestrator {
       );
     }
 
-    // deploy.sh's STAMP guard reads .env.<profile>; a non-empty value skips its interactive prompt.
-    if (profile.stamp_id && deployNow.includes(STREAM_UPLOADER_SERVICE)) {
-      const written = writeProfileStampEnv(profile.name, profile.stamp_id);
-      if (written) {
-        logger.info(`[Orchestrator] ${profile.name}: wrote stamp env ${written}`);
-      }
-    }
-
     // An empty service filter would make deploy.sh deploy every configured service.
     if (deployNow.length === 0) {
       return this.completeWithoutScript(profile, opts);
     }
+
+    // .env.<profile> carries the per-profile keys deploy.sh reads from its env
+    // file: ENGINE selects the uploader's engine plugin (and OME ports when
+    // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
+    const engine = engineForComponents(profile.components);
+    const written = writeProfileEnv(profile.name, {
+      engine,
+      stampId: profile.stamp_id,
+      ...omePortsFor(profile.port_slot),
+    });
+    logger.info(
+      `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
+    );
 
     return this.runJob({
       profileName: profile.name,
@@ -195,10 +227,7 @@ export class DeploymentOrchestrator {
       );
       if (!transitioned) {
         const current = await this.profiles.findByName(profile.name);
-        throw new ProfileBusyError(
-          profile.name,
-          current?.status ?? 'REMOVING',
-        );
+        throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
       }
     }
 
@@ -425,6 +454,8 @@ export class DeploymentOrchestrator {
 
     Object.assign(env, beeDataDirsFor(profile.name));
 
+    env.ENGINE = engineForComponents(profile.components);
+
     for (const [name, def] of Object.entries(PORT_VAR_DEFAULTS)) {
       if (profile.port_slot === 0) {
         if (env[name] === undefined || env[name] === '') {
@@ -434,7 +465,16 @@ export class DeploymentOrchestrator {
         env[name] = String(def + profile.port_slot * 10);
       }
     }
-    if (env.API_PORT) env.SRS_ADAPTER_PORT = env.API_PORT;
+    if (env.API_PORT) {
+      env.SRS_ADAPTER_PORT = env.API_PORT;
+      env.OME_ADAPTER_PORT = env.API_PORT;
+    }
+
+    if (profile.port_slot > 0) {
+      for (const [name, base] of Object.entries(OME_PORT_BASES)) {
+        env[name] = String(base + profile.port_slot * 10);
+      }
+    }
 
     // Parameter overrides — same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
     if (profile.feed_owner) {

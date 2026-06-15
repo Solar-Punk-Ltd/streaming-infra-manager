@@ -14,6 +14,8 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
+  Radio,
+  RadioGroup,
   Stack,
   TextField,
   Typography,
@@ -47,6 +49,7 @@ const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
 const ALL_COMPONENTS = [
   'srs',
+  'ome',
   'stream-uploader',
   'bee-uploader',
   'client',
@@ -54,10 +57,20 @@ const ALL_COMPONENTS = [
 ] as const;
 type Component = (typeof ALL_COMPONENTS)[number];
 
+const ENGINE_COMPONENTS = ['srs', 'ome'] as const;
+type Engine = (typeof ENGINE_COMPONENTS)[number];
+
+const isEngine = (c: string): c is Engine =>
+  (ENGINE_COMPONENTS as readonly string[]).includes(c);
+
+const CHECKBOX_COMPONENTS = ALL_COMPONENTS.filter((c) => !isEngine(c));
+
+type EngineChoice = Engine | 'none';
+
 const KIND_DEFAULTS: Record<ProfileKind, Component[]> = {
   streamer: ['srs', 'stream-uploader', 'bee-uploader'],
   viewer: ['client', 'bee-gateway'],
-  custom: [...ALL_COMPONENTS],
+  custom: ALL_COMPONENTS.filter((c) => c !== 'ome'),
 };
 
 const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
@@ -133,6 +146,18 @@ export function NewDeploymentDrawer({
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
     );
   };
+
+  const selectedEngine: EngineChoice =
+    (components.find(isEngine) as Engine | undefined) ?? 'none';
+
+  const onEngineChange = (next: EngineChoice) => {
+    setComponents((prev) => {
+      const withoutEngines = prev.filter((c) => !isEngine(c));
+      return next === 'none' ? withoutEngines : [...withoutEngines, next];
+    });
+  };
+
+  const engineDisabled = isEdit || kind === 'viewer';
 
   const derivedAddress = (() => {
     if (!hasStreamUploader || !PRIVATE_KEY_RE.test(privateKey)) return null;
@@ -342,7 +367,7 @@ export function NewDeploymentDrawer({
           >
             <FormLabel component="legend">Components</FormLabel>
             <FormGroup>
-              {ALL_COMPONENTS.map((c) => (
+              {CHECKBOX_COMPONENTS.map((c) => (
                 <FormControlLabel
                   key={c}
                   control={
@@ -365,6 +390,37 @@ export function NewDeploymentDrawer({
             </FormGroup>
             <FormHelperText>
               {componentsHelperText(componentsError, isEdit, isCustom)}
+            </FormHelperText>
+          </FormControl>
+
+          <FormControl component="fieldset" disabled={engineDisabled}>
+            <FormLabel component="legend">Media engine</FormLabel>
+            <RadioGroup
+              value={selectedEngine}
+              onChange={(e) => onEngineChange(e.target.value as EngineChoice)}
+            >
+              {(['srs', 'ome', 'none'] as const).map((engine) => (
+                <FormControlLabel
+                  key={engine}
+                  value={engine}
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography
+                      sx={{ fontFamily: 'monospace' }}
+                      variant="body2"
+                    >
+                      {engine}
+                    </Typography>
+                  }
+                />
+              ))}
+            </RadioGroup>
+            <FormHelperText>
+              {isEdit
+                ? 'locked — engine cannot change after first deploy'
+                : kind === 'viewer'
+                  ? 'viewers run no media engine'
+                  : 'srs is the default; ome runs OvenMediaEngine'}
             </FormHelperText>
           </FormControl>
 

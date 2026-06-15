@@ -82,22 +82,51 @@ function upsertEnvLine(text: string, key: string, value: string): string {
   return `${text}${needsNewline ? '\n' : ''}${line}\n`;
 }
 
-// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
-// compose's --env-file, so this must be a full copy of base .env, not just STAMP.
-export function writeProfileStampEnv(
-  name: string,
-  stampId: string,
-): string | null {
-  const stamp = stampId.replace(/^0x/, '').trim();
-  if (!stamp) return null;
-  if (!/^[0-9a-fA-F]+$/.test(stamp)) {
-    throw new Error('refusing to write a non-hex STAMP to the env file');
-  }
+export interface ProfileEnvValues {
+  engine: 'srs' | 'ome';
+  stampId?: string | null;
 
-  const base = existsSync(baseEnvPath())
+  omeSrtPort?: number;
+  omeHlsPort?: number;
+}
+
+// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
+// compose's --env-file, so this must be a full copy of base .env with the
+// per-profile keys upserted, not just the overridden lines.
+export function writeProfileEnv(
+  name: string,
+  values: ProfileEnvValues,
+): string {
+  let contents = existsSync(baseEnvPath())
     ? readFileSync(baseEnvPath(), 'utf8')
     : '';
-  const contents = upsertEnvLine(base, 'STAMP', stamp);
+
+  contents = upsertEnvLine(contents, 'ENGINE', values.engine);
+
+  const stamp = values.stampId?.replace(/^0x/, '').trim();
+  if (stamp) {
+    if (!/^[0-9a-fA-F]+$/.test(stamp)) {
+      throw new Error('refusing to write a non-hex STAMP to the env file');
+    }
+    contents = upsertEnvLine(contents, 'STAMP', stamp);
+  }
+
+  if (values.engine === 'ome') {
+    if (values.omeSrtPort) {
+      contents = upsertEnvLine(
+        contents,
+        'OME_SRT_PORT',
+        String(values.omeSrtPort),
+      );
+    }
+    if (values.omeHlsPort) {
+      contents = upsertEnvLine(
+        contents,
+        'OME_HLS_PORT',
+        String(values.omeHlsPort),
+      );
+    }
+  }
 
   const path = profileEnvPath(name);
   writeFileSync(path, contents, 'utf8');
