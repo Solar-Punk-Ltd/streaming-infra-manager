@@ -178,6 +178,8 @@ export class DeploymentOrchestrator {
       return this.completeWithoutScript(profile, opts);
     }
 
+    await this.ensureSubmoduleDefaults();
+
     // .env.<profile> carries the per-profile keys deploy.sh reads from its env
     // file: ENGINE selects the uploader's engine plugin (and OME ports when
     // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
