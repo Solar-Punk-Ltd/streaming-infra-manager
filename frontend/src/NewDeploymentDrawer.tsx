@@ -14,6 +14,8 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
+  Radio,
+  RadioGroup,
   Stack,
   TextField,
   Typography,
@@ -22,7 +24,17 @@ import CloseIcon from '@mui/icons-material/Close';
 import CasinoIcon from '@mui/icons-material/Casino';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  BEE_GATEWAY_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  type EngineName,
+  ENGINE_SERVICES,
+  getErrorMessage,
+  OME_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
 
 import { createDeploymentGroup, createProfile, updateProfile } from './data';
 import {
@@ -46,18 +58,28 @@ const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
 const ALL_COMPONENTS = [
-  'srs',
-  'stream-uploader',
-  'bee-uploader',
-  'client',
-  'bee-gateway',
+  SRS_SERVICE,
+  OME_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  BEE_GATEWAY_SERVICE,
 ] as const;
 type Component = (typeof ALL_COMPONENTS)[number];
 
+type Engine = EngineName;
+
+const isEngine = (c: string): c is Engine =>
+  (ENGINE_SERVICES as readonly string[]).includes(c);
+
+const CHECKBOX_COMPONENTS = ALL_COMPONENTS.filter((c) => !isEngine(c));
+
+type EngineChoice = Engine | 'none';
+
 const KIND_DEFAULTS: Record<ProfileKind, Component[]> = {
-  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
-  viewer: ['client', 'bee-gateway'],
-  custom: [...ALL_COMPONENTS],
+  streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
+  viewer: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
+  custom: ALL_COMPONENTS.filter((c) => c !== OME_SERVICE),
 };
 
 const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
@@ -120,8 +142,8 @@ export function NewDeploymentDrawer({
 
   const isCustom = kind === 'custom';
   const hasComponent = (c: Component) => components.includes(c);
-  const hasClient = hasComponent('client');
-  const hasStreamUploader = hasComponent('stream-uploader');
+  const hasClient = hasComponent(CLIENT_SERVICE);
+  const hasStreamUploader = hasComponent(STREAM_UPLOADER_SERVICE);
 
   const onKindChange = (next: ProfileKind) => {
     setKind(next);
@@ -133,6 +155,18 @@ export function NewDeploymentDrawer({
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
     );
   };
+
+  const selectedEngine: EngineChoice =
+    (components.find(isEngine) as Engine | undefined) ?? 'none';
+
+  const onEngineChange = (next: EngineChoice) => {
+    setComponents((prev) => {
+      const withoutEngines = prev.filter((c) => !isEngine(c));
+      return next === 'none' ? withoutEngines : [...withoutEngines, next];
+    });
+  };
+
+  const engineDisabled = isEdit || kind === 'viewer';
 
   const derivedAddress = (() => {
     if (!hasStreamUploader || !PRIVATE_KEY_RE.test(privateKey)) return null;
@@ -342,7 +376,7 @@ export function NewDeploymentDrawer({
           >
             <FormLabel component="legend">Components</FormLabel>
             <FormGroup>
-              {ALL_COMPONENTS.map((c) => (
+              {CHECKBOX_COMPONENTS.map((c) => (
                 <FormControlLabel
                   key={c}
                   control={
@@ -365,6 +399,37 @@ export function NewDeploymentDrawer({
             </FormGroup>
             <FormHelperText>
               {componentsHelperText(componentsError, isEdit, isCustom)}
+            </FormHelperText>
+          </FormControl>
+
+          <FormControl component="fieldset" disabled={engineDisabled}>
+            <FormLabel component="legend">Media engine</FormLabel>
+            <RadioGroup
+              value={selectedEngine}
+              onChange={(e) => onEngineChange(e.target.value as EngineChoice)}
+            >
+              {([SRS_SERVICE, OME_SERVICE, 'none'] as const).map((engine) => (
+                <FormControlLabel
+                  key={engine}
+                  value={engine}
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography
+                      sx={{ fontFamily: 'monospace' }}
+                      variant="body2"
+                    >
+                      {engine}
+                    </Typography>
+                  }
+                />
+              ))}
+            </RadioGroup>
+            <FormHelperText>
+              {isEdit
+                ? 'locked — engine cannot change after first deploy'
+                : kind === 'viewer'
+                  ? 'viewers run no media engine'
+                  : 'srs is the default; ome runs OvenMediaEngine'}
             </FormHelperText>
           </FormControl>
 

@@ -1,15 +1,24 @@
-import { KIND_DEFAULT_SERVICES as SHARED_KIND_DEFAULT_SERVICES } from '@streaming-infra-manager/common';
+import {
+  BEE_GATEWAY_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  KIND_DEFAULT_SERVICES as SHARED_KIND_DEFAULT_SERVICES,
+  OME_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
 
 import { ProfileKind, ProfileStatus, ServiceName } from './types.js';
 
 export const PROFILE_KINDS = ['streamer', 'viewer', 'custom'] as const;
 
 export const ALL_SERVICES = [
-  'bee-uploader',
-  'bee-gateway',
-  'stream-uploader',
-  'srs',
-  'client',
+  BEE_UPLOADER_SERVICE,
+  BEE_GATEWAY_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+  SRS_SERVICE,
+  OME_SERVICE,
+  CLIENT_SERVICE,
 ] as const;
 
 /** Default service set per profile kind. Overridable per request. */

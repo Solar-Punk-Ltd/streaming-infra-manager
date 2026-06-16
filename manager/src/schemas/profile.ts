@@ -1,6 +1,10 @@
+import { hasConflictingEngines } from '@streaming-infra-manager/common';
 import { array, number, object, string, InferType } from 'yup';
 
 import { ALL_SERVICES, PROFILE_KINDS } from '../types/index.js';
+
+const ONE_ENGINE_MESSAGE =
+  'components may include at most one engine (srs or ome, not both)';
 
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
@@ -33,7 +37,8 @@ export const createProfileSchema = object({
         .required()
         .oneOf([...ALL_SERVICES]),
     )
-    .notRequired(),
+    .notRequired()
+    .test('one-engine', ONE_ENGINE_MESSAGE, (v) => !hasConflictingEngines(v)),
   feed_owner: string()
     .notRequired()
     .matches(
@@ -119,7 +124,8 @@ export const createGroupSchema = object({
         .required()
         .oneOf([...ALL_SERVICES]),
     )
-    .notRequired(),
+    .notRequired()
+    .test('one-engine', ONE_ENGINE_MESSAGE, (v) => !hasConflictingEngines(v)),
   feed_owner: string()
     .notRequired()
     .matches(

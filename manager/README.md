@@ -51,6 +51,11 @@ When `services` is omitted:
 - `viewer` → `client bee-gateway`
 - `custom` → empty (the script then uses everything enabled in `config.json`)
 
+Media engines: `srs` (default) and `ome` are mutually exclusive — a profile's
+`components` may contain at most one of them. Including `ome` makes the manager
+write `ENGINE=ome` (plus slot-shifted `OME_SRT_PORT`/`OME_HLS_PORT`) into the
+profile's `.env.<name>` so the stream-uploader runs the OvenMediaEngine plugin.
+
 ### Misc
 
 | Method | Path        | Notes                             |
