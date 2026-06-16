@@ -24,7 +24,17 @@ import CloseIcon from '@mui/icons-material/Close';
 import CasinoIcon from '@mui/icons-material/Casino';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  BEE_GATEWAY_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  type EngineName,
+  ENGINE_SERVICES,
+  getErrorMessage,
+  OME_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
 
 import { createDeploymentGroup, createProfile, updateProfile } from './data';
 import {
@@ -48,29 +58,28 @@ const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
 const ALL_COMPONENTS = [
-  'srs',
-  'ome',
-  'stream-uploader',
-  'bee-uploader',
-  'client',
-  'bee-gateway',
+  SRS_SERVICE,
+  OME_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  BEE_GATEWAY_SERVICE,
 ] as const;
 type Component = (typeof ALL_COMPONENTS)[number];
 
-const ENGINE_COMPONENTS = ['srs', 'ome'] as const;
-type Engine = (typeof ENGINE_COMPONENTS)[number];
+type Engine = EngineName;
 
 const isEngine = (c: string): c is Engine =>
-  (ENGINE_COMPONENTS as readonly string[]).includes(c);
+  (ENGINE_SERVICES as readonly string[]).includes(c);
 
 const CHECKBOX_COMPONENTS = ALL_COMPONENTS.filter((c) => !isEngine(c));
 
 type EngineChoice = Engine | 'none';
 
 const KIND_DEFAULTS: Record<ProfileKind, Component[]> = {
-  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
-  viewer: ['client', 'bee-gateway'],
-  custom: ALL_COMPONENTS.filter((c) => c !== 'ome'),
+  streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
+  viewer: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
+  custom: ALL_COMPONENTS.filter((c) => c !== OME_SERVICE),
 };
 
 const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
@@ -133,8 +142,8 @@ export function NewDeploymentDrawer({
 
   const isCustom = kind === 'custom';
   const hasComponent = (c: Component) => components.includes(c);
-  const hasClient = hasComponent('client');
-  const hasStreamUploader = hasComponent('stream-uploader');
+  const hasClient = hasComponent(CLIENT_SERVICE);
+  const hasStreamUploader = hasComponent(STREAM_UPLOADER_SERVICE);
 
   const onKindChange = (next: ProfileKind) => {
     setKind(next);
@@ -399,7 +408,7 @@ export function NewDeploymentDrawer({
               value={selectedEngine}
               onChange={(e) => onEngineChange(e.target.value as EngineChoice)}
             >
-              {(['srs', 'ome', 'none'] as const).map((engine) => (
+              {([SRS_SERVICE, OME_SERVICE, 'none'] as const).map((engine) => (
                 <FormControlLabel
                   key={engine}
                   value={engine}

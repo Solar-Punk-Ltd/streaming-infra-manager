@@ -1,23 +1,32 @@
+import {
+  BEE_GATEWAY_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  OME_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
+
 /**
  *
  * Mirrors the variable groupings in swarm-hls-stream/.env.sample.
  */
 export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
-  srs: [
+  [SRS_SERVICE]: [
     'SRS_SRT_PORT',
     'SRT_PASSPHRASE',
     'SRS_ADAPTER_HOST',
     'SRS_ADAPTER_PORT',
     'SRS_MEDIA_PATH',
   ],
-  ome: [
+  [OME_SERVICE]: [
     'OME_SRT_PORT',
     'OME_HLS_PORT',
     'OME_ADAPTER_HOST',
     'OME_ADAPTER_PORT',
     'OME_HLS_URL',
   ],
-  'stream-uploader': [
+  [STREAM_UPLOADER_SERVICE]: [
     'API_PORT',
     'BEE_URL',
     'MANIFEST_ACCESS_URL',
@@ -33,7 +42,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'STREAM_KEY',
     'STREAM_LIST_TOPIC',
   ],
-  'bee-uploader': [
+  [BEE_UPLOADER_SERVICE]: [
     'BEE_UPLOADER_API_PORT',
     'BEE_UPLOADER_P2P_PORT',
     'BEE_UPLOADER_NAT_ADDR',
@@ -42,7 +51,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'RPC_ENDPOINT',
     'BEE_VERBOSITY',
   ],
-  'bee-gateway': [
+  [BEE_GATEWAY_SERVICE]: [
     'BEE_GATEWAY_API_PORT',
     'BEE_GATEWAY_P2P_PORT',
     'BEE_GATEWAY_NAT_ADDR',
@@ -50,7 +59,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'RPC_ENDPOINT',
     'BEE_VERBOSITY',
   ],
-  client: [
+  [CLIENT_SERVICE]: [
     'VITE_READER_BEE_URL',
     'VITE_APP_OWNER',
     'VITE_APP_RAW_TOPIC',
@@ -61,12 +70,12 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
 };
 
 export const SERVICE_PORT_KEYS: Record<string, readonly string[]> = {
-  srs: ['SRS_SRT_PORT', 'SRS_ADAPTER_PORT'],
-  ome: ['OME_SRT_PORT', 'OME_HLS_PORT'],
-  'stream-uploader': ['API_PORT'],
-  'bee-uploader': ['BEE_UPLOADER_API_PORT', 'BEE_UPLOADER_P2P_PORT'],
-  'bee-gateway': ['BEE_GATEWAY_API_PORT', 'BEE_GATEWAY_P2P_PORT'],
-  client: ['CLIENT_PORT'],
+  [SRS_SERVICE]: ['SRS_SRT_PORT', 'SRS_ADAPTER_PORT'],
+  [OME_SERVICE]: ['OME_SRT_PORT', 'OME_HLS_PORT'],
+  [STREAM_UPLOADER_SERVICE]: ['API_PORT'],
+  [BEE_UPLOADER_SERVICE]: ['BEE_UPLOADER_API_PORT', 'BEE_UPLOADER_P2P_PORT'],
+  [BEE_GATEWAY_SERVICE]: ['BEE_GATEWAY_API_PORT', 'BEE_GATEWAY_P2P_PORT'],
+  [CLIENT_SERVICE]: ['CLIENT_PORT'],
 };
 
 export interface ContainerSnapshot {

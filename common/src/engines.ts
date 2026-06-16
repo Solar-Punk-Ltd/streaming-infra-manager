@@ -1,5 +1,4 @@
-export const SRS_SERVICE = 'srs';
-export const OME_SERVICE = 'ome';
+import { OME_SERVICE, SRS_SERVICE } from './constants.js';
 
 export const ENGINE_SERVICES = [SRS_SERVICE, OME_SERVICE] as const;
 export type EngineName = (typeof ENGINE_SERVICES)[number];

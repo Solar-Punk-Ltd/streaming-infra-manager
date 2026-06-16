@@ -1,8 +1,14 @@
-export const STREAM_UPLOADER_SERVICE = 'stream-uploader';
+import {
+  BEE_GATEWAY_SERVICE,
+  BEE_UPLOADER_SERVICE,
+  CLIENT_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from './constants.js';
 
 export const KIND_DEFAULT_SERVICES = {
-  streamer: ['srs', 'stream-uploader', 'bee-uploader'],
-  viewer: ['client', 'bee-gateway'],
+  streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
+  viewer: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
   custom: [],
 } as const;
 

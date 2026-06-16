@@ -3,6 +3,8 @@ import { copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { type EngineName, OME_SERVICE } from '@streaming-infra-manager/common';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Default: the swarm-hls-stream submodule sits next to the manager source tree.
 // On the deploy server the submodule lives outside the image (bind-mounted
@@ -83,7 +85,7 @@ function upsertEnvLine(text: string, key: string, value: string): string {
 }
 
 export interface ProfileEnvValues {
-  engine: 'srs' | 'ome';
+  engine: EngineName;
   stampId?: string | null;
 
   omeSrtPort?: number;
@@ -111,7 +113,7 @@ export function writeProfileEnv(
     contents = upsertEnvLine(contents, 'STAMP', stamp);
   }
 
-  if (values.engine === 'ome') {
+  if (values.engine === OME_SERVICE) {
     if (values.omeSrtPort) {
       contents = upsertEnvLine(
         contents,
