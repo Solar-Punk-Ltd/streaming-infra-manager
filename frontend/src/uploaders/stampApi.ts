@@ -32,6 +32,13 @@ export interface BuyStampInput {
   immutable?: boolean;
 }
 
+export interface BeeChainState {
+  chainTip: number;
+  block: number;
+  totalAmount: string;
+  currentPrice: string;
+}
+
 export function fetchStampAddress(name: string): Promise<BeeAddress> {
   return getJson<BeeAddress>(
     `/profiles/${encodeURIComponent(name)}/stamp/address`,
@@ -41,6 +48,12 @@ export function fetchStampAddress(name: string): Promise<BeeAddress> {
 export function fetchStampWallet(name: string): Promise<BeeWallet> {
   return getJson<BeeWallet>(
     `/profiles/${encodeURIComponent(name)}/stamp/wallet`,
+  );
+}
+
+export function fetchChainState(name: string): Promise<BeeChainState> {
+  return getJson<BeeChainState>(
+    `/profiles/${encodeURIComponent(name)}/stamp/chainstate`,
   );
 }
 

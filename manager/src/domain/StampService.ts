@@ -4,6 +4,7 @@ import { Profile, ProfileWithContainers } from '../types/index.js';
 
 import {
   BeeAddresses,
+  BeeChainState,
   BeeStamp,
   BeeStampClient,
   BeeWallet,
@@ -67,6 +68,10 @@ export class StampService {
 
   async listStamps(name: string): Promise<BeeStamp[]> {
     return this.call(name, (client) => client.listStamps());
+  }
+
+  async getChainState(name: string): Promise<BeeChainState> {
+    return this.call(name, (client) => client.getChainState());
   }
 
   async buyStamp(
