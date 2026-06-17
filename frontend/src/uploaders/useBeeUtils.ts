@@ -5,8 +5,10 @@ import { getErrorMessage, hasStampId } from '@streaming-infra-manager/common';
 import type { Profile } from '../types';
 import {
   type BeeAddress,
+  type BeeChainState,
   type BeeStamp,
   type BeeWallet,
+  fetchChainState,
   fetchStampAddress,
   fetchStamps,
   fetchStampWallet,
@@ -20,6 +22,7 @@ export interface BeeUtils {
   address: BeeAddress | null;
   wallet: BeeWallet | null;
   stamps: BeeStamp[];
+  chainState: BeeChainState | null;
   loading: boolean;
   loadError: string | null;
   reload: () => Promise<void>;
@@ -47,6 +50,7 @@ export function useBeeUtils(profile: Profile): BeeUtils {
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
   const [stamps, setStamps] = useState<BeeStamp[]>([]);
+  const [chainState, setChainState] = useState<BeeChainState | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
@@ -55,16 +59,19 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     setLoading(true);
     setLoadError(null);
 
-    const [addressResult, walletResult, stampsResult] =
+    const [addressResult, walletResult, stampsResult, chainStateResult] =
       await Promise.allSettled([
         fetchStampAddress(profileName),
         fetchStampWallet(profileName),
         fetchStamps(profileName),
+        fetchChainState(profileName),
       ]);
 
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
     if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
     if (stampsResult.status === 'fulfilled') setStamps(stampsResult.value);
+    if (chainStateResult.status === 'fulfilled')
+      setChainState(chainStateResult.value);
 
     const failure = [addressResult, walletResult, stampsResult].find(
       isRejected,
@@ -110,6 +117,7 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     address,
     wallet,
     stamps,
+    chainState,
     loading,
     loadError,
     reload,

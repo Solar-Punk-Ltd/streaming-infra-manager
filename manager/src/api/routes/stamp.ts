@@ -38,6 +38,17 @@ export function createStampRouter(stampService: StampService): Router {
   );
 
   router.get(
+    '/profiles/:name/stamp/chainstate',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const chainState = await stampService.getChainState(
+        req.params.name as string,
+      );
+      res.json(chainState);
+    }),
+  );
+
+  router.get(
     '/profiles/:name/stamp/stamps',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {

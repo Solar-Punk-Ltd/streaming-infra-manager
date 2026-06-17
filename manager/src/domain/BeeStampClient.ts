@@ -35,6 +35,13 @@ export interface BuyStampInput {
   immutable?: boolean;
 }
 
+export interface BeeChainState {
+  chainTip: number;
+  block: number;
+  totalAmount: string;
+  currentPrice: string;
+}
+
 export class BeeStampClient {
   constructor(
     private readonly baseUrl: string,
@@ -47,6 +54,10 @@ export class BeeStampClient {
 
   async getWallet(): Promise<BeeWallet> {
     return this.request<BeeWallet>('GET', '/wallet');
+  }
+
+  async getChainState(): Promise<BeeChainState> {
+    return this.request<BeeChainState>('GET', '/chainstate');
   }
 
   async listStamps(): Promise<BeeStamp[]> {

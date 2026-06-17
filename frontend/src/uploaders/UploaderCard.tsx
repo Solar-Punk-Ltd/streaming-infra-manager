@@ -46,6 +46,7 @@ export function UploaderCard({
     address,
     wallet,
     stamps,
+    chainState,
     loading,
     loadError,
     reload,
@@ -159,7 +160,11 @@ export function UploaderCard({
 
           <Divider />
 
-          <BuyStampForm busy={busy} onBuy={handleBuyStamp} />
+          <BuyStampForm
+            busy={busy}
+            onBuy={handleBuyStamp}
+            currentPrice={chainState?.currentPrice ?? null}
+          />
         </Stack>
       </AccordionDetails>
     </Accordion>

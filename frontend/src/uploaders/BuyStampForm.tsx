@@ -11,15 +11,20 @@ import {
   Typography,
 } from '@mui/material';
 import type { BuyStampInput } from './stampApi';
+import { stampCostPlur, stampTtlSeconds } from './stampCost';
+import { formatTokenBalance, formatTtl } from '../format';
 
 const DEFAULT_DEPTH = '17';
+const BZZ_DECIMALS = 16;
 
 export function BuyStampForm({
   busy,
   onBuy,
+  currentPrice,
 }: {
   busy: boolean;
   onBuy: (input: BuyStampInput) => Promise<void>;
+  currentPrice: string | null;
 }) {
   const [amount, setAmount] = useState('');
   const [depth, setDepth] = useState(DEFAULT_DEPTH);
@@ -31,6 +36,11 @@ export function BuyStampForm({
   const depthValid =
     Number.isInteger(depthNum) && depthNum >= 17 && depthNum <= 40;
   const canBuy = !busy && amountValid && depthValid;
+
+  const ttlSeconds = stampTtlSeconds(amount, currentPrice);
+  const costPlur = depthValid ? stampCostPlur(amount, depthNum) : null;
+  const costBzz =
+    costPlur != null ? formatTokenBalance(costPlur, BZZ_DECIMALS) : null;
 
   const handleBuy = async () => {
     await onBuy({
@@ -102,10 +112,32 @@ export function BuyStampForm({
           Buy
         </Button>
       </Stack>
+      <Stack
+        direction="row"
+        spacing={3}
+        sx={{ mt: 1 }}
+        divider={<Box sx={{ borderLeft: 1, borderColor: 'divider' }} />}
+      >
+        <Typography variant="body2" color="text.secondary">
+          Estimated life:{' '}
+          <Box component="span" sx={{ color: 'text.primary', fontWeight: 500 }}>
+            {amountValid ? formatTtl(ttlSeconds) : '—'}
+          </Box>
+          {amountValid && ttlSeconds == null && currentPrice == null
+            ? ' (price unavailable)'
+            : ''}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Cost:{' '}
+          <Box component="span" sx={{ color: 'text.primary', fontWeight: 500 }}>
+            {costBzz != null ? `${costBzz} BZZ` : '—'}
+          </Box>
+        </Typography>
+      </Stack>
       <Typography variant="caption" color="text.secondary">
         A new batch takes a few minutes to become usable. Refresh, then
-        <strong> Use</strong> it and <strong>Deploy uploader</strong>.
-        Need funds?{' '}
+        <strong> Use</strong> it and <strong>Deploy uploader</strong>. Need
+        funds?{' '}
         <Link
           href="https://docs.ethswarm.org/docs/bee/installation/fund-your-node"
           target="_blank"
