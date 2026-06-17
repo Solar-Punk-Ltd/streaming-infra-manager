@@ -10,8 +10,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { stampCostPlur, stampTtlSeconds } from '@streaming-infra-manager/common';
+
 import type { BuyStampInput } from './stampApi';
-import { stampCostPlur, stampTtlSeconds } from './stampCost';
 import { formatTokenBalance, formatTtl } from '../format';
 
 const DEFAULT_DEPTH = '17';
