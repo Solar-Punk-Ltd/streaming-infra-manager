@@ -77,7 +77,9 @@ export class BeeStampClient {
       ? `?label=${encodeURIComponent(input.label)}`
       : '';
     const headers: Record<string, string> = {};
-    if (input.immutable) headers.immutable = 'true';
+    if (input.immutable !== undefined) {
+      headers.immutable = input.immutable ? 'true' : 'false';
+    }
     return this.request<{ batchID: string }>(
       'POST',
       `/stamps/${encodeURIComponent(input.amount)}/${input.depth}${query}`,
