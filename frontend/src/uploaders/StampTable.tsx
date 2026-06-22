@@ -50,6 +50,7 @@ export function StampTable({
               <TableCell align="right">Depth</TableCell>
               <TableCell align="right">Amount</TableCell>
               <TableCell>Usable</TableCell>
+              <TableCell>Type</TableCell>
               <TableCell>TTL</TableCell>
               <TableCell />
             </TableRow>
@@ -57,7 +58,7 @@ export function StampTable({
           <TableBody>
             {stamps.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6}>
+                <TableCell colSpan={7}>
                   <Typography variant="body2" color="text.disabled">
                     {loading ? 'Loading…' : 'No stamps on this node yet.'}
                   </Typography>
@@ -92,6 +93,14 @@ export function StampTable({
                         variant="outlined"
                         color={s.usable ? 'success' : 'warning'}
                         label={s.usable ? 'usable' : 'pending'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color={s.immutableFlag ? 'default' : 'info'}
+                        label={s.immutableFlag ? 'immutable' : 'mutable'}
                       />
                     </TableCell>
                     <TableCell>{formatTtl(s.batchTTL)}</TableCell>
