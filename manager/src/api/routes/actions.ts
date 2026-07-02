@@ -25,10 +25,15 @@ export function createActionsRouter(deployService: DeployService): Router {
   ) => {
     const profileName = req.params.name as string;
     const handle = await deployService.run(profileName, action, input);
-    pipeRunHandleToSSE(res, handle, {
-      script: `${action}.sh`,
-      args: [`--profile=${profileName}`, ...(input.services ?? [])],
-    });
+    pipeRunHandleToSSE(
+      res,
+      handle,
+      {
+        script: `${action}.sh`,
+        args: [`--profile=${profileName}`, ...(input.services ?? [])],
+      },
+      { killOnClose: action === 'health' },
+    );
   };
 
   router.post(
