@@ -25,23 +25,45 @@ export function pipeRunHandleToSSE(
     'X-Accel-Buffering': 'no',
   });
 
+  let clientGone = false;
+
   const send = (event: string, data: unknown): void => {
+    if (clientGone || res.writableEnded) {
+      return;
+    }
+        
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  const onStdout = (chunk: string): void => send('stdout', { chunk });
+  const onStderr = (chunk: string): void => send('stderr', { chunk });
+  const onError = (err: Error): void => send('error', { message: err.message });
+  const onDone = (payload: { code: number }): void => {
+    send('done', payload);
+    detach();
+    if (!res.writableEnded) {
+      res.end();
+    }
+  };
+
+
+  function detach(): void {
+    handle.emitter.off('stdout', onStdout);
+    handle.emitter.off('stderr', onStderr);
+    handle.emitter.off('error', onError);
+    handle.emitter.off('done', onDone);
+  }
+
+  handle.emitter.on('stdout', onStdout);
+  handle.emitter.on('stderr', onStderr);
+  handle.emitter.on('error', onError);
+  handle.emitter.on('done', onDone);
+
   send('start', meta);
 
-  handle.emitter.on('stdout', (chunk: string) => send('stdout', { chunk }));
-  handle.emitter.on('stderr', (chunk: string) => send('stderr', { chunk }));
-  handle.emitter.on('error', (err: Error) =>
-    send('error', { message: err.message }),
-  );
-  handle.emitter.on('done', (payload: { code: number }) => {
-    send('done', payload);
-    res.end();
+  res.on('close', () => {
+    clientGone = true;
+    detach();
+    if (opts.killOnClose) handle.kill();
   });
-
-  if (opts.killOnClose) {
-    res.on('close', () => handle.kill());
-  }
 }
