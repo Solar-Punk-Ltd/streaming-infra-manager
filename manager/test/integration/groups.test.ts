@@ -60,12 +60,12 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
 
     // Deploy every member.
     await Promise.all(memberNames.map((n) => deployProfile(n)));
-    const before = await Promise.all(
+    const runningBeforeEdit = await Promise.all(
       memberNames.map((n) =>
         waitForStatus(n, 'RUNNING', { timeoutMs: DEPLOY_TIMEOUT }),
       ),
     );
-    for (const m of before) {
+    for (const m of runningBeforeEdit) {
       assert.deepEqual(serviceNames(m), [BEE_GATEWAY, CLIENT]);
       assert.equal(m.feed_owner, FEED_OWNER_A);
     }

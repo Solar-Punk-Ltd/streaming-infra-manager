@@ -134,20 +134,39 @@ export async function getProfileOrNull(name: string): Promise<Profile | null> {
   return body as Profile;
 }
 
-export const createProfile = (body: CreateBody) =>
+export const createProfile = (body: CreateBody) => 
   api<Profile>('POST', '/profiles', body);
 
 export const updateProfile = (name: string, body: Record<string, unknown>) =>
   api<Profile>('PUT', `/profiles/${encodeURIComponent(name)}`, body);
 
-export const deployProfile = (name: string) =>
-  apiRaw('POST', `/profiles/${encodeURIComponent(name)}/deploy`, {});
+export const deployProfile = async (name: string) => {
+   const r = await apiRaw(
+     'POST',
+     `/profiles/${encodeURIComponent(name)}/deploy`,
+     {},
+   );
+   if (r.status < 200 || r.status >= 300) {
+     throw new Error(`POST /profiles/${name}/deploy -> ${r.status}`);
+   }
+   return r;
+ }
+ 
+export const stopProfile = async (name: string) => {
+  const r = await apiRaw('POST', `/profiles/${encodeURIComponent(name)}/stop`, {});
+  if (r.status < 200 || r.status >= 300) {
+    throw new Error(`POST /profiles/${name}/stop -> ${r.status}`);
+  }
+  return r;
+};
 
-export const stopProfile = (name: string) =>
-  apiRaw('POST', `/profiles/${encodeURIComponent(name)}/stop`, {});
-
-export const removeProfile = (name: string) =>
-  apiRaw('DELETE', `/profiles/${encodeURIComponent(name)}`);
+export const removeProfile = async (name: string) => {
+  const r = await apiRaw('DELETE', `/profiles/${encodeURIComponent(name)}`);
+  if (r.status < 200 || r.status >= 300) {
+    throw new Error(`DELETE /profiles/${name} -> ${r.status}`);
+  }
+  return r;
+};
 
 export const listGroups = () =>
   api<{ groups: Group[] }>('GET', '/groups').then((r) => r.groups);

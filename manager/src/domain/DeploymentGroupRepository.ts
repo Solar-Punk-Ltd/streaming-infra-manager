@@ -115,9 +115,14 @@ export class DeploymentGroupRepository {
             w.stamp_id,
           ],
         );
-        if (r.rowCount && r.rowCount > 0) {
-          profiles.push(r.rows[0]!);
-        }
+
+         if (!r.rowCount || r.rowCount === 0) {
+           throw new Error(
+             `profile not found during group config update: ${w.name}`,
+           );
+         }
+         
+         profiles.push(r.rows[0]!);
       }
       await client.query('COMMIT');
       return profiles;
