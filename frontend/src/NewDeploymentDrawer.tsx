@@ -136,7 +136,10 @@ export function NewDeploymentDrawer({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
+    
     // For a group edit, prefill from a representative member (members share
     // config); the group's own name labels the drawer.
     const source = selectedProfile ?? selectedGroup?.members[0] ?? null;
@@ -150,8 +153,8 @@ export function NewDeploymentDrawer({
       );
       setHost(source.host ?? '');
       setFeedOwner(source.feed_owner ?? '');
-      setPrivateKey(source.private_key ?? '');
-      setStampId(source.stamp_id ?? '');
+      setPrivateKey(selectedGroup ? '' : (source.private_key ?? ''));
+      setStampId(selectedGroup ? '' : (source.stamp_id ?? ''));
       setNotes(source.notes ?? '');
       setSubmitError(null);
     }

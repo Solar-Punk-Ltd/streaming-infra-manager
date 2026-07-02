@@ -301,29 +301,28 @@ export class DeploymentOrchestrator {
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
         );
-       
+
         await this.cleanupGroup(profile.group_id);
       },
     });
   }
 
-  async cleanupGroup(groupId: number | null): Promise<void> {
-     if (groupId != null) {
-          try {
-            const removed = await this.groups.deleteIfEmpty(groupId);
-            if (removed) {
-              logger.info(
-                `[Orchestrator] Removed empty group ${groupId} after its last member left`,
-              );
-            }
-          } catch (err) {
-            logger.warn(
-              `[Orchestrator] could not prune group ${groupId}: ${getErrorMessage(err)}`,
-            );
-          }
+  private async cleanupGroup(groupId: number | null): Promise<void> {
+    if (groupId != null) {
+      try {
+        const removed = await this.groups.deleteIfEmpty(groupId);
+        if (removed) {
+          logger.info(
+            `[Orchestrator] Removed empty group ${groupId} after its last member left`,
+          );
         }
+      } catch (err) {
+        logger.warn(
+          `[Orchestrator] could not prune group ${groupId}: ${getErrorMessage(err)}`,
+        );
+      }
+    }
   }
-
 
   async startHealth(profile: Profile): Promise<RunHandle> {
     await this.ensureSubmoduleDefaults();

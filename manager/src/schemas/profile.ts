@@ -160,7 +160,7 @@ export type CreateGroupInput = InferType<typeof createGroupSchema>;
 export const groupIdParamSchema = object({
   id: string()
     .required()
-    .matches(/^\d+$/, 'id must be a positive integer'),
+    .matches(/^[1-9]\d*$/, 'id must be a positive integer'),
 }).strict();
 
 export const updateGroupConfigSchema = object({

@@ -344,7 +344,13 @@ export class ProfileService {
           this.publishChanged(await this.containers.withContainers(errored));
         }
       }
-      profiles.push(await this.containers.withContainers(row));
+      
+      const latest = await this.repo.findByName(row.name);
+      if (!latest) {
+        throw new ProfileNotFoundError(row.name);
+      }
+
+      profiles.push(await this.containers.withContainers(latest));
     }
 
     return { group, profiles };
