@@ -72,7 +72,7 @@ export class DeploymentGroupRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      
+
       const deleted = await client.query(
         `DELETE FROM deployment_groups g
           WHERE g.id = $1
@@ -83,7 +83,7 @@ export class DeploymentGroupRepository {
         await client.query('COMMIT');
         return 'deleted';
       }
-  
+
       await client.query(
         `UPDATE deployment_groups
             SET size = (SELECT COUNT(*) FROM profiles WHERE group_id = $1)
@@ -140,13 +140,13 @@ export class DeploymentGroupRepository {
           ],
         );
 
-         if (!r.rowCount || r.rowCount === 0) {
-           throw new Error(
-             `profile not found during group config update: ${w.name}`,
-           );
-         }
-         
-         profiles.push(r.rows[0]!);
+        if (!r.rowCount || r.rowCount === 0) {
+          throw new Error(
+            `profile not found during group config update: ${w.name}`,
+          );
+        }
+
+        profiles.push(r.rows[0]!);
       }
       await client.query('COMMIT');
       return profiles;

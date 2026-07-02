@@ -638,7 +638,7 @@ export function NewDeploymentDrawer({
           {submitError && <Alert severity="error">{submitError}</Alert>}
 
           {!canSubmit && validationErrorMessage && (
-            <Typography variant="caption" color="warning.main">
+            <Typography variant="caption" sx={{ color: 'warning.main' }}>
               {validationErrorMessage}
             </Typography>
           )}

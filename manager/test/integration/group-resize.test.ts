@@ -40,6 +40,16 @@ after(async () => {
   await cleanup(created);
 });
 
+async function cleanupGroup(groupId: number) {
+  for (const m of await listGroupMembers(groupId)) {
+    await removeProfile(m.name);
+    await waitForGone(m.name);
+    created.delete(m.name);
+  }
+  await waitForGroupGone(groupId);
+  assert.equal(await getGroup(groupId), null);
+}
+
 describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () => {
   it('adds a member that inherits config, deploys the grown group, then shrinks', async () => {
     // Start with a 2-viewer group (members created STOPPED).
@@ -90,14 +100,7 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     assert.equal((await listGroupMembers(group.id)).length, 2);
     assert.notEqual(await getGroup(group.id), null, 'group should still exist');
 
-    // Remove the rest — the now-empty group auto-deletes.
-    for (const m of await listGroupMembers(group.id)) {
-      await removeProfile(m.name);
-      await waitForGone(m.name);
-      created.delete(m.name);
-    }
-    await waitForGroupGone(group.id);
-    assert.equal(await getGroup(group.id), null);
+    await cleanupGroup(group.id);
   });
 
   it('reuses a freed member index: remove the middle member, then a re-add fills profile-2 (not profile-4)', async () => {
@@ -154,5 +157,7 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
       [p1, p2, p3].sort(),
       'membership is exactly profile-1, profile-2, profile-3 (no profile-4)',
     );
+
+    await cleanupGroup(group.id);
   });
 });
