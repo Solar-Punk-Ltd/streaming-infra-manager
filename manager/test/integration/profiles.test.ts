@@ -22,11 +22,11 @@ import {
   getProfileOrNull,
   removeProfile,
   requireStack,
-  serviceNames,
   stopProfile,
   updateProfile,
   uniqueName,
   waitForGone,
+  waitForRunningServices,
   waitForStatus,
 } from './helpers.js';
 
@@ -59,14 +59,9 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
     });
     assert.equal(created0.kind, 'viewer');
 
-    const running = await waitForStatus(name, 'RUNNING', {
+    const running = await waitForRunningServices(name, [BEE_GATEWAY, CLIENT], {
       timeoutMs: DEPLOY_TIMEOUT,
     });
-    assert.deepEqual(
-      serviceNames(running),
-      [BEE_GATEWAY, CLIENT],
-      'viewer should deploy exactly client + bee-gateway',
-    );
     assert.equal(running.pendingStamp, false);
     assert.equal(running.feed_owner, FEED_OWNER_A);
     for (const c of running.containers) {
@@ -78,12 +73,11 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
 
     // MODIFY: change feed target + notes → redeploys.
     await updateProfile(name, { notes: 'updated', feed_owner: FEED_OWNER_B });
-    const modified = await waitForStatus(name, 'RUNNING', {
+    const modified = await waitForRunningServices(name, [BEE_GATEWAY, CLIENT], {
       timeoutMs: DEPLOY_TIMEOUT,
     });
     assert.equal(modified.feed_owner, FEED_OWNER_B);
     assert.equal(modified.notes, 'updated');
-    assert.deepEqual(serviceNames(modified), [BEE_GATEWAY, CLIENT]);
 
     // STOP.
     await stopProfile(name);
@@ -100,18 +94,13 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
 
     await createProfile({ name, kind: 'streamer', notes: 'initial' });
 
-    const running = await waitForStatus(name, 'RUNNING', {
+    const running = await waitForRunningServices(name, [BEE_UPLOADER, SRS], {
       timeoutMs: DEPLOY_TIMEOUT,
     });
-    assert.deepEqual(
-      serviceNames(running),
-      [BEE_UPLOADER, SRS],
-      'streamer without a stamp should deploy srs + bee-uploader and hold back stream-uploader',
-    );
     assert.equal(
       running.pendingStamp,
       true,
-      'streamer without a stamp should be pendingStamp',
+      'streamer without a stamp should be pendingStamp (stream-uploader held back)',
     );
 
     await updateProfile(name, { notes: 'updated' });
@@ -133,16 +122,14 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
 
     await createProfile({ name, kind: 'custom', components, notes: 'initial' });
 
-    const running = await waitForStatus(name, 'RUNNING', {
+    const running = await waitForRunningServices(name, components, {
       timeoutMs: DEPLOY_TIMEOUT,
     });
-    const expected = [...components].sort();
     assert.deepEqual(
-      serviceNames(running),
-      expected,
-      'custom profile should deploy exactly its chosen components',
+      [...(running.components ?? [])].sort(),
+      [...components].sort(),
+      'custom profile should record exactly its chosen components',
     );
-    assert.deepEqual([...(running.components ?? [])].sort(), expected);
 
     await stopProfile(name);
     await waitForStatus(name, 'STOPPED', { timeoutMs: DEPLOY_TIMEOUT });

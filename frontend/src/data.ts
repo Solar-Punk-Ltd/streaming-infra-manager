@@ -162,6 +162,23 @@ export async function updateGroupConfig(
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
 }
 
+export async function addGroupMembers(
+  id: number,
+  count: number,
+): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
+  const res = await fetch(`/groups/${id}/members`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ count }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
+  }
+  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
 export async function fetchGroups(): Promise<DeploymentGroup[]> {
   try {
     const res = await fetch('/groups');

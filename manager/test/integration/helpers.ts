@@ -189,6 +189,17 @@ export const updateGroupConfig = (id: number, body: Record<string, unknown>) =>
     body,
   );
 
+export const addGroupMembers = (id: number, count: number) =>
+  api<{ group: Group; profiles: Profile[] }>('POST', `/groups/${id}/members`, {
+    count,
+  });
+
+export const getGroup = async (id: number): Promise<Group | null> =>
+  (await listGroups()).find((g) => g.id === id) ?? null;
+
+export const listGroupMembers = async (id: number): Promise<Profile[]> =>
+  (await listProfiles()).filter((p) => p.group_id === id);
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** The sorted set of service names actually deployed for a profile. */
@@ -223,6 +234,43 @@ export async function waitForStatus(
   );
 }
 
+/**
+ * Wait until a profile is RUNNING *and* its container snapshot holds exactly
+ * `expected` services. The manager flips status to RUNNING just before it
+ * writes the container snapshot, so polling on status alone can briefly see
+ * RUNNING with empty/partial containers — this waits for both to settle.
+ */
+export async function waitForRunningServices(
+  name: string,
+  expected: string[],
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<Profile> {
+  const timeoutMs = opts.timeoutMs ?? 180_000;
+  const intervalMs = opts.intervalMs ?? 2_000;
+  const wanted = [...expected].sort();
+  const deadline = Date.now() + timeoutMs;
+  let last: Profile | null = null;
+  while (Date.now() < deadline) {
+    last = await getProfileOrNull(name);
+    if (last?.status === 'ERROR') {
+      throw new Error(
+        `profile ${name} entered ERROR: ${last.last_error ?? '(no message)'}`,
+      );
+    }
+    if (last?.status === 'RUNNING') {
+      const got = serviceNames(last);
+      if (got.length === wanted.length && got.every((s, i) => s === wanted[i])) {
+        return last;
+      }
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error(
+    `timed out awaiting ${name} RUNNING with services [${wanted.join(', ')}]; ` +
+      `last status=${last?.status ?? 'absent'}, services=[${last ? serviceNames(last).join(', ') : ''}]`,
+  );
+}
+
 export async function waitForGone(
   name: string,
   opts: { timeoutMs?: number; intervalMs?: number } = {},
@@ -250,6 +298,26 @@ export async function waitForGroupGone(
     await sleep(intervalMs);
   }
   throw new Error(`timed out awaiting auto-removal of empty group ${id}`);
+}
+
+export async function waitForGroupSize(
+  id: number,
+  size: number,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const intervalMs = opts.intervalMs ?? 1_000;
+  const deadline = Date.now() + timeoutMs;
+  let last: number | undefined;
+  while (Date.now() < deadline) {
+    const group = await getGroup(id);
+    last = group?.size;
+    if (group && group.size === size) return;
+    await sleep(intervalMs);
+  }
+  throw new Error(
+    `timed out awaiting group ${id} size=${size}; last size=${last ?? 'absent'}`,
+  );
 }
 
 /** A collision-resistant name within the itest namespace. */

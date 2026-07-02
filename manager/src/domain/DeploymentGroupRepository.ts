@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
@@ -66,14 +66,38 @@ export class DeploymentGroupRepository {
     return r.rows;
   }
 
-  async deleteIfEmpty(groupId: number): Promise<boolean> {
-    const r = await this.pool.query(
-      `DELETE FROM deployment_groups g
-        WHERE g.id = $1
-          AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.group_id = $1)`,
-      [groupId],
-    );
-    return (r.rowCount ?? 0) > 0;
+  async syncMembershipAfterRemoval(
+    groupId: number,
+  ): Promise<'deleted' | 'resized'> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const deleted = await client.query(
+        `DELETE FROM deployment_groups g
+          WHERE g.id = $1
+            AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.group_id = $1)`,
+        [groupId],
+      );
+      if ((deleted.rowCount ?? 0) > 0) {
+        await client.query('COMMIT');
+        return 'deleted';
+      }
+
+      await client.query(
+        `UPDATE deployment_groups
+            SET size = (SELECT COUNT(*) FROM profiles WHERE group_id = $1)
+          WHERE id = $1`,
+        [groupId],
+      );
+      await client.query('COMMIT');
+      return 'resized';
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async listMembers(groupId: number): Promise<Profile[]> {
@@ -116,13 +140,13 @@ export class DeploymentGroupRepository {
           ],
         );
 
-         if (!r.rowCount || r.rowCount === 0) {
-           throw new Error(
-             `profile not found during group config update: ${w.name}`,
-           );
-         }
-         
-         profiles.push(r.rows[0]!);
+        if (!r.rowCount || r.rowCount === 0) {
+          throw new Error(
+            `profile not found during group config update: ${w.name}`,
+          );
+        }
+
+        profiles.push(r.rows[0]!);
       }
       await client.query('COMMIT');
       return profiles;
@@ -132,6 +156,45 @@ export class DeploymentGroupRepository {
     } finally {
       client.release();
     }
+  }
+
+  private async insertMemberWithFreeSlot(
+    client: PoolClient,
+    name: string,
+    shared: SharedProfileParams,
+    groupId: number,
+  ): Promise<Profile> {
+    const r = await client.query<Profile>(
+      `INSERT INTO profiles (
+         name, port_slot, kind, notes, status,
+         components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
+         group_id
+       )
+       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11
+       FROM generate_series(1, 999) AS s(n)
+       LEFT JOIN profiles p ON p.port_slot = s.n
+       WHERE p.port_slot IS NULL
+       ORDER BY s.n
+       LIMIT 1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [
+        name,
+        shared.kind,
+        shared.notes,
+        shared.components,
+        shared.host,
+        shared.feed_owner,
+        shared.feed_topic,
+        shared.private_key,
+        shared.public_key,
+        shared.stamp_id,
+        groupId,
+      ],
+    );
+    if (!r.rowCount) {
+      throw new AllSlotsUsedError();
+    }
+    return r.rows[0]!;
   }
 
   async createGroupWithMembers(
@@ -156,41 +219,49 @@ export class DeploymentGroupRepository {
 
       const profiles: Profile[] = [];
       for (const m of members) {
-        const r = await client.query<Profile>(
-          `INSERT INTO profiles (
-             name, port_slot, kind, notes, status,
-             components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-             group_id
-           )
-           SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11
-           FROM generate_series(1, 999) AS s(n)
-           LEFT JOIN profiles p ON p.port_slot = s.n
-           WHERE p.port_slot IS NULL
-           ORDER BY s.n
-           LIMIT 1
-           RETURNING ${PROFILE_COLUMNS}`,
-          [
-            m.name,
-            shared.kind,
-            shared.notes,
-            shared.components,
-            shared.host,
-            shared.feed_owner,
-            shared.feed_topic,
-            shared.private_key,
-            shared.public_key,
-            shared.stamp_id,
-            group.id,
-          ],
+        profiles.push(
+          await this.insertMemberWithFreeSlot(client, m.name, shared, group.id),
         );
-        if (!r.rowCount) {
-          throw new AllSlotsUsedError();
-        }
-        profiles.push(r.rows[0]!);
       }
 
       await client.query('COMMIT');
       return { group, profiles };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async addMembers(
+    groupId: number,
+    members: MemberSeed[],
+    shared: SharedProfileParams,
+  ): Promise<Profile[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [
+        PROFILE_SLOT_LOCK_KEY,
+      ]);
+
+      const profiles: Profile[] = [];
+      for (const m of members) {
+        profiles.push(
+          await this.insertMemberWithFreeSlot(client, m.name, shared, groupId),
+        );
+      }
+
+      await client.query(
+        `UPDATE deployment_groups
+            SET size = (SELECT COUNT(*) FROM profiles WHERE group_id = $1)
+          WHERE id = $1`,
+        [groupId],
+      );
+
+      await client.query('COMMIT');
+      return profiles;
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

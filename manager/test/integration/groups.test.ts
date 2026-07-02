@@ -21,12 +21,11 @@ import {
   listGroups,
   removeProfile,
   requireStack,
-  serviceNames,
   updateGroupConfig,
   uniqueName,
   waitForGone,
   waitForGroupGone,
-  waitForStatus,
+  waitForRunningServices,
 } from './helpers.js';
 
 const DEPLOY_TIMEOUT = 240_000;
@@ -58,15 +57,17 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
       assert.equal(p.feed_owner, FEED_OWNER_A);
     }
 
-    // Deploy every member.
+    // Deploy every member. waitForRunningServices also settles the container
+    // snapshot (RUNNING is set a beat before containers are recorded).
     await Promise.all(memberNames.map((n) => deployProfile(n)));
     const runningBeforeEdit = await Promise.all(
       memberNames.map((n) =>
-        waitForStatus(n, 'RUNNING', { timeoutMs: DEPLOY_TIMEOUT }),
+        waitForRunningServices(n, [BEE_GATEWAY, CLIENT], {
+          timeoutMs: DEPLOY_TIMEOUT,
+        }),
       ),
     );
     for (const m of runningBeforeEdit) {
-      assert.deepEqual(serviceNames(m), [BEE_GATEWAY, CLIENT]);
       assert.equal(m.feed_owner, FEED_OWNER_A);
     }
 
@@ -78,7 +79,9 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
 
     const afterEdit = await Promise.all(
       memberNames.map((n) =>
-        waitForStatus(n, 'RUNNING', { timeoutMs: DEPLOY_TIMEOUT }),
+        waitForRunningServices(n, [BEE_GATEWAY, CLIENT], {
+          timeoutMs: DEPLOY_TIMEOUT,
+        }),
       ),
     );
     for (const m of afterEdit) {
@@ -86,11 +89,6 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
         m.feed_owner,
         FEED_OWNER_B,
         `${m.name} should have the new group feed_owner`,
-      );
-      assert.deepEqual(
-        serviceNames(m),
-        [BEE_GATEWAY, CLIENT],
-        `${m.name} should still be a full viewer after the group redeploy`,
       );
     }
 

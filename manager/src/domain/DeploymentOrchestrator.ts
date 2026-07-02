@@ -310,15 +310,15 @@ export class DeploymentOrchestrator {
   private async cleanupGroup(groupId: number | null): Promise<void> {
     if (groupId != null) {
       try {
-        const removed = await this.groups.deleteIfEmpty(groupId);
-        if (removed) {
+        const outcome = await this.groups.syncMembershipAfterRemoval(groupId);
+        if (outcome === 'deleted') {
           logger.info(
             `[Orchestrator] Removed empty group ${groupId} after its last member left`,
           );
         }
       } catch (err) {
         logger.warn(
-          `[Orchestrator] could not prune group ${groupId}: ${getErrorMessage(err)}`,
+          `[Orchestrator] could not reconcile group ${groupId}: ${getErrorMessage(err)}`,
         );
       }
     }

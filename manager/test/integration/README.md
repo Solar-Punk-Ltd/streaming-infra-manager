@@ -40,6 +40,7 @@ MANAGER_URL=http://localhost:9876 pnpm test:integration
 | streamer lifecycle | deploys `srs + bee-uploader` with `stream-uploader` held back (`pendingStamp`); modify; stop; remove |
 | custom lifecycle | deploys exactly the chosen `components`; stop; remove |
 | group config edit (Feature A) | 2-viewer group; edit `feed_owner` for the whole group in one call; **every member** picks up the new feed and stays up; then removing the members auto-deletes the now-empty group |
+| group resize (Feature B) | grow a group by one member (inherits shared config, `size` syncs up); deploy the whole grown group; remove a member (`size` syncs down, group survives); remove the rest (group auto-deletes) |
 
 ## Notes & limitations
 

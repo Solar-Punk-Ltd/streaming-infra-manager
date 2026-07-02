@@ -355,4 +355,63 @@ export class ProfileService {
 
     return { group, profiles };
   }
+
+  async addGroupMembers(
+    groupId: number,
+    count: number,
+  ): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
+    const group = await this.groupRepo.findById(groupId);
+    if (!group) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const members = await this.groupRepo.listMembers(groupId);
+    if (members.length === 0) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const canonical = members[0]!;
+    const shared: SharedProfileParams = {
+      kind: canonical.kind,
+      notes: canonical.notes,
+      components: canonical.components,
+      host: canonical.host,
+      feed_owner: canonical.feed_owner,
+      feed_topic: canonical.feed_topic,
+      private_key: canonical.private_key,
+      public_key: canonical.public_key,
+      stamp_id: canonical.stamp_id,
+    };
+
+    // Generate the next free `<group>-profile-N` names, skipping any taken.
+    const usedNames = new Set((await this.repo.list()).map((p) => p.name));
+    const seeds: { name: string }[] = [];
+    let n = 1;
+    while (seeds.length < count) {
+      let candidate = `${group.name}-profile-${n}`;
+      while (usedNames.has(candidate)) {
+        n += 1;
+        candidate = `${group.name}-profile-${n}`;
+      }
+      usedNames.add(candidate);
+      seeds.push({ name: candidate });
+      n += 1;
+    }
+
+    const created = await this.groupRepo.addMembers(groupId, seeds, shared);
+
+    const refreshed = (await this.groupRepo.findById(groupId)) ?? group;
+    logger.info(
+      `[ProfileService] Added ${created.length} member(s) to group ${group.name} (size now ${refreshed.size})`,
+    );
+
+    const profiles: ProfileWithContainers[] = [];
+    for (const p of created) {
+      const withContainers = await this.containers.withContainers(p);
+      profiles.push(withContainers);
+      this.publishChanged(withContainers);
+    }
+
+    return { group: refreshed, profiles };
+  }
 }

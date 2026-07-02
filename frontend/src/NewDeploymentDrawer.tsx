@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import CasinoIcon from '@mui/icons-material/Casino';
+import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import {
@@ -37,6 +38,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import {
+  addGroupMembers,
   createDeploymentGroup,
   createProfile,
   updateGroupConfig,
@@ -135,29 +137,33 @@ export function NewDeploymentDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const [addCount, setAddCount] = useState(1);
+  const [adding, setAdding] = useState(false);
+
   useEffect(() => {
     if (!open) {
       return;
     }
-    
-    // For a group edit, prefill from a representative member (members share
-    // config); the group's own name labels the drawer.
-    const source = selectedProfile ?? selectedGroup?.members[0] ?? null;
-    if (source) {
-      setName(selectedGroup ? selectedGroup.group.name : source.name);
-      setKind(source.kind);
-      setComponents(
-        source.components && source.components.length > 0
-          ? (source.components as Component[])
-          : KIND_DEFAULTS[source.kind],
-      );
-      setHost(source.host ?? '');
-      setFeedOwner(source.feed_owner ?? '');
-      setPrivateKey(selectedGroup ? '' : (source.private_key ?? ''));
-      setStampId(selectedGroup ? '' : (source.stamp_id ?? ''));
-      setNotes(source.notes ?? '');
-      setSubmitError(null);
-    }
+    const prefillForGroupEdit = () => {
+      const source = selectedProfile ?? selectedGroup?.members[0] ?? null;
+      if (source) {
+        setName(selectedGroup ? selectedGroup.group.name : source.name);
+        setKind(source.kind);
+        setComponents(
+          source.components && source.components.length > 0
+            ? (source.components as Component[])
+            : KIND_DEFAULTS[source.kind],
+        );
+        setHost(source.host ?? '');
+        setFeedOwner(source.feed_owner ?? '');
+        setPrivateKey(selectedGroup ? '' : (source.private_key ?? ''));
+        setStampId(selectedGroup ? '' : (source.stamp_id ?? ''));
+        setNotes(source.notes ?? '');
+        setSubmitError(null);
+      }
+    };
+
+    prefillForGroupEdit();
   }, [open, selectedProfile, selectedGroup]);
 
   const isCustom = kind === 'custom';
@@ -230,6 +236,7 @@ export function NewDeploymentDrawer({
 
   const canSubmit =
     !submitting &&
+    !adding &&
     name.length > 0 &&
     !nameError &&
     !hostError &&
@@ -240,6 +247,23 @@ export function NewDeploymentDrawer({
     !componentsError &&
     !notesError &&
     !groupSizeError;
+
+  const validationErrorMessage: string | null = (() => {
+    if (submitting) return null;
+    if (adding) return 'Adding members…';
+    if (name.trim().length === 0)
+      return `Enter a ${isGroupEdit || groupMode ? 'group name' : 'name'}`;
+    if (nameError) return `Name: ${nameError}`;
+    if (groupSizeError) return `Size: ${groupSizeError}`;
+    if (componentsError) return componentsError;
+    if (clientFieldsMissing) return 'Feed Owner Public Key is required';
+    if (feedOwnerError) return `Feed Owner: ${feedOwnerError}`;
+    if (hostError) return `Host: ${hostError}`;
+    if (privateKeyError) return `Private Key: ${privateKeyError}`;
+    if (stampIdError) return `Stamp ID: ${stampIdError}`;
+    if (notesError) return `Notes: ${notesError}`;
+    return null;
+  })();
 
   const reset = () => {
     setName('');
@@ -252,13 +276,30 @@ export function NewDeploymentDrawer({
     setNotes('');
     setGroupMode(false);
     setGroupSize(2);
+    setAddCount(1);
     setSubmitError(null);
   };
 
   const handleClose = () => {
-    if (submitting) return;
+    if (submitting || adding) return;
     reset();
     onClose();
+  };
+
+  const handleAddMembers = async () => {
+    if (!selectedGroup) return;
+    setAdding(true);
+    setSubmitError(null);
+    try {
+      const result = await addGroupMembers(selectedGroup.group.id, addCount);
+      onCreated(result.profiles);
+      reset();
+      onClose();
+    } catch (e) {
+      setSubmitError(getErrorMessage(e, 'failed to add members'));
+    } finally {
+      setAdding(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -404,6 +445,39 @@ export function NewDeploymentDrawer({
               </MenuItem>
             ))}
           </TextField>
+
+          {isGroupEdit && (
+            <FormControl component="fieldset">
+              <FormLabel component="legend">Members</FormLabel>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  label="Add"
+                  type="number"
+                  size="small"
+                  value={addCount}
+                  onChange={(e) =>
+                    setAddCount(Math.max(1, parseInt(e.target.value, 10) || 1))
+                  }
+                  slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                  sx={{ width: 96 }}
+                />
+                <Button
+                  variant="outlined"
+                  startIcon={
+                    adding ? <CircularProgress size={16} /> : <GroupAddIcon />
+                  }
+                  onClick={handleAddMembers}
+                  disabled={submitting || adding || addCount < 1}
+                >
+                  Add members
+                </Button>
+              </Stack>
+              <FormHelperText>
+                {selectedGroup!.members.length} current — new members inherit
+                this group&apos;s config (deploy with Start).
+              </FormHelperText>
+            </FormControl>
+          )}
 
           <FormControl
             component="fieldset"
@@ -563,6 +637,12 @@ export function NewDeploymentDrawer({
 
           {submitError && <Alert severity="error">{submitError}</Alert>}
 
+          {!canSubmit && validationErrorMessage && (
+            <Typography variant="caption" sx={{ color: 'warning.main' }}>
+              {validationErrorMessage}
+            </Typography>
+          )}
+
           <Stack direction="row" spacing={1} alignItems="center" sx={{ pt: 1 }}>
             {!isEdit && (
               <Button onClick={reset} disabled={submitting} color="inherit">
@@ -570,7 +650,7 @@ export function NewDeploymentDrawer({
               </Button>
             )}
             <Box sx={{ flexGrow: 1 }} />
-            <Button onClick={handleClose} disabled={submitting}>
+            <Button onClick={handleClose} disabled={submitting || adding}>
               Cancel
             </Button>
             <Button
