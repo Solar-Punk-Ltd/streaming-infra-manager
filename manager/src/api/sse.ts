@@ -16,6 +16,7 @@ export function pipeRunHandleToSSE(
   res: Response,
   handle: RunHandle,
   meta: { script: string; args: string[] },
+  opts: { killOnClose?: boolean } = {},
 ): void {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -40,7 +41,7 @@ export function pipeRunHandleToSSE(
     res.end();
   });
 
-  // If the client disconnects mid-stream, kill the child so we don't leave
-  // orphaned bash + docker processes behind.
-  res.on('close', () => handle.kill());
+  if (opts.killOnClose) {
+    res.on('close', () => handle.kill());
+  }
 }

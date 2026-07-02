@@ -39,6 +39,13 @@ const logger = Logger.getInstance();
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
+function stripDockerWarnings(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !/\blevel=(warning|info)\b/.test(line))
+    .join('\n');
+}
+
 const BEE_DATA_ROOT =
   process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
 
@@ -372,7 +379,7 @@ export class DeploymentOrchestrator {
         return;
       }
       const message =
-        stderrTail.trim() ||
+        stripDockerWarnings(stderrTail).trim() ||
         stdoutTail.trim() ||
         `${cfg.script} exited with code ${code}`;
       const errored = await this.profiles.markError(cfg.profileName, message);
