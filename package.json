@@ -1,5 +1,11 @@
 {
   "name": "streaming-infra-manager",
   "private": true,
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @streaming-infra-manager/api dev & pnpm -W --filter @streaming-infra-manager/frontend-prototype dev",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
 }

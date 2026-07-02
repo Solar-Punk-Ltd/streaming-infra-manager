@@ -1,9 +1,15 @@
 import { Request, Response, Router } from 'express';
 
 import { ProfileService } from '../../domain/ProfileService.js';
-import { CreateGroupInput, createGroupSchema } from '../../schemas/profile.js';
+import {
+  CreateGroupInput,
+  UpdateGroupConfigInput,
+  createGroupSchema,
+  groupIdParamSchema,
+  updateGroupConfigSchema,
+} from '../../schemas/profile.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { validateBody } from '../middleware/validate.js';
+import { validateBody, validateParams } from '../middleware/validate.js';
 import { ProfileKind } from '../../types/types.js';
 
 export function createGroupsRouter(profileService: ProfileService): Router {
@@ -36,6 +42,25 @@ export function createGroupsRouter(profileService: ProfileService): Router {
     asyncHandler(async (_req: Request, res: Response) => {
       const groups = await profileService.listGroups();
       res.json({ groups });
+    }),
+  );
+
+  router.patch(
+    '/:id/config',
+    validateParams(groupIdParamSchema),
+    validateBody(updateGroupConfigSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as UpdateGroupConfigInput;
+      const result = await profileService.updateGroupConfig(
+        parseInt(req.params.id as string, 10),
+        {
+          notes: body.notes,
+          feed_owner: body.feed_owner,
+          feed_topic: body.feed_topic,
+          stamp_id: body.stamp_id,
+        },
+      );
+      res.status(202).json(result);
     }),
   );
 

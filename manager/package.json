@@ -4,14 +4,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @streaming-infra-manager/common build && tsc && cp -r src/migrations dist/migrations",
+    "build": "pnpm --filter @streaming-infra-manager/common build && tsc && rm -rf dist/migrations && cp -r src/migrations dist/migrations",
     "start": "node dist/index.js",
     "database:start": "docker compose -p streaming-infra-manager -f ./docker-compose.yml up -d postgres",
     "database:stop": "docker compose -p streaming-infra-manager -f ./docker-compose.yml stop postgres",
     "stack:start": "docker compose -p streaming-infra-manager -f ./docker-compose.yml --profile full up -d --build",
     "stack:stop": "docker compose -p streaming-infra-manager -f ./docker-compose.yml --profile full down",
     "dev": "tsx watch --conditions=development src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:integration": "tsx --test 'test/integration/**/*.test.ts'"
   },
   "dependencies": {
     "@streaming-infra-manager/common": "workspace:*",
