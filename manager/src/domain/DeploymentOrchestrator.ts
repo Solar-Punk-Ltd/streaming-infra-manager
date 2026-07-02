@@ -22,6 +22,7 @@ import {
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
 import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
@@ -107,6 +108,7 @@ export class DeploymentOrchestrator {
     private readonly containers: ContainerRepository,
     private readonly runner: ScriptRunner,
     private readonly eventBus: EventBus,
+    private readonly groups: DeploymentGroupRepository,
   ) {}
 
   private async publishChanged(profile: Profile): Promise<void> {
@@ -299,9 +301,29 @@ export class DeploymentOrchestrator {
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
         );
+       
+        await this.cleanupGroup(profile.group_id);
       },
     });
   }
+
+  async cleanupGroup(groupId: number | null): Promise<void> {
+     if (groupId != null) {
+          try {
+            const removed = await this.groups.deleteIfEmpty(groupId);
+            if (removed) {
+              logger.info(
+                `[Orchestrator] Removed empty group ${groupId} after its last member left`,
+              );
+            }
+          } catch (err) {
+            logger.warn(
+              `[Orchestrator] could not prune group ${groupId}: ${getErrorMessage(err)}`,
+            );
+          }
+        }
+  }
+
 
   async startHealth(profile: Profile): Promise<RunHandle> {
     await this.ensureSubmoduleDefaults();

@@ -10,6 +10,8 @@ import {
   BeeNodeError,
   ProfileBusyError,
   GroupExistsError,
+  GroupNotFoundError,
+  GroupBusyError,
   ProfileExistsError,
   ProfileNotFoundError,
   StampNotUsableError,
@@ -52,6 +54,18 @@ export function errorHandler(
   }
   if (err instanceof GroupExistsError) {
     res.status(409).json({ error: 'group_exists', name: err.name });
+    return;
+  }
+  if (err instanceof GroupNotFoundError) {
+    res.status(404).json({ error: 'group_not_found', id: err.groupId });
+    return;
+  }
+  if (err instanceof GroupBusyError) {
+    res.status(409).json({
+      error: 'group_busy',
+      name: err.groupName,
+      members: err.busyMembers,
+    });
     return;
   }
   if (err instanceof StampRequiredError) {

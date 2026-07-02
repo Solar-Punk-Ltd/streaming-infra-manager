@@ -36,7 +36,12 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { createDeploymentGroup, createProfile, updateProfile } from './data';
+import {
+  createDeploymentGroup,
+  createProfile,
+  updateGroupConfig,
+  updateProfile,
+} from './data';
 import {
   componentsHelperText,
   feedOwnerHelperText,
@@ -49,7 +54,7 @@ import {
   publicKeyHelperText,
   stampIdHelperText,
 } from './helperText';
-import type { Profile, ProfileKind } from './types';
+import type { DeploymentGroup, Profile, ProfileKind } from './types';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/;
@@ -92,11 +97,17 @@ const KINDS: { value: ProfileKind; label: string; hint: string }[] = [
   { value: 'custom', label: 'custom', hint: 'pick any combination' },
 ];
 
+interface GroupSelection {
+  group: DeploymentGroup;
+  members: Profile[];
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: (profiles: Profile[]) => void;
   selectedProfile?: Profile | null;
+  selectedGroup?: GroupSelection | null;
 }
 
 export function NewDeploymentDrawer({
@@ -104,8 +115,11 @@ export function NewDeploymentDrawer({
   onClose,
   onCreated,
   selectedProfile,
+  selectedGroup,
 }: Props) {
-  const isEdit = !!selectedProfile;
+  const isGroupEdit = !!selectedGroup;
+  const isProfileEdit = !!selectedProfile;
+  const isEdit = isProfileEdit || isGroupEdit;
   const [groupMode, setGroupMode] = useState(false);
   const [groupSize, setGroupSize] = useState(2);
   const [name, setName] = useState('');
@@ -123,22 +137,25 @@ export function NewDeploymentDrawer({
 
   useEffect(() => {
     if (!open) return;
-    if (selectedProfile) {
-      setName(selectedProfile.name);
-      setKind(selectedProfile.kind);
+    // For a group edit, prefill from a representative member (members share
+    // config); the group's own name labels the drawer.
+    const source = selectedProfile ?? selectedGroup?.members[0] ?? null;
+    if (source) {
+      setName(selectedGroup ? selectedGroup.group.name : source.name);
+      setKind(source.kind);
       setComponents(
-        selectedProfile.components && selectedProfile.components.length > 0
-          ? (selectedProfile.components as Component[])
-          : KIND_DEFAULTS[selectedProfile.kind],
+        source.components && source.components.length > 0
+          ? (source.components as Component[])
+          : KIND_DEFAULTS[source.kind],
       );
-      setHost(selectedProfile.host ?? '');
-      setFeedOwner(selectedProfile.feed_owner ?? '');
-      setPrivateKey(selectedProfile.private_key ?? '');
-      setStampId(selectedProfile.stamp_id ?? '');
-      setNotes(selectedProfile.notes ?? '');
+      setHost(source.host ?? '');
+      setFeedOwner(source.feed_owner ?? '');
+      setPrivateKey(source.private_key ?? '');
+      setStampId(source.stamp_id ?? '');
+      setNotes(source.notes ?? '');
       setSubmitError(null);
     }
-  }, [open, selectedProfile]);
+  }, [open, selectedProfile, selectedGroup]);
 
   const isCustom = kind === 'custom';
   const hasComponent = (c: Component) => components.includes(c);
@@ -260,7 +277,17 @@ export function NewDeploymentDrawer({
         stamp_id:
           hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
       };
-      if (!isEdit && groupMode) {
+      if (isGroupEdit) {
+        // Group edit intentionally touches only the shared feed target + notes.
+        // Per-node identity (keys) and stamps are not bulk-applied.
+        const result = await updateGroupConfig(selectedGroup!.group.id, {
+          notes: common.notes,
+          feed_owner: common.feed_owner,
+        });
+        onCreated(result.profiles);
+        reset();
+        onClose();
+      } else if (!isEdit && groupMode) {
         const result = await createDeploymentGroup({
           ...common,
           group_name: name,
@@ -272,7 +299,7 @@ export function NewDeploymentDrawer({
         reset();
         onClose();
       } else {
-        const profile = isEdit
+        const profile = isProfileEdit
           ? await updateProfile(selectedProfile!.name, common)
           : await createProfile({
               ...common,
@@ -287,9 +314,11 @@ export function NewDeploymentDrawer({
       setSubmitError(
         getErrorMessage(
           e,
-          isEdit
-            ? 'failed to update deployment'
-            : 'failed to create deployment',
+          isGroupEdit
+            ? 'failed to update group'
+            : isEdit
+              ? 'failed to update deployment'
+              : 'failed to create deployment',
         ),
       );
     } finally {
@@ -302,7 +331,11 @@ export function NewDeploymentDrawer({
       <Box sx={{ width: { xs: '100vw', sm: 420 }, p: 3 }}>
         <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            {isEdit ? `Modify ${selectedProfile!.name}` : 'New deployment'}
+            {isGroupEdit
+              ? `Modify group ${selectedGroup!.group.name}`
+              : isProfileEdit
+                ? `Modify ${selectedProfile!.name}`
+                : 'New deployment'}
           </Typography>
           <IconButton
             onClick={handleClose}
@@ -328,7 +361,7 @@ export function NewDeploymentDrawer({
           )}
 
           <TextField
-            label={groupMode ? 'Group name' : 'Name'}
+            label={isGroupEdit || groupMode ? 'Group name' : 'Name'}
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -443,7 +476,7 @@ export function NewDeploymentDrawer({
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
 
-          {hasStreamUploader && (
+          {hasStreamUploader && !isGroupEdit && (
             <>
               <TextField
                 label="Private Key"
@@ -543,11 +576,13 @@ export function NewDeploymentDrawer({
               disabled={!canSubmit}
               startIcon={submitting ? <CircularProgress size={16} /> : null}
             >
-              {isEdit
-                ? 'Save & Redeploy'
-                : groupMode
-                  ? `Deploy group (${groupSize})`
-                  : 'Deploy'}
+              {isGroupEdit
+                ? 'Save & Redeploy group'
+                : isProfileEdit
+                  ? 'Save & Redeploy'
+                  : groupMode
+                    ? `Deploy group (${groupSize})`
+                    : 'Deploy'}
             </Button>
           </Stack>
         </Stack>

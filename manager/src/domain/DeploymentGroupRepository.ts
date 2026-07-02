@@ -28,6 +28,18 @@ export interface MemberSeed {
   name: string;
 }
 
+export interface MemberConfigWrite {
+  name: string;
+  kind: ProfileKind;
+  notes: string | null;
+  components: string[] | null;
+  feed_owner: string | null;
+  feed_topic: string | null;
+  private_key: string | null;
+  public_key: string | null;
+  stamp_id: string | null;
+}
+
 export class DeploymentGroupRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -39,11 +51,82 @@ export class DeploymentGroupRepository {
     return r.rowCount && r.rowCount > 0 ? r.rows[0]! : null;
   }
 
+  async findById(id: number): Promise<DeploymentGroup | null> {
+    const r = await this.pool.query<DeploymentGroup>(
+      'SELECT id, name, size, created_at FROM deployment_groups WHERE id = $1',
+      [id],
+    );
+    return r.rowCount && r.rowCount > 0 ? r.rows[0]! : null;
+  }
+
   async list(): Promise<DeploymentGroup[]> {
     const r = await this.pool.query<DeploymentGroup>(
       'SELECT id, name, size, created_at FROM deployment_groups ORDER BY created_at ASC',
     );
     return r.rows;
+  }
+
+  async deleteIfEmpty(groupId: number): Promise<boolean> {
+    const r = await this.pool.query(
+      `DELETE FROM deployment_groups g
+        WHERE g.id = $1
+          AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.group_id = $1)`,
+      [groupId],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async listMembers(groupId: number): Promise<Profile[]> {
+    const r = await this.pool.query<Profile>(
+      `SELECT ${PROFILE_COLUMNS} FROM profiles WHERE group_id = $1 ORDER BY port_slot ASC`,
+      [groupId],
+    );
+    return r.rows;
+  }
+
+  async updateMembersConfig(writes: MemberConfigWrite[]): Promise<Profile[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profiles: Profile[] = [];
+      for (const w of writes) {
+        const r = await client.query<Profile>(
+          `UPDATE profiles
+             SET kind = $2,
+                 notes = $3,
+                 components = $4,
+                 feed_owner = $5,
+                 feed_topic = $6,
+                 private_key = $7,
+                 public_key = $8,
+                 stamp_id = $9,
+                 updated_at = NOW()
+           WHERE name = $1
+           RETURNING ${PROFILE_COLUMNS}`,
+          [
+            w.name,
+            w.kind,
+            w.notes,
+            w.components,
+            w.feed_owner,
+            w.feed_topic,
+            w.private_key,
+            w.public_key,
+            w.stamp_id,
+          ],
+        );
+        if (r.rowCount && r.rowCount > 0) {
+          profiles.push(r.rows[0]!);
+        }
+      }
+      await client.query('COMMIT');
+      return profiles;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async createGroupWithMembers(

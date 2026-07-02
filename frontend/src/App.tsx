@@ -62,6 +62,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<DeploymentGroup | null>(
+    null,
+  );
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{
@@ -147,6 +150,29 @@ export function App() {
   const uploaderDeployable =
     !busy && !!selectedOne && canDeployUploader(selectedOne);
 
+  const groupModifyTarget: DeploymentGroup | null = (() => {
+    if (busy || !profiles || selected.length < 2) {
+      return null;
+    }
+    const chosen = profiles.filter((p) => selected.includes(p.name));
+    if (chosen.length !== selected.length) {
+      return null;
+    }
+    const gid = chosen[0].group_id;
+    if (gid == null || chosen.some((p) => p.group_id !== gid)) {
+      return null;
+    }
+    const group = groups.find((g) => g.id === gid) ?? null;
+    if (!group) {
+      return null;
+    }
+    const memberCount = profiles.filter((p) => p.group_id === gid).length;
+
+    return chosen.length === memberCount ? group : null;
+  })();
+
+  const canModify = oneSelected || !!groupModifyTarget;
+
   const runOnSelected = async (
     verb: string,
     fn: (name: string) => Promise<void>,
@@ -177,11 +203,22 @@ export function App() {
   };
 
   const handleModify = () => {
-    if (selected.length !== 1 || !profiles) return;
+    if (busy || !profiles) {
+      return;
+    }
 
+    if (groupModifyTarget) {
+      setSelectedProfile(null);
+      setSelectedGroup(groupModifyTarget);
+      setDrawerOpen(true);
+      return;
+    }
+
+    if (selected.length !== 1) return;
     const target = profiles.find((p) => p.name === selected[0]);
     if (!target) return;
 
+    setSelectedGroup(null);
     setSelectedProfile(target);
     setDrawerOpen(true);
   };
@@ -216,6 +253,7 @@ export function App() {
             startIcon={<AddIcon />}
             onClick={() => {
               setSelectedProfile(null);
+              setSelectedGroup(null);
               setDrawerOpen(true);
             }}
           >
@@ -262,7 +300,7 @@ export function App() {
                 size="small"
                 variant="outlined"
                 startIcon={<EditIcon />}
-                disabled={!oneSelected}
+                disabled={!canModify}
                 onClick={handleModify}
               >
                 Modify
@@ -378,9 +416,19 @@ export function App() {
       <NewDeploymentDrawer
         open={drawerOpen}
         selectedProfile={selectedProfile}
+        selectedGroup={
+          selectedGroup
+            ? {
+                group: selectedGroup,
+                members:
+                  profiles?.filter((p) => p.group_id === selectedGroup.id) ?? [],
+              }
+            : null
+        }
         onClose={() => {
           setDrawerOpen(false);
           setSelectedProfile(null);
+          setSelectedGroup(null);
         }}
         onCreated={(profiles) => {
           handleCreated(profiles);

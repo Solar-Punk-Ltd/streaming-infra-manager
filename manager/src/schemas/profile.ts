@@ -156,3 +156,33 @@ export const createGroupSchema = object({
 }).noUnknown(true);
 
 export type CreateGroupInput = InferType<typeof createGroupSchema>;
+
+export const groupIdParamSchema = object({
+  id: string()
+    .required()
+    .matches(/^\d+$/, 'id must be a positive integer'),
+}).strict();
+
+export const updateGroupConfigSchema = object({
+  notes: string().nullable().notRequired().max(500),
+  feed_owner: string()
+    .notRequired()
+    .matches(
+      ETH_ADDRESS_RE,
+      'feed_owner must be a 0x-prefixed Ethereum address',
+    ),
+  feed_topic: string()
+    .notRequired()
+    .matches(
+      FEED_TOPIC_RE,
+      'feed_topic must be printable ASCII, max 128 chars',
+    ),
+  stamp_id: string()
+    .notRequired()
+    .matches(
+      STAMP_ID_RE,
+      'stamp_id must be 32-byte hex (optionally 0x-prefixed)',
+    ),
+}).noUnknown(true);
+
+export type UpdateGroupConfigInput = InferType<typeof updateGroupConfigSchema>;
