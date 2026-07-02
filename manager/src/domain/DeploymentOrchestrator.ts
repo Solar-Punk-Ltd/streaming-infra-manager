@@ -381,6 +381,7 @@ export class DeploymentOrchestrator {
       const message =
         stripDockerWarnings(stderrTail).trim() ||
         stdoutTail.trim() ||
+        stderrTail.trim() ||
         `${cfg.script} exited with code ${code}`;
       const errored = await this.profiles.markError(cfg.profileName, message);
       if (errored) {
