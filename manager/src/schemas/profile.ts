@@ -186,3 +186,9 @@ export const updateGroupConfigSchema = object({
 }).noUnknown(true);
 
 export type UpdateGroupConfigInput = InferType<typeof updateGroupConfigSchema>;
+
+export const addMembersSchema = object({
+  count: number().required().integer().min(1),
+}).noUnknown(true);
+
+export type AddMembersInput = InferType<typeof addMembersSchema>;

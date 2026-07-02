@@ -2,8 +2,10 @@ import { Request, Response, Router } from 'express';
 
 import { ProfileService } from '../../domain/ProfileService.js';
 import {
+  AddMembersInput,
   CreateGroupInput,
   UpdateGroupConfigInput,
+  addMembersSchema,
   createGroupSchema,
   groupIdParamSchema,
   updateGroupConfigSchema,
@@ -59,6 +61,20 @@ export function createGroupsRouter(profileService: ProfileService): Router {
           feed_topic: body.feed_topic,
           stamp_id: body.stamp_id,
         },
+      );
+      res.status(202).json(result);
+    }),
+  );
+
+  router.post(
+    '/:id/members',
+    validateParams(groupIdParamSchema),
+    validateBody(addMembersSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as AddMembersInput;
+      const result = await profileService.addGroupMembers(
+        parseInt(req.params.id as string, 10),
+        body.count,
       );
       res.status(202).json(result);
     }),
