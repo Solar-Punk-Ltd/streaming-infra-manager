@@ -33,8 +33,8 @@ Fault scenarios (publish a real stream, then inject a fault):
 | `scenarios/bee-outage-long` (B)  | bee crash > 15s window (`stop`) → **arms** a discontinuity, gap, clean resume |
 | `scenarios/publish-stop-to-vod` (D) | clean broadcaster stop → immediate VOD finalize (unpublish webhook) |
 | `scenarios/gateway-outage-viewer` (G) | viewer gateway down → uploads **unaffected** (independent path) |
-| `scenarios/srs-engine-restart` (E) | 📌 `todo` finding — SRS restart wedges the stream (no reaper; reconnect refused) |
-| `scenarios/uploader-crash-recovery` (F) | 📌 `todo` finding — uploader restart doesn't resume an SRS live stream |
+| `scenarios/srs-engine-restart` (E) | SRS engine restart → orchestrator re-announces; a fresh `live` topic resumes (needs the PR #10 recovery fix deployed) |
+| `scenarios/uploader-crash-recovery` (F) | uploader hard-crash (SIGKILL) → stream recovers from saved state and stays `live`, not VOD-ed at the 60s recovery timer (needs the PR #10 recovery fix deployed) |
 
 Service coverage (happy path, no faults):
 
@@ -43,6 +43,7 @@ Service coverage (happy path, no faults):
 | `service/happy-path` | gapless segments + advancing (non-frozen) manifest, no discontinuity |
 | `service/health-endpoint` | `/health` activeStreams / engines / staleManifestStreams across live→idle |
 | `service/catalog-via-gateway` | **player-visible**: a new `live` entry via the bee-gateway → flips to `vod` |
+| `service/multi-stream-concurrent` | two concurrent live streams → distinct catalog topics, no spurious discontinuity, each finalizes to its own VOD |
 
 ### Execution model
 
