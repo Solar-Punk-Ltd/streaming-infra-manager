@@ -60,9 +60,8 @@ ssh "$SSH_TARGET" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_PATH}/manager
 
-echo "[deploy] hostname -I → '\$(hostname -I)'"
-PUBLIC_HOST="\$(hostname -I | awk '{print \$1}')"
-echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}'"
+PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}')"
+echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}' (default-route src IP)"
 if [ -z "\${PUBLIC_HOST}" ]; then
     echo "[deploy] WARNING: PUBLIC_HOST is empty; component URLs will fall back to localhost" >&2
 fi
