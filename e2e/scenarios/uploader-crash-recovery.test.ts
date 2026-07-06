@@ -16,9 +16,10 @@ import { sleep, waitFor } from '../harness/wait.js';
  * resumes uploading but the 60s recovery timer still VODs it (SRS never re-sends on_publish), so
  * the final assertion fails — that is the pre-fix behaviour, not a flake.
  *
- * SIGKILL (docker kill) leaves the RecoveryStore state intact; the container's unless-stopped policy
- * reboots it; recoverStreams restores the stream + a 60s timer; SRS keeps POSTing segments (it was
- * not restarted, so seq_no keeps climbing) → handleSegment accepts them and cancels the timer.
+ * SIGKILL (docker kill) leaves the RecoveryStore state intact; the test then restarts the container
+ * (docker kill does not trip the restart policy in this environment, so we stand in for it);
+ * recoverStreams restores the stream + a 60s timer; SRS keeps POSTing segments (it was not
+ * restarted, so seq_no keeps climbing) → handleSegment accepts them and cancels the timer.
  */
 
 const RECOVERY_TIMEOUT_MS = 60_000; // mirrors the uploader RECOVERY_TIMEOUT default
@@ -74,8 +75,16 @@ describe('F — uploader hard crash: same stream recovers and keeps running', ()
     );
     const preKill = Math.max(...(await uploaded()));
 
-    // Hard crash: SIGKILL leaves recovery state on disk; the unless-stopped policy reboots the container.
+    // Hard crash: SIGKILL leaves the RecoveryStore state on disk. `docker kill` does not trip the
+    // restart policy here, so bring the container back explicitly (standing in for the restart
+    // policy / orchestrator rebooting a crashed process). The publisher keeps streaming throughout.
     await host.kill(uploader);
+    await waitFor(async () => !(await host.isRunning(uploader)), {
+      timeoutMs: 15_000,
+      intervalMs: 1_000,
+      label: 'uploader container fully stopped after the kill',
+    });
+    await host.start(uploader);
     await waitFor(
       async () => {
         try {
