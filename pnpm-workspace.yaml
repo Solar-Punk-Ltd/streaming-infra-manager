@@ -2,3 +2,8 @@ packages:
   - common
   - manager
   - frontend
+allowBuilds:
+  cpu-features: false
+  esbuild: true # build tooling — safest to allow
+  protobufjs: false
+  ssh2: false
