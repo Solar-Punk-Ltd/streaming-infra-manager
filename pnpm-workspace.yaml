@@ -4,6 +4,6 @@ packages:
   - frontend
 allowBuilds:
   cpu-features: false
-  esbuild: true      # build tooling — safest to allow
+  esbuild: true # build tooling — safest to allow
   protobufjs: false
-  ssh2: false    
+  ssh2: false
