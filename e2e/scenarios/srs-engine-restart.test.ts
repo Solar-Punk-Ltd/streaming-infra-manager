@@ -1,30 +1,95 @@
-import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+
+import { containerName, loadConfig } from '../config.js';
+import { discoverStamp, makeHost, waitForIdle } from '../harness/host.js';
+import { startPublisher, type Publisher } from '../harness/publisher.js';
+import { discoverCatalogFeed, fetchCatalog, type CatalogFeed } from '../harness/viewer.js';
+import { sleep, waitFor } from '../harness/wait.js';
 
 /**
- * Scenario E — SRS media-engine restart mid-stream. PARKED as a documented `todo`.
+ * Scenario E — SRS media-engine restart mid-stream; the broadcaster must be able to resume.
  *
- * Live investigation (2026-07-06) showed that restarting the SRS engine container wedges the live
- * path — the uploader never recovers the stream and refuses the reconnecting broadcaster:
+ * REQUIRES the PR #10 recovery fix deployed: StreamOrchestrator.startStream now finalizes a stale
+ * re-announced session and starts a fresh one, instead of rejecting it. Against an uploader WITHOUT
+ * the fix the reconnect is rejected ("already active" → SRS_REJECT) and no new stream ever appears,
+ * so this test times out — that is the pre-fix behaviour, not a flake.
  *
- *   - Restarting SRS drops the broadcaster's SRT connection. ffmpeg/OBS in caller mode does not
- *     auto-reconnect the SRT session, so the publisher dies and the segment feed stops.
- *   - SRS sends NO `on_unpublish` on restart, so the uploader never learns the session ended. The
- *     stream stays in `activeStreams` forever — there is no idle reaper; only on_unpublish, the
- *     recovery timeout, or shutdown cleanup ever remove a stream (StreamOrchestrator.stopStream).
- *   - It never surfaces as stale on /health either: `hasStaleLiveManifest` counts manifest *publish*
- *     failures (consecutiveManifestFailures), which a bee outage trips but a feed cessation does not
- *     — no segments means no publish attempts, so staleManifestStreams stays 0 (StreamUploader.ts).
- *   - When a broadcaster reconnects to the same path, SRS re-announces `on_publish` → startStream,
- *     but the stream is still active → "[StreamOrchestrator] Stream <id> already active, rejecting
- *     start" (StreamOrchestrator.ts:57). The new segments are dropped (dedup/unknown), so the live
- *     path is stuck until the stream-uploader is restarted.
- *
- * Shares scenario F's root cause: the only reconnect path is the RecoveryStore recovery-timer branch
- * (uploader hard-crash), never an engine restart. Root cause is PRE-EXISTING (not PR #10). A fix
- * (reap idle activeStreams, or let a re-announced on_publish adopt/replace an existing active stream)
- * belongs in its own ticket. The harness (publisher + host + logwatch + /health) is ready to turn
- * this into a behavioral test once the resume path is defined. See uploader-crash-recovery.test.ts.
+ * Restarting SRS drops ffmpeg's SRT (no auto-reconnect) so the first publisher dies. When a new
+ * broadcaster session connects, SRS re-announces on_publish; the uploader finalizes the stale
+ * session as a VOD and starts a fresh live stream — a new, distinct catalog entry via the gateway.
  */
-describe('E — SRS media-engine restart mid-stream', () => {
-  it.todo('survive an SRS-engine restart and let the broadcaster resume (not supported yet — see comment)');
+
+const SRS_REBOOT_MS = 10_000;
+const WARMUP_WAIT_MS = 90_000;
+const RESUME_WAIT_MS = 180_000;
+const MIN_STAMP_TTL_S = 600;
+
+describe('E — SRS engine restart: broadcaster resumes', () => {
+  const cfg = loadConfig();
+  const host = makeHost(cfg);
+  const srs = containerName(cfg, 'srs');
+  let first: Publisher;
+  let second: Publisher;
+  let feed: CatalogFeed;
+  let baselineTopics: Set<string>;
+
+  const safeFetch = async () => {
+    try {
+      return await fetchCatalog(host, cfg, feed);
+    } catch {
+      return [];
+    }
+  };
+  const freshLiveTopics = async (): Promise<string[]> => [
+    ...new Set((await safeFetch()).filter((e) => !baselineTopics.has(e.topic) && e.state === 'live').map((e) => e.topic)),
+  ];
+
+  before(async () => {
+    const stamp = await discoverStamp(host, cfg);
+    assert.ok(stamp.batchTTL > MIN_STAMP_TTL_S, `stamp TTL ${stamp.batchTTL}s too low to run a stream`);
+    feed = await discoverCatalogFeed(host, cfg);
+    await waitForIdle(host, cfg);
+    baselineTopics = new Set((await safeFetch()).map((e) => e.topic));
+    first = startPublisher(cfg);
+  });
+
+  after(async () => {
+    await first?.stop();
+    await second?.stop();
+    await host.start(srs).catch(() => undefined);
+  });
+
+  it('starts a fresh live stream when the broadcaster reconnects after an engine restart', async () => {
+    let firstTopic: string | undefined;
+    await waitFor(
+      async () => {
+        const topics = await freshLiveTopics();
+        if (topics.length >= 1) firstTopic = topics[0];
+        return firstTopic !== undefined;
+      },
+      { timeoutMs: WARMUP_WAIT_MS, intervalMs: 3_000, label: 'first stream goes live before the engine restart' },
+    );
+
+    await host.restart(srs);
+    await first.stop();
+    await sleep(SRS_REBOOT_MS); // let SRS accept SRT again before the broadcaster reconnects
+
+    second = startPublisher(cfg);
+
+    let resumedTopic: string | undefined;
+    await waitFor(
+      async () => {
+        const topics = (await freshLiveTopics()).filter((t) => t !== firstTopic);
+        if (topics.length >= 1) resumedTopic = topics[0];
+        return resumedTopic !== undefined;
+      },
+      { timeoutMs: RESUME_WAIT_MS, intervalMs: 3_000, label: 'a fresh live stream appears after the broadcaster reconnects' },
+    );
+
+    assert.ok(
+      resumedTopic && resumedTopic !== firstTopic,
+      'reconnecting after an SRS restart must yield a new live stream, not a rejection',
+    );
+  });
 });

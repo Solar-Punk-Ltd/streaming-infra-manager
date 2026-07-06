@@ -1,29 +1,105 @@
-import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+
+import { containerName, loadConfig } from '../config.js';
+import { discoverStamp, makeHost, uploaderHealth, waitForIdle } from '../harness/host.js';
+import { parseUploaderLog } from '../harness/logwatch.js';
+import { startPublisher, type Publisher } from '../harness/publisher.js';
+import { discoverCatalogFeed, fetchCatalog, type CatalogFeed } from '../harness/viewer.js';
+import { sleep, waitFor } from '../harness/wait.js';
 
 /**
- * Scenario F — uploader restart mid-stream (SRS engine). PARKED as a documented `todo`.
+ * Scenario F — uploader hard crash mid-stream; the same live stream must recover AND keep running.
  *
- * Live investigation (2026-07-06) showed the current system does NOT resume the same live stream
- * across a stream-uploader restart when the media engine is SRS:
+ * REQUIRES the PR #10 recovery fix deployed: StreamOrchestrator.handleSegment now cancels the
+ * recovery finalize timer when segments resume. WITHOUT the fix a hard-crash-recovered stream
+ * resumes uploading but the 60s recovery timer still VODs it (SRS never re-sends on_publish), so
+ * the final assertion fails — that is the pre-fix behaviour, not a flake.
  *
- *   - Graceful restart (docker restart → SIGTERM): the shutdown handler drains + finalizes the
- *     stream as a VOD and removes the RecoveryStore entry. On reboot: "No streams to recover".
- *     SRS keeps POSTing segments but never re-sends `on_publish`, so `startStream` is never called
- *     → the stream is not in activeStreams → every segment is rejected as `unknown_stream` and
- *     dropped. The live stream is effectively over until the broadcaster reconnects.
- *
- *   - Hard crash (docker kill → SIGKILL): the RecoveryStore entry survives, so `recoverStreams`
- *     restores the stream into activeStreams with a 60s "wait for engine reconnect" timer. Uploads
- *     DO resume (on_hls → handleSegment finds the recovered stream), but nothing cancels that timer
- *     (only `on_publish`/startStream does, which SRS never re-sends) → ~60s later it VODs and stops.
- *
- * Root cause is PRE-EXISTING (not PR #10): recovery assumes the engine re-announces the stream after
- * a restart. The OME puller re-pulls; the SRS push engine sends `on_publish` only once per broadcaster
- * session (see engines/srs.ts — `handleStreams` calls startStream only on on_publish; `handleHls`
- * only calls handleSegment). A fix (adopt/revive a recovered stream on the first on_hls, or cancel
- * the recovery timer when segments flow) belongs in its own ticket. The harness (publisher + host +
- * logwatch) is ready to turn this into a behavioral test once the resume path is defined.
+ * SIGKILL (docker kill) leaves the RecoveryStore state intact; the container's unless-stopped policy
+ * reboots it; recoverStreams restores the stream + a 60s timer; SRS keeps POSTing segments (it was
+ * not restarted, so seq_no keeps climbing) → handleSegment accepts them and cancels the timer.
  */
-describe('F — uploader restart mid-stream (SRS engine)', () => {
-  it.todo('resume the same live SRS stream across an uploader restart (not supported yet — see comment)');
+
+const RECOVERY_TIMEOUT_MS = 60_000; // mirrors the uploader RECOVERY_TIMEOUT default
+const WARMUP_SEGMENTS = 4;
+const WARMUP_WAIT_MS = 120_000;
+const REBOOT_WAIT_MS = 60_000;
+const RESUME_WAIT_MS = 120_000;
+const POST_TIMEOUT_MARGIN_MS = 20_000;
+const MIN_STAMP_TTL_S = 600;
+
+describe('F — uploader hard crash: same stream recovers and keeps running', () => {
+  const cfg = loadConfig();
+  const host = makeHost(cfg);
+  const uploader = containerName(cfg, 'stream-uploader');
+  let publisher: Publisher;
+  let feed: CatalogFeed;
+  let baselineTopics: Set<string>;
+  let startedAt: string;
+
+  const safeFetch = async () => {
+    try {
+      return await fetchCatalog(host, cfg, feed);
+    } catch {
+      return [];
+    }
+  };
+  const uploaded = async (): Promise<number[]> =>
+    parseUploaderLog(await host.logsSince(uploader, startedAt)).uploadedSegments;
+
+  before(async () => {
+    const stamp = await discoverStamp(host, cfg);
+    assert.ok(stamp.batchTTL > MIN_STAMP_TTL_S, `stamp TTL ${stamp.batchTTL}s too low to run a stream`);
+    feed = await discoverCatalogFeed(host, cfg);
+    await waitForIdle(host, cfg);
+    baselineTopics = new Set((await safeFetch()).map((e) => e.topic));
+    startedAt = await host.nowIso();
+    publisher = startPublisher(cfg);
+  });
+
+  after(async () => {
+    await publisher?.stop();
+  });
+
+  it('resumes the recovered stream and does not VOD it at the recovery timeout', async () => {
+    let ourTopic: string | undefined;
+    await waitFor(
+      async () => {
+        const fresh = (await safeFetch()).filter((e) => !baselineTopics.has(e.topic) && e.state === 'live');
+        if (fresh.length >= 1) ourTopic = fresh[0].topic;
+        return (await uploaded()).length >= WARMUP_SEGMENTS && ourTopic !== undefined;
+      },
+      { timeoutMs: WARMUP_WAIT_MS, intervalMs: 3_000, label: 'stream is live and uploading before the crash' },
+    );
+    const preKill = Math.max(...(await uploaded()));
+
+    // Hard crash: SIGKILL leaves recovery state on disk; the unless-stopped policy reboots the container.
+    await host.kill(uploader);
+    await waitFor(
+      async () => {
+        try {
+          return (await uploaderHealth(host, cfg)).status === 'ok';
+        } catch {
+          return false;
+        }
+      },
+      { timeoutMs: REBOOT_WAIT_MS, intervalMs: 2_000, label: 'uploader reboots after the hard crash' },
+    );
+
+    // Segments resume — SRS was not restarted, so its seq_no keeps climbing past the pre-crash max.
+    await waitFor(
+      async () => {
+        const ups = await uploaded();
+        return ups.length > 0 && Math.max(...ups) > preKill;
+      },
+      { timeoutMs: RESUME_WAIT_MS, intervalMs: 3_000, label: 'segments resume after recovery' },
+    );
+
+    // The recovery finalize timer must have been cancelled: the stream stays live past the timeout.
+    await sleep(RECOVERY_TIMEOUT_MS + POST_TIMEOUT_MARGIN_MS);
+    const entry = (await safeFetch()).find((e) => e.topic === ourTopic);
+    assert.ok(entry, `the recovered stream ${ourTopic} must still be in the catalog`);
+    assert.equal(entry?.state, 'live', 'the recovered stream must stay live, not be VOD-ed by the recovery timer');
+  });
 });
