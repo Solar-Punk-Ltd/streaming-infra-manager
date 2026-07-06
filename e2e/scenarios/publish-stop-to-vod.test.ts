@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+
+import { containerName, loadConfig } from '../config.js';
+import { discoverStamp, makeHost, waitForIdle } from '../harness/host.js';
+import { parseUploaderLog } from '../harness/logwatch.js';
+import { startPublisher, type Publisher } from '../harness/publisher.js';
+import { waitFor } from '../harness/wait.js';
+
+/**
+ * Scenario D — a clean broadcaster stop finalizes the stream as a VOD.
+ * When ffmpeg/OBS stops, SRS fires on_unpublish → stopStream → the uploader drains and publishes the
+ * VOD manifest + flips the catalog entry to VOD. This is the normal end-of-stream (immediate, via the
+ * unpublish webhook — not the 60s recovery timer).
+ */
+
+const WARMUP_SEGMENTS = 3;
+const SEGMENT_WAIT_MS = 90_000;
+const VOD_WAIT_MS = 90_000;
+const MIN_STAMP_TTL_S = 600;
+
+describe('D — clean broadcaster stop: finalize as VOD', () => {
+  const cfg = loadConfig();
+  const host = makeHost(cfg);
+  const uploader = containerName(cfg, 'stream-uploader');
+  let publisher: Publisher;
+  let startedAt: string;
+
+  before(async () => {
+    const stamp = await discoverStamp(host, cfg);
+    assert.ok(stamp.batchTTL > MIN_STAMP_TTL_S, `stamp TTL ${stamp.batchTTL}s too low to run a stream`);
+    await waitForIdle(host, cfg);
+    startedAt = await host.nowIso();
+    publisher = startPublisher(cfg);
+  });
+
+  after(async () => {
+    await publisher?.stop();
+  });
+
+  it('finalizes a VOD when the broadcaster stops', async () => {
+    const log = async (): Promise<string> => host.logsSince(uploader, startedAt);
+
+    await waitFor(async () => parseUploaderLog(await log()).uploadedSegments.length >= WARMUP_SEGMENTS, {
+      timeoutMs: SEGMENT_WAIT_MS,
+      intervalMs: 2_000,
+      label: `warmup: ${WARMUP_SEGMENTS} segments before stopping the broadcaster`,
+    });
+
+    await publisher.stop();
+
+    await waitFor(async () => /Updating stream in list to VOD/.test(await log()), {
+      timeoutMs: VOD_WAIT_MS,
+      intervalMs: 2_000,
+      label: 'stream finalizes as a VOD after unpublish',
+    });
+
+    const finalLog = await log();
+    assert.match(finalLog, /\[SRS\] Stream unpublished/, 'SRS must report the stream unpublished');
+    assert.match(finalLog, /Updating stream in list to VOD/, 'the uploader must finalize the VOD catalog entry');
+  });
+});

@@ -2,3 +2,4 @@ packages:
   - common
   - manager
   - frontend
+  - e2e
