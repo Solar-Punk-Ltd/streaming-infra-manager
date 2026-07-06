@@ -56,6 +56,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'BEE_GATEWAY_P2P_PORT',
     'BEE_GATEWAY_NAT_ADDR',
     'BEE_GATEWAY_DATA_DIR',
+    'BEE_GATEWAY_CACHE_CAPACITY',
     'RPC_ENDPOINT',
     'BEE_VERBOSITY',
   ],
