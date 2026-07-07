@@ -138,6 +138,47 @@ export async function createDeploymentGroup(
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
 }
 
+export interface UpdateGroupConfigBody {
+  notes?: string | null;
+  feed_owner?: string;
+  feed_topic?: string;
+  stamp_id?: string;
+}
+
+export async function updateGroupConfig(
+  id: number,
+  body: UpdateGroupConfigBody,
+): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
+  const res = await fetch(`/groups/${id}/config`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
+  }
+  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
+export async function addGroupMembers(
+  id: number,
+  count: number,
+): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
+  const res = await fetch(`/groups/${id}/members`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ count }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
+  }
+  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
 export async function fetchGroups(): Promise<DeploymentGroup[]> {
   try {
     const res = await fetch('/groups');

@@ -2,6 +2,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import {
   DeploymentGroupRepository,
+  MemberConfigWrite,
   SharedProfileParams,
 } from './DeploymentGroupRepository.js';
 
@@ -17,7 +18,9 @@ import { ContainerRepository } from './ContainerRepository.js';
 import { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
 import {
   AllSlotsUsedError,
+  GroupBusyError,
   GroupExistsError,
+  GroupNotFoundError,
   ProfileBusyError,
   ProfileExistsError,
   ProfileNotFoundError,
@@ -273,5 +276,142 @@ export class ProfileService {
     }
 
     return { group, profiles: profilesWithContainers };
+  }
+
+  async updateGroupConfig(
+    groupId: number,
+    input: {
+      notes?: string | null;
+      feed_owner?: string | null;
+      feed_topic?: string | null;
+      stamp_id?: string | null;
+    },
+  ): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
+    const group = await this.groupRepo.findById(groupId);
+    if (!group) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const members = await this.groupRepo.listMembers(groupId);
+    if (members.length === 0) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const busy = members
+      .filter((m) =>
+        (TRANSITIONAL_STATUSES as readonly string[]).includes(m.status),
+      )
+      .map((m) => m.name);
+    if (busy.length > 0) {
+      throw new GroupBusyError(group.name, busy);
+    }
+
+    // Merge the requested changes onto each member. `undefined` means "not in
+    // the request → keep the member's current value"; an explicit value (incl.
+    // null) is applied to every member.
+    const pick = <T>(next: T | undefined, current: T): T =>
+      next !== undefined ? next : current;
+
+    const writes: MemberConfigWrite[] = members.map((m) => ({
+      name: m.name,
+      kind: m.kind,
+      notes: pick(input.notes, m.notes),
+      components: m.components,
+      feed_owner: pick(input.feed_owner, m.feed_owner),
+      feed_topic: pick(input.feed_topic, m.feed_topic),
+      private_key: m.private_key,
+      public_key: m.public_key,
+      stamp_id: pick(input.stamp_id, m.stamp_id),
+    }));
+
+    const updated = await this.groupRepo.updateMembersConfig(writes);
+
+    logger.info(
+      `[ProfileService] Updated group ${group.name} (${updated.length} member(s)); redeploying`,
+    );
+
+    const profiles: ProfileWithContainers[] = [];
+    for (const row of updated) {
+      this.publishChanged(await this.containers.withContainers(row));
+      try {
+        await this.orchestrator.startDeploy(row, row.components ?? undefined);
+      } catch (err) {
+        const errored = await this.repo.markError(
+          row.name,
+          getErrorMessage(err),
+        );
+        if (errored) {
+          this.publishChanged(await this.containers.withContainers(errored));
+        }
+      }
+      
+      const latest = await this.repo.findByName(row.name);
+      if (!latest) {
+        throw new ProfileNotFoundError(row.name);
+      }
+
+      profiles.push(await this.containers.withContainers(latest));
+    }
+
+    return { group, profiles };
+  }
+
+  async addGroupMembers(
+    groupId: number,
+    count: number,
+  ): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
+    const group = await this.groupRepo.findById(groupId);
+    if (!group) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const members = await this.groupRepo.listMembers(groupId);
+    if (members.length === 0) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    const canonical = members[0]!;
+    const shared: SharedProfileParams = {
+      kind: canonical.kind,
+      notes: canonical.notes,
+      components: canonical.components,
+      host: canonical.host,
+      feed_owner: canonical.feed_owner,
+      feed_topic: canonical.feed_topic,
+      private_key: canonical.private_key,
+      public_key: canonical.public_key,
+      stamp_id: canonical.stamp_id,
+    };
+
+    // Generate the next free `<group>-profile-N` names, skipping any taken.
+    const usedNames = new Set((await this.repo.list()).map((p) => p.name));
+    const seeds: { name: string }[] = [];
+    let n = 1;
+    while (seeds.length < count) {
+      let candidate = `${group.name}-profile-${n}`;
+      while (usedNames.has(candidate)) {
+        n += 1;
+        candidate = `${group.name}-profile-${n}`;
+      }
+      usedNames.add(candidate);
+      seeds.push({ name: candidate });
+      n += 1;
+    }
+
+    const created = await this.groupRepo.addMembers(groupId, seeds, shared);
+
+    const refreshed = (await this.groupRepo.findById(groupId)) ?? group;
+    logger.info(
+      `[ProfileService] Added ${created.length} member(s) to group ${group.name} (size now ${refreshed.size})`,
+    );
+
+    const profiles: ProfileWithContainers[] = [];
+    for (const p of created) {
+      const withContainers = await this.containers.withContainers(p);
+      profiles.push(withContainers);
+      this.publishChanged(withContainers);
+    }
+
+    return { group: refreshed, profiles };
   }
 }

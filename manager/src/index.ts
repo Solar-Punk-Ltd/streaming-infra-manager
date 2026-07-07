@@ -111,14 +111,15 @@ async function main(): Promise<void> {
   }
 
   const scriptRunner = new ScriptRunner();
+  const deploymentGroupRepository = new DeploymentGroupRepository(
+    database.pool,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
     scriptRunner,
     eventBus,
-  );
-  const deploymentGroupRepository = new DeploymentGroupRepository(
-    database.pool,
+    deploymentGroupRepository,
   );
   const profileService = new ProfileService(
     profileRepository,

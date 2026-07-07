@@ -22,6 +22,7 @@ import {
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
 import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
@@ -38,6 +39,13 @@ const logger = Logger.getInstance();
 
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
+
+function stripDockerWarnings(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !/\blevel=(warning|info)\b/.test(line))
+    .join('\n');
+}
 
 const BEE_DATA_ROOT =
   process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
@@ -100,6 +108,7 @@ export class DeploymentOrchestrator {
     private readonly containers: ContainerRepository,
     private readonly runner: ScriptRunner,
     private readonly eventBus: EventBus,
+    private readonly groups: DeploymentGroupRepository,
   ) {}
 
   private async publishChanged(profile: Profile): Promise<void> {
@@ -292,8 +301,27 @@ export class DeploymentOrchestrator {
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
         );
+
+        await this.cleanupGroup(profile.group_id);
       },
     });
+  }
+
+  private async cleanupGroup(groupId: number | null): Promise<void> {
+    if (groupId != null) {
+      try {
+        const outcome = await this.groups.syncMembershipAfterRemoval(groupId);
+        if (outcome === 'deleted') {
+          logger.info(
+            `[Orchestrator] Removed empty group ${groupId} after its last member left`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `[Orchestrator] could not reconcile group ${groupId}: ${getErrorMessage(err)}`,
+        );
+      }
+    }
   }
 
   async startHealth(profile: Profile): Promise<RunHandle> {
@@ -372,8 +400,9 @@ export class DeploymentOrchestrator {
         return;
       }
       const message =
-        stderrTail.trim() ||
+        stripDockerWarnings(stderrTail).trim() ||
         stdoutTail.trim() ||
+        stderrTail.trim() ||
         `${cfg.script} exited with code ${code}`;
       const errored = await this.profiles.markError(cfg.profileName, message);
       if (errored) {
