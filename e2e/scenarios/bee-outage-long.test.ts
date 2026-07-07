@@ -15,11 +15,18 @@ import { sleep, waitFor } from '../harness/wait.js';
  *
  * Uses stop/start, NOT pause: a crashed bee refuses connections (ECONNREFUSED), which fails FAST
  * and trips the 15s retry deadline. A pause only *hangs* the request (it completes on unpause and
- * never arms a discontinuity — that is the frozen-but-alive case, exercised by scenario A). Graceful
- * stop + ~8s + restart-readiness reliably yields a ~30s fail-fast outage, well past the 15s window.
+ * never arms a discontinuity — that is the frozen-but-alive case, exercised by scenario A). Since
+ * bee 2.8.1 a stopped node restarts fast enough that stop + 8s + readiness fits INSIDE the 15s
+ * window (zero loss, nothing to assert), so the sleep is 25s to keep the fail-fast outage
+ * comfortably past the window.
+ *
+ * Also guards the manifest-freeze regression: feed writes are deferred (bee 2.8.1 honors
+ * swarm-deferred-upload on /soc), so manifest publishes must resume within seconds of the node
+ * returning — a direct-write regression shows up here as a ~80s publish hold.
  */
 
-const STOP_SLEEP_MS = 8_000;
+const STOP_SLEEP_MS = 25_000;
+const MANIFEST_RESUME_WAIT_MS = 45_000;
 const WARMUP_SEGMENTS = 3;
 const POST_OUTAGE_SEGMENTS = 3;
 const SEGMENT_WAIT_MS = 120_000;
@@ -55,11 +62,25 @@ describe('B — bee crash > retry window: discontinuity, clean skip, resume', ()
       label: `warmup: ${WARMUP_SEGMENTS} segments before crash`,
     });
 
-    const preMax = Math.max(...(await events()).uploadedSegments);
+    const preOutage = await events();
+    const preMax = Math.max(...preOutage.uploadedSegments);
+    const preOutageManifestMax = preOutage.manifestSocIndices.length ? Math.max(...preOutage.manifestSocIndices) : -1;
 
     await host.stop(bee);
     await sleep(STOP_SLEEP_MS);
     await host.start(bee);
+
+    await waitFor(
+      async () => {
+        const manifests = (await events()).manifestSocIndices;
+        return manifests.length > 0 && Math.max(...manifests) > preOutageManifestMax;
+      },
+      {
+        timeoutMs: MANIFEST_RESUME_WAIT_MS,
+        intervalMs: 2_000,
+        label: 'manifest publishes resume promptly after the node returns (freeze regression guard)',
+      },
+    );
 
     await waitFor(
       async () => {
