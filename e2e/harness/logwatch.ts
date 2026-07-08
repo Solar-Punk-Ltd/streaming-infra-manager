@@ -18,6 +18,7 @@ const RE_DISCONTINUITY = /Failed to upload segment (\d+)[^\n]*marking a disconti
 const RE_MANIFEST = /Manifest uploaded at SOC index (\d+)/g;
 const RE_STALE = /is stale: \d+ consecutive/g;
 const RE_RETRY = /Retrying in ~/g;
+const RE_STREAM_ANNOUNCE = /Adding stream to list: (\{[^\n]*\})/g;
 
 function captureNumbers(source: string, re: RegExp): number[] {
   return [...source.matchAll(re)].map((m) => Number(m[1]));
@@ -35,6 +36,26 @@ export function parseUploaderLog(text: string): UploaderEvents {
     staleWarnings: countMatches(text, RE_STALE),
     retries: countMatches(text, RE_RETRY),
   };
+}
+
+/**
+ * Topics the uploader announced as `live` in its own `Adding stream to list:` log lines, in order.
+ * This is the authoritative, lag-free source of the stream's topic — unlike the gateway-served
+ * catalog, which trails the uploader by minutes and can surface a stale topic from a prior stream.
+ */
+export function announcedLiveTopics(text: string): string[] {
+  const topics: string[] = [];
+  for (const match of text.matchAll(RE_STREAM_ANNOUNCE)) {
+    try {
+      const entry = JSON.parse(match[1]) as { topic?: string; state?: string };
+      if (entry.state === 'live' && entry.topic) {
+        topics.push(entry.topic);
+      }
+    } catch {
+      // A log line whose JSON tail is truncated is not a usable announcement — skip it.
+    }
+  }
+  return topics;
 }
 
 /** True if the sorted unique indices form a gapless run (max − min + 1 === unique count). */

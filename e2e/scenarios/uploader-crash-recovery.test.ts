@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { containerName, loadConfig } from '../config.js';
 import { discoverStamp, makeHost, uploaderHealth, waitForIdle } from '../harness/host.js';
-import { parseUploaderLog } from '../harness/logwatch.js';
+import { announcedLiveTopics, parseUploaderLog } from '../harness/logwatch.js';
 import { startPublisher, type Publisher } from '../harness/publisher.js';
 import { discoverCatalogFeed, fetchCatalog, type CatalogFeed } from '../harness/viewer.js';
 import { sleep, waitFor } from '../harness/wait.js';
@@ -28,6 +28,9 @@ const WARMUP_WAIT_MS = 120_000;
 const REBOOT_WAIT_MS = 60_000;
 const RESUME_WAIT_MS = 120_000;
 const POST_TIMEOUT_MARGIN_MS = 20_000;
+// The recovered stream is live on the uploader immediately, but that state reaches the
+// gateway-served catalog on the deferred single-node push path — allow minutes for it to surface.
+const LIVE_VISIBLE_WAIT_MS = 300_000;
 const MIN_STAMP_TTL_S = 600;
 
 describe('F — uploader hard crash: same stream recovers and keeps running', () => {
@@ -36,7 +39,6 @@ describe('F — uploader hard crash: same stream recovers and keeps running', ()
   const uploader = containerName(cfg, 'stream-uploader');
   let publisher: Publisher;
   let feed: CatalogFeed;
-  let baselineTopics: Set<string>;
   let startedAt: string;
 
   const safeFetch = async () => {
@@ -54,7 +56,6 @@ describe('F — uploader hard crash: same stream recovers and keeps running', ()
     assert.ok(stamp.batchTTL > MIN_STAMP_TTL_S, `stamp TTL ${stamp.batchTTL}s too low to run a stream`);
     feed = await discoverCatalogFeed(host, cfg);
     await waitForIdle(host, cfg);
-    baselineTopics = new Set((await safeFetch()).map((e) => e.topic));
     startedAt = await host.nowIso();
     publisher = startPublisher(cfg);
   });
@@ -64,15 +65,15 @@ describe('F — uploader hard crash: same stream recovers and keeps running', ()
   });
 
   it('resumes the recovered stream and does not VOD it at the recovery timeout', async () => {
-    let ourTopic: string | undefined;
     await waitFor(
-      async () => {
-        const fresh = (await safeFetch()).filter((e) => !baselineTopics.has(e.topic) && e.state === 'live');
-        if (fresh.length >= 1) ourTopic = fresh[0].topic;
-        return (await uploaded()).length >= WARMUP_SEGMENTS && ourTopic !== undefined;
-      },
+      async () => (await uploaded()).length >= WARMUP_SEGMENTS,
       { timeoutMs: WARMUP_WAIT_MS, intervalMs: 3_000, label: 'stream is live and uploading before the crash' },
     );
+    // Identify our stream by the topic the uploader assigned in its OWN log — authoritative and
+    // lag-free. Reading it from the gateway catalog here can latch a stale topic from a prior stream
+    // while that eventually-consistent catalog is still catching up.
+    const ourTopic = announcedLiveTopics(await host.logsSince(uploader, startedAt)).at(-1);
+    assert.ok(ourTopic, 'the uploader must have announced a live stream topic before the crash');
     const preKill = Math.max(...(await uploaded()));
 
     // Hard crash: SIGKILL leaves the RecoveryStore state on disk. `docker kill` does not trip the
@@ -105,10 +106,26 @@ describe('F — uploader hard crash: same stream recovers and keeps running', ()
       { timeoutMs: RESUME_WAIT_MS, intervalMs: 3_000, label: 'segments resume after recovery' },
     );
 
-    // The recovery finalize timer must have been cancelled: the stream stays live past the timeout.
+    // Wait past the recovery timeout, then assert on the AUTHORITATIVE, lag-free signal: the uploader
+    // must still track the stream as active. If the timer had VOD-ed it, stopStream would have removed
+    // it from activeStreams. (The gateway catalog cannot gate this — being eventually-consistent, a
+    // stale 'live' could mask a real VOD, i.e. a false pass.)
     await sleep(RECOVERY_TIMEOUT_MS + POST_TIMEOUT_MARGIN_MS);
-    const entry = (await safeFetch()).find((e) => e.topic === ourTopic);
-    assert.ok(entry, `the recovered stream ${ourTopic} must still be in the catalog`);
-    assert.equal(entry?.state, 'live', 'the recovered stream must stay live, not be VOD-ed by the recovery timer');
+    const health = await uploaderHealth(host, cfg);
+    assert.ok(
+      health.activeStreams >= 1,
+      `the recovered stream must stay active past the recovery timeout, not be VOD-ed by the timer; activeStreams=${health.activeStreams}`,
+    );
+
+    // End-to-end: it is genuinely live (asserted above), so it must also surface as live to a viewer
+    // through the gateway — poll for it, since that catalog trails the uploader by minutes.
+    await waitFor(
+      async () => (await safeFetch()).find((e) => e.topic === ourTopic)?.state === 'live',
+      {
+        timeoutMs: LIVE_VISIBLE_WAIT_MS,
+        intervalMs: 3_000,
+        label: 'the recovered stream surfaces as live in the gateway catalog',
+      },
+    );
   });
 });
