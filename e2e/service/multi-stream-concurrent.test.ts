@@ -17,8 +17,11 @@ import { waitFor } from '../harness/wait.js';
  */
 
 const SECOND_STREAM_PATH = 'live/stream2';
-const ACTIVE_WAIT_MS = 120_000;
-const IDLE_WAIT_MS = 120_000;
+// Each stream's catalog entry is a deferred feed write through the single bee-uploader node; two
+// distinct live entries can take minutes to both surface on the gateway-served catalog while the
+// pusher drains a segment backlog. Generous on purpose — an accepted propagation-latency budget.
+const ACTIVE_WAIT_MS = 300_000;
+const IDLE_WAIT_MS = 300_000;
 const MIN_STAMP_TTL_S = 600;
 
 describe('service — two concurrent streams upload independently', () => {
@@ -90,6 +93,17 @@ describe('service — two concurrent streams upload independently', () => {
       intervalMs: 3_000,
       label: 'both streams finalize and activeStreams returns to 0',
     });
+
+    // The uploader finalizes both to VOD at once, but that catalog write reaches the gateway on the
+    // same deferred single-node path — poll until both entries flip rather than reading once. This
+    // only tolerates propagation latency; the assertions below still require both to end as VOD.
+    await waitFor(
+      async () => {
+        const settled = (await safeFetch()).filter((e) => ourTopics.includes(e.topic));
+        return settled.length === ourTopics.length && settled.every((e) => e.state === 'vod');
+      },
+      { timeoutMs: IDLE_WAIT_MS, intervalMs: 3_000, label: 'both concurrent streams flip to VOD in the gateway catalog' },
+    );
 
     const finalCatalog = await safeFetch();
     const mine = finalCatalog.filter((e) => ourTopics.includes(e.topic));

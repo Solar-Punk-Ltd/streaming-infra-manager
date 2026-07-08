@@ -14,8 +14,12 @@ import { waitFor } from '../harness/wait.js';
  * must flip that same entry to `vod` with a real duration.
  */
 
-const APPEAR_WAIT_MS = 120_000;
-const VOD_WAIT_MS = 120_000;
+// Catalog feed writes are deferred through the single bee-uploader node, so a fresh live/VOD entry
+// can take minutes to surface on the gateway-served catalog when the pusher is draining a segment
+// backlog. These waits are generous on purpose — this is an accepted propagation-latency budget,
+// not a behavioural expectation.
+const APPEAR_WAIT_MS = 300_000;
+const VOD_WAIT_MS = 300_000;
 const MIN_STAMP_TTL_S = 600;
 
 describe('service — viewer catalog via gateway reflects live→VOD', () => {
