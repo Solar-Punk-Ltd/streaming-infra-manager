@@ -11,7 +11,8 @@
  * host/profile without code changes.
  */
 
-export type Mode = 'attach' | 'deploy';
+export const MODES = ['attach', 'deploy'] as const;
+export type Mode = (typeof MODES)[number];
 
 export interface Ports {
   uploaderApi: number;
@@ -72,10 +73,25 @@ function env(name: string, fallback: string): string {
   return value === undefined || value === '' ? fallback : value;
 }
 
+function parseMode(raw: string): Mode {
+  if ((MODES as readonly string[]).includes(raw)) {
+    return raw as Mode;
+  }
+  throw new Error(`Invalid E2E_MODE "${raw}"; expected one of: ${MODES.join(', ')}`);
+}
+
+function parsePortSlot(raw: string): number {
+  const slot = Number(raw);
+  if (!Number.isInteger(slot) || slot < 0) {
+    throw new Error(`Invalid E2E_PORT_SLOT "${raw}"; expected a non-negative integer`);
+  }
+  return slot;
+}
+
 export function loadConfig(): E2EConfig {
-  const portSlot = Number(env('E2E_PORT_SLOT', '2'));
+  const portSlot = parsePortSlot(env('E2E_PORT_SLOT', '2'));
   return {
-    mode: env('E2E_MODE', 'attach') as Mode,
+    mode: parseMode(env('E2E_MODE', 'attach')),
     sshTarget: env('E2E_SSH_TARGET', 'manager-host'),
     publicHost: env('E2E_PUBLIC_HOST', '49.12.149.62'),
     profile: env('E2E_PROFILE', 'srs-check-test1'),
