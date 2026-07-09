@@ -2,17 +2,10 @@ import { spawn, type ChildProcess } from 'node:child_process';
 
 import type { E2EConfig } from '../config.js';
 
+import { srtIngestUrl } from './engine.js';
+
 const DEFAULT_FPS = 30;
 const STOP_GRACE_MS = 3_000;
-
-/**
- * ffmpeg SRT publish URL — the OBS stand-in ingest. The literal SRS streamid form
- * (`#!::r=<path>,m=publish`) is verified working against the deployed SRS; ffmpeg passes it through
- * to libsrt/SRS without treating the leading '#' as a URL fragment.
- */
-function ffmpegSrtUrl(cfg: E2EConfig, streamPath: string): string {
-  return `srt://${cfg.publicHost}:${cfg.ports.srt}?streamid=#!::r=${streamPath},m=publish`;
-}
 
 export interface Publisher {
   readonly url: string;
@@ -21,10 +14,10 @@ export interface Publisher {
   stop(): Promise<void>;
 }
 
-/** Start an ffmpeg test-pattern (video+audio) publish over SRT to the profile's SRS ingest. */
+/** Start an ffmpeg test-pattern (video+audio) publish over SRT to the configured engine's ingest. */
 export function startPublisher(cfg: E2EConfig, opts: { fps?: number; streamPath?: string } = {}): Publisher {
   const fps = opts.fps ?? DEFAULT_FPS;
-  const url = ffmpegSrtUrl(cfg, opts.streamPath ?? cfg.streamPath);
+  const url = srtIngestUrl(cfg, opts.streamPath ?? cfg.streamPath);
   const args = [
     '-hide_banner',
     '-loglevel',

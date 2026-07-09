@@ -1,34 +1,37 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
-import { containerName, loadConfig } from '../config.js';
+import { loadConfig } from '../config.js';
+import { getEngine } from '../harness/engine.js';
 import { discoverStamp, makeHost, waitForIdle } from '../harness/host.js';
 import { startPublisher, type Publisher } from '../harness/publisher.js';
 import { discoverCatalogFeed, fetchCatalog, type CatalogFeed } from '../harness/viewer.js';
 import { sleep, waitFor } from '../harness/wait.js';
 
 /**
- * Scenario E — SRS media-engine restart mid-stream; the broadcaster must be able to resume.
+ * Scenario E — media-engine restart mid-stream; the broadcaster must be able to resume. Runs against
+ * whichever engine E2E_ENGINE selects (SRS or OME); only the restarted container and the reconnect
+ * grace differ — the recovery behaviour under test is engine-agnostic.
  *
  * REQUIRES the PR #10 recovery fix deployed: StreamOrchestrator.startStream now finalizes a stale
  * re-announced session and starts a fresh one, instead of rejecting it. Against an uploader WITHOUT
- * the fix the reconnect is rejected ("already active" → SRS_REJECT) and no new stream ever appears,
- * so this test times out — that is the pre-fix behaviour, not a flake.
+ * the fix the reconnect is rejected ("already active") and no new stream ever appears, so this test
+ * times out — that is the pre-fix behaviour, not a flake.
  *
- * Restarting SRS drops ffmpeg's SRT (no auto-reconnect) so the first publisher dies. When a new
- * broadcaster session connects, SRS re-announces on_publish; the uploader finalizes the stale
- * session as a VOD and starts a fresh live stream — a new, distinct catalog entry via the gateway.
+ * Restarting the engine drops ffmpeg's SRT (no auto-reconnect) so the first publisher dies. When a
+ * new broadcaster session connects, the engine re-announces the publish; the uploader finalizes the
+ * stale session as a VOD and starts a fresh live stream — a new, distinct catalog entry via the gateway.
  */
 
-const SRS_REBOOT_MS = 10_000;
 const WARMUP_WAIT_MS = 90_000;
 const RESUME_WAIT_MS = 180_000;
 const MIN_STAMP_TTL_S = 600;
 
-describe('E — SRS engine restart: broadcaster resumes', () => {
+describe('E — media-engine restart: broadcaster resumes', () => {
   const cfg = loadConfig();
+  const engine = getEngine(cfg);
   const host = makeHost(cfg);
-  const srs = containerName(cfg, 'srs');
+  const mediaContainer = engine.mediaContainer(cfg);
   let first: Publisher;
   let second: Publisher;
   let feed: CatalogFeed;
@@ -57,7 +60,7 @@ describe('E — SRS engine restart: broadcaster resumes', () => {
   after(async () => {
     await first?.stop();
     await second?.stop();
-    await host.start(srs).catch(() => undefined);
+    await host.start(mediaContainer).catch(() => undefined);
   });
 
   it('starts a fresh live stream when the broadcaster reconnects after an engine restart', async () => {
@@ -71,9 +74,9 @@ describe('E — SRS engine restart: broadcaster resumes', () => {
       { timeoutMs: WARMUP_WAIT_MS, intervalMs: 3_000, label: 'first stream goes live before the engine restart' },
     );
 
-    await host.restart(srs);
+    await host.restart(mediaContainer);
     await first.stop();
-    await sleep(SRS_REBOOT_MS); // let SRS accept SRT again before the broadcaster reconnects
+    await sleep(engine.reconnectGraceMs); // let the engine accept SRT again before reconnecting
 
     second = startPublisher(cfg);
 
@@ -89,7 +92,7 @@ describe('E — SRS engine restart: broadcaster resumes', () => {
 
     assert.ok(
       resumedTopic && resumedTopic !== firstTopic,
-      'reconnecting after an SRS restart must yield a new live stream, not a rejection',
+      'reconnecting after an engine restart must yield a new live stream, not a rejection',
     );
   });
 });

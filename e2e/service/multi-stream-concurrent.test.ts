@@ -16,7 +16,6 @@ import { waitFor } from '../harness/wait.js';
  * their distinct catalog entries and counted via /health.
  */
 
-const SECOND_STREAM_PATH = 'live/stream2';
 // Each stream's catalog entry is a deferred feed write through the single bee-uploader node; two
 // distinct live entries can take minutes to both surface on the gateway-served catalog while the
 // pusher drains a segment backlog. Generous on purpose — an accepted propagation-latency budget.
@@ -26,6 +25,9 @@ const MIN_STAMP_TTL_S = 600;
 
 describe('service — two concurrent streams upload independently', () => {
   const cfg = loadConfig();
+  // A second, distinct stream on the same engine app (`…/stream` → `…/stream2`) so both engines get
+  // a valid concurrent path — OME apps must stay `video`/`audio`, so a fixed `live/…` won't do.
+  const secondStreamPath = `${cfg.streamPath}2`;
   const host = makeHost(cfg);
   const uploader = containerName(cfg, 'stream-uploader');
   let first: Publisher;
@@ -53,7 +55,7 @@ describe('service — two concurrent streams upload independently', () => {
     baselineTopics = new Set((await safeFetch()).map((e) => e.topic));
     startedAt = await host.nowIso();
     first = startPublisher(cfg);
-    second = startPublisher(cfg, { streamPath: SECOND_STREAM_PATH });
+    second = startPublisher(cfg, { streamPath: secondStreamPath });
   });
 
   after(async () => {

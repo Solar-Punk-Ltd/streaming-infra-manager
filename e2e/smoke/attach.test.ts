@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { containerName, loadConfig, srtIngestUrl } from '../config.js';
+import { containerName, loadConfig } from '../config.js';
+import { srtIngestUrl } from '../harness/engine.js';
 import { discoverStamp, makeHost, uploaderHealth } from '../harness/host.js';
 
 const ONE_HOUR_S = 3600;

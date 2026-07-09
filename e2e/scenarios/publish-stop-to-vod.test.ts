@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
 import { containerName, loadConfig } from '../config.js';
+import { getEngine } from '../harness/engine.js';
 import { discoverStamp, makeHost, waitForIdle } from '../harness/host.js';
 import { parseUploaderLog } from '../harness/logwatch.js';
 import { startPublisher, type Publisher } from '../harness/publisher.js';
@@ -9,9 +10,9 @@ import { waitFor } from '../harness/wait.js';
 
 /**
  * Scenario D — a clean broadcaster stop finalizes the stream as a VOD.
- * When ffmpeg/OBS stops, SRS fires on_unpublish → stopStream → the uploader drains and publishes the
- * VOD manifest + flips the catalog entry to VOD. This is the normal end-of-stream (immediate, via the
- * unpublish webhook — not the 60s recovery timer).
+ * When ffmpeg/OBS stops, the engine fires its unpublish/closing webhook → stopStream → the uploader
+ * drains and publishes the VOD manifest + flips the catalog entry to VOD. This is the normal
+ * end-of-stream (immediate, via the webhook — not the 60s recovery timer).
  */
 
 const WARMUP_SEGMENTS = 3;
@@ -21,6 +22,7 @@ const MIN_STAMP_TTL_S = 600;
 
 describe('D — clean broadcaster stop: finalize as VOD', () => {
   const cfg = loadConfig();
+  const engine = getEngine(cfg);
   const host = makeHost(cfg);
   const uploader = containerName(cfg, 'stream-uploader');
   let publisher: Publisher;
@@ -56,7 +58,7 @@ describe('D — clean broadcaster stop: finalize as VOD', () => {
     });
 
     const finalLog = await log();
-    assert.match(finalLog, /\[SRS\] Stream unpublished/, 'SRS must report the stream unpublished');
+    assert.match(finalLog, engine.unpublishedMarker, `the ${engine.name} engine must report the stream ended`);
     assert.match(finalLog, /Updating stream in list to VOD/, 'the uploader must finalize the VOD catalog entry');
   });
 });

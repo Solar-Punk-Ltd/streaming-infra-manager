@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
 import { containerName, loadConfig } from '../config.js';
+import { getEngine } from '../harness/engine.js';
 import { discoverStamp, makeHost, uploaderHealth, waitForIdle } from '../harness/host.js';
 import { parseUploaderLog } from '../harness/logwatch.js';
 import { startPublisher, type Publisher } from '../harness/publisher.js';
@@ -20,6 +21,7 @@ const MIN_STAMP_TTL_S = 600;
 
 describe('service — /health reflects the stream lifecycle', () => {
   const cfg = loadConfig();
+  const engine = getEngine(cfg);
   const host = makeHost(cfg);
   const uploader = containerName(cfg, 'stream-uploader');
   let publisher: Publisher;
@@ -46,7 +48,11 @@ describe('service — /health reflects the stream lifecycle', () => {
     const live = await uploaderHealth(host, cfg);
     assert.equal(live.status, 'ok', 'health status must be ok while streaming');
     assert.ok(live.activeStreams >= 1, `expected an active stream; got activeStreams=${live.activeStreams}`);
-    assert.deepEqual(live.engines, ['srs'], `expected the srs engine; got ${JSON.stringify(live.engines)}`);
+    assert.deepEqual(
+      live.engines,
+      [engine.name],
+      `expected the ${engine.name} engine; got ${JSON.stringify(live.engines)}`,
+    );
     assert.equal(
       live.staleManifestStreams,
       0,

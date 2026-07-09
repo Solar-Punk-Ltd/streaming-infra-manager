@@ -18,6 +18,20 @@ import 'dotenv/config';
 export const MODES = ['attach', 'deploy'] as const;
 export type Mode = (typeof MODES)[number];
 
+export const ENGINES = ['srs', 'ome'] as const;
+export type EngineName = (typeof ENGINES)[number];
+
+/** Default HLS/ingest stream path per engine (OME apps must be `video` or `audio`, not `live`). */
+const DEFAULT_STREAM_PATH: Record<EngineName, string> = {
+  srs: 'live/stream',
+  ome: 'video/stream',
+};
+
+/** OME's SRT provider port on the host — OME deploys standalone, off the per-profile port slot. */
+const DEFAULT_OME_SRT_PORT = 10080;
+/** OME's compose sets a fixed `container_name`, so it is not `<profile>-ome-1`. */
+const DEFAULT_OME_CONTAINER = 'ome';
+
 export interface Ports {
   uploaderApi: number;
   srt: number;
@@ -58,6 +72,8 @@ export function portsForSlot(slot: number): Ports {
 
 export interface E2EConfig {
   mode: Mode;
+  /** Media engine the target profile runs; selects the SRT streamid form, log markers, /health.engines. */
+  engine: EngineName;
   /** ssh target from ~/.ssh/config used for attach-mode transport + fault injection. */
   sshTarget: string;
   /** Public host/IP the SRT publisher and viewer reach from where the tests run. */
@@ -66,8 +82,12 @@ export interface E2EConfig {
   profile: string;
   portSlot: number;
   ports: Ports;
-  /** HLS stream path used in the SRT streamid (e.g. "live/stream"). */
+  /** HLS stream path used in the SRT streamid (SRS `live/<name>`, OME `video|audio/<name>`). */
   streamPath: string;
+  /** OME SRT ingest port on the host (OME-only; OME deploys standalone, off the profile port slot). */
+  omeSrtPort: number;
+  /** OME container name for the engine-restart scenario (OME's compose sets a fixed container_name). */
+  omeContainer: string;
   /** Manager API base (deploy mode only), typically the local tunnel to the host. */
   managerApiBase: string;
 }
@@ -84,12 +104,27 @@ function parseMode(raw: string): Mode {
   throw new Error(`Invalid E2E_MODE "${raw}"; expected one of: ${MODES.join(', ')}`);
 }
 
+function parseEngine(raw: string): EngineName {
+  if ((ENGINES as readonly string[]).includes(raw)) {
+    return raw as EngineName;
+  }
+  throw new Error(`Invalid E2E_ENGINE "${raw}"; expected one of: ${ENGINES.join(', ')}`);
+}
+
 function parsePortSlot(raw: string): number {
   const slot = Number(raw);
   if (!Number.isInteger(slot) || slot < 0) {
     throw new Error(`Invalid E2E_PORT_SLOT "${raw}"; expected a non-negative integer`);
   }
   return slot;
+}
+
+function parsePort(name: string, raw: string): number {
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid ${name} "${raw}"; expected a port in 1–65535`);
+  }
+  return port;
 }
 
 export function loadConfig(): E2EConfig {
@@ -100,15 +135,19 @@ export function loadConfig(): E2EConfig {
         'Deploy a profile yourself and point the suite at it (set E2E_PROFILE / E2E_PUBLIC_HOST).',
     );
   }
+  const engine = parseEngine(env('E2E_ENGINE', 'srs'));
   const portSlot = parsePortSlot(env('E2E_PORT_SLOT', '2'));
   return {
     mode,
+    engine,
     sshTarget: env('E2E_SSH_TARGET', 'manager-host'),
     publicHost: env('E2E_PUBLIC_HOST', '127.0.0.1'),
     profile: env('E2E_PROFILE', 'srs-check-test1'),
     portSlot,
     ports: portsForSlot(portSlot),
-    streamPath: env('E2E_STREAM_PATH', 'live/stream'),
+    streamPath: env('E2E_STREAM_PATH', DEFAULT_STREAM_PATH[engine]),
+    omeSrtPort: parsePort('E2E_OME_SRT_PORT', env('E2E_OME_SRT_PORT', String(DEFAULT_OME_SRT_PORT))),
+    omeContainer: env('E2E_OME_CONTAINER', DEFAULT_OME_CONTAINER),
     managerApiBase: env('E2E_MANAGER_API', 'http://localhost:8080'),
   };
 }
@@ -126,9 +165,4 @@ export type ServiceName = (typeof SERVICES)[keyof typeof SERVICES];
 /** docker-compose default container name for a profile service (`<profile>-<service>-1`). */
 export function containerName(cfg: E2EConfig, service: ServiceName): string {
   return `${cfg.profile}-${service}-1`;
-}
-
-/** SRT publish URL matching the OBS ingest string: srt://host:port?streamid=#!::r=<path>,m=publish */
-export function srtIngestUrl(cfg: E2EConfig): string {
-  return `srt://${cfg.publicHost}:${cfg.ports.srt}?streamid=#!::r=${cfg.streamPath},m=publish`;
 }
