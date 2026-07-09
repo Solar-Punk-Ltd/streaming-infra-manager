@@ -1,4 +1,5 @@
 manager/.env
+e2e/.env
 manager/node_modules
 manager/dist
 *.log

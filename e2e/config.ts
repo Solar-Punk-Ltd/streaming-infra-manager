@@ -11,6 +11,10 @@
  * host/profile without code changes.
  */
 
+// Load a local .env (if present) so the suite can be pointed at any deployment without code edits.
+// Shell-exported vars still win over .env — e.g. `E2E_ENGINE=ome pnpm test:e2e` overrides a .env.
+import 'dotenv/config';
+
 export const MODES = ['attach', 'deploy'] as const;
 export type Mode = (typeof MODES)[number];
 
@@ -89,11 +93,18 @@ function parsePortSlot(raw: string): number {
 }
 
 export function loadConfig(): E2EConfig {
+  const mode = parseMode(env('E2E_MODE', 'attach'));
+  if (mode === 'deploy') {
+    throw new Error(
+      'E2E_MODE=deploy is not implemented yet — the suite only supports attach mode. ' +
+        'Deploy a profile yourself and point the suite at it (set E2E_PROFILE / E2E_PUBLIC_HOST).',
+    );
+  }
   const portSlot = parsePortSlot(env('E2E_PORT_SLOT', '2'));
   return {
-    mode: parseMode(env('E2E_MODE', 'attach')),
+    mode,
     sshTarget: env('E2E_SSH_TARGET', 'manager-host'),
-    publicHost: env('E2E_PUBLIC_HOST', '49.12.149.62'),
+    publicHost: env('E2E_PUBLIC_HOST', '127.0.0.1'),
     profile: env('E2E_PROFILE', 'srs-check-test1'),
     portSlot,
     ports: portsForSlot(portSlot),
