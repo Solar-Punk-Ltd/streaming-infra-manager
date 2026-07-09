@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test:e2e": "tsx --test --test-concurrency=1 'scenarios/**/*.test.ts' 'service/**/*.test.ts'",
+    "test:e2e": "tsx --test --test-concurrency=1 'preflight/**/*.test.ts' 'scenarios/**/*.test.ts' 'service/**/*.test.ts'",
     "test:e2e:smoke": "tsx --test 'smoke/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },

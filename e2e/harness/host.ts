@@ -142,12 +142,31 @@ export class Host {
 
   /** curl a localhost port on the host and parse JSON (uploader /health, bee /stamps, …). */
   async localJson<T>(port: number, path: string, timeoutS: number = 5): Promise<T> {
-    const { stdout } = await this.run(`curl -s --max-time ${timeoutS} http://localhost:${port}${path}`);
+    return this.curlJson<T>('GET', port, path, timeoutS);
+  }
+
+  /**
+   * POST to a localhost port and parse the JSON reply. On-chain bee calls (e.g. chequebook deposit)
+   * can take far longer than a read, hence the generous default timeout. Not idempotent: `run` may
+   * retry the underlying ssh on a transport drop, so callers must tolerate at-least-once delivery.
+   */
+  async localPost<T>(port: number, path: string, timeoutS: number = 120): Promise<T> {
+    return this.curlJson<T>('POST', port, path, timeoutS);
+  }
+
+  private async curlJson<T>(method: 'GET' | 'POST', port: number, path: string, timeoutS: number): Promise<T> {
+    const methodFlag = method === 'POST' ? '-X POST ' : '';
+    // Keep the ssh run bound above curl's own deadline so --max-time is what fires first on a slow reply.
+    const runTimeoutMs = Math.max(DEFAULT_RUN_TIMEOUT_MS, (timeoutS + 5) * 1_000);
+    const { stdout } = await this.run(
+      `curl -s ${methodFlag}--max-time ${timeoutS} http://localhost:${port}${path}`,
+      runTimeoutMs,
+    );
     const text = stdout.trim();
     try {
       return JSON.parse(text) as T;
     } catch {
-      throw new Error(`non-JSON from :${port}${path} → ${text.slice(0, 200)}`);
+      throw new Error(`non-JSON from ${method} :${port}${path} → ${text.slice(0, 200)}`);
     }
   }
 }
@@ -186,6 +205,32 @@ export async function discoverStamp(host: Host, cfg: E2EConfig): Promise<Stamp> 
     }
     await sleep(3_000);
   }
+}
+
+/** bee's on-chain SWAP chequebook balances, as PLUR integer strings (1 BZZ = 1e16 PLUR). */
+export interface ChequebookBalance {
+  totalBalance: string;
+  availableBalance: string;
+}
+
+/** Read the bee-uploader node's SWAP chequebook balance (bandwidth funds, distinct from postage stamps). */
+export function chequebookBalance(host: Host, cfg: E2EConfig): Promise<ChequebookBalance> {
+  return host.localJson<ChequebookBalance>(cfg.ports.beeUploaderApi, '/chequebook/balance');
+}
+
+/**
+ * Deposit `amountPlur` from the node's wallet into its chequebook (a real on-chain SWAP tx). Returns
+ * the transaction hash; the balance reflects it only once the tx mines, so callers must poll after.
+ */
+export async function depositToChequebook(host: Host, cfg: E2EConfig, amountPlur: bigint): Promise<string> {
+  const body = await host.localPost<{ transactionHash?: string; message?: string }>(
+    cfg.ports.beeUploaderApi,
+    `/chequebook/deposit?amount=${amountPlur.toString()}`,
+  );
+  if (!body.transactionHash) {
+    throw new Error(`chequebook deposit failed: ${body.message ?? JSON.stringify(body)}`);
+  }
+  return body.transactionHash;
 }
 
 /**
