@@ -29,6 +29,19 @@ The pipeline is: **broadcaster → media server → uploader → storage (Swarm)
 
 Under heavy upload load, the **directory of streams** (the "what's live / what's recorded" list a viewer browses) can take a **few minutes** to update. The video itself plays fine — only the *listing* lags, and it catches up on its own. This is a property of pushing everything through a single storage node's outbound queue; it is **not** a data-loss or playback problem. We are accepting it for now.
 
+### Not covered yet (honest scope)
+
+Resilience to the failures in the table above is proven. These **other** streaming concerns are **not** automated here, and we don't claim them:
+
+- **Seeking / scrubbing** — jumping around the timeline of a live or recorded stream.
+- **Volume & audio quality** — beyond "a tone is present and stays in sync."
+- **Adaptive bitrate (ABR)** — multiple quality renditions and the player switching between them on the fly.
+- **Viewer scale** — many simultaneous *viewers* (we verify two simultaneous *broadcasters*, which is a different axis).
+- **Mid-stream join** — a viewer opening a stream that has already been live for a while and getting a correct starting window.
+- **Soak / endurance** — multi-hour streams, stamp exhaustion over time, and memory growth under sustained load.
+
+If it isn't a row in the table above, this suite doesn't verify it.
+
 ---
 
 ## Part 2 — Verify it yourself by hand
@@ -83,6 +96,24 @@ $DOCKER logs -f --tail 20 $PROFILE-stream-uploader-1
 ```
 
 > **Remember the listing lag.** Anything you read in the **browser list** (or that a viewer sees appear/disappear) can trail by minutes under load. Anything from `$UPLOADER_API/health` or the uploader logs is **immediate**. When in doubt, trust the uploader.
+
+### If your deployment runs OME instead of SRS
+
+The drills below are written for **SRS** (the default engine). Against an **OME** deployment only three things change; everything else is identical:
+
+- **The publish URL** (Step 1 and Drill 7) — OME carries the app/stream path as a full URL inside the streamid:
+
+  ```bash
+  # OME: app is `video` or `audio` (use video/stream, and video/stream2 for the second stream)
+  -f mpegts "srt://$HOST:$SRT_PORT?streamid=srt://$HOST:$SRT_PORT/video/stream"
+  ```
+
+- **The media server** you restart in Drill 4 is the `ome` container (a standalone singleton), not `$PROFILE-srs-1`.
+- `curl -s $UPLOADER_API/health` reports `engines: ["ome"]` instead of `["srs"]`.
+
+> ⚠️ The exact OME publish-URL form is confirmed during the live OME bring-up. If your ffmpeg handshake is refused, check the `ome` container's logs — some builds want the inner URL percent-encoded.
+
+The automated suite makes this switch for you with `E2E_ENGINE=ome` (see the engine matrix in [`e2e/README.md`](../../e2e/README.md)).
 
 ### Step 1 — start a stream and watch it
 
@@ -198,4 +229,8 @@ ffmpeg -hide_banner -loglevel error -re \
 
 ## For engineers
 
-The automated suite that proves all of this — how it's structured, the attach/deploy modes, and how to run it — is documented in [`e2e/README.md`](../../e2e/README.md). Run it with `pnpm test:e2e` from the `e2e/` folder (expect 10/10; the storage/recording drills are the slow ones because of the listing lag).
+The automated suite that proves all of this — how it's structured and how to run it — is documented in [`e2e/README.md`](../../e2e/README.md). Run it with `pnpm test:e2e` from the `e2e/` folder (expect 10/10 failure/service tests; the storage/recording drills are the slow ones because of the listing lag). A few specifics worth knowing:
+
+- **Attach-only.** The suite **attaches** to an already-running deployment over `ssh` and injects faults; it never deploys a stack or spends BZZ to stand one up (`E2E_MODE=deploy` is intentionally not implemented). Point it at your profile via `e2e/.env` — copy [`e2e/.env.example`](../../e2e/.env.example).
+- **Chequebook preflight.** Before any stream is published, `preflight/chequebook-funding` checks the uploader node's chequebook holds ≥ 0.5 BZZ and tops up from the wallet if it can — so the run fails fast, and burns no stamp, on an underfunded node.
+- **SRS or OME.** `E2E_ENGINE=srs` (default) or `ome` switches the whole suite between media engines — it adapts the SRT streamid it publishes, the log markers it asserts, and the expected `/health.engines` value. The per-engine matrix is in [`e2e/README.md`](../../e2e/README.md).
