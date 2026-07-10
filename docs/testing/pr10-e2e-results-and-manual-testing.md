@@ -1,6 +1,6 @@
 # Live Streaming Resilience — What We Support & How to Verify It
 
-_Status: **10 / 10** automated failure tests passing (last run 2026-07-08)._
+_Status: the automated suite (11 tests — chequebook preflight + 6 fault scenarios + 4 service checks) passes on **SRS** (last full run 2026-07-08). First full **OME** run (2026-07-09): **10 / 11** — the lone failure, uploader crash-recovery (F), was a genuine OME-specific gap (the HLS puller wasn't restarted on recovery), since fixed in the uploader; live OME re-verification of F is pending._
 
 This system streams live video and stores it on Swarm (decentralized storage). It is built to **keep streaming through failures** — nodes crashing, services restarting, networks dropping — instead of falling over. This document has two parts:
 
@@ -23,7 +23,7 @@ The pipeline is: **broadcaster → media server → uploader → storage (Swarm)
 | **The broadcaster ends normally** | finalizes the stream into a replayable recording (VOD) | the live stream becomes a watchable recording |
 | **Two broadcasters stream at once** | handles both independently, each with its own recording | both work, no interference |
 
-**Every row above is verified automatically** by an end-to-end test suite that injects the *real* failure (kills real containers, drops real nodes) against a live deployment and checks the outcome. Current status: **10 / 10 passing.**
+**Every row above is verified automatically** by an end-to-end test suite that injects the *real* failure (kills real containers, drops real nodes) against a live deployment and checks the outcome. On **SRS** the full suite passes. On **OME**, the most recent full run passed every row except uploader-crash recovery — which surfaced a real OME-specific bug that has since been fixed in the uploader (live re-verification pending).
 
 ### One known limitation (honest note)
 
@@ -108,10 +108,11 @@ The drills below are written for **SRS** (the default engine). Against an **OME*
   -f mpegts "srt://$HOST:$SRT_PORT?streamid=srt://$HOST:$SRT_PORT/video/stream"
   ```
 
-- **The media server** you restart in Drill 4 is the `ome` container (a standalone singleton), not `$PROFILE-srs-1`.
+- **The media server** you restart in Drill 4 is the `$PROFILE-ome-1` container, not `$PROFILE-srs-1` (OME deploys per-profile, just like SRS).
 - `curl -s $UPLOADER_API/health` reports `engines: ["ome"]` instead of `["srs"]`.
+- **Uploader crash-recovery (Drill 3)** needs the OME puller-restart fix in the uploader; the recovery log line reads `[OME] Resuming HLS pull for recovered stream …` rather than SRS's segment-resume line. Without that fix the recovered OME stream is wrongly finalized as VOD at the 60s timer.
 
-> ⚠️ The exact OME publish-URL form is confirmed during the live OME bring-up. If your ffmpeg handshake is refused, check the `ome` container's logs — some builds want the inner URL percent-encoded.
+> The OME publish-URL form above was confirmed against a live OME profile (2026-07-09): the inner `srt://…` URL is sent verbatim. If a future OME build refuses the handshake, check the `$PROFILE-ome-1` container's logs — some builds want the inner URL percent-encoded.
 
 The automated suite makes this switch for you with `E2E_ENGINE=ome` (see the engine matrix in [`e2e/README.md`](../../e2e/README.md)).
 
@@ -229,7 +230,7 @@ ffmpeg -hide_banner -loglevel error -re \
 
 ## For engineers
 
-The automated suite that proves all of this — how it's structured and how to run it — is documented in [`e2e/README.md`](../../e2e/README.md). Run it with `pnpm test:e2e` from the `e2e/` folder (expect 10/10 failure/service tests; the storage/recording drills are the slow ones because of the listing lag). A few specifics worth knowing:
+The automated suite that proves all of this — how it's structured and how to run it — is documented in [`e2e/README.md`](../../e2e/README.md). Run it with `pnpm test:e2e` from the `e2e/` folder (11 tests: chequebook preflight + 6 fault scenarios + 4 service checks; the storage/recording drills are the slow ones because of the listing lag). A few specifics worth knowing:
 
 - **Attach-only.** The suite **attaches** to an already-running deployment over `ssh` and injects faults; it never deploys a stack or spends BZZ to stand one up (`E2E_MODE=deploy` is intentionally not implemented). Point it at your profile via `e2e/.env` — copy [`e2e/.env.example`](../../e2e/.env.example).
 - **Chequebook preflight.** Before any stream is published, `preflight/chequebook-funding` checks the uploader node's chequebook holds ≥ 0.5 BZZ and tops up from the wallet if it can — so the run fails fast, and burns no stamp, on an underfunded node.

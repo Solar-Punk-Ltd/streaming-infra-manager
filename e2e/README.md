@@ -49,7 +49,7 @@ Fault scenarios (publish a real stream, then inject a fault):
 | `scenarios/publish-stop-to-vod` (D) | clean broadcaster stop → immediate VOD finalize (unpublish webhook) |
 | `scenarios/gateway-outage-viewer` (G) | viewer gateway down → uploads **unaffected** (independent path) |
 | `scenarios/engine-restart` (E) | media-engine restart (SRS or OME) → orchestrator re-announces; a fresh `live` topic resumes (needs the PR #10 recovery fix deployed) |
-| `scenarios/uploader-crash-recovery` (F) | uploader hard-crash (SIGKILL) → stream recovers from saved state and stays `live`, not VOD-ed at the 60s recovery timer (needs the PR #10 recovery fix deployed) |
+| `scenarios/uploader-crash-recovery` (F) | uploader hard-crash (SIGKILL) → stream recovers from saved state and stays `live`, not VOD-ed at the 60s recovery timer (needs the PR #10 recovery fix; on OME **also** the puller-restart fix that re-attaches the HLS pull on recovery) |
 
 Service coverage (happy path, no faults):
 
@@ -76,14 +76,15 @@ The suite runs against either media engine, selected by `E2E_ENGINE` (default `s
 | default stream path | `live/stream` | `video/stream` (app is `video`/`audio`) |
 | lifecycle markers | `[SRS] Stream published/unpublished` | `[OME] Stream opening/closing` |
 | `/health.engines` | `['srs']` | `['ome']` |
-| restart target (scenario E) | `<profile>-srs-1` | `ome` (standalone singleton) |
+| restart target (scenario E) | `<profile>-srs-1` | `<profile>-ome-1` |
 
 Only `E2E_ENGINE` / `E2E_STREAM_PATH` and — OME only — `E2E_OME_SRT_PORT` / `E2E_OME_CONTAINER`
 change between engines; everything asserted downstream (catalog, VOD finalize, `/health` shape) is
 engine-independent. The per-engine differences live in one file, [`harness/engine.ts`](./harness/engine.ts).
 
-> ⚠️ The OME SRT streamid form above is confirmed during the live OME bring-up; if OME needs
-> percent-encoding it is a one-line change in `harness/engine.ts`.
+> The OME SRT streamid form above was confirmed against a live OME profile (2026-07-09): the inner
+> `srt://…` URL is sent verbatim, no percent-encoding. If a future OME build refuses the handshake,
+> percent-encoding the inner URL is a one-line change in `harness/engine.ts`.
 
 ## Run
 
