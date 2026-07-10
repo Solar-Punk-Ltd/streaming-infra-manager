@@ -27,11 +27,6 @@ const DEFAULT_STREAM_PATH: Record<EngineName, string> = {
   ome: 'video/stream',
 };
 
-/** OME's SRT provider port on the host — OME deploys standalone, off the per-profile port slot. */
-const DEFAULT_OME_SRT_PORT = 10080;
-/** OME's compose sets a fixed `container_name`, so it is not `<profile>-ome-1`. */
-const DEFAULT_OME_CONTAINER = 'ome';
-
 export interface Ports {
   uploaderApi: number;
   srt: number;
@@ -84,9 +79,9 @@ export interface E2EConfig {
   ports: Ports;
   /** HLS stream path used in the SRT streamid (SRS `live/<name>`, OME `video|audio/<name>`). */
   streamPath: string;
-  /** OME SRT ingest port on the host (OME-only; OME deploys standalone, off the profile port slot). */
+  /** OME SRT ingest port on the host (OME-only; defaults to the profile's slot-shifted `srt` port). */
   omeSrtPort: number;
-  /** OME container name for the engine-restart scenario (OME's compose sets a fixed container_name). */
+  /** OME container for the engine-restart scenario (OME-only; defaults to `<profile>-ome-1`). */
   omeContainer: string;
   /** Manager API base (deploy mode only), typically the local tunnel to the host. */
   managerApiBase: string;
@@ -137,17 +132,22 @@ export function loadConfig(): E2EConfig {
   }
   const engine = parseEngine(env('E2E_ENGINE', 'srs'));
   const portSlot = parsePortSlot(env('E2E_PORT_SLOT', '2'));
+  const profile = env('E2E_PROFILE', 'srs-check-test1');
+  const ports = portsForSlot(portSlot);
   return {
     mode,
     engine,
     sshTarget: env('E2E_SSH_TARGET', 'manager-host'),
     publicHost: env('E2E_PUBLIC_HOST', '127.0.0.1'),
-    profile: env('E2E_PROFILE', 'srs-check-test1'),
+    profile,
     portSlot,
-    ports: portsForSlot(portSlot),
+    ports,
     streamPath: env('E2E_STREAM_PATH', DEFAULT_STREAM_PATH[engine]),
-    omeSrtPort: parsePort('E2E_OME_SRT_PORT', env('E2E_OME_SRT_PORT', String(DEFAULT_OME_SRT_PORT))),
-    omeContainer: env('E2E_OME_CONTAINER', DEFAULT_OME_CONTAINER),
+    // The manager deploys OME as a normal per-profile service — SRT ingest on the profile's
+    // slot-shifted `srt` port, container `<profile>-ome-1` — exactly like SRS. The E2E_OME_*
+    // overrides remain for pointing at a standalone OME (engines/ome/docker-compose.yml).
+    omeSrtPort: parsePort('E2E_OME_SRT_PORT', env('E2E_OME_SRT_PORT', String(ports.srt))),
+    omeContainer: env('E2E_OME_CONTAINER', `${profile}-ome-1`),
     managerApiBase: env('E2E_MANAGER_API', 'http://localhost:8080'),
   };
 }
