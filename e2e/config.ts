@@ -122,6 +122,19 @@ function parsePort(name: string, raw: string): number {
   return port;
 }
 
+/**
+ * Container/compose-project name charset (docker's own rule). The harness interpolates these values
+ * into ssh'd docker commands, so this also keeps them shell-safe.
+ */
+const DOCKER_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
+function parseDockerName(name: string, raw: string): string {
+  if (!DOCKER_NAME_RE.test(raw)) {
+    throw new Error(`Invalid ${name} "${raw}"; expected a docker-safe name (${DOCKER_NAME_RE.source})`);
+  }
+  return raw;
+}
+
 export function loadConfig(): E2EConfig {
   const mode = parseMode(env('E2E_MODE', 'attach'));
   if (mode === 'deploy') {
@@ -132,7 +145,7 @@ export function loadConfig(): E2EConfig {
   }
   const engine = parseEngine(env('E2E_ENGINE', 'srs'));
   const portSlot = parsePortSlot(env('E2E_PORT_SLOT', '2'));
-  const profile = env('E2E_PROFILE', 'srs-check-test1');
+  const profile = parseDockerName('E2E_PROFILE', env('E2E_PROFILE', 'srs-check-test1'));
   const ports = portsForSlot(portSlot);
   return {
     mode,
@@ -147,7 +160,7 @@ export function loadConfig(): E2EConfig {
     // slot-shifted `srt` port, container `<profile>-ome-1` — exactly like SRS. The E2E_OME_*
     // overrides remain for pointing at a standalone OME (engines/ome/docker-compose.yml).
     omeSrtPort: parsePort('E2E_OME_SRT_PORT', env('E2E_OME_SRT_PORT', String(ports.srt))),
-    omeContainer: env('E2E_OME_CONTAINER', `${profile}-ome-1`),
+    omeContainer: parseDockerName('E2E_OME_CONTAINER', env('E2E_OME_CONTAINER', `${profile}-ome-1`)),
     managerApiBase: env('E2E_MANAGER_API', 'http://localhost:8080'),
   };
 }
