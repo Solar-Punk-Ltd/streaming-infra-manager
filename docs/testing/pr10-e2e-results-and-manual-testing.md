@@ -1,6 +1,6 @@
 # Live Streaming Resilience — What We Support & How to Verify It
 
-_Status: the automated suite (11 tests — chequebook preflight + 6 fault scenarios + 4 service checks) passes on **SRS** (last full run 2026-07-08). First full **OME** run (2026-07-09): **10 / 11** — the lone failure, uploader crash-recovery (F), was a genuine OME-specific gap (the HLS puller wasn't restarted on recovery), since fixed in the uploader; live OME re-verification of F is pending._
+_Status: the automated suite (11 tests — chequebook preflight + 6 fault scenarios + 4 service checks) is green on **SRS**: full run **11 / 11** (2026-07-10). **OME**: the first full run (2026-07-09) came back **10 / 11** — the lone failure, uploader crash-recovery (F), was a genuine OME-specific gap (the HLS puller wasn't restarted on recovery). The suite caught it, the uploader was fixed (swarm-hls-stream #21), and F was **re-verified green live** on 2026-07-10; the same run also surfaced an intermittent playlist-resolution race, fixed in #22._
 
 This system streams live video and stores it on Swarm (decentralized storage). It is built to **keep streaming through failures** — nodes crashing, services restarting, networks dropping — instead of falling over. This document has two parts:
 
@@ -23,7 +23,7 @@ The pipeline is: **broadcaster → media server → uploader → storage (Swarm)
 | **The broadcaster ends normally** | finalizes the stream into a replayable recording (VOD) | the live stream becomes a watchable recording |
 | **Two broadcasters stream at once** | handles both independently, each with its own recording | both work, no interference |
 
-**Every row above is verified automatically** by an end-to-end test suite that injects the *real* failure (kills real containers, drops real nodes) against a live deployment and checks the outcome. On **SRS** the full suite passes. On **OME**, the most recent full run passed every row except uploader-crash recovery — which surfaced a real OME-specific bug that has since been fixed in the uploader (live re-verification pending).
+**Every row above is verified automatically** by an end-to-end test suite that injects the *real* failure (kills real containers, drops real nodes) against a live deployment and checks the outcome. On **SRS** the full suite passes. On **OME**, the first full run passed every row except uploader-crash recovery — it surfaced a real OME-specific bug, which was fixed in the uploader and re-verified live.
 
 ### One known limitation (honest note)
 
