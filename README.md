@@ -15,6 +15,26 @@ stack. Targets two dedicated servers:
   `packages/client`, `packages/cli`, and `engines/srs`. Docker images for the
   streamer and watcher servers are built from a pinned commit of this submodule.
 
+## Profiles
+
+Everything the manager deploys is organized into **profiles** — named, self-contained
+deployments of the whole stack (media engine, `stream-uploader`, bee uploader/gateway
+nodes, client). You create one in the manager UI/API with:
+
+- a **name** of your choice — it becomes the docker-compose project, so containers are
+  named `<profile>-<service>-1`;
+- a **port slot** — every host port is `base + slot*10` (e.g. slot 2 → uploader API
+  10020, SRT 10021, client 10024);
+- an **engine** (`srs` or `ome`) and a **postage stamp** for Swarm uploads.
+
+On each deploy the manager generates the profile's config itself: it writes
+`.env.<profile>` next to the submodule (a copy of the base `.env` with `ENGINE`,
+`STAMP`, and slot-derived ports upserted — see `manager/src/utils/envUtils.ts`) and
+creates per-profile bee data dirs. Nothing is tied to any particular profile name:
+anyone can clone this repo, deploy the manager, and create their own profiles. The
+e2e suite ([`e2e/README.md`](e2e/README.md)) attaches to any profile via
+`E2E_PROFILE` / `E2E_PORT_SLOT` / `E2E_ENGINE`.
+
 ## Cloning this repository
 
 This repo uses a **git submodule** (the `manager/swarm-hls-stream/` directory). A plain

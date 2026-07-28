@@ -1,0 +1,17 @@
+{
+  "name": "@streaming-infra-manager/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "tsx --test --test-concurrency=1 'preflight/**/*.test.ts' 'scenarios/**/*.test.ts' 'service/**/*.test.ts'",
+    "test:e2e:smoke": "tsx --test 'smoke/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.9.0",
+    "dotenv": "16.4.7",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

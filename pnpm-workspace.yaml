@@ -2,6 +2,7 @@ packages:
   - common
   - manager
   - frontend
+  - e2e
 injectWorkspacePackages: true
 allowBuilds:
   cpu-features: false
