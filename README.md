@@ -77,15 +77,24 @@ or B.
 
 ## Updating the upstream submodule
 
-When you want to pull the latest commits from `swarm-hls-stream`'s `main`
-branch into this repo:
+`git submodule update --remote` follows whichever upstream branch `.gitmodules`
+names for the submodule, **not** always `main`. Check it before bumping:
 
 ```sh
-git submodule update --remote swarm-hls-stream
-git add swarm-hls-stream
+git config -f .gitmodules submodule.swarm-hls-stream.branch
+```
+
+On a branch that is testing unreleased uploader work this points at that
+feature branch, so a bump keeps tracking the code under test. On trunk it
+points at `main`. To pull the latest commits from whichever branch that is:
+
+```sh
+git submodule update --remote manager/swarm-hls-stream
+git add manager/swarm-hls-stream
 git commit -m "chore: bump swarm-hls-stream"
 ```
 
 The first command moves the submodule to the latest upstream commit; the next
 two record that move as a commit in this repo, so other clones get the same
-pinned version.
+pinned version. Note the argument is the submodule's **path**
+(`manager/swarm-hls-stream`), not its name.
