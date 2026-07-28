@@ -3,6 +3,7 @@ packages:
   - manager
   - frontend
   - e2e
+injectWorkspacePackages: true
 allowBuilds:
   cpu-features: false
   esbuild: true # build tooling — safest to allow

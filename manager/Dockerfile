@@ -12,7 +12,7 @@
 
 FROM node:22-alpine AS build
 WORKDIR /repo
-RUN npm install -g pnpm@9
+RUN corepack enable
 
 # Workspace manifests first so the install layer caches when sources change.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
