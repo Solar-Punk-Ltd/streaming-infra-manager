@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileWithContainers } from '../types/index.js';
@@ -32,6 +34,14 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
+// Local profiles publish their bee API on a host port. The manager reaches it
+// via host.docker.internal when it runs inside its own container (see
+// manager/docker-compose.yml extra_hosts); running natively (dev/e2e) that name
+// doesn't resolve, so fall back to 127.0.0.1. Override with BEE_LOCAL_HOST.
+const LOCAL_BEE_HOST =
+  process.env.BEE_LOCAL_HOST ??
+  (existsSync('/.dockerenv') ? 'host.docker.internal' : '127.0.0.1');
+
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;
 
@@ -43,7 +53,7 @@ export type BeeClientFactory = (baseUrl: string) => BeeStampClient;
 export function beeApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = (profile.host ?? '').trim();
-  const host = LOCAL_HOSTS.has(declared) ? 'host.docker.internal' : declared;
+  const host = LOCAL_HOSTS.has(declared) ? LOCAL_BEE_HOST : declared;
   return `http://${host}:${port}`;
 }
 
