@@ -10,6 +10,8 @@ export const nameHelperText = (
     ? 'locked — names are immutable'
     : groupMode
       ? 'members will be named <group>-profile-1, <group>-profile-2, …'
+      // ABR pools name members <pool>-<rung> and use their own form; see
+      // AbrPoolForm, which supplies its own helper text.
       : 'e.g. viewer-alpha');
 
 export const groupSizeHelperText = (

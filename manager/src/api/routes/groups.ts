@@ -29,6 +29,7 @@ export function createGroupsRouter(profileService: ProfileService): Router {
         notes: body.notes ?? null,
         host: body.host ?? undefined,
         components: body.components as string[] | undefined,
+        abr_ladder: body.abr_ladder ?? undefined,
         feed_owner: body.feed_owner ?? undefined,
         feed_topic: body.feed_topic ?? undefined,
         private_key: body.private_key ?? undefined,
@@ -44,6 +45,19 @@ export function createGroupsRouter(profileService: ProfileService): Router {
     asyncHandler(async (_req: Request, res: Response) => {
       const groups = await profileService.listGroups();
       res.json({ groups });
+    }),
+  );
+
+  // The deliverable of an ABR ladder: the BEE_PUBLISHERS value to paste into the
+  // stream-uploader's env, wherever that runs.
+  router.get(
+    '/:id/bee-publishers',
+    validateParams(groupIdParamSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const result = await profileService.beePublishersForGroup(
+        parseInt(req.params.id as string, 10),
+      );
+      res.json(result);
     }),
   );
 

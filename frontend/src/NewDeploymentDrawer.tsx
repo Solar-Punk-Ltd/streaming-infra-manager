@@ -32,10 +32,13 @@ import {
   type EngineName,
   ENGINE_SERVICES,
   getErrorMessage,
+  isLadderKind,
   OME_SERVICE,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
+
+import { AbrPoolForm } from './AbrPoolForm';
 
 import {
   addGroupMembers,
@@ -104,6 +107,21 @@ interface GroupSelection {
   members: Profile[];
 }
 
+/**
+ * What is being deployed.
+ *
+ * A single value rather than the old pair of booleans (`groupMode` +
+ * `ladderMode`), which could express a state that meant nothing — a ladder that
+ * was not a group — and left every irrelevant field needing its own guard.
+ * "Deploy as group" now belongs to the streaming-infra branch only.
+ */
+type DeploymentType = 'streaming-infra' | 'abr-pool';
+
+const DEPLOYMENT_TYPES: { value: DeploymentType; label: string }[] = [
+  { value: 'abr-pool', label: 'ABR Uploader Pool' },
+  { value: 'streaming-infra', label: 'Streaming Infra' },
+];
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -122,8 +140,13 @@ export function NewDeploymentDrawer({
   const isGroupEdit = !!selectedGroup;
   const isProfileEdit = !!selectedProfile;
   const isEdit = isProfileEdit || isGroupEdit;
+  const editingPool = isLadderKind(selectedGroup?.group.kind);
+  const [deploymentType, setDeploymentType] =
+    useState<DeploymentType>('streaming-infra');
   const [groupMode, setGroupMode] = useState(false);
   const [groupSize, setGroupSize] = useState(2);
+  // A pool renders its own self-contained form; nothing below applies to it.
+  const isPoolForm = editingPool || (!isEdit && deploymentType === 'abr-pool');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<ProfileKind>('viewer');
   const [components, setComponents] = useState<Component[]>(
@@ -274,6 +297,7 @@ export function NewDeploymentDrawer({
     setPrivateKey('');
     setStampId('');
     setNotes('');
+    setDeploymentType('streaming-infra');
     setGroupMode(false);
     setGroupSize(2);
     setAddCount(1);
@@ -391,6 +415,39 @@ export function NewDeploymentDrawer({
         </Stack>
 
         <Stack spacing={2}>
+          <TextField
+            label="Deployment type"
+            select
+            value={editingPool ? 'abr-pool' : deploymentType}
+            onChange={(e) =>
+              setDeploymentType(e.target.value as DeploymentType)
+            }
+            // Immutable once created, like kind: the two types have different
+            // members, ports and lifecycles.
+            disabled={isEdit}
+            helperText={
+              isEdit
+                ? 'locked — a deployment cannot change type'
+                : deploymentType === 'abr-pool'
+                  ? 'one Bee node per ABR quality rung, as publish targets'
+                  : 'streamer, viewer or custom deployments'
+            }
+          >
+            {DEPLOYMENT_TYPES.map((t) => (
+              <MenuItem key={t.value} value={t.value}>
+                {t.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {isPoolForm ? (
+            <AbrPoolForm
+              onCreated={onCreated}
+              onClose={handleClose}
+              editingGroup={editingPool ? selectedGroup : null}
+            />
+          ) : (
+            <>
           {!isEdit && (
             <FormControlLabel
               control={
@@ -668,6 +725,8 @@ export function NewDeploymentDrawer({
                     : 'Deploy'}
             </Button>
           </Stack>
+            </>
+          )}
         </Stack>
       </Box>
     </Drawer>

@@ -1,4 +1,16 @@
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  ABR_LADDER_GROUP_KIND,
+  ABR_RUNG_COMPONENTS,
+  assembleBeePublishers,
+  type BeePublishersResult,
+  type GroupKind,
+  getErrorMessage,
+  isLadderKind,
+  ladderMemberNames,
+  rungFromMemberName,
+  rungOrder,
+  STANDARD_GROUP_KIND,
+} from '@streaming-infra-manager/common';
 
 import {
   DeploymentGroupRepository,
@@ -21,6 +33,7 @@ import {
   GroupBusyError,
   GroupExistsError,
   GroupNotFoundError,
+  LadderGroupError,
   ProfileBusyError,
   ProfileExistsError,
   ProfileNotFoundError,
@@ -28,6 +41,7 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 
 const logger = Logger.getInstance();
@@ -209,6 +223,32 @@ export class ProfileService {
     return this.groupRepo.list();
   }
 
+  /**
+   * Members of a ladder, in ascending rung order.
+   *
+   * Ladder-ness is derived from the member names, never stored: a group that
+   * stops looking like a ladder — a rung removed — stops being treated as one,
+   * which is the honest answer rather than a stale flag on the group row.
+   */
+  private async ladderMembersOf(
+    group: DeploymentGroup,
+  ): Promise<{ rung: string; profile: Profile }[]> {
+    const members = await this.groupRepo.listMembers(group.id);
+    return members
+      .map((profile) => ({
+        rung: rungFromMemberName(group.name, profile.name),
+        profile,
+      }))
+      .filter((m): m is { rung: string; profile: Profile } => m.rung !== null)
+      .sort((a, b) => rungOrder(a.rung) - rungOrder(b.rung));
+  }
+
+  private assertNotLadder(group: DeploymentGroup, reason: string): void {
+    if (isLadderKind(group.kind)) {
+      throw new LadderGroupError(group.name, reason);
+    }
+  }
+
   async createGroup(input: {
     group_name: string;
     size: number;
@@ -221,6 +261,7 @@ export class ProfileService {
     private_key?: string;
     public_key?: string;
     stamp_id?: string;
+    abr_ladder?: boolean;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     const existingGroup = await this.groupRepo.findByName(input.group_name);
     if (existingGroup) {
@@ -229,26 +270,41 @@ export class ProfileService {
 
     const usedNames = new Set((await this.repo.list()).map((p) => p.name));
 
-    // todo string array
     const members: { name: string }[] = [];
-    let n = 1;
-    while (members.length < input.size) {
-      let candidate = `${input.group_name}-profile-${n}`;
-      while (usedNames.has(candidate)) {
-        n += 1;
-        candidate = `${input.group_name}-profile-${n}`;
-      }
 
-      usedNames.add(candidate);
-      members.push({ name: candidate });
-      n += 1;
+    if (input.abr_ladder) {
+      // A ladder's names are not negotiable — the rung lives in the name, so a
+      // taken name cannot be skipped past the way a fan-out member can. Fail
+      // loudly instead of quietly building a ladder with a gap in it.
+      for (const name of ladderMemberNames(input.group_name)) {
+        if (usedNames.has(name)) {
+          throw new ProfileExistsError(name);
+        }
+        usedNames.add(name);
+        members.push({ name });
+      }
+    } else {
+      // todo string array
+      let n = 1;
+      while (members.length < input.size) {
+        let candidate = `${input.group_name}-profile-${n}`;
+        while (usedNames.has(candidate)) {
+          n += 1;
+          candidate = `${input.group_name}-profile-${n}`;
+        }
+
+        usedNames.add(candidate);
+        members.push({ name: candidate });
+        n += 1;
+      }
     }
 
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
-      components:
-        input.components && input.components.length > 0
+      components: input.abr_ladder
+        ? [...ABR_RUNG_COMPONENTS]
+        : input.components && input.components.length > 0
           ? input.components
           : null,
       host: input.host ?? null,
@@ -259,14 +315,20 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
     };
 
+    const kind: GroupKind = input.abr_ladder
+      ? ABR_LADDER_GROUP_KIND
+      : STANDARD_GROUP_KIND;
+
     const { group, profiles } = await this.groupRepo.createGroupWithMembers(
       input.group_name,
+      kind,
       members,
       shared,
     );
 
     logger.info(
-      `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)`,
+      `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
+        `${input.abr_ladder ? ' (ABR ladder)' : ''}`,
     );
     const profilesWithContainers: ProfileWithContainers[] = [];
     for (const p of profiles) {
@@ -276,6 +338,43 @@ export class ProfileService {
     }
 
     return { group, profiles: profilesWithContainers };
+  }
+
+  /**
+   * The BEE_PUBLISHERS value for a ladder group.
+   *
+   * Pure: every field comes from the profile rows plus the resolved public host,
+   * so this makes no bee calls and cannot be slowed or failed by a node being
+   * down. Live batch state already has a home — the per-rung uploader cards.
+   *
+   * Emitted only when every rung has a stamp: `BeePublisherPool.perRung` refuses
+   * a ladder with a rung missing, so a partial string would fail later and less
+   * clearly than naming the rung that is not ready.
+   */
+  async beePublishersForGroup(groupId: number): Promise<BeePublishersResult> {
+    const group = await this.groupRepo.findById(groupId);
+    if (!group) {
+      throw new GroupNotFoundError(groupId);
+    }
+
+    if (!isLadderKind(group.kind)) {
+      throw new LadderGroupError(
+        group.name,
+        'this group is not an ABR ladder, so it has no BEE_PUBLISHERS to assemble',
+      );
+    }
+
+    const members = await this.ladderMembersOf(group);
+
+    return assembleBeePublishers(
+      members.map(({ rung, profile }) => ({
+        rung,
+        name: profile.name,
+        status: profile.status,
+        url: beePublicApiUrlFor(profile),
+        stampId: profile.stamp_id,
+      })),
+    );
   }
 
   async updateGroupConfig(
@@ -304,6 +403,17 @@ export class ProfileService {
       .map((m) => m.name);
     if (busy.length > 0) {
       throw new GroupBusyError(group.name, busy);
+    }
+
+    // Bulk-applying one stamp across a ladder would hand every rung the same
+    // batch, which is exactly the failure a node per rung exists to prevent:
+    // the batches are deliberately different sizes, bought per rung. Other
+    // shared fields stay bulk-editable.
+    if (input.stamp_id !== undefined && isLadderKind(group.kind)) {
+      throw new LadderGroupError(
+        group.name,
+        'each rung pays with its own postage batch, so a stamp cannot be applied to the whole group — buy one per rung from the Uploaders tab',
+      );
     }
 
     // Merge the requested changes onto each member. `undefined` means "not in
@@ -369,6 +479,13 @@ export class ProfileService {
     if (members.length === 0) {
       throw new GroupNotFoundError(groupId);
     }
+
+    // `<group>-profile-N` is not a rung name, so an appended member would sit in
+    // the group without ever being part of the ladder.
+    this.assertNotLadder(
+      group,
+      'its members are fixed to one per quality rung, so members cannot be appended',
+    );
 
     const canonical = members[0]!;
     const shared: SharedProfileParams = {

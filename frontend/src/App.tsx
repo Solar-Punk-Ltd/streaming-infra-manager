@@ -359,6 +359,7 @@ export function App() {
         {view === 'uploaders' && (
           <UploadersView
             profiles={profiles}
+            groups={groups}
             onChanged={load}
             srtPassphrase={srtPassphrase}
           />

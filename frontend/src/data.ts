@@ -112,6 +112,8 @@ export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
 export interface CreateGroupBody {
   group_name: string;
   size: number;
+  /** One bee-uploader per ABR rung, named `<group>-<rung>`. Fixes size + components. */
+  abr_ladder?: boolean;
   kind: ProfileKind;
   notes?: string | null;
   host?: string;
@@ -177,6 +179,39 @@ export async function addGroupMembers(
     );
   }
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
+export interface LadderRungState {
+  rung: string;
+  name: string;
+  status: string;
+  url: string;
+  stampId: string | null;
+}
+
+export interface BeePublishersResult {
+  ready: boolean;
+  value: string | null;
+  rungs: LadderRungState[];
+  missing: { rung: string; reason: string }[];
+}
+
+/**
+ * The assembled BEE_PUBLISHERS for a ladder group, or which rungs are holding it
+ * up. Returns null for a group that is not a ladder, so callers can probe cheaply
+ * without knowing in advance.
+ */
+export async function fetchBeePublishers(
+  groupId: number,
+): Promise<BeePublishersResult | null> {
+  const res = await fetch(`/groups/${groupId}/bee-publishers`);
+  if (res.status === 409) return null;
+  if (!res.ok) {
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
+  }
+  return (await res.json()) as BeePublishersResult;
 }
 
 export async function fetchGroups(): Promise<DeploymentGroup[]> {

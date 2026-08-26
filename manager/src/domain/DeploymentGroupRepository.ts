@@ -1,3 +1,4 @@
+import type { GroupKind } from '@streaming-infra-manager/common';
 import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
@@ -45,7 +46,7 @@ export class DeploymentGroupRepository {
 
   async findByName(name: string): Promise<DeploymentGroup | null> {
     const r = await this.pool.query<DeploymentGroup>(
-      'SELECT id, name, size, created_at FROM deployment_groups WHERE name = $1',
+      'SELECT id, name, size, kind, created_at FROM deployment_groups WHERE name = $1',
       [name],
     );
     return r.rowCount && r.rowCount > 0 ? r.rows[0]! : null;
@@ -53,7 +54,7 @@ export class DeploymentGroupRepository {
 
   async findById(id: number): Promise<DeploymentGroup | null> {
     const r = await this.pool.query<DeploymentGroup>(
-      'SELECT id, name, size, created_at FROM deployment_groups WHERE id = $1',
+      'SELECT id, name, size, kind, created_at FROM deployment_groups WHERE id = $1',
       [id],
     );
     return r.rowCount && r.rowCount > 0 ? r.rows[0]! : null;
@@ -61,7 +62,7 @@ export class DeploymentGroupRepository {
 
   async list(): Promise<DeploymentGroup[]> {
     const r = await this.pool.query<DeploymentGroup>(
-      'SELECT id, name, size, created_at FROM deployment_groups ORDER BY created_at ASC',
+      'SELECT id, name, size, kind, created_at FROM deployment_groups ORDER BY created_at ASC',
     );
     return r.rows;
   }
@@ -199,6 +200,7 @@ export class DeploymentGroupRepository {
 
   async createGroupWithMembers(
     groupName: string,
+    kind: GroupKind,
     members: MemberSeed[],
     shared: SharedProfileParams,
   ): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
@@ -210,10 +212,10 @@ export class DeploymentGroupRepository {
       ]);
 
       const groupResult = await client.query<DeploymentGroup>(
-        `INSERT INTO deployment_groups (name, size)
-         VALUES ($1, $2)
-         RETURNING id, name, size, created_at`,
-        [groupName, members.length],
+        `INSERT INTO deployment_groups (name, size, kind)
+         VALUES ($1, $2, $3)
+         RETURNING id, name, size, kind, created_at`,
+        [groupName, members.length, kind],
       );
       const group = groupResult.rows[0]!;
 

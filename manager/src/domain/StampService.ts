@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileWithContainers } from '../types/index.js';
+import { resolveServerHost } from '../utils/serverHost.js';
 
 import {
   BeeAddresses,
@@ -54,6 +55,29 @@ export function beeApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = (profile.host ?? '').trim();
   const host = LOCAL_HOSTS.has(declared) ? LOCAL_BEE_HOST : declared;
+  return `http://${host}:${port}`;
+}
+
+// resolveServerHost() logs which source it picked, so memoise it — this is read
+// once per ladder rung per request and the value cannot change at runtime.
+let cachedPublicHost: string | null = null;
+function publicHost(): string {
+  cachedPublicHost ??= resolveServerHost();
+  return cachedPublicHost;
+}
+
+/**
+ * The bee API URL **something off-host** uses — i.e. what an ABR ladder's
+ * BEE_PUBLISHERS carries to a stream-uploader running elsewhere.
+ *
+ * Deliberately not beeApiUrlFor: that one resolves a local profile to
+ * host.docker.internal or 127.0.0.1, neither of which means anything to a caller
+ * on another machine.
+ */
+export function beePublicApiUrlFor(profile: Profile): string {
+  const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
+  const declared = (profile.host ?? '').trim();
+  const host = LOCAL_HOSTS.has(declared) ? publicHost() : declared;
   return `http://${host}:${port}`;
 }
 

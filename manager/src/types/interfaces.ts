@@ -24,6 +24,8 @@ export interface DeploymentGroup {
   id: number;
   name: string;
   size: number;
+  /** 'standard' fan-out, or 'abr-ladder'. See migrations/004_group_kind.sql. */
+  kind: string;
   created_at: Date;
 }
 
