@@ -12,6 +12,7 @@
     "stack:stop": "docker compose -p streaming-infra-manager -f ./docker-compose.yml --profile full down",
     "dev": "tsx watch --conditions=development src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --conditions=development --test 'test/unit/**/*.test.ts'",
     "test:integration": "tsx --test 'test/integration/**/*.test.ts'"
   },
   "dependencies": {

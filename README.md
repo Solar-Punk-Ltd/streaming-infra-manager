@@ -7,6 +7,10 @@ stack. Targets two dedicated servers:
 - **Watcher** — N lightweight Docker containers running a Bee ultra-light node
   and the React streaming client, plus a small interface to start/stop them.
 
+It also deploys **ABR ladders**: a deployment group with one Bee node per quality
+rung, as the publish targets for a `stream-uploader` running elsewhere. See
+[docs/features/abr-ladder.md](docs/features/abr-ladder.md).
+
 ## Layout
 
 - `manager/swarm-hls-stream/` — git submodule pointing at

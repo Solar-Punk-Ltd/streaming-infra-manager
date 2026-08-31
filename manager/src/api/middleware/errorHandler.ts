@@ -12,6 +12,7 @@ import {
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  LadderGroupError,
   ProfileExistsError,
   ProfileNotFoundError,
   StampNotUsableError,
@@ -76,6 +77,14 @@ export function errorHandler(
     res.status(409).json({
       error: 'stamp_not_usable',
       name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof LadderGroupError) {
+    res.status(409).json({
+      error: 'ladder_group_invalid_operation',
+      name: err.groupName,
       message: err.message,
     });
     return;

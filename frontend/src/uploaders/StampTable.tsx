@@ -11,6 +11,8 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import { isStampExpired, sameBatchId } from '@streaming-infra-manager/common';
+
 import { CopyButton } from '../CopyButton';
 import { formatTtl } from '../format';
 import type { BeeStamp } from './stampApi';
@@ -20,10 +22,6 @@ export function shortHex(hex: string, lead = 8, tail = 6): string {
   return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
 }
 
-export function sameBatch(a: string, b: string): boolean {
-  return a.replace(/^0x/, '') === b.replace(/^0x/, '');
-}
-
 export function StampTable({
   stamps,
   loading,
@@ -31,7 +29,8 @@ export function StampTable({
   busy,
   onUse,
 }: {
-  stamps: BeeStamp[];
+  /** The node's batches, or null for "not asked yet / no answer". */
+  stamps: BeeStamp[] | null;
   loading: boolean;
   currentStampId: string | null | undefined;
   busy: boolean;
@@ -56,18 +55,21 @@ export function StampTable({
             </TableRow>
           </TableHead>
           <TableBody>
-            {stamps.length === 0 ? (
+            {stamps === null || stamps.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.disabled">
-                    {loading ? 'Loading…' : 'No stamps on this node yet.'}
-                  </Typography>
+                  <EmptyState
+                    stamps={stamps}
+                    loading={loading}
+                    currentStampId={currentStampId}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
               stamps.map((s) => {
                 const isCurrent =
-                  currentStampId != null && sameBatch(currentStampId, s.batchID);
+                  currentStampId != null && sameBatchId(currentStampId, s.batchID);
+                const expired = isStampExpired(s);
                 return (
                   <TableRow key={s.batchID}>
                     <TableCell sx={{ fontFamily: 'monospace' }}>
@@ -91,8 +93,12 @@ export function StampTable({
                       <Chip
                         size="small"
                         variant="outlined"
-                        color={s.usable ? 'success' : 'warning'}
-                        label={s.usable ? 'usable' : 'pending'}
+                        color={
+                          expired ? 'error' : s.usable ? 'success' : 'warning'
+                        }
+                        label={
+                          expired ? 'expired' : s.usable ? 'usable' : 'pending'
+                        }
                       />
                     </TableCell>
                     <TableCell>
@@ -106,11 +112,15 @@ export function StampTable({
                     <TableCell>{formatTtl(s.batchTTL)}</TableCell>
                     <TableCell align="right">
                       {isCurrent ? (
-                        <Chip size="small" label="in use" />
+                        <Chip
+                          size="small"
+                          label={expired ? 'in use — expired' : 'in use'}
+                          color={expired ? 'error' : 'default'}
+                        />
                       ) : (
                         <Button
                           size="small"
-                          disabled={busy || !s.usable}
+                          disabled={busy || !s.usable || expired}
                           onClick={() => onUse(s.batchID)}
                         >
                           Use
@@ -125,5 +135,50 @@ export function StampTable({
         </Table>
       </Paper>
     </Box>
+  );
+}
+
+/**
+ * Why the table is empty — which is four different situations, not one.
+ *
+ * Only the last of them means the recorded batch is gone. Reporting the others
+ * that way turns a node that is slow, or briefly unreachable, into a node with a
+ * dead batch, and puts a red claim directly under the "bee node unreachable"
+ * banner that contradicts it.
+ */
+function EmptyState({
+  stamps,
+  loading,
+  currentStampId,
+}: {
+  stamps: BeeStamp[] | null;
+  loading: boolean;
+  currentStampId: string | null | undefined;
+}) {
+  if (stamps === null) {
+    return (
+      <Typography variant="body2" color="text.disabled">
+        {loading
+          ? 'Loading…'
+          : 'Could not read this node’s batches — nothing here is known either way. Press Refresh once the node is reachable.'}
+      </Typography>
+    );
+  }
+
+  // The node answered, and holds nothing. With an id still on the profile that is
+  // the orphan case: the batch expired and was dropped.
+  if (currentStampId) {
+    return (
+      <Typography variant="body2" color="error.main">
+        This node holds no batches, yet {shortHex(currentStampId)} is still
+        recorded on the profile. Buy a new one below and set it with Use.
+      </Typography>
+    );
+  }
+
+  return (
+    <Typography variant="body2" color="text.disabled">
+      No stamps on this node yet.
+    </Typography>
   );
 }

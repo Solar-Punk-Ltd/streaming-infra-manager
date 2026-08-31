@@ -7,5 +7,6 @@ export { GroupNotFoundError } from './GroupNotFoundError.js';
 export { GroupBusyError } from './GroupBusyError.js';
 export { StampRequiredError } from './StampRequiredError.js';
 export { StampNotUsableError } from './StampNotUsableError.js';
+export { LadderGroupError } from './LadderGroupError.js';
 export { BeeNodeError } from './BeeNodeError.js';
 export { BeeHttpError } from './BeeHttpError.js';

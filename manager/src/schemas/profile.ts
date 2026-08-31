@@ -1,5 +1,8 @@
-import { hasConflictingEngines } from '@streaming-infra-manager/common';
-import { array, number, object, string, InferType } from 'yup';
+import {
+  hasConflictingEngines,
+  LADDER_GROUP_NAME_MAX,
+} from '@streaming-infra-manager/common';
+import { array, boolean, number, object, string, InferType } from 'yup';
 
 import { ALL_SERVICES, PROFILE_KINDS } from '../types/index.js';
 
@@ -109,7 +112,25 @@ export const createGroupSchema = object({
     .matches(
       PROFILE_NAME_RE,
       'group_name must match /^[a-z0-9][a-z0-9-]{0,30}$/',
+    )
+    // A ladder member is named `<group>-<rung>`, and profile names cap at 31
+    // characters, so a ladder's group name has less room than an ordinary one.
+    // Caught here rather than as a check-constraint violation partway through
+    // creating the group.
+    .test(
+      'ladder-name-fits',
+      `group_name must be at most ${LADDER_GROUP_NAME_MAX} characters for an ABR ladder, so that <group>-<rung> member names stay within 31`,
+      function (value) {
+        const { abr_ladder } = this.parent as { abr_ladder?: boolean };
+        if (!abr_ladder || !value) return true;
+        return value.length <= LADDER_GROUP_NAME_MAX;
+      },
     ),
+  /**
+   * Deploy one bee-uploader per ABR quality rung, named `<group>-<rung>`. Size and
+   * components are fixed by the ladder; anything passed for them is ignored.
+   */
+  abr_ladder: boolean().notRequired(),
   size: number().required().integer().min(1),
   kind: string()
     .oneOf([...PROFILE_KINDS])

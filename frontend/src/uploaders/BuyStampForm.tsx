@@ -22,13 +22,22 @@ export function BuyStampForm({
   busy,
   onBuy,
   currentPrice,
+  defaultDepth,
 }: {
   busy: boolean;
   onBuy: (input: BuyStampInput) => Promise<void>;
   currentPrice: string | null;
+  /**
+   * Starting depth. An ABR rung passes its own: a batch fills in proportion to
+   * the rung's bitrate, so a flat depth across the ladder puts the four expiries
+   * hours apart — the failure a node per rung exists to contain.
+   */
+  defaultDepth?: number;
 }) {
   const [amount, setAmount] = useState('');
-  const [depth, setDepth] = useState(DEFAULT_DEPTH);
+  const [depth, setDepth] = useState(
+    defaultDepth === undefined ? DEFAULT_DEPTH : String(defaultDepth),
+  );
   const [label, setLabel] = useState('');
   const [immutable, setImmutable] = useState(false);
 
@@ -84,7 +93,13 @@ export function BuyStampForm({
           value={depth}
           onChange={(e) => setDepth(e.target.value)}
           error={!depthValid}
-          helperText={!depthValid ? '17–40' : 'batch size (2^depth)'}
+          helperText={
+            !depthValid
+              ? '17–40'
+              : defaultDepth !== undefined && depthNum === defaultDepth
+                ? `batch size (2^depth) — suggested for this rung`
+                : 'batch size (2^depth)'
+          }
           slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
         />
         <TextField

@@ -1,4 +1,5 @@
 import {
+  type BeePublishersResult,
   defaultServicesFor,
   hasStampId,
   servicesNeedStamp,
@@ -112,6 +113,8 @@ export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
 export interface CreateGroupBody {
   group_name: string;
   size: number;
+  /** One bee-uploader per ABR rung, named `<group>-<rung>`. Fixes size + components. */
+  abr_ladder?: boolean;
   kind: ProfileKind;
   notes?: string | null;
   host?: string;
@@ -177,6 +180,34 @@ export async function addGroupMembers(
     );
   }
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+}
+
+// Re-exported rather than redeclared: these are the manager's response shape, and
+// a local copy silently loses whatever the server adds. It already had — the
+// per-rung verification fields were arriving in the JSON and were invisible to the
+// compiler, so nothing would have caught a rename.
+export type {
+  BeePublishersResult,
+  LadderRungState,
+  RungNote,
+} from '@streaming-infra-manager/common';
+
+/**
+ * The assembled BEE_PUBLISHERS for a ladder group, or which rungs are holding it
+ * up. Returns null for a group that is not a ladder, so callers can probe cheaply
+ * without knowing in advance.
+ */
+export async function fetchBeePublishers(
+  groupId: number,
+): Promise<BeePublishersResult | null> {
+  const res = await fetch(`/groups/${groupId}/bee-publishers`);
+  if (res.status === 409) return null;
+  if (!res.ok) {
+    throw new Error(
+      await extractApiError(res, `request failed (${res.status})`),
+    );
+  }
+  return (await res.json()) as BeePublishersResult;
 }
 
 export async function fetchGroups(): Promise<DeploymentGroup[]> {

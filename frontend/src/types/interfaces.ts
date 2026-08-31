@@ -31,6 +31,8 @@ export interface DeploymentGroup {
   id: number;
   name: string;
   size: number;
+  /** 'standard' fan-out, or 'abr-ladder'. */
+  kind: string;
   created_at: string;
 }
 
