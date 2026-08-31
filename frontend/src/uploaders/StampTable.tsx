@@ -29,7 +29,8 @@ export function StampTable({
   busy,
   onUse,
 }: {
-  stamps: BeeStamp[];
+  /** The node's batches, or null for "not asked yet / no answer". */
+  stamps: BeeStamp[] | null;
   loading: boolean;
   currentStampId: string | null | undefined;
   busy: boolean;
@@ -54,23 +55,14 @@ export function StampTable({
             </TableRow>
           </TableHead>
           <TableBody>
-            {stamps.length === 0 ? (
+            {stamps === null || stamps.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7}>
-                  <Typography
-                    variant="body2"
-                    color={
-                      !loading && currentStampId
-                        ? 'error.main'
-                        : 'text.disabled'
-                    }
-                  >
-                    {loading
-                      ? 'Loading…'
-                      : currentStampId
-                        ? `This node holds no batches, yet ${shortHex(currentStampId)} is still recorded on the profile. Buy a new one below and set it with Use.`
-                        : 'No stamps on this node yet.'}
-                  </Typography>
+                  <EmptyState
+                    stamps={stamps}
+                    loading={loading}
+                    currentStampId={currentStampId}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -143,5 +135,50 @@ export function StampTable({
         </Table>
       </Paper>
     </Box>
+  );
+}
+
+/**
+ * Why the table is empty — which is four different situations, not one.
+ *
+ * Only the last of them means the recorded batch is gone. Reporting the others
+ * that way turns a node that is slow, or briefly unreachable, into a node with a
+ * dead batch, and puts a red claim directly under the "bee node unreachable"
+ * banner that contradicts it.
+ */
+function EmptyState({
+  stamps,
+  loading,
+  currentStampId,
+}: {
+  stamps: BeeStamp[] | null;
+  loading: boolean;
+  currentStampId: string | null | undefined;
+}) {
+  if (stamps === null) {
+    return (
+      <Typography variant="body2" color="text.disabled">
+        {loading
+          ? 'Loading…'
+          : 'Could not read this node’s batches — nothing here is known either way. Press Refresh once the node is reachable.'}
+      </Typography>
+    );
+  }
+
+  // The node answered, and holds nothing. With an id still on the profile that is
+  // the orphan case: the batch expired and was dropped.
+  if (currentStampId) {
+    return (
+      <Typography variant="body2" color="error.main">
+        This node holds no batches, yet {shortHex(currentStampId)} is still
+        recorded on the profile. Buy a new one below and set it with Use.
+      </Typography>
+    );
+  }
+
+  return (
+    <Typography variant="body2" color="text.disabled">
+      No stamps on this node yet.
+    </Typography>
   );
 }

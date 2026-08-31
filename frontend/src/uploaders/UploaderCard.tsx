@@ -73,7 +73,6 @@ export function UploaderCard({
     address,
     wallet,
     stamps,
-    stampsLoaded,
     chainState,
     loading,
     loadError,
@@ -85,10 +84,7 @@ export function UploaderCard({
   // A set `stamp_id` says which batch this uploader was pointed at, not that the
   // batch still pays: batches are finite leases and nothing writes their expiry
   // back. So the chip, the warning and the deploy button all read the node.
-  const stampHealth = stampHealthFrom(
-    profile.stamp_id,
-    stampsLoaded ? stamps : null,
-  );
+  const stampHealth = stampHealthFrom(profile.stamp_id, stamps);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);

@@ -154,7 +154,7 @@ request or block the value.
 | `src/AbrPoolForm.tsx` (new) | The entire pool form, self-contained. |
 | `src/NewDeploymentDrawer.tsx` | A top-level **Deployment type** combobox — *ABR Uploader Pool* / *Streaming Infra* — that swaps in `AbrPoolForm` wholesale. The old `ladderMode` boolean is gone. |
 | `src/data.ts` | `fetchBeePublishers`, returning `null` for a group that is not a ladder so callers can probe cheaply. The response types are now re-exported from `common` rather than redeclared — the local copy had already gone stale, with the per-rung verification fields arriving in the JSON and invisible to the compiler. |
-| `src/uploaders/useBeeUtils.ts` | `stampsLoaded`, so "the node holds no batches" is distinguishable from "the node has not answered yet". Without it a slow node looks like a dead batch. |
+| `src/uploaders/useBeeUtils.ts` | `stamps` is nullable — null for "not asked / no answer" — like `address`, `wallet` and `chainState` beside it, and any failed fetch clears it. Without that distinction a slow or briefly unreachable node reads as a node with a dead batch. |
 | `src/uploaders/StampTable.tsx` | An `expired` state in the Usable column (it previously read `pending`, i.e. as something that would come good on its own), `in use — expired` on the active row, and an empty table that names the orphaned id instead of saying "No stamps on this node yet." |
 
 ## Why the pool form is a separate component
@@ -220,6 +220,15 @@ value.
 `batchTTL` needs care: bee returns `0` for a spent batch but a **negative** value
 when it cannot work the TTL out, which is not the same thing. Only `0` means
 expired.
+
+The frontend holds the same distinction in its own state: `useBeeUtils` exposes
+`stamps` as `BeeStamp[] | null`, null meaning "not asked, or no answer", and a
+failed fetch clears it rather than leaving the last answer standing. A list nobody
+can currently confirm is not evidence — and a stale one shown under a "bee node
+unreachable" banner contradicts it. Both halves of that were got wrong first time
+(see PR #33 review): a `stampsLoaded` flag latched true, so a node that stopped
+answering kept reading as verified, and the stamps table treated its initial empty
+array as an answer, so it claimed a dropped batch before any request had been made.
 
 The TTL is also carried back rather than discarded, so a batch can be reported
 **before** it runs out: within `STAMP_EXPIRY_WARNING_SECONDS` (48h) the rung reads
