@@ -11,6 +11,8 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import { isStampExpired, sameBatchId } from '@streaming-infra-manager/common';
+
 import { CopyButton } from '../CopyButton';
 import { formatTtl } from '../format';
 import type { BeeStamp } from './stampApi';
@@ -18,10 +20,6 @@ import type { BeeStamp } from './stampApi';
 export function shortHex(hex: string, lead = 8, tail = 6): string {
   if (hex.length <= lead + tail + 1) return hex;
   return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
-}
-
-export function sameBatch(a: string, b: string): boolean {
-  return a.replace(/^0x/, '') === b.replace(/^0x/, '');
 }
 
 export function StampTable({
@@ -59,15 +57,27 @@ export function StampTable({
             {stamps.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.disabled">
-                    {loading ? 'Loading…' : 'No stamps on this node yet.'}
+                  <Typography
+                    variant="body2"
+                    color={
+                      !loading && currentStampId
+                        ? 'error.main'
+                        : 'text.disabled'
+                    }
+                  >
+                    {loading
+                      ? 'Loading…'
+                      : currentStampId
+                        ? `This node holds no batches, yet ${shortHex(currentStampId)} is still recorded on the profile. Buy a new one below and set it with Use.`
+                        : 'No stamps on this node yet.'}
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
               stamps.map((s) => {
                 const isCurrent =
-                  currentStampId != null && sameBatch(currentStampId, s.batchID);
+                  currentStampId != null && sameBatchId(currentStampId, s.batchID);
+                const expired = isStampExpired(s);
                 return (
                   <TableRow key={s.batchID}>
                     <TableCell sx={{ fontFamily: 'monospace' }}>
@@ -91,8 +101,12 @@ export function StampTable({
                       <Chip
                         size="small"
                         variant="outlined"
-                        color={s.usable ? 'success' : 'warning'}
-                        label={s.usable ? 'usable' : 'pending'}
+                        color={
+                          expired ? 'error' : s.usable ? 'success' : 'warning'
+                        }
+                        label={
+                          expired ? 'expired' : s.usable ? 'usable' : 'pending'
+                        }
                       />
                     </TableCell>
                     <TableCell>
@@ -106,11 +120,15 @@ export function StampTable({
                     <TableCell>{formatTtl(s.batchTTL)}</TableCell>
                     <TableCell align="right">
                       {isCurrent ? (
-                        <Chip size="small" label="in use" />
+                        <Chip
+                          size="small"
+                          label={expired ? 'in use — expired' : 'in use'}
+                          color={expired ? 'error' : 'default'}
+                        />
                       ) : (
                         <Button
                           size="small"
-                          disabled={busy || !s.usable}
+                          disabled={busy || !s.usable || expired}
                           onClick={() => onUse(s.batchID)}
                         >
                           Use

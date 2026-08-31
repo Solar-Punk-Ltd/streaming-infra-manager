@@ -1,4 +1,5 @@
 import {
+  type BeePublishersResult,
   defaultServicesFor,
   hasStampId,
   servicesNeedStamp,
@@ -181,20 +182,15 @@ export async function addGroupMembers(
   return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
 }
 
-export interface LadderRungState {
-  rung: string;
-  name: string;
-  status: string;
-  url: string;
-  stampId: string | null;
-}
-
-export interface BeePublishersResult {
-  ready: boolean;
-  value: string | null;
-  rungs: LadderRungState[];
-  missing: { rung: string; reason: string }[];
-}
+// Re-exported rather than redeclared: these are the manager's response shape, and
+// a local copy silently loses whatever the server adds. It already had — the
+// per-rung verification fields were arriving in the JSON and were invisible to the
+// compiler, so nothing would have caught a rename.
+export type {
+  BeePublishersResult,
+  LadderRungState,
+  RungNote,
+} from '@streaming-infra-manager/common';
 
 /**
  * The assembled BEE_PUBLISHERS for a ladder group, or which rungs are holding it

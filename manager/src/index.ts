@@ -121,17 +121,21 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
   );
+  // Ahead of ProfileService: a ladder's readiness depends on what each rung's bee
+  // node says about its batch, which only this service can ask.
+  const stampService = new StampService(
+    profileRepository,
+    containerRepository,
+    eventBus,
+  );
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
     orchestrator,
     eventBus,
     deploymentGroupRepository,
-  );
-  const stampService = new StampService(
-    profileRepository,
-    containerRepository,
-    eventBus,
+    (profile, stampId) => stampService.stampHealthFor(profile, stampId),
+    (url) => stampService.publishUrlStateFor(url),
   );
   const deployService = new DeployService(
     profileService,

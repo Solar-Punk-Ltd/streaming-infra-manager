@@ -17,6 +17,11 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import {
   DEFAULT_ABR_LADDER,
   getErrorMessage,
+  isDeadStampState,
+  isInvalidUrlState,
+  PUBLISHABLE_RUNG_STATUS,
+  type PublishUrlState,
+  type StampState,
   suggestedRungDepth,
 } from '@streaming-infra-manager/common';
 
@@ -82,8 +87,8 @@ export function LadderCard({
     void reload();
   }, [reload, stampFingerprint]);
 
-  const stamped = rungs.filter((r) => r.profile.stamp_id).length;
   const total = DEFAULT_ABR_LADDER.length;
+  const summary = summariseRungs(result, rungs);
 
   return (
     <Accordion defaultExpanded>
@@ -101,9 +106,13 @@ export function LadderCard({
           <Chip
             size="small"
             variant="outlined"
-            color={stamped === total ? 'success' : 'warning'}
-            label={`${stamped}/${total} rungs stamped`}
+            color={summary.color}
+            label={`${summary.stamped}/${total} rungs stamped`}
+            title={summary.title}
           />
+          {summary.problem && (
+            <Chip size="small" color="error" label={summary.problem} />
+          )}
         </Stack>
       </AccordionSummary>
 
@@ -121,7 +130,9 @@ export function LadderCard({
           </Stack>
 
           {error && <Alert severity="warning">{error}</Alert>}
-          {!error && <BeePublishersPanel result={result} />}
+          {!error && (
+            <BeePublishersPanel result={result} summary={summary} />
+          )}
 
           <Box>
             <Typography variant="overline" color="text.secondary">
@@ -189,9 +200,14 @@ export function LadderCard({
  */
 function BeePublishersPanel({
   result,
+  summary,
 }: {
   result: BeePublishersResult | null;
+  summary: RungSummary;
 }) {
+  const broken =
+    summary.dead > 0 || summary.notRunning > 0 || summary.badAddress > 0;
+  const warnings = result?.warnings ?? [];
   return (
     <Box>
       <Typography variant="overline" color="text.secondary">
@@ -212,12 +228,29 @@ function BeePublishersPanel({
             </Typography>
             <CopyButton value={result.value} label="BEE_PUBLISHERS" />
           </Stack>
+          {warnings.length > 0 && (
+            <Alert severity="warning" sx={{ mt: 1.5 }}>
+              <Typography variant="body2">
+                Usable, but not everything could be confirmed:
+              </Typography>
+              <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5 }}>
+                {warnings.map((entry, index) => (
+                  <li key={`${entry.rung}-${index}`}>
+                    <Typography variant="body2">
+                      <code>{entry.rung}</code> — {entry.reason}
+                    </Typography>
+                  </li>
+                ))}
+              </Box>
+            </Alert>
+          )}
         </Paper>
       ) : (
-        <Alert severity="info" sx={{ mt: 1 }}>
+        <Alert severity={broken ? 'error' : 'info'} sx={{ mt: 1 }}>
           <Typography variant="body2">
-            Not ready yet — every rung needs its own postage batch before the
-            uploader can be pointed at this ladder.
+            {broken
+              ? 'Not usable as it stands — a rung cannot accept an upload, so anything already pointed at this ladder is failing on that rung. Each is named below.'
+              : 'Not ready yet — every rung needs its own postage batch before the uploader can be pointed at this ladder.'}
           </Typography>
           {result?.missing.length ? (
             <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5 }}>
@@ -240,4 +273,111 @@ function BeePublishersPanel({
       </Typography>
     </Box>
   );
+}
+
+interface RungSummary {
+  /** Rungs holding a batch we have no reason to doubt. */
+  stamped: number;
+  /** Rungs whose batch has expired, or which their node has dropped. */
+  dead: number;
+  /** Rungs holding a batch whose node could not be asked. */
+  unverified: number;
+  /** Rungs whose node is not running, so nothing is listening at its address. */
+  notRunning: number;
+  /** Rungs whose address cannot work, whatever is listening. */
+  badAddress: number;
+  color: 'success' | 'warning' | 'error' | 'default';
+  title: string | undefined;
+  /**
+   * The single most urgent thing wrong with the ladder, for the header chip, in
+   * the same order the operator has to fix them: a stopped node makes its batch
+   * moot, and an unusable address makes both moot.
+   */
+  problem: string | null;
+}
+
+/**
+ * What the ladder header says about its four batches.
+ *
+ * Counted from the *verified* state the manager reports, not from the recorded
+ * ids: a `stamp_id` outlives the batch it names, which is how a ladder whose
+ * every batch had expired a week earlier still showed 4/4 in green with an empty
+ * stamp table under each rung.
+ *
+ * Until that answer arrives the recorded ids are all there is, so they are shown
+ * uncoloured — neither a green claim nor a red alarm — rather than withheld.
+ */
+function summariseRungs(
+  result: BeePublishersResult | null,
+  rungs: LadderRung[],
+): RungSummary {
+  interface RungFacts {
+    stampId: string | null;
+    stampState?: StampState;
+    urlState?: PublishUrlState;
+    status: string;
+  }
+
+  const states: RungFacts[] =
+    result?.rungs ??
+    rungs.map((r) => ({
+      stampId: r.profile.stamp_id ?? null,
+      status: r.profile.status,
+    }));
+
+  const dead = states.filter((r) => isDeadStampState(r.stampState)).length;
+  const unverified = states.filter(
+    (r) => r.stampId && (r.stampState ?? 'unknown') === 'unknown',
+  ).length;
+  const stamped = states.filter(
+    (r) => r.stampId && !isDeadStampState(r.stampState),
+  ).length;
+  const notRunning = states.filter(
+    (r) => r.status !== PUBLISHABLE_RUNG_STATUS,
+  ).length;
+  const badAddress = states.filter((r) => isInvalidUrlState(r.urlState)).length;
+
+  const allVerified =
+    stamped === DEFAULT_ABR_LADDER.length &&
+    states.every((r) => r.stampState === 'active');
+
+  return {
+    stamped,
+    dead,
+    unverified,
+    notRunning,
+    badAddress,
+    color:
+      result === null
+        ? 'default'
+        : dead > 0
+          ? 'error'
+          : allVerified
+            ? 'success'
+            : 'warning',
+    title:
+      unverified > 0
+        ? `${unverified} of these batches could not be checked with their bee node`
+        : undefined,
+    problem: mostUrgent({ notRunning, badAddress, dead }),
+  };
+}
+
+function mostUrgent({
+  notRunning,
+  badAddress,
+  dead,
+}: {
+  notRunning: number;
+  badAddress: number;
+  dead: number;
+}): string | null {
+  if (notRunning > 0) return `${notRunning} of 4 not running`;
+  if (badAddress > 0) {
+    return badAddress === 1 ? '1 bad address' : `${badAddress} bad addresses`;
+  }
+  if (dead > 0) {
+    return dead === 1 ? '1 batch expired' : `${dead} batches expired`;
+  }
+  return null;
 }

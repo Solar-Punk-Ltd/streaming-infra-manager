@@ -1,4 +1,15 @@
 import { BEE_UPLOADER_SERVICE } from './constants.js';
+import {
+  isInvalidUrlState,
+  type PublishUrlState,
+  publishUrlReason,
+  publishUrlWarning,
+} from './publishUrl.js';
+import {
+  isStampExpiringSoon,
+  type StampState,
+  stampStateReason,
+} from './stampHealth.js';
 
 /**
  * An ABR ladder is a deployment **group** whose members are ordinary
@@ -75,6 +86,17 @@ export const ABR_RUNG_COMPONENTS: readonly string[] = [BEE_UPLOADER_SERVICE];
 
 /** Bee's minimum purchasable batch depth — the floor the ladder scales from. */
 export const MIN_STAMP_DEPTH = 17;
+
+/**
+ * The one status a rung can be published to.
+ *
+ * Held here rather than imported from the manager's status enum, which `common`
+ * does not depend on. A stopped rung's node answers nothing, so its address in
+ * BEE_PUBLISHERS is a promise the ladder cannot keep — and the Uploaders tab, which
+ * is about batches, showed no status at all, so a stopped rung looked identical to
+ * a running one.
+ */
+export const PUBLISHABLE_RUNG_STATUS = 'RUNNING';
 
 // Profile names are capped at 31 characters (see PROFILE_NAME_RE). A member name
 // is `<group>-<rung>`, and the longest rung is `1080p`, so a ladder's group name
@@ -202,6 +224,28 @@ export interface LadderRungState {
   /** Reachable from the uploader. */
   url: string;
   stampId: string | null;
+  /**
+   * What the rung's bee node says about that batch, when it was asked.
+   *
+   * A recorded id is not a working batch — batches expire on their own and
+   * nothing writes that back. `'unknown'` (or absent) means unverified, which
+   * deliberately does not block: a node being unreachable is not evidence that
+   * its batch is dead.
+   */
+  stampState?: StampState;
+  /** Seconds left on that batch, when the node said. Drives the expiry warning. */
+  stampTtl?: number | null;
+  /**
+   * What `url` above is worth. Composed arithmetically, so it always parses as a
+   * URL; `'unknown'` (or absent) means nothing has checked it.
+   */
+  urlState?: PublishUrlState;
+}
+
+/** A rung and what is wrong, or worth checking, about it. */
+export interface RungNote {
+  rung: string;
+  reason: string;
 }
 
 export interface BeePublishersResult {
@@ -210,7 +254,17 @@ export interface BeePublishersResult {
   value: string | null;
   /** Every rung found, ascending. */
   rungs: LadderRungState[];
-  missing: { rung: string; reason: string }[];
+  /** Why the value is withheld. Empty when ready. */
+  missing: RungNote[];
+  /**
+   * Ready, but worth a look: a batch nobody could verify, an address nothing
+   * answered at, a batch about to run out. Never a reason to withhold the value —
+   * only reasons to check before trusting it.
+   *
+   * Reported only for rungs that are not already in `missing`: a rung we have
+   * refused does not need a second, softer complaint as well.
+   */
+  warnings: RungNote[];
 }
 
 /**
@@ -222,9 +276,11 @@ export interface BeePublishersResult {
  * anyway, but the string is also read by humans, and lowest-first matches how the
  * ladder is described everywhere else.
  *
- * Emitted only when every rung has a batch: the uploader refuses a ladder with a
- * rung missing, so a partial string would fail later and less clearly than naming
- * the rung that is not ready.
+ * Emitted only when every rung has a batch the node will still honour: the
+ * uploader refuses a ladder with a rung missing, so a partial string would fail
+ * later and less clearly than naming the rung that is not ready — and a string
+ * built from expired batches is worse still, since it looks complete and fails
+ * on every upload.
  */
 export function assembleBeePublishers(
   supplied: readonly LadderRungState[],
@@ -233,14 +289,23 @@ export function assembleBeePublishers(
     (a, b) => rungOrder(a.rung) - rungOrder(b.rung),
   );
 
-  const missing: { rung: string; reason: string }[] = [];
+  const missing: RungNote[] = [];
+  const warnings: RungNote[] = [];
+
   for (const rung of DEFAULT_ABR_RUNGS) {
     const found = rungs.find((entry) => entry.rung === rung);
     if (!found) {
       missing.push({ rung, reason: 'no member deployed for this rung' });
-    } else if (!found.stampId) {
-      missing.push({ rung, reason: 'no postage batch set on this rung yet' });
+      continue;
     }
+
+    const blocker = blockingReason(found);
+    if (blocker) {
+      missing.push({ rung, reason: blocker });
+      continue;
+    }
+
+    for (const reason of softReasons(found)) warnings.push({ rung, reason });
   }
 
   const ready = missing.length === 0;
@@ -257,7 +322,56 @@ export function assembleBeePublishers(
       : null,
     rungs,
     missing,
+    warnings,
   };
+}
+
+/**
+ * The first thing that makes a rung unpublishable, or null.
+ *
+ * Ordered by what the operator has to fix first: a stopped node makes the batch
+ * question moot, and an address that cannot be reached makes both moot.
+ */
+function blockingReason(rung: LadderRungState): string | null {
+  if (rung.status !== PUBLISHABLE_RUNG_STATUS) {
+    return `this rung is ${rung.status.toLowerCase()}, not running — deploy it before pointing an uploader at it`;
+  }
+  if (isInvalidUrlState(rung.urlState)) {
+    return publishUrlReason(rung.urlState!);
+  }
+  if (!rung.stampId) return stampStateReason('none');
+  return stampStateReason(rung.stampState ?? 'unknown');
+}
+
+/** Everything about a publishable rung that is still worth saying. */
+function softReasons(rung: LadderRungState): string[] {
+  const reasons: string[] = [];
+
+  const urlWarning = publishUrlWarning(rung.urlState ?? 'unknown');
+  if (urlWarning) reasons.push(urlWarning);
+
+  if ((rung.stampState ?? 'unknown') === 'unknown') {
+    reasons.push(
+      'this rung’s bee node could not be reached, so its batch was not checked — an expired batch would look exactly like this',
+    );
+  }
+
+  if (isStampExpiringSoon(rung.stampTtl)) {
+    reasons.push(
+      `this rung’s batch runs out in ${formatShortTtl(rung.stampTtl!)} — top it up or buy the next one before it does`,
+    );
+  }
+
+  return reasons;
+}
+
+/** Coarse, human TTL for a warning line: hours below a day, else days. */
+function formatShortTtl(seconds: number): string {
+  const hours = Math.floor(seconds / 3_600);
+  if (hours < 1) return 'under an hour';
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? '1 day' : `${days} days`;
 }
 
 /** Space-separated BEE_PUBLISHERS value, in the order given. */

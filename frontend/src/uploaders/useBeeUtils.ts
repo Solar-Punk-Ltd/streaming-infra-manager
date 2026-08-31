@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { getErrorMessage, hasStampId } from '@streaming-infra-manager/common';
+import {
+  getErrorMessage,
+  hasStampId,
+  sameBatchId,
+} from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
 import {
@@ -13,7 +17,6 @@ import {
   fetchStamps,
   fetchStampWallet,
 } from './stampApi';
-import { sameBatch } from './StampTable';
 
 const STAMP_POLL_INTERVAL_MS = 5_000;
 const STAMP_POLL_MAX_ATTEMPTS = 120;
@@ -22,6 +25,15 @@ export interface BeeUtils {
   address: BeeAddress | null;
   wallet: BeeWallet | null;
   stamps: BeeStamp[];
+  /**
+   * Whether `stamps` is the node's answer or just the starting empty array.
+   *
+   * An empty list means the node holds no batches — the recorded one has expired
+   * and been dropped. Not having asked yet means nothing at all, and reporting
+   * the second as the first is how a node that is merely slow gets shown as one
+   * with a dead batch.
+   */
+  stampsLoaded: boolean;
   chainState: BeeChainState | null;
   loading: boolean;
   loadError: string | null;
@@ -50,6 +62,7 @@ export function useBeeUtils(profile: Profile): BeeUtils {
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
   const [stamps, setStamps] = useState<BeeStamp[]>([]);
+  const [stampsLoaded, setStampsLoaded] = useState(false);
   const [chainState, setChainState] = useState<BeeChainState | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -69,7 +82,10 @@ export function useBeeUtils(profile: Profile): BeeUtils {
 
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
     if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
-    if (stampsResult.status === 'fulfilled') setStamps(stampsResult.value);
+    if (stampsResult.status === 'fulfilled') {
+      setStamps(stampsResult.value);
+      setStampsLoaded(true);
+    }
     if (chainStateResult.status === 'fulfilled')
       setChainState(chainStateResult.value);
 
@@ -96,7 +112,8 @@ export function useBeeUtils(profile: Profile): BeeUtils {
       try {
         const fresh = await fetchStamps(profileName);
         setStamps(fresh);
-        const bought = fresh.find((s) => sameBatch(s.batchID, waitingBatch));
+        setStampsLoaded(true);
+        const bought = fresh.find((s) => sameBatchId(s.batchID, waitingBatch));
         if (bought?.usable || attempts >= STAMP_POLL_MAX_ATTEMPTS) {
           setWaitingBatch(null);
         }
@@ -117,6 +134,7 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     address,
     wallet,
     stamps,
+    stampsLoaded,
     chainState,
     loading,
     loadError,

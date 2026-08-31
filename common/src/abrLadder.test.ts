@@ -267,6 +267,248 @@ describe('assembleBeePublishers', () => {
   });
 });
 
+describe('assembleBeePublishers — live batch state', () => {
+  const batch = (n: string) => n.repeat(64);
+  const rung = (name: string, over = {}) => ({
+    rung: name,
+    name: `abr1-${name}`,
+    status: 'RUNNING',
+    url: `http://host:100${DEFAULT_ABR_RUNGS.indexOf(name)}5`,
+    stampId: batch('a'),
+    stampState: 'active' as const,
+    ...over,
+  });
+  const full = () => DEFAULT_ABR_RUNGS.map((r) => rung(r));
+
+  it('emits the string when every rung reports a live batch', () => {
+    const result = assembleBeePublishers(full());
+    assert.equal(result.ready, true);
+    assert.equal(result.value!.split(' ').length, ABR_LADDER_SIZE);
+  });
+
+  // The reported bug: four recorded ids, four dead batches, and a value that
+  // looked complete while every upload failed.
+  it('refuses the string when every rung’s batch has expired', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, stampState: 'expired' as const })),
+    );
+    assert.equal(result.ready, false);
+    assert.equal(result.value, null);
+    assert.equal(result.missing.length, ABR_LADDER_SIZE);
+    assert.ok(result.missing.every((m) => m.reason.includes('expired')));
+  });
+
+  it('refuses the string when one rung’s batch has expired', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '1080p' ? { ...r, stampState: 'expired' as const } : r)),
+    );
+    assert.equal(result.ready, false);
+    assert.equal(result.value, null);
+    assert.equal(result.missing.length, 1);
+    assert.equal(result.missing[0]!.rung, '1080p');
+  });
+
+  it('refuses a batch the node has dropped entirely', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '360p' ? { ...r, stampState: 'gone' as const } : r)),
+    );
+    assert.equal(result.ready, false);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['360p']);
+  });
+
+  it('refuses a batch bee has not settled yet', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '480p' ? { ...r, stampState: 'pending' as const } : r)),
+    );
+    assert.equal(result.ready, false);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['480p']);
+  });
+
+  // A node being unreachable is not evidence that its batch is dead: the operator
+  // still gets a value to paste, and the UI says it could not be verified.
+  it('stays ready when a rung’s batch could not be verified', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, stampState: 'unknown' as const })),
+    );
+    assert.equal(result.ready, true);
+    assert.equal(result.missing.length, 0);
+  });
+
+  it('stays ready for callers that supply no live state at all', () => {
+    const result = assembleBeePublishers(
+      full().map(({ stampState: _drop, ...rest }) => rest),
+    );
+    assert.equal(result.ready, true);
+  });
+
+  it('reports a missing member ahead of an expired batch on another rung', () => {
+    const result = assembleBeePublishers([
+      rung('360p', { stampState: 'expired' as const }),
+      rung('480p'),
+    ]);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['360p', '720p', '1080p']);
+  });
+
+  it('carries the live state through on the rungs it reports', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '720p' ? { ...r, stampState: 'gone' as const } : r)),
+    );
+    assert.equal(result.rungs.find((r) => r.rung === '720p')!.stampState, 'gone');
+  });
+});
+
+describe('assembleBeePublishers — rung address and status', () => {
+  const batch = (n: string) => n.repeat(64);
+  const rung = (name: string, over = {}) => ({
+    rung: name,
+    name: `abr1-${name}`,
+    status: 'RUNNING',
+    url: `http://65.108.40.58:100${DEFAULT_ABR_RUNGS.indexOf(name)}5`,
+    stampId: batch('a'),
+    stampState: 'active' as const,
+    stampTtl: 30 * 24 * 3_600,
+    urlState: 'ok' as const,
+    ...over,
+  });
+  const full = () => DEFAULT_ABR_RUNGS.map((r) => rung(r));
+
+  it('emits the value when every rung is running with a live batch and a good address', () => {
+    const result = assembleBeePublishers(full());
+    assert.equal(result.ready, true);
+    assert.equal(result.warnings.length, 0);
+  });
+
+  // The Uploaders tab showed no status at all, so a stopped rung looked exactly
+  // like a running one — and its address answers nothing.
+  it('refuses a rung that is not running, and says which state it is in', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '720p' ? { ...r, status: 'STOPPED' } : r)),
+    );
+    assert.equal(result.ready, false);
+    assert.equal(result.value, null);
+    assert.equal(result.missing.length, 1);
+    assert.equal(result.missing[0]!.rung, '720p');
+    assert.ok(result.missing[0]!.reason.includes('stopped'));
+  });
+
+  it('refuses every non-running status, transitional ones included', () => {
+    for (const status of ['STOPPED', 'ERROR', 'DEPLOYING', 'STOPPING', 'REMOVING']) {
+      const result = assembleBeePublishers(
+        full().map((r) => (r.rung === '360p' ? { ...r, status } : r)),
+      );
+      assert.equal(result.ready, false, status);
+    }
+  });
+
+  // PUBLIC_HOST unset: the value assembles and works nowhere but this machine.
+  it('refuses a loopback address', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, urlState: 'loopback' as const })),
+    );
+    assert.equal(result.ready, false);
+    assert.equal(result.missing.length, ABR_LADDER_SIZE);
+    assert.ok(result.missing.every((m) => m.reason.includes('PUBLIC_HOST')));
+  });
+
+  it('refuses an ssh target used as an address', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '480p' ? { ...r, urlState: 'ssh-target' as const } : r)),
+    );
+    assert.equal(result.ready, false);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['480p']);
+  });
+
+  it('reports a stopped rung ahead of its address and its batch', () => {
+    // All three are wrong; the operator can only act on the first.
+    const result = assembleBeePublishers([
+      rung('360p', { status: 'STOPPED', urlState: 'loopback' as const, stampState: 'expired' as const }),
+      rung('480p'),
+      rung('720p'),
+      rung('1080p'),
+    ]);
+    assert.equal(result.missing.length, 1);
+    assert.ok(result.missing[0]!.reason.includes('not running'));
+  });
+
+  it('reports an unusable address ahead of the batch behind it', () => {
+    const result = assembleBeePublishers(
+      full().map((r) =>
+        r.rung === '1080p'
+          ? { ...r, urlState: 'loopback' as const, stampState: 'expired' as const }
+          : r,
+      ),
+    );
+    assert.equal(result.missing.length, 1);
+    assert.ok(result.missing[0]!.reason.includes('PUBLIC_HOST'));
+  });
+
+  it('warns without withholding when nothing answered at an address', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '360p' ? { ...r, urlState: 'unreachable' as const } : r)),
+    );
+    // Could be hairpinning — evidence, not proof.
+    assert.equal(result.ready, true);
+    assert.ok(result.value);
+    assert.deepEqual(result.warnings.map((w) => w.rung), ['360p']);
+  });
+
+  it('warns without withholding when a batch could not be verified', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, stampState: 'unknown' as const })),
+    );
+    assert.equal(result.ready, true);
+    assert.equal(result.warnings.length, ABR_LADDER_SIZE);
+  });
+
+  it('warns while a batch is still alive but nearly spent', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => (r.rung === '1080p' ? { ...r, stampTtl: 6 * 3_600 } : r)),
+    );
+    assert.equal(result.ready, true);
+    assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
+    assert.ok(result.warnings[0]!.reason.includes('6h'));
+  });
+
+  it('does not warn about a batch with plenty of life left', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, stampTtl: 30 * 24 * 3_600 })),
+    );
+    assert.equal(result.warnings.length, 0);
+  });
+
+  it('says nothing soft about a rung it has already refused', () => {
+    // One complaint per rung: the blocking one, which is the actionable one.
+    const result = assembleBeePublishers(
+      full().map((r) =>
+        r.rung === '360p'
+          ? { ...r, status: 'STOPPED', urlState: 'unreachable' as const, stampTtl: 60 }
+          : r,
+      ),
+    );
+    assert.deepEqual(result.missing.map((m) => m.rung), ['360p']);
+    assert.equal(result.warnings.length, 0);
+  });
+
+  it('collects several warnings on one rung', () => {
+    const result = assembleBeePublishers(
+      full().map((r) =>
+        r.rung === '480p'
+          ? { ...r, urlState: 'unreachable' as const, stampState: 'unknown' as const }
+          : r,
+      ),
+    );
+    assert.equal(result.ready, true);
+    assert.equal(result.warnings.filter((w) => w.rung === '480p').length, 2);
+  });
+
+  it('stays ready for callers that supply neither address state nor TTL', () => {
+    const result = assembleBeePublishers(
+      full().map(({ urlState: _u, stampTtl: _t, ...rest }) => rest),
+    );
+    assert.equal(result.ready, true);
+  });
+});
+
 describe('group kind', () => {
   it('recognises only the ladder kind', () => {
     assert.equal(isLadderKind(ABR_LADDER_GROUP_KIND), true);

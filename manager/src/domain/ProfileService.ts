@@ -7,9 +7,12 @@ import {
   getErrorMessage,
   isLadderKind,
   ladderMemberNames,
+  type PublishUrlState,
   rungFromMemberName,
   rungOrder,
   STANDARD_GROUP_KIND,
+  type StampHealth,
+  stampHealthFrom,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -53,6 +56,35 @@ interface PgError {
 
 const PG_UNIQUE_VIOLATION = '23505';
 
+/**
+ * Asks a rung's own bee node what state the batch recorded on it is in.
+ *
+ * Injected as functions rather than the whole StampService so this service keeps
+ * depending on nothing that talks to bee. Implemented by
+ * `StampService.stampHealthFor`, which never throws and answers `'unknown'` for a
+ * node it cannot reach.
+ */
+export type StampHealthProbe = (
+  profile: Profile,
+  stampId: string | null | undefined,
+) => Promise<StampHealth>;
+
+/**
+ * Asks whether a bee node answers at the address the ladder publishes.
+ *
+ * A separate probe from the one above, and deliberately so: that one reaches a
+ * local node through `host.docker.internal`, while this one uses the URL an
+ * uploader elsewhere is actually handed. Verifying the first proves nothing about
+ * the second. Implemented by `StampService.publishUrlStateFor`.
+ */
+export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
+
+// The honest answers for a caller wired without probes: nothing asked, so nothing
+// is known. Readiness treats both as unverified, which is exactly what they are.
+const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
+  stampHealthFrom(stampId, null);
+const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
+
 export class ProfileService {
   constructor(
     private readonly repo: ProfileRepository,
@@ -60,6 +92,8 @@ export class ProfileService {
     private readonly orchestrator: DeploymentOrchestrator,
     private readonly events: EventBus,
     private readonly groupRepo: DeploymentGroupRepository,
+    private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
+    private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
   ) {}
 
   private publishChanged(profile: ProfileWithContainers): void {
@@ -343,13 +377,28 @@ export class ProfileService {
   /**
    * The BEE_PUBLISHERS value for a ladder group.
    *
-   * Pure: every field comes from the profile rows plus the resolved public host,
-   * so this makes no bee calls and cannot be slowed or failed by a node being
-   * down. Live batch state already has a home — the per-rung uploader cards.
+   * Emitted only when every rung has a batch that will still be honoured.
+   * `BeePublisherPool.perRung` refuses a ladder with a rung missing, so a partial
+   * string would fail later and less clearly than naming the rung that is not
+   * ready — and a string built from expired batches is worse again, because it
+   * looks finished and fails on every upload.
    *
-   * Emitted only when every rung has a stamp: `BeePublisherPool.perRung` refuses
-   * a ladder with a rung missing, so a partial string would fail later and less
-   * clearly than naming the rung that is not ready.
+   * Neither the profile row nor the composed URL can answer that on its own:
+   *
+   *  - `profiles.stamp_id` records which batch a rung was pointed at, not whether
+   *    the batch is still alive. Batches are paid, finite leases; they run out on
+   *    their own and nothing writes that back.
+   *  - the URL is `PUBLIC_HOST` plus `10005 + slot*10`, so it always *looks* like
+   *    an address whether or not anything is there — and it is composed from a
+   *    field that holds a *deploy* target, which may be an ssh alias or
+   *    `user@host` rather than a network address.
+   *
+   * So each rung is checked twice, all rungs in parallel on a short timeout: its
+   * node is asked about its batch, and the exact address that goes into the string
+   * is asked whether anything answers. A check that cannot be completed leaves its
+   * rung *unverified* rather than unready — an unreachable node or a public address
+   * the manager cannot loop back to is not evidence of a fault, so it degrades to a
+   * caution instead of a false alarm.
    */
   async beePublishersForGroup(groupId: number): Promise<BeePublishersResult> {
     const group = await this.groupRepo.findById(groupId);
@@ -365,14 +414,43 @@ export class ProfileService {
     }
 
     const members = await this.ladderMembersOf(group);
+    const urls = members.map(({ profile }) => beePublicApiUrlFor(profile));
+
+    // Both probes swallow their own failures; the catches guard an injected probe
+    // that does not, so one bad node can never fail the whole request.
+    const [stamps, urlStates] = await Promise.all([
+      Promise.all(
+        members.map(({ profile }) =>
+          this.probeStampHealth(profile, profile.stamp_id).catch((err) => {
+            logger.warn(
+              `[ProfileService] ${profile.name}: stamp probe threw: ${getErrorMessage(err)}`,
+            );
+            return stampHealthFrom(profile.stamp_id, null);
+          }),
+        ),
+      ),
+      Promise.all(
+        urls.map((url, index) =>
+          this.probePublishUrl(url).catch((err) => {
+            logger.warn(
+              `[ProfileService] ${members[index]!.profile.name}: url probe threw: ${getErrorMessage(err)}`,
+            );
+            return 'unknown' as PublishUrlState;
+          }),
+        ),
+      ),
+    ]);
 
     return assembleBeePublishers(
-      members.map(({ rung, profile }) => ({
+      members.map(({ rung, profile }, index) => ({
         rung,
         name: profile.name,
         status: profile.status,
-        url: beePublicApiUrlFor(profile),
+        url: urls[index]!,
         stampId: profile.stamp_id,
+        stampState: stamps[index]!.state,
+        stampTtl: stamps[index]!.ttl,
+        urlState: urlStates[index],
       })),
     );
   }
