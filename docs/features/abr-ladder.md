@@ -35,8 +35,9 @@ That is the whole design, and it buys two things:
   apply unchanged. There is no ladder-specific funding UI, because there does not
   need to be one.
 
-The ladder exists in exactly two places: the member **names**, and the
-`BEE_PUBLISHERS` string assembled from them.
+The ladder exists in exactly three places: `deployment_groups.kind`, which records
+that the group is one; the member **names**, which record which rung is which; and
+the `BEE_PUBLISHERS` string assembled from them.
 
 ## Rung identity lives in the name
 
@@ -173,9 +174,10 @@ quietly corrupt a ladder. Both now refuse with a 409:
    rung name, so the member would sit in the group without ever being part of the
    ladder.
 
-Ladder-ness is derived from the member names, never recorded on the group row: a
-group that stops looking like a ladder stops being treated as one, which is the
-honest answer rather than a stale flag.
+Both guards key off `deployment_groups.kind` rather than the member names, so a
+ladder that has already lost a rung still refuses them. Deriving ladder-ness from
+names would have dropped both guards at exactly the wrong moment — letting
+`addGroupMembers` append a `-profile-N` member to a ladder that was mid-repair.
 
 ## Known gaps
 
