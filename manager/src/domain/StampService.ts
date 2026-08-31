@@ -1,6 +1,12 @@
 import { existsSync } from 'node:fs';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  classifyPublishUrl,
+  getErrorMessage,
+  type PublishUrlState,
+  type StampHealth,
+  stampHealthFrom,
+} from '@streaming-infra-manager/common';
 
 import { Profile, ProfileWithContainers } from '../types/index.js';
 import { resolveServerHost } from '../utils/serverHost.js';
@@ -46,14 +52,41 @@ const LOCAL_BEE_HOST =
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;
 
+// Verifying a recorded batch happens per rung on a page load, so it gets a
+// tighter budget than an operator-triggered call: four rungs answering in
+// parallel, and a node that is down must not hold the page for ten seconds.
+const PROBE_TIMEOUT_MS = 3_000;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-export type BeeClientFactory = (baseUrl: string) => BeeStampClient;
+export type BeeClientFactory = (
+  baseUrl: string,
+  timeoutMs?: number,
+) => BeeStampClient;
+
+/**
+ * The node's network address, taken out of a deploy target.
+ *
+ * `profiles.host` holds a *deploy* target: the schema validates it against
+ * `/^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/` and documents it as "localhost, an ssh
+ * alias, or user@host". The user half addresses an ssh account and never the bee
+ * API, and left in place it composes to `http://deploy@1.2.3.4:10055` — not a bee
+ * base URL, and a stray `@` inside a BEE_PUBLISHERS entry format that already
+ * separates the rung from the URL on `@`.
+ *
+ * Stripping it is safe in a way that guessing at the rest is not: the userinfo is
+ * provably not part of the address, whereas an ssh *alias* may well resolve for
+ * the uploader, so that is left alone and left to the reachability probe.
+ */
+function networkHostOf(declaredHost: string): string {
+  const at = declaredHost.lastIndexOf('@');
+  return at === -1 ? declaredHost : declaredHost.slice(at + 1);
+}
 
 export function beeApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
-  const declared = (profile.host ?? '').trim();
+  const declared = networkHostOf((profile.host ?? '').trim());
   const host = LOCAL_HOSTS.has(declared) ? LOCAL_BEE_HOST : declared;
   return `http://${host}:${port}`;
 }
@@ -76,7 +109,7 @@ function publicHost(): string {
  */
 export function beePublicApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
-  const declared = (profile.host ?? '').trim();
+  const declared = networkHostOf((profile.host ?? '').trim());
   const host = LOCAL_HOSTS.has(declared) ? publicHost() : declared;
   return `http://${host}:${port}`;
 }
@@ -88,8 +121,8 @@ export class StampService {
     private readonly profiles: ProfileRepository,
     private readonly containers: ContainerRepository,
     private readonly events: EventBus,
-    private readonly clientFactory: BeeClientFactory = (url) =>
-      new BeeStampClient(url),
+    private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
+      new BeeStampClient(url, timeoutMs),
   ) {}
 
   async getAddress(name: string): Promise<BeeAddresses> {
@@ -131,6 +164,79 @@ export class StampService {
     const withContainers = await this.containers.withContainers(updated);
     this.events.publish({ type: 'profile.changed', profile: withContainers });
     return withContainers;
+  }
+
+  /**
+   * What a profile's own bee node says, right now, about the batch recorded on it.
+   *
+   * `profiles.stamp_id` records which batch an uploader was pointed at, not that
+   * the batch still works: batches are finite leases, they expire on their own,
+   * and nothing writes that back to the column. Anything that reports a profile
+   * as ready to upload has to ask the node.
+   *
+   * Never throws, and never waits long. A node that is unreachable answers
+   * `'unknown'` — unverified, deliberately not `'expired'`, because a node being
+   * down is no evidence about its batch — so a caller can degrade to a caution
+   * rather than a false alarm.
+   */
+  async stampHealthFor(
+    profile: Profile,
+    stampId: string | null | undefined,
+  ): Promise<StampHealth> {
+    if (!stampId || !stampId.trim()) return stampHealthFrom(null, []);
+
+    const client = this.clientFactory(beeApiUrlFor(profile), PROBE_TIMEOUT_MS);
+    try {
+      const stamp = await client.getStamp(stampId.replace(/^0x/, ''));
+      return stampHealthFrom(stampId, [stamp]);
+    } catch (err) {
+      // A 404 is bee saying it has no such batch — expired long enough ago that
+      // it was dropped. That is an answer, not a failure to answer, so it maps to
+      // an empty list (`gone`) rather than to no list at all (`unknown`).
+      if (err instanceof BeeHttpError && err.status === 404) {
+        return stampHealthFrom(stampId, []);
+      }
+      logger.debug(
+        `[StampService] ${profile.name}: could not verify stamp ${stampId}: ${getErrorMessage(err)}`,
+      );
+      return stampHealthFrom(stampId, null);
+    }
+  }
+
+  /**
+   * Whether a bee node actually answers at the address a ladder publishes.
+   *
+   * Probes the *published* URL, not `beeApiUrlFor` — that is the whole point.
+   * The manager reaches a local node through `host.docker.internal` or
+   * `127.0.0.1`, so verifying the batch proves nothing about the address an
+   * uploader elsewhere is handed; those two can disagree, and when they do the
+   * ladder looks complete and no upload ever lands.
+   *
+   * Structural verdicts come back without a request, since no probe would change
+   * them. Otherwise a failed probe is reported as `'unreachable'` — evidence, not
+   * proof: a manager that cannot loop back through its own public address says
+   * nothing about an uploader on another host, which is why this warns rather
+   * than blocks.
+   */
+  async publishUrlStateFor(url: string): Promise<PublishUrlState> {
+    const structural = classifyPublishUrl(url);
+    if (structural !== 'ok') return structural;
+
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/health`, {
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      // Any HTTP answer means something is listening and routable; bee's own
+      // /health is the best signal, but a non-2xx from *something* still tells us
+      // the address is not the problem.
+      await res.text().catch(() => undefined);
+      return 'ok';
+    } catch (err) {
+      logger.debug(
+        `[StampService] nothing answered at ${url}: ${getErrorMessage(err)}`,
+      );
+      return 'unreachable';
+    }
   }
 
   // Best-effort: only a definite unknown (404) or not-usable answer from bee blocks the deploy.

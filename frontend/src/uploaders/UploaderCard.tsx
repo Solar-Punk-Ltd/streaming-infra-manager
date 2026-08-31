@@ -18,14 +18,19 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import {
   getErrorMessage,
   isBeeNodeOnly,
+  isStampExpiringSoon,
+  PUBLISHABLE_RUNG_STATUS,
+  stampHealthFrom,
+  type StampHealth,
 } from '@streaming-infra-manager/common';
 
-import { canDeployUploader, deployUploader, hasStampId } from '../data';
+import { canDeployUploader, deployUploader } from '../data';
+import { formatTtl } from '../format';
 import { srtPublishUrl } from '../urls';
 import { buyStamp, setStamp } from './stampApi';
 import type { BuyStampInput } from './stampApi';
 import { useServerHost } from '../ServerHostContext';
-import { StampRequiredChip } from '../StatusChip';
+import { StampRequiredChip, StatusChip } from '../StatusChip';
 import type { Profile } from '../types';
 import { NodeFunding } from './NodeFunding';
 import { StampTable, shortHex } from './StampTable';
@@ -76,6 +81,11 @@ export function UploaderCard({
     waitForStamp,
   } = useBeeUtils(profile);
 
+  // A set `stamp_id` says which batch this uploader was pointed at, not that the
+  // batch still pays: batches are finite leases and nothing writes their expiry
+  // back. So the chip, the warning and the deploy button all read the node.
+  const stampHealth = stampHealthFrom(profile.stamp_id, stamps);
+
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -112,9 +122,17 @@ export function UploaderCard({
 
   const stampChip = profile.pendingStamp ? (
     <StampRequiredChip />
-  ) : hasStampId(profile) ? (
-    <Chip size="small" color="success" variant="outlined" label="Stamp set" />
-  ) : null;
+  ) : (
+    <StampStateChip health={stampHealth} />
+  );
+
+  // Only when it is not running: this card is about batches, and a chip on every
+  // healthy row would bury the one row that needs attention. The Deployments tab
+  // is where status is shown unconditionally.
+  const statusChip =
+    profile.status === PUBLISHABLE_RUNG_STATUS ? null : (
+      <StatusChip status={profile.status} />
+    );
 
   return (
     <Accordion
@@ -133,6 +151,7 @@ export function UploaderCard({
             {label ?? profile.name}
           </Typography>
           {badges}
+          {statusChip}
           {stampChip}
         </Stack>
       </AccordionSummary>
@@ -153,7 +172,9 @@ export function UploaderCard({
                 size="small"
                 variant="contained"
                 onClick={handleDeployUploader}
-                disabled={busy || !canDeployUploader(profile)}
+                disabled={
+                  busy || !canDeployUploader(profile) || stampHealth.dead
+                }
               >
                 Deploy uploader
               </Button>
@@ -164,6 +185,15 @@ export function UploaderCard({
           {actionError && (
             <Alert severity="error" onClose={() => setActionError(null)}>
               {actionError}
+            </Alert>
+          )}
+          {stampHealth.dead && <DeadStampAlert health={stampHealth} />}
+          {!stampHealth.dead && isStampExpiringSoon(stampHealth.ttl) && (
+            <Alert severity="warning">
+              This uploader’s batch runs out in{' '}
+              <strong>{formatTtl(stampHealth.ttl)}</strong>. Buy the next one
+              below and set it with <strong>Use</strong> before it does — once a
+              batch is spent its uploads fail, and it cannot be revived.
             </Alert>
           )}
           {waitingBatch && (
@@ -198,5 +228,59 @@ export function UploaderCard({
         </Stack>
       </AccordionDetails>
     </Accordion>
+  );
+}
+
+const STAMP_CHIP: Record<
+  StampHealth['state'],
+  { label: string; color: 'success' | 'warning' | 'error' | 'default' } | null
+> = {
+  none: null,
+  active: { label: 'Stamp set', color: 'success' },
+  pending: { label: 'Stamp settling', color: 'warning' },
+  expired: { label: 'Stamp expired', color: 'error' },
+  // Not "expired": a batch the node never knew (a mistyped id, a rebuilt node)
+  // lands here too, and the alert below carries the likely cause.
+  gone: { label: 'Stamp not on node', color: 'error' },
+  // The batch may well be fine; we simply could not ask. Saying "set" here is
+  // what produced a green ladder with nothing behind it.
+  unknown: { label: 'Stamp unverified', color: 'default' },
+};
+
+function StampStateChip({ health }: { health: StampHealth }) {
+  const expiringSoon = health.ok && isStampExpiringSoon(health.ttl);
+  const chip = expiringSoon
+    ? { label: `Expires in ${formatTtl(health.ttl)}`, color: 'warning' as const }
+    : STAMP_CHIP[health.state];
+  if (!chip) return null;
+  return (
+    <Chip
+      size="small"
+      color={chip.color}
+      variant="outlined"
+      label={chip.label}
+      title={
+        health.ttl != null && health.ttl > 0
+          ? `${formatTtl(health.ttl)} left on this batch`
+          : undefined
+      }
+    />
+  );
+}
+
+/**
+ * A batch that has run out cannot be topped up from here — bee has no
+ * extend-batch call wired into this manager — so the only way forward is a new
+ * batch, which is what this says.
+ */
+function DeadStampAlert({ health }: { health: StampHealth }) {
+  return (
+    <Alert severity="error">
+      {health.state === 'expired'
+        ? 'The postage batch this uploader pays with has expired. '
+        : 'This uploader’s bee node does not hold the batch recorded for it — the usual cause is a batch that expired and was dropped. '}
+      Uploads cannot be paid for until a new batch is bought below and set with{' '}
+      <strong>Use</strong>.
+    </Alert>
   );
 }
