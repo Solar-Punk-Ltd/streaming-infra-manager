@@ -272,8 +272,16 @@ export function NewDeploymentDrawer({
   // so an explicit value only means anything without one. Locked rather than
   // silently ignored.
   const hasLocalBeeNode = hasComponent(BEE_UPLOADER_SERVICE);
+  // bee_url is a per-profile field: the group create endpoint does not accept
+  // one and the group config PATCH does not carry one either. Offering it in
+  // group mode discarded whatever was typed without a word, and — worse —
+  // still gated the Deploy button on it, so a scheme-less value blocked a
+  // group deploy over a field the group endpoint would never have received.
+  const beeUrlApplies = !groupMode && !isGroupEdit;
   const beeUrlError =
-    hasStreamUploader && !hasLocalBeeNode ? beeUrlProblem(beeUrl) : null;
+    beeUrlApplies && hasStreamUploader && !hasLocalBeeNode
+      ? beeUrlProblem(beeUrl)
+      : null;
   const componentsError =
     components.length === 0 ? 'select at least one component' : null;
   const notesError = notes.length > 500 ? 'max 500 chars' : null;
@@ -693,17 +701,19 @@ export function NewDeploymentDrawer({
                 helperText={publicKeyHelperText(derivedAddress)}
               />
 
-              <TextField
-                label="Bee API URL"
-                value={beeUrl}
-                onChange={(e) => setBeeUrl(e.target.value)}
-                disabled={hasLocalBeeNode}
-                error={!!beeUrlError}
-                helperText={beeUrlHelperText(beeUrlError, hasLocalBeeNode)}
-                slotProps={{
-                  htmlInput: { style: { fontFamily: 'monospace' } },
-                }}
-              />
+              {beeUrlApplies && (
+                <TextField
+                  label="Bee API URL"
+                  value={beeUrl}
+                  onChange={(e) => setBeeUrl(e.target.value)}
+                  disabled={hasLocalBeeNode}
+                  error={!!beeUrlError}
+                  helperText={beeUrlHelperText(beeUrlError, hasLocalBeeNode)}
+                  slotProps={{
+                    htmlInput: { style: { fontFamily: 'monospace' } },
+                  }}
+                />
+              )}
 
               <TextField
                 label="Stamp ID"
