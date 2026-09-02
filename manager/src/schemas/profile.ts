@@ -7,6 +7,7 @@ import {
   engineForComponents,
   hasConflictingEngines,
   LADDER_GROUP_NAME_MAX,
+  normalizeBeePublishers,
   OME_SERVICE,
 } from '@streaming-infra-manager/common';
 import { array, boolean, number, object, string, InferType } from 'yup';
@@ -38,6 +39,13 @@ const beePublishersField = () =>
     .nullable()
     .notRequired()
     .max(BEE_PUBLISHERS_MAX)
+    // Canonicalise before the tests run, so what is stored is what was
+    // accepted: entries separated by single spaces, batch ids lower-case and
+    // un-prefixed. A four-line paste and an 0x-prefixed batch id both parse
+    // fine here but are refused by the uploader on the other machine — see
+    // normalizeBeePublishers. Left untouched when it does not parse, so the
+    // shape error below still quotes what the operator typed.
+    .transform((value) => normalizeBeePublishers(value))
     .test('bee-publishers', 'invalid bee_publishers', function (value) {
       const problem = beePublishersProblem(value);
       return problem

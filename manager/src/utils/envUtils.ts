@@ -8,6 +8,7 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   type EngineName,
+  normalizeBeePublishers,
   OME_SERVICE,
 } from '@streaming-infra-manager/common';
 
@@ -137,7 +138,10 @@ export function writeProfileEnv(
   // srs and the uploader read them from the compose environment, and the
   // uploader refuses to start unless the publishers cover the ladder exactly —
   // so the two are written by one hand, from one definition.
-  const publishers = values.beePublishers?.trim();
+  // Normalised here too, not only in the schema: rows written before the
+  // schema canonicalised the value still hold whatever was pasted, and this is
+  // the last point before it becomes a line in a file compose has to parse.
+  const publishers = normalizeBeePublishers(values.beePublishers?.trim());
   if (publishers) {
     const problem = beePublishersProblem(publishers);
     if (problem) {

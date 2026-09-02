@@ -18,6 +18,7 @@ import {
   isLadderKind,
   ladderMemberName,
   ladderMemberNames,
+  normalizeBeePublishers,
   rungFromMemberName,
   rungOrder,
   STANDARD_GROUP_KIND,
@@ -578,5 +579,66 @@ describe('a pasted BEE_PUBLISHERS', () => {
     // Every rung the publishers must cover is in it, and nothing else.
     const names = abrLadderEnvValue().split(' ').map((r) => r.split(':')[0]);
     assert.deepEqual([...names].sort(), [...DEFAULT_ABR_RUNGS].sort());
+  });
+});
+
+describe('normalizeBeePublishers', () => {
+  const batch = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
+  const entries = DEFAULT_ABR_RUNGS.map(
+    (rung, i) => `${rung}@http://65.108.40.58:${10015 + i * 10}<${batch(rung)}>`,
+  );
+  const canonical = entries.join(' ');
+
+  it('collapses a newline-separated paste to single spaces', () => {
+    // The shape you get copying the four rungs out as four lines. It parses
+    // (split is on /\s+/) and so passed validation, but was then written
+    // verbatim into .env.<profile>, whose 2nd-4th lines are not KEY=VALUE —
+    // compose refuses the whole file with
+    // `unexpected character "@" in variable name`.
+    assert.equal(normalizeBeePublishers(entries.join('\n')), canonical);
+    assert.equal(normalizeBeePublishers(entries.join('\r\n')), canonical);
+  });
+
+  it('collapses runs of spaces and tabs, and trims the ends', () => {
+    assert.equal(normalizeBeePublishers(`  ${entries.join('  \t ')}\n`), canonical);
+  });
+
+  it('strips an 0x prefix and lower-cases the batch id', () => {
+    // Accepted by the parser, but the uploader tests the un-stripped slice
+    // against /^[0-9a-fA-F]{64}$/ and throws `must be 64 hex characters,
+    // got 66`. Every other batch-id write path in the manager strips it, and
+    // stamp_id is routinely 0x-prefixed, so this form is easy to hand-assemble.
+    const prefixed = DEFAULT_ABR_RUNGS.map(
+      (rung, i) =>
+        `${rung}@http://65.108.40.58:${10015 + i * 10}<0x${batch(rung).toUpperCase()}>`,
+    ).join(' ');
+    assert.equal(normalizeBeePublishers(prefixed), canonical);
+  });
+
+  it('leaves an already-canonical value untouched', () => {
+    assert.equal(normalizeBeePublishers(canonical), canonical);
+  });
+
+  it('preserves rung order rather than sorting it', () => {
+    // assembleBeePublishers sorts when it builds the string and the uploader
+    // sorts by ladder when it reads it; normalising is not the place to
+    // reorder, and doing so would hide a paste the operator can still read.
+    const reversed = [...entries].reverse().join(' ');
+    assert.equal(normalizeBeePublishers(reversed), reversed);
+  });
+
+  it('passes through what it cannot parse, for the validator to reject', () => {
+    // beePublishersProblem must be able to quote what the operator typed.
+    assert.equal(normalizeBeePublishers('not-a-ladder'), 'not-a-ladder');
+    assert.equal(normalizeBeePublishers(''), '');
+    assert.equal(normalizeBeePublishers('   '), '   ');
+    assert.equal(normalizeBeePublishers(null), null);
+    assert.equal(normalizeBeePublishers(undefined), undefined);
+  });
+
+  it('produces a value the validator accepts and a .env line can hold', () => {
+    const out = normalizeBeePublishers(entries.join('\n')) as string;
+    assert.equal(beePublishersProblem(out), null);
+    assert.ok(!/[\r\n]/.test(out), 'a normalised value must be a single line');
   });
 });
