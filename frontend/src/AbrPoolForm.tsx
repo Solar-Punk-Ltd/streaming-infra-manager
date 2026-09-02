@@ -54,12 +54,21 @@ export function AbrPoolForm({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Keyed on the group id, not the object — the same reason AbrUploaderForm
+  // keys on the profile name. App rebuilds the `selectedGroup` prop on every
+  // render, and each `profile.changed` SSE event triggers one: with an object
+  // dependency, the four rungs going DEPLOYING -> RUNNING would re-run this
+  // mid-keystroke and reset Notes to the stored value, so "Save pool" would
+  // write the old note back to all four members.
+  const editingGroupId = editingGroup?.group.id ?? null;
   useEffect(() => {
     if (!editingGroup) return;
     setName(editingGroup.group.name);
     setHost(editingGroup.members[0]?.host ?? '');
     setNotes(editingGroup.members[0]?.notes ?? '');
-  }, [editingGroup]);
+    setSubmitError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingGroupId]);
 
   const nameError = (() => {
     if (name.length === 0) return null;
