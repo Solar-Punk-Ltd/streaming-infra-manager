@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   abrLadderEnvValue,
+  BEE_UPLOADER_SERVICE,
   engineForComponents,
   getErrorMessage,
 } from '@streaming-infra-manager/common';
@@ -201,6 +202,12 @@ export class DeploymentOrchestrator {
       stampId: profile.stamp_id,
       beePublishers: profile.bee_publishers,
       beeUrl: profile.bee_url,
+      // From the profile's own components, deliberately not from `deployNow`:
+      // a held-back uploader is deployed on its own, and deploy.sh must still
+      // resolve the local Bee address for it.
+      localBeeUploader: defaultServicesFor(profile).includes(
+        BEE_UPLOADER_SERVICE,
+      ),
       ...omePortsFor(profile.port_slot),
     });
     logger.info(

@@ -259,6 +259,63 @@ describe('the update path enforces the same rules as create', () => {
   });
 });
 
+describe('bee_url reaches the container', () => {
+  // The assertion the original bee_url tests were missing. `is accepted when
+  // the deployment runs no bee-uploader` deploys [srs] only — and
+  // resolve_bee_url runs only for the uploader service, so it never fired and
+  // the test passed while proving nothing about where BEE_URL pointed.
+  //
+  // It pointed at http://bee-uploader:<port>, a compose service this profile
+  // does not run, because resolve_bee_url decided "is there a local Bee node"
+  // from deploy/config.json — which the manager writes once at bootstrap,
+  // never per profile. The uploader died on `getaddrinfo ENOTFOUND
+  // bee-uploader` and restarted forever while the manager reported RUNNING.
+  //
+  // Asking the uploader's own /health is what separates the two, exactly as
+  // for the pool-backed case.
+  const rung = LIVE?.split(' ')[0];
+  const beeUrl = rung?.slice(rung.indexOf('@') + 1, rung.indexOf('<'));
+  const batch = rung?.slice(rung.indexOf('<') + 1, rung.indexOf('>'));
+
+  it(
+    'deploys srs + stream-uploader against an external Bee node and comes up healthy',
+    {
+      skip: LIVE
+        ? false
+        : 'set ABR_BEE_PUBLISHERS — its 360p rung is reused here as an external node',
+    },
+    async () => {
+      const name = track(uniqueName('beeurl'));
+      const profile = await createProfile({
+        name,
+        kind: 'custom',
+        components: [SRS, STREAM_UPLOADER],
+        bee_url: beeUrl,
+        stamp_id: batch,
+        private_key: TEST_KEY,
+        notes: 'external bee node',
+      });
+      assert.equal(profile.bee_url, beeUrl);
+
+      const running = await waitForRunningServices(name, [SRS, STREAM_UPLOADER], {
+        timeoutMs: DEPLOY_TIMEOUT,
+      });
+      assert.ok(
+        !serviceNames(running).includes(BEE_UPLOADER),
+        'this deployment must run no bee-uploader — that is what makes bee_url apply',
+      );
+
+      // RUNNING alone does not distinguish a working uploader from one that is
+      // restarting. If BEE_URL had been overridden to the compose service name
+      // again, this is where it would fail.
+      await waitForUploaderHealthy(running);
+
+      await removeProfile(name);
+      await waitForGone(name);
+    },
+  );
+});
+
 describe('ABR uploader — deploy against real rungs', () => {
   it(
     'deploys srs + stream-uploader, no bee node, no stamp pending',

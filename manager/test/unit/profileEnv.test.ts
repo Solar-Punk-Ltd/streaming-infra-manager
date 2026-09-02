@@ -144,6 +144,17 @@ describe('writeProfileEnv — BEE_URL', () => {
     );
   });
 
+  it('normalises a value that was stored before the schema canonicalised it', () => {
+    // writeProfileEnv normalises as well as the schema, for rows written
+    // before the transform existed. Without it a four-line value already in
+    // the database would still produce an .env file compose refuses to read.
+    const path = writeProfileEnv('stage-legacy', {
+      engine: 'srs',
+      beePublishers: PUBLISHERS.split(' ').join('\n'),
+    });
+    assert.equal(lineFor(path, 'BEE_PUBLISHERS'), `BEE_PUBLISHERS=${PUBLISHERS}`);
+  });
+
   it('writes a $ in the value literally, not as a replacement pattern', () => {
     // The base .env already carries a BEE_URL line, so this takes the upsert's
     // overwrite branch — the one that used to hand the value to String.replace
@@ -153,5 +164,59 @@ describe('writeProfileEnv — BEE_URL', () => {
     const url = 'http://10.0.0.7:1633/$&$`x';
     const path = writeProfileEnv('ext-e', { engine: 'srs', beeUrl: url });
     assert.equal(lineFor(path, 'BEE_URL'), `BEE_URL=${url}`);
+  });
+});
+
+describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
+  // deploy.sh's resolve_bee_url computes the local Bee address and writes it
+  // into an override file that outranks .env.<profile>. It has to know whether
+  // this PROFILE runs a Bee node, and it cannot work that out for itself: the
+  // service filter says what the current invocation was asked for, and the
+  // manager deploys a held-back uploader on its own once a batch is bought —
+  // which looks exactly like a profile that owns no node.
+  //
+  // Getting it wrong breaks one case or the other. Guarding on the filter left
+  // a staged `deploy.sh --profile=x stream-uploader` with the base env's
+  // BEE_URL (http://localhost:1663 — inside the container, the container
+  // itself), so the uploader crash-looped beside its own healthy Bee node.
+
+  it('says false when the profile runs no Bee node of its own', () => {
+    const path = writeProfileEnv('nolocal', {
+      engine: 'srs',
+      localBeeUploader: false,
+      beeUrl: 'http://10.0.0.7:1633',
+    });
+    assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), 'LOCAL_BEE_UPLOADER=false');
+    // And the operator's external node is what is written.
+    assert.equal(lineFor(path, 'BEE_URL'), 'BEE_URL=http://10.0.0.7:1633');
+  });
+
+  it('says true when it does, so the local address is still resolved', () => {
+    // The staged case: only stream-uploader is being deployed, but the profile
+    // owns a bee-uploader, so resolve_bee_url must still run.
+    const path = writeProfileEnv('withlocal', {
+      engine: 'srs',
+      localBeeUploader: true,
+      stampId: BATCH('360p'),
+    });
+    assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), 'LOCAL_BEE_UPLOADER=true');
+  });
+
+  it('is stated explicitly, not left to the base env', () => {
+    // .env.<profile> is a fresh copy of the base .env every deploy, so an
+    // absent key would let a base-env value decide it.
+    writeBaseEnv('ENGINE=srs\nLOCAL_BEE_UPLOADER=true\n');
+    const path = writeProfileEnv('override', {
+      engine: 'srs',
+      localBeeUploader: false,
+    });
+    assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), 'LOCAL_BEE_UPLOADER=false');
+  });
+
+  it('is omitted when the caller does not say, so deploy.sh decides as before', () => {
+    // Absent means "decide as before" in deploy.sh, which keeps a hand-run
+    // deploy.sh and an older manager working.
+    const path = writeProfileEnv('unsaid', { engine: 'srs' });
+    assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), undefined);
   });
 });

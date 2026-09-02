@@ -109,6 +109,18 @@ export interface ProfileEnvValues {
 
   omeSrtPort?: number;
   omeHlsPort?: number;
+  /**
+   * Whether this profile runs a `bee-uploader` of its own, from its full
+   * service list — not from whatever subset is being deployed right now.
+   *
+   * deploy.sh's resolve_bee_url needs this and cannot work it out: the service
+   * filter tells it which services this invocation was asked for, and the
+   * manager deploys a held-back uploader alone once a batch is bought, which
+   * looks identical to a profile that has no Bee node at all. Getting that
+   * wrong either overwrites an explicit external BEE_URL or leaves a local
+   * uploader pointed at the base env's address.
+   */
+  localBeeUploader?: boolean;
 }
 
 // deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
@@ -123,6 +135,17 @@ export function writeProfileEnv(
     : '';
 
   contents = upsertEnvLine(contents, 'ENGINE', values.engine);
+
+  // Stated explicitly both ways rather than only when false: this file is a
+  // fresh copy of the base .env each deploy, and leaving the key absent would
+  // let a base-env value decide it.
+  if (values.localBeeUploader !== undefined) {
+    contents = upsertEnvLine(
+      contents,
+      'LOCAL_BEE_UPLOADER',
+      values.localBeeUploader ? 'true' : 'false',
+    );
+  }
 
   const stamp = values.stampId?.replace(/^0x/, '').trim();
   if (stamp) {
