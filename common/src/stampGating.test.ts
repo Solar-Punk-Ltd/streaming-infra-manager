@@ -10,7 +10,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ABR_UPLOADER_KIND, beeTargetProblem } from './stampGating.js';
+import {
+  ABR_UPLOADER_KIND,
+  beeTargetProblem,
+  managesOwnStamp,
+  usesNodePool,
+} from './stampGating.js';
 
 const batch = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
 const PUBLISHERS = ['360p', '480p', '720p', '1080p']
@@ -105,5 +110,44 @@ describe('beeTargetProblem', () => {
       beeTargetProblem({ kind: ABR_UPLOADER_KIND, bee_url: EXTERNAL }) ?? '',
       /bee_publishers is required/,
     );
+  });
+});
+
+describe('usesNodePool / managesOwnStamp — who the Uploaders tab shows', () => {
+  it('excludes an abr-uploader: its batches are the pool\'s, bought per rung', () => {
+    const profile = { kind: ABR_UPLOADER_KIND, bee_publishers: PUBLISHERS };
+    assert.equal(usesNodePool(profile), true);
+    // The reason for the exclusion: it runs no bee node, so a funding panel
+    // here would poll an address nothing answers at.
+    assert.equal(managesOwnStamp(profile), false);
+  });
+
+  it('still shows a profile that runs its own node, pool string or not', () => {
+    // The exclusion used to key on BEE_PUBLISHERS alone, so a streamer given a
+    // pool string vanished from the tab — even though it runs a bee-uploader
+    // with its own wallet and batch, and that node became impossible to fund
+    // until the field was cleared again.
+    const streamer = { kind: 'streamer', bee_publishers: PUBLISHERS };
+    assert.equal(usesNodePool(streamer), false);
+    assert.equal(managesOwnStamp(streamer), true);
+
+    const custom = {
+      kind: 'custom',
+      components: ['srs', 'stream-uploader', 'bee-uploader'],
+      bee_publishers: PUBLISHERS,
+    };
+    assert.equal(usesNodePool(custom), false);
+    assert.equal(managesOwnStamp(custom), true);
+  });
+
+  it('leaves the ordinary cases as they were', () => {
+    // No pool string: nothing to exclude.
+    assert.equal(usesNodePool({ kind: 'streamer' }), false);
+    assert.equal(managesOwnStamp({ kind: 'streamer' }), true);
+    // A bare rung is a Bee node only — funded from the tab, which is the whole
+    // reason isBeeNodeOnly exists.
+    assert.equal(managesOwnStamp({ kind: 'custom', components: ['bee-uploader'] }), true);
+    // A viewer uploads nothing.
+    assert.equal(managesOwnStamp({ kind: 'viewer' }), false);
   });
 });

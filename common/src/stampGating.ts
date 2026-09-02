@@ -88,8 +88,17 @@ export function hasBeePublishers(profile: StampGatedProfile): boolean {
  * while it is.
  */
 export function usesNodePool(profile: StampGatedProfile): boolean {
+  const services = defaultServicesFor(profile);
   return (
-    servicesNeedStamp(defaultServicesFor(profile)) && hasBeePublishers(profile)
+    servicesNeedStamp(services) &&
+    hasBeePublishers(profile) &&
+    // And genuinely has no node of its own. Keying on BEE_PUBLISHERS alone was
+    // enough to drop a profile from the Uploaders tab, but a profile that runs
+    // a bee-uploader *and* was given a pool string still owns a wallet and a
+    // batch — hiding it left no way to fund the node it is actually running.
+    // The exclusion exists because a funding panel would poll a node that does
+    // not exist, so absence of the node is what it should test.
+    !services.includes(BEE_UPLOADER_SERVICE)
   );
 }
 
