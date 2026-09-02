@@ -13,6 +13,7 @@ import {
   GroupNotFoundError,
   GroupBusyError,
   LadderGroupError,
+  ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
   StampNotUsableError,
@@ -35,6 +36,16 @@ export function errorHandler(
 ): void {
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (err instanceof ProfileConfigError) {
+    // Same shape as a schema rejection: it is a rejected request body, just one
+    // whose rule needs the stored profile to evaluate.
+    res.status(400).json({
+      error: 'validation_error',
+      errors: [err.reason],
+      name: err.profileName,
+    });
     return;
   }
   if (err instanceof ProfileNotFoundError) {

@@ -93,6 +93,49 @@ export function usesNodePool(profile: StampGatedProfile): boolean {
   );
 }
 
+/** A profile plus the one field that names an external Bee node. */
+export interface BeeTargetProfile extends StampGatedProfile {
+  bee_url?: string | null;
+}
+
+/**
+ * Why a profile's upload destination is incoherent, or null when it is fine.
+ *
+ * The three rules here were once expressed only as per-field tests on
+ * `createProfileSchema`, and a yup test can only see the fields in the body it
+ * was handed. `PUT /profiles/:name` carries neither `kind` nor `components`,
+ * so every one of them silently passed on update:
+ *
+ *  - `bee_url` was accepted on a profile that runs a local bee-uploader, which
+ *    is the "stores a value that never applies" state the create-side check
+ *    exists to prevent — deploy.sh's resolve_bee_url outranks the stored value.
+ *  - `bee_url` was accepted next to a stored `bee_publishers`, so a config
+ *    could say two different things about where uploads go.
+ *  - an abr-uploader could be left with no `bee_publishers` at all, which the
+ *    create path declares mandatory. That one is the worst of the three: the
+ *    next deploy writes no BEE_PUBLISHERS/ABR_ENABLED/ABR_LADDER, the uploader
+ *    falls back to BEE_URL, and it crash-loops while the manager says RUNNING.
+ *
+ * Stated once, over the *resulting* profile rather than over a patch, and
+ * checked by ProfileService on both create and update — so the two paths cannot
+ * disagree about what a valid destination is.
+ */
+export function beeTargetProblem(profile: BeeTargetProfile): string | null {
+  const publishers = hasBeePublishers(profile);
+  const beeUrl = Boolean(profile.bee_url && profile.bee_url.trim());
+
+  if (profile.kind === ABR_UPLOADER_KIND && !publishers) {
+    return `bee_publishers is required for a ${ABR_UPLOADER_KIND} — paste it from an ABR node pool`;
+  }
+  if (beeUrl && publishers) {
+    return 'bee_url is not used when bee_publishers is set — the uploader publishes to the pool';
+  }
+  if (beeUrl && defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE)) {
+    return 'bee_url only applies to a deployment that runs no bee-uploader — remove that component to point the uploader at an external node';
+  }
+  return null;
+}
+
 export function isPendingStamp(profile: StampGatedProfile): boolean {
   return (
     servicesNeedStamp(defaultServicesFor(profile)) &&
