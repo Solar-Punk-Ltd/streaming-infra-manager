@@ -179,8 +179,14 @@ applies, the field is disabled while `bee-uploader` is checked (drop it — use
 It is also refused alongside `bee_publishers`, so a config cannot say two
 different things about where uploads go.
 
-**Requires `swarm-hls-stream` 37e6165 or later**, which this repo's submodule
-pin carries. Two changes there are what make a pool-backed uploader deployable
+**Requires `swarm-hls-stream` 46eb21a or later**, which this repo's submodule
+pin carries. `resolve_bee_url` there decided "is there a local Bee node" from
+`config.json` rather than from the services the invocation was asked to deploy
+— and `config.json` is written once at bootstrap, never per profile — so it
+overrode `BEE_URL` for *every* profile running a stream-uploader. An external
+node named here was replaced by `http://bee-uploader:<port>`, a compose service
+that is not running, and the container crash-looped on `ENOTFOUND` while the
+manager reported `RUNNING`. Two changes there are what make a pool-backed uploader deployable
 at all: the uploader service's `environment:` block in
 `deploy/docker-compose.yml` now passes `BEE_PUBLISHERS` through (before, the
 uploader read the variable but it never reached the container), and
