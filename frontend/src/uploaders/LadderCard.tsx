@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -63,16 +63,27 @@ export function LadderCard({
 
   const groupId = group.id;
 
+  // Two of these can be in flight at once — each rung auto-stamping publishes its
+  // own `profile.changed`, so the fingerprint below can change twice in seconds —
+  // and they can finish out of order. Without a sequence number the older answer
+  // lands last and pins the panel to a readiness state that is already wrong.
+  const latest = useRef(0);
+
   const reload = useCallback(async () => {
+    const seq = ++latest.current;
     setLoading(true);
     setError(null);
     try {
-      setResult(await fetchBeePublishers(groupId));
+      const next = await fetchBeePublishers(groupId);
+      if (seq !== latest.current) return;
+      setResult(next);
+      setError(null);
     } catch (e) {
+      if (seq !== latest.current) return;
       setError(getErrorMessage(e));
       setResult(null);
     } finally {
-      setLoading(false);
+      if (seq === latest.current) setLoading(false);
     }
   }, [groupId]);
 
@@ -102,7 +113,7 @@ export function LadderCard({
           <Typography sx={{ fontFamily: 'monospace', flexGrow: 1 }}>
             {group.name}
           </Typography>
-          <Chip size="small" variant="outlined" label="ABR ladder" />
+          <Chip size="small" variant="outlined" label="ABR node pool" />
           <Chip
             size="small"
             variant="outlined"

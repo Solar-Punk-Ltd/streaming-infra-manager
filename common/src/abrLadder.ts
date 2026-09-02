@@ -1,5 +1,6 @@
 import { BEE_UPLOADER_SERVICE } from './constants.js';
 import {
+  classifyPublishUrl,
   isInvalidUrlState,
   type PublishUrlState,
   publishUrlReason,
@@ -35,18 +36,24 @@ import {
 /**
  * What a deployment group is for.
  *
- * `abr-ladder` is recorded on the group rather than inferred from its members'
- * names: a ladder with a rung removed still *is* a ladder — one that needs
+ * `abr-node-pool` is recorded on the group rather than inferred from its
+ * members' names: a pool with a rung removed still *is* a pool — one that needs
  * fixing — and inferring it would make the group quietly stop being one at
  * exactly the moment that matters.
+ *
+ * "Node pool" is the operator-facing name — the group holds Bee nodes and no
+ * uploader. "Ladder" stays the word for its shape, one rung per quality.
  */
 export const STANDARD_GROUP_KIND = 'standard';
-export const ABR_LADDER_GROUP_KIND = 'abr-ladder';
-export const GROUP_KINDS = [STANDARD_GROUP_KIND, ABR_LADDER_GROUP_KIND] as const;
+export const ABR_NODE_POOL_GROUP_KIND = 'abr-node-pool';
+export const GROUP_KINDS = [
+  STANDARD_GROUP_KIND,
+  ABR_NODE_POOL_GROUP_KIND,
+] as const;
 export type GroupKind = (typeof GROUP_KINDS)[number];
 
 export function isLadderKind(kind: string | null | undefined): boolean {
-  return kind === ABR_LADDER_GROUP_KIND;
+  return kind === ABR_NODE_POOL_GROUP_KIND;
 }
 
 /** One rung of the shipped ladder. Ascending quality. */
@@ -148,34 +155,10 @@ export function rungOrder(rungName: string): number {
   return DEFAULT_ABR_RUNGS.indexOf(rungName);
 }
 
-/**
- * Whether a group's members form a complete ladder.
- *
- * Derived from the member names rather than recorded on the group row: it needs
- * no schema, and it cannot go stale — a group that stops looking like a ladder
- * (a rung removed) stops being treated as one, which is the honest answer.
- */
-export function isLadderGroup(
-  groupName: string,
-  memberNames: readonly string[],
-): boolean {
-  const rungs = new Set(
-    memberNames
-      .map((name) => rungFromMemberName(groupName, name))
-      .filter((rung): rung is string => rung !== null),
-  );
-  return DEFAULT_ABR_RUNGS.every((rung) => rungs.has(rung));
-}
-
-/** True when any member carries a rung name — a ladder, complete or not. */
-export function looksLikeLadderGroup(
-  groupName: string,
-  memberNames: readonly string[],
-): boolean {
-  return memberNames.some(
-    (name) => rungFromMemberName(groupName, name) !== null,
-  );
-}
+// `isLadderGroup` / `looksLikeLadderGroup` lived here, deriving pool-ness from
+// the member names. `deployment_groups.kind` answers that now, and answers it
+// for a damaged pool too, so both had no callers left — only tests and a doc
+// paragraph arguing for a distinction the column removed.
 
 /**
  * Depth to suggest for a rung's batch, given the depth chosen for the lowest rung.
@@ -380,5 +363,109 @@ export function beePublishersValue(
 ): string {
   return entries
     .map((entry) => beePublisherEntry(entry.rungName, entry.url, entry.batchId))
+    .join(' ');
+}
+
+/** One parsed `rung@url<batch>` entry. */
+export interface BeePublisherEntry {
+  rung: string;
+  url: string;
+  /** 64 hex chars, lower-case, no 0x. */
+  batchId: string;
+}
+
+// `rung@url<batch>`. Neither the rung nor the URL may contain whitespace or a
+// bracket, so two entries that ran together (a dropped space) fail to match
+// instead of one swallowing its neighbour.
+const PUBLISHER_ENTRY_RE = /^([^\s@<>]+)@([^\s<>]+)<(?:0x)?([0-9a-fA-F]{64})>$/;
+
+/**
+ * Parse a BEE_PUBLISHERS value, or null when any entry is not `rung@url<batch>`.
+ *
+ * Bracketed form only: it is what the pool card emits, and the older `#` form
+ * cannot survive the `.env` file this is written into. Shape only — whether the
+ * rungs make a ladder is `beePublishersProblem`'s question.
+ */
+export function parseBeePublishers(
+  value: string,
+): BeePublisherEntry[] | null {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const entries: BeePublisherEntry[] = [];
+  for (const token of tokens) {
+    const match = PUBLISHER_ENTRY_RE.exec(token);
+    if (!match) return null;
+    entries.push({
+      rung: match[1]!,
+      url: match[2]!,
+      batchId: match[3]!.toLowerCase(),
+    });
+  }
+  return entries;
+}
+
+/**
+ * Why a pasted BEE_PUBLISHERS cannot be used, or null when it can. Empty means
+ * "not set", which is not a problem.
+ *
+ * Checked where the operator can still fix it — the form and the API — rather
+ * than by an uploader refusing to start on another machine. The rules are the
+ * uploader's own: every rung of the ladder, no rung twice, nothing else, and an
+ * address it can reach. The ladder is the shipped one because that is what the
+ * manager writes to ABR_LADDER beside it.
+ */
+export function beePublishersProblem(
+  value: string | null | undefined,
+): string | null {
+  if (!value || !value.trim()) return null;
+
+  const entries = parseBeePublishers(value);
+  if (!entries) {
+    return 'expected space-separated rung@http://host:port<batchid> entries, as copied from an ABR node pool';
+  }
+
+  const seen = new Set<string>();
+  for (const { rung, url } of entries) {
+    if (!DEFAULT_ABR_RUNGS.includes(rung)) {
+      return `${rung} is not a rung of the shipped ladder (${DEFAULT_ABR_RUNGS.join(', ')})`;
+    }
+    if (seen.has(rung)) return `${rung} appears twice`;
+    seen.add(rung);
+
+    switch (classifyPublishUrl(url)) {
+      case 'malformed':
+        return `${rung}: "${url}" is not an http(s) URL`;
+      case 'ssh-target':
+        return `${rung}: the address carries ssh user info — use the node's hostname or IP`;
+      case 'loopback':
+        // Inside the uploader's container "localhost" is the container.
+        return `${rung}: the address points at localhost, which the uploader's container cannot reach — use the pool machine's address`;
+      case 'ok':
+      case 'unknown':
+      case 'unreachable':
+        break;
+    }
+  }
+
+  const missing = DEFAULT_ABR_RUNGS.filter((rung) => !seen.has(rung));
+  if (missing.length > 0) {
+    return `missing ${missing.join(', ')} — every rung needs a node, or the uploader refuses to start`;
+  }
+  return null;
+}
+
+/**
+ * The engine's `ABR_LADDER` for the shipped ladder — `name:width:height:kbps`,
+ * space separated, highest rung first as the engine's own sample writes it.
+ *
+ * Written beside BEE_PUBLISHERS so the two cannot drift: the uploader refuses
+ * to start unless the publishers cover ABR_LADDER exactly, and the engine's
+ * sample is a file the manager does not own.
+ */
+export function abrLadderEnvValue(): string {
+  return [...DEFAULT_ABR_LADDER]
+    .reverse()
+    .map((rung) => `${rung.name}:${rung.width}:${rung.height}:${rung.kbps}`)
     .join(' ');
 }

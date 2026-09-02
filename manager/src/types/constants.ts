@@ -10,7 +10,12 @@ import {
 
 import { ProfileKind, ProfileStatus, ServiceName } from './types.js';
 
-export const PROFILE_KINDS = ['streamer', 'viewer', 'custom'] as const;
+export const PROFILE_KINDS = [
+  'streamer',
+  'viewer',
+  'custom',
+  'abr-uploader',
+] as const;
 
 export const ALL_SERVICES = [
   BEE_UPLOADER_SERVICE,

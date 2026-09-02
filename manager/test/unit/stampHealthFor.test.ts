@@ -34,6 +34,8 @@ const PROFILE: Profile = {
   private_key: null,
   public_key: null,
   stamp_id: BATCH,
+  bee_publishers: null,
+  bee_url: null,
   status: 'RUNNING',
   last_error: null,
   last_error_at: null,

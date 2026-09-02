@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
+  abrLadderEnvValue,
   engineForComponents,
   getErrorMessage,
 } from '@streaming-infra-manager/common';
@@ -30,6 +31,7 @@ import { ProfileRepository } from './ProfileRepository.js';
 import { RunHandle, ScriptRunner } from './ScriptRunner.js';
 import {
   defaultServicesFor,
+  hasBeePublishers,
   hasStampId,
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
@@ -145,7 +147,8 @@ export class DeploymentOrchestrator {
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
-    if (!hasStampId(profile)) {
+    // A pool-backed uploader pays with the pool's batches, not its own.
+    if (!hasStampId(profile) && !hasBeePublishers(profile)) {
       throw new StampRequiredError(profile.name);
     }
     return this.deployServices(profile, [STREAM_UPLOADER_SERVICE], {
@@ -196,6 +199,8 @@ export class DeploymentOrchestrator {
     const written = writeProfileEnv(profile.name, {
       engine,
       stampId: profile.stamp_id,
+      beePublishers: profile.bee_publishers,
+      beeUrl: profile.bee_url,
       ...omePortsFor(profile.port_slot),
     });
     logger.info(
@@ -520,6 +525,18 @@ export class DeploymentOrchestrator {
     }
     if (profile.stamp_id) {
       env.STAMP = profile.stamp_id.replace(/^0x/, '');
+    }
+    // Same three keys writeProfileEnv puts in .env.<profile>, so the container
+    // snapshot shows what a pool-backed uploader was actually started with.
+    const publishers = profile.bee_publishers?.trim();
+    if (publishers) {
+      env.BEE_PUBLISHERS = publishers;
+      env.ABR_ENABLED = 'true';
+      env.ABR_LADDER = abrLadderEnvValue();
+    }
+    const beeUrl = profile.bee_url?.trim();
+    if (beeUrl && !publishers) {
+      env.BEE_URL = beeUrl;
     }
 
     return env;

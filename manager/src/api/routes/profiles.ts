@@ -31,6 +31,8 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         private_key: body.private_key,
         public_key: body.public_key,
         stamp_id: body.stamp_id,
+        bee_publishers: body.bee_publishers,
+        bee_url: body.bee_url,
       });
       res.status(202).json(profile);
     }),
@@ -66,6 +68,8 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         private_key: body.private_key,
         public_key: body.public_key,
         stamp_id: body.stamp_id,
+        bee_publishers: body.bee_publishers,
+        bee_url: body.bee_url,
       });
       res.status(202).json(profile);
     }),

@@ -18,6 +18,8 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'SRS_ADAPTER_HOST',
     'SRS_ADAPTER_PORT',
     'SRS_MEDIA_PATH',
+    'ABR_ENABLED',
+    'ABR_LADDER',
   ],
   [OME_SERVICE]: [
     'OME_SRT_PORT',
@@ -41,6 +43,9 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'STAMP_IMMUTABLE',
     'STREAM_KEY',
     'STREAM_LIST_TOPIC',
+    'BEE_PUBLISHERS',
+    'ABR_ENABLED',
+    'ABR_LADDER',
   ],
   [BEE_UPLOADER_SERVICE]: [
     'BEE_UPLOADER_API_PORT',

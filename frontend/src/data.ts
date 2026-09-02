@@ -1,6 +1,7 @@
 import {
   type BeePublishersResult,
   defaultServicesFor,
+  hasBeePublishers,
   hasStampId,
   servicesNeedStamp,
   STREAM_UPLOADER_SERVICE,
@@ -48,10 +49,12 @@ function uploaderDeployed(profile: Profile): boolean {
   );
 }
 
+// A pool-backed uploader carries the pool's batches in BEE_PUBLISHERS, so it
+// needs no stamp of its own to be deployable.
 export function canDeployUploader(profile: Profile): boolean {
   return (
     servicesNeedStamp(defaultServicesFor(profile)) &&
-    hasStampId(profile) &&
+    (hasStampId(profile) || hasBeePublishers(profile)) &&
     !uploaderDeployed(profile)
   );
 }

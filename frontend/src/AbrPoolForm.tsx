@@ -23,7 +23,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/;
 
 /**
- * The whole ABR Uploader Pool form.
+ * The whole ABR Node Pool form.
  *
  * Deliberately a separate component rather than another branch inside
  * NewDeploymentDrawer. A pool shares almost nothing with a streaming-infra
@@ -226,8 +226,9 @@ function PoolSummary() {
       </Box>
       <Typography variant="caption" color="text.secondary">
         Each rung gets its own port slot, wallet and postage batch. Fund them and
-        buy a batch each from the Uploaders tab, then copy the{' '}
-        <code>BEE_PUBLISHERS</code> string.
+        buy a batch each from the Uploaders tab, then paste the{' '}
+        <code>BEE_PUBLISHERS</code> string into a streamer&apos;s{' '}
+        <strong>BEE_PUBLISHERS</strong> field — on whichever manager runs it.
       </Typography>
     </Alert>
   );

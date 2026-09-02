@@ -17,6 +17,10 @@ export interface Profile {
   private_key?: string | null;
   public_key?: string | null;
   stamp_id?: string | null;
+  /** Pasted BEE_PUBLISHERS: publishes to an ABR node pool instead of its own node. */
+  bee_publishers?: string | null;
+  /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
+  bee_url?: string | null;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: string | null;
@@ -31,7 +35,7 @@ export interface DeploymentGroup {
   id: number;
   name: string;
   size: number;
-  /** 'standard' fan-out, or 'abr-ladder'. */
+  /** 'standard' fan-out, or 'abr-node-pool'. */
   kind: string;
   created_at: string;
 }
@@ -46,4 +50,7 @@ export interface CreateProfileBody {
   private_key?: string;
   public_key?: string;
   stamp_id?: string;
+  /** null clears it on update — the uploader goes back to its own node + stamp. */
+  bee_publishers?: string | null;
+  bee_url?: string | null;
 }

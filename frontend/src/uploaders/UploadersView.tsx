@@ -68,7 +68,7 @@ export function UploadersView({
       <Alert severity="info">
         No uploader instances yet. Deploy a streamer (or a custom profile with
         the <code>stream-uploader</code> component) to manage postage stamps
-        here, or an ABR Uploader Pool to stand up one Bee node per quality rung.
+        here, or an ABR Node Pool to stand up one Bee node per quality rung.
       </Alert>
     );
   }
