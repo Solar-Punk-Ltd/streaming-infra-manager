@@ -136,4 +136,15 @@ describe('writeProfileEnv — BEE_URL', () => {
       /refusing to write BEE_URL.*ssh user info/,
     );
   });
+
+  it('writes a $ in the value literally, not as a replacement pattern', () => {
+    // The base .env already carries a BEE_URL line, so this takes the upsert's
+    // overwrite branch — the one that used to hand the value to String.replace
+    // as a *replacement string*, where `$&` means "the text that matched".
+    // `$` is legal in a URL path and beeUrlProblem accepts it, so the value
+    // came back mangled: the old line spliced into the middle of the new one.
+    const url = 'http://10.0.0.7:1633/$&$`x';
+    const path = writeProfileEnv('ext-e', { engine: 'srs', beeUrl: url });
+    assert.equal(lineFor(path, 'BEE_URL'), `BEE_URL=${url}`);
+  });
 });
