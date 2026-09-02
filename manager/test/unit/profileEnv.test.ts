@@ -13,16 +13,24 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 
 // SUBMODULE is resolved when the module loads, so point it at a scratch
 // directory before importing.
 const root = mkdtempSync(join(tmpdir(), 'shls-'));
 process.env.SHLS_ROOT = root;
-writeFileSync(
-  join(root, '.env'),
-  'ENGINE=srs\nBEE_URL=http://bee-uploader:1633\nSTREAM_LIST_TOPIC=swarm-stream\n',
-);
+
+// The one definition of the base .env every case starts from. Cases that need
+// a different base overwrite the file; rewriting it before each test means
+// they cannot leak into the next one — a failing assertion used to skip the
+// inline restore that followed it, so one real failure reported as three, two
+// of them pointing at code that was fine.
+const BASE_ENV =
+  'ENGINE=srs\nBEE_URL=http://bee-uploader:1633\nSTREAM_LIST_TOPIC=swarm-stream\n';
+const writeBaseEnv = (contents = BASE_ENV) =>
+  writeFileSync(join(root, '.env'), contents);
+
+writeBaseEnv();
 
 const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
 
@@ -34,6 +42,8 @@ const PUBLISHERS = ['360p', '480p', '720p', '1080p']
 const lines = (path: string) => readFileSync(path, 'utf8').split('\n');
 const lineFor = (path: string, key: string) =>
   lines(path).find((line) => line.startsWith(`${key}=`));
+
+beforeEach(() => writeBaseEnv());
 
 describe('writeProfileEnv — BEE_PUBLISHERS', () => {
   it('writes the publishers unquoted, with ABR_ENABLED and the shipped ABR_LADDER', () => {
@@ -58,16 +68,13 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
     // config load. Inert-but-wrong beats fatal until STAMP is made conditional
     // upstream.
     const foreign = 'f'.repeat(64);
-    writeFileSync(join(root, '.env'), `ENGINE=srs\nSTAMP=${foreign}\n`);
+    writeBaseEnv(`ENGINE=srs\nSTAMP=${foreign}\n`);
     const path = writeProfileEnv('stage-inherit', {
       engine: 'srs',
       beePublishers: PUBLISHERS,
     });
     assert.equal(lineFor(path, 'STAMP'), `STAMP=${foreign}`);
-    writeFileSync(
-      join(root, '.env'),
-      'ENGINE=srs\nBEE_URL=http://bee-uploader:1633\nSTREAM_LIST_TOPIC=swarm-stream\n',
-    );
+    // No restore needed: beforeEach rewrites the base env for the next case.
   });
 
   it('trims the pasted value', () => {

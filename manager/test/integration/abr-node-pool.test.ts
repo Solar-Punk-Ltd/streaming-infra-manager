@@ -154,8 +154,26 @@ describe('ABR node pool', () => {
       notes: 'before',
     });
 
-    await apiRaw('PATCH', `/groups/${group.id}/config`, { notes: 'after' });
+    const patched = await apiRaw('PATCH', `/groups/${group.id}/config`, {
+      notes: 'after',
+    });
+    // Assert the PATCH succeeded. Without this a 409 or 500 would go
+    // unreported, and the loop below would then be checking nothing.
+    assert.ok(
+      patched.status >= 200 && patched.status < 300,
+      `PATCH /groups/${group.id}/config -> ${patched.status}: ${JSON.stringify(patched.body)}`,
+    );
+
     const members = await listGroupMembers(group.id);
+    // listGroupMembers filters the profile list on `group_id`, which comes out
+    // of PROFILE_COLUMNS. Drop that column and every group_id is undefined,
+    // `members` is empty, the loop body never runs and this test passes having
+    // proved nothing about bulk propagation. Pin the count first.
+    assert.equal(
+      members.length,
+      RUNGS.length,
+      `expected ${RUNGS.length} rungs, got ${members.length}`,
+    );
     for (const m of members) {
       assert.equal((await getProfile(m.name)).notes, 'after');
     }
