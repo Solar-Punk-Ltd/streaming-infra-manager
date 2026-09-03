@@ -8,5 +8,6 @@ export { GroupBusyError } from './GroupBusyError.js';
 export { StampRequiredError } from './StampRequiredError.js';
 export { StampNotUsableError } from './StampNotUsableError.js';
 export { LadderGroupError } from './LadderGroupError.js';
+export { ProfileConfigError } from './ProfileConfigError.js';
 export { BeeNodeError } from './BeeNodeError.js';
 export { BeeHttpError } from './BeeHttpError.js';

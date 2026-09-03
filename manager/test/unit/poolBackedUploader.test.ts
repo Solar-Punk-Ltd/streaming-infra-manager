@@ -175,6 +175,46 @@ describe('pool-backed uploader — schema', () => {
     assert.equal(out.bee_publishers, PUBLISHERS);
   });
 
+  it('stores the canonical form of a four-line paste', async () => {
+    // Copying the rungs out as four lines parses (the split is on /\s+/) and so
+    // validated clean, but the raw value was what got stored and written — and
+    // an .env.<profile> whose 2nd-4th lines are not KEY=VALUE makes compose
+    // refuse the entire file. The schema canonicalises so stored == accepted.
+    const out = await createProfileSchema.validate({
+      name: 'stage',
+      kind: 'abr-uploader',
+      bee_publishers: PUBLISHERS.split(' ').join('\n'),
+      private_key: `0x${'11'.repeat(32)}`,
+    });
+    assert.equal(out.bee_publishers, PUBLISHERS);
+  });
+
+  it('stores an 0x-prefixed batch id without the prefix', async () => {
+    // The uploader tests the un-stripped slice against /^[0-9a-fA-F]{64}$/ and
+    // throws `must be 64 hex characters, got 66`. stamp_id is routinely
+    // 0x-prefixed here, so this string is easy to hand-assemble.
+    const prefixed = ['360p', '480p', '720p', '1080p']
+      .map(
+        (rung, i) =>
+          `${rung}@http://65.108.40.58:${10015 + i * 10}<0x${BATCH(rung).toUpperCase()}>`,
+      )
+      .join(' ');
+    const out = await createProfileSchema.validate({
+      name: 'stage',
+      kind: 'abr-uploader',
+      bee_publishers: prefixed,
+      private_key: `0x${'11'.repeat(32)}`,
+    });
+    assert.equal(out.bee_publishers, PUBLISHERS);
+  });
+
+  it('canonicalises on update as well as create', async () => {
+    const out = await updateProfileSchema.validate({
+      bee_publishers: PUBLISHERS.split(' ').join('\n'),
+    });
+    assert.equal(out.bee_publishers, PUBLISHERS);
+  });
+
   it('requires the pool on an abr-uploader — without it nothing is published', async () => {
     await rejects(
       createProfileSchema.validate({ name: 'stage', kind: 'abr-uploader' }),

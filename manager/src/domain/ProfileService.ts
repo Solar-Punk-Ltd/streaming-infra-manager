@@ -3,6 +3,7 @@ import {
   ABR_RUNG_COMPONENTS,
   assembleBeePublishers,
   type BeePublishersResult,
+  beeTargetProblem,
   type GroupKind,
   getErrorMessage,
   isLadderKind,
@@ -38,6 +39,7 @@ import {
   GroupNotFoundError,
   LadderGroupError,
   ProfileBusyError,
+  ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
 } from './errors/index.js';
@@ -117,6 +119,19 @@ export class ProfileService {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
       throw new ProfileExistsError(input.name);
+    }
+
+    // The same rule the update path applies, over the same shape. The schema
+    // checks these per-field too, with nicer field-scoped messages; this is the
+    // one place both paths share, so they cannot drift apart again.
+    const configProblem = beeTargetProblem({
+      kind: input.kind,
+      components: input.components?.length ? input.components : null,
+      bee_publishers: input.bee_publishers ?? null,
+      bee_url: input.bee_url ?? null,
+    });
+    if (configProblem) {
+      throw new ProfileConfigError(input.name, configProblem);
     }
 
     let row;
@@ -208,6 +223,21 @@ export class ProfileService {
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
     ) {
       throw new ProfileBusyError(name, existing.status);
+    }
+
+    // PUT replaces every editable field, so a body that omits bee_publishers
+    // clears it. For an abr-uploader that silently removes the only thing it
+    // publishes through, and neither yup test can catch it: `kind` and
+    // `components` are not in an update body. Checked here, against the state
+    // the write would actually leave behind.
+    const configProblem = beeTargetProblem({
+      kind: existing.kind,
+      components: existing.components,
+      bee_publishers: input.bee_publishers ?? null,
+      bee_url: input.bee_url ?? null,
+    });
+    if (configProblem) {
+      throw new ProfileConfigError(name, configProblem);
     }
 
     const row = await this.repo.updateEditable(name, existing.kind, {

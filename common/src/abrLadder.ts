@@ -406,6 +406,44 @@ export function parseBeePublishers(
 }
 
 /**
+ * The canonical form of a pasted BEE_PUBLISHERS: one space between entries,
+ * batch ids lower-case and without an `0x` prefix.
+ *
+ * `parseBeePublishers` already tolerates all of that — it splits on any run of
+ * whitespace and strips the prefix — but the tolerance stopped at the parser:
+ * the raw string was what got stored and what `writeProfileEnv` wrote, so an
+ * accepted paste and the written value could differ. Two shapes reached the
+ * uploader that way, and neither is one it accepts:
+ *
+ *  - A newline-separated paste (copying the four rungs as four lines) passed
+ *    validation and was written verbatim, giving an `.env.<profile>` whose
+ *    2nd-4th lines are not `KEY=VALUE`. Compose then refuses the whole file
+ *    with `unexpected character "@" in variable name`.
+ *  - A `0x`-prefixed batch id passed validation, but the uploader's own
+ *    `parseEntry` tests the un-stripped slice against /^[0-9a-fA-F]{64}$/ and
+ *    throws `batch id ... must be 64 hex characters, got 66`.
+ *
+ * Both are the far-away failure this module exists to prevent, so the accepted
+ * form and the stored form are now the same string. Left alone when it does not
+ * parse — `beePublishersProblem` reports the shape error against what was typed.
+ */
+export function normalizeBeePublishers<T extends string | null | undefined>(
+  value: T,
+): T | string {
+  if (value === null || value === undefined) return value;
+  if (!value.trim()) return value;
+  const entries = parseBeePublishers(value);
+  if (!entries) return value;
+  return beePublishersValue(
+    entries.map((entry) => ({
+      rungName: entry.rung,
+      url: entry.url,
+      batchId: entry.batchId,
+    })),
+  );
+}
+
+/**
  * Why a pasted BEE_PUBLISHERS cannot be used, or null when it can. Empty means
  * "not set", which is not a problem.
  *

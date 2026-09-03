@@ -8,6 +8,7 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   type EngineName,
+  normalizeBeePublishers,
   OME_SERVICE,
 } from '@streaming-infra-manager/common';
 
@@ -84,7 +85,12 @@ function upsertEnvLine(text: string, key: string, value: string): string {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`^${escapedKey}=.*$`, 'm');
   if (pattern.test(text)) {
-    return text.replace(pattern, line);
+    // A replacer function, not the string: as a replacement string, `$&`,
+    // `` $` ``, `$'` and `$1` are substitution patterns, so a value containing
+    // one would be rewritten with the text it matched. `$` is legal in a URL
+    // path and `beeUrlProblem` accepts it, so BEE_URL=http://host:1633/$&
+    // would otherwise be written out as BEE_URL=http://host:1633/BEE_URL=<old>.
+    return text.replace(pattern, () => line);
   }
   const needsNewline = text.length > 0 && !text.endsWith('\n');
   return `${text}${needsNewline ? '\n' : ''}${line}\n`;
@@ -103,6 +109,18 @@ export interface ProfileEnvValues {
 
   omeSrtPort?: number;
   omeHlsPort?: number;
+  /**
+   * Whether this profile runs a `bee-uploader` of its own, from its full
+   * service list — not from whatever subset is being deployed right now.
+   *
+   * deploy.sh's resolve_bee_url needs this and cannot work it out: the service
+   * filter tells it which services this invocation was asked for, and the
+   * manager deploys a held-back uploader alone once a batch is bought, which
+   * looks identical to a profile that has no Bee node at all. Getting that
+   * wrong either overwrites an explicit external BEE_URL or leaves a local
+   * uploader pointed at the base env's address.
+   */
+  localBeeUploader?: boolean;
 }
 
 // deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
@@ -118,6 +136,17 @@ export function writeProfileEnv(
 
   contents = upsertEnvLine(contents, 'ENGINE', values.engine);
 
+  // Stated explicitly both ways rather than only when false: this file is a
+  // fresh copy of the base .env each deploy, and leaving the key absent would
+  // let a base-env value decide it.
+  if (values.localBeeUploader !== undefined) {
+    contents = upsertEnvLine(
+      contents,
+      'LOCAL_BEE_UPLOADER',
+      values.localBeeUploader ? 'true' : 'false',
+    );
+  }
+
   const stamp = values.stampId?.replace(/^0x/, '').trim();
   if (stamp) {
     if (!/^[0-9a-fA-F]+$/.test(stamp)) {
@@ -132,7 +161,10 @@ export function writeProfileEnv(
   // srs and the uploader read them from the compose environment, and the
   // uploader refuses to start unless the publishers cover the ladder exactly —
   // so the two are written by one hand, from one definition.
-  const publishers = values.beePublishers?.trim();
+  // Normalised here too, not only in the schema: rows written before the
+  // schema canonicalised the value still hold whatever was pasted, and this is
+  // the last point before it becomes a line in a file compose has to parse.
+  const publishers = normalizeBeePublishers(values.beePublishers?.trim());
   if (publishers) {
     const problem = beePublishersProblem(publishers);
     if (problem) {

@@ -2,16 +2,7 @@ import { nullify } from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
-
-const PROFILE_SLOT_LOCK_KEY = 0x70726f66; // ascii "prof"
-
-const PROFILE_COLUMNS = `
-  name, port_slot, kind, notes,
-  components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-  bee_publishers, bee_url,
-  status, last_error, last_error_at,
-  created_at, updated_at, group_id
-`;
+import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface ProfileWriteData {
   notes?: string | null;

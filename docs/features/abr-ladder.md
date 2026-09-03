@@ -150,8 +150,18 @@ uploader read all three from the compose environment — so the ladder the engin
 encodes and the ladder the uploader publishes come from one definition and cannot
 drift. SRS only; the ladder is not implemented for OME.
 
-The string goes stale when a rung buys a *new* batch (topping up keeps the id).
-Until a stamp manager keeps batches from expiring, re-paste after a re-buy.
+The string goes stale two ways, and since nothing links the two managers,
+nothing invalidates a copy that has gone wrong:
+
+- **A rung buys a *new* batch** (topping up keeps the id). Re-paste after a
+  re-buy, until a stamp manager keeps batches from expiring.
+- **A rung is removed and re-created**, which changes its *address*, not just
+  its batch. Ports come from the profile's port slot, and a freed slot is
+  reused by the next profile created on that machine — so `720p@…:10035` can
+  come to mean an unrelated Bee node. The uploader keeps publishing that rung
+  to it with a batch id it does not own, every upload is rejected, and the
+  other three rungs carry on: a partial ABR degradation with nothing in either
+  manager pointing at the cause. Re-paste after rebuilding a rung.
 
 ## BEE_URL: a single-node uploader on an external node
 
@@ -169,13 +179,20 @@ applies, the field is disabled while `bee-uploader` is checked (drop it — use
 It is also refused alongside `bee_publishers`, so a config cannot say two
 different things about where uploads go.
 
-**Depends on two `swarm-hls-stream` changes not yet in `main-v2`.** The uploader
-service's `environment:` block in `deploy/docker-compose.yml` does not pass
-`BEE_PUBLISHERS` through — the uploader reads the variable, but it never reaches
-the container — and `check_stamp` in `deploy.sh` prompts interactively when
-`STAMP` is empty with no regard for `BEE_PUBLISHERS`, which under the manager's
-stdin-less runner aborts the deploy. Until both land, a pool-backed uploader's
-deploy fails at `check_stamp`.
+**Requires `swarm-hls-stream` 46eb21a or later**, which this repo's submodule
+pin carries. `resolve_bee_url` there decided "is there a local Bee node" from
+`config.json` rather than from the services the invocation was asked to deploy
+— and `config.json` is written once at bootstrap, never per profile — so it
+overrode `BEE_URL` for *every* profile running a stream-uploader. An external
+node named here was replaced by `http://bee-uploader:<port>`, a compose service
+that is not running, and the container crash-looped on `ENOTFOUND` while the
+manager reported `RUNNING`. Two changes there are what make a pool-backed uploader deployable
+at all: the uploader service's `environment:` block in
+`deploy/docker-compose.yml` now passes `BEE_PUBLISHERS` through (before, the
+uploader read the variable but it never reached the container), and
+`check_stamp` in `deploy.sh` no longer prompts for an empty `STAMP` when
+`BEE_PUBLISHERS` is set — that prompt aborted the deploy under the manager's
+stdin-less runner.
 
 ## Implementation
 
