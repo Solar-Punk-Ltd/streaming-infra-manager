@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import {
   ABR_UPLOADER_KIND,
   beeTargetProblem,
+  isUploader,
   managesOwnStamp,
   usesNodePool,
 } from './stampGating.js';
@@ -149,5 +150,36 @@ describe('usesNodePool / managesOwnStamp — who the Uploaders tab shows', () =>
     assert.equal(managesOwnStamp({ kind: 'custom', components: ['bee-uploader'] }), true);
     // A viewer uploads nothing.
     assert.equal(managesOwnStamp({ kind: 'viewer' }), false);
+  });
+});
+
+describe('isUploader — who the Uploaders tab lists', () => {
+  it('lists a pool-backed uploader, which managesOwnStamp does not', () => {
+    // The split this test exists for. A pool-backed uploader uploads, so it
+    // belongs on the tab; it owns no postage, so it gets a card with no wallet,
+    // no batch list and no buy form. One predicate each.
+    const profile = { kind: ABR_UPLOADER_KIND, bee_publishers: PUBLISHERS };
+    assert.equal(isUploader(profile), true);
+    assert.equal(managesOwnStamp(profile), false);
+  });
+
+  it('agrees with managesOwnStamp on everything that owns its postage', () => {
+    for (const profile of [
+      { kind: 'streamer' },
+      { kind: 'streamer', bee_publishers: PUBLISHERS },
+      { kind: 'custom', components: ['bee-uploader'] },
+      { kind: 'custom', components: ['srs', 'stream-uploader'] },
+    ]) {
+      assert.equal(isUploader(profile), true, JSON.stringify(profile));
+      assert.equal(managesOwnStamp(profile), true, JSON.stringify(profile));
+    }
+  });
+
+  it('lists nothing that uploads nothing', () => {
+    // A viewer serves a stream, it does not publish one; a bare srs ingests
+    // without uploading. Neither has anything the tab could show.
+    assert.equal(isUploader({ kind: 'viewer' }), false);
+    assert.equal(isUploader({ kind: 'custom', components: ['srs'] }), false);
+    assert.equal(isUploader({ kind: 'custom', components: [] }), false);
   });
 });

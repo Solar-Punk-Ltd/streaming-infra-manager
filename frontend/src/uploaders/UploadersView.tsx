@@ -2,22 +2,28 @@ import { Alert, Box, CircularProgress, Stack } from '@mui/material';
 
 import {
   isLadderKind,
-  managesOwnStamp,
+  isUploader,
   rungFromMemberName,
   rungOrder,
+  usesNodePool,
 } from '@streaming-infra-manager/common';
 
 import type { DeploymentGroup, Profile } from '../types';
 import { LadderCard, type LadderRung } from './LadderCard';
+import { PoolUploaderCard } from './PoolUploaderCard';
 import { UploaderCard } from './UploaderCard';
 
 /**
- * Everything with a postage batch to manage.
+ * Everything that uploads.
  *
  * An ABR ladder's rungs are ordinary bee-uploader profiles, so they render with
  * the same uploader card as everything else — just nested inside their ladder,
  * which is where they mean something. They are therefore removed from the
  * standalone list below, or they would appear twice.
+ *
+ * The card an uploader gets depends on whether it owns its postage. One that
+ * publishes to a node pool does not, and gets a card with none of the postage
+ * machinery on it — see PoolUploaderCard.
  */
 export function UploadersView({
   profiles,
@@ -60,15 +66,16 @@ export function UploadersView({
   // A bee-only profile that belongs to no ladder still needs funding, so the
   // filter excludes claimed rungs specifically rather than bee-only profiles.
   const standalone = profiles.filter(
-    (p) => managesOwnStamp(p) && !claimed.has(p.name),
+    (p) => isUploader(p) && !claimed.has(p.name),
   );
 
   if (ladders.length === 0 && standalone.length === 0) {
     return (
       <Alert severity="info">
-        No uploader instances yet. Deploy a streamer (or a custom profile with
-        the <code>stream-uploader</code> component) to manage postage stamps
-        here, or an ABR Node Pool to stand up one Bee node per quality rung.
+        No uploader instances yet. Deploy a streamer or an ABR Uploader (or a
+        custom profile with the <code>stream-uploader</code> component) to get
+        its publish URL here, or an ABR Node Pool to stand up one Bee node per
+        quality rung.
       </Alert>
     );
   }
@@ -84,14 +91,22 @@ export function UploadersView({
           srtPassphrase={srtPassphrase}
         />
       ))}
-      {standalone.map((p) => (
-        <UploaderCard
-          key={p.name}
-          profile={p}
-          onChanged={onChanged}
-          srtPassphrase={srtPassphrase}
-        />
-      ))}
+      {standalone.map((p) =>
+        usesNodePool(p) ? (
+          <PoolUploaderCard
+            key={p.name}
+            profile={p}
+            srtPassphrase={srtPassphrase}
+          />
+        ) : (
+          <UploaderCard
+            key={p.name}
+            profile={p}
+            onChanged={onChanged}
+            srtPassphrase={srtPassphrase}
+          />
+        ),
+      )}
     </Stack>
   );
 }

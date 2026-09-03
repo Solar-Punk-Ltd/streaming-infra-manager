@@ -15,12 +15,11 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import {
   beePublishersProblem,
-  DEFAULT_ABR_RUNGS,
   getErrorMessage,
-  parseBeePublishers,
 } from '@streaming-infra-manager/common';
 
 import { createProfile, updateProfile } from './data';
+import { PublisherRungList, sortedPublisherRungs } from './PublisherRungs';
 import {
   beePublishersHelperText,
   hostHelperText,
@@ -319,29 +318,15 @@ export function AbrUploaderForm({
  * what the uploader will do with it.
  */
 function RungPreview({ value }: { value: string }) {
-  const entries = parseBeePublishers(value);
-  if (!entries || beePublishersProblem(value)) return null;
+  const rungs = sortedPublisherRungs(value);
+  if (!rungs) return null;
 
   return (
     <Alert severity="success" variant="outlined">
       <Typography variant="body2" sx={{ mb: 1 }}>
-        {entries.length} rungs — one Bee node each:
+        {rungs.length} rungs — one Bee node each:
       </Typography>
-      <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-        {[...entries]
-          .sort(
-            (a, b) =>
-              DEFAULT_ABR_RUNGS.indexOf(a.rung) -
-              DEFAULT_ABR_RUNGS.indexOf(b.rung),
-          )
-          .map((entry) => (
-            <li key={entry.rung}>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                {entry.rung} → {entry.url}
-              </Typography>
-            </li>
-          ))}
-      </Box>
+      <PublisherRungList rungs={rungs} />
     </Alert>
   );
 }

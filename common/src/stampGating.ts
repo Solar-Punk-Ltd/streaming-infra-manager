@@ -60,15 +60,31 @@ export function isBeeNodeOnly(profile: StampGatedProfile): boolean {
 }
 
 /**
- * Everything whose postage batch the Uploaders tab manages.
+ * Everything the Uploaders tab lists.
+ *
+ * "Uploads a stream" and "owns the postage that pays for it" were once the same
+ * test, and a pool-backed uploader answers no to the second — so it disappeared
+ * from the tab altogether, taking its SRT publish URL with it and leaving no
+ * view that says where to point OBS.
+ *
+ * They are two questions. This one decides who appears; `managesOwnStamp`
+ * decides which card they get.
+ */
+export function isUploader(profile: StampGatedProfile): boolean {
+  return servicesNeedStamp(defaultServicesFor(profile)) || isBeeNodeOnly(profile);
+}
+
+/**
+ * An uploader that buys and holds its own postage — the ones whose card carries
+ * a wallet, a batch list and a buy form.
  *
  * A pool-backed uploader is excluded: its batches are bought per rung on the
- * pool's own card, it has no Bee node of its own, and rendering it here would
- * give it a funding panel pointed at a node that does not exist.
+ * pool's own card, it has no Bee node of its own, and a funding panel here
+ * would poll an address nothing answers at. It is still listed — see
+ * `isUploader` — just with a card that has no postage on it.
  */
 export function managesOwnStamp(profile: StampGatedProfile): boolean {
-  if (usesNodePool(profile)) return false;
-  return servicesNeedStamp(defaultServicesFor(profile)) || isBeeNodeOnly(profile);
+  return isUploader(profile) && !usesNodePool(profile);
 }
 
 export function hasStampId(profile: StampGatedProfile): boolean {
