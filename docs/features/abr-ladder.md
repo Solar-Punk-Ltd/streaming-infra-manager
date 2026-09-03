@@ -127,7 +127,7 @@ almost nothing with a single-node deployment.
 | services | `srs` + `stream-uploader` + `bee-uploader` | `srs` + `stream-uploader` |
 | where uploads go | its own Bee node, or `BEE_URL` | the pool's four rungs |
 | postage | its own `stamp_id` | the pool's, one batch per rung |
-| Uploaders tab | yes — fund it, buy batches | no; nothing to fund here |
+| Uploaders tab | fund it, buy batches | no actions, just shows publish URL with pool targets |
 
 It runs **no Bee node**: the pool's rungs are the publish targets, so there is no
 wallet to fund, no batch to buy and no stamp to wait for. `managesOwnStamp` is

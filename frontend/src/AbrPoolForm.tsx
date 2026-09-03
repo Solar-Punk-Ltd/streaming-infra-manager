@@ -235,9 +235,8 @@ function PoolSummary() {
       </Box>
       <Typography variant="caption" color="text.secondary">
         Each rung gets its own port slot, wallet and postage batch. Fund them and
-        buy a batch each from the Uploaders tab, then paste the{' '}
-        <code>BEE_PUBLISHERS</code> string into a streamer&apos;s{' '}
-        <strong>BEE_PUBLISHERS</strong> field — on whichever manager runs it.
+        buy a batch each from the Uploaders tab. When all batches set the {' '}
+        <code>BEE_PUBLISHERS</code> string is ready to copy and paste into whatever ABR Uploader deployment you want to use these nodes for uploading.
       </Typography>
     </Alert>
   );
