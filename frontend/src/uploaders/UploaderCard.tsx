@@ -25,7 +25,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { canDeployUploader, deployUploader } from '../data';
-import { formatTtl } from '../format';
+import { formatTtl, shortHex } from '../format';
 import { srtPublishUrl } from '../urls';
 import { buyStamp, setStamp } from './stampApi';
 import type { BuyStampInput } from './stampApi';
@@ -33,7 +33,7 @@ import { useServerHost } from '../ServerHostContext';
 import { StampRequiredChip, StatusChip } from '../StatusChip';
 import type { Profile } from '../types';
 import { NodeFunding } from './NodeFunding';
-import { StampTable, shortHex } from './StampTable';
+import { StampTable } from './StampTable';
 import { BuyStampForm } from './BuyStampForm';
 import { StreamPublishUrl } from './StreamPublishUrl';
 import { useBeeUtils } from './useBeeUtils';

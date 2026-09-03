@@ -88,3 +88,9 @@ export function formatSharePercent(
   const digits = pct >= 10 ? 0 : pct >= 1 ? 1 : 2;
   return `${pct.toFixed(digits)}%`;
 }
+
+/** A long hex value elided in the middle: batch ids, addresses, tx hashes. */
+export function shortHex(hex: string, lead = 8, tail = 6): string {
+  if (hex.length <= lead + tail + 1) return hex;
+  return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
+}
