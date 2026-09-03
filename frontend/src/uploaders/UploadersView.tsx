@@ -96,7 +96,6 @@ export function UploadersView({
           <PoolUploaderCard
             key={p.name}
             profile={p}
-            onChanged={onChanged}
             srtPassphrase={srtPassphrase}
           />
         ) : (

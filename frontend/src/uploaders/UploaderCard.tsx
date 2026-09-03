@@ -1,43 +1,31 @@
-import { useState, type ReactNode } from 'react';
-import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Divider,
-  Stack,
-  Typography,
-} from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import type { ReactNode } from 'react';
+import { Chip } from '@mui/material';
 
 import {
-  getErrorMessage,
   isBeeNodeOnly,
   isStampExpiringSoon,
-  PUBLISHABLE_RUNG_STATUS,
   stampHealthFrom,
   type StampHealth,
 } from '@streaming-infra-manager/common';
 
-import { canDeployUploader, deployUploader } from '../data';
-import { formatTtl, shortHex } from '../format';
-import { srtPublishUrl } from '../urls';
-import { buyStamp, setStamp } from './stampApi';
-import type { BuyStampInput } from './stampApi';
+import { formatTtl } from '../format';
 import { useServerHost } from '../ServerHostContext';
-import { StampRequiredChip, StatusChip } from '../StatusChip';
+import { StampRequiredChip } from '../StatusChip';
+import { srtPublishUrl } from '../urls';
 import type { Profile } from '../types';
-import { NodeFunding } from './NodeFunding';
-import { StampTable } from './StampTable';
-import { BuyStampForm } from './BuyStampForm';
+import { StampPanel } from './StampPanel';
 import { StreamPublishUrl } from './StreamPublishUrl';
+import { UploaderShell } from './UploaderShell';
 import { useBeeUtils } from './useBeeUtils';
 
+/**
+ * An uploader that owns its postage: it holds a wallet, buys its own batches
+ * and pays for its own uploads.
+ *
+ * The publish URL and the postage are two separate panels, because a
+ * pool-backed uploader has the first and none of the second — see
+ * PoolUploaderCard.
+ */
 export function UploaderCard({
   profile,
   onChanged,
@@ -60,65 +48,23 @@ export function UploaderCard({
   nested?: boolean;
 }) {
   const serverHost = useServerHost();
-  // A bee-only profile — an ABR ladder rung, or any bare publish target — runs no
-  // uploader and no media engine: it has nothing to ingest a stream on, and
-  // nothing to "deploy uploader" onto. It still funds a wallet and buys a batch,
-  // which is the rest of this card.
+  // A bee-only profile — an ABR ladder rung, or any bare publish target — runs
+  // no media engine, so it has nothing to ingest a stream on and no URL to
+  // publish to. It still funds a wallet and buys a batch: that is StampPanel.
   const beeOnly = isBeeNodeOnly(profile);
   const streamUrl = beeOnly
     ? null
     : srtPublishUrl(profile, serverHost, srtPassphrase);
 
-  const {
-    address,
-    wallet,
-    stamps,
-    chainState,
-    loading,
-    loadError,
-    reload,
-    waitingBatch,
-    waitForStamp,
-  } = useBeeUtils(profile);
+  // Stays here rather than inside StampPanel: the chip below is derived from
+  // the same node data, and a hook in the panel would strand it inside a
+  // collapsed accordion.
+  const bee = useBeeUtils(profile);
 
   // A set `stamp_id` says which batch this uploader was pointed at, not that the
   // batch still pays: batches are finite leases and nothing writes their expiry
   // back. So the chip, the warning and the deploy button all read the node.
-  const stampHealth = stampHealthFrom(profile.stamp_id, stamps);
-
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const runAction = async (action: () => Promise<void>) => {
-    setBusy(true);
-    setActionError(null);
-    try {
-      await action();
-    } catch (e) {
-      setActionError(getErrorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleBuyStamp = (input: BuyStampInput) =>
-    runAction(async () => {
-      const { batchID } = await buyStamp(profile.name, input);
-      waitForStamp(batchID);
-      await reload();
-    });
-
-  const handleUseStamp = (batchID: string) =>
-    runAction(async () => {
-      await setStamp(profile.name, batchID);
-      onChanged();
-    });
-
-  const handleDeployUploader = () =>
-    runAction(async () => {
-      await deployUploader(profile.name);
-      onChanged();
-    });
+  const stampHealth = stampHealthFrom(profile.stamp_id, bee.stamps);
 
   const stampChip = profile.pendingStamp ? (
     <StampRequiredChip />
@@ -126,108 +72,23 @@ export function UploaderCard({
     <StampStateChip health={stampHealth} />
   );
 
-  // Only when it is not running: this card is about batches, and a chip on every
-  // healthy row would bury the one row that needs attention. The Deployments tab
-  // is where status is shown unconditionally.
-  const statusChip =
-    profile.status === PUBLISHABLE_RUNG_STATUS ? null : (
-      <StatusChip status={profile.status} />
-    );
-
   return (
-    <Accordion
-      disableGutters={nested}
-      elevation={nested ? 0 : undefined}
-      sx={nested ? { border: 1, borderColor: 'divider' } : undefined}
+    <UploaderShell
+      title={label ?? profile.name}
+      status={profile.status}
+      badges={badges}
+      trailing={stampChip}
+      nested={nested}
     >
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Stack
-          direction="row"
-          spacing={1}
-          alignItems="center"
-          sx={{ width: '100%' }}
-        >
-          <Typography sx={{ fontFamily: 'monospace', flexGrow: 1 }}>
-            {label ?? profile.name}
-          </Typography>
-          {badges}
-          {statusChip}
-          {stampChip}
-        </Stack>
-      </AccordionSummary>
-      <AccordionDetails>
-        <Stack spacing={2}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Button
-              size="small"
-              startIcon={<RefreshIcon />}
-              onClick={() => void reload()}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
-            <Box sx={{ flexGrow: 1 }} />
-            {!beeOnly && (
-              <Button
-                size="small"
-                variant="contained"
-                onClick={handleDeployUploader}
-                disabled={
-                  busy || !canDeployUploader(profile) || stampHealth.dead
-                }
-              >
-                Deploy uploader
-              </Button>
-            )}
-          </Stack>
-
-          {loadError && <Alert severity="warning">{loadError}</Alert>}
-          {actionError && (
-            <Alert severity="error" onClose={() => setActionError(null)}>
-              {actionError}
-            </Alert>
-          )}
-          {stampHealth.dead && <DeadStampAlert health={stampHealth} />}
-          {!stampHealth.dead && isStampExpiringSoon(stampHealth.ttl) && (
-            <Alert severity="warning">
-              This uploader’s batch runs out in{' '}
-              <strong>{formatTtl(stampHealth.ttl)}</strong>. Buy the next one
-              below and set it with <strong>Use</strong> before it does — once a
-              batch is spent its uploads fail, and it cannot be revived.
-            </Alert>
-          )}
-          {waitingBatch && (
-            <Alert severity="info" icon={<CircularProgress size={18} />}>
-              Waiting for stamp <code>{shortHex(waitingBatch)}</code> to become
-              usable — this can take a few minutes. It will be set automatically.
-            </Alert>
-          )}
-
-          {!beeOnly && <StreamPublishUrl streamUrl={streamUrl} />}
-
-          <NodeFunding address={address} wallet={wallet} />
-
-          <Divider />
-
-          <StampTable
-            stamps={stamps}
-            loading={loading}
-            currentStampId={profile.stamp_id}
-            busy={busy}
-            onUse={handleUseStamp}
-          />
-
-          <Divider />
-
-          <BuyStampForm
-            busy={busy}
-            onBuy={handleBuyStamp}
-            currentPrice={chainState?.currentPrice ?? null}
-            defaultDepth={defaultDepth}
-          />
-        </Stack>
-      </AccordionDetails>
-    </Accordion>
+      {!beeOnly && <StreamPublishUrl streamUrl={streamUrl} />}
+      <StampPanel
+        profile={profile}
+        bee={bee}
+        stampHealth={stampHealth}
+        onChanged={onChanged}
+        defaultDepth={defaultDepth}
+      />
+    </UploaderShell>
   );
 }
 
@@ -265,22 +126,5 @@ function StampStateChip({ health }: { health: StampHealth }) {
           : undefined
       }
     />
-  );
-}
-
-/**
- * A batch that has run out cannot be topped up from here — bee has no
- * extend-batch call wired into this manager — so the only way forward is a new
- * batch, which is what this says.
- */
-function DeadStampAlert({ health }: { health: StampHealth }) {
-  return (
-    <Alert severity="error">
-      {health.state === 'expired'
-        ? 'The postage batch this uploader pays with has expired. '
-        : 'This uploader’s bee node does not hold the batch recorded for it — the usual cause is a batch that expired and was dropped. '}
-      Uploads cannot be paid for until a new batch is bought below and set with{' '}
-      <strong>Use</strong>.
-    </Alert>
   );
 }
