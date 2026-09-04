@@ -14,13 +14,8 @@ import {
 import { isStampExpired, sameBatchId } from '@streaming-infra-manager/common';
 
 import { CopyButton } from '../CopyButton';
-import { formatTtl } from '../format';
+import { formatTtl, shortHex } from '../format';
 import type { BeeStamp } from './stampApi';
-
-export function shortHex(hex: string, lead = 8, tail = 6): string {
-  if (hex.length <= lead + tail + 1) return hex;
-  return `${hex.slice(0, lead)}…${hex.slice(-tail)}`;
-}
 
 export function StampTable({
   stamps,

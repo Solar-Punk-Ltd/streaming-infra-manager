@@ -8,6 +8,13 @@ import {
 
 export const KIND_DEFAULT_SERVICES = {
   streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
+  /**
+   * Publishes to an ABR node pool, so it runs no Bee node of its own: the pool's
+   * rungs are the publish targets and they hold the postage. Dropping
+   * `bee-uploader` is also what lets an explicit `BEE_URL` survive — deploy.sh
+   * overwrites it whenever a local bee-uploader is enabled.
+   */
+  'abr-uploader': [SRS_SERVICE, STREAM_UPLOADER_SERVICE],
   viewer: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
   custom: [],
 } as const;
@@ -16,7 +23,14 @@ export interface StampGatedProfile {
   kind: string;
   components?: string[] | null;
   stamp_id?: string | null;
+  /**
+   * A pasted BEE_PUBLISHERS: the uploader publishes to an ABR node pool, one Bee
+   * node per rung, instead of to its own node. See usesNodePool.
+   */
+  bee_publishers?: string | null;
 }
+
+export const ABR_UPLOADER_KIND = 'abr-uploader';
 
 export function defaultServicesFor(profile: StampGatedProfile): string[] {
   if (profile.components && profile.components.length > 0) {
@@ -45,17 +59,112 @@ export function isBeeNodeOnly(profile: StampGatedProfile): boolean {
   return services.length === 1 && services[0] === BEE_UPLOADER_SERVICE;
 }
 
-/** Everything whose postage batch the Uploaders tab manages. */
-export function managesOwnStamp(profile: StampGatedProfile): boolean {
+/**
+ * Everything the Uploaders tab lists.
+ *
+ * "Uploads a stream" and "owns the postage that pays for it" were once the same
+ * test, and a pool-backed uploader answers no to the second — so it disappeared
+ * from the tab altogether, taking its SRT publish URL with it and leaving no
+ * view that says where to point OBS.
+ *
+ * They are two questions. This one decides who appears; `managesOwnStamp`
+ * decides which card they get.
+ */
+export function isUploader(profile: StampGatedProfile): boolean {
   return servicesNeedStamp(defaultServicesFor(profile)) || isBeeNodeOnly(profile);
+}
+
+/**
+ * An uploader that buys and holds its own postage — the ones whose card carries
+ * a wallet, a batch list and a buy form.
+ *
+ * A pool-backed uploader is excluded: its batches are bought per rung on the
+ * pool's own card, it has no Bee node of its own, and a funding panel here
+ * would poll an address nothing answers at. It is still listed — see
+ * `isUploader` — just with a card that has no postage on it.
+ */
+export function managesOwnStamp(profile: StampGatedProfile): boolean {
+  return isUploader(profile) && !usesNodePool(profile);
 }
 
 export function hasStampId(profile: StampGatedProfile): boolean {
   return Boolean(profile.stamp_id && profile.stamp_id.trim());
 }
 
+export function hasBeePublishers(profile: StampGatedProfile): boolean {
+  return Boolean(profile.bee_publishers && profile.bee_publishers.trim());
+}
+
+/**
+ * An uploader that publishes to an ABR node pool.
+ *
+ * Its postage is the pool's — one batch per rung, bought over there, possibly
+ * under a different manager — so this profile's own `stamp_id` is not what gates
+ * it. `BEE_PUBLISHERS` set is what the uploader starts on; `STAMP` is ignored
+ * while it is.
+ */
+export function usesNodePool(profile: StampGatedProfile): boolean {
+  const services = defaultServicesFor(profile);
+  return (
+    servicesNeedStamp(services) &&
+    hasBeePublishers(profile) &&
+    // And genuinely has no node of its own. Keying on BEE_PUBLISHERS alone was
+    // enough to drop a profile from the Uploaders tab, but a profile that runs
+    // a bee-uploader *and* was given a pool string still owns a wallet and a
+    // batch — hiding it left no way to fund the node it is actually running.
+    // The exclusion exists because a funding panel would poll a node that does
+    // not exist, so absence of the node is what it should test.
+    !services.includes(BEE_UPLOADER_SERVICE)
+  );
+}
+
+/** A profile plus the one field that names an external Bee node. */
+export interface BeeTargetProfile extends StampGatedProfile {
+  bee_url?: string | null;
+}
+
+/**
+ * Why a profile's upload destination is incoherent, or null when it is fine.
+ *
+ * The three rules here were once expressed only as per-field tests on
+ * `createProfileSchema`, and a yup test can only see the fields in the body it
+ * was handed. `PUT /profiles/:name` carries neither `kind` nor `components`,
+ * so every one of them silently passed on update:
+ *
+ *  - `bee_url` was accepted on a profile that runs a local bee-uploader, which
+ *    is the "stores a value that never applies" state the create-side check
+ *    exists to prevent — deploy.sh's resolve_bee_url outranks the stored value.
+ *  - `bee_url` was accepted next to a stored `bee_publishers`, so a config
+ *    could say two different things about where uploads go.
+ *  - an abr-uploader could be left with no `bee_publishers` at all, which the
+ *    create path declares mandatory. That one is the worst of the three: the
+ *    next deploy writes no BEE_PUBLISHERS/ABR_ENABLED/ABR_LADDER, the uploader
+ *    falls back to BEE_URL, and it crash-loops while the manager says RUNNING.
+ *
+ * Stated once, over the *resulting* profile rather than over a patch, and
+ * checked by ProfileService on both create and update — so the two paths cannot
+ * disagree about what a valid destination is.
+ */
+export function beeTargetProblem(profile: BeeTargetProfile): string | null {
+  const publishers = hasBeePublishers(profile);
+  const beeUrl = Boolean(profile.bee_url && profile.bee_url.trim());
+
+  if (profile.kind === ABR_UPLOADER_KIND && !publishers) {
+    return `bee_publishers is required for a ${ABR_UPLOADER_KIND} — paste it from an ABR node pool`;
+  }
+  if (beeUrl && publishers) {
+    return 'bee_url is not used when bee_publishers is set — the uploader publishes to the pool';
+  }
+  if (beeUrl && defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE)) {
+    return 'bee_url only applies to a deployment that runs no bee-uploader — remove that component to point the uploader at an external node';
+  }
+  return null;
+}
+
 export function isPendingStamp(profile: StampGatedProfile): boolean {
   return (
-    servicesNeedStamp(defaultServicesFor(profile)) && !hasStampId(profile)
+    servicesNeedStamp(defaultServicesFor(profile)) &&
+    !hasStampId(profile) &&
+    !hasBeePublishers(profile)
   );
 }

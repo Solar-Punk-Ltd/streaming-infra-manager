@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  ABR_LADDER_GROUP_KIND,
+  ABR_NODE_POOL_GROUP_KIND,
   DEFAULT_ABR_RUNGS,
   type PublishUrlState,
   stampHealthFrom,
@@ -38,7 +38,7 @@ const GROUP: DeploymentGroup = {
   id: 7,
   name: 'stage',
   size: DEFAULT_ABR_RUNGS.length,
-  kind: ABR_LADDER_GROUP_KIND,
+  kind: ABR_NODE_POOL_GROUP_KIND,
   created_at: new Date(0),
 };
 
@@ -57,6 +57,8 @@ function member(rung: string, index: number): Profile {
     private_key: null,
     public_key: null,
     stamp_id: BATCH(rung),
+    bee_publishers: null,
+    bee_url: null,
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,

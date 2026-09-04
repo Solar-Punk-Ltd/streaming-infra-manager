@@ -122,6 +122,29 @@ export function publishUrlReason(state: PublishUrlState): string | null {
   }
 }
 
+/**
+ * Why an explicitly configured `BEE_URL` cannot be used, or null.
+ *
+ * Laxer than a ladder rung's address on purpose: this is the operator naming a
+ * node deliberately, and `localhost` is right whenever the uploader runs on the
+ * host network or natively. Only the two that cannot be meant are refused — a
+ * string that is not an http(s) URL, and an ssh target pasted where a network
+ * address goes.
+ */
+export function beeUrlProblem(
+  value: string | null | undefined,
+): string | null {
+  if (!value || !value.trim()) return null;
+  switch (classifyPublishUrl(value.trim())) {
+    case 'malformed':
+      return 'expected an http(s) URL, like http://10.0.0.7:1633';
+    case 'ssh-target':
+      return 'this address carries ssh user info, so it is a deploy target rather than a bee API URL';
+    default:
+      return null;
+  }
+}
+
 /** Why a URL is worth a second look although it does not block. */
 export function publishUrlWarning(state: PublishUrlState): string | null {
   return state === 'unreachable'

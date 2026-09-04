@@ -2,15 +2,7 @@ import { nullify } from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
-
-const PROFILE_SLOT_LOCK_KEY = 0x70726f66; // ascii "prof"
-
-const PROFILE_COLUMNS = `
-  name, port_slot, kind, notes,
-  components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-  status, last_error, last_error_at,
-  created_at, updated_at, group_id
-`;
+import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface ProfileWriteData {
   notes?: string | null;
@@ -21,6 +13,8 @@ export interface ProfileWriteData {
   private_key?: string | null;
   public_key?: string | null;
   stamp_id?: string | null;
+  bee_publishers?: string | null;
+  bee_url?: string | null;
   group_id?: number | null;
 }
 
@@ -58,9 +52,10 @@ export class ProfileRepository {
       const result = await client.query<Profile>(
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
-           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id, group_id
+           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id, group_id,
+           bee_publishers, bee_url
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
          FROM generate_series(1, 999) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
@@ -80,6 +75,8 @@ export class ProfileRepository {
           dataWithNullFields.public_key,
           dataWithNullFields.stamp_id,
           dataWithNullFields.group_id,
+          dataWithNullFields.bee_publishers,
+          dataWithNullFields.bee_url,
         ],
       );
       await client.query('COMMIT');
@@ -108,6 +105,8 @@ export class ProfileRepository {
              private_key = $7,
              public_key = $8,
              stamp_id = $9,
+             bee_publishers = $10,
+             bee_url = $11,
              updated_at = NOW()
        WHERE name = $1
        RETURNING ${PROFILE_COLUMNS}`,
@@ -121,6 +120,8 @@ export class ProfileRepository {
         data.private_key,
         data.public_key,
         data.stamp_id,
+        data.bee_publishers,
+        data.bee_url,
       ],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;

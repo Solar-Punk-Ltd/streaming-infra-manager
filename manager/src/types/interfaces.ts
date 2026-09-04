@@ -12,6 +12,18 @@ export interface Profile {
   private_key: string | null;
   public_key: string | null;
   stamp_id: string | null;
+  /**
+   * A pasted BEE_PUBLISHERS — the uploader publishes to an ABR node pool, which
+   * may sit under another manager on another machine. NULL: publish through
+   * this profile's own bee-uploader with `stamp_id`.
+   */
+  bee_publishers: string | null;
+  /**
+   * An explicit bee API URL for the stream-uploader. Only has effect when the
+   * profile runs no `bee-uploader` — deploy.sh resolves BEE_URL itself whenever
+   * one is enabled. NULL: whatever deploy.sh resolves.
+   */
+  bee_url: string | null;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: Date | null;
@@ -24,7 +36,7 @@ export interface DeploymentGroup {
   id: number;
   name: string;
   size: number;
-  /** 'standard' fan-out, or 'abr-ladder'. See migrations/004_group_kind.sql. */
+  /** 'standard' fan-out, or 'abr-node-pool'. See migrations/004 and 005. */
   kind: string;
   created_at: Date;
 }

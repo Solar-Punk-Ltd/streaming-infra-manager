@@ -58,6 +58,18 @@ export const publicKeyHelperText = (derivedAddress: string | null): string =>
 export const stampIdHelperText = (error: FieldError): string =>
   error || 'optional — add later; uploader waits until a stamp is set';
 
+export const beePublishersHelperText = (error: FieldError): string =>
+  error || 'paste from an ABR node pool’s card — all four rungs, in one line';
+
+export const beeUrlHelperText = (
+  error: FieldError,
+  hasLocalBeeNode: boolean,
+): string =>
+  error ||
+  (hasLocalBeeNode
+    ? 'locked — this deployment runs its own bee-uploader, which the deploy script points the uploader at; drop that component to use an external node'
+    : 'optional — an external bee API, e.g. http://10.0.0.7:1633; empty uses the deploy script’s default');
+
 export const feedOwnerHelperText = (error: FieldError): string =>
   error || '0x-prefixed Ethereum address';
 

@@ -7,9 +7,15 @@ stack. Targets two dedicated servers:
 - **Watcher** — N lightweight Docker containers running a Bee ultra-light node
   and the React streaming client, plus a small interface to start/stop them.
 
-It also deploys **ABR ladders**: a deployment group with one Bee node per quality
-rung, as the publish targets for a `stream-uploader` running elsewhere. See
-[docs/features/abr-ladder.md](docs/features/abr-ladder.md).
+It also deploys the two halves of an ABR stage, which normally live on different
+machines under different managers:
+
+- **ABR Node Pool** — a deployment group with one Bee node per quality rung, as
+  the publish targets. Produces the `BEE_PUBLISHERS` string.
+- **ABR Uploader** — `srs` + `stream-uploader` publishing to that pool. No Bee
+  node and no postage of its own; you paste the pool's `BEE_PUBLISHERS` in.
+
+See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 ## Layout
 

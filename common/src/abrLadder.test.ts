@@ -2,21 +2,23 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  ABR_LADDER_GROUP_KIND,
+  ABR_NODE_POOL_GROUP_KIND,
   ABR_LADDER_SIZE,
   GROUP_KINDS,
   DEFAULT_ABR_LADDER,
   DEFAULT_ABR_RUNGS,
   LADDER_GROUP_NAME_MAX,
   MIN_STAMP_DEPTH,
+  abrLadderEnvValue,
   assembleBeePublishers,
   beePublisherEntry,
+  beePublishersProblem,
   beePublishersValue,
-  isLadderGroup,
+  parseBeePublishers,
   isLadderKind,
   ladderMemberName,
   ladderMemberNames,
-  looksLikeLadderGroup,
+  normalizeBeePublishers,
   rungFromMemberName,
   rungOrder,
   STANDARD_GROUP_KIND,
@@ -97,33 +99,6 @@ describe('member naming', () => {
 });
 
 describe('recognising a ladder group', () => {
-  it('needs every rung present', () => {
-    assert.equal(isLadderGroup('abr1', ladderMemberNames('abr1')), true);
-    assert.equal(
-      isLadderGroup('abr1', ['abr1-360p', 'abr1-480p', 'abr1-720p']),
-      false,
-    );
-  });
-
-  it('is not fooled by a plain fan-out group', () => {
-    assert.equal(
-      isLadderGroup('load', ['load-profile-1', 'load-profile-2']),
-      false,
-    );
-    assert.equal(
-      looksLikeLadderGroup('load', ['load-profile-1', 'load-profile-2']),
-      false,
-    );
-  });
-
-  it('still recognises a damaged ladder as ladder-shaped', () => {
-    // A rung removed must not silently demote the group to a plain fan-out —
-    // that is precisely when the operator needs to be told a rung is missing.
-    const damaged = ['abr1-360p', 'abr1-720p'];
-    assert.equal(isLadderGroup('abr1', damaged), false);
-    assert.equal(looksLikeLadderGroup('abr1', damaged), true);
-  });
-
   it('orders rungs ascending', () => {
     assert.equal(rungOrder('360p'), 0);
     assert.equal(rungOrder('1080p'), ABR_LADDER_SIZE - 1);
@@ -511,7 +486,7 @@ describe('assembleBeePublishers — rung address and status', () => {
 
 describe('group kind', () => {
   it('recognises only the ladder kind', () => {
-    assert.equal(isLadderKind(ABR_LADDER_GROUP_KIND), true);
+    assert.equal(isLadderKind(ABR_NODE_POOL_GROUP_KIND), true);
     assert.equal(isLadderKind(STANDARD_GROUP_KIND), false);
     assert.equal(isLadderKind(undefined), false);
     assert.equal(isLadderKind(null), false);
@@ -519,15 +494,151 @@ describe('group kind', () => {
   });
 
   it('matches the values the check constraint allows', () => {
-    assert.deepEqual([...GROUP_KINDS], ['standard', 'abr-ladder']);
+    assert.deepEqual([...GROUP_KINDS], ['standard', 'abr-node-pool']);
   });
 
-  it('is independent of whether the ladder is currently intact', () => {
-    // The point of recording the kind: a ladder missing a rung is still a
-    // ladder. isLadderGroup answers "is it complete", which is a different
-    // question and must not be used for identity.
-    const damaged = ['abr1-360p', 'abr1-720p'];
-    assert.equal(isLadderGroup('abr1', damaged), false);
-    assert.equal(isLadderKind(ABR_LADDER_GROUP_KIND), true);
+  it('is independent of whether the pool is currently intact', () => {
+    // The point of recording the kind: a pool missing a rung is still a pool,
+    // and is still reported as one at the moment that matters.
+    assert.equal(isLadderKind(ABR_NODE_POOL_GROUP_KIND), true);
+  });
+});
+
+describe('a pasted BEE_PUBLISHERS', () => {
+  // Hex only — a `p` in the id would be a parse failure, not a fixture.
+  const batch = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
+  const full = () =>
+    DEFAULT_ABR_RUNGS.map((rung, i) =>
+      beePublisherEntry(rung, `http://65.108.40.58:${10015 + i * 10}`, batch(rung)),
+    ).join(' ');
+
+  it('round-trips what the pool card emits', () => {
+    const entries = parseBeePublishers(full());
+    assert.ok(entries);
+    assert.deepEqual(
+      entries.map((e) => e.rung),
+      [...DEFAULT_ABR_RUNGS],
+    );
+    assert.equal(entries[0]!.url, 'http://65.108.40.58:10015');
+    assert.equal(entries[0]!.batchId, batch('360p'));
+    assert.equal(beePublishersProblem(full()), null);
+  });
+
+  it('treats empty as "not set", not as a problem', () => {
+    assert.equal(beePublishersProblem(''), null);
+    assert.equal(beePublishersProblem('   '), null);
+    assert.equal(beePublishersProblem(null), null);
+    assert.equal(beePublishersProblem(undefined), null);
+  });
+
+  it('accepts a 0x-prefixed batch and lower-cases it', () => {
+    const entry = `360p@http://h:1<0x${'A'.repeat(64)}>`;
+    assert.equal(parseBeePublishers(entry)![0]!.batchId, 'a'.repeat(64));
+  });
+
+  it('refuses the older # form and any other shape', () => {
+    assert.equal(parseBeePublishers(`360p@http://h:1#${batch('360p')}`), null);
+    assert.equal(parseBeePublishers('360p@http://h:1'), null);
+    assert.equal(parseBeePublishers(`360p=http://h:1<${batch('360p')}>`), null);
+    assert.equal(parseBeePublishers(`360p@http://h:1<${'z'.repeat(64)}>`), null);
+    assert.match(beePublishersProblem('nonsense')!, /rung@http:\/\/host:port<batchid>/);
+  });
+
+  it('does not let two entries that ran together pass as one', () => {
+    const a = beePublisherEntry('360p', 'http://h:1', batch('360p'));
+    const b = beePublisherEntry('480p', 'http://h:2', batch('480p'));
+    assert.equal(parseBeePublishers(`${a}${b}`), null);
+  });
+
+  it('names the rung that is missing, extra, or repeated', () => {
+    const entries = full().split(' ');
+    assert.match(beePublishersProblem(entries.slice(0, 3).join(' '))!, /missing 1080p/);
+    assert.match(
+      beePublishersProblem(`${full()} ${beePublisherEntry('4k', 'http://h:9', batch('4k'))}`)!,
+      /4k is not a rung of the shipped ladder/,
+    );
+    assert.match(beePublishersProblem(`${full()} ${entries[0]}`)!, /360p appears twice/);
+  });
+
+  it('rejects the addresses an uploader elsewhere cannot use', () => {
+    const swap = (rung: string, url: string) =>
+      full()
+        .split(' ')
+        .map((e) => (e.startsWith(`${rung}@`) ? beePublisherEntry(rung, url, batch(rung)) : e))
+        .join(' ');
+    assert.match(beePublishersProblem(swap('360p', 'http://deploy@1.2.3.4:10015'))!, /ssh user info/);
+    assert.match(beePublishersProblem(swap('720p', 'http://localhost:10035'))!, /points at localhost/);
+    assert.match(beePublishersProblem(swap('480p', 'ftp://1.2.3.4:10025'))!, /not an http\(s\) URL/);
+  });
+
+  it('writes ABR_LADDER exactly as the engine sample does, highest rung first', () => {
+    assert.equal(
+      abrLadderEnvValue(),
+      '1080p:1920:1080:5000 720p:1280:720:2800 480p:854:480:1200 360p:640:360:700',
+    );
+    // Every rung the publishers must cover is in it, and nothing else.
+    const names = abrLadderEnvValue().split(' ').map((r) => r.split(':')[0]);
+    assert.deepEqual([...names].sort(), [...DEFAULT_ABR_RUNGS].sort());
+  });
+});
+
+describe('normalizeBeePublishers', () => {
+  const batch = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
+  const entries = DEFAULT_ABR_RUNGS.map(
+    (rung, i) => `${rung}@http://65.108.40.58:${10015 + i * 10}<${batch(rung)}>`,
+  );
+  const canonical = entries.join(' ');
+
+  it('collapses a newline-separated paste to single spaces', () => {
+    // The shape you get copying the four rungs out as four lines. It parses
+    // (split is on /\s+/) and so passed validation, but was then written
+    // verbatim into .env.<profile>, whose 2nd-4th lines are not KEY=VALUE —
+    // compose refuses the whole file with
+    // `unexpected character "@" in variable name`.
+    assert.equal(normalizeBeePublishers(entries.join('\n')), canonical);
+    assert.equal(normalizeBeePublishers(entries.join('\r\n')), canonical);
+  });
+
+  it('collapses runs of spaces and tabs, and trims the ends', () => {
+    assert.equal(normalizeBeePublishers(`  ${entries.join('  \t ')}\n`), canonical);
+  });
+
+  it('strips an 0x prefix and lower-cases the batch id', () => {
+    // Accepted by the parser, but the uploader tests the un-stripped slice
+    // against /^[0-9a-fA-F]{64}$/ and throws `must be 64 hex characters,
+    // got 66`. Every other batch-id write path in the manager strips it, and
+    // stamp_id is routinely 0x-prefixed, so this form is easy to hand-assemble.
+    const prefixed = DEFAULT_ABR_RUNGS.map(
+      (rung, i) =>
+        `${rung}@http://65.108.40.58:${10015 + i * 10}<0x${batch(rung).toUpperCase()}>`,
+    ).join(' ');
+    assert.equal(normalizeBeePublishers(prefixed), canonical);
+  });
+
+  it('leaves an already-canonical value untouched', () => {
+    assert.equal(normalizeBeePublishers(canonical), canonical);
+  });
+
+  it('preserves rung order rather than sorting it', () => {
+    // assembleBeePublishers sorts when it builds the string and the uploader
+    // sorts by ladder when it reads it; normalising is not the place to
+    // reorder, and doing so would hide a paste the operator can still read.
+    const reversed = [...entries].reverse().join(' ');
+    assert.equal(normalizeBeePublishers(reversed), reversed);
+  });
+
+  it('passes through what it cannot parse, for the validator to reject', () => {
+    // beePublishersProblem must be able to quote what the operator typed.
+    assert.equal(normalizeBeePublishers('not-a-ladder'), 'not-a-ladder');
+    assert.equal(normalizeBeePublishers(''), '');
+    assert.equal(normalizeBeePublishers('   '), '   ');
+    assert.equal(normalizeBeePublishers(null), null);
+    assert.equal(normalizeBeePublishers(undefined), undefined);
+  });
+
+  it('produces a value the validator accepts and a .env line can hold', () => {
+    const out = normalizeBeePublishers(entries.join('\n')) as string;
+    assert.equal(beePublishersProblem(out), null);
+    assert.ok(!/[\r\n]/.test(out), 'a normalised value must be a single line');
   });
 });

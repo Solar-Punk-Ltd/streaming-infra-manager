@@ -3,15 +3,7 @@ import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
-
-const PROFILE_SLOT_LOCK_KEY = 0x70726f66; // ascii "prof"
-
-const PROFILE_COLUMNS = `
-  name, port_slot, kind, notes,
-  components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-  status, last_error, last_error_at,
-  created_at, updated_at, group_id
-`;
+import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface SharedProfileParams {
   kind: ProfileKind;

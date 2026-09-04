@@ -23,7 +23,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/;
 
 /**
- * The whole ABR Uploader Pool form.
+ * The whole ABR Node Pool form.
  *
  * Deliberately a separate component rather than another branch inside
  * NewDeploymentDrawer. A pool shares almost nothing with a streaming-infra
@@ -54,12 +54,21 @@ export function AbrPoolForm({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Keyed on the group id, not the object — the same reason AbrUploaderForm
+  // keys on the profile name. App rebuilds the `selectedGroup` prop on every
+  // render, and each `profile.changed` SSE event triggers one: with an object
+  // dependency, the four rungs going DEPLOYING -> RUNNING would re-run this
+  // mid-keystroke and reset Notes to the stored value, so "Save pool" would
+  // write the old note back to all four members.
+  const editingGroupId = editingGroup?.group.id ?? null;
   useEffect(() => {
     if (!editingGroup) return;
     setName(editingGroup.group.name);
     setHost(editingGroup.members[0]?.host ?? '');
     setNotes(editingGroup.members[0]?.notes ?? '');
-  }, [editingGroup]);
+    setSubmitError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingGroupId]);
 
   const nameError = (() => {
     if (name.length === 0) return null;
@@ -226,8 +235,8 @@ function PoolSummary() {
       </Box>
       <Typography variant="caption" color="text.secondary">
         Each rung gets its own port slot, wallet and postage batch. Fund them and
-        buy a batch each from the Uploaders tab, then copy the{' '}
-        <code>BEE_PUBLISHERS</code> string.
+        buy a batch each from the Uploaders tab. When all batches set the {' '}
+        <code>BEE_PUBLISHERS</code> string is ready to copy and paste into whatever ABR Uploader deployment you want to use these nodes for uploading.
       </Typography>
     </Alert>
   );

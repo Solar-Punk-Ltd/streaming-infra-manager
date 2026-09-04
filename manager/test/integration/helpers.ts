@@ -21,6 +21,9 @@ export const SRS = 'srs';
 export const BEE_UPLOADER = 'bee-uploader';
 export const STREAM_UPLOADER = 'stream-uploader';
 
+/** Ascending, as `<pool>-<rung>` member names and BEE_PUBLISHERS order them. */
+export const RUNGS = ['360p', '480p', '720p', '1080p'] as const;
+
 // Valid feed-owner addresses (0x + 40 hex) for viewer/client profiles.
 export const FEED_OWNER_A = '0x1111111111111111111111111111111111111111';
 export const FEED_OWNER_B = '0x2222222222222222222222222222222222222222';
@@ -39,6 +42,8 @@ export interface Profile {
   feed_owner: string | null;
   feed_topic: string | null;
   stamp_id: string | null;
+  bee_publishers: string | null;
+  bee_url: string | null;
   containers: Container[];
   pendingStamp: boolean;
   group_id: number | null;
@@ -49,7 +54,21 @@ export interface Group {
   id: number;
   name: string;
   size: number;
+  kind: string;
   created_at: string;
+}
+
+export interface RungNote {
+  rung: string;
+  reason: string;
+}
+
+export interface BeePublishersResult {
+  ready: boolean;
+  value: string | null;
+  rungs: { rung: string; name: string; status: string; url: string }[];
+  missing: RungNote[];
+  warnings: RungNote[];
 }
 
 async function rawRequest(
@@ -114,6 +133,8 @@ export interface CreateBody {
   private_key?: string;
   public_key?: string;
   stamp_id?: string;
+  bee_publishers?: string;
+  bee_url?: string | null;
 }
 
 export const listProfiles = () =>
@@ -179,8 +200,14 @@ export const createGroup = (body: {
   feed_owner?: string;
   notes?: string | null;
   host?: string;
+  abr_ladder?: boolean;
+  stamp_id?: string;
 }) =>
   api<{ group: Group; profiles: Profile[] }>('POST', '/groups', body);
+
+/** The assembled BEE_PUBLISHERS for a pool, or why it is being withheld. */
+export const beePublishers = (id: number) =>
+  api<BeePublishersResult>('GET', `/groups/${id}/bee-publishers`);
 
 export const updateGroupConfig = (id: number, body: Record<string, unknown>) =>
   api<{ group: Group; profiles: Profile[] }>(
@@ -317,6 +344,50 @@ export async function waitForGroupSize(
   }
   throw new Error(
     `timed out awaiting group ${id} size=${size}; last size=${last ?? 'absent'}`,
+  );
+}
+
+/**
+ * Wait until the deployed stream-uploader answers on its own `/health`.
+ *
+ * The manager reports RUNNING once the deploy script exits 0 and the container
+ * snapshot is written — which a container that starts, throws and restarts
+ * satisfies just as well as a working one. That is not hypothetical: an uploader
+ * deployed before `BEE_PUBLISHERS` was passed through compose crash-looped on an
+ * unresolvable BEE_URL while the manager reported it RUNNING throughout. Asking
+ * the uploader itself is the only assertion that separates the two.
+ */
+export async function waitForUploaderHealthy(
+  profile: Profile,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 90_000;
+  const intervalMs = opts.intervalMs ?? 3_000;
+
+  const container = profile.containers.find(
+    (c) => c.service === STREAM_UPLOADER,
+  );
+  assert.ok(container, 'no stream-uploader container in the snapshot');
+  const port = container.ports.API_PORT;
+  assert.ok(port, 'stream-uploader snapshot carries no API_PORT');
+
+  const deadline = Date.now() + timeoutMs;
+  let last = '';
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/health`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (res.ok) return;
+      last = `HTTP ${res.status}`;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error(
+    `stream-uploader for ${profile.name} never became healthy on :${port} (${last}) — ` +
+      `it is most likely restarting; check \`docker logs\``,
   );
 }
 

@@ -1,8 +1,9 @@
 import {
-  ABR_LADDER_GROUP_KIND,
+  ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
   assembleBeePublishers,
   type BeePublishersResult,
+  beeTargetProblem,
   type GroupKind,
   getErrorMessage,
   isLadderKind,
@@ -38,6 +39,7 @@ import {
   GroupNotFoundError,
   LadderGroupError,
   ProfileBusyError,
+  ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
 } from './errors/index.js';
@@ -111,10 +113,25 @@ export class ProfileService {
     private_key?: string | null;
     public_key?: string | null;
     stamp_id?: string | null;
+    bee_publishers?: string | null;
+    bee_url?: string | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
       throw new ProfileExistsError(input.name);
+    }
+
+    // The same rule the update path applies, over the same shape. The schema
+    // checks these per-field too, with nicer field-scoped messages; this is the
+    // one place both paths share, so they cannot drift apart again.
+    const configProblem = beeTargetProblem({
+      kind: input.kind,
+      components: input.components?.length ? input.components : null,
+      bee_publishers: input.bee_publishers ?? null,
+      bee_url: input.bee_url ?? null,
+    });
+    if (configProblem) {
+      throw new ProfileConfigError(input.name, configProblem);
     }
 
     let row;
@@ -132,6 +149,8 @@ export class ProfileService {
           private_key: input.private_key,
           public_key: input.public_key,
           stamp_id: input.stamp_id,
+          bee_publishers: input.bee_publishers,
+          bee_url: input.bee_url,
         },
       );
     } catch (err) {
@@ -195,6 +214,8 @@ export class ProfileService {
       private_key?: string | null;
       public_key?: string | null;
       stamp_id?: string | null;
+      bee_publishers?: string | null;
+      bee_url?: string | null;
     },
   ): Promise<ProfileWithContainers> {
     const existing = await this.getByName(name);
@@ -202,6 +223,21 @@ export class ProfileService {
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
     ) {
       throw new ProfileBusyError(name, existing.status);
+    }
+
+    // PUT replaces every editable field, so a body that omits bee_publishers
+    // clears it. For an abr-uploader that silently removes the only thing it
+    // publishes through, and neither yup test can catch it: `kind` and
+    // `components` are not in an update body. Checked here, against the state
+    // the write would actually leave behind.
+    const configProblem = beeTargetProblem({
+      kind: existing.kind,
+      components: existing.components,
+      bee_publishers: input.bee_publishers ?? null,
+      bee_url: input.bee_url ?? null,
+    });
+    if (configProblem) {
+      throw new ProfileConfigError(name, configProblem);
     }
 
     const row = await this.repo.updateEditable(name, existing.kind, {
@@ -212,6 +248,8 @@ export class ProfileService {
       private_key: input.private_key,
       public_key: input.public_key,
       stamp_id: input.stamp_id,
+      bee_publishers: input.bee_publishers,
+      bee_url: input.bee_url,
     });
 
     if (!row) {
@@ -258,11 +296,13 @@ export class ProfileService {
   }
 
   /**
-   * Members of a ladder, in ascending rung order.
+   * Members of a pool, in ascending rung order.
    *
-   * Ladder-ness is derived from the member names, never stored: a group that
-   * stops looking like a ladder — a rung removed — stops being treated as one,
-   * which is the honest answer rather than a stale flag on the group row.
+   * Pool-ness itself is *not* derived here — it is `deployment_groups.kind`, so
+   * a pool with a rung removed is still a pool, which is the moment an operator
+   * most needs it reported as one. What this derives is the narrower question of
+   * which rung each member publishes, read from its name; a member whose name
+   * carries no rung is not one and is skipped.
    */
   private async ladderMembersOf(
     group: DeploymentGroup,
@@ -297,6 +337,19 @@ export class ProfileService {
     stamp_id?: string;
     abr_ladder?: boolean;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
+    // The same invariant updateGroupConfig enforces, at the other door. A pool's
+    // rungs each pay with their own batch, sized for that rung's bitrate, so one
+    // stamp across all four is exactly the failure a node per rung exists to
+    // prevent — and `shared` below is applied to every member, so accepting it
+    // here would write it four times. Refusing it only on the update path meant
+    // POST could create the state PATCH then refused to change.
+    if (input.abr_ladder && input.stamp_id) {
+      throw new LadderGroupError(
+        input.group_name,
+        'each rung buys its own postage batch, so one stamp cannot be set for the whole pool — create it first, then buy per rung from the Uploaders tab',
+      );
+    }
+
     const existingGroup = await this.groupRepo.findByName(input.group_name);
     if (existingGroup) {
       throw new GroupExistsError(input.group_name);
@@ -350,7 +403,7 @@ export class ProfileService {
     };
 
     const kind: GroupKind = input.abr_ladder
-      ? ABR_LADDER_GROUP_KIND
+      ? ABR_NODE_POOL_GROUP_KIND
       : STANDARD_GROUP_KIND;
 
     const { group, profiles } = await this.groupRepo.createGroupWithMembers(
@@ -362,7 +415,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR ladder)' : ''}`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''}`,
     );
     const profilesWithContainers: ProfileWithContainers[] = [];
     for (const p of profiles) {
@@ -409,7 +462,7 @@ export class ProfileService {
     if (!isLadderKind(group.kind)) {
       throw new LadderGroupError(
         group.name,
-        'this group is not an ABR ladder, so it has no BEE_PUBLISHERS to assemble',
+        'this group is not an ABR node pool, so it has no BEE_PUBLISHERS to assemble',
       );
     }
 

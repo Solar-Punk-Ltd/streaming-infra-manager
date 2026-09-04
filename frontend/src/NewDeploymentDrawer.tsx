@@ -26,8 +26,10 @@ import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import {
+  ABR_UPLOADER_KIND,
   BEE_GATEWAY_SERVICE,
   BEE_UPLOADER_SERVICE,
+  beeUrlProblem,
   CLIENT_SERVICE,
   type EngineName,
   ENGINE_SERVICES,
@@ -39,6 +41,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { AbrPoolForm } from './AbrPoolForm';
+import { AbrUploaderForm } from './AbrUploaderForm';
 
 import {
   addGroupMembers,
@@ -48,6 +51,7 @@ import {
   updateProfile,
 } from './data';
 import {
+  beeUrlHelperText,
   componentsHelperText,
   feedOwnerHelperText,
   groupSizeHelperText,
@@ -88,6 +92,8 @@ type EngineChoice = Engine | 'none';
 
 const KIND_DEFAULTS: Record<ProfileKind, Component[]> = {
   streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
+  // Reached only when editing one; an ABR uploader is created from its own form.
+  [ABR_UPLOADER_KIND]: [SRS_SERVICE, STREAM_UPLOADER_SERVICE],
   viewer: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
   custom: ALL_COMPONENTS.filter((c) => c !== OME_SERVICE),
 };
@@ -115,12 +121,20 @@ interface GroupSelection {
  * was not a group — and left every irrelevant field needing its own guard.
  * "Deploy as group" now belongs to the streaming-infra branch only.
  */
-type DeploymentType = 'streaming-infra' | 'abr-pool';
+type DeploymentType = 'streaming-infra' | 'abr-uploader' | 'abr-node-pool';
 
 const DEPLOYMENT_TYPES: { value: DeploymentType; label: string }[] = [
-  { value: 'abr-pool', label: 'ABR Uploader Pool' },
+  { value: 'abr-node-pool', label: 'ABR Node Pool' },
+  { value: 'abr-uploader', label: 'ABR Uploader' },
   { value: 'streaming-infra', label: 'Streaming Infra' },
 ];
+
+const DEPLOYMENT_TYPE_HINT: Record<DeploymentType, string> = {
+  'abr-node-pool': 'one Bee node per ABR quality rung, as publish targets',
+  'abr-uploader':
+    'srs + stream-uploader publishing to an ABR node pool — no Bee node, no stamp',
+  'streaming-infra': 'streamer, viewer or custom deployments',
+};
 
 interface Props {
   open: boolean;
@@ -145,8 +159,11 @@ export function NewDeploymentDrawer({
     useState<DeploymentType>('streaming-infra');
   const [groupMode, setGroupMode] = useState(false);
   const [groupSize, setGroupSize] = useState(2);
-  // A pool renders its own self-contained form; nothing below applies to it.
-  const isPoolForm = editingPool || (!isEdit && deploymentType === 'abr-pool');
+  const editingAbrUploader = selectedProfile?.kind === ABR_UPLOADER_KIND;
+  // Both of these render their own self-contained form; nothing below applies.
+  const isPoolForm = editingPool || (!isEdit && deploymentType === 'abr-node-pool');
+  const isAbrUploaderForm =
+    editingAbrUploader || (!isEdit && deploymentType === 'abr-uploader');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<ProfileKind>('viewer');
   const [components, setComponents] = useState<Component[]>(
@@ -156,6 +173,7 @@ export function NewDeploymentDrawer({
   const [feedOwner, setFeedOwner] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [stampId, setStampId] = useState('');
+  const [beeUrl, setBeeUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -181,6 +199,7 @@ export function NewDeploymentDrawer({
         setFeedOwner(source.feed_owner ?? '');
         setPrivateKey(selectedGroup ? '' : (source.private_key ?? ''));
         setStampId(selectedGroup ? '' : (source.stamp_id ?? ''));
+        setBeeUrl(selectedGroup ? '' : (source.bee_url ?? ''));
         setNotes(source.notes ?? '');
         setSubmitError(null);
       }
@@ -249,6 +268,20 @@ export function NewDeploymentDrawer({
     hasStreamUploader && stampId.length > 0 && !STAMP_ID_RE.test(stampId)
       ? 'expected 32-byte hex (64 chars, optionally 0x-prefixed)'
       : null;
+  // deploy.sh resolves BEE_URL itself whenever a local bee-uploader is enabled,
+  // so an explicit value only means anything without one. Locked rather than
+  // silently ignored.
+  const hasLocalBeeNode = hasComponent(BEE_UPLOADER_SERVICE);
+  // bee_url is a per-profile field: the group create endpoint does not accept
+  // one and the group config PATCH does not carry one either. Offering it in
+  // group mode discarded whatever was typed without a word, and — worse —
+  // still gated the Deploy button on it, so a scheme-less value blocked a
+  // group deploy over a field the group endpoint would never have received.
+  const beeUrlApplies = !groupMode && !isGroupEdit;
+  const beeUrlError =
+    beeUrlApplies && hasStreamUploader && !hasLocalBeeNode
+      ? beeUrlProblem(beeUrl)
+      : null;
   const componentsError =
     components.length === 0 ? 'select at least one component' : null;
   const notesError = notes.length > 500 ? 'max 500 chars' : null;
@@ -267,6 +300,7 @@ export function NewDeploymentDrawer({
     !clientFieldsMissing &&
     !privateKeyError &&
     !stampIdError &&
+    !beeUrlError &&
     !componentsError &&
     !notesError &&
     !groupSizeError;
@@ -284,6 +318,7 @@ export function NewDeploymentDrawer({
     if (hostError) return `Host: ${hostError}`;
     if (privateKeyError) return `Private Key: ${privateKeyError}`;
     if (stampIdError) return `Stamp ID: ${stampIdError}`;
+    if (beeUrlError) return `BEE_URL: ${beeUrlError}`;
     if (notesError) return `Notes: ${notesError}`;
     return null;
   })();
@@ -296,6 +331,7 @@ export function NewDeploymentDrawer({
     setFeedOwner('');
     setPrivateKey('');
     setStampId('');
+    setBeeUrl('');
     setNotes('');
     setDeploymentType('streaming-infra');
     setGroupMode(false);
@@ -367,10 +403,17 @@ export function NewDeploymentDrawer({
         reset();
         onClose();
       } else {
+        // Sent as null when empty so an edit can drop an external node again;
+        // undefined would mean "leave it as it is".
+        const bee_url =
+          hasStreamUploader && !hasLocalBeeNode && beeUrl.trim()
+            ? beeUrl.trim()
+            : null;
         const profile = isProfileEdit
-          ? await updateProfile(selectedProfile!.name, common)
+          ? await updateProfile(selectedProfile!.name, { ...common, bee_url })
           : await createProfile({
               ...common,
+              bee_url,
               name,
               host: host.trim() || 'localhost',
             });
@@ -418,7 +461,13 @@ export function NewDeploymentDrawer({
           <TextField
             label="Deployment type"
             select
-            value={editingPool ? 'abr-pool' : deploymentType}
+            value={
+              editingPool
+                ? 'abr-node-pool'
+                : editingAbrUploader
+                  ? 'abr-uploader'
+                  : deploymentType
+            }
             onChange={(e) =>
               setDeploymentType(e.target.value as DeploymentType)
             }
@@ -428,9 +477,7 @@ export function NewDeploymentDrawer({
             helperText={
               isEdit
                 ? 'locked — a deployment cannot change type'
-                : deploymentType === 'abr-pool'
-                  ? 'one Bee node per ABR quality rung, as publish targets'
-                  : 'streamer, viewer or custom deployments'
+                : DEPLOYMENT_TYPE_HINT[deploymentType]
             }
           >
             {DEPLOYMENT_TYPES.map((t) => (
@@ -445,6 +492,12 @@ export function NewDeploymentDrawer({
               onCreated={onCreated}
               onClose={handleClose}
               editingGroup={editingPool ? selectedGroup : null}
+            />
+          ) : isAbrUploaderForm ? (
+            <AbrUploaderForm
+              onCreated={onCreated}
+              onClose={handleClose}
+              editingProfile={editingAbrUploader ? selectedProfile : null}
             />
           ) : (
             <>
@@ -647,6 +700,20 @@ export function NewDeploymentDrawer({
                 }}
                 helperText={publicKeyHelperText(derivedAddress)}
               />
+
+              {beeUrlApplies && (
+                <TextField
+                  label="Bee API URL"
+                  value={beeUrl}
+                  onChange={(e) => setBeeUrl(e.target.value)}
+                  disabled={hasLocalBeeNode}
+                  error={!!beeUrlError}
+                  helperText={beeUrlHelperText(beeUrlError, hasLocalBeeNode)}
+                  slotProps={{
+                    htmlInput: { style: { fontFamily: 'monospace' } },
+                  }}
+                />
+              )}
 
               <TextField
                 label="Stamp ID"

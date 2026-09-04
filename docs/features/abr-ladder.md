@@ -67,7 +67,7 @@ two addresses a viewer needs to open a stage.
 
 | what | where it lives |
 |---|---|
-| that this group is a ladder | `deployment_groups.kind = 'abr-ladder'` — one new column |
+| that this group is a ladder | `deployment_groups.kind = 'abr-node-pool'` — one new column |
 | that these four profiles are one unit | `deployment_groups` + `profiles.group_id` (already existed) |
 | which rung a member publishes | its name |
 | the batch it pays with | `profiles.stamp_id` (already existed, already managed) |
@@ -84,14 +84,17 @@ rung and the group stops *looking* like a ladder, so the Uploaders tab stops
 offering the ladder view — at the moment the operator most needs it to say
 "1080p is missing".
 
-Intent is a fact about the group and belongs in a column. Current shape stays
-derived: `isLadderKind(group.kind)` answers "is this a ladder", and
-`isLadderGroup(name, memberNames)` answers the different question "is it
-complete". Using the second for identity is the bug the column removes.
+Intent is a fact about the group and belongs in a column: `isLadderKind(group.kind)`
+answers "is this a pool", for a damaged one too. Completeness is a different
+question, and the only caller that needs it — `beePublishersForGroup` — answers
+it per rung, naming the ones that are missing rather than returning a bare
+false. Two helpers that derived pool-ness from the member names were dropped
+once the column landed; using that derivation for identity is the bug the column
+removes.
 
 ## Using it
 
-1. **New deployment → Deployment type → ABR Uploader Pool.** Four profiles are
+1. **New deployment → Deployment type → ABR Node Pool.** Four profiles are
    created: `<pool>-360p` … `<pool>-1080p`, each with the single `bee-uploader`
    component.
 2. **Deploy each rung.** Group creation inserts members as `STOPPED`; the
@@ -101,10 +104,95 @@ complete". Using the second for identity is the bug the column removes.
    at that rung's suggested depth (**17 / 18 / 19 / 20** across the shipped
    ladder), because a rung's batch fills in proportion to its bitrate and a flat
    depth would put the four expiries hours apart.
-4. **Copy `BEE_PUBLISHERS`** from the ladder card once all four rungs report a
-   *live* batch, and set it in the uploader's env alongside `ABR_ENABLED=true`.
-   The card only offers the value when each rung's own node confirms its batch;
-   see [Rung validity](#rung-validity).
+4. **Copy `BEE_PUBLISHERS`** from the pool card once all four rungs report a
+   *live* batch. The card only offers the value when each rung's own node
+   confirms its batch; see [Rung validity](#rung-validity).
+5. **Paste it into an ABR Uploader.** New deployment → Deployment type → **ABR
+   Uploader**. See [The ABR Uploader](#the-abr-uploader).
+
+## The ABR Uploader
+
+The pool and the uploader normally sit on different machines under **different
+managers** — the Bee nodes on bare metal where bandwidth is cheap, SRS and the
+`stream-uploader` in GCP — so the uploader's manager cannot look the pool up: it
+is a group in another database. What crosses between them is the string itself,
+copied from one manager's pool card into the other's form.
+
+`abr-uploader` is its own **profile kind** and its own **deployment type**, with
+its own self-contained form, for the same reason the pool has one: it shares
+almost nothing with a single-node deployment.
+
+| | single-node uploader | ABR Uploader |
+| --- | --- | --- |
+| services | `srs` + `stream-uploader` + `bee-uploader` | `srs` + `stream-uploader` |
+| where uploads go | its own Bee node, or `BEE_URL` | the pool's four rungs |
+| postage | its own `stamp_id` | the pool's, one batch per rung |
+| Uploaders tab | fund it, buy batches | no actions, just shows publish URL with pool targets |
+
+It runs **no Bee node**: the pool's rungs are the publish targets, so there is no
+wallet to fund, no batch to buy and no stamp to wait for. `managesOwnStamp` is
+false, so it does not appear on the Uploaders tab at all — a funding panel there
+would point at a node that does not exist. `isPendingStamp` is false, so
+**Deploy uploader** is enabled from the start.
+
+`BEE_PUBLISHERS` is required — without it the deployment would come up and never
+upload anything — and validated where the operator can still fix it (form, API,
+and again at deploy) with the uploader's own rules (`beePublishersProblem`):
+every rung of the shipped ladder, none twice, nothing else, and an http(s)
+address that is neither loopback nor an ssh target. The form shows the rungs a
+valid paste resolves to, because a line of four URLs and four 64-character batch
+ids is not something anyone proof-reads.
+
+At deploy `writeProfileEnv` writes `BEE_PUBLISHERS`, `ABR_ENABLED=true` and
+`ABR_LADDER` (emitted from `DEFAULT_ABR_LADDER`) into `.env.<profile>`. The root
+env wins over `engines/srs/.env.<profile>` in `deploy.sh`, and both `srs` and the
+uploader read all three from the compose environment — so the ladder the engine
+encodes and the ladder the uploader publishes come from one definition and cannot
+drift. SRS only; the ladder is not implemented for OME.
+
+The string goes stale two ways, and since nothing links the two managers,
+nothing invalidates a copy that has gone wrong:
+
+- **A rung buys a *new* batch** (topping up keeps the id). Re-paste after a
+  re-buy, until a stamp manager keeps batches from expiring.
+- **A rung is removed and re-created**, which changes its *address*, not just
+  its batch. Ports come from the profile's port slot, and a freed slot is
+  reused by the next profile created on that machine — so `720p@…:10035` can
+  come to mean an unrelated Bee node. The uploader keeps publishing that rung
+  to it with a batch id it does not own, every upload is rejected, and the
+  other three rungs carry on: a partial ABR degradation with nothing in either
+  manager pointing at the cause. Re-paste after rebuilding a rung.
+
+## BEE_URL: a single-node uploader on an external node
+
+The other half of the same flexibility. A single-node deployment can name the
+Bee API it publishes to instead of running its own — `profiles.bee_url`, the
+**Bee API URL** field on the Streaming Infra form.
+
+It applies **only to a deployment that runs no `bee-uploader`**, and that is not
+a policy choice: `resolve_bee_url` in `deploy.sh` computes `BEE_URL` and writes it
+into an override file that outranks `.env.<profile>` whenever a local
+bee-uploader is enabled, and prints nothing when it is not. So with a local node
+the field could never take effect. Rather than store a value that silently never
+applies, the field is disabled while `bee-uploader` is checked (drop it — use
+`custom` — to point at an external node), and the API rejects the combination.
+It is also refused alongside `bee_publishers`, so a config cannot say two
+different things about where uploads go.
+
+**Requires `swarm-hls-stream` 46eb21a or later**, which this repo's submodule
+pin carries. `resolve_bee_url` there decided "is there a local Bee node" from
+`config.json` rather than from the services the invocation was asked to deploy
+— and `config.json` is written once at bootstrap, never per profile — so it
+overrode `BEE_URL` for *every* profile running a stream-uploader. An external
+node named here was replaced by `http://bee-uploader:<port>`, a compose service
+that is not running, and the container crash-looped on `ENOTFOUND` while the
+manager reported `RUNNING`. Two changes there are what make a pool-backed uploader deployable
+at all: the uploader service's `environment:` block in
+`deploy/docker-compose.yml` now passes `BEE_PUBLISHERS` through (before, the
+uploader read the variable but it never reached the container), and
+`check_stamp` in `deploy.sh` no longer prompts for an empty `STAMP` when
+`BEE_PUBLISHERS` is set — that prompt aborted the deploy under the manager's
+stdin-less runner.
 
 ## Implementation
 
@@ -112,7 +200,7 @@ complete". Using the second for identity is the bug the column removes.
 
 | File | Change |
 |---|---|
-| `src/abrLadder.ts` (new) | The whole ladder domain: `DEFAULT_ABR_LADDER` (rungs, geometry, kbps), `ladderMemberName` / `rungFromMemberName` / `ladderMemberNames`, `isLadderGroup` / `looksLikeLadderGroup`, `rungOrder`, `suggestedRungDepth`, `assembleBeePublishers`, `beePublishersValue`, `LADDER_GROUP_NAME_MAX`. |
+| `src/abrLadder.ts` (new) | The whole ladder domain: `DEFAULT_ABR_LADDER` (rungs, geometry, kbps), `ladderMemberName` / `rungFromMemberName` / `ladderMemberNames`, `rungOrder`, `suggestedRungDepth`, `assembleBeePublishers`, `beePublishersValue`, `parseBeePublishers` / `beePublishersProblem`, `abrLadderEnvValue`, `LADDER_GROUP_NAME_MAX`. |
 | `src/abrLadder.test.ts` (new) | 55 tests over naming, round-tripping, group recognition, depth scaling and assembly — including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
 | `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId` — the one place that decides what a recorded batch is worth. See [Rung validity](#rung-validity). |
 | `src/publishUrl.ts` (new) | `classifyPublishUrl` / `isInvalidUrlState` / `publishUrlReason` / `publishUrlWarning` — what a rung's published address is worth, structurally, before anything is probed. |
@@ -152,7 +240,7 @@ request or block the value.
 | `src/uploaders/UploadersView.tsx` | Ladder cards first (selected by `group.kind`, so a damaged ladder still appears), then every profile that manages its own stamp — which now includes bee-only rungs. |
 | `src/uploaders/UploaderCard.tsx` | Also hides "Deploy uploader" and the SRT publish URL for a bee-only profile: it runs no uploader and no media engine, so it has nothing to ingest on. |
 | `src/AbrPoolForm.tsx` (new) | The entire pool form, self-contained. |
-| `src/NewDeploymentDrawer.tsx` | A top-level **Deployment type** combobox — *ABR Uploader Pool* / *Streaming Infra* — that swaps in `AbrPoolForm` wholesale. The old `ladderMode` boolean is gone. |
+| `src/NewDeploymentDrawer.tsx` | A top-level **Deployment type** combobox — *ABR Node Pool* / *Streaming Infra* — that swaps in `AbrPoolForm` wholesale. The old `ladderMode` boolean is gone. |
 | `src/data.ts` | `fetchBeePublishers`, returning `null` for a group that is not a ladder so callers can probe cheaply. The response types are now re-exported from `common` rather than redeclared — the local copy had already gone stale, with the per-rung verification fields arriving in the JSON and invisible to the compiler. |
 | `src/uploaders/useBeeUtils.ts` | `stamps` is nullable — null for "not asked / no answer" — like `address`, `wallet` and `chainState` beside it, and any failed fetch clears it. Without that distinction a slow or briefly unreachable node reads as a node with a dead batch. |
 | `src/uploaders/StampTable.tsx` | An `expired` state in the Usable column (it previously read `pending`, i.e. as something that would come good on its own), `in use — expired` on the active row, and an empty table that names the orphaned id instead of saying "No stamps on this node yet." |

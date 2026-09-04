@@ -1,6 +1,6 @@
 import type { CreateProfileBody } from './interfaces';
 
-export type ProfileKind = 'streamer' | 'viewer' | 'custom';
+export type ProfileKind = 'streamer' | 'viewer' | 'custom' | 'abr-uploader';
 
 export type ProfileStatus =
   | 'DEPLOYING'
