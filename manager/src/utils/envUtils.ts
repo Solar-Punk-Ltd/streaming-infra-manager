@@ -8,8 +8,10 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   type EngineName,
+  isValidSrtPassphrase,
   normalizeBeePublishers,
   OME_SERVICE,
+  SRT_PASSPHRASE_MESSAGE,
 } from '@streaming-infra-manager/common';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -107,6 +109,15 @@ export interface ProfileEnvValues {
    */
   beeUrl?: string | null;
 
+  /**
+   * SRS's SRT listener passphrase.
+   *
+   * Left absent, the base .env's own SRT_PASSPHRASE survives the copy below and
+   * applies — which is how every deployment behaved before this was settable per
+   * profile, and what clearing the field goes back to.
+   */
+  srtPassphrase?: string | null;
+
   omeSrtPort?: number;
   omeHlsPort?: number;
   /**
@@ -198,6 +209,22 @@ export function writeProfileEnv(
       throw new Error(`refusing to write BEE_URL to the env file: ${problem}`);
     }
     contents = upsertEnvLine(contents, 'BEE_URL', beeUrl);
+  }
+
+  // `engines/srs/entrypoint.sh` splices this into srs.conf through a sed s///
+  // expression without validating it, so a stray `/` writes a corrupt config and
+  // a stray `&` a surprising one — either way a container that crash-loops under
+  // `restart: unless-stopped`. The request schema and a CHECK constraint both
+  // refuse those already; this is the last gate before the value leaves the
+  // manager, and covers a row written by anything but those two paths.
+  const passphrase = values.srtPassphrase?.trim();
+  if (passphrase) {
+    if (!isValidSrtPassphrase(passphrase)) {
+      throw new Error(
+        `refusing to write SRT_PASSPHRASE: ${SRT_PASSPHRASE_MESSAGE}`,
+      );
+    }
+    contents = upsertEnvLine(contents, 'SRT_PASSPHRASE', passphrase);
   }
 
   if (values.engine === OME_SERVICE) {

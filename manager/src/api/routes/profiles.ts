@@ -33,6 +33,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         stamp_id: body.stamp_id,
         bee_publishers: body.bee_publishers,
         bee_url: body.bee_url,
+        srt_passphrase: body.srt_passphrase,
       });
       res.status(202).json(profile);
     }),
@@ -70,6 +71,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         stamp_id: body.stamp_id,
         bee_publishers: body.bee_publishers,
         bee_url: body.bee_url,
+        srt_passphrase: body.srt_passphrase,
       });
       res.status(202).json(profile);
     }),

@@ -36,6 +36,7 @@ const PROFILE: Profile = {
   stamp_id: BATCH,
   bee_publishers: null,
   bee_url: null,
+  srt_passphrase: null,
   status: 'RUNNING',
   last_error: null,
   last_error_at: null,

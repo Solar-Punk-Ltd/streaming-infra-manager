@@ -9,6 +9,8 @@ import {
   LADDER_GROUP_NAME_MAX,
   normalizeBeePublishers,
   OME_SERVICE,
+  SRT_PASSPHRASE_MESSAGE,
+  SRT_PASSPHRASE_RE,
 } from '@streaming-infra-manager/common';
 import { array, boolean, number, object, string, InferType } from 'yup';
 
@@ -180,6 +182,9 @@ export const createProfileSchema = object({
           });
     },
   ),
+  srt_passphrase: string()
+    .notRequired()
+    .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
 }).noUnknown(true);
 
 export type CreateProfileInput = InferType<typeof createProfileSchema>;
@@ -218,6 +223,9 @@ export const updateProfileSchema = object({
   // the first deploy so the bee-uploader check cannot newly fail here.
   bee_publishers: beePublishersField(),
   bee_url: beeUrlField(),
+  srt_passphrase: string()
+    .notRequired()
+    .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
 }).noUnknown(true);
 
 export type UpdateProfileInput = InferType<typeof updateProfileSchema>;
@@ -290,6 +298,9 @@ export const createGroupSchema = object({
       STAMP_ID_RE,
       'stamp_id must be 32-byte hex (optionally 0x-prefixed)',
     ),
+  srt_passphrase: string()
+    .notRequired()
+    .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
 }).noUnknown(true);
 
 export type CreateGroupInput = InferType<typeof createGroupSchema>;
@@ -320,6 +331,9 @@ export const updateGroupConfigSchema = object({
       STAMP_ID_RE,
       'stamp_id must be 32-byte hex (optionally 0x-prefixed)',
     ),
+  srt_passphrase: string()
+    .notRequired()
+    .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
 }).noUnknown(true);
 
 export type UpdateGroupConfigInput = InferType<typeof updateGroupConfigSchema>;

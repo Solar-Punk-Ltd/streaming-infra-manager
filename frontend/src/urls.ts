@@ -31,10 +31,18 @@ const SRS_SRT_BASE_PORT = 10001;
 const OME_SRT_BASE_PORT = 10001;
 const OME_DEFAULT_APP_STREAM = 'video/stream';
 
+/**
+ * The URL a publisher points OBS or FFmpeg at.
+ *
+ * `hostPassphrase` is the host-wide SRT_PASSPHRASE from `GET /config` — the
+ * deployment's own passphrase outranks it, and a deployment that sets none falls
+ * back to it, which is the same precedence the deploy applies when it writes
+ * `.env.<profile>`. Only SRS reads a passphrase; OME's SRT listener has none.
+ */
 export function srtPublishUrl(
   profile: Profile,
   serverHost: string,
-  passphrase?: string | null,
+  hostPassphrase?: string | null,
 ): string | null {
   const host = hostFor(profile, serverHost);
 
@@ -61,5 +69,6 @@ export function srtPublishUrl(
     (profile.port_slot > 0 ? SRS_SRT_BASE_PORT + profile.port_slot * 10 : null);
   if (!port) return null;
   const base = `srt://${host}:${port}?streamid=#!::r=${SRT_DEFAULT_APP_STREAM},m=publish`;
+  const passphrase = profile.srt_passphrase?.trim() || hostPassphrase;
   return passphrase ? `${base}&passphrase=${passphrase}` : base;
 }

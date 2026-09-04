@@ -25,8 +25,8 @@ export function StreamPublishUrl({ streamUrl }: { streamUrl: string | null }) {
       )}
       <Typography variant="caption" color="text.secondary">
         Point OBS / FFmpeg here. Change <code>live/stream</code> to your
-        app/stream; if the deployment sets an SRT passphrase, append{' '}
-        <code>&amp;passphrase=…</code>.
+        app/stream. Any SRT passphrase this deployment uses is already in the
+        URL — set it under <strong>Modify</strong>.
       </Typography>
     </Box>
   );

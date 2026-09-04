@@ -15,7 +15,10 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import {
   beePublishersProblem,
+  generateSrtPassphrase,
   getErrorMessage,
+  SRT_PASSPHRASE_MESSAGE,
+  SRT_PASSPHRASE_RE,
 } from '@streaming-infra-manager/common';
 
 import { createProfile, updateProfile } from './data';
@@ -25,6 +28,7 @@ import {
   hostHelperText,
   notesHelperText,
   publicKeyHelperText,
+  srtPassphraseHelperText,
 } from './helperText';
 import type { Profile } from './types';
 
@@ -49,10 +53,13 @@ export function AbrUploaderForm({
   onCreated,
   onClose,
   editingProfile,
+  hostPassphrase = null,
 }: {
   onCreated: (profiles: Profile[]) => void;
   onClose: () => void;
   editingProfile?: Profile | null;
+  /** Host-wide SRT_PASSPHRASE, so an empty passphrase field can say what it means. */
+  hostPassphrase?: string | null;
 }) {
   const isEdit = !!editingProfile;
 
@@ -60,6 +67,7 @@ export function AbrUploaderForm({
   const [host, setHost] = useState('');
   const [beePublishers, setBeePublishers] = useState('');
   const [privateKey, setPrivateKey] = useState('');
+  const [srtPassphrase, setSrtPassphrase] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -74,6 +82,7 @@ export function AbrUploaderForm({
     setHost(editingProfile.host ?? '');
     setBeePublishers(editingProfile.bee_publishers ?? '');
     setPrivateKey(editingProfile.private_key ?? '');
+    setSrtPassphrase(editingProfile.srt_passphrase ?? '');
     setNotes(editingProfile.notes ?? '');
     setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,6 +99,13 @@ export function AbrUploaderForm({
   const privateKeyError =
     privateKey.length > 0 && !PRIVATE_KEY_RE.test(privateKey)
       ? 'expected 0x + 64 hex chars'
+      : null;
+  // Not gated on an engine the way the shared form's is: there is no engine
+  // choice here, the service list is fixed at `srs + stream-uploader`, and SRS
+  // is what reads the passphrase.
+  const srtPassphraseError =
+    srtPassphrase.length > 0 && !SRT_PASSPHRASE_RE.test(srtPassphrase)
+      ? SRT_PASSPHRASE_MESSAGE
       : null;
   // Same rules the uploader applies when it starts, so a bad paste fails here
   // rather than as a container that will not come up on the other machine.
@@ -114,6 +130,7 @@ export function AbrUploaderForm({
     !hostError &&
     !beePublishersError &&
     !privateKeyError &&
+    !srtPassphraseError &&
     !notesError;
 
   const validationMessage: string | null = (() => {
@@ -125,6 +142,7 @@ export function AbrUploaderForm({
     }
     if (beePublishersError) return `BEE_PUBLISHERS: ${beePublishersError}`;
     if (hostError) return `Host: ${hostError}`;
+    if (srtPassphraseError) return `SRT passphrase: ${srtPassphraseError}`;
     if (privateKey.trim().length === 0) {
       return 'A private key is required — it is the uploader’s STREAM_KEY';
     }
@@ -138,6 +156,7 @@ export function AbrUploaderForm({
     setHost('');
     setBeePublishers('');
     setPrivateKey('');
+    setSrtPassphrase('');
     setNotes('');
     setSubmitError(null);
   };
@@ -158,6 +177,7 @@ export function AbrUploaderForm({
         bee_publishers: beePublishers.trim(),
         private_key: privateKey.trim() ? privateKey.trim() : undefined,
         public_key: derivedAddress ?? undefined,
+        srt_passphrase: srtPassphrase.trim() ? srtPassphrase.trim() : undefined,
       };
       const profile = isEdit
         ? await updateProfile(editingProfile!.name, common)
@@ -220,6 +240,31 @@ export function AbrUploaderForm({
       />
 
       <RungPreview value={beePublishers} />
+
+      <TextField
+        label="SRT Passphrase"
+        value={srtPassphrase}
+        onChange={(e) => setSrtPassphrase(e.target.value)}
+        error={!!srtPassphraseError}
+        helperText={srtPassphraseHelperText(srtPassphraseError, hostPassphrase)}
+        slotProps={{
+          htmlInput: { style: { fontFamily: 'monospace' } },
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  aria-label="generate passphrase"
+                  onClick={() => setSrtPassphrase(generateSrtPassphrase())}
+                  title="Generate passphrase"
+                >
+                  <CasinoIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
 
       <TextField
         label="Private Key"

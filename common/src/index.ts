@@ -5,6 +5,7 @@ export * from './errorUtils.js';
 export * from './metrics.js';
 export * from './nullify.js';
 export * from './publishUrl.js';
+export * from './srtPassphrase.js';
 export * from './stampCost.js';
 export * from './stampGating.js';
 export * from './stampHealth.js';

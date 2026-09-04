@@ -15,6 +15,7 @@ export interface ProfileWriteData {
   stamp_id?: string | null;
   bee_publishers?: string | null;
   bee_url?: string | null;
+  srt_passphrase?: string | null;
   group_id?: number | null;
 }
 
@@ -52,10 +53,10 @@ export class ProfileRepository {
       const result = await client.query<Profile>(
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
-           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id, group_id,
-           bee_publishers, bee_url
+           components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
+           srt_passphrase, group_id, bee_publishers, bee_url
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
          FROM generate_series(1, 999) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
@@ -74,6 +75,7 @@ export class ProfileRepository {
           dataWithNullFields.private_key,
           dataWithNullFields.public_key,
           dataWithNullFields.stamp_id,
+          dataWithNullFields.srt_passphrase,
           dataWithNullFields.group_id,
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
@@ -107,6 +109,7 @@ export class ProfileRepository {
              stamp_id = $9,
              bee_publishers = $10,
              bee_url = $11,
+             srt_passphrase = $12,
              updated_at = NOW()
        WHERE name = $1
        RETURNING ${PROFILE_COLUMNS}`,
@@ -122,6 +125,7 @@ export class ProfileRepository {
         data.stamp_id,
         data.bee_publishers,
         data.bee_url,
+        data.srt_passphrase,
       ],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;

@@ -35,6 +35,7 @@ export function createGroupsRouter(profileService: ProfileService): Router {
         private_key: body.private_key ?? undefined,
         public_key: body.public_key ?? undefined,
         stamp_id: body.stamp_id ?? undefined,
+        srt_passphrase: body.srt_passphrase ?? undefined,
       });
       res.status(202).json(result);
     }),
@@ -74,6 +75,7 @@ export function createGroupsRouter(profileService: ProfileService): Router {
           feed_owner: body.feed_owner,
           feed_topic: body.feed_topic,
           stamp_id: body.stamp_id,
+          srt_passphrase: body.srt_passphrase,
         },
       );
       res.status(202).json(result);
