@@ -97,10 +97,15 @@ function Page({ route, search }: { route: Route; search: string }) {
   switch (route.page) {
     case 'deployments':
       return <DeploymentsPage search={search} />;
+    // Keyed so moving between two deployments remounts the page: its Bee node
+    // hook keeps the last answer it got, and without a fresh instance one
+    // node's wallet and stamps could sit under another deployment's name.
     case 'deployment':
-      return <DeploymentPage name={route.name} focus={route.focus} />;
+      return (
+        <DeploymentPage key={route.name} name={route.name} focus={route.focus} />
+      );
     case 'group':
-      return <GroupPage id={route.id} />;
+      return <GroupPage key={route.id} id={route.id} />;
     case 'host':
       return <HostPage />;
     case 'overview':
