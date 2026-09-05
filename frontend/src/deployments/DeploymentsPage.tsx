@@ -92,10 +92,18 @@ export function DeploymentsPage({ search }: { search: string }) {
     })
     .filter(({ visible }) => filter === 'groups' || visible.length > 0);
 
+  // A member whose group has not loaded, or whose group fetch failed, is listed
+  // on its own rather than dropped: the counts above still include it, and the
+  // two fetches race on every cold load.
+  const loadedGroupIds = new Set(groups.map((group) => group.id));
   const standalone =
     filter === 'groups'
       ? []
-      : profiles.filter((profile) => profile.group_id == null && matches(profile));
+      : profiles.filter(
+          (profile) =>
+            (profile.group_id == null || !loadedGroupIds.has(profile.group_id)) &&
+            matches(profile),
+        );
 
   const hasRows = groupBlocks.length > 0 || standalone.length > 0;
 
