@@ -8,7 +8,11 @@ import type { ReactNode } from 'react';
 
 import { ServiceChip } from '../../../components/ServiceChip';
 import { GOALS } from '../wizardGoals';
-import type { WizardGoal, WizardStepProps } from '../wizardState';
+import {
+  withGoal,
+  type WizardGoal,
+  type WizardStepProps,
+} from '../wizardState';
 
 const GOAL_ICONS: Record<WizardGoal, ReactNode> = {
   stream: <PlayArrowIcon fontSize="small" />,
@@ -25,7 +29,7 @@ const QUESTION = 'What do you want to set up?';
  * Tab reaches it and Enter or Space picks it, and screen readers hear which
  * one is checked.
  */
-export function GoalStep({ state, update }: WizardStepProps) {
+export function GoalStep({ state, context, update }: WizardStepProps) {
   return (
     <Stack spacing={2}>
       <Box>
@@ -60,7 +64,7 @@ export function GoalStep({ state, update }: WizardStepProps) {
               <CardActionArea
                 role="radio"
                 aria-checked={selected}
-                onClick={() => update({ goal: goal.id })}
+                onClick={() => update(withGoal(state, goal.id, context))}
                 sx={{ p: 1.75, height: '100%', alignItems: 'flex-start' }}
               >
                 <Stack direction="row" spacing={1.5} alignItems="flex-start">

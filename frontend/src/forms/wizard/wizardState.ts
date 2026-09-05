@@ -151,6 +151,30 @@ export function initialWizardState(
   };
 }
 
+/**
+ * Switching goals starts the settings over. The basics stay, because a name,
+ * a host and a note mean the same for every goal, but an answer left behind by
+ * the abandoned goal (an external Bee URL, a pasted stamp) must not resurface
+ * under a field of the new goal that happens to share its name.
+ */
+export function withGoal(
+  state: WizardState,
+  goal: WizardGoal,
+  context: WizardContext,
+): WizardState {
+  if (state.goal === goal) return state;
+  return {
+    ...initialWizardState({ goal }, context),
+    step: state.step,
+    name: state.name,
+    host: state.host,
+    hostCustom: state.hostCustom,
+    notes: state.notes,
+    group: allowsGroup(goal) ? state.group : false,
+    size: state.size,
+  };
+}
+
 /** The passphrase this deployment would get, or null for the host-wide one. */
 export function chosenPassphrase(state: WizardState): string | null {
   if (state.passMode === 'host') return null;
