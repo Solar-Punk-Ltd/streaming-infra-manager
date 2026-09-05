@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "node dev/mock-manager.mjs",
     "build": "pnpm --filter @streaming-infra-manager/common build && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
