@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streaming Infra Manager · UX rework mockup</title>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#ffffff; --sub:#f0f2f5; --hover:#eaedf2; --border:#e2e5ea; --border-2:#cfd4dc;
+  --text:#14171d; --text-2:#4b5563; --text-3:#8a93a3;
+  --accent:#3b5bfd; --accent-2:#e9edff; --accent-text:#2a45d8;
+  --ok:#158f52; --ok-bg:#e3f5ea; --warn:#b56e00; --warn-bg:#fff2dc; --err:#cf3238; --err-bg:#fde7e8; --info:#2a7fd4; --info-bg:#e6f0fb; --gray:#7f889a; --gray-bg:#eef0f4;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --r:10px; --shadow:0 1px 2px rgba(16,24,40,.04),0 6px 20px rgba(16,24,40,.06);
+}
+[data-theme=dark]{
+  --bg:#0e1014; --card:#161920; --sub:#1c2029; --hover:#222735; --border:#252a35; --border-2:#333a49;
+  --text:#e9ebf1; --text-2:#aab1c0; --text-3:#6c7587;
+  --accent:#6f88ff; --accent-2:#1c2340; --accent-text:#a2b1ff;
+  --ok:#3bd27f; --ok-bg:#10301e; --warn:#f2b43c; --warn-bg:#33270c; --err:#ff6b6f; --err-bg:#3b191c; --info:#63a9ff; --info-bg:#122540; --gray:#7c8598; --gray-bg:#222735;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:14px/1.45 var(--sans);color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+a{color:var(--accent-text);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+[hidden]{display:none!important}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+@media (max-width:900px){.app{grid-template-columns:1fr}.sb{display:none}}
+
+/* sidebar */
+.sb{background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{display:flex;gap:10px;align-items:center;padding:18px 18px 14px}
+.brand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#7c3aed);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px}
+.brand b{display:block;font-size:14px}
+.brand small{color:var(--text-3);font-size:11.5px}
+.nav{padding:6px 10px;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--text-2);font-weight:500;cursor:pointer}
+.nav a:hover{background:var(--hover);text-decoration:none}
+.nav a.cur{background:var(--accent-2);color:var(--accent-text)}
+.nav a .ico{width:18px;text-align:center;opacity:.9}
+.nav a .cnt{margin-left:auto;font-size:11.5px;color:var(--text-3);background:var(--sub);padding:1px 7px;border-radius:99px}
+.nav a.cur .cnt{background:rgba(255,255,255,.5)}
+[data-theme=dark] .nav a.cur .cnt{background:rgba(255,255,255,.08)}
+.nav .sect{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);padding:14px 10px 4px}
+.sb-foot{margin-top:auto;padding:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.sb-foot .host{font-size:12px;color:var(--text-3);padding:4px 6px}
+.sb-foot .host b{color:var(--text-2);font-weight:500}
+.sb-foot .tag{font-size:11px;color:var(--text-3);padding:4px 6px}
+
+/* main */
+main{min-width:0}
+.topbar{display:flex;align-items:center;gap:12px;padding:14px 28px;position:sticky;top:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);z-index:5;border-bottom:1px solid transparent}
+.topbar h1{font-size:18px;margin:0;font-weight:600}
+.topbar .sp{flex:1}
+.search{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;width:280px}
+.search input{border:0;outline:0;background:transparent;width:100%}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}
+.view{padding:6px 28px 60px;max-width:1240px}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-2);background:var(--card);border-radius:8px;padding:6px 11px;font-weight:500;font-size:13px;cursor:pointer;white-space:nowrap;line-height:1.3}
+.btn:hover{background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,var(--border-2))}
+.btn.danger:hover{background:var(--err-bg)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--hover)}
+.btn.sm{padding:4px 8px;font-size:12.5px}
+.btn.icon{padding:5px 7px}
+.btn .spin{width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* pills, dots */
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:500;line-height:1.5;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.err{background:var(--err-bg);color:var(--err)}
+.pill.info{background:var(--info-bg);color:var(--info)}
+.pill.gray{background:var(--gray-bg);color:var(--text-2)}
+.pill.type{background:var(--sub);color:var(--text-2);font-weight:500}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gray);flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--err)}.dot.info{background:var(--info)}
+.dot.pulse{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+.card .hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.card .hd h3{margin:0;font-size:14px;font-weight:600}
+.card .hd .sub{color:var(--text-3);font-size:12.5px}
+.card .hd .sp{flex:1}
+.card .bd{padding:16px 18px}
+.card .bd.tight{padding:0}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:repeat(3,1fr)}
+@media (max-width:1000px){.g2,.g3{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column;gap:16px}
+.row{display:flex;align-items:center;gap:10px}
+.muted{color:var(--text-3)}.dim{color:var(--text-2)}
+.small{font-size:12.5px}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:8px 16px;font-size:13px}
+.kv dt{color:var(--text-3)}.kv dd{margin:0;word-break:break-all}
+.hint{font-size:12px;color:var(--text-3);margin-top:4px}
+.chip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:var(--sub);border:1px solid var(--border);padding:1px 6px;border-radius:6px;color:var(--text-2)}
+.copy{display:inline-flex;align-items:center;gap:8px;background:var(--sub);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:12.5px;word-break:break-all;max-width:100%}
+.copy button{margin-left:auto;flex:none}
+
+/* bars */
+.bar{height:8px;background:var(--gray-bg);border-radius:99px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .ours{background:var(--accent)}.bar .other{background:color-mix(in srgb,var(--text-3) 45%,transparent)}
+.bar.thin{height:5px}
+.big{font-size:26px;font-weight:600;letter-spacing:-.01em}
+.stat .lbl{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+
+/* tables */
+table{width:100%;border-collapse:collapse}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border)}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr.clk{cursor:pointer}
+tr.clk:hover td{background:var(--hover)}
+td .name{font-family:var(--mono);font-weight:600;font-size:13px}
+td .sub{font-size:12px;color:var(--text-3);margin-top:2px}
+td.act{text-align:right;white-space:nowrap}
+td.act .btn{margin-left:4px}
+tr.grp td{background:var(--sub);font-weight:500}
+tr.grp:hover td{background:var(--hover)}
+td.indent{padding-left:38px}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.filters .f{border:1px solid var(--border);background:var(--card);border-radius:99px;padding:4px 12px;font-size:13px;cursor:pointer;color:var(--text-2)}
+.filters .f.cur{background:var(--text);color:var(--card);border-color:var(--text)}
+.filters .f b{font-weight:500;opacity:.7;margin-left:4px}
+
+/* page head */
+.ph{display:flex;align-items:flex-start;gap:16px;padding:12px 0 18px}
+.ph .back{font-size:13px;color:var(--text-3);display:block;margin-bottom:8px}
+.ph h2{margin:0;font-size:22px;font-weight:600;display:flex;align-items:center;gap:10px;font-family:var(--mono)}
+.ph .meta{color:var(--text-3);font-size:13px;margin-top:6px}
+.ph .acts{margin-left:auto;display:flex;gap:8px;align-items:center;padding-top:26px}
+
+/* checklist */
+.check{list-style:none;margin:0;padding:0}
+.check li{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border)}
+.check li:last-child{border-bottom:0}
+.check .st{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:var(--gray)}
+.check .st.ok{background:var(--ok)}.check .st.warn{background:var(--warn)}.check .st.err{background:var(--err)}.check .st.busy{background:var(--info)}
+.check .t{font-weight:500}
+.check .d{font-size:12.5px;color:var(--text-3);margin-top:2px}
+.ready{padding:14px 18px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)}
+.ready.ok{background:var(--ok-bg)}.ready.warn{background:var(--warn-bg)}.ready.err{background:var(--err-bg)}.ready.info{background:var(--info-bg)}.ready.gray{background:var(--sub)}
+.ready b{font-size:14px}
+
+/* attention list */
+.att{list-style:none;margin:0;padding:0}
+.att li{display:flex;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border)}
+.att li:last-child{border-bottom:0}
+.att .txt{flex:1}
+.att .txt b{font-family:var(--mono);font-weight:600}
+.att .txt div{font-size:12.5px;color:var(--text-2)}
+
+/* forms */
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.field label{font-size:12.5px;font-weight:600;color:var(--text-2)}
+.field label small{font-weight:400;color:var(--text-3)}
+.in{border:1px solid var(--border-2);background:var(--card);border-radius:8px;padding:8px 10px;outline:0;width:100%}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-2)}
+.in.mono{font-family:var(--mono);font-size:12.5px}
+.in.err{border-color:var(--err)}
+textarea.in{min-height:70px;resize:vertical}
+.field .err-msg{font-size:12px;color:var(--err)}
+.inrow{display:flex;gap:8px;align-items:center}
+.inrow .in{flex:1}
+.seg{display:flex;flex-direction:column;gap:6px}
+.seg label{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-weight:400;color:var(--text)}
+.seg label:hover{background:var(--hover)}
+.seg label.on{border-color:var(--accent);background:var(--accent-2)}
+.seg input{margin-top:3px}
+.seg .t{font-weight:500;font-size:13px}
+.seg .d{font-size:12px;color:var(--text-3)}
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer}
+.toggle .sw{width:34px;height:20px;border-radius:99px;background:var(--border-2);position:relative;transition:.15s}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s}
+.toggle.on .sw{background:var(--accent)}
+.toggle.on .sw::after{left:16px}
+
+/* modal / wizard */
+.ovl{position:fixed;inset:0;background:rgba(10,12,18,.45);display:grid;place-items:center;z-index:50;padding:20px}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:14px;width:860px;max-width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.modal .mh{display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid var(--border)}
+.modal .mh h3{margin:0;font-size:16px}
+.modal .mb{overflow:auto;flex:1}
+.modal .mf{display:flex;gap:8px;align-items:center;padding:14px 22px;border-top:1px solid var(--border)}
+.wiz{display:grid;grid-template-columns:200px 1fr;min-height:420px}
+.wiz-steps{list-style:none;margin:0;padding:22px 16px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.wiz-steps li{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;color:var(--text-3);font-size:13px}
+.wiz-steps li span{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-2);display:grid;place-items:center;font-size:12px;flex:none}
+.wiz-steps li.cur{color:var(--text);font-weight:600}
+.wiz-steps li.cur span{border-color:var(--accent);background:var(--accent);color:#fff}
+.wiz-steps li.done{color:var(--text-2)}
+.wiz-steps li.done span{border-color:var(--ok);background:var(--ok);color:#fff}
+.wiz-pane{padding:22px 26px}
+.wiz-pane h4{margin:0 0 4px;font-size:16px}
+.wiz-pane .lead{color:var(--text-3);margin:0 0 18px;font-size:13px}
+.goals{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.goal{border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;background:var(--card)}
+.goal:hover{border-color:var(--border-2);background:var(--hover)}
+.goal.on{border-color:var(--accent);background:var(--accent-2)}
+.goal .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;background:var(--sub);flex:none}
+.goal b{display:block;font-size:14px}
+.goal p{margin:3px 0 0;font-size:12.5px;color:var(--text-2)}
+.goal .svc{margin-top:6px}
+.goal.wide{grid-column:1/-1}
+.review dl{margin:0}
+.review .kv{grid-template-columns:200px 1fr}
+.note{background:var(--info-bg);color:var(--text);border-radius:8px;padding:10px 12px;font-size:13px}
+.note.warn{background:var(--warn-bg)}
+.note.ok{background:var(--ok-bg)}
+
+/* drawer */
+.drawer-ovl{position:fixed;inset:0;background:rgba(10,12,18,.35);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:480px;max-width:100%;background:var(--card);border-left:1px solid var(--border);z-index:41;display:flex;flex-direction:column;box-shadow:-10px 0 40px rgba(0,0,0,.2)}
+.drawer .dh{display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid var(--border)}
+.drawer .dh h3{margin:0;font-size:16px;font-family:var(--mono)}
+.drawer .db{padding:18px 22px;overflow:auto;flex:1}
+.drawer .df{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px}
+.locked{border:1px dashed var(--border-2);border-radius:8px;padding:10px 12px;margin-bottom:16px}
+.locked summary{cursor:pointer;font-size:12.5px;color:var(--text-3)}
+.locked .kv{margin-top:10px;font-size:12.5px}
+
+/* menu */
+.menu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);min-width:210px;padding:6px}
+.menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px}
+.menu button:hover{background:var(--hover)}
+.menu button.danger{color:var(--err)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:6px 0}
+
+/* toasts */
+.toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:70}
+.toast{background:var(--text);color:var(--card);padding:10px 14px;border-radius:10px;font-size:13px;box-shadow:var(--shadow);display:flex;gap:10px;align-items:center;max-width:420px;animation:up .2s ease-out}
+.toast.ok{background:var(--ok);color:#fff}.toast.err{background:var(--err);color:#fff}
+@keyframes up{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
+/* help */
+.help{width:720px}
+.help ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px}
+.help li b{display:block}
+.help li span{color:var(--text-2);font-size:13px}
+.confirm{width:460px}
+.confirm p{margin:0 0 10px}
+.empty{padding:40px;text-align:center;color:var(--text-3)}
+.spark{display:inline-block;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sb">
+    <div class="brand"><span class="logo">SI</span><div><b>Streaming Infra</b><small>manager · lab-host-1</small></div></div>
+    <nav class="nav" id="nav">
+      <a data-nav="overview"><span class="ico">◫</span>Overview</a>
+      <a data-nav="deployments"><span class="ico">▤</span>Deployments<span class="cnt" id="navCount"></span></a>
+      <a data-nav="host"><span class="ico">◍</span>Host</a>
+    </nav>
+    <div class="sb-foot">
+      <div class="host"><b>lab-host-1</b> · manager v0.5 · 8 cores · 32 GB</div>
+      <button class="btn ghost sm" data-action="help">What changed in this design</button>
+      <button class="btn ghost sm" data-action="theme">Switch light / dark</button>
+      <div class="tag">Mockup with fake data · proposal 2026-09-05</div>
+    </div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <h1 id="title">Overview</h1>
+      <div class="sp"></div>
+      <div class="search" id="searchBox" hidden><span class="muted">⌕</span><input id="search" placeholder="Search deployments"></div>
+      <div class="live"><i></i>live</div>
+      <button class="btn pri" data-action="new">+ New deployment</button>
+    </div>
+    <section class="view" id="view"></section>
+  </main>
+</div>
+<div id="overlay"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ---------------------------------------------------------------- data */
+const HOST = 'lab-host-1';
+const HOST_PASSPHRASE = 'labhost-shared-passphrase-01';
+const RUNGS = [
+  {name:'360p', kbps:700, depth:17, res:'640×360'},
+  {name:'480p', kbps:1200, depth:18, res:'854×480'},
+  {name:'720p', kbps:2800, depth:19, res:'1280×720'},
+  {name:'1080p', kbps:5000, depth:20, res:'1920×1080'},
+];
+const TYPE_LABEL = {stream:'Stream', viewer:'Viewer', rung:'Bee node', 'abr-uploader':'ABR uploader', custom:'Custom'};
+const TYPE_SERVICES = {stream:['srs','stream-uploader','bee-uploader'], viewer:['client','bee-gateway'], rung:['bee-uploader'], 'abr-uploader':['srs','stream-uploader'], custom:[]};
+const SERVICE_WORDS = {
+  srs:'media server (SRT ingest)', ome:'media server (OvenMediaEngine)', 'stream-uploader':'uploads segments to Swarm',
+  'bee-uploader':'own Bee node', client:'web player', 'bee-gateway':'Swarm gateway for the player'
+};
+
+const hex = (n) => Array.from({length:n}, () => '0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+const shortHex = (h) => h.length > 15 ? `${h.slice(0,8)}…${h.slice(-6)}` : h;
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const MAIN_KEY = '0x' + hex(64);
+const MAIN_ADDR = '0x' + hex(40);
+
+function mk(o){
+  return Object.assign({
+    status:'RUNNING', host:'localhost', notes:'', groupId:null, lastError:null, lastErrorAt:null,
+    uploaderDeployed:false, stamp:null, wallet:null, passphrase:null, engine:'srs',
+    feedOwner:null, privateKey:null, address:null, beePublishers:null, beeUrl:null, components:null,
+    createdAt:'2026-09-03T10:12:00Z', everRan:true,
+  }, o);
+}
+
+const state = {
+  theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  route: {page:'overview'},
+  filter:'all', search:'',
+  collapsed: new Set(),
+  wizard:null, drawer:null, confirm:null, menu:null, help:false,
+  groups: [
+    {id:1, name:'loadtest', kind:'standard', size:3, createdAt:'2026-09-04T08:00:00Z'},
+    {id:2, name:'abr-pool-1', kind:'abr-node-pool', size:4, createdAt:'2026-09-02T15:30:00Z'},
+  ],
+  deployments: [
+    mk({name:'main-stage', type:'stream', slot:1, uploaderDeployed:true, passphrase:'mainstage-secret-2026',
+        privateKey:MAIN_KEY, address:MAIN_ADDR, wallet:{xdai:'0.4213', bzz:'12.5000'},
+        stamp:{id:hex(64), state:'active', ttlDays:41, depth:20, amount:'48000000'}, notes:'Primary stage. OBS at the venue publishes here.',
+        createdAt:'2026-08-30T09:00:00Z'}),
+    mk({name:'backup-stage', type:'stream', slot:2, uploaderDeployed:false, privateKey:'0x'+hex(64), address:'0x'+hex(40),
+        wallet:{xdai:'0.2000', bzz:'2.4000'}, stamp:null, notes:'Hot spare for the main stage.', createdAt:'2026-09-04T12:40:00Z'}),
+    mk({name:'viewer-eu', type:'viewer', slot:3, feedOwner:MAIN_ADDR, notes:'Public player, EU audience.', createdAt:'2026-08-30T09:30:00Z'}),
+    mk({name:'abr-gcp', type:'abr-uploader', slot:4, privateKey:'0x'+hex(64), address:'0x'+hex(40), passphrase:null,
+        beePublishers:['360p','480p','720p','1080p'].map((r,i)=>`${r}@http://10.0.0.7:${10015+i*10}<${hex(64)}>`).join(' '),
+        notes:'Encodes the ladder and publishes to the bare-metal pool.', createdAt:'2026-09-01T17:05:00Z'}),
+    mk({name:'edge-test', type:'custom', slot:5, status:'ERROR', components:['srs','client','bee-gateway'], feedOwner:MAIN_ADDR, everRan:false,
+        lastError:'deploy.sh exited 1: bind for 0.0.0.0:10052 failed, port is already allocated', lastErrorAt:'2026-09-05T07:58:00Z',
+        notes:'Experiment: player served from the same box as ingest.', createdAt:'2026-09-05T07:55:00Z'}),
+    mk({name:'old-demo', type:'stream', slot:6, status:'STOPPED', uploaderDeployed:true, privateKey:'0x'+hex(64), address:'0x'+hex(40),
+        wallet:{xdai:'0.0100', bzz:'0.3100'}, stamp:{id:hex(64), state:'expired', ttlDays:0, depth:17, amount:'1000000'}, createdAt:'2026-07-12T10:00:00Z'}),
+    mk({name:'loadtest-profile-1', type:'viewer', slot:7, groupId:1, feedOwner:MAIN_ADDR, createdAt:'2026-09-04T08:00:00Z'}),
+    mk({name:'loadtest-profile-2', type:'viewer', slot:8, groupId:1, feedOwner:MAIN_ADDR, createdAt:'2026-09-04T08:00:00Z'}),
+    mk({name:'loadtest-profile-3', type:'viewer', slot:9, groupId:1, feedOwner:MAIN_ADDR, createdAt:'2026-09-04T08:00:00Z'}),
+    mk({name:'abr-pool-1-360p', type:'rung', slot:10, groupId:2, address:'0x'+hex(40), wallet:{xdai:'0.1500', bzz:'4.2000'}, stamp:{id:hex(64), state:'active', ttlDays:60, depth:17, amount:'60000000'}}),
+    mk({name:'abr-pool-1-480p', type:'rung', slot:11, groupId:2, address:'0x'+hex(40), wallet:{xdai:'0.1500', bzz:'3.9000'}, stamp:{id:hex(64), state:'active', ttlDays:45, depth:18, amount:'45000000'}}),
+    mk({name:'abr-pool-1-720p', type:'rung', slot:12, groupId:2, address:'0x'+hex(40), wallet:{xdai:'0.1500', bzz:'2.1000'}, stamp:{id:hex(64), state:'active', ttlDays:30, depth:19, amount:'30000000'}}),
+    mk({name:'abr-pool-1-1080p', type:'rung', slot:13, groupId:2, address:'0x'+hex(40), wallet:{xdai:'0.1500', bzz:'0.0000'}, stamp:null}),
+  ],
+  activity: [
+    {t:'07:58', text:'edge-test failed to deploy: port 10052 already allocated', tone:'err'},
+    {t:'07:41', text:'backup-stage is running, uploader held back until a stamp is set', tone:'warn'},
+    {t:'06:10', text:'abr-pool-1-720p stamp set, 30 days of life', tone:'ok'},
+    {t:'yesterday', text:'loadtest group deployed, 3 viewers running', tone:'ok'},
+  ],
+  host: {cores:8, memGb:32, memUsed:19.6, oursMem:6.2, diskGb:500, diskUsed:212, cpu:38, oursCpu:24, netIn:12.4, netOut:48.1},
+};
+let nextSlot = 14, nextGroupId = 3;
+
+/* ------------------------------------------------------------ derived */
+const byName = (n) => state.deployments.find(d => d.name === n);
+const groupById = (id) => state.groups.find(g => g.id === id);
+const membersOf = (g) => state.deployments.filter(d => d.groupId === g.id).sort((a,b)=>a.slot-b.slot);
+const isPool = (g) => g.kind === 'abr-node-pool';
+const rungOf = (d) => { const g = d.groupId && groupById(d.groupId); return g ? d.name.slice(g.name.length+1) : null; };
+const servicesOf = (d) => (d.components && d.components.length ? d.components : TYPE_SERVICES[d.type]).map(s => s==='srs' && d.engine==='ome' ? 'ome' : s);
+const hasSvc = (d, s) => servicesOf(d).includes(s);
+const hostOf = (d) => (!d.host || d.host === 'localhost') ? HOST : d.host;
+
+function portsFor(service, slot){
+  const b = slot*10;
+  return {srs:{SRT:10001+b, RTMP:10002+b, HTTP_API:10003+b}, ome:{SRT:10001+b, HTTP:10003+b}, 'stream-uploader':{}, 'bee-uploader':{API:10005+b}, client:{CLIENT_PORT:10004+b}, 'bee-gateway':{API:10006+b}}[service] || {};
+}
+function fakeLoad(service, slot){
+  const seed = (slot*7 + service.length*13) % 17;
+  const base = {srs:14, ome:16, 'stream-uploader':9, 'bee-uploader':22, client:1.2, 'bee-gateway':6}[service] || 4;
+  return {cpu:+(base + seed*0.4 + Math.random()*1.5).toFixed(1), mem: {srs:180, ome:210, 'stream-uploader':140, 'bee-uploader':820, client:24, 'bee-gateway':310}[service] + seed*3};
+}
+function containersOf(d){
+  if (d.status === 'STOPPED' || (d.status === 'ERROR' && !d.everRan)) return [];
+  return servicesOf(d).filter(s => !(s === 'stream-uploader' && d.type === 'stream' && !d.uploaderDeployed))
+    .map(s => ({service:s, ports:portsFor(s, d.slot), ...fakeLoad(s, d.slot)}));
+}
+const running = (d) => d.status === 'RUNNING';
+const busy = (d) => ['DEPLOYING','STOPPING','REMOVING'].includes(d.status);
+
+function statusPill(d){
+  return {RUNNING:['Running','ok'], DEPLOYING:['Deploying','info'], STOPPING:['Stopping','warn'], STOPPED:['Stopped','gray'], REMOVING:['Removing','warn'], ERROR:['Error','err']}[d.status];
+}
+function readiness(d){
+  if (d.status === 'ERROR') return {label:'Failed', tone:'err'};
+  if (d.status === 'DEPLOYING') return {label:'Deploying…', tone:'info'};
+  if (d.status === 'STOPPING') return {label:'Stopping…', tone:'warn'};
+  if (d.status === 'REMOVING') return {label:'Removing…', tone:'warn'};
+  if (d.status === 'STOPPED') return {label:'Stopped', tone:'gray'};
+  if (d.type === 'stream'){
+    if (!d.stamp) return {label:'Needs a stamp', tone:'warn'};
+    if (d.stamp.state === 'expired') return {label:'Stamp expired', tone:'err'};
+    if (d.stamp.state === 'settling') return {label:'Stamp settling', tone:'info'};
+    if (!d.uploaderDeployed) return {label:'Uploader not started', tone:'warn'};
+    if (d.stamp.ttlDays <= 7) return {label:`Stamp ends in ${d.stamp.ttlDays}d`, tone:'warn'};
+    return {label:'Ready to stream', tone:'ok'};
+  }
+  if (d.type === 'viewer') return {label:'Watchable', tone:'ok'};
+  if (d.type === 'rung'){
+    if (!d.stamp) return {label:'Needs a stamp', tone:'warn'};
+    if (d.stamp.state === 'expired') return {label:'Stamp expired', tone:'err'};
+    if (d.stamp.state === 'settling') return {label:'Stamp settling', tone:'info'};
+    return {label:'Stamped', tone:'ok'};
+  }
+  if (d.type === 'abr-uploader') return poolStringOk(d.beePublishers) ? {label:'Ready to stream', tone:'ok'} : {label:'Pool string invalid', tone:'err'};
+  return {label:'Running', tone:'ok'};
+}
+const needsAttention = (d) => ['warn','err'].includes(readiness(d).tone);
+function poolStringOk(s){ if (!s) return false; const parts = s.trim().split(/\s+/); return parts.length === 4 && RUNGS.every(r => parts.some(p => p.startsWith(r.name+'@'))); }
+function poolRungs(s){ return s.trim().split(/\s+/).map(p => { const m = p.match(/^(\w+)@(.+)<([0-9a-f]+)>$/); return m ? {rung:m[1], url:m[2], batch:m[3]} : null; }).filter(Boolean); }
+
+function publishUrl(d){
+  const svc = servicesOf(d); const host = hostOf(d);
+  if (svc.includes('ome')) { const p = 10001+d.slot*10; return `srt://${host}:${p}?streamid=srt://${host}:${p}/video/stream`; }
+  if (!svc.includes('srs')) return null;
+  const p = 10001+d.slot*10; const pass = d.passphrase || HOST_PASSPHRASE;
+  return `srt://${host}:${p}?streamid=#!::r=live/stream,m=publish${pass ? '&passphrase=' + pass : ''}`;
+}
+function watchUrl(d){ return hasSvc(d,'client') ? `http://${hostOf(d)}:${10004+d.slot*10}` : null; }
+function beeApiUrl(d){ return hasSvc(d,'bee-uploader') ? `http://${hostOf(d)}:${10005+d.slot*10}` : null; }
+function poolString(g){
+  const ms = membersOf(g);
+  const ready = RUNGS.every(r => { const m = ms.find(x => rungOf(x) === r.name); return m && running(m) && m.stamp && m.stamp.state === 'active'; });
+  if (!ready) return null;
+  return RUNGS.map(r => { const m = ms.find(x => rungOf(x) === r.name); return `${r.name}@${beeApiUrl(m)}<${m.stamp.id}>`; }).join(' ');
+}
+function poolProblems(g){
+  return RUNGS.map(r => { const m = membersOf(g).find(x => rungOf(x) === r.name);
+    if (!m) return `${r.name}: rung is missing`;
+    if (!running(m)) return `${r.name}: node is not running`;
+    if (!m.stamp) return `${r.name}: no stamp yet`;
+    if (m.stamp.state === 'expired') return `${r.name}: stamp expired`;
+    if (m.stamp.state === 'settling') return `${r.name}: stamp still settling`;
+    return null; }).filter(Boolean);
+}
+function streamers(){ return state.deployments.filter(d => (d.type === 'stream' || d.type === 'abr-uploader') && d.address); }
+function streamerForAddress(addr){ return streamers().find(s => s.address === addr) || null; }
+function fmtDate(iso){ return new Date(iso).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'}); }
+
+/* --------------------------------------------------------- checklist */
+function checklist(d){
+  const steps = [];
+  const cont = containersOf(d);
+  const contState = running(d) ? 'ok' : d.status === 'DEPLOYING' ? 'busy' : d.status === 'ERROR' ? 'err' : 'off';
+  steps.push({t:'Containers running', st:contState,
+    d: running(d) ? cont.map(c=>c.service).join(', ') : d.status === 'ERROR' ? 'Last deploy failed, see the error below' : d.status === 'DEPLOYING' ? 'Starting containers…' : 'Stopped',
+    act: !running(d) && !busy(d) ? {label: d.status === 'ERROR' ? 'Retry' : 'Start', action:'start', pri:true} : null});
+
+  if (d.type === 'stream' || d.type === 'rung'){
+    const w = d.wallet || {xdai:'0', bzz:'0'};
+    const funded = +w.xdai > 0.01 && +w.bzz > 0;
+    steps.push({t:'Bee node funded', st: funded ? 'ok' : running(d) ? 'warn' : 'off',
+      d: funded ? `xDAI ${w.xdai} for gas · BZZ ${w.bzz} for storage` : +w.bzz <= 0 ? `Has xDAI ${w.xdai} but no BZZ. Send BZZ to the node address to be able to buy a stamp.` : 'Send xDAI and BZZ to the node address',
+      act: {label:'Copy node address', action:'copy', value: d.address}});
+    const s = d.stamp;
+    steps.push({t:'Postage stamp set', st: !s ? (funded && running(d) ? 'warn' : 'off') : s.state === 'expired' ? 'err' : s.state === 'settling' ? 'busy' : s.ttlDays <= 7 ? 'warn' : 'ok',
+      d: !s ? 'A stamp is prepaid Swarm storage. Buy one below once the node has BZZ.' : s.state === 'expired' ? 'Expired. Uploads fail until a new stamp is bought and set.' : s.state === 'settling' ? 'Bought, waiting for the network to confirm it (a few minutes). It is set automatically.' : `${s.ttlDays} days left · batch ${shortHex(s.id)} · depth ${s.depth}`,
+      act: (!s || s.state === 'expired') ? {label:'Buy stamp', action:'scroll', value:'#storage', pri: funded && running(d)} : s.ttlDays <= 7 ? {label:'Buy next stamp', action:'scroll', value:'#storage'} : null});
+  }
+  if (d.type === 'stream'){
+    const s = d.stamp; const canDeploy = running(d) && s && s.state === 'active' && !d.uploaderDeployed;
+    steps.push({t:'Uploader running', st: d.uploaderDeployed && running(d) ? 'ok' : canDeploy ? 'warn' : 'off',
+      d: d.uploaderDeployed ? 'stream-uploader is publishing segments to Swarm' : canDeploy ? 'Stamp is set. Start the uploader to complete the stack.' : 'Held back until a stamp is set. The rest of the stack runs meanwhile.',
+      act: canDeploy ? {label:'Start uploader', action:'deployUploader', pri:true} : null});
+  }
+  if (d.type === 'abr-uploader'){
+    const ok = poolStringOk(d.beePublishers);
+    steps.push({t:'Node pool reachable', st: ok ? 'ok' : 'err', d: ok ? `4 rungs · ${poolRungs(d.beePublishers)[0].url.replace(/:\d+$/,'')} and 3 more` : 'The pasted pool string is not usable. Fix it under Edit.', act: ok ? null : {label:'Edit', action:'edit'}});
+  }
+  if (d.type === 'viewer' || (d.type === 'custom' && hasSvc(d,'client'))){
+    const s = streamerForAddress(d.feedOwner);
+    steps.push({t:'Following a stream', st: d.feedOwner ? 'ok' : 'warn', d: d.feedOwner ? (s ? `${s.name} on this manager (${shortHex(d.feedOwner)})` : `External streamer ${shortHex(d.feedOwner)}`) : 'No streamer address set', act: s ? {label:'Open stream', action:'open', value:s.name} : null});
+  }
+  return steps;
+}
+function readySummary(d){
+  const r = readiness(d);
+  if (d.type === 'stream' || d.type === 'abr-uploader'){
+    if (r.tone === 'ok') return {tone:'ok', title:'Ready. Point OBS or FFmpeg at this URL:', url: publishUrl(d)};
+    return {tone:r.tone, title: r.tone === 'gray' ? 'Stopped. Start it to get a publish URL.' : `Not ready yet: ${r.label.toLowerCase()}.`, url: null};
+  }
+  if (d.type === 'viewer' || hasSvc(d,'client')){
+    if (running(d)) return {tone:'ok', title:'Watchable. Open the player:', url: watchUrl(d), link:true};
+    return {tone:r.tone, title: r.tone === 'gray' ? 'Stopped. Start it to serve the player.' : 'Not watchable right now.', url:null};
+  }
+  if (d.type === 'rung') return r.tone === 'ok' ? {tone:'ok', title:'This node is ready to receive uploads for its rung.', url:null} : {tone:r.tone, title:`Not ready: ${r.label.toLowerCase()}.`, url:null};
+  return running(d) ? {tone:'ok', title:'Running.', url:null} : {tone:r.tone, title:r.label, url:null};
+}
+
+/* ---------------------------------------------------------- actions */
+function toast(msg, tone){
+  const el = document.createElement('div'); el.className = 'toast ' + (tone || ''); el.textContent = msg;
+  document.getElementById('toasts').appendChild(el); setTimeout(() => el.remove(), 3800);
+}
+function log(text, tone){ state.activity.unshift({t: new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}), text, tone}); state.activity = state.activity.slice(0, 8); }
+async function copy(v){ try { await navigator.clipboard.writeText(v); } catch {} toast('Copied to clipboard'); }
+
+function startDeployment(name){
+  const d = byName(name); if (!d || busy(d)) return;
+  d.status = 'DEPLOYING'; d.lastError = null; render();
+  setTimeout(() => { d.status = 'RUNNING'; d.everRan = true; log(`${name} is running`, 'ok'); render(); toast(`${name} is running`, 'ok'); }, 1800);
+}
+function stopDeployment(name){
+  const d = byName(name); if (!d || busy(d)) return;
+  d.status = 'STOPPING'; render();
+  setTimeout(() => { d.status = 'STOPPED'; log(`${name} stopped`); render(); }, 1200);
+}
+function removeDeployment(name){
+  const d = byName(name); if (!d) return;
+  d.status = 'REMOVING'; render();
+  setTimeout(() => { state.deployments = state.deployments.filter(x => x.name !== name); log(`${name} removed`); if (state.route.page === 'detail' && state.route.id === name) go('deployments'); render(); toast(`${name} removed`); }, 1200);
+}
+function deployUploader(name){
+  const d = byName(name); if (!d) return;
+  d.status = 'DEPLOYING'; render();
+  setTimeout(() => { d.status = 'RUNNING'; d.uploaderDeployed = true; log(`${name} uploader is publishing`, 'ok'); render(); toast('Uploader started. The stream is ready.', 'ok'); }, 1500);
+}
+function buyStamp(name, amount, depth){
+  const d = byName(name); if (!d) return;
+  const days = Math.max(1, Math.round(amount / 1200000));
+  d.stamp = {id: hex(64), state:'settling', ttlDays: days, depth, amount: String(amount)};
+  log(`${name} bought a stamp, waiting for it to settle`, 'info'); render(); toast('Stamp bought. It becomes usable in a few minutes and is set automatically.');
+  setTimeout(() => { if (d.stamp && d.stamp.state === 'settling') { d.stamp.state = 'active'; log(`${name} stamp is usable and set`, 'ok'); render(); toast(`${name}: stamp is usable and set`, 'ok'); } }, 3500);
+}
+function useStamp(name, id, days){ const d = byName(name); if (!d) return; d.stamp = {id, state:'active', ttlDays:days, depth:19, amount:'20000000'}; render(); toast('Stamp set on this deployment', 'ok'); }
+function startGroup(g){ membersOf(g).filter(m => !running(m) && !busy(m)).forEach(m => startDeployment(m.name)); }
+function stopGroup(g){ membersOf(g).filter(m => running(m)).forEach(m => stopDeployment(m.name)); }
+function addMembers(g, n){
+  const existing = membersOf(g).length;
+  for (let i = 1; i <= n; i++){
+    const tpl = membersOf(g)[0];
+    state.deployments.push(mk({name:`${g.name}-profile-${existing+i}`, type: tpl ? tpl.type : 'viewer', slot: nextSlot++, groupId:g.id, feedOwner: tpl ? tpl.feedOwner : null, status:'DEPLOYING', everRan:false, createdAt: new Date().toISOString()}));
+  }
+  g.size += n; render(); toast(`${n} member${n>1?'s':''} added to ${g.name}, deploying`);
+  setTimeout(() => { membersOf(g).filter(m => m.status === 'DEPLOYING').forEach(m => { m.status = 'RUNNING'; m.everRan = true; }); render(); }, 1800);
+}
+function removeGroup(g){
+  membersOf(g).forEach(m => m.status = 'REMOVING'); render();
+  setTimeout(() => { state.deployments = state.deployments.filter(d => d.groupId !== g.id); state.groups = state.groups.filter(x => x.id !== g.id); go('deployments'); toast(`Group ${g.name} removed`); }, 1200);
+}
+
+/* ------------------------------------------------------------ router */
+function go(page, id){ state.route = {page, id}; state.menu = null; window.scrollTo(0,0); render(); }
+
+/* ------------------------------------------------------------ render */
+const $ = (s) => document.querySelector(s);
+function render(){
+  document.documentElement.dataset.theme = state.theme;
+  const r = state.route;
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('cur', a.dataset.nav === r.page || (r.page === 'detail' || r.page === 'group') && a.dataset.nav === 'deployments'));
+  $('#navCount').textContent = state.deployments.length;
+  $('#searchBox').hidden = r.page !== 'deployments';
+  const v = $('#view');
+  if (r.page === 'overview'){ $('#title').textContent = 'Overview'; v.innerHTML = renderOverview(); }
+  else if (r.page === 'deployments'){ $('#title').textContent = 'Deployments'; v.innerHTML = renderDeployments(); }
+  else if (r.page === 'host'){ $('#title').textContent = 'Host'; v.innerHTML = renderHost(); }
+  else if (r.page === 'detail'){ const d = byName(r.id); if (!d) return go('deployments'); $('#title').textContent = 'Deployments'; v.innerHTML = renderDetail(d); }
+  else if (r.page === 'group'){ const g = groupById(r.id); if (!g) return go('deployments'); $('#title').textContent = 'Deployments'; v.innerHTML = renderGroup(g); }
+  renderOverlay();
+}
+
+function pill(x){ return `<span class="pill ${x.tone}">${esc(x.label)}</span>`; }
+function dot(d){ const s = statusPill(d)[1]; return `<span class="dot ${s} ${busy(d) ? 'pulse' : ''}"></span>`; }
+function copyBox(v, label){ return `<div class="copy"><span>${esc(v)}</span><button class="btn sm" data-action="copy" data-value="${esc(v)}">Copy${label ? ' ' + label : ''}</button></div>`; }
+function primaryAction(d){
+  if (busy(d)) return `<button class="btn sm" disabled><span class="spin"></span>${statusPill(d)[0]}…</button>`;
+  if (running(d)) return `<button class="btn sm" data-action="stop" data-name="${d.name}">Stop</button>`;
+  return `<button class="btn sm pri" data-action="start" data-name="${d.name}">${d.status === 'ERROR' ? 'Retry' : 'Start'}</button>`;
+}
+function menuBtn(d){ return `<button class="btn sm icon" data-action="menu" data-name="${d.name}" title="More">⋯</button>`; }
+
+/* overview */
+function renderOverview(){
+  const h = state.host; const ds = state.deployments;
+  const att = ds.filter(needsAttention);
+  const poolIssues = state.groups.filter(isPool).map(g => ({g, problems: poolProblems(g)})).filter(x => x.problems.length);
+  const streams = ds.filter(d => d.type === 'stream' || d.type === 'abr-uploader');
+  const counts = {running: ds.filter(running).length, attention: att.length, stopped: ds.filter(d => d.status === 'STOPPED').length};
+  const attItems = [
+    ...att.map(d => { const r = readiness(d); return `<li><span class="dot ${r.tone}"></span><div class="txt"><b>${d.name}</b><div>${attentionText(d)}</div></div>${attentionAction(d)}<button class="btn sm" data-action="open" data-name="${d.name}">Open</button></li>`; }),
+    ...poolIssues.map(({g, problems}) => `<li><span class="dot warn"></span><div class="txt"><b>${g.name}</b><div>Node pool not ready: ${esc(problems.join(', '))}. The pool string cannot be copied yet.</div></div><button class="btn sm" data-action="openGroup" data-id="${g.id}">Open pool</button></li>`),
+  ];
+  return `
+  <div class="stack">
+    <div class="grid g2">
+      <div class="card"><div class="hd"><h3>Host</h3><span class="sub">${HOST} · ${h.cores} cores · ${h.memGb} GB</span><span class="sp"></span><button class="btn ghost sm" data-nav="host">Details</button></div>
+        <div class="bd stack" style="gap:14px">
+          ${hostBar('CPU', `${h.cpu}%`, h.oursCpu/100, (h.cpu-h.oursCpu)/100, `our stacks ${h.oursCpu}% · other ${h.cpu-h.oursCpu}%`)}
+          ${hostBar('Memory', `${h.memUsed} / ${h.memGb} GB`, h.oursMem/h.memGb, (h.memUsed-h.oursMem)/h.memGb, `our stacks ${h.oursMem} GB · other ${(h.memUsed-h.oursMem).toFixed(1)} GB`)}
+          ${hostBar('Disk', `${h.diskUsed} / ${h.diskGb} GB`, 0, h.diskUsed/h.diskGb, `whole root filesystem`)}
+        </div></div>
+      <div class="card"><div class="hd"><h3>Deployments</h3><span class="sp"></span><button class="btn ghost sm" data-nav="deployments">All</button></div>
+        <div class="bd">
+          <div class="grid g3" style="gap:12px">
+            <div class="stat"><div class="lbl">Running</div><div class="big" style="color:var(--ok)">${counts.running}</div></div>
+            <div class="stat"><div class="lbl">Need attention</div><div class="big" style="color:${counts.attention ? 'var(--warn)' : 'inherit'}">${counts.attention}</div></div>
+            <div class="stat"><div class="lbl">Stopped</div><div class="big muted">${counts.stopped}</div></div>
+          </div>
+          <div class="small muted" style="margin-top:14px">${ds.filter(d=>d.type==='stream').length} streams · ${ds.filter(d=>d.type==='viewer').length} viewers · ${state.groups.filter(isPool).length} node pool · ${ds.filter(d=>d.type==='abr-uploader').length} ABR uploader · ${state.groups.filter(g=>!isPool(g)).length} group</div>
+        </div></div>
+    </div>
+    <div class="card"><div class="hd"><h3>Needs attention</h3><span class="sub">${attItems.length ? `${attItems.length} item${attItems.length>1?'s':''}` : 'nothing right now'}</span></div>
+      ${attItems.length ? `<ul class="att">${attItems.join('')}</ul>` : `<div class="empty">Everything is running and ready.</div>`}</div>
+    <div class="grid g2">
+      <div class="card"><div class="hd"><h3>Streams</h3><span class="sub">where to publish</span></div>
+        <div class="bd tight"><table>${streams.map(d => `<tr class="clk" data-open="${d.name}"><td style="width:22px">${dot(d)}</td><td><div class="name">${d.name}</div><div class="sub">${TYPE_LABEL[d.type]}${d.type==='abr-uploader' ? ' · pool-backed' : ''}</div></td><td>${pill(readiness(d))}</td><td class="act">${publishUrl(d) && readiness(d).tone==='ok' ? `<button class="btn sm" data-action="copy" data-value="${esc(publishUrl(d))}">Copy publish URL</button>` : ''}</td></tr>`).join('')}</table></div></div>
+      <div class="card"><div class="hd"><h3>Recent activity</h3></div>
+        <div class="bd tight"><table>${state.activity.map(a => `<tr><td style="width:80px" class="muted small">${a.t}</td><td style="width:22px"><span class="dot ${a.tone||''}"></span></td><td class="small">${esc(a.text)}</td></tr>`).join('')}</table></div></div>
+    </div>
+  </div>`;
+}
+function hostBar(label, value, ours, other, foot){
+  return `<div><div class="row" style="justify-content:space-between"><span class="dim" style="font-weight:500">${label}</span><span class="mono">${value}</span></div>
+    <div class="bar" style="margin:6px 0 4px"><i class="ours" style="width:${(ours*100).toFixed(1)}%"></i><i class="other" style="width:${(Math.max(0,other)*100).toFixed(1)}%"></i></div><div class="hint">${foot}</div></div>`;
+}
+function attentionText(d){
+  const r = readiness(d);
+  if (d.status === 'ERROR') return `Deploy failed: ${esc(d.lastError || 'unknown error')}`;
+  if (r.label === 'Needs a stamp') return (d.wallet && +d.wallet.bzz <= 0) ? 'No stamp and no BZZ on its node. Fund the node, then buy a stamp.' : 'Running, but it cannot upload until a stamp is bought and set.';
+  if (r.label === 'Stamp expired') return 'The stamp ran out. Buy a new one to upload again.';
+  if (r.label === 'Uploader not started') return 'Stamp is set. Start the uploader to finish the stack.';
+  if (r.label.startsWith('Stamp ends')) return 'Buy the next stamp before this one runs out.';
+  if (r.label === 'Pool string invalid') return 'Its node pool string cannot be parsed, so it will not start.';
+  return r.label;
+}
+function attentionAction(d){
+  const r = readiness(d);
+  if (d.status === 'ERROR') return `<button class="btn sm pri" data-action="start" data-name="${d.name}">Retry</button>`;
+  if (r.label === 'Uploader not started') return `<button class="btn sm pri" data-action="deployUploader" data-name="${d.name}">Start uploader</button>`;
+  if (r.label === 'Needs a stamp' && d.wallet && +d.wallet.bzz <= 0) return `<button class="btn sm" data-action="copy" data-value="${d.address}">Copy node address</button>`;
+  if (r.label === 'Needs a stamp' || r.label === 'Stamp expired') return `<button class="btn sm pri" data-action="open" data-name="${d.name}" data-anchor="#storage">Buy stamp</button>`;
+  return '';
+}
+
+/* deployments list */
+function renderDeployments(){
+  const f = state.filter, q = state.search.trim().toLowerCase();
+  const match = (d) => (!q || d.name.includes(q) || (d.notes||'').toLowerCase().includes(q)) && (
+    f === 'all' || (f === 'streams' && (d.type === 'stream' || d.type === 'abr-uploader')) || (f === 'viewers' && d.type === 'viewer') || (f === 'abr' && (d.type === 'rung' || d.type === 'abr-uploader')) || (f === 'attention' && needsAttention(d)));
+  const counts = {all: state.deployments.length, streams: state.deployments.filter(d=>d.type==='stream'||d.type==='abr-uploader').length, viewers: state.deployments.filter(d=>d.type==='viewer').length, abr: state.deployments.filter(d=>d.type==='rung'||d.type==='abr-uploader').length, groups: state.groups.length, attention: state.deployments.filter(needsAttention).length};
+  const filters = [['all','All'],['streams','Streams'],['viewers','Viewers'],['abr','ABR'],['groups','Groups'],['attention','Needs attention']];
+  const rows = [];
+  for (const g of state.groups){
+    const ms = membersOf(g).filter(f === 'groups' ? () => true : match);
+    if (!ms.length && f !== 'groups') continue;
+    const all = membersOf(g); const run = all.filter(running).length; const open = !state.collapsed.has(g.id);
+    const gr = groupReadiness(g);
+    rows.push(`<tr class="grp clk" data-toggle="${g.id}"><td style="width:22px"><span class="muted">${open ? '▾' : '▸'}</span></td>
+      <td><div class="name">${g.name}</div><div class="sub">${isPool(g) ? 'ABR node pool · 4 Bee nodes, one per quality' : `Group · ${all.length} ${TYPE_LABEL[(all[0]||{}).type] ? TYPE_LABEL[all[0].type].toLowerCase() + 's' : 'members'}`}</div></td>
+      <td>${pill(gr)}</td><td class="small muted">${run}/${all.length} running</td>
+      <td class="act">${all.some(running) ? `<button class="btn sm" data-action="stopGroup" data-id="${g.id}">Stop all</button>` : ''}${all.some(m => !running(m) && !busy(m)) ? `<button class="btn sm pri" data-action="startGroup" data-id="${g.id}">Start all</button>` : ''}<button class="btn sm" data-action="openGroup" data-id="${g.id}">Open</button></td></tr>`);
+    if (open) rows.push(...ms.map(d => row(d, true)));
+  }
+  if (f !== 'groups') rows.push(...state.deployments.filter(d => !d.groupId && match(d)).map(d => row(d, false)));
+  return `
+    <div class="filters">${filters.map(([k,l]) => `<span class="f ${f===k?'cur':''}" data-filter="${k}">${l}<b>${counts[k]}</b></span>`).join('')}</div>
+    <div class="card"><div class="bd tight"><table>
+      <thead><tr><th></th><th>Name</th><th>State</th><th>Links</th><th style="text-align:right">Actions</th></tr></thead>
+      <tbody>${rows.length ? rows.join('') : `<tr><td colspan="5"><div class="empty">Nothing matches.</div></td></tr>`}</tbody></table></div></div>
+    <p class="hint" style="margin-top:10px">Click a row to open it. Every action is on the row itself, nothing needs to be selected first.</p>`;
+}
+function row(d, indent){
+  const r = readiness(d); const pu = publishUrl(d), wu = watchUrl(d);
+  const links = [
+    pu && r.tone === 'ok' ? `<button class="btn ghost sm" data-action="copy" data-value="${esc(pu)}" title="${esc(pu)}">⧉ Publish URL</button>` : '',
+    wu && running(d) ? `<a class="btn ghost sm" href="${wu}" target="_blank" rel="noopener" data-stop>↗ Watch</a>` : '',
+  ].join('');
+  const sub = [TYPE_LABEL[d.type] + (d.type === 'rung' ? ` · ${rungOf(d)} rung` : ''), `slot ${d.slot}`, hostOf(d), d.type === 'custom' ? servicesOf(d).join(' + ') : null].filter(Boolean).join(' · ');
+  return `<tr class="clk" data-open="${d.name}"><td style="width:22px" class="${indent?'indent':''}">${dot(d)}</td>
+    <td><div class="name">${d.name}</div><div class="sub">${sub}</div></td><td>${pill(r)}</td><td>${links}</td>
+    <td class="act">${primaryAction(d)}${menuBtn(d)}</td></tr>`;
+}
+function groupReadiness(g){
+  const ms = membersOf(g);
+  if (isPool(g)){ const s = poolString(g); if (s) return {label:'Pool ready', tone:'ok'}; if (ms.some(busy)) return {label:'Deploying…', tone:'info'}; return {label:`${ms.filter(m => m.stamp && m.stamp.state === 'active').length}/4 rungs stamped`, tone:'warn'}; }
+  if (ms.every(running)) return {label:'All running', tone:'ok'};
+  if (ms.some(busy)) return {label:'Changing…', tone:'info'};
+  if (ms.some(running)) return {label:'Partly running', tone:'warn'};
+  return {label:'Stopped', tone:'gray'};
+}
+
+/* detail */
+function renderDetail(d){
+  const r = readiness(d); const st = statusPill(d); const g = d.groupId ? groupById(d.groupId) : null;
+  const steps = checklist(d); const sum = readySummary(d);
+  const cont = containersOf(d);
+  const svc = servicesOf(d);
+  const pu = publishUrl(d);
+  return `
+  <div class="ph"><div>
+      <a class="back" data-nav="deployments" style="cursor:pointer">← Deployments${g ? ` / <span data-action="openGroup" data-id="${g.id}" style="cursor:pointer">${g.name}</span>` : ''}</a>
+      <h2>${d.name} <span class="pill type">${TYPE_LABEL[d.type]}${d.type==='rung' ? ` · ${rungOf(d)}` : ''}</span> <span class="pill ${st[1]}">${busy(d) ? '<span class="spin" style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite"></span>' : ''}${st[0]}</span></h2>
+      <div class="meta">${hostOf(d)} · slot ${d.slot} · created ${fmtDate(d.createdAt)} · ${svc.map(s => `<span class="chip">${s}</span>`).join(' ')}</div>
+    </div>
+    <div class="acts">${primaryAction(d).replace('btn sm','btn')}<button class="btn" data-action="edit" data-name="${d.name}">Edit</button>${menuBtn(d).replace('btn sm icon','btn icon')}</div>
+  </div>
+  <div class="grid" style="grid-template-columns:minmax(0,1fr) 300px">
+    <div class="stack">
+      ${d.lastError ? `<div class="card" style="border-color:var(--err)"><div class="bd"><div class="row"><span class="pill err">Last error</span><span class="small muted">${d.lastErrorAt ? new Date(d.lastErrorAt).toLocaleString('en-GB') : ''}</span></div><pre class="mono" style="margin:8px 0 0;white-space:pre-wrap">${esc(d.lastError)}</pre><div class="hint">Port 10052 belongs to slot 5. Something outside the manager is using it. Stop that process or pick another host, then Retry.</div></div></div>` : ''}
+      <div class="card"><div class="hd"><h3>Readiness</h3><span class="sub">${steps.filter(s=>s.st==='ok').length} of ${steps.length} steps done</span></div>
+        <ol class="check">${steps.map(s => `<li><span class="st ${s.st}">${s.st==='ok' ? '✓' : s.st==='err' ? '!' : s.st==='busy' ? '…' : s.st==='warn' ? '!' : ''}</span><div><div class="t">${s.t}</div><div class="d">${s.d}</div></div><div>${s.act ? `<button class="btn sm ${s.act.pri?'pri':''}" data-action="${s.act.action}" data-name="${d.name}" data-value="${esc(s.act.value||'')}">${s.act.label}</button>` : ''}</div></li>`).join('')}</ol>
+        <div class="ready ${sum.tone}"><b>${sum.title}</b>${sum.url ? (sum.link ? `<div class="copy"><a href="${sum.url}" target="_blank" rel="noopener">${sum.url}</a><button class="btn sm" data-action="copy" data-value="${sum.url}">Copy</button></div>` : copyBox(sum.url)) : ''}</div>
+      </div>
+
+      ${pu ? `<div class="card" id="publish"><div class="hd"><h3>Publish</h3><span class="sub">OBS, FFmpeg or any SRT sender</span></div><div class="bd stack" style="gap:10px">
+        ${r.tone !== 'ok' && (d.type === 'stream' || d.type === 'abr-uploader') ? `<div class="note warn">Ingest is up, but nothing reaches Swarm until the checklist above is complete.</div>` : ''}
+        ${copyBox(pu)}
+        <div class="small dim">${svc.includes('ome') ? 'OvenMediaEngine ingest. Its SRT listener takes no passphrase.' : d.passphrase ? `Encrypted with this deployment's own passphrase (already in the URL).` : `Encrypted with the host-wide passphrase (already in the URL). Set a passphrase of its own under Edit.`} Change <code>live/stream</code> to your own app/stream name if you use one.</div>
+      </div></div>` : ''}
+
+      ${watchUrl(d) ? `<div class="card"><div class="hd"><h3>Watch</h3><span class="sub">the player this deployment serves</span></div><div class="bd stack" style="gap:10px">
+        <div class="copy"><a href="${watchUrl(d)}" target="_blank" rel="noopener">${watchUrl(d)}</a><button class="btn sm" data-action="copy" data-value="${watchUrl(d)}">Copy</button></div>
+        <div class="small dim">Follows ${streamerForAddress(d.feedOwner) ? `<b class="mono">${streamerForAddress(d.feedOwner).name}</b>` : 'an external streamer'} · address <span class="mono">${d.feedOwner ? shortHex(d.feedOwner) : '(none)'}</span></div>
+      </div></div>` : ''}
+
+      ${(d.type === 'stream' || d.type === 'rung') ? renderStorage(d) : ''}
+      ${d.type === 'abr-uploader' ? renderPoolTarget(d) : ''}
+
+      <div class="card"><div class="hd"><h3>Containers</h3><span class="sub">${cont.length ? `${cont.length} running` : 'none running'}</span></div>
+        <div class="bd tight">${cont.length ? `<table><thead><tr><th>Service</th><th>What it does</th><th>Ports</th><th>CPU</th><th>Memory</th></tr></thead><tbody>
+          ${cont.map(c => `<tr><td class="mono">${c.service}</td><td class="small dim">${SERVICE_WORDS[c.service]||''}</td><td class="small mono">${Object.entries(c.ports).map(([k,p]) => `${k} <a href="http://${hostOf(d)}:${p}" target="_blank" rel="noopener">${p}</a>`).join('<br>') || '<span class="muted">none exposed</span>'}</td>
+            <td style="width:120px"><div class="small">${c.cpu}%</div><div class="bar thin"><i class="ours" style="width:${Math.min(100,c.cpu*2)}%"></i></div></td><td style="width:120px"><div class="small">${c.mem} MB</div><div class="bar thin"><i class="ours" style="width:${Math.min(100,c.mem/12)}%"></i></div></td></tr>`).join('')}
+          ${d.type === 'stream' && !d.uploaderDeployed && running(d) ? `<tr><td class="mono muted">stream-uploader</td><td class="small dim" colspan="4">not started yet, waiting for a stamp</td></tr>` : ''}
+        </tbody></table>` : `<div class="empty">Start the deployment to see its containers.</div>`}</div></div>
+
+      <div class="card"><div class="hd"><h3>Configuration</h3><span class="sp"></span><button class="btn sm" data-action="edit" data-name="${d.name}">Edit</button></div>
+        <div class="bd"><dl class="kv">${configRows(d).map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div></div>
+
+      <div class="card" style="border-color:color-mix(in srgb,var(--err) 35%,var(--border))"><div class="bd row" style="justify-content:space-between"><div><b>Remove this deployment</b><div class="small muted">Stops the containers, deletes the record and wipes its data directory on the host. Cannot be undone.</div></div><button class="btn danger" data-action="remove" data-name="${d.name}">Remove</button></div></div>
+    </div>
+    <div class="stack">
+      <div class="card"><div class="hd"><h3>At a glance</h3></div><div class="bd"><dl class="kv" style="grid-template-columns:90px 1fr">
+        <dt>State</dt><dd>${pill(r)}</dd>
+        <dt>Host</dt><dd class="mono">${hostOf(d)}</dd>
+        <dt>Slot</dt><dd class="mono">${d.slot}</dd>
+        ${d.engine && svc.some(s => s==='srs'||s==='ome') ? `<dt>Engine</dt><dd class="mono">${svc.includes('ome') ? 'ome' : 'srs'}</dd>` : ''}
+        ${d.stamp ? `<dt>Stamp</dt><dd>${d.stamp.state === 'active' ? `${d.stamp.ttlDays}d left` : d.stamp.state}</dd>` : ''}
+        ${g ? `<dt>Group</dt><dd><span data-action="openGroup" data-id="${g.id}" style="cursor:pointer;color:var(--accent-text)" class="mono">${g.name}</span></dd>` : ''}
+        <dt>Created</dt><dd>${fmtDate(d.createdAt)}</dd>
+      </dl></div></div>
+      ${d.type === 'stream' && running(d) ? `<div class="card"><div class="hd"><h3>Next steps</h3></div><div class="bd stack" style="gap:8px">
+        <button class="btn" data-action="newViewer" data-name="${d.name}">Create a viewer for this stream</button>
+        <div class="hint">Sets the viewer to follow this stream's address, so nothing has to be copied by hand.</div></div></div>` : ''}
+      <div class="card"><div class="hd"><h3>Notes</h3><span class="sp"></span><button class="btn ghost sm" data-action="edit" data-name="${d.name}">Edit</button></div><div class="bd small ${d.notes ? '' : 'muted'}">${d.notes ? esc(d.notes) : 'No notes.'}</div></div>
+    </div>
+  </div>`;
+}
+function configRows(d){
+  const rows = [['Type', `${TYPE_LABEL[d.type]} <span class="muted small">(fixed)</span>`], ['Components', servicesOf(d).map(s=>`<span class="chip">${s}</span>`).join(' ') + ' <span class="muted small">(fixed)</span>'], ['Host', `<span class="mono">${hostOf(d)}</span> <span class="muted small">(fixed)</span>`]];
+  if (hasSvc(d,'srs')) rows.push(['SRT passphrase', d.passphrase ? `<span class="mono">••••••••</span> own passphrase <button class="btn ghost sm" data-action="copy" data-value="${esc(d.passphrase)}">Copy</button>` : `host-wide passphrase <span class="muted small">(default)</span>`]);
+  if (hasSvc(d,'stream-uploader')) rows.push(['Stream key', d.privateKey ? `<span class="mono">••••••••</span> address <span class="mono">${shortHex(d.address)}</span> <button class="btn ghost sm" data-action="copy" data-value="${esc(d.address)}">Copy address</button>` : '<span class="muted">none</span>']);
+  if (d.type === 'stream') rows.push(['Bee node', hasSvc(d,'bee-uploader') ? `own node · <span class="mono">${beeApiUrl(d)}</span>` : `external · <span class="mono">${esc(d.beeUrl||'default')}</span>`]);
+  if (d.type === 'stream' || d.type === 'rung') rows.push(['Postage stamp', d.stamp ? `<span class="mono">${shortHex(d.stamp.id)}</span> · ${d.stamp.state}` : '<span class="muted">none yet</span>']);
+  if (d.type === 'abr-uploader') rows.push(['Node pool', `4 rungs · <span class="mono">${esc(poolRungs(d.beePublishers)[0]?.url || '')}</span> …`]);
+  if (hasSvc(d,'client')) rows.push(['Follows streamer', d.feedOwner ? `<span class="mono">${shortHex(d.feedOwner)}</span>${streamerForAddress(d.feedOwner) ? ` (${streamerForAddress(d.feedOwner).name})` : ''}` : '<span class="muted">none</span>']);
+  return rows;
+}
+function renderStorage(d){
+  const w = d.wallet || {xdai:'0.0000', bzz:'0.0000'}; const s = d.stamp;
+  const isRung = d.type === 'rung'; const spec = isRung ? RUNGS.find(r => r.name === rungOf(d)) : null;
+  const stamps = [];
+  if (s) stamps.push(s);
+  if (d.name === 'main-stage') stamps.push({id: hex(64), state:'active', ttlDays:12, depth:17, amount:'12000000', spare:true});
+  if (d.name === 'old-demo') stamps.push({id: hex(64), state:'active', ttlDays:3, depth:17, amount:'3000000', spare:true});
+  return `<div class="card" id="storage"><div class="hd"><h3>Storage and funding</h3><span class="sub">this deployment's own Bee node pays for its uploads</span><span class="sp"></span><button class="btn ghost sm" data-action="refresh">Refresh</button></div>
+    <div class="bd stack" style="gap:18px">
+      <div class="grid g3" style="gap:12px">
+        <div class="stat" style="grid-column:span 1"><div class="lbl">Node address <span style="text-transform:none;letter-spacing:0;font-weight:400">(Gnosis Chain)</span></div><div class="row" style="margin-top:4px"><span class="mono small">${shortHex(d.address||'')}</span><button class="btn ghost sm" data-action="copy" data-value="${esc(d.address||'')}">Copy</button></div><div class="hint">Send xDAI for gas and BZZ for storage here.</div></div>
+        <div class="stat"><div class="lbl">xDAI</div><div class="big mono" style="font-size:20px">${w.xdai}</div><div class="hint">gas · ${+w.xdai > 0.01 ? 'enough' : 'too low'}</div></div>
+        <div class="stat"><div class="lbl">BZZ</div><div class="big mono" style="font-size:20px;color:${+w.bzz>0?'inherit':'var(--warn)'}">${w.bzz}</div><div class="hint">storage · ${+w.bzz > 0 ? 'can buy a stamp' : 'fund first'}</div></div>
+      </div>
+      <div><div class="stat"><div class="lbl">Postage stamps on this node</div></div>
+        ${stamps.length ? `<table style="margin-top:8px"><thead><tr><th>Batch</th><th>Life left</th><th>Depth</th><th>State</th><th></th></tr></thead><tbody>${stamps.map(x => `<tr><td class="mono">${shortHex(x.id)} <button class="btn ghost sm" data-action="copy" data-value="${x.id}">Copy</button></td><td>${x.state==='expired' ? '<span class="pill err">expired</span>' : x.state==='settling' ? '<span class="pill info">settling</span>' : `${x.ttlDays} days`}</td><td>${x.depth}</td><td>${x.spare ? (x.state==='active' ? '<span class="pill gray">available</span>' : '') : `<span class="pill ${x.state==='expired'?'err':x.state==='settling'?'info':'ok'}">in use</span>`}</td><td class="act">${x.spare && x.state==='active' ? `<button class="btn sm" data-action="useStamp" data-name="${d.name}" data-value="${x.id}" data-days="${x.ttlDays}">Use this one</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="small muted" style="margin-top:6px">No stamps on this node yet.</div>`}
+      </div>
+      <div><div class="stat"><div class="lbl">Buy a stamp</div></div>
+        <form class="row" style="margin-top:8px;align-items:flex-end;flex-wrap:wrap" data-buy="${d.name}">
+          <div class="field" style="margin:0;width:180px"><label>Amount <small>PLUR per chunk</small></label><input class="in mono" name="amount" value="48000000" required pattern="[1-9][0-9]*"></div>
+          <div class="field" style="margin:0;width:110px"><label>Depth <small>size</small></label><input class="in mono" name="depth" value="${spec ? spec.depth : 20}" required pattern="(1[7-9]|[23][0-9]|40)"></div>
+          <button class="btn pri" type="submit" ${+w.bzz > 0 && running(d) ? '' : 'disabled'}>Buy stamp</button>
+          <div class="small dim" style="flex-basis:100%">Estimated life <b>≈ 40 days</b> · cost <b>≈ 1.9 BZZ</b>${spec ? ` · depth ${spec.depth} suggested for the ${spec.name} rung (${spec.kbps} kbps)` : ''}. ${+w.bzz > 0 ? (running(d) ? 'Becomes usable in a few minutes and is set on this deployment automatically.' : 'Start the deployment first.') : 'Fund the node with BZZ first.'}</div>
+        </form></div>
+    </div></div>`;
+}
+function renderPoolTarget(d){
+  const ok = poolStringOk(d.beePublishers);
+  return `<div class="card"><div class="hd"><h3>Publishes to</h3><span class="sub">one Bee node per quality rung, in another manager</span></div><div class="bd">
+    ${ok ? `<table><thead><tr><th>Rung</th><th>Bee node</th><th>Batch</th></tr></thead><tbody>${poolRungs(d.beePublishers).map(r => `<tr><td class="mono">${r.rung}</td><td class="mono small">${esc(r.url)}</td><td class="mono small">${shortHex(r.batch)} <button class="btn ghost sm" data-action="copy" data-value="${r.batch}">Copy</button></td></tr>`).join('')}</tbody></table>
+    <div class="hint" style="margin-top:8px">Those nodes hold the postage. Funding and stamps are managed on the pool's own page, on whichever manager owns it. Nothing to fund here.</div>` : `<div class="note warn">The pool string on this deployment cannot be parsed. Fix it under Edit, or the uploader will refuse to start.</div>`}
+  </div></div>`;
+}
+
+/* group page */
+function renderGroup(g){
+  const ms = membersOf(g); const pool = isPool(g); const gr = groupReadiness(g); const ps = pool ? poolString(g) : null; const problems = pool ? poolProblems(g) : [];
+  return `
+  <div class="ph"><div><a class="back" data-nav="deployments" style="cursor:pointer">← Deployments</a>
+    <h2>${g.name} <span class="pill type">${pool ? 'ABR node pool' : 'Group'}</span> ${pill(gr)}</h2>
+    <div class="meta">${ms.length} members · created ${fmtDate(g.createdAt)}${pool ? ' · one Bee node per quality rung, used as upload targets by an ABR uploader' : ` · ${ms.length} ${TYPE_LABEL[(ms[0]||{}).type]?.toLowerCase() || ''}s sharing one configuration`}</div></div>
+    <div class="acts">${ms.some(m => !running(m) && !busy(m)) ? `<button class="btn pri" data-action="startGroup" data-id="${g.id}">Start all</button>` : ''}${ms.some(running) ? `<button class="btn" data-action="stopGroup" data-id="${g.id}">Stop all</button>` : ''}<button class="btn" data-action="editGroup" data-id="${g.id}">Edit shared settings</button><button class="btn danger" data-action="removeGroup" data-id="${g.id}">Remove group</button></div>
+  </div>
+  <div class="stack">
+    ${pool ? `<div class="card"><div class="hd"><h3>Pool string</h3><span class="sub">what an ABR uploader needs to publish here</span></div>
+      ${ps ? `<div class="bd stack" style="gap:10px">${copyBox(ps, 'pool string')}<div class="row"><button class="btn pri" data-action="newAbrUploader" data-id="${g.id}">Create an ABR uploader using this pool</button><span class="hint">For an uploader on another manager, paste the copied string into its form.</span></div></div>`
+           : `<div class="bd"><div class="note warn"><b>Not ready yet.</b> Every rung needs a running node with a usable stamp before this can be copied. Holding it up: ${esc(problems.join(', '))}.</div></div>`}</div>` : ''}
+    <div class="card"><div class="hd"><h3>Members</h3><span class="sub">${ms.filter(running).length}/${ms.length} running</span>${pool ? '' : `<span class="sp"></span><form class="row" data-add="${g.id}"><input class="in mono" name="count" value="1" style="width:64px" pattern="[1-9][0-9]*"><button class="btn sm" type="submit">Add members</button></form>`}</div>
+      <div class="bd tight"><table><thead><tr><th></th><th>Name</th><th>State</th>${pool ? '<th>Funding</th><th>Stamp</th>' : '<th>Links</th>'}<th style="text-align:right">Actions</th></tr></thead><tbody>
+        ${ms.map(d => pool ? `<tr class="clk" data-open="${d.name}"><td style="width:22px">${dot(d)}</td><td><div class="name">${rungOf(d)} <span class="muted small" style="font-weight:400">${RUNGS.find(r=>r.name===rungOf(d))?.res} · ${RUNGS.find(r=>r.name===rungOf(d))?.kbps} kbps${rungOf(d)==='360p' ? ' · coordinator' : ''}</span></div><div class="sub">${d.name} · slot ${d.slot}</div></td><td>${pill(readiness(d))}</td>
+              <td class="small mono">xDAI ${d.wallet?.xdai} · BZZ <span style="color:${+(d.wallet?.bzz||0)>0?'inherit':'var(--warn)'}">${d.wallet?.bzz}</span></td><td class="small">${d.stamp ? (d.stamp.state==='active' ? `${d.stamp.ttlDays}d left` : d.stamp.state) : '<span class="muted">none</span>'}</td>
+              <td class="act">${!d.stamp && running(d) ? `<button class="btn sm pri" data-action="open" data-name="${d.name}" data-anchor="#storage">Buy stamp</button>` : primaryAction(d)}${menuBtn(d)}</td></tr>` : row(d, false)).join('')}
+      </tbody></table></div></div>
+    ${!pool ? `<div class="card"><div class="hd"><h3>Shared settings</h3><span class="sub">applied to every member</span><span class="sp"></span><button class="btn sm" data-action="editGroup" data-id="${g.id}">Edit</button></div><div class="bd"><dl class="kv">
+      <dt>Type</dt><dd>${TYPE_LABEL[(ms[0]||{}).type]||''} <span class="muted small">(fixed)</span></dd><dt>Host</dt><dd class="mono">${hostOf(ms[0]||{})}</dd>
+      ${ms[0]?.feedOwner !== undefined && hasSvc(ms[0],'client') ? `<dt>Follows streamer</dt><dd class="mono">${ms[0].feedOwner ? shortHex(ms[0].feedOwner) : '(none)'}${streamerForAddress(ms[0]?.feedOwner) ? ` (${streamerForAddress(ms[0].feedOwner).name})` : ''}</dd>` : ''}
+      ${ms[0] && hasSvc(ms[0],'srs') ? `<dt>SRT passphrase</dt><dd>${ms[0].passphrase ? 'own passphrase' : 'host-wide passphrase (default)'}</dd>` : ''}
+      <dt>Notes</dt><dd>${esc(ms[0]?.notes) || '<span class="muted">none</span>'}</dd></dl>
+      <div class="hint" style="margin-top:10px">New members inherit these. Keys and stamps are never bulk-applied.</div></div></div>` :
+      `<div class="card"><div class="hd"><h3>How a pool works</h3></div><div class="bd small dim">Each rung is an ordinary Bee node with its own wallet and stamp. Higher rungs burn storage faster, so their suggested stamp depth is larger (17, 18, 19, 20). The 360p node is the coordinator: it carries the stream catalog and the master playlist. Once all four are stamped, copy the pool string into an ABR uploader.</div></div>`}
+  </div>`;
+}
+
+/* host page */
+function renderHost(){
+  const h = state.host;
+  const groupsView = [...state.groups.map(g => ({label:g.name, ds: membersOf(g)})), ...state.deployments.filter(d => !d.groupId).map(d => ({label:d.name, ds:[d]}))];
+  return `<div class="stack">
+    <div class="grid g3">
+      ${bigStat('CPU', `${h.cpu}%`, `${(h.cpu/100*h.cores).toFixed(1)} of ${h.cores} cores in use`, h.oursCpu/100, (h.cpu-h.oursCpu)/100, `our stacks ${h.oursCpu}% (${(h.oursCpu/100*h.cores).toFixed(1)} cores) · everything else ${h.cpu-h.oursCpu}%`)}
+      ${bigStat('Memory', `${Math.round(h.memUsed/h.memGb*100)}%`, `${h.memUsed} of ${h.memGb} GB`, h.oursMem/h.memGb, (h.memUsed-h.oursMem)/h.memGb, `our stacks ${h.oursMem} GB · everything else ${(h.memUsed-h.oursMem).toFixed(1)} GB`)}
+      ${bigStat('Disk', `${Math.round(h.diskUsed/h.diskGb*100)}%`, `${h.diskUsed} of ${h.diskGb} GB`, 0, h.diskUsed/h.diskGb, 'whole root filesystem · per-deployment data size is in the table')}
+    </div>
+    <div class="grid g2">
+      <div class="card"><div class="bd"><div class="stat"><div class="lbl">Network now</div><div class="big" style="font-size:20px">↓ ${h.netIn} MB/s · ↑ ${h.netOut} MB/s</div><div class="hint">our stacks ↓ 9.8 · ↑ 44.0 MB/s</div></div></div></div>
+      <div class="card"><div class="bd"><div class="stat"><div class="lbl">Disk I/O now</div><div class="big" style="font-size:20px">R 3.1 MB/s · W 22.4 MB/s</div><div class="hint">our stacks R 2.0 · W 21.1 MB/s</div></div></div></div>
+    </div>
+    <div class="row small muted"><span class="dot" style="background:var(--accent)"></span> our stacks &nbsp; <span class="dot" style="background:color-mix(in srgb,var(--text-3) 45%,transparent)"></span> everything else on the machine (other containers, system) &nbsp; <span class="dot" style="background:var(--gray-bg)"></span> free</div>
+    <div class="card"><div class="hd"><h3>Per deployment</h3><span class="sub">containers this manager started</span></div><div class="bd tight"><table><thead><tr><th>Deployment / service</th><th>State</th><th>CPU</th><th>Memory</th><th style="text-align:right">Network</th><th style="text-align:right">Data on disk</th></tr></thead><tbody>
+      ${groupsView.map(({label, ds}) => { const cs = ds.flatMap(d => containersOf(d).map(c => ({...c, d}))); if (!cs.length) return `<tr><td class="mono">${label}</td><td colspan="5" class="small muted">not running</td></tr>`;
+        const cpu = cs.reduce((s,c)=>s+c.cpu,0), mem = cs.reduce((s,c)=>s+c.mem,0);
+        return `<tr class="grp"><td class="mono">${label} <span class="muted small" style="font-family:var(--sans)">${cs.length} containers</span></td><td></td><td>${cpu.toFixed(1)}%</td><td>${(mem/1024).toFixed(2)} GB</td><td style="text-align:right" class="small">↓ ${(cs.length*0.9).toFixed(1)} ↑ ${(cs.length*3.2).toFixed(1)} MB/s</td><td style="text-align:right" class="small">${(ds.length*1.7+cs.length*0.4).toFixed(1)} GB</td></tr>` +
+          cs.map(c => `<tr><td class="indent mono small">${ds.length>1 ? `${c.d.name} · ` : ''}${c.service}</td><td><span class="pill ok">running</span></td><td style="width:140px"><div class="small">${c.cpu}% ${spark()}</div><div class="bar thin"><i class="ours" style="width:${Math.min(100,c.cpu*2)}%"></i></div></td><td style="width:140px"><div class="small">${c.mem} MB</div><div class="bar thin"><i class="ours" style="width:${Math.min(100,c.mem/12)}%"></i></div></td><td style="text-align:right" class="small muted">↓ 0.9 ↑ 3.2 MB/s</td><td></td></tr>`).join(''); }).join('')}
+    </tbody></table></div></div></div>`;
+}
+function bigStat(label, value, sub, ours, other, foot){
+  return `<div class="card"><div class="bd"><div class="stat"><div class="lbl">${label}</div><div class="row" style="align-items:baseline;gap:10px"><span class="big">${value}</span><span class="small muted">${sub}</span></div></div>
+    <div class="bar" style="margin:10px 0 6px"><i class="ours" style="width:${(ours*100).toFixed(1)}%"></i><i class="other" style="width:${(Math.max(0,other)*100).toFixed(1)}%"></i></div><div class="hint">${foot}</div></div></div>`;
+}
+function spark(){ const pts = Array.from({length:16}, (_, i) => `${i*4},${14 - Math.random()*10}`).join(' '); return `<svg class="spark" width="64" height="16"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`; }
+
+/* ------------------------------------------------------------ wizard */
+const GOALS = [
+  {id:'stream', ic:'▶', t:'Stream to Swarm', p:'Take a live feed from OBS or FFmpeg and publish it to Swarm.', svc:['srs','stream-uploader','bee-uploader']},
+  {id:'viewer', ic:'◉', t:'Watch a stream', p:'A web player for one stream, served through a Swarm gateway.', svc:['client','bee-gateway']},
+  {id:'pool', ic:'▦', t:'ABR node pool', p:'Four Bee nodes, one per quality (360p to 1080p), as upload targets for an ABR uploader.', svc:['bee-uploader ×4']},
+  {id:'abr-uploader', ic:'≋', t:'ABR uploader', p:'Ingest and encode a quality ladder, publishing to a node pool. No Bee node of its own.', svc:['srs','stream-uploader']},
+  {id:'custom', ic:'⚙', t:'Custom', p:'Pick the components yourself. For experiments.', svc:[], wide:true},
+];
+function openWizard(pre){
+  state.wizard = Object.assign({step:1, goal:null, name:'', host:'this', hostCustom:'', notes:'', group:false, size:2, engine:'srs', passMode:'host', pass:'', genPass:`stage-${hex(8)}-${hex(6)}`, keyMode:'generate', key:'0x'+hex(64), stampMode:'later', stampId:'', beeMode:'own', beeUrl:'', feedMode: streamers().length ? 'pick' : 'paste', feedStreamer: streamers()[0]?.name || '', feedOwner:'', poolMode: state.groups.some(g=>isPool(g)&&poolString(g)) ? 'pick' : 'paste', poolId: state.groups.find(g=>isPool(g)&&poolString(g))?.id || null, poolString:'', components:['srs','client','bee-gateway']}, pre || {});
+  render();
+}
+function wizError(w){
+  if (w.step === 2){ if (!w.name) return 'Enter a name'; if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(w.name)) return 'Name: lowercase letters, digits and dashes, max 31 characters'; if (w.goal === 'pool' && w.name.length > 25) return 'Pool name: max 25 characters, members are named <pool>-1080p'; if (byName(w.name) || state.groups.some(g => g.name === w.name)) return 'That name is taken'; if (w.host === 'custom' && !w.hostCustom) return 'Enter the host'; if (w.group && (!Number.isInteger(+w.size) || +w.size < 1)) return 'Group size must be a whole number of at least 1'; }
+  if (w.step === 3){ if (w.goal === 'viewer' && w.feedMode === 'paste' && !/^0x[0-9a-fA-F]{40}$/.test(w.feedOwner)) return 'Streamer address: 0x plus 40 hex characters'; if (w.goal === 'viewer' && w.feedMode === 'pick' && !w.feedStreamer) return 'Pick a stream'; if (w.goal === 'abr-uploader' && w.poolMode === 'paste' && !poolStringOk(w.poolString)) return 'Pool string: needs all four rungs, as copied from a pool page'; if (w.goal === 'abr-uploader' && w.poolMode === 'pick' && !w.poolId) return 'Pick a pool'; if (['stream','abr-uploader'].includes(w.goal) && w.passMode === 'custom' && !/^[A-Za-z0-9._~-]{10,79}$/.test(w.pass)) return 'Passphrase: 10 to 79 characters, letters, digits and . _ ~ -'; if (w.goal === 'custom' && !w.components.length) return 'Pick at least one component'; if (w.goal === 'stream' && w.stampMode === 'paste' && !/^(0x)?[0-9a-fA-F]{64}$/.test(w.stampId)) return 'Stamp ID: 64 hex characters'; }
+  return null;
+}
+function renderWizard(w){
+  const goal = GOALS.find(g => g.id === w.goal);
+  const steps = ['What to set up','Basics','Settings','Review'];
+  const err = wizError(w);
+  let pane = '';
+  if (w.step === 1) pane = `<h4>What do you want to set up?</h4><p class="lead">Only the settings that matter for your choice will be asked.</p>
+    <div class="goals">${GOALS.map(g => `<div class="goal ${w.goal===g.id?'on':''} ${g.wide?'wide':''}" data-goal="${g.id}"><span class="ic">${g.ic}</span><div><b>${g.t}</b><p>${g.p}</p>${g.svc.length ? `<div class="svc">${g.svc.map(s=>`<span class="chip">${s}</span>`).join(' ')}</div>` : ''}</div></div>`).join('')}</div>`;
+  else if (w.step === 2) pane = `<h4>Basics</h4><p class="lead">${goal.t}</p>
+    <div class="field"><label>${w.goal==='pool' ? 'Pool name' : w.group ? 'Group name' : 'Name'}</label><input class="in mono ${err && err.startsWith('Name') || err==='That name is taken' ? 'err':''}" data-w="name" value="${esc(w.name)}" placeholder="${w.goal==='viewer' ? 'viewer-eu' : w.goal==='pool' ? 'abr-pool-2' : 'main-stage'}" autofocus>
+      <div class="hint" id="namePreview">${namePreview(w)}</div></div>
+    <div class="field"><label>Host <small>where the containers run</small></label>
+      <div class="seg"><label class="${w.host==='this'?'on':''}"><input type="radio" name="host" data-w="host" value="this" ${w.host==='this'?'checked':''}><div><div class="t">This machine (${HOST})</div><div class="d">Default. Ports are opened on this host.</div></div></label>
+      <label class="${w.host==='custom'?'on':''}"><input type="radio" name="host" data-w="host" value="custom" ${w.host==='custom'?'checked':''}><div><div class="t">Another host over SSH</div><div class="d">An ssh alias or user@host that this manager can reach.</div>${w.host==='custom' ? `<input class="in mono" data-w="hostCustom" value="${esc(w.hostCustom)}" placeholder="deploy@10.0.0.7" style="margin-top:8px">` : ''}</div></label></div></div>
+    ${['stream','viewer','custom'].includes(w.goal) ? `<div class="field"><div class="toggle ${w.group?'on':''}" data-w-toggle="group"><span class="sw"></span><span><b>Deploy several at once as a group</b> <span class="muted small">identical members sharing one configuration</span></span></div>
+      ${w.group ? `<div class="inrow" style="margin-top:8px"><label class="small dim">How many</label><input class="in mono" data-w="size" value="${w.size}" style="width:80px"><span class="hint">${+w.size > 20 ? 'Large group, double check before deploying.' : w.goal==='stream' ? 'All members will share one stream key. Fine for fan-out tests, rarely for a real stage.' : ''}</span></div>` : ''}</div>` : ''}
+    <div class="field"><label>Notes <small>optional</small></label><textarea class="in" data-w="notes" placeholder="What is this for?">${esc(w.notes)}</textarea></div>`;
+  else if (w.step === 3) pane = wizardSettings(w, err);
+  else pane = wizardReview(w);
+  return `<div class="ovl" data-close="wizard"><div class="modal" data-stop>
+    <div class="mh"><h3>New deployment</h3><span class="sp" style="flex:1"></span><button class="btn ghost icon" data-action="closeWizard">✕</button></div>
+    <div class="mb"><div class="wiz"><ol class="wiz-steps">${steps.map((s,i) => `<li class="${i+1===w.step?'cur':i+1<w.step?'done':''}"><span>${i+1<w.step?'✓':i+1}</span>${s}</li>`).join('')}</ol><div class="wiz-pane">${pane}</div></div></div>
+    <div class="mf">${w.step > 1 ? `<button class="btn" data-action="wizBack">Back</button>` : ''}<span style="flex:1" class="small">${err && w.step > 1 ? `<span style="color:var(--warn)">${esc(err)}</span>` : ''}</span>
+      ${w.step < 4 ? `<button class="btn pri" data-action="wizNext" ${(w.step===1 && !w.goal) || (w.step>1 && err) ? 'disabled' : ''}>Continue</button>` : `<button class="btn pri" data-action="wizDeploy">${deployLabel(w)}</button>`}</div></div></div>`;
+}
+function namePreview(w){
+  if (!w.name) return w.goal==='pool' ? 'Members will be named <pool>-360p, <pool>-480p, <pool>-720p, <pool>-1080p' : w.group ? 'Members will be named <group>-profile-1, <group>-profile-2, …' : 'Lowercase letters, digits and dashes';
+  if (w.goal === 'pool') return `Creates ${w.name}-360p, ${w.name}-480p, ${w.name}-720p, ${w.name}-1080p`;
+  if (w.group) return `Creates ${w.name}-profile-1 … ${w.name}-profile-${w.size}`;
+  return 'Looks good';
+}
+function deployLabel(w){ return w.goal==='pool' ? 'Create pool (4 nodes)' : w.group ? `Deploy group (${w.size})` : 'Deploy'; }
+function radio(w, key, value, t, d, extra){ return `<label class="${w[key]===value?'on':''}"><input type="radio" name="${key}" data-w="${key}" value="${value}" ${w[key]===value?'checked':''}><div style="flex:1"><div class="t">${t}</div>${d ? `<div class="d">${d}</div>` : ''}${w[key]===value && extra ? extra : ''}</div></label>`; }
+function wizardSettings(w, err){
+  const hostPass = HOST_PASSPHRASE ? 'The host has a shared passphrase, so streams are encrypted either way.' : 'The host has no shared passphrase, so this would publish unencrypted.';
+  const passField = `<div class="field"><label>SRT passphrase <small>protects the ingest</small></label><div class="seg">
+    ${radio(w,'passMode','host','Use the host-wide passphrase', hostPass)}
+    ${radio(w,'passMode','generate','Generate one for this deployment', 'Recommended when several people publish to this host.', `<div class="copy" style="margin-top:8px"><span>${esc(w.genPass)}</span><button class="btn sm" data-action="wizRegenPass" type="button">Regenerate</button></div>`)}
+    ${radio(w,'passMode','custom','Type my own', '10 to 79 characters: letters, digits and . _ ~ -', `<input class="in mono" data-w="pass" value="${esc(w.pass)}" style="margin-top:8px" placeholder="my-stage-passphrase-2026">`)}
+  </div></div>`;
+  const keyField = `<div class="field"><label>Stream key <small>the Ethereum private key that signs this stream's feed</small></label><div class="seg">
+    ${radio(w,'keyMode','generate','Generate a new key', 'Done in your browser. The public address is derived from it.', `<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><span class="mono small">address ${shortHex('0x'+hex(40))}</span><button class="btn sm" data-action="wizRegenKey" type="button">Regenerate</button></div>`)}
+    ${radio(w,'keyMode','paste','Use an existing key', 'To continue an existing stream identity.', `<input class="in mono" data-w="key" value="${w.keyMode==='paste' ? esc(w.key) : ''}" style="margin-top:8px" placeholder="0x…">`)}
+  </div></div>`;
+  if (w.goal === 'stream') return `<h4>Stream settings</h4><p class="lead">Ingest, identity and storage. The stamp can wait until the node is funded.</p>
+    <div class="field"><label>Media engine</label><div class="seg">${radio(w,'engine','srs','SRS','Default. SRT ingest with passphrase support.')}${radio(w,'engine','ome','OvenMediaEngine','Alternative engine. Its SRT listener takes no passphrase.')}</div></div>
+    ${w.engine==='srs' ? passField : ''}${keyField}
+    <div class="field"><label>Postage stamp <small>prepaid Swarm storage the uploader pays with</small></label><div class="seg">
+      ${radio(w,'stampMode','later','Buy it after deploying', 'Recommended. The node needs funding first. Everything else starts now, the uploader waits for the stamp.')}
+      ${radio(w,'stampMode','paste','I already have a stamp ID', 'From a node that already ran here.', `<input class="in mono" data-w="stampId" value="${esc(w.stampId)}" style="margin-top:8px" placeholder="64 hex characters">`)}
+    </div></div>
+    <div class="field"><label>Bee node</label><div class="seg">${radio(w,'beeMode','own','Run its own Bee node', 'Default. One node per stream, funded and stamped from this manager.')}${radio(w,'beeMode','external','Use an external Bee API', 'No node is started here.', `<input class="in mono" data-w="beeUrl" value="${esc(w.beeUrl)}" style="margin-top:8px" placeholder="http://10.0.0.7:1633">`)}</div></div>`;
+  if (w.goal === 'viewer') return `<h4>Viewer settings</h4><p class="lead">A viewer follows one streamer's address.</p>
+    <div class="field"><label>Stream to follow</label><div class="seg">
+      ${radio(w,'feedMode','pick','A stream on this manager', streamers().length ? 'Its address is filled in for you.' : 'No streams here yet.', `<select class="in" data-w="feedStreamer" style="margin-top:8px">${streamers().map(s => `<option value="${s.name}" ${w.feedStreamer===s.name?'selected':''}>${s.name} · ${shortHex(s.address)}</option>`).join('')}</select>`)}
+      ${radio(w,'feedMode','paste','A streamer somewhere else', 'Paste its public address.', `<input class="in mono" data-w="feedOwner" value="${esc(w.feedOwner)}" style="margin-top:8px" placeholder="0x + 40 hex characters">`)}
+    </div></div>`;
+  if (w.goal === 'pool') return `<h4>Pool settings</h4><p class="lead">Nothing to decide here. A pool always has these four nodes.</p>
+    <table><thead><tr><th>Member</th><th>Quality</th><th>Bitrate</th><th>Suggested stamp depth</th></tr></thead><tbody>${RUNGS.map((r,i) => `<tr><td class="mono">${w.name}-${r.name}${i===0 ? ' <span class="pill gray">coordinator</span>' : ''}</td><td>${r.res}</td><td>${r.kbps} kbps</td><td>${r.depth}</td></tr>`).join('')}</tbody></table>
+    <div class="note" style="margin-top:14px">After creating it: fund each node with xDAI and BZZ, buy each its stamp (the buy form starts at the suggested depth), then copy the pool string from the pool page into an ABR uploader.</div>`;
+  if (w.goal === 'abr-uploader') { const pools = state.groups.filter(g => isPool(g)); return `<h4>ABR uploader settings</h4><p class="lead">Encodes 360p to 1080p and publishes each rung to its own Bee node in the pool.</p>
+    <div class="field"><label>Node pool to publish to</label><div class="seg">
+      ${radio(w,'poolMode','pick','A pool on this manager', pools.length ? 'Its string is filled in for you when the pool is ready.' : 'No pools here yet.', `<select class="in" data-w="poolId" style="margin-top:8px">${pools.map(g => `<option value="${g.id}" ${+w.poolId===g.id?'selected':''} ${poolString(g)?'':'disabled'}>${g.name}${poolString(g) ? '' : ' · not ready yet'}</option>`).join('')}</select>`)}
+      ${radio(w,'poolMode','paste','A pool on another manager', 'Paste the pool string copied from its pool page.', `<textarea class="in mono" data-w="poolString" style="margin-top:8px" placeholder="360p@http://host:10015<batch> 480p@… 720p@… 1080p@…">${esc(w.poolString)}</textarea>`)}
+    </div></div>${passField}${keyField}`; }
+  return `<h4>Custom components</h4><p class="lead">Pick what runs. Fields appear for the components that need them.</p>
+    <div class="field"><label>Components</label><div class="seg">${['srs','ome','stream-uploader','bee-uploader','client','bee-gateway'].map(c => `<label class="${w.components.includes(c)?'on':''}"><input type="checkbox" data-w-comp="${c}" ${w.components.includes(c)?'checked':''}><div><div class="t mono">${c}</div><div class="d">${SERVICE_WORDS[c]}</div></div></label>`).join('')}</div><div class="hint">srs and ome are both media engines, pick one at most.</div></div>
+    ${w.components.includes('srs') ? passField : ''}${w.components.includes('stream-uploader') ? keyField : ''}
+    ${w.components.includes('client') ? `<div class="field"><label>Stream to follow</label><div class="seg">${radio(w,'feedMode','pick','A stream on this manager','', `<select class="in" data-w="feedStreamer" style="margin-top:8px">${streamers().map(s => `<option value="${s.name}" ${w.feedStreamer===s.name?'selected':''}>${s.name}</option>`).join('')}</select>`)}${radio(w,'feedMode','paste','Paste an address','', `<input class="in mono" data-w="feedOwner" value="${esc(w.feedOwner)}" style="margin-top:8px" placeholder="0x…">`)}</div></div>` : ''}`;
+}
+function wizardReview(w){
+  const goal = GOALS.find(g => g.id === w.goal);
+  const host = w.host === 'this' ? HOST : w.hostCustom;
+  const rows = [['What', goal.t], ['Name', `<span class="mono">${esc(w.name)}</span>${w.goal==='pool' ? ` <span class="muted">(4 members: ${RUNGS.map(r=>w.name+'-'+r.name).join(', ')})</span>` : w.group ? ` <span class="muted">(${w.size} members)</span>` : ''}`], ['Host', `<span class="mono">${esc(host)}</span>`]];
+  const comps = w.goal === 'custom' ? w.components : w.goal === 'pool' ? ['bee-uploader ×4'] : TYPE_SERVICES[w.goal].map(s => s==='srs' && w.engine==='ome' ? 'ome' : s);
+  rows.push(['Components', comps.map(c => `<span class="chip">${c}</span>`).join(' ')]);
+  if ((w.goal==='stream' && w.engine==='srs') || w.goal==='abr-uploader' || (w.goal==='custom' && w.components.includes('srs'))) rows.push(['SRT passphrase', w.passMode==='host' ? 'host-wide passphrase' : w.passMode==='generate' ? 'generated for this deployment' : 'custom']);
+  if (w.goal==='stream' || w.goal==='abr-uploader' || (w.goal==='custom' && w.components.includes('stream-uploader'))) rows.push(['Stream key', w.keyMode==='generate' ? 'new key, generated in the browser' : 'existing key']);
+  if (w.goal==='stream') { rows.push(['Postage stamp', w.stampMode==='later' ? 'buy after deploying (uploader waits for it)' : `<span class="mono">${shortHex(w.stampId)}</span>`]); rows.push(['Bee node', w.beeMode==='own' ? 'its own node' : `external: <span class="mono">${esc(w.beeUrl)}</span>`]); }
+  if (w.goal==='viewer' || (w.goal==='custom' && w.components.includes('client'))) rows.push(['Follows', w.feedMode==='pick' ? `<span class="mono">${esc(w.feedStreamer)}</span> on this manager` : `<span class="mono">${shortHex(w.feedOwner)}</span>`]);
+  if (w.goal==='abr-uploader') rows.push(['Publishes to', w.poolMode==='pick' ? `pool <span class="mono">${groupById(+w.poolId)?.name}</span> on this manager` : 'a pool on another manager (pasted string)']);
+  if (w.notes) rows.push(['Notes', esc(w.notes)]);
+  const next = w.goal==='stream' ? (w.stampMode==='later' ? 'Containers start now. The uploader is held back until you fund the node and buy a stamp, both from the deployment page. Then the OBS URL is ready.' : 'Containers start now and the uploader starts with them. The OBS URL appears on the deployment page.')
+    : w.goal==='viewer' ? 'The player is ready as soon as the containers are up. Its link appears on the deployment page.'
+    : w.goal==='pool' ? 'Four nodes start. Fund each and buy its stamp from the pool page. When all four are stamped the pool string can be copied.'
+    : w.goal==='abr-uploader' ? 'Containers start now and the OBS URL appears on the deployment page.' : 'Containers start now.';
+  return `<h4>Review</h4><p class="lead">Check it, then deploy.</p><div class="review"><dl class="kv">${rows.map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div><div class="note ok" style="margin-top:16px"><b>What happens next.</b> ${next}</div>`;
+}
+function wizardDeploy(){
+  const w = state.wizard; const host = w.host === 'this' ? 'localhost' : w.hostCustom; const now = new Date().toISOString();
+  const pass = w.passMode === 'host' ? null : w.passMode === 'generate' ? w.genPass : w.pass;
+  let target;
+  if (w.goal === 'pool'){
+    const g = {id: nextGroupId++, name: w.name, kind:'abr-node-pool', size:4, createdAt: now}; state.groups.push(g);
+    RUNGS.forEach(r => state.deployments.push(mk({name:`${w.name}-${r.name}`, type:'rung', slot: nextSlot++, groupId:g.id, host, notes:w.notes, address:'0x'+hex(40), wallet:{xdai:'0.0000', bzz:'0.0000'}, status:'DEPLOYING', everRan:false, createdAt: now})));
+    target = () => go('group', g.id);
+  } else {
+    const type = w.goal === 'custom' ? 'custom' : w.goal;
+    const base = {type, host, notes:w.notes, engine:w.engine, passphrase: (type==='stream' && w.engine==='srs') || type==='abr-uploader' || (type==='custom' && w.components.includes('srs')) ? pass : null,
+      privateKey: ['stream','abr-uploader'].includes(type) || (type==='custom' && w.components.includes('stream-uploader')) ? w.key : null,
+      feedOwner: type==='viewer' || (type==='custom' && w.components.includes('client')) ? (w.feedMode==='pick' ? byName(w.feedStreamer)?.address : w.feedOwner) : null,
+      beePublishers: type==='abr-uploader' ? (w.poolMode==='pick' ? poolString(groupById(+w.poolId)) : w.poolString.trim()) : null,
+      components: type==='custom' ? w.components : null, beeUrl: w.beeMode==='external' ? w.beeUrl : null,
+      stamp: type==='stream' && w.stampMode==='paste' ? {id:w.stampId.replace(/^0x/,''), state:'active', ttlDays:30, depth:20, amount:'30000000'} : null,
+      wallet: type==='stream' ? {xdai:'0.0000', bzz:'0.0000'} : null, status:'DEPLOYING', everRan:false, createdAt: now};
+    if (base.privateKey) base.address = '0x'+hex(40);
+    if (w.group){
+      const g = {id: nextGroupId++, name: w.name, kind:'standard', size:+w.size, createdAt: now}; state.groups.push(g);
+      for (let i = 1; i <= +w.size; i++) state.deployments.push(mk({...base, name:`${w.name}-profile-${i}`, slot: nextSlot++, groupId:g.id}));
+      target = () => go('group', g.id);
+    } else { state.deployments.push(mk({...base, name:w.name, slot: nextSlot++})); target = () => go('detail', w.name); }
+  }
+  const created = state.deployments.filter(d => d.status === 'DEPLOYING' && !d.everRan);
+  state.wizard = null; target(); toast(`Deploying ${created.length === 1 ? created[0].name : created.length + ' deployments'}…`);
+  log(`${w.name} created and deploying`, 'info');
+  setTimeout(() => { created.forEach(d => { d.status = 'RUNNING'; d.everRan = true; if (d.type === 'stream' && d.stamp) d.uploaderDeployed = true; }); log(`${w.name} is running`, 'ok'); render(); toast(`${w.name} is running`, 'ok'); }, 2200);
+}
+
+/* ------------------------------------------------------------ drawer */
+function openEdit(d){ state.drawer = {kind:'deployment', name:d.name, f:{notes:d.notes||'', passMode: d.passphrase ? 'own' : 'host', pass:d.passphrase||'', key:d.privateKey||'', stampId:d.stamp?.id||'', feedOwner:d.feedOwner||'', beeUrl:d.beeUrl||'', poolString:d.beePublishers||''}}; render(); }
+function openEditGroup(g){ const m = membersOf(g)[0] || {}; state.drawer = {kind:'group', id:g.id, f:{notes:m.notes||'', passMode: m.passphrase ? 'own' : 'host', pass:m.passphrase||'', feedOwner:m.feedOwner||''}}; render(); }
+function renderDrawer(dr){
+  const f = dr.f; const d = dr.kind === 'deployment' ? byName(dr.name) : null; const g = dr.kind === 'group' ? groupById(dr.id) : null; const m = g ? membersOf(g)[0] : d;
+  const title = d ? d.name : `Group ${g.name}`;
+  const passField = `<div class="field"><label>SRT passphrase</label><div class="seg">
+      <label class="${f.passMode==='host'?'on':''}"><input type="radio" name="dpass" data-d="passMode" value="host" ${f.passMode==='host'?'checked':''}><div><div class="t">Use the host-wide passphrase</div><div class="d">Clears any passphrase of its own. ${g ? 'Applied to every member.' : ''}</div></div></label>
+      <label class="${f.passMode==='own'?'on':''}"><input type="radio" name="dpass" data-d="passMode" value="own" ${f.passMode==='own'?'checked':''}><div style="flex:1"><div class="t">Own passphrase</div>${f.passMode==='own' ? `<div class="inrow" style="margin-top:8px"><input class="in mono" data-d="pass" value="${esc(f.pass)}" placeholder="10 to 79 characters"><button class="btn sm" type="button" data-action="drawerGenPass">Generate</button></div>` : ''}</div></label></div>
+      <div class="hint">Publishers must use the new passphrase after the redeploy. The publish URL updates itself.</div></div>`;
+  let fields = '';
+  if (d && hasSvc(d,'srs')) fields += passField;
+  if (g && m && hasSvc(m,'srs')) fields += passField;
+  if (d && hasSvc(d,'stream-uploader') && d.type !== 'rung') fields += `<div class="field"><label>Stream key <small>private key</small></label><div class="inrow"><input class="in mono" data-d="key" value="${esc(f.key)}"><button class="btn sm" type="button" data-action="drawerGenKey">Regenerate</button></div><div class="hint" style="color:var(--warn)">Changing the key changes the stream's identity. Viewers following the old address will stop seeing it.</div></div>`;
+  if (d && d.type === 'stream') fields += `<div class="field"><label>Postage stamp ID <small>optional</small></label><input class="in mono" data-d="stampId" value="${esc(f.stampId)}" placeholder="64 hex characters"><div class="hint">Usually set from the Storage panel. Paste here only to point at a batch bought elsewhere.</div></div>`;
+  if (d && d.type === 'stream' && !hasSvc(d,'bee-uploader')) fields += `<div class="field"><label>External Bee API</label><input class="in mono" data-d="beeUrl" value="${esc(f.beeUrl)}" placeholder="http://10.0.0.7:1633"></div>`;
+  if (d && d.type === 'abr-uploader') fields += `<div class="field"><label>Node pool string</label><textarea class="in mono" data-d="poolString">${esc(f.poolString)}</textarea><div class="hint">${poolStringOk(f.poolString) ? '4 rungs recognised.' : 'Needs all four rungs, as copied from a pool page.'}</div></div>`;
+  if (m && hasSvc(m,'client')) fields += `<div class="field"><label>Streamer to follow <small>public address</small></label><input class="in mono" data-d="feedOwner" value="${esc(f.feedOwner)}"><div class="hint">${streamers().length ? `On this manager: ${streamers().map(s => `<a data-action="drawerPickFeed" data-value="${s.address}" style="cursor:pointer">${s.name}</a>`).join(', ')}` : ''}</div></div>`;
+  fields += `<div class="field"><label>Notes</label><textarea class="in" data-d="notes">${esc(f.notes)}</textarea></div>`;
+  const locked = m ? [['Type', TYPE_LABEL[m.type]], ['Components', servicesOf(m).join(', ')], ['Host', hostOf(m)], ['Name', d ? d.name : `${g.name}-profile-N`]] : [];
+  return `<div class="drawer-ovl" data-close="drawer"></div><div class="drawer">
+    <div class="dh"><h3>Edit ${esc(title)}</h3><span style="flex:1"></span><button class="btn ghost icon" data-action="closeDrawer">✕</button></div>
+    <div class="db">
+      <details class="locked"><summary>Fixed at creation: type, components, host, name. Remove and recreate to change these.</summary><dl class="kv">${locked.map(([k,v]) => `<dt>${k}</dt><dd class="mono">${esc(v)}</dd>`).join('')}</dl></details>
+      ${g ? `<div class="note" style="margin-bottom:16px">Changes apply to all ${membersOf(g).length} members and redeploy them. Keys and stamps stay per member.</div>` : ''}
+      ${fields}
+    </div>
+    <div class="df"><button class="btn" data-action="closeDrawer">Cancel</button><span style="flex:1"></span><button class="btn pri" data-action="drawerSave">Save and redeploy</button></div></div>`;
+}
+function drawerSave(){
+  const dr = state.drawer; const f = dr.f;
+  const apply = (d) => { d.notes = f.notes; if (hasSvc(d,'srs')) d.passphrase = f.passMode === 'own' && f.pass ? f.pass : null; if (dr.kind === 'deployment'){ if (hasSvc(d,'stream-uploader') && f.key) { if (d.privateKey !== f.key) d.address = '0x'+hex(40); d.privateKey = f.key; } if (d.type === 'stream') { if (f.stampId && (!d.stamp || d.stamp.id !== f.stampId)) d.stamp = {id:f.stampId, state:'active', ttlDays:30, depth:20, amount:'30000000'}; if (!f.stampId) d.stamp = d.stamp && d.stamp.state !== 'active' ? d.stamp : (f.stampId ? d.stamp : null); } if (d.type === 'abr-uploader') d.beePublishers = f.poolString.trim(); if (f.beeUrl !== undefined) d.beeUrl = f.beeUrl || null; } if (hasSvc(d,'client')) d.feedOwner = f.feedOwner || null; };
+  const targets = dr.kind === 'deployment' ? [byName(dr.name)] : membersOf(groupById(dr.id));
+  targets.forEach(d => { apply(d); if (running(d)) { d.status = 'DEPLOYING'; setTimeout(() => { d.status = 'RUNNING'; render(); }, 1600); } });
+  state.drawer = null; render(); toast(`Saved. Redeploying ${targets.length === 1 ? targets[0].name : targets.length + ' members'}…`);
+}
+
+/* ----------------------------------------------------------- overlays */
+function renderOverlay(){
+  const o = $('#overlay'); let html = '';
+  if (state.wizard) html += renderWizard(state.wizard);
+  if (state.drawer) html += renderDrawer(state.drawer);
+  if (state.confirm) html += `<div class="ovl" data-close="confirm"><div class="modal confirm" data-stop><div class="mh"><h3>${esc(state.confirm.title)}</h3></div><div class="mb" style="padding:18px 22px"><p>${state.confirm.body}</p></div><div class="mf"><span style="flex:1"></span><button class="btn" data-action="closeConfirm">Cancel</button><button class="btn ${state.confirm.danger?'danger':'pri'}" data-action="confirmOk">${esc(state.confirm.ok)}</button></div></div></div>`;
+  if (state.help) html += renderHelp();
+  if (state.menu) html += `<div class="menu" style="left:${state.menu.x}px;top:${state.menu.y}px">${state.menu.items.map(i => i === 'hr' ? '<hr>' : `<button class="${i.danger?'danger':''}" data-action="${i.action}" data-name="${i.name||''}" data-id="${i.id||''}" data-anchor="${i.anchor||''}">${i.label}</button>`).join('')}</div>`;
+  o.innerHTML = html;
+  const nm = document.getElementById('namePreview');
+  if (nm && state.wizard) nm.textContent = namePreview(state.wizard);
+  const auto = o.querySelector('[autofocus]'); if (auto && state.wizard && state.wizard.step === 2 && !state.wizard.name) auto.focus();
+}
+function renderHelp(){
+  const items = [
+    ['One page per deployment.', 'The Deployments, Uploaders and Resources tabs are merged. A deployment page shows status, a readiness checklist, the publish URL, funding and stamps, containers and configuration. No more hopping between tabs to get a stream ready.'],
+    ['A readiness checklist instead of scattered chips.', 'Containers, funding, stamp, uploader, then the OBS URL. Each step says what is missing and carries the button that fixes it.'],
+    ['Actions on the row, not in a toolbar.', 'Start, Stop, Edit and Remove sit on each row and in each page header. Nothing has to be selected first. Bulk selection can return later as an optional mode.'],
+    ['Plain words first, technical names second.', 'Stream, Viewer, Bee node, ABR uploader, "postage stamp is prepaid Swarm storage". Service names stay visible in small mono chips for those who need them.'],
+    ['A guided New deployment flow.', 'Four steps starting from the goal. Only the fields that apply appear, so the old Type + Kind + Components + Engine puzzle and the "locked" fields are gone. Review before deploying, then "what happens next" in one sentence.'],
+    ['Linked flows.', 'Create a viewer from a stream (address prefilled). Create an ABR uploader from a pool (string prefilled). Pasting still works for the other-machine case.'],
+    ['Overview page with a Needs attention list.', 'Host health, counts, and every deployment that needs a hand, each with its action. Problems surface without opening rows.'],
+    ['Groups and pools are first-class.', 'Their own page with Start all, Stop all, Add members, shared settings, and for pools the rung table with per-rung funding and the pool string.'],
+    ['Host page simplified.', 'Three big bars (our stacks vs everything else vs free), then a per-deployment table. The old three-section layout is folded into one.'],
+    ['Small fixes folded in.', 'A group can go back to the host passphrase (found in the PR #38 review). Empty and error states say what to do next.'],
+  ];
+  return `<div class="ovl" data-close="help"><div class="modal help" data-stop><div class="mh"><h3>What changed in this design</h3><span style="flex:1"></span><button class="btn ghost icon" data-action="closeHelp">✕</button></div>
+    <div class="mb" style="padding:18px 22px"><p class="small dim" style="margin:0 0 14px">Everything here maps onto endpoints the manager already has. Two lists that the forms offer (streams on this manager, pools on this manager) come from the existing profile and group listings. No backend change is required for this design.</p>
+    <ol>${items.map(([b,s]) => `<li><b>${b}</b><span>${s}</span></li>`).join('')}</ol></div>
+    <div class="mf"><span style="flex:1"></span><button class="btn pri" data-action="closeHelp">Close</button></div></div></div>`;
+}
+function confirmRemove(d){ state.confirm = {title:`Remove ${d.name}?`, body:`This stops the containers, deletes the record and <b>wipes the deployment's data directory</b> on ${hostOf(d)}. This cannot be undone.`, ok:'Remove', danger:true, onOk: () => removeDeployment(d.name)}; render(); }
+function confirmRemoveGroup(g){ state.confirm = {title:`Remove group ${g.name}?`, body:`All ${membersOf(g).length} members are stopped and removed, and their data directories are wiped. This cannot be undone.`, ok:'Remove group', danger:true, onOk: () => removeGroup(g)}; render(); }
+
+/* ------------------------------------------------------------ events */
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-action],[data-nav],[data-open],[data-toggle],[data-filter],[data-goal],[data-close],[data-stop],[data-w-toggle],a[data-stop]');
+  if (!t) { if (state.menu) { state.menu = null; render(); } return; }
+  if (t.matches('a[href][data-stop]')) { e.stopPropagation(); return; }
+  if (t.dataset.close){ if (t === e.target) { if (t.dataset.close === 'wizard' || t.dataset.close === 'drawer' || t.dataset.close === 'confirm' || t.dataset.close === 'help') { state[t.dataset.close === 'help' ? 'help' : t.dataset.close] = t.dataset.close === 'help' ? false : null; render(); } } return; }
+  if (t.dataset.stop !== undefined && !t.dataset.action) return;
+  if (t.dataset.nav){ go(t.dataset.nav); return; }
+  if (t.dataset.open){ if (e.target.closest('button,a,form,input')) return; go('detail', t.dataset.open); return; }
+  if (t.dataset.toggle){ if (e.target.closest('button,a')) return; const id = +t.dataset.toggle; state.collapsed.has(id) ? state.collapsed.delete(id) : state.collapsed.add(id); render(); return; }
+  if (t.dataset.filter){ state.filter = t.dataset.filter; render(); return; }
+  if (t.dataset.goal){ state.wizard.goal = t.dataset.goal; if (t.dataset.goal === 'pool' || t.dataset.goal === 'abr-uploader') state.wizard.group = false; render(); return; }
+  if (t.dataset.wToggle){ state.wizard[t.dataset.wToggle] = !state.wizard[t.dataset.wToggle]; render(); return; }
+  const a = t.dataset.action, name = t.dataset.name, id = +t.dataset.id, val = t.dataset.value;
+  if (state.menu && a !== 'menu') state.menu = null;
+  switch (a){
+    case 'theme': state.theme = state.theme === 'dark' ? 'light' : 'dark'; render(); break;
+    case 'help': state.help = true; render(); break;
+    case 'closeHelp': state.help = false; render(); break;
+    case 'new': openWizard(); break;
+    case 'newViewer': openWizard({goal:'viewer', step:2, feedMode:'pick', feedStreamer:name, name:`${name}-viewer`}); break;
+    case 'newAbrUploader': openWizard({goal:'abr-uploader', step:2, poolMode:'pick', poolId:id, name:`${groupById(id).name}-uploader`}); break;
+    case 'closeWizard': state.wizard = null; render(); break;
+    case 'wizBack': state.wizard.step--; render(); break;
+    case 'wizNext': if (!wizError(state.wizard)) { state.wizard.step++; render(); } break;
+    case 'wizDeploy': wizardDeploy(); break;
+    case 'wizRegenPass': state.wizard.genPass = `stage-${hex(8)}-${hex(6)}`; render(); break;
+    case 'wizRegenKey': state.wizard.key = '0x'+hex(64); render(); break;
+    case 'copy': copy(val); break;
+    case 'open': go('detail', name); if (t.dataset.anchor) setTimeout(() => document.querySelector(t.dataset.anchor)?.scrollIntoView({behavior:'smooth', block:'start'}), 50); break;
+    case 'openGroup': go('group', id); break;
+    case 'scroll': document.querySelector(val)?.scrollIntoView({behavior:'smooth', block:'start'}); break;
+    case 'start': startDeployment(name); break;
+    case 'stop': stopDeployment(name); break;
+    case 'deployUploader': deployUploader(name); break;
+    case 'useStamp': useStamp(name, val, +t.dataset.days); break;
+    case 'refresh': toast('Refreshed from the Bee node'); break;
+    case 'remove': confirmRemove(byName(name)); break;
+    case 'removeGroup': confirmRemoveGroup(groupById(id)); break;
+    case 'startGroup': startGroup(groupById(id)); break;
+    case 'stopGroup': stopGroup(groupById(id)); break;
+    case 'edit': openEdit(byName(name)); break;
+    case 'editGroup': openEditGroup(groupById(id)); break;
+    case 'closeDrawer': state.drawer = null; render(); break;
+    case 'drawerSave': drawerSave(); break;
+    case 'drawerGenPass': state.drawer.f.pass = `stage-${hex(8)}-${hex(6)}`; render(); break;
+    case 'drawerGenKey': state.drawer.f.key = '0x'+hex(64); render(); break;
+    case 'drawerPickFeed': state.drawer.f.feedOwner = val; render(); break;
+    case 'closeConfirm': state.confirm = null; render(); break;
+    case 'confirmOk': { const fn = state.confirm.onOk; state.confirm = null; fn(); break; }
+    case 'menu': { e.stopPropagation(); const d = byName(name); const r = t.getBoundingClientRect(); const items = [{label:'Open', action:'open', name}, {label:'Edit', action:'edit', name}];
+      if (d.type === 'stream' && running(d)) items.push({label:'Create a viewer for this stream', action:'newViewer', name});
+      if (publishUrl(d) && running(d)) items.push({label:'Copy publish URL', action:'copy', name, value:publishUrl(d)});
+      items.push('hr', {label:'Remove…', action:'remove', name, danger:true});
+      state.menu = {x: Math.min(r.left, innerWidth - 240), y: r.bottom + 6, items}; render(); break; }
+  }
+});
+document.addEventListener('click', (e) => { const b = e.target.closest('.menu button[data-value]'); if (b && b.dataset.action === 'copy') copy(b.dataset.value); }, true);
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'search'){ state.search = t.value; const tb = $('#view'); tb.innerHTML = renderDeployments(); return; }
+  if (t.dataset.w !== undefined && state.wizard){ state.wizard[t.dataset.w] = t.value; const err = wizError(state.wizard); const btn = document.querySelector('[data-action=wizNext]'); if (btn) btn.disabled = !!err; const msg = document.querySelector('.mf span span'); const holder = document.querySelector('.mf > span'); if (holder) holder.innerHTML = err ? `<span style="color:var(--warn)">${esc(err)}</span>` : ''; const nm = document.getElementById('namePreview'); if (nm) nm.textContent = namePreview(state.wizard); return; }
+  if (t.dataset.d !== undefined && state.drawer){ state.drawer.f[t.dataset.d] = t.value; return; }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset.w !== undefined && state.wizard && (t.type === 'radio' || t.tagName === 'SELECT')){ state.wizard[t.dataset.w] = t.value; render(); return; }
+  if (t.dataset.wComp && state.wizard){ const c = t.dataset.wComp; const set = new Set(state.wizard.components); t.checked ? set.add(c) : set.delete(c); if (t.checked && c === 'srs') set.delete('ome'); if (t.checked && c === 'ome') set.delete('srs'); state.wizard.components = [...set]; render(); return; }
+  if (t.dataset.d !== undefined && state.drawer && t.type === 'radio'){ state.drawer.f[t.dataset.d] = t.value; render(); return; }
+});
+document.addEventListener('submit', (e) => {
+  const f = e.target; e.preventDefault();
+  if (f.dataset.buy){ const fd = new FormData(f); buyStamp(f.dataset.buy, +fd.get('amount'), +fd.get('depth')); }
+  if (f.dataset.add){ const fd = new FormData(f); addMembers(groupById(+f.dataset.add), Math.max(1, +fd.get('count') || 1)); }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ if (state.menu) state.menu = null; else if (state.confirm) state.confirm = null; else if (state.drawer) state.drawer = null; else if (state.wizard) state.wizard = null; else if (state.help) state.help = false; render(); } });
+
+/* a little life in the numbers */
+setInterval(() => { const h = state.host; h.cpu = Math.max(20, Math.min(70, h.cpu + (Math.random()-0.5)*3)); h.oursCpu = Math.max(12, Math.min(h.cpu-5, h.oursCpu + (Math.random()-0.5)*2)); h.cpu = Math.round(h.cpu); h.oursCpu = Math.round(h.oursCpu); h.netIn = +(h.netIn + (Math.random()-0.5)).toFixed(1); h.netOut = +(h.netOut + (Math.random()-0.5)*2).toFixed(1); if (['overview','host'].includes(state.route.page) && !state.wizard && !state.drawer && !state.menu && !state.confirm && !state.help) render(); }, 4000);
+
+render();
+</script>
+</body>
+</html>
