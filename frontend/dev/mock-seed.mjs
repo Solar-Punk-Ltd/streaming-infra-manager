@@ -10,7 +10,6 @@ import { randomBytes, randomInt } from 'node:crypto';
 
 /** The hostname this fake manager publishes its deployments on. */
 export const PUBLIC_HOST = 'lab-host-1';
-export const HOST_PASSPHRASE = 'labhost-shared-passphrase-01';
 
 export const DAY = 86_400;
 export const GB = 1024 ** 3;
@@ -23,6 +22,9 @@ export const RUNGS = [
 ];
 
 export const hex = (bytes) => randomBytes(bytes).toString('hex');
+/** A readable fake SRT passphrase, distinct per run like every other secret here. */
+export const passphrase = (label) => `${label}-${hex(6)}`;
+export const HOST_PASSPHRASE = passphrase('lab-host');
 const key = () => `0x${hex(32)}`;
 const address = () => `0x${hex(20)}`;
 const batchId = () => hex(32);
@@ -182,7 +184,7 @@ export function seed() {
     notes: 'Primary stage. OBS at the venue publishes here.',
     private_key: mainKey,
     public_key: mainAddress,
-    srt_passphrase: 'mainstage-secret-2026',
+    srt_passphrase: passphrase('main-stage'),
     created_at: '2026-08-30T09:00:00Z',
   });
   const mainNode = node(mainStage.name);

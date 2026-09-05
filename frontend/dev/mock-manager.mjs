@@ -206,7 +206,6 @@ function send(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     'content-type': 'application/json',
-    'access-control-allow-origin': '*',
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
@@ -217,7 +216,6 @@ function openStream(res, clients) {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
-    'access-control-allow-origin': '*',
   });
   res.write(': connected\n\n');
   clients.add(res);
@@ -508,14 +506,6 @@ const ROUTES = [
 ];
 
 const server = createServer((req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'access-control-allow-origin': '*',
-      'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'access-control-allow-headers': 'content-type',
-    });
-    return res.end();
-  }
 
   const path = decodeURI(new URL(req.url, `http://${PUBLIC_HOST}`).pathname);
   for (const [method, pattern, handler] of ROUTES) {
@@ -531,8 +521,8 @@ const server = createServer((req, res) => {
 });
 
 seed();
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
-    `mock manager on http://localhost:${PORT} with ${state.profiles.length} profiles and ${state.groups.length} groups\n`,
+    `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles and ${state.groups.length} groups\n`,
   );
 });
