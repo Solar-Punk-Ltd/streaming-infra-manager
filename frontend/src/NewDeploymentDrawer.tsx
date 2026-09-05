@@ -37,6 +37,9 @@ import {
   isLadderKind,
   OME_SERVICE,
   SRS_SERVICE,
+  generateSrtPassphrase,
+  SRT_PASSPHRASE_MESSAGE,
+  SRT_PASSPHRASE_RE,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
@@ -61,6 +64,7 @@ import {
   notesHelperText,
   privateKeyHelperText,
   publicKeyHelperText,
+  srtPassphraseHelperText,
   stampIdHelperText,
 } from './helperText';
 import type { DeploymentGroup, Profile, ProfileKind } from './types';
@@ -142,6 +146,8 @@ interface Props {
   onCreated: (profiles: Profile[]) => void;
   selectedProfile?: Profile | null;
   selectedGroup?: GroupSelection | null;
+  /** Host-wide SRT_PASSPHRASE, so an empty passphrase field can say what it means. */
+  hostPassphrase?: string | null;
 }
 
 export function NewDeploymentDrawer({
@@ -150,6 +156,7 @@ export function NewDeploymentDrawer({
   onCreated,
   selectedProfile,
   selectedGroup,
+  hostPassphrase = null,
 }: Props) {
   const isGroupEdit = !!selectedGroup;
   const isProfileEdit = !!selectedProfile;
@@ -174,6 +181,7 @@ export function NewDeploymentDrawer({
   const [privateKey, setPrivateKey] = useState('');
   const [stampId, setStampId] = useState('');
   const [beeUrl, setBeeUrl] = useState('');
+  const [srtPassphrase, setSrtPassphrase] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -200,6 +208,7 @@ export function NewDeploymentDrawer({
         setPrivateKey(selectedGroup ? '' : (source.private_key ?? ''));
         setStampId(selectedGroup ? '' : (source.stamp_id ?? ''));
         setBeeUrl(selectedGroup ? '' : (source.bee_url ?? ''));
+        setSrtPassphrase(source.srt_passphrase ?? '');
         setNotes(source.notes ?? '');
         setSubmitError(null);
       }
@@ -212,6 +221,8 @@ export function NewDeploymentDrawer({
   const hasComponent = (c: Component) => components.includes(c);
   const hasClient = hasComponent(CLIENT_SERVICE);
   const hasStreamUploader = hasComponent(STREAM_UPLOADER_SERVICE);
+  // OME's SRT listener takes no passphrase, so the field belongs to srs alone.
+  const hasSrsEngine = hasComponent(SRS_SERVICE);
 
   const onKindChange = (next: ProfileKind) => {
     setKind(next);
@@ -282,6 +293,15 @@ export function NewDeploymentDrawer({
     beeUrlApplies && hasStreamUploader && !hasLocalBeeNode
       ? beeUrlProblem(beeUrl)
       : null;
+  // Scoped to the engine that reads it, like the uploader's and client's own
+  // fields above: switching away to `ome` hides this input, and an error left
+  // behind by a hidden input would block Deploy with nothing on screen to fix.
+  const srtPassphraseError =
+    hasSrsEngine &&
+    srtPassphrase.length > 0 &&
+    !SRT_PASSPHRASE_RE.test(srtPassphrase)
+      ? SRT_PASSPHRASE_MESSAGE
+      : null;
   const componentsError =
     components.length === 0 ? 'select at least one component' : null;
   const notesError = notes.length > 500 ? 'max 500 chars' : null;
@@ -301,6 +321,7 @@ export function NewDeploymentDrawer({
     !privateKeyError &&
     !stampIdError &&
     !beeUrlError &&
+    !srtPassphraseError &&
     !componentsError &&
     !notesError &&
     !groupSizeError;
@@ -316,6 +337,7 @@ export function NewDeploymentDrawer({
     if (clientFieldsMissing) return 'Feed Owner Public Key is required';
     if (feedOwnerError) return `Feed Owner: ${feedOwnerError}`;
     if (hostError) return `Host: ${hostError}`;
+    if (srtPassphraseError) return `SRT passphrase: ${srtPassphraseError}`;
     if (privateKeyError) return `Private Key: ${privateKeyError}`;
     if (stampIdError) return `Stamp ID: ${stampIdError}`;
     if (beeUrlError) return `BEE_URL: ${beeUrlError}`;
@@ -332,6 +354,7 @@ export function NewDeploymentDrawer({
     setPrivateKey('');
     setStampId('');
     setBeeUrl('');
+    setSrtPassphrase('');
     setNotes('');
     setDeploymentType('streaming-infra');
     setGroupMode(false);
@@ -380,13 +403,19 @@ export function NewDeploymentDrawer({
           hasStreamUploader && derivedAddress ? derivedAddress : undefined,
         stamp_id:
           hasStreamUploader && stampId.trim() ? stampId.trim() : undefined,
+        srt_passphrase:
+          hasSrsEngine && srtPassphrase.trim()
+            ? srtPassphrase.trim()
+            : undefined,
       };
       if (isGroupEdit) {
-        // Group edit intentionally touches only the shared feed target + notes.
-        // Per-node identity (keys) and stamps are not bulk-applied.
+        // Group edit touches only what the members genuinely share: the feed
+        // target, the notes, and the ingest passphrase. Per-node identity (keys)
+        // and stamps are not bulk-applied.
         const result = await updateGroupConfig(selectedGroup!.group.id, {
           notes: common.notes,
           feed_owner: common.feed_owner,
+          srt_passphrase: common.srt_passphrase,
         });
         onCreated(result.profiles);
         reset();
@@ -498,6 +527,7 @@ export function NewDeploymentDrawer({
               onCreated={onCreated}
               onClose={handleClose}
               editingProfile={editingAbrUploader ? selectedProfile : null}
+              hostPassphrase={hostPassphrase}
             />
           ) : (
             <>
@@ -662,6 +692,38 @@ export function NewDeploymentDrawer({
             helperText={hostHelperText(hostError, isEdit)}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
+
+          {hasSrsEngine && (
+            <TextField
+              label="SRT Passphrase"
+              value={srtPassphrase}
+              onChange={(e) => setSrtPassphrase(e.target.value)}
+              error={!!srtPassphraseError}
+              helperText={srtPassphraseHelperText(
+                srtPassphraseError,
+                hostPassphrase,
+              )}
+              slotProps={{
+                htmlInput: { style: { fontFamily: 'monospace' } },
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        size="small"
+                        aria-label="generate passphrase"
+                        onClick={() =>
+                          setSrtPassphrase(generateSrtPassphrase())
+                        }
+                        title="Generate passphrase"
+                      >
+                        <CasinoIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          )}
 
           {hasStreamUploader && !isGroupEdit && (
             <>

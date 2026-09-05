@@ -59,6 +59,7 @@ function member(rung: string, index: number): Profile {
     stamp_id: BATCH(rung),
     bee_publishers: null,
     bee_url: null,
+    srt_passphrase: null,
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,

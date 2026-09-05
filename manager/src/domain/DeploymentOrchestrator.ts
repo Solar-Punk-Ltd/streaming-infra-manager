@@ -202,6 +202,7 @@ export class DeploymentOrchestrator {
       stampId: profile.stamp_id,
       beePublishers: profile.bee_publishers,
       beeUrl: profile.bee_url,
+      srtPassphrase: profile.srt_passphrase,
       // From the profile's own components, deliberately not from `deployNow`:
       // a held-back uploader is deployed on its own, and deploy.sh must still
       // resolve the local Bee address for it.
@@ -533,7 +534,7 @@ export class DeploymentOrchestrator {
     if (profile.stamp_id) {
       env.STAMP = profile.stamp_id.replace(/^0x/, '');
     }
-    // Same three keys writeProfileEnv puts in .env.<profile>, so the container
+    // Same keys writeProfileEnv puts in .env.<profile>, so the container
     // snapshot shows what a pool-backed uploader was actually started with.
     const publishers = profile.bee_publishers?.trim();
     if (publishers) {
@@ -544,6 +545,10 @@ export class DeploymentOrchestrator {
     const beeUrl = profile.bee_url?.trim();
     if (beeUrl && !publishers) {
       env.BEE_URL = beeUrl;
+    }
+    // Unset leaves the base .env's value in place, matching writeProfileEnv.
+    if (profile.srt_passphrase) {
+      env.SRT_PASSPHRASE = profile.srt_passphrase;
     }
 
     return env;

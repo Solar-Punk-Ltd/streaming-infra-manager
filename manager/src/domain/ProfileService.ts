@@ -115,6 +115,7 @@ export class ProfileService {
     stamp_id?: string | null;
     bee_publishers?: string | null;
     bee_url?: string | null;
+    srt_passphrase?: string | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
@@ -151,6 +152,7 @@ export class ProfileService {
           stamp_id: input.stamp_id,
           bee_publishers: input.bee_publishers,
           bee_url: input.bee_url,
+          srt_passphrase: input.srt_passphrase,
         },
       );
     } catch (err) {
@@ -216,6 +218,7 @@ export class ProfileService {
       stamp_id?: string | null;
       bee_publishers?: string | null;
       bee_url?: string | null;
+      srt_passphrase?: string | null;
     },
   ): Promise<ProfileWithContainers> {
     const existing = await this.getByName(name);
@@ -250,6 +253,7 @@ export class ProfileService {
       stamp_id: input.stamp_id,
       bee_publishers: input.bee_publishers,
       bee_url: input.bee_url,
+      srt_passphrase: input.srt_passphrase,
     });
 
     if (!row) {
@@ -335,6 +339,7 @@ export class ProfileService {
     private_key?: string;
     public_key?: string;
     stamp_id?: string;
+    srt_passphrase?: string;
     abr_ladder?: boolean;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
@@ -400,6 +405,7 @@ export class ProfileService {
       private_key: input.private_key ?? null,
       public_key: input.public_key ?? null,
       stamp_id: input.stamp_id ?? null,
+      srt_passphrase: input.srt_passphrase ?? null,
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -515,6 +521,7 @@ export class ProfileService {
       feed_owner?: string | null;
       feed_topic?: string | null;
       stamp_id?: string | null;
+      srt_passphrase?: string | null;
     },
   ): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     const group = await this.groupRepo.findById(groupId);
@@ -563,6 +570,7 @@ export class ProfileService {
       private_key: m.private_key,
       public_key: m.public_key,
       stamp_id: pick(input.stamp_id, m.stamp_id),
+      srt_passphrase: pick(input.srt_passphrase, m.srt_passphrase),
     }));
 
     const updated = await this.groupRepo.updateMembersConfig(writes);
@@ -629,6 +637,7 @@ export class ProfileService {
       private_key: canonical.private_key,
       public_key: canonical.public_key,
       stamp_id: canonical.stamp_id,
+      srt_passphrase: canonical.srt_passphrase,
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.

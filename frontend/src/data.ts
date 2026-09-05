@@ -126,6 +126,7 @@ export interface CreateGroupBody {
   private_key?: string;
   public_key?: string;
   stamp_id?: string;
+  srt_passphrase?: string;
 }
 
 export async function createDeploymentGroup(
@@ -149,6 +150,7 @@ export interface UpdateGroupConfigBody {
   feed_owner?: string;
   feed_topic?: string;
   stamp_id?: string;
+  srt_passphrase?: string;
 }
 
 export async function updateGroupConfig(

@@ -56,6 +56,15 @@ Media engines: `srs` (default) and `ome` are mutually exclusive — a profile's
 write `ENGINE=ome` (plus slot-shifted `OME_SRT_PORT`/`OME_HLS_PORT`) into the
 profile's `.env.<name>` so the stream-uploader runs the OvenMediaEngine plugin.
 
+SRT passphrase: a profile may carry its own `srt_passphrase`, written to
+`.env.<name>` as `SRT_PASSPHRASE` so SRS encrypts that deployment's SRT listener
+with it. Left unset, the base `.env`'s host-wide value applies — the behaviour
+before the field existed. SRS only; OME's SRT listener takes no passphrase.
+Accepted values are 10–79 characters of `A-Z a-z 0-9 . _ ~ -`; the bounds are
+libsrt's and the character set keeps the value intact through the `sed` in
+`engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
+`srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
+
 ### Misc
 
 | Method | Path        | Notes                             |

@@ -70,6 +70,15 @@ export const beeUrlHelperText = (
     ? 'locked — this deployment runs its own bee-uploader, which the deploy script points the uploader at; drop that component to use an external node'
     : 'optional — an external bee API, e.g. http://10.0.0.7:1633; empty uses the deploy script’s default');
 
+export const srtPassphraseHelperText = (
+  error: FieldError,
+  hostPassphrase: string | null,
+): string =>
+  error ||
+  (hostPassphrase
+    ? "optional — leave empty to use this host's passphrase"
+    : 'optional — leave empty to publish unencrypted');
+
 export const feedOwnerHelperText = (error: FieldError): string =>
   error || '0x-prefixed Ethereum address';
 

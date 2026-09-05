@@ -416,6 +416,7 @@ export function App() {
 
       <NewDeploymentDrawer
         open={drawerOpen}
+        hostPassphrase={srtPassphrase}
         selectedProfile={selectedProfile}
         selectedGroup={
           selectedGroup

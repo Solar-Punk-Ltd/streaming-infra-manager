@@ -24,6 +24,8 @@ export interface Profile {
    * one is enabled. NULL: whatever deploy.sh resolves.
    */
   bee_url: string | null;
+  /** SRS only; null falls back to the base .env. See migrations/007. */
+  srt_passphrase: string | null;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: Date | null;

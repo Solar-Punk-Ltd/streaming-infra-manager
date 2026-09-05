@@ -15,6 +15,7 @@ export interface SharedProfileParams {
   private_key: string | null;
   public_key: string | null;
   stamp_id: string | null;
+  srt_passphrase: string | null;
 }
 
 export interface MemberSeed {
@@ -31,6 +32,7 @@ export interface MemberConfigWrite {
   private_key: string | null;
   public_key: string | null;
   stamp_id: string | null;
+  srt_passphrase: string | null;
 }
 
 export class DeploymentGroupRepository {
@@ -117,6 +119,7 @@ export class DeploymentGroupRepository {
                  private_key = $7,
                  public_key = $8,
                  stamp_id = $9,
+                 srt_passphrase = $10,
                  updated_at = NOW()
            WHERE name = $1
            RETURNING ${PROFILE_COLUMNS}`,
@@ -130,6 +133,7 @@ export class DeploymentGroupRepository {
             w.private_key,
             w.public_key,
             w.stamp_id,
+            w.srt_passphrase,
           ],
         );
 
@@ -161,9 +165,9 @@ export class DeploymentGroupRepository {
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-         group_id
+         srt_passphrase, group_id
        )
-       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11
+       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12
        FROM generate_series(1, 999) AS s(n)
        LEFT JOIN profiles p ON p.port_slot = s.n
        WHERE p.port_slot IS NULL
@@ -181,6 +185,7 @@ export class DeploymentGroupRepository {
         shared.private_key,
         shared.public_key,
         shared.stamp_id,
+        shared.srt_passphrase,
         groupId,
       ],
     );
