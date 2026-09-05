@@ -126,7 +126,7 @@ export function ReviewStep({ state, context }: WizardStepProps) {
   return (
     <Stack spacing={2}>
       <Box>
-        <Typography variant="h6" component="h4">
+        <Typography variant="h6" component="h3">
           Review
         </Typography>
         <Typography variant="body2" color="text.secondary">

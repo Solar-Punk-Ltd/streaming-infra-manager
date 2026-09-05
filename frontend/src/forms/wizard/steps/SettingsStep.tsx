@@ -38,7 +38,7 @@ export function SettingsStep(props: WizardStepProps) {
   return (
     <Stack spacing={2.5}>
       <Box>
-        <Typography variant="h6" component="h4">
+        <Typography variant="h6" component="h3">
           {heading.title}
         </Typography>
         <Typography variant="body2" color="text.secondary">
