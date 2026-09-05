@@ -1,5 +1,7 @@
 import {
+  BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
+  defaultServicesFor,
   OME_SERVICE,
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -26,6 +28,16 @@ export function clientUrl(profile: Profile, serverHost: string): string | null {
   return componentUrl(hostFor(profile, serverHost), port);
 }
 
+/** The API of this deployment's own Bee node, when it runs one. */
+export function beeApiUrl(profile: Profile, serverHost: string): string | null {
+  const bee = profile.containers.find(
+    (c) => c.service === BEE_UPLOADER_SERVICE,
+  );
+  const port = bee?.ports.BEE_UPLOADER_API_PORT;
+  if (!port) return null;
+  return componentUrl(hostFor(profile, serverHost), port);
+}
+
 const SRT_DEFAULT_APP_STREAM = 'live/stream';
 const SRS_SRT_BASE_PORT = 10001;
 const OME_SRT_BASE_PORT = 10001;
@@ -34,10 +46,10 @@ const OME_DEFAULT_APP_STREAM = 'video/stream';
 /**
  * The URL a publisher points OBS or FFmpeg at.
  *
- * `hostPassphrase` is the host-wide SRT_PASSPHRASE from `GET /config` — the
+ * `hostPassphrase` is the host-wide SRT_PASSPHRASE from `GET /config`. The
  * deployment's own passphrase outranks it, and a deployment that sets none falls
  * back to it, which is the same precedence the deploy applies when it writes
- * `.env.<profile>`. Only SRS reads a passphrase; OME's SRT listener has none.
+ * `.env.<profile>`. Only SRS reads a passphrase. OME's SRT listener has none.
  */
 export function srtPublishUrl(
   profile: Profile,
@@ -45,9 +57,13 @@ export function srtPublishUrl(
   hostPassphrase?: string | null,
 ): string | null {
   const host = hostFor(profile, serverHost);
+  // The kind's default services count too: a viewer stores no components list,
+  // and reading only the stored list handed every viewer an SRT URL for a port
+  // nothing listens on.
+  const services = defaultServicesFor(profile);
 
   const ome = profile.containers.find((c) => c.service === OME_SERVICE);
-  if (ome || profile.components?.includes(OME_SERVICE)) {
+  if (ome || services.includes(OME_SERVICE)) {
     const port =
       ome?.ports.OME_SRT_PORT ??
       (profile.port_slot > 0
@@ -61,7 +77,7 @@ export function srtPublishUrl(
   }
 
   const srs = profile.containers.find((c) => c.service === SRS_SERVICE);
-  if (!srs && profile.components && !profile.components.includes(SRS_SERVICE)) {
+  if (!srs && !services.includes(SRS_SERVICE)) {
     return null;
   }
   const port =

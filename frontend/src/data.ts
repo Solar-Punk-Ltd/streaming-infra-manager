@@ -15,8 +15,6 @@ import type {
   ProfileKind,
 } from './types';
 
-export { hasStampId } from '@streaming-infra-manager/common';
-
 export interface ServerConfig {
   host: string;
   srtPassphrase: string | null;
@@ -150,7 +148,14 @@ export interface UpdateGroupConfigBody {
   feed_owner?: string;
   feed_topic?: string;
   stamp_id?: string;
-  srt_passphrase?: string;
+  /**
+   * `null` puts the group back on the host-wide passphrase.
+   *
+   * The PATCH reads `undefined` as "leave it alone", so sending `undefined` for
+   * the host-passphrase choice meant a group that had once been given its own
+   * could never be moved off it. Only an explicit null clears the column.
+   */
+  srt_passphrase?: string | null;
 }
 
 export async function updateGroupConfig(
@@ -188,7 +193,7 @@ export async function addGroupMembers(
 }
 
 // Re-exported rather than redeclared: these are the manager's response shape, and
-// a local copy silently loses whatever the server adds. It already had — the
+// a local copy silently loses whatever the server adds. It already had: the
 // per-rung verification fields were arriving in the JSON and were invisible to the
 // compiler, so nothing would have caught a rename.
 export type {

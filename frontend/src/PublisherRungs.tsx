@@ -34,8 +34,8 @@ export function sortedPublisherRungs(
  *
  * BEE_PUBLISHERS is one line carrying four URLs and four 64-character batch
  * ids, so reading it back to check it is the pool you meant is not realistic.
- * This is the same list in both places it matters — confirming a paste in the
- * form, and saying where a deployed uploader is actually sending segments —
+ * This is the same list in both places it matters: confirming a paste in the
+ * form, and saying where a deployed uploader is actually sending segments,
  * with the framing left to the caller, because one is validation feedback and
  * the other is configuration.
  */

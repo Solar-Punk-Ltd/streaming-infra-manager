@@ -1,20 +1,16 @@
 import { useMemo } from 'react';
 import {
-  Box,
-  Paper,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
-  Typography,
 } from '@mui/material';
 
 import type { MetricsSnapshot } from '../types';
-import type { LiveMetricsProps } from './ResourceMonitor';
 import { GroupBlock } from './GroupBlock';
 import { groupByProject } from './grouping';
+import type { LiveMetricsProps } from './liveMetrics';
 
 export function ContainerTable({
   snapshot,
@@ -28,38 +24,31 @@ export function ContainerTable({
   );
 
   return (
-    <Box>
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Per container (our infra only)
-      </Typography>
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Profile / Service</TableCell>
-              <TableCell>State</TableCell>
-              <TableCell>CPU</TableCell>
-              <TableCell>Memory</TableCell>
-              <TableCell align="right">Network</TableCell>
-              <TableCell align="right">Disk I/O</TableCell>
-              <TableCell align="right">PIDs</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {groups.map((g) => (
-              <GroupBlock
-                key={g.project}
-                group={g}
-                ncpu={snapshot.host.ncpu}
-                memTotalBytes={snapshot.host.memTotalBytes}
-                history={history}
-                diskByProject={diskByProject}
-                onExpandProject={onExpandProject}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
+    <Table>
+      <TableHead>
+        <TableRow>
+          <TableCell>Deployment / service</TableCell>
+          <TableCell>State</TableCell>
+          <TableCell>CPU</TableCell>
+          <TableCell>Memory</TableCell>
+          <TableCell align="right">Network</TableCell>
+          <TableCell align="right">Disk I/O</TableCell>
+          <TableCell align="right">PIDs</TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {groups.map((group) => (
+          <GroupBlock
+            key={group.project}
+            group={group}
+            ncpu={snapshot.host.ncpu}
+            memTotalBytes={snapshot.host.memTotalBytes}
+            history={history}
+            diskByProject={diskByProject}
+            onExpandProject={onExpandProject}
+          />
+        ))}
+      </TableBody>
+    </Table>
   );
 }

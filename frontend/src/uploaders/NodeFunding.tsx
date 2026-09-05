@@ -1,10 +1,12 @@
 import { Box, Stack, Typography } from '@mui/material';
 import { CopyButton } from '../CopyButton';
-import { formatTokenBalance } from '../format';
+import {
+  BZZ_DECIMALS,
+  formatTokenBalance,
+  NO_VALUE,
+  XDAI_DECIMALS,
+} from '../format';
 import type { BeeAddress, BeeWallet } from './stampApi';
-
-const BZZ_DECIMALS = 16;
-const XDAI_DECIMALS = 18;
 
 export function NodeFunding({
   address,
@@ -24,7 +26,7 @@ export function NodeFunding({
             variant="body2"
             sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
           >
-            {address?.ethereum ?? '—'}
+            {address?.ethereum ?? NO_VALUE}
           </Typography>
           {address?.ethereum && (
             <CopyButton value={address.ethereum} label="address" />

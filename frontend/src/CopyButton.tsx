@@ -10,7 +10,7 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {
-      // clipboard unavailable — ignore
+      // clipboard unavailable, nothing to report
     }
   };
   return (

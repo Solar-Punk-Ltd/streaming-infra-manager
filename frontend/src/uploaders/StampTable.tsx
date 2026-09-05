@@ -109,7 +109,7 @@ export function StampTable({
                       {isCurrent ? (
                         <Chip
                           size="small"
-                          label={expired ? 'in use — expired' : 'in use'}
+                          label={expired ? 'in use, expired' : 'in use'}
                           color={expired ? 'error' : 'default'}
                         />
                       ) : (
@@ -134,7 +134,7 @@ export function StampTable({
 }
 
 /**
- * Why the table is empty — which is four different situations, not one.
+ * Why the table is empty, which is four different situations, not one.
  *
  * Only the last of them means the recorded batch is gone. Reporting the others
  * that way turns a node that is slow, or briefly unreachable, into a node with a
@@ -155,7 +155,7 @@ function EmptyState({
       <Typography variant="body2" color="text.disabled">
         {loading
           ? 'Loading…'
-          : 'Could not read this node’s batches — nothing here is known either way. Press Refresh once the node is reachable.'}
+          : 'Could not read this node’s batches, so nothing here is known either way. Press Refresh once the node is reachable.'}
       </Typography>
     );
   }
