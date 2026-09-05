@@ -86,7 +86,7 @@ export function ContainersCard({
                           <Link
                             href={componentUrl(hostFor(profile, host), port)}
                             target="_blank"
-                            rel="noopener"
+                            rel="noopener noreferrer"
                           >
                             {port}
                           </Link>

@@ -161,7 +161,7 @@ export function BuyStampForm({
         <Link
           href="https://docs.ethswarm.org/docs/bee/installation/fund-your-node"
           target="_blank"
-          rel="noopener"
+          rel="noopener noreferrer"
         >
           Funding guide
         </Link>

@@ -125,7 +125,7 @@ export function DeploymentRow({
             </Button>
           )}
           {watchUrl && isRunning(profile) && (
-            <Link href={watchUrl} target="_blank" rel="noopener" variant="body2">
+            <Link href={watchUrl} target="_blank" rel="noopener noreferrer" variant="body2">
               Watch
             </Link>
           )}

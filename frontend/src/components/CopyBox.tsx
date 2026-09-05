@@ -39,7 +39,7 @@ export function CopyBox({
       }}
     >
       {href ? (
-        <Link href={href} target="_blank" rel="noopener" sx={{ flex: 1 }}>
+        <Link href={href} target="_blank" rel="noopener noreferrer" sx={{ flex: 1 }}>
           {value}
         </Link>
       ) : (
