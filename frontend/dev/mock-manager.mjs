@@ -256,6 +256,12 @@ const EDITABLE_FIELDS = [
   'srt_passphrase',
 ];
 
+/** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
+function replaceEditable(profile, body) {
+  for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
+}
+
+/** PATCH semantics: only the fields present in the body change. */
 function applyEdits(profile, body) {
   for (const field of EDITABLE_FIELDS) {
     if (field in body) profile[field] = body[field] ?? null;
@@ -301,7 +307,7 @@ const ROUTES = [
     'PUT',
     /^\/profiles\/([^/]+)$/,
     withProfile(async (req, res, profile) => {
-      applyEdits(profile, await readBody(req));
+      replaceEditable(profile, await readBody(req));
       deploy(profile);
       send(res, 202, profile);
     }),
