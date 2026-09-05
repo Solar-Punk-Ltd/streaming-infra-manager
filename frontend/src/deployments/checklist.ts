@@ -140,7 +140,9 @@ function fundingStep({
     ? `xDAI ${xdaiText} for gas · BZZ ${bzzText} for storage`
     : bzz <= 0n && xdai > 0n
       ? `Has xDAI ${xdaiText} but no BZZ. Send BZZ to the node address to be able to buy a stamp.`
-      : 'Send xDAI and BZZ to the node address.';
+      : xdai <= 0n && bzz > 0n
+        ? `Has BZZ ${bzzText} but no xDAI. Send xDAI to the node address to pay for the purchase.`
+        : 'Send xDAI and BZZ to the node address.';
 
   return {
     title: 'Bee node funded',
