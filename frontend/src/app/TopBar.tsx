@@ -14,6 +14,7 @@ import SearchIcon from '@mui/icons-material/Search';
 
 import { StatusDot } from '../components/StatusDot';
 import { useEditors } from './EditorsContext';
+import { useDeployments } from './useDeploymentsStore';
 
 export function TopBar({
   title,
@@ -31,6 +32,10 @@ export function TopBar({
   onOpenNav: () => void;
 }) {
   const { openWizard } = useEditors();
+  // The wizard seeds its defaults (which stream to follow, which pool to use)
+  // from what is loaded when it opens, so it waits for the first fetch.
+  const { profiles } = useDeployments();
+  const loaded = profiles !== null;
 
   return (
     <Stack
@@ -97,6 +102,8 @@ export function TopBar({
         variant="contained"
         startIcon={<AddIcon />}
         onClick={() => openWizard()}
+        disabled={!loaded}
+        title={loaded ? undefined : 'Loading deployments…'}
         sx={{ flex: 'none' }}
       >
         New deployment
