@@ -52,7 +52,7 @@ export interface CreateProfileBody {
   private_key?: string;
   public_key?: string;
   stamp_id?: string;
-  /** null clears it on update — the uploader goes back to its own node + stamp. */
+  /** null clears it on update, the uploader goes back to its own node + stamp. */
   bee_publishers?: string | null;
   bee_url?: string | null;
   srt_passphrase?: string;

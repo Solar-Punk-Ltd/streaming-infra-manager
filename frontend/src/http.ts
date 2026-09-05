@@ -12,9 +12,9 @@ export async function extractApiError(
     // validation middleware answers {error:'validation_error', errors:[...]},
     // and so does ProfileConfigError. Reading `error` ahead of it showed the
     // operator the literal string "validation_error" and threw the reason
-    // away — so "bee_publishers is required for a abr-uploader" arrived as a
+    // away, so "bee_publishers is required for a abr-uploader" arrived as a
     // single word carrying no information.
-    if (err.errors?.length) return err.errors.join('; ');
+    if (err.errors?.length) return err.errors.join('. ');
     return err.message ?? err.error ?? fallback;
   } catch {
     return fallback;

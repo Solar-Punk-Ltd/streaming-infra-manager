@@ -31,7 +31,7 @@ export interface BeeUtils {
    * with more at stake: an empty list means the node holds no batches, so the
    * recorded one has expired and been dropped, whereas no answer means nothing
    * at all. Conflating the two reports a node that is slow, or that has just
-   * stopped answering, as one with a dead batch — or worse, keeps calling a
+   * stopped answering, as one with a dead batch, or worse keeps calling a
    * stale list verified.
    *
    * A failed fetch therefore clears this rather than leaving the last answer in
@@ -99,7 +99,9 @@ export function useBeeUtils(profile: Profile): BeeUtils {
       isRejected,
     );
     if (failure) {
-      setLoadError(`bee node unreachable — ${getErrorMessage(failure.reason)}`);
+      setLoadError(
+        `This deployment's Bee node could not be reached. ${getErrorMessage(failure.reason)}`,
+      );
     }
 
     setLoading(false);

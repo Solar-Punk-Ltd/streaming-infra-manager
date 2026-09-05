@@ -8,7 +8,7 @@ import {
   formatCores,
   formatSharePercent,
 } from '../format';
-import type { LiveMetricsProps } from './ResourceMonitor';
+import type { LiveMetricsProps } from './liveMetrics';
 import { ContainerRow } from './ContainerRow';
 import type { Group } from './grouping';
 

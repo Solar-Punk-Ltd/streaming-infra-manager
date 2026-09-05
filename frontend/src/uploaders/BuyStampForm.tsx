@@ -13,10 +13,14 @@ import {
 import { stampCostPlur, stampTtlSeconds } from '@streaming-infra-manager/common';
 
 import type { BuyStampInput } from './stampApi';
-import { formatTokenBalance, formatTtl } from '../format';
+import {
+  BZZ_DECIMALS,
+  formatTokenBalance,
+  formatTtl,
+  NO_VALUE,
+} from '../format';
 
 const DEFAULT_DEPTH = '17';
-const BZZ_DECIMALS = 16;
 
 export function BuyStampForm({
   busy,
@@ -30,7 +34,7 @@ export function BuyStampForm({
   /**
    * Starting depth. An ABR rung passes its own: a batch fills in proportion to
    * the rung's bitrate, so a flat depth across the ladder puts the four expiries
-   * hours apart — the failure a node per rung exists to contain.
+   * hours apart, the failure a node per rung exists to contain.
    */
   defaultDepth?: number;
 }) {
@@ -83,7 +87,7 @@ export function BuyStampForm({
           helperText={
             amount.length > 0 && !amountValid
               ? 'positive integer'
-              : 'per-chunk amount; higher = longer life'
+              : 'per-chunk amount. Higher buys a longer life'
           }
           slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
         />
@@ -97,7 +101,7 @@ export function BuyStampForm({
             !depthValid
               ? '17–40'
               : defaultDepth !== undefined && depthNum === defaultDepth
-                ? `batch size (2^depth) — suggested for this rung`
+                ? `batch size (2^depth), suggested for this rung`
                 : 'batch size (2^depth)'
           }
           slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
@@ -137,7 +141,7 @@ export function BuyStampForm({
         <Typography variant="body2" color="text.secondary">
           Estimated life:{' '}
           <Box component="span" sx={{ color: 'text.primary', fontWeight: 500 }}>
-            {amountValid ? formatTtl(ttlSeconds) : '—'}
+            {amountValid ? formatTtl(ttlSeconds) : NO_VALUE}
           </Box>
           {amountValid && ttlSeconds == null && currentPrice == null
             ? ' (price unavailable)'
@@ -146,18 +150,18 @@ export function BuyStampForm({
         <Typography variant="body2" color="text.secondary">
           Cost:{' '}
           <Box component="span" sx={{ color: 'text.primary', fontWeight: 500 }}>
-            {costBzz != null ? `${costBzz} BZZ` : '—'}
+            {costBzz != null ? `${costBzz} BZZ` : NO_VALUE}
           </Box>
         </Typography>
       </Stack>
       <Typography variant="caption" color="text.secondary">
-        A new batch takes a few minutes to become usable. Refresh, then
-        <strong> Use</strong> it and <strong>Deploy uploader</strong>. Need
-        funds?{' '}
+        A new batch takes a few minutes to become usable and is then set on
+        this deployment automatically. The readiness checklist above says what
+        comes next. Need funds?{' '}
         <Link
           href="https://docs.ethswarm.org/docs/bee/installation/fund-your-node"
           target="_blank"
-          rel="noopener"
+          rel="noopener noreferrer"
         >
           Funding guide
         </Link>

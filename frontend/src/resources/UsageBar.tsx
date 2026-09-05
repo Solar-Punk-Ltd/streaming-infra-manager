@@ -1,7 +1,9 @@
 import { Box } from '@mui/material';
 
 export const INFRA_COLOR = 'primary.main';
-export const OTHER_COLOR = 'rgba(255,255,255,0.22)';
+// A palette path rather than a fixed rgba: the same bar is read on a white and
+// on a near-black background, and a hard-coded white wash disappears on one of them.
+export const OTHER_COLOR = 'text.disabled';
 
 export interface Segment {
   fraction: number;
