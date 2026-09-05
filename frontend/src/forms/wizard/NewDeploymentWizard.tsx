@@ -149,7 +149,11 @@ export function NewDeploymentWizard({
             Continue
           </Button>
         ) : (
-          <Button variant="contained" disabled={submitting} onClick={() => void deploy()}>
+          <Button
+            variant="contained"
+            disabled={submitting || stepError !== null}
+            onClick={() => void deploy()}
+          >
             {deployLabel(state)}
           </Button>
         )}

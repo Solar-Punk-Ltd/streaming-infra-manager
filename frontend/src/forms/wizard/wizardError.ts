@@ -16,6 +16,7 @@ import {
 } from '../validation';
 import {
   isNameTaken,
+  LAST_STEP,
   needsExternalBeeUrl,
   needsFeedOwner,
   needsPassphrase,
@@ -42,6 +43,11 @@ export function wizardError(
 ): string | null {
   if (state.step === 2) return basicsError(state, context);
   if (state.step === 3) return settingsError(state, context);
+  // The review re-checks everything against live data: a pool can stop being
+  // ready, or a name can get taken, while the operator reads the summary.
+  if (state.step >= LAST_STEP) {
+    return basicsError(state, context) ?? settingsError(state, context);
+  }
   return null;
 }
 
