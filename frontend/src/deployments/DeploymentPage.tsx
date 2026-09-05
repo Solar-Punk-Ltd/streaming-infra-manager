@@ -122,11 +122,10 @@ function DeploymentBody({
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
   const stampHealth = stampHealthFrom(profile.stamp_id, bee?.stamps ?? null);
+  const stampId = profile.stamp_id;
   const currentStamp =
-    (profile.stamp_id &&
-      bee?.stamps?.find((stamp) =>
-        sameBatchId(stamp.batchID, profile.stamp_id as string),
-      )) ||
+    (stampId &&
+      bee?.stamps?.find((stamp) => sameBatchId(stamp.batchID, stampId))) ||
     null;
 
   const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
