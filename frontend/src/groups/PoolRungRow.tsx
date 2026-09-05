@@ -45,7 +45,9 @@ export function PoolRungRow({
   const spec = DEFAULT_ABR_LADDER.find((entry) => entry.name === rung);
   const readiness = readinessOf(profile);
   const bzz = bee.wallet?.bzzBalance;
-  const bzzEmpty = !bzz || bzz === '0';
+  // Only a balance the node actually reported counts as empty. Before the
+  // wallet loads there is nothing to warn about yet.
+  const bzzEmpty = bee.wallet != null && (!bzz || bzz === '0');
   const needsStamp = isRunning(profile) && !hasStampId(profile);
 
   return (
