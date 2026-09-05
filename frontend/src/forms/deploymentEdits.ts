@@ -102,21 +102,33 @@ export function editProblem(edits: DeploymentEdits, shown: ShownFields): string 
   return notesProblem(edits.notes);
 }
 
+/** Whether the operator changed anything since the form opened. */
+export function hasEdits<T extends object>(initial: T, edits: T): boolean {
+  return (Object.keys(initial) as (keyof T)[]).some(
+    (field) => edits[field] !== initial[field],
+  );
+}
+
 /**
  * The PUT replaces every editable field, so the body starts from what the
- * profile already holds and only the fields on screen are overlaid. Without
- * that a rung's stamp, or an uploader's pool string, would be cleared by an
- * edit of its notes.
+ * profile holds right now and only the fields the operator changed are
+ * overlaid. Untouched fields take the live value, not the value that was on
+ * screen when the drawer opened: a stamp that settled while the operator was
+ * typing a note has to survive the save.
  */
 export function bodyFor(
   profile: Profile,
+  initial: DeploymentEdits,
   edits: DeploymentEdits,
   shown: ShownFields,
 ): UpdateProfileBody {
+  const changed = (field: keyof DeploymentEdits) =>
+    edits[field] !== initial[field];
+
   const body: UpdateProfileBody = {
     kind: profile.kind,
     components: profile.components ?? undefined,
-    notes: edits.notes.trim() || null,
+    notes: changed('notes') ? edits.notes.trim() || null : profile.notes ?? null,
     feed_owner: profile.feed_owner ?? undefined,
     private_key: profile.private_key ?? undefined,
     public_key: profile.public_key ?? undefined,
@@ -126,22 +138,30 @@ export function bodyFor(
     srt_passphrase: profile.srt_passphrase ?? undefined,
   };
 
-  if (shown.passphrase) {
+  if (shown.passphrase && (changed('passMode') || changed('passphrase'))) {
     // The host-wide choice is an omitted field, which the PUT stores as null.
     body.srt_passphrase =
       edits.passMode === 'own' ? edits.passphrase.trim() : undefined;
   }
   const key = edits.key.trim();
-  // Only when it actually changed: re-deriving an unchanged key would quietly
-  // rewrite a public_key that disagrees with it, which is a stream's identity.
-  if (shown.key && key && key !== (profile.private_key ?? '')) {
+  // Re-deriving an unchanged key would quietly rewrite a public_key that
+  // disagrees with it, which is a stream's identity.
+  if (shown.key && changed('key') && key) {
     body.private_key = key;
     body.public_key = addressForKey(key) ?? undefined;
   }
-  if (shown.stamp) body.stamp_id = edits.stampId.trim() || undefined;
-  if (shown.beeUrl) body.bee_url = edits.beeUrl.trim() || null;
-  if (shown.poolString) body.bee_publishers = edits.poolString.trim() || null;
-  if (shown.feedOwner) body.feed_owner = edits.feedOwner.trim() || undefined;
+  if (shown.stamp && changed('stampId')) {
+    body.stamp_id = edits.stampId.trim() || undefined;
+  }
+  if (shown.beeUrl && changed('beeUrl')) {
+    body.bee_url = edits.beeUrl.trim() || null;
+  }
+  if (shown.poolString && changed('poolString')) {
+    body.bee_publishers = edits.poolString.trim() || null;
+  }
+  if (shown.feedOwner && changed('feedOwner')) {
+    body.feed_owner = edits.feedOwner.trim() || undefined;
+  }
 
   return body;
 }

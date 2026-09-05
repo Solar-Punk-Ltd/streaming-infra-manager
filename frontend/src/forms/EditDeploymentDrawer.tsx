@@ -17,6 +17,7 @@ import {
   bodyFor,
   editProblem,
   fieldsFor,
+  hasEdits,
   initialEdits,
   poolHint,
   type DeploymentEdits,
@@ -44,7 +45,10 @@ export function EditDeploymentDrawer({
   const toast = useToast();
   const profile = (profiles ?? []).find((entry) => entry.name === name) ?? null;
 
-  const [edits, setEdits] = useState<DeploymentEdits>(() => initialEdits(profile));
+  // The snapshot the form opened with. Saving compares against it, so a field
+  // the operator never touched keeps whatever the live profile holds by then.
+  const [initial] = useState<DeploymentEdits>(() => initialEdits(profile));
+  const [edits, setEdits] = useState<DeploymentEdits>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +65,10 @@ export function EditDeploymentDrawer({
     setSaving(true);
     setError(null);
     try {
-      const saved = await updateProfile(profile.name, bodyFor(profile, edits, shown));
+      const saved = await updateProfile(
+        profile.name,
+        bodyFor(profile, initial, edits, shown),
+      );
       mergeProfiles([saved]);
       onClose();
       toast(savedMessage(profile.name));
@@ -77,7 +84,7 @@ export function EditDeploymentDrawer({
       title={`Edit ${profile.name}`}
       saving={saving}
       error={error}
-      saveDisabled={problem !== null}
+      saveDisabled={problem !== null || !hasEdits(initial, edits)}
       onSave={() => void save()}
       onClose={onClose}
     >

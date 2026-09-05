@@ -20,6 +20,7 @@ import {
 import { updateGroupConfig, type UpdateGroupConfigBody } from '../data';
 import type { Profile } from '../types';
 import { hostFor } from '../urls';
+import { hasEdits } from './deploymentEdits';
 import { EditDrawerFrame } from './EditDrawerFrame';
 import { FixedAtCreation } from './FixedAtCreation';
 import { FormField } from './FormField';
@@ -50,7 +51,10 @@ export function EditGroupDrawer({
   const members = (profiles ?? []).filter((profile) => profile.group_id === id);
   const first: Profile | undefined = members[0];
 
-  const [edits, setEdits] = useState<GroupEdits>(() => initialEdits(first));
+  // The snapshot the form opened with. Only fields changed against it are sent,
+  // and the PATCH leaves every field it does not receive alone.
+  const [initial] = useState<GroupEdits>(() => initialEdits(first));
+  const [edits, setEdits] = useState<GroupEdits>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +74,7 @@ export function EditGroupDrawer({
     try {
       const result = await updateGroupConfig(
         group.id,
-        bodyFor(edits, showsPassphrase, showsFeedOwner),
+        bodyFor(initial, edits, showsPassphrase, showsFeedOwner),
       );
       mergeProfiles(result.profiles);
       onClose();
@@ -87,7 +91,7 @@ export function EditGroupDrawer({
       title={`Edit group ${group.name}`}
       saving={saving}
       error={error}
-      saveDisabled={problem !== null}
+      saveDisabled={problem !== null || !hasEdits(initial, edits)}
       onSave={() => void save()}
       onClose={onClose}
     >
@@ -198,22 +202,33 @@ function groupProblem(
 }
 
 /**
- * The PATCH reads `undefined` as "leave every member alone", so the host-wide
- * choice has to send an explicit null. Sending `undefined` for it is what kept
- * a group that once had its own passphrase from ever going back.
+ * Only what the operator changed goes in the body. The PATCH reads `undefined`
+ * as "leave every member alone", which is right for an untouched field and is
+ * why the host-wide choice has to be an explicit null: sending `undefined` for
+ * it is what kept a group that once had its own passphrase from ever going
+ * back.
  */
 function bodyFor(
+  initial: GroupEdits,
   edits: GroupEdits,
   showsPassphrase: boolean,
   showsFeedOwner: boolean,
 ): UpdateGroupConfigBody {
+  const passphraseChanged =
+    edits.passMode !== initial.passMode ||
+    edits.passphrase !== initial.passphrase;
   return {
-    notes: edits.notes.trim() || null,
-    feed_owner: showsFeedOwner ? edits.feedOwner.trim() : undefined,
-    srt_passphrase: showsPassphrase
-      ? edits.passMode === 'own'
-        ? edits.passphrase.trim()
-        : null
-      : undefined,
+    notes:
+      edits.notes !== initial.notes ? edits.notes.trim() || null : undefined,
+    feed_owner:
+      showsFeedOwner && edits.feedOwner !== initial.feedOwner
+        ? edits.feedOwner.trim()
+        : undefined,
+    srt_passphrase:
+      showsPassphrase && passphraseChanged
+        ? edits.passMode === 'own'
+          ? edits.passphrase.trim()
+          : null
+        : undefined,
   };
 }
