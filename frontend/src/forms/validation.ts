@@ -50,7 +50,12 @@ export function addressProblem(value: string): Problem {
 
 export function privateKeyProblem(value: string): Problem {
   if (!value.trim()) return 'Enter the stream key';
-  return PRIVATE_KEY_RE.test(value) ? null : `Stream key: ${PRIVATE_KEY_RULE}`;
+  if (!PRIVATE_KEY_RE.test(value)) return `Stream key: ${PRIVATE_KEY_RULE}`;
+  // The right shape is not enough: all zeros, or a value past the curve order,
+  // derives no address, and saving it would wipe the stream's public key.
+  return addressForKey(value) === null
+    ? 'Stream key: not a usable key, no address can be derived from it'
+    : null;
 }
 
 export function stampIdProblem(value: string): Problem {
