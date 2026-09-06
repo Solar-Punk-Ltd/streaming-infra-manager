@@ -1,0 +1,269 @@
+import { EventEmitter } from 'node:events';
+
+import type { GroupKind } from '@streaming-infra-manager/common';
+
+import {
+  DeploymentGroupRepository,
+  MemberConfigWrite,
+  MemberSeed,
+  SharedProfileParams,
+} from '../../src/domain/DeploymentGroupRepository.js';
+import {
+  DeploymentOrchestrator,
+  DeployReservation,
+} from '../../src/domain/DeploymentOrchestrator.js';
+import { ProfileBusyError } from '../../src/domain/errors/index.js';
+import { EventBus } from '../../src/domain/EventBus.js';
+import { ProfileService } from '../../src/domain/ProfileService.js';
+import { RunHandle } from '../../src/domain/ScriptRunner.js';
+import { DeploymentGroup, Profile, ProfileStatus } from '../../src/types/index.js';
+
+import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
+
+const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
+  'RUNNING',
+  'STOPPED',
+  'ERROR',
+];
+
+function finishedHandle(): RunHandle {
+  const emitter = new EventEmitter();
+  setImmediate(() => emitter.emit('done', { code: 0 }));
+  return { emitter, kill: () => undefined };
+}
+
+export interface RecordedDeploy {
+  profileName: string;
+  services: readonly string[];
+}
+
+/**
+ * A DeploymentOrchestrator that records instead of deploying, keeping the two
+ * rules the real one is bound by: a claim moves the profile into DEPLOYING or
+ * is refused outright, and a failure once the claim is held marks the profile
+ * ERROR through the repository.
+ */
+export class FakeOrchestrator {
+  readonly reserved: string[] = [];
+
+  readonly cancelled: string[] = [];
+
+  readonly deploys: RecordedDeploy[] = [];
+
+  /** Profiles whose deploy fails once the claim is held. */
+  readonly failingDeploys = new Set<string>();
+
+  constructor(private readonly profiles: InMemoryProfiles) {}
+
+  asOrchestrator(): DeploymentOrchestrator {
+    return this as unknown as DeploymentOrchestrator;
+  }
+
+  async reserveDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<DeployReservation> {
+    const claimed = await this.profiles.transitionStatus(
+      profile.name,
+      'DEPLOYING',
+      REDEPLOYABLE_FROM,
+    );
+    if (!claimed) {
+      const current = await this.profiles.findByName(profile.name);
+      throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
+    }
+    this.reserved.push(profile.name);
+    return {
+      profileName: profile.name,
+      services: requested ?? [],
+      heldBackForStamp: [],
+      previousStatus: profile.status,
+      transitioned: true,
+    };
+  }
+
+  async cancelReservation(reservation: DeployReservation): Promise<void> {
+    this.cancelled.push(reservation.profileName);
+    if (reservation.transitioned) {
+      await this.profiles.markTerminal(
+        reservation.profileName,
+        reservation.previousStatus,
+      );
+    }
+  }
+
+  async runReserved(
+    reservation: DeployReservation,
+    profile: Profile,
+  ): Promise<RunHandle> {
+    this.deploys.push({
+      profileName: profile.name,
+      services: reservation.services,
+    });
+    if (this.failingDeploys.has(profile.name)) {
+      const message = `deploy could not start for ${profile.name}`;
+      await this.profiles.markError(profile.name, message);
+      throw new Error(message);
+    }
+    return finishedHandle();
+  }
+
+  async startDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<RunHandle> {
+    const reservation = await this.reserveDeploy(profile, requested);
+    return this.runReserved(reservation, profile);
+  }
+
+  async startInitialDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<RunHandle> {
+    return this.runReserved(
+      {
+        profileName: profile.name,
+        services: requested ?? [],
+        heldBackForStamp: [],
+        previousStatus: profile.status,
+        transitioned: false,
+      },
+      profile,
+    );
+  }
+}
+
+export class InMemoryGroups {
+  readonly groups: DeploymentGroup[] = [];
+
+  readonly configWrites: MemberConfigWrite[] = [];
+
+  private nextId = 1;
+
+  constructor(private readonly profiles: InMemoryProfiles) {}
+
+  asRepository(): DeploymentGroupRepository {
+    return this as unknown as DeploymentGroupRepository;
+  }
+
+  async findByName(name: string): Promise<DeploymentGroup | null> {
+    return this.groups.find((group) => group.name === name) ?? null;
+  }
+
+  async findById(id: number): Promise<DeploymentGroup | null> {
+    return this.groups.find((group) => group.id === id) ?? null;
+  }
+
+  async list(): Promise<DeploymentGroup[]> {
+    return [...this.groups];
+  }
+
+  async listMembers(groupId: number): Promise<Profile[]> {
+    const rows = await this.profiles.list();
+    return rows.filter((row) => row.group_id === groupId);
+  }
+
+  async createGroupWithMembers(
+    groupName: string,
+    kind: GroupKind,
+    members: MemberSeed[],
+    shared: SharedProfileParams,
+  ): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
+    const group: DeploymentGroup = {
+      id: this.nextId++,
+      name: groupName,
+      size: members.length,
+      kind,
+      created_at: new Date(0),
+    };
+    this.groups.push(group);
+    return {
+      group,
+      profiles: members.map((member) => this.insert(member.name, shared, group.id)),
+    };
+  }
+
+  async addMembers(
+    groupId: number,
+    members: MemberSeed[],
+    shared: SharedProfileParams,
+  ): Promise<Profile[]> {
+    const group = this.groups.find((candidate) => candidate.id === groupId);
+    if (group) group.size += members.length;
+    return members.map((member) => this.insert(member.name, shared, groupId));
+  }
+
+  async updateMembersConfig(writes: MemberConfigWrite[]): Promise<Profile[]> {
+    this.configWrites.push(...writes);
+    const updated: Profile[] = [];
+    for (const write of writes) {
+      const row = await this.profiles.updateEditable(write.name, write.kind, {
+        notes: write.notes,
+        components: write.components,
+        feed_owner: write.feed_owner,
+        feed_topic: write.feed_topic,
+        private_key: write.private_key,
+        public_key: write.public_key,
+        stamp_id: write.stamp_id,
+        srt_passphrase: write.srt_passphrase,
+      });
+      if (row) updated.push(row);
+    }
+    return updated;
+  }
+
+  /** Members are created STOPPED, the way the real insert does it. */
+  private insert(
+    name: string,
+    shared: SharedProfileParams,
+    groupId: number,
+  ): Profile {
+    const row = makeProfile({
+      name,
+      kind: shared.kind,
+      notes: shared.notes,
+      components: shared.components,
+      host: shared.host,
+      feed_owner: shared.feed_owner,
+      feed_topic: shared.feed_topic,
+      private_key: shared.private_key,
+      public_key: shared.public_key,
+      stamp_id: shared.stamp_id,
+      srt_passphrase: shared.srt_passphrase,
+      status: 'STOPPED',
+      port_slot: this.profiles.rows.size + 1,
+      group_id: groupId,
+    });
+    this.profiles.rows.set(name, row);
+    return row;
+  }
+}
+
+export interface ProfileServiceHarness {
+  service: ProfileService;
+  profiles: InMemoryProfiles;
+  containers: FakeContainers;
+  groups: InMemoryGroups;
+  orchestrator: FakeOrchestrator;
+  events: EventBus;
+}
+
+export function profileServiceHarness(
+  rows: readonly Profile[] = [],
+): ProfileServiceHarness {
+  const profiles = new InMemoryProfiles(rows);
+  const containers = new FakeContainers();
+  const groups = new InMemoryGroups(profiles);
+  const orchestrator = new FakeOrchestrator(profiles);
+  const events = new EventBus();
+
+  const service = new ProfileService(
+    profiles.asRepository(),
+    containers.asRepository(),
+    orchestrator.asOrchestrator(),
+    events,
+    groups.asRepository(),
+  );
+
+  return { service, profiles, containers, groups, orchestrator, events };
+}

@@ -13,6 +13,7 @@ import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { StampService } from './domain/StampService.js';
+import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { config } from './utils/config.js';
 import { bootstrapSubmoduleDefaults } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
@@ -114,19 +115,21 @@ async function main(): Promise<void> {
   const deploymentGroupRepository = new DeploymentGroupRepository(
     database.pool,
   );
+  // Ahead of the orchestrator and ProfileService: the uploader gate asks it
+  // whether a batch is still usable, and a ladder's readiness depends on what
+  // each rung's bee node says about its own.
+  const stampService = new StampService(
+    profileRepository,
+    containerRepository,
+    eventBus,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
     scriptRunner,
     eventBus,
     deploymentGroupRepository,
-  );
-  // Ahead of ProfileService: a ladder's readiness depends on what each rung's bee
-  // node says about its batch, which only this service can ask.
-  const stampService = new StampService(
-    profileRepository,
-    containerRepository,
-    eventBus,
+    new UploaderStartGate(stampService),
   );
   const profileService = new ProfileService(
     profileRepository,
@@ -137,11 +140,7 @@ async function main(): Promise<void> {
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
   );
-  const deployService = new DeployService(
-    profileService,
-    orchestrator,
-    stampService,
-  );
+  const deployService = new DeployService(profileService, orchestrator);
 
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(

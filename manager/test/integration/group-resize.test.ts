@@ -19,7 +19,6 @@ import {
   addGroupMembers,
   cleanup,
   createGroup,
-  deployProfile,
   getGroup,
   listGroupMembers,
   removeProfile,
@@ -52,7 +51,7 @@ async function cleanupGroup(groupId: number) {
 
 describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () => {
   it('adds a member that inherits config, deploys the grown group, then shrinks', async () => {
-    // Start with a 2-viewer group (members created STOPPED).
+    // Start with a 2-viewer group (creation deploys both members).
     const { group, profiles } = await createGroup({
       group_name: uniqueName('grp'),
       size: 2,
@@ -68,7 +67,7 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     assert.equal(grown.profiles.length, 1);
     const added = grown.profiles[0]!;
     created.add(added.name);
-    assert.equal(added.status, 'STOPPED', 'new member is created stopped');
+    assert.equal(added.status, 'DEPLOYING', 'a new member is deployed');
     assert.equal(added.kind, 'viewer');
     assert.equal(
       added.feed_owner,
@@ -78,9 +77,8 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     assert.equal(added.group_id, group.id);
     assert.equal((await listGroupMembers(group.id)).length, 3);
 
-    // Deploy every member — confirms the grown group is fully deployable.
+    // Creation and the resize started them all, so just wait for the group.
     const names = (await listGroupMembers(group.id)).map((m) => m.name);
-    await Promise.all(names.map((n) => deployProfile(n)));
     const running = await Promise.all(
       names.map((n) =>
         waitForRunningServices(n, [BEE_GATEWAY, CLIENT], {
@@ -123,7 +121,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
       'members should be named profile-1..3',
     );
 
-    await Promise.all([p1, p2, p3].map((n) => deployProfile(n)));
     await Promise.all(
       [p1, p2, p3].map((n) =>
         waitForStatus(n, 'RUNNING', { timeoutMs: DEPLOY_TIMEOUT }),

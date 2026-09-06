@@ -31,7 +31,10 @@ import {
 } from '../types/index.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
-import { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
+import {
+  DeploymentOrchestrator,
+  DeployReservation,
+} from './DeploymentOrchestrator.js';
 import {
   AllSlotsUsedError,
   GroupBusyError,
@@ -100,6 +103,33 @@ export class ProfileService {
 
   private publishChanged(profile: ProfileWithContainers): void {
     this.events.publish({ type: 'profile.changed', profile });
+  }
+
+  /**
+   * Runs a write that a deploy claim has already been taken for, giving the
+   * claim back if the write fails.
+   *
+   * Without this a profile whose settings could not be written would sit in
+   * DEPLOYING with no job to end it.
+   */
+  private async writeOrCancel<T>(
+    reservations: readonly DeployReservation[],
+    write: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await write();
+    } catch (err) {
+      await this.cancelAll(reservations);
+      throw err;
+    }
+  }
+
+  private async cancelAll(
+    reservations: readonly DeployReservation[],
+  ): Promise<void> {
+    for (const reservation of reservations) {
+      await this.orchestrator.cancelReservation(reservation);
+    }
   }
 
   async create(input: {
@@ -175,23 +205,13 @@ export class ProfileService {
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
 
-    try {
-      await this.orchestrator.startInitialDeploy(
-        row,
-        input.components ?? undefined,
-        { host: input.host ?? undefined },
-      );
-    } catch (err) {
-      const errored = await this.repo.markError(
-        input.name,
-        getErrorMessage(err),
-      );
-      if (errored) {
-        const withContainers = await this.containers.withContainers(errored);
-        this.publishChanged(withContainers);
-      }
-      throw err;
-    }
+    // The orchestrator marks the row ERROR if the deploy cannot start: it owns
+    // the row from here, and marking it here too would overwrite the reason.
+    await this.orchestrator.startInitialDeploy(
+      row,
+      input.components ?? undefined,
+      { host: input.host ?? undefined },
+    );
 
     return withContainers;
   }
@@ -243,22 +263,33 @@ export class ProfileService {
       throw new ProfileConfigError(name, configProblem);
     }
 
-    const row = await this.repo.updateEditable(name, existing.kind, {
-      notes: input.notes,
-      components: existing.components,
-      feed_owner: input.feed_owner,
-      feed_topic: input.feed_topic,
-      private_key: input.private_key,
-      public_key: input.public_key,
-      stamp_id: input.stamp_id,
-      bee_publishers: input.bee_publishers,
-      bee_url: input.bee_url,
-      srt_passphrase: input.srt_passphrase,
-    });
+    // Claimed before anything is written. Two concurrent PUTs both pass the
+    // busy check above, so without the claim the loser would rewrite the row
+    // and the env file under the winner's running deploy, then mark the profile
+    // ERROR while that deploy was still going.
+    const reservation = await this.orchestrator.reserveDeploy(
+      existing,
+      existing.components ?? undefined,
+    );
 
-    if (!row) {
-      throw new ProfileNotFoundError(name);
-    }
+    const row = await this.writeOrCancel([reservation], async () => {
+      const written = await this.repo.updateEditable(name, existing.kind, {
+        notes: input.notes,
+        components: existing.components,
+        feed_owner: input.feed_owner,
+        feed_topic: input.feed_topic,
+        private_key: input.private_key,
+        public_key: input.public_key,
+        stamp_id: input.stamp_id,
+        bee_publishers: input.bee_publishers,
+        bee_url: input.bee_url,
+        srt_passphrase: input.srt_passphrase,
+      });
+      if (!written) {
+        throw new ProfileNotFoundError(name);
+      }
+      return written;
+    });
 
     logger.info(`[ProfileService] Updated profile ${name}; redeploying`);
 
@@ -270,15 +301,7 @@ export class ProfileService {
 
     this.publishChanged(withContainers);
 
-    try {
-      await this.orchestrator.startDeploy(row, row.components ?? undefined);
-    } catch (err) {
-      const errored = await this.repo.markError(name, getErrorMessage(err));
-      if (errored) {
-        this.publishChanged(await this.containers.withContainers(errored));
-      }
-      throw err;
-    }
+    await this.orchestrator.runReserved(reservation, row);
 
     return this.containers.withContainers(row);
   }
@@ -421,16 +444,10 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''}`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''}; deploying`,
     );
-    const profilesWithContainers: ProfileWithContainers[] = [];
-    for (const p of profiles) {
-      const withContainers = await this.containers.withContainers(p);
-      profilesWithContainers.push(withContainers);
-      this.publishChanged(withContainers);
-    }
 
-    return { group, profiles: profilesWithContainers };
+    return { group, profiles: await this.deployNewMembers(profiles) };
   }
 
   /**
@@ -573,7 +590,13 @@ export class ProfileService {
       srt_passphrase: pick(input.srt_passphrase, m.srt_passphrase),
     }));
 
-    const updated = await this.groupRepo.updateMembersConfig(writes);
+    // Every member is claimed before the bulk write, so a group edit that
+    // cannot own all of its deployments changes none of them.
+    const reservations = await this.reserveMembers(group, members);
+
+    const updated = await this.writeOrCancel([...reservations.values()], () =>
+      this.groupRepo.updateMembersConfig(writes),
+    );
 
     logger.info(
       `[ProfileService] Updated group ${group.name} (${updated.length} member(s)); redeploying`,
@@ -582,18 +605,12 @@ export class ProfileService {
     const profiles: ProfileWithContainers[] = [];
     for (const row of updated) {
       this.publishChanged(await this.containers.withContainers(row));
-      try {
-        await this.orchestrator.startDeploy(row, row.components ?? undefined);
-      } catch (err) {
-        const errored = await this.repo.markError(
-          row.name,
-          getErrorMessage(err),
-        );
-        if (errored) {
-          this.publishChanged(await this.containers.withContainers(errored));
-        }
+
+      const reservation = reservations.get(row.name);
+      if (reservation) {
+        await this.runMember(reservation, row);
       }
-      
+
       const latest = await this.repo.findByName(row.name);
       if (!latest) {
         throw new ProfileNotFoundError(row.name);
@@ -603,6 +620,95 @@ export class ProfileService {
     }
 
     return { group, profiles };
+  }
+
+  /**
+   * A claim on every member's next deployment, or none at all.
+   *
+   * A member that cannot be claimed gives back the claims already taken, so a
+   * half-deployed group edit is not a state the API can produce.
+   */
+  private async reserveMembers(
+    group: DeploymentGroup,
+    members: readonly Profile[],
+  ): Promise<Map<string, DeployReservation>> {
+    const reservations = new Map<string, DeployReservation>();
+    for (const member of members) {
+      try {
+        reservations.set(
+          member.name,
+          await this.orchestrator.reserveDeploy(
+            member,
+            member.components ?? undefined,
+          ),
+        );
+      } catch (err) {
+        await this.cancelAll([...reservations.values()]);
+        if (err instanceof ProfileBusyError) {
+          throw new GroupBusyError(group.name, [err.profileName]);
+        }
+        throw err;
+      }
+    }
+    return reservations;
+  }
+
+  /**
+   * Starts one member's deploy, letting the rest of the group carry on.
+   *
+   * The orchestrator has already marked a failed member ERROR with its reason,
+   * and the row is re-read afterwards, so the response says per member what
+   * happened.
+   */
+  private async runMember(
+    reservation: DeployReservation,
+    row: Profile,
+  ): Promise<void> {
+    try {
+      await this.orchestrator.runReserved(reservation, row);
+    } catch (err) {
+      logger.warn(
+        `[ProfileService] ${row.name}: deploy did not start: ${getErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /** Claims and starts one member that has just been created. */
+  private async startMember(member: Profile): Promise<void> {
+    let reservation: DeployReservation;
+    try {
+      reservation = await this.orchestrator.reserveDeploy(
+        member,
+        member.components ?? undefined,
+      );
+    } catch (err) {
+      logger.warn(
+        `[ProfileService] ${member.name}: could not be claimed for deploy: ${getErrorMessage(err)}`,
+      );
+      return;
+    }
+    await this.runMember(reservation, member);
+  }
+
+  /**
+   * Deploys the members a group creation or resize has just inserted.
+   *
+   * A single deployment created through the same wizard is deployed at once, so
+   * a group is too: leaving its members STOPPED under a "Deploying" toast said
+   * one thing and did another. Each member is read back after its start, so the
+   * response carries the status and reason for the ones that did not take.
+   */
+  private async deployNewMembers(
+    created: readonly Profile[],
+  ): Promise<ProfileWithContainers[]> {
+    const profiles: ProfileWithContainers[] = [];
+    for (const member of created) {
+      this.publishChanged(await this.containers.withContainers(member));
+      await this.startMember(member);
+      const latest = (await this.repo.findByName(member.name)) ?? member;
+      profiles.push(await this.containers.withContainers(latest));
+    }
+    return profiles;
   }
 
   async addGroupMembers(
@@ -659,16 +765,9 @@ export class ProfileService {
 
     const refreshed = (await this.groupRepo.findById(groupId)) ?? group;
     logger.info(
-      `[ProfileService] Added ${created.length} member(s) to group ${group.name} (size now ${refreshed.size})`,
+      `[ProfileService] Added ${created.length} member(s) to group ${group.name} (size now ${refreshed.size}); deploying`,
     );
 
-    const profiles: ProfileWithContainers[] = [];
-    for (const p of created) {
-      const withContainers = await this.containers.withContainers(p);
-      profiles.push(withContainers);
-      this.publishChanged(withContainers);
-    }
-
-    return { group: refreshed, profiles };
+    return { group: refreshed, profiles: await this.deployNewMembers(created) };
   }
 }

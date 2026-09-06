@@ -118,6 +118,16 @@ export interface ProfileEnvValues {
    */
   srtPassphrase?: string | null;
 
+  /**
+   * The uploader's STREAM_KEY: the private key it signs the feed with.
+   *
+   * It reaches the container through this file and no other way. Passed as a
+   * `--private-key=` script argument it appeared in the manager's own logs and
+   * in the process table for the whole run, readable by every user on the host.
+   * Left absent, the base .env's own STREAM_KEY applies, as with the passphrase.
+   */
+  streamKey?: string | null;
+
   omeSrtPort?: number;
   omeHlsPort?: number;
   /**
@@ -225,6 +235,19 @@ export function writeProfileEnv(
       );
     }
     contents = upsertEnvLine(contents, 'SRT_PASSPHRASE', passphrase);
+  }
+
+  // The request schema already refuses anything but 0x + 64 hex. Checked again
+  // here because this is the last point before the value becomes a line in a
+  // file compose parses, and a row written by any other path reaches it too.
+  const streamKey = values.streamKey?.trim();
+  if (streamKey) {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(streamKey)) {
+      throw new Error(
+        'refusing to write STREAM_KEY: expected 0x followed by 64 hex characters',
+      );
+    }
+    contents = upsertEnvLine(contents, 'STREAM_KEY', streamKey);
   }
 
   if (values.engine === OME_SERVICE) {

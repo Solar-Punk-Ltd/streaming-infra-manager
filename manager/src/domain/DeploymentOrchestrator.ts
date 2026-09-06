@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import {
   abrLadderEnvValue,
-  BEE_UPLOADER_SERVICE,
   engineForComponents,
   getErrorMessage,
+  ownsBeeNode,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
@@ -29,7 +29,7 @@ import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
-import { RunHandle, ScriptRunner } from './ScriptRunner.js';
+import { describeArgsForLog, RunHandle, ScriptRunner } from './ScriptRunner.js';
 import {
   defaultServicesFor,
   hasBeePublishers,
@@ -105,6 +105,48 @@ interface JobConfig {
   onSuccess: () => Promise<void>;
 }
 
+const REDEPLOY_STATUS: ProfileStatus = 'DEPLOYING';
+const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
+  'RUNNING',
+  'STOPPED',
+  'ERROR',
+];
+
+/**
+ * A claim on a profile's next deployment.
+ *
+ * Holding one is what makes a caller the owner: the profile is already in
+ * DEPLOYING, so a second caller is refused before it writes a setting or an env
+ * file. Nothing that changes stored state may run before the claim is taken,
+ * and from then until the job finishes only the orchestrator marks the profile
+ * ERROR.
+ */
+export interface DeployReservation {
+  readonly profileName: string;
+  /** What the run will start, after the stamp hold-back. */
+  readonly services: readonly string[];
+  readonly heldBackForStamp: readonly string[];
+  /**
+   * The status the profile held when the claim was taken.
+   * `cancelReservation` puts it back to this.
+   */
+  readonly previousStatus: ProfileStatus;
+  /** False for an initial deploy, whose row was inserted DEPLOYING already. */
+  readonly transitioned: boolean;
+  readonly host?: string;
+}
+
+/**
+ * Whatever must hold before a stream-uploader container is started.
+ *
+ * Implemented by `UploaderStartGate`. Kept as an interface here so the
+ * orchestrator depends on the question, not on the services that answer it, and
+ * so a caller wired without one deploys exactly as it did before.
+ */
+export interface UploaderGate {
+  assertCanStart(profile: Profile): Promise<void>;
+}
+
 export class DeploymentOrchestrator {
   constructor(
     private readonly profiles: ProfileRepository,
@@ -112,6 +154,7 @@ export class DeploymentOrchestrator {
     private readonly runner: ScriptRunner,
     private readonly eventBus: EventBus,
     private readonly groups: DeploymentGroupRepository,
+    private readonly uploaderGate?: UploaderGate,
   ) {}
 
   private async publishChanged(profile: Profile): Promise<void> {
@@ -119,18 +162,70 @@ export class DeploymentOrchestrator {
     this.eventBus.publish({ type: 'profile.changed', profile: withContainers });
   }
 
+  /**
+   * Claims a redeploy of an existing profile, or throws ProfileBusyError.
+   *
+   * Callers that write before deploying take the claim first and pass it to
+   * `runReserved`, so a caller that loses the race changes nothing.
+   */
+  async reserveDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<DeployReservation> {
+    const planned = this.planDeploy(profile, requested);
+
+    await this.assertUploaderCanStart(profile, planned.services);
+
+    const transitioned = await this.profiles.transitionStatus(
+      profile.name,
+      REDEPLOY_STATUS,
+      REDEPLOYABLE_FROM,
+    );
+    if (!transitioned) {
+      const current = await this.profiles.findByName(profile.name);
+      throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
+    }
+    await this.publishChanged(transitioned);
+
+    return { ...planned, transitioned: true };
+  }
+
+  /** Gives the profile its status back, for a claim that will not be run. */
+  async cancelReservation(reservation: DeployReservation): Promise<void> {
+    if (!reservation.transitioned) return;
+    const restored = await this.profiles.markTerminal(
+      reservation.profileName,
+      reservation.previousStatus,
+    );
+    if (restored) {
+      await this.publishChanged(restored);
+    }
+  }
+
+  /**
+   * Writes the profile's env file and starts the deploy script.
+   *
+   * Every failure from here on marks the profile ERROR, because the claim taken
+   * by `reserveDeploy` left it DEPLOYING and only this call can end that.
+   */
+  async runReserved(
+    reservation: DeployReservation,
+    profile: Profile,
+  ): Promise<RunHandle> {
+    try {
+      return await this.startReservedJob(reservation, profile);
+    } catch (err) {
+      await this.markFailed(reservation.profileName, getErrorMessage(err));
+      throw err;
+    }
+  }
+
   async startDeploy(
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<RunHandle> {
-    return this.deployServices(
-      profile,
-      this.servicesToDeploy(profile, requested),
-      {
-        transitionTo: 'DEPLOYING',
-        allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-      },
-    );
+    const reservation = await this.reserveDeploy(profile, requested);
+    return this.runReserved(reservation, profile);
   }
 
   async startInitialDeploy(
@@ -138,12 +233,11 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
-    return this.deployServices(
+    // The row was inserted DEPLOYING for this call, so there is no status to
+    // claim: nothing else can be deploying a profile that did not exist yet.
+    return this.runReserved(
+      this.planDeploy(profile, requested, opts.host),
       profile,
-      this.servicesToDeploy(profile, requested),
-      {
-        host: opts.host,
-      },
     );
   }
 
@@ -152,10 +246,10 @@ export class DeploymentOrchestrator {
     if (!hasStampId(profile) && !hasBeePublishers(profile)) {
       throw new StampRequiredError(profile.name);
     }
-    return this.deployServices(profile, [STREAM_UPLOADER_SERVICE], {
-      transitionTo: 'DEPLOYING',
-      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-    });
+    const reservation = await this.reserveDeploy(profile, [
+      STREAM_UPLOADER_SERVICE,
+    ]);
+    return this.runReserved(reservation, profile);
   }
 
   private servicesToDeploy(
@@ -166,29 +260,73 @@ export class DeploymentOrchestrator {
     return defaultServicesFor(profile);
   }
 
-  private async deployServices(
+  private planDeploy(
     profile: Profile,
-    services: string[],
-    opts: {
-      transitionTo?: ProfileStatus;
-      allowedFrom?: readonly ProfileStatus[];
-      host?: string;
-    },
-  ): Promise<RunHandle> {
+    requested: string[] | undefined,
+    host?: string,
+  ): DeployReservation {
     const { deployNow, heldBackForStamp } = splitDeployableServices(
       profile,
-      services,
+      this.servicesToDeploy(profile, requested),
     );
+    return {
+      profileName: profile.name,
+      services: deployNow,
+      heldBackForStamp,
+      previousStatus: profile.status,
+      transitioned: false,
+      host,
+    };
+  }
 
-    if (heldBackForStamp.length > 0) {
+  /**
+   * Asks the gate whether this deploy may recreate the stream-uploader.
+   *
+   * Only where there is something to ask. A STOPPED deployment's Bee node is
+   * down by definition and an initial deploy has no node yet, so a question
+   * put to the node could only time out. A profile that publishes through a
+   * node pool or an external address has no node of its own to ask either.
+   */
+  private async assertUploaderCanStart(
+    profile: Profile,
+    services: readonly string[],
+  ): Promise<void> {
+    if (!this.uploaderGate) return;
+    if (!services.includes(STREAM_UPLOADER_SERVICE)) return;
+    if (!ownsBeeNode(profile)) return;
+    if (profile.status !== 'RUNNING' && profile.status !== 'ERROR') return;
+    await this.uploaderGate.assertCanStart(profile);
+  }
+
+  private async markFailed(
+    profileName: string,
+    message: string,
+  ): Promise<void> {
+    try {
+      const errored = await this.profiles.markError(profileName, message);
+      if (errored) {
+        await this.publishChanged(errored);
+      }
+    } catch (err) {
+      logger.error(
+        `[Orchestrator] failed to mark ${profileName} ERROR: ${getErrorMessage(err)}`,
+      );
+    }
+  }
+
+  private async startReservedJob(
+    reservation: DeployReservation,
+    profile: Profile,
+  ): Promise<RunHandle> {
+    if (reservation.heldBackForStamp.length > 0) {
       logger.info(
-        `[Orchestrator] ${profile.name}: holding back ${heldBackForStamp.join(', ')} — no usable stamp yet`,
+        `[Orchestrator] ${profile.name}: holding back ${reservation.heldBackForStamp.join(', ')}, no usable stamp yet`,
       );
     }
 
     // An empty service filter would make deploy.sh deploy every configured service.
-    if (deployNow.length === 0) {
-      return this.completeWithoutScript(profile, opts);
+    if (reservation.services.length === 0) {
+      return this.completeWithoutScript(profile);
     }
 
     await this.ensureSubmoduleDefaults();
@@ -203,30 +341,28 @@ export class DeploymentOrchestrator {
       beePublishers: profile.bee_publishers,
       beeUrl: profile.bee_url,
       srtPassphrase: profile.srt_passphrase,
-      // From the profile's own components, deliberately not from `deployNow`:
-      // a held-back uploader is deployed on its own, and deploy.sh must still
-      // resolve the local Bee address for it.
-      localBeeUploader: defaultServicesFor(profile).includes(
-        BEE_UPLOADER_SERVICE,
-      ),
+      streamKey: profile.private_key,
+      // From the profile's own components, deliberately not from the reserved
+      // services: a held-back uploader is deployed on its own, and deploy.sh
+      // must still resolve the local Bee address for it.
+      localBeeUploader: ownsBeeNode(profile),
       ...omePortsFor(profile.port_slot),
     });
     logger.info(
       `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
     );
 
+    const services = [...reservation.services];
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
-      args: this.buildScriptArgs(profile, deployNow, opts.host),
-      transitionTo: opts.transitionTo,
-      allowedFrom: opts.allowedFrom,
+      args: this.buildScriptArgs(profile, services, reservation.host),
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, deployNow);
+        await this.snapshotContainers(profile, services);
         if (updated) {
           await this.publishChanged(updated);
         }
@@ -234,26 +370,8 @@ export class DeploymentOrchestrator {
     });
   }
 
-  private async completeWithoutScript(
-    profile: Profile,
-    opts: {
-      transitionTo?: ProfileStatus;
-      allowedFrom?: readonly ProfileStatus[];
-    },
-  ): Promise<RunHandle> {
+  private async completeWithoutScript(profile: Profile): Promise<RunHandle> {
     await this.ensureSubmoduleDefaults();
-
-    if (opts.transitionTo && opts.allowedFrom) {
-      const transitioned = await this.profiles.transitionStatus(
-        profile.name,
-        opts.transitionTo,
-        opts.allowedFrom,
-      );
-      if (!transitioned) {
-        const current = await this.profiles.findByName(profile.name);
-        throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
-      }
-    }
 
     const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
     if (updated) {
@@ -373,7 +491,7 @@ export class DeploymentOrchestrator {
     }
 
     logger.info(
-      `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${cfg.args.join(' ')}`,
+      `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${describeArgsForLog(cfg.args)}`,
     );
 
     const handle = this.runner.run(cfg.script, cfg.args, {
@@ -429,16 +547,7 @@ export class DeploymentOrchestrator {
       logger.error(
         `[Orchestrator] failed to finalize ${cfg.profileName}: ${message}`,
       );
-      try {
-        const errored = await this.profiles.markError(cfg.profileName, message);
-        if (errored) {
-          await this.publishChanged(errored);
-        }
-      } catch (markErr) {
-        logger.error(
-          `[Orchestrator] failed to mark ${cfg.profileName} ERROR: ${getErrorMessage(markErr)}`,
-        );
-      }
+      await this.markFailed(cfg.profileName, message);
     }
   }
 
@@ -455,7 +564,6 @@ export class DeploymentOrchestrator {
     if (host) args.push(`--host=${host}`);
     if (profile.feed_owner) args.push(`--feed-owner=${profile.feed_owner}`);
     if (profile.feed_topic) args.push(`--feed-topic=${profile.feed_topic}`);
-    if (profile.private_key) args.push(`--private-key=${profile.private_key}`);
     if (profile.stamp_id) args.push(`--stamp-id=${profile.stamp_id}`);
     args.push(...services);
     return args;

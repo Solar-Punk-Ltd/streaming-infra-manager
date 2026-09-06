@@ -167,6 +167,53 @@ describe('writeProfileEnv — BEE_URL', () => {
   });
 });
 
+describe('writeProfileEnv — STREAM_KEY', () => {
+  // The uploader signs the feed with this key. It used to reach deploy.sh as a
+  // `--private-key=` argument, which put it in the manager's own log line and
+  // in the process table for the length of the run. The env file is the only
+  // way in now, so these cases are what keeps it out of both.
+  const KEY = `0x${'1a'.repeat(32)}`;
+
+  it('writes the profile key over the host-wide one', () => {
+    writeBaseEnv(`ENGINE=srs\nSTREAM_KEY=0x${'ff'.repeat(32)}\n`);
+    const path = writeProfileEnv('keyed', { engine: 'srs', streamKey: KEY });
+
+    assert.equal(lineFor(path, 'STREAM_KEY'), `STREAM_KEY=${KEY}`);
+    assert.equal(
+      lines(path).filter((line) => line.startsWith('STREAM_KEY=')).length,
+      1,
+      'upsert, not append',
+    );
+  });
+
+  it('leaves the base env value standing when the profile has no key', () => {
+    const hostWide = `0x${'ff'.repeat(32)}`;
+    for (const unset of [undefined, null, '', '   ']) {
+      writeBaseEnv(`ENGINE=srs\nSTREAM_KEY=${hostWide}\n`);
+      assert.equal(
+        lineFor(writeProfileEnv('unkeyed', { engine: 'srs', streamKey: unset }), 'STREAM_KEY'),
+        `STREAM_KEY=${hostWide}`,
+        `${JSON.stringify(unset)} should fall back to the base .env`,
+      );
+    }
+  });
+
+  it('adds the key to a base .env that has none', () => {
+    const path = writeProfileEnv('added-key', { engine: 'srs', streamKey: KEY });
+    assert.equal(lineFor(path, 'STREAM_KEY'), `STREAM_KEY=${KEY}`);
+  });
+
+  it('refuses anything that is not a private key', () => {
+    for (const bad of [KEY.slice(0, -2), 'not-a-key', `${KEY} extra`]) {
+      assert.throws(
+        () => writeProfileEnv('bad-key', { engine: 'srs', streamKey: bad }),
+        /refusing to write STREAM_KEY/,
+        `should refuse ${bad}`,
+      );
+    }
+  });
+});
+
 describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   // deploy.sh's resolve_bee_url computes the local Bee address and writes it
   // into an override file that outranks .env.<profile>. It has to know whether

@@ -87,6 +87,19 @@ export function managesOwnStamp(profile: StampGatedProfile): boolean {
   return isUploader(profile) && !usesNodePool(profile);
 }
 
+/**
+ * Whether this profile runs a Bee node of its own.
+ *
+ * That node is the only thing that can be asked about a postage batch, so this
+ * is also the test for whether such a question can be asked at all: an uploader
+ * that publishes to a node pool or to an external `bee_url` has no local node,
+ * and deploy.sh needs the same answer to decide whether to resolve BEE_URL for
+ * itself.
+ */
+export function ownsBeeNode(profile: StampGatedProfile): boolean {
+  return defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE);
+}
+
 export function hasStampId(profile: StampGatedProfile): boolean {
   return Boolean(profile.stamp_id && profile.stamp_id.trim());
 }

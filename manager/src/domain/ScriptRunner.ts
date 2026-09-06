@@ -10,6 +10,29 @@ export interface RunOptions {
   env?: Record<string, string>;
 }
 
+const SECRET_ARG_NAME = /^--[a-z0-9-]*(key|secret|passphrase|password|token)/i;
+
+/**
+ * Script arguments as a single line, with the value of anything named like a
+ * secret replaced.
+ *
+ * A second control, not the first one: a secret belongs in the profile's env
+ * file rather than in an argument, because an argument is visible in the
+ * process table to every user on the host for as long as the script runs. This
+ * only keeps one that slips back in out of the manager's logs, which are read
+ * far more often and kept far longer.
+ */
+export function describeArgsForLog(args: readonly string[]): string {
+  return args
+    .map((arg) => {
+      const eq = arg.indexOf('=');
+      if (eq <= 0) return arg;
+      const name = arg.slice(0, eq);
+      return SECRET_ARG_NAME.test(name) ? `${name}=<redacted>` : arg;
+    })
+    .join(' ');
+}
+
 export interface RunHandle {
   /**
    * Emits:
@@ -47,7 +70,9 @@ export class ScriptRunner {
       return { emitter, kill: () => undefined };
     }
 
-    logger.info(`[ScriptRunner] spawn ${scriptPath} ${args.join(' ')}`);
+    logger.info(
+      `[ScriptRunner] spawn ${scriptPath} ${describeArgsForLog(args)}`,
+    );
 
     child.stdout?.on('data', (b: Buffer) => emitter.emit('stdout', b.toString('utf8')));
     child.stderr?.on('data', (b: Buffer) => emitter.emit('stderr', b.toString('utf8')));

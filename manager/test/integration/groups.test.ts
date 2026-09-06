@@ -16,7 +16,6 @@ import {
   FEED_OWNER_B,
   cleanup,
   createGroup,
-  deployProfile,
   getProfileOrNull,
   listGroups,
   removeProfile,
@@ -40,7 +39,8 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
   it('edits the whole group feed_owner and all members pick it up', async () => {
     const groupName = uniqueName('grp');
 
-    // Group creation does NOT auto-deploy; members start STOPPED.
+    // Group creation deploys every member, the way creating a single
+    // deployment does, so the members come back DEPLOYING.
     const { group, profiles } = await createGroup({
       group_name: groupName,
       size: 2,
@@ -52,14 +52,13 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
     const memberNames = profiles.map((p) => p.name);
     memberNames.forEach((n) => created.add(n));
     for (const p of profiles) {
-      assert.equal(p.status, 'STOPPED', 'new group members start STOPPED');
+      assert.equal(p.status, 'DEPLOYING', 'new group members are deployed');
       assert.equal(p.group_id, group.id);
       assert.equal(p.feed_owner, FEED_OWNER_A);
     }
 
-    // Deploy every member. waitForRunningServices also settles the container
-    // snapshot (RUNNING is set a beat before containers are recorded).
-    await Promise.all(memberNames.map((n) => deployProfile(n)));
+    // Creation already started them. waitForRunningServices also settles the
+    // container snapshot (RUNNING is set a beat before containers are recorded).
     const runningBeforeEdit = await Promise.all(
       memberNames.map((n) =>
         waitForRunningServices(n, [BEE_GATEWAY, CLIENT], {
