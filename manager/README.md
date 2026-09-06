@@ -254,7 +254,10 @@ curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
 
 - **Max 999 managed profiles per host** — `--portSlot` is an integer 1–999.
 - **No HTTPS of its own.** The sign-in gate is only as good as the transport in
-  front of it, so put a TLS terminator there before opening it to the internet.
+  front of it. The `edge` service in `docker-compose.yml` is that transport: a
+  Caddy container in the `public` compose profile that terminates TLS and gets
+  its own certificate for `MANAGER_DOMAIN`. It starts only when that name is
+  set, and `deploy/README.md` has the steps for turning it on.
 - **Synchronous SSE.** A deploy holds an HTTP connection open for its duration;
   client disconnect kills the child.
 - **Local target only.** This iteration assumes `config.json` deploys to

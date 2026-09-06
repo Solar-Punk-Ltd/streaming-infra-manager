@@ -1,0 +1,12 @@
+# The manager's public HTTPS front door, in front of the nginx that serves the
+# app. Caddy obtains and renews the certificate itself, which needs the
+# domain's A record pointing at this host and ports 80 and 443 reachable from
+# the internet. X-Forwarded-For and X-Forwarded-Proto are added by Caddy.
+
+{$MANAGER_DOMAIN} {
+	encode zstd gzip
+
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	reverse_proxy web:80
+}

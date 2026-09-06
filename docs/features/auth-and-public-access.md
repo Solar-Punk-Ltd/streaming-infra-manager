@@ -1,8 +1,9 @@
 # Sign in, and opening the manager to the internet
 
-Status: decided 2026-09-05 (D1 Caddy, D2 several users, D3 close the host doors first). In
-progress on `feat/auth` since 2026-09-06. Two PRs against `main-v2`, then host steps that only Levi
-runs.
+Status: decided 2026-09-05 (D1 Caddy, D2 several users, D3 close the host doors first). PR 1, the
+login gate, is built on `feat/auth`. PR 2, the HTTPS edge and the host preparation, is built on
+`feat/auth-edge`, stacked on it. Both target `main-v2`. The host steps at the end are still Levi's
+to run, and nothing on the host changes until he does.
 
 ## Where we are
 
@@ -186,11 +187,20 @@ image `caddy:2` pinned by digest, publishing `80` and `443`, with a five line Ca
 
 `MANAGER_DOMAIN` comes from `manager/.env`. Caddy obtains and renews the Let's Encrypt
 certificate itself, which needs an A record for the domain pointing at the host and ports 80 and
-443 open. `web` stops publishing `127.0.0.1:8080` once the edge works, or keeps it during the
-transition. Caddy sends `X-Forwarded-Proto`, and nginx passes it on rather than overwriting it
-with its own plain `http`, which is the whole of how the manager knows whether to mark the cookie
-`Secure`. Through the tunnel there is no edge and no such header, so it is not marked, and both
-answers are the right one for the transport in use.
+443 open. `web` keeps publishing `127.0.0.1:8080` as the break-glass path. Caddy sends
+`X-Forwarded-Proto`, and nginx passes it on rather than overwriting it with its own plain `http`,
+which is the whole of how the manager knows whether to mark the cookie `Secure`. Through the
+tunnel there is no edge and no such header, so it is not marked, and both answers are the right
+one for the transport in use.
+
+As built: the service sits in the `public` compose profile with two named volumes for the
+certificate, and `deploy.sh` adds `--profile public` when `MANAGER_DOMAIN` is set. Two things in
+`frontend/nginx.conf` follow from having an edge at all. `set_real_ip_from` for the private ranges
+the compose network is drawn from, so the last `X-Forwarded-For` hop is the browser rather than the
+edge's own container address, which is the address the login lockout would otherwise blame for
+everybody. And `limit_req` on `/auth/login` only, ten a minute per address with a burst of five,
+because the manager's own lockout counts an attempt after it has paid for a scrypt, so a flood is
+expensive before it is refused.
 
 ### What the API still hands to a signed-in user
 
@@ -203,32 +213,56 @@ never in the list. Noted, not in this PR.
 
 1. **Login gate**: migration, hashing, sessions, limiter, middleware, routes, CLI, sign-in page,
    Access page, mock, headers in nginx, docs. Nothing changes on the host until deployed.
-2. **Edge**: the Caddy service and compose wiring, `deploy/deploy.sh` passing `MANAGER_DOMAIN`,
-   the host firewall generator script (below) and the runbook in `deploy/README.md`.
+2. **Edge**: the Caddy service and compose wiring, `deploy/deploy.sh` reading `MANAGER_DOMAIN`,
+   the real client address and the sign-in rate limit in nginx, the host firewall generator script
+   (below) and the runbook in `deploy/README.md`.
 
 ## Host steps, for Levi to run (decision D3)
 
-These are listed here because the host is a gated deploy. In order:
+These are listed here because the host is a gated deploy. The same five steps with the commands
+to run are "Opening the manager to the internet" in `deploy/README.md`. In order:
 
 1. Deploy the manager with PR 1. Create the first user with the CLI above. Sign in through the
    tunnel and confirm the gate before anything is opened.
-2. Bind the Bee APIs to the Docker bridge instead of every interface. The stack already has the
-   knobs: set `BEE_UPLOADER_API_BIND` and `BEE_GATEWAY_API_BIND` in the stack's base `.env` on the
-   host to the bridge address (`ip -4 addr show docker0`, usually `172.17.0.1`). The manager
-   reaches the nodes through `host.docker.internal`, which is that same address, so nothing the
-   manager does changes. The viewer's nginx proxies the gateway by service name, also unchanged.
-   Each Bee node picks the new binding up on its next deploy from the UI.
-3. Firewall, default deny inbound. Allowed: 22, 80, 443. In the 10000 to 19999 band the stack
-   uses, allowed only: TCP on the Bee P2P ports (last digit 6 and 8), TCP on the viewer ports
-   (last digit 4), UDP on the SRT ingest ports (last digit 1). Everything else in the band,
-   above all the Bee APIs (5 and 7), the uploader API (0), the media server HTTP (3) and RTMP (2),
-   is dropped. PR 2 ships `deploy/host/firewall-rules.sh`, which prints the nftables set for
-   slots 1 to 99 (and the second band 11001 to 11006 that `main-v3` uses) so nobody types 300
-   port numbers by hand. It prints, it does not apply.
-4. Point a DNS A record at the host, set `MANAGER_DOMAIN`, deploy PR 2, watch Caddy obtain the
-   certificate, open the domain, sign in.
-5. Remove the port 8080 publish and the tunnel from the runbook, or keep the tunnel as the
-   break-glass path.
+2. Bind the Bee APIs to the Docker bridge instead of every interface. `BEE_UPLOADER_API_BIND` and
+   `BEE_GATEWAY_API_BIND` belong in `manager/swarm-hls-stream/.env` **in the laptop's checkout**,
+   not on the host: `deploy.sh` rsyncs that file along with everything else and `--delete` replaces
+   the host's copy on every deploy, so an edit made on the host is undone by the next one. Set both
+   to the bridge address (`ip -4 addr show docker0`, usually `172.17.0.1`), never `127.0.0.1`,
+   because the manager reaches the nodes through `host.docker.internal`, which is that same
+   address. The viewer's nginx proxies the gateway by service name, unchanged. Each Bee node picks
+   the new binding up on its next deploy from the UI. This step cannot be swapped for the firewall.
+   Docker publishes a container port by rewriting the destination and forwarding the packet, which
+   never reaches the input hook a host firewall filters. The DOCKER-USER rules of step 3 do reach
+   it, in the forward hook, but they filter one way in where the bind closes the port outright.
+3. Firewall, default deny inbound. Allowed: 22 (or `--ssh-port`), 80 and 443 TCP, and 443 UDP for
+   the edge's HTTP/3. In the 10000 to 19999 band the stack uses, allowed only: TCP on the Bee P2P
+   ports (last digit 6 and 8), TCP on the viewer ports (last digit 4), UDP on the SRT ingest ports
+   (last digit 1), plus the second band `main-v3` uses for its per rung Bee nodes (11002, 11004,
+   11006). Everything else in the band, above all the Bee APIs (5 and 7), the uploader API (0),
+   the media server HTTP (3) and RTMP (2) and the SRS API (9), falls to the drop policy. PR 2
+   ships `deploy/host/firewall-rules.sh`, which shifts each band by ten per slot up to
+   `--max-slot` so nobody types three hundred port numbers by hand. It prints, it does not apply.
+   `--max-slot` stops at 100 and refuses more: first-band slot 101 has its RTMP port on 11012,
+   which is the second band's slot 1 P2P port, so above 100 the two bands cannot both be opened
+   without opening RTMP with them.
+
+   The file it prints has two sections, because one chain cannot cover both cases. The input
+   chain governs the host's own listeners and the whole stack when that runs with
+   `COMPOSE_NETWORK=host`. A second section adds rules to `DOCKER-USER`, the chain Docker
+   evaluates in the forward hook before its own, and those govern the ports Docker publishes for
+   containers, which no input chain ever sees. By then the destination port has been rewritten to
+   the container's, so those rules match the connection's original destination port instead, and
+   they need the name of the external interface: pass it as `--iface`, from
+   `ip -4 route get 1.1.1.1` on the host, and the script refuses to print without it. Docker has
+   to be running when the file is applied, since it owns that chain. So the three controls are:
+   the Bee API bind of step 2 closes the Bee ports at the source, the DOCKER-USER rules close
+   everything else that is published, and the input chain covers the host itself.
+4. Point a DNS A record at the host, set `MANAGER_DOMAIN` in `manager/.env`, deploy PR 2.
+   `deploy.sh` reads that name, adds `--profile public` so the edge starts, and says which of the
+   two it did. Watch `docker compose logs -f edge` for the certificate, open the domain, sign in.
+5. Keep the tunnel. `web` still publishes `127.0.0.1:8080`, which is the way back in when the edge
+   is down, the certificate is stuck or the domain is wrong.
 
 ## Tests
 
@@ -252,5 +286,7 @@ These are listed here because the host is a gated deploy. In order:
 - The first user is created by the CLI with a hidden prompt or a pipe, never an env var.
 - Security headers present on every response, checked in the Browser pane.
 - Docs updated: `manager/README.md` loses "No auth", `deploy/README.md` gains the runbook.
-- No new npm dependency in PR 1. PR 2 adds the `caddy:2` image pinned by digest, with the
-  provenance check the dependency rule requires recorded in the PR.
+- No new npm dependency in PR 1, and none in PR 2 either. PR 2 adds one image,
+  `caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d`: the
+  newest 2.x patch release, a Docker Official Image, published 2026-08-12 and so 25 days old when
+  it was pinned, its index digest read back from the registry rather than taken from the tag page.

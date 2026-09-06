@@ -52,8 +52,40 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # Loopback only. The edge reaches it by service name, and the SSH tunnel
+    # stays the way back in when the edge or its certificate is broken.
     ports:
       - "127.0.0.1:${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # TLS termination, started only by `docker compose --profile public up`,
+  # which deploy.sh passes when MANAGER_DOMAIN is set. The two volumes hold the
+  # certificate and Caddy's account key, so a recreate does not ask Let's
+  # Encrypt for a new one and run into its rate limit.
+  edge:
+    image: caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d
+    profiles:
+      - public
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      MANAGER_DOMAIN: ${MANAGER_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - edge-data:/data
+      - edge-config:/config
 
 volumes:
   manager-pg:
+  edge-data:
+  edge-config:
