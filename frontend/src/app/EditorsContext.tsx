@@ -11,16 +11,17 @@ export interface WizardPrefill {
 }
 
 /**
- * The three places the shell hands off to a form.
+ * The places the shell hands off to a form.
  *
- * Held as a context so the rows, the page headers and the pool card call the
- * same three functions wherever they sit, rather than threading a prop through
- * every level. `EditorsHost` provides them.
+ * Held as a context so the rows, the page headers and the cards call the same
+ * functions wherever they sit, rather than threading a prop through every
+ * level. `EditorsHost` provides them.
  */
 export interface Editors {
   openWizard: (prefill?: WizardPrefill) => void;
   openEditDeployment: (name: string) => void;
   openEditGroup: (id: number) => void;
+  openEngineSettings: (name: string) => void;
 }
 
 const EditorsContext = createContext<Editors | null>(null);

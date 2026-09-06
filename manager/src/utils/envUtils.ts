@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 import {
   abrLadderEnvValue,
+  applicableEngineSettings,
   beePublishersProblem,
   beeUrlProblem,
+  effectiveEngineDefaults,
   type EngineName,
+  type EngineSettings,
+  engineSettingsEnv,
+  engineSettingsProblem,
   isValidSrtPassphrase,
   normalizeBeePublishers,
   OME_SERVICE,
@@ -38,9 +43,11 @@ export function baseEnvPath(): string {
 
 function parseEnvFile(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
+  return parseEnvText(readFileSync(path, 'utf8'));
+}
 
+function parseEnvText(text: string): Record<string, string> {
   const out: Record<string, string> = {};
-  const text = readFileSync(path, 'utf8');
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
@@ -128,6 +135,13 @@ export interface ProfileEnvValues {
    */
   streamKey?: string | null;
 
+  /**
+   * Engine settings this profile overrides, by env key. An absent key is left
+   * out of the file for the same reason an absent passphrase is: the base .env
+   * still decides it.
+   */
+  engineSettings?: EngineSettings | null;
+
   omeSrtPort?: number;
   omeHlsPort?: number;
   /**
@@ -151,9 +165,10 @@ export function writeProfileEnv(
   name: string,
   values: ProfileEnvValues,
 ): string {
-  let contents = existsSync(baseEnvPath())
+  const baseContents = existsSync(baseEnvPath())
     ? readFileSync(baseEnvPath(), 'utf8')
     : '';
+  let contents = baseContents;
 
   contents = upsertEnvLine(contents, 'ENGINE', values.engine);
 
@@ -248,6 +263,42 @@ export function writeProfileEnv(
       );
     }
     contents = upsertEnvLine(contents, 'STREAM_KEY', streamKey);
+  }
+
+  // Validated here as well as in the settings route, because this is the last
+  // point before the values leave the manager and both entrypoints splice them
+  // into a `sed` expression without a guard of their own. `abr` follows
+  // BEE_PUBLISHERS, which is the same thing that turns ABR_ENABLED on above.
+  //
+  // Only over the keys this deployment still reads. A rung setting stored while
+  // the ladder was on and left behind when it was turned off is skipped, not
+  // refused: refusing would fail every deploy from here on over a value no
+  // drawer shows and nobody can remove. A key that does not apply in a new
+  // request is still refused, by the request schema and by the settings route.
+  const abr = Boolean(publishers);
+  const engineSettings = applicableEngineSettings(
+    values.engine,
+    values.engineSettings ?? {},
+    { abr },
+  );
+  // Against the defaults this host actually falls back to, not the stack's own:
+  // an unset key is left out of the file below and whatever the base .env says
+  // stands, so checking a pair against the stack values refuses a deployment
+  // that would start and passes one that would not.
+  const settingsProblem = engineSettingsProblem(values.engine, engineSettings, {
+    abr,
+    defaults: effectiveEngineDefaults(values.engine, parseEnvText(baseContents))
+      .values,
+  });
+  if (settingsProblem) {
+    throw new Error(
+      `refusing to write the engine settings to the env file: ${settingsProblem}`,
+    );
+  }
+  for (const [key, value] of Object.entries(
+    engineSettingsEnv(values.engine, engineSettings, { abr }),
+  )) {
+    contents = upsertEnvLine(contents, key, value);
   }
 
   if (values.engine === OME_SERVICE) {

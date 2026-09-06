@@ -12,14 +12,15 @@ import {
   OutsideTotals,
 } from '../types/index.js';
 
+import {
+  COMPOSE_PROJECT_LABEL,
+  COMPOSE_SERVICE_LABEL,
+} from './composeLabels.js';
 import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
 import { HostCollector } from './HostCollector.js';
 import { Logger } from './Logger.js';
 
 const logger = Logger.getInstance();
-
-const PROJECT_LABEL = 'com.docker.compose.project';
-const SERVICE_LABEL = 'com.docker.compose.service';
 
 type Listener = (snapshot: MetricsSnapshot) => void;
 
@@ -175,7 +176,7 @@ export class MetricsCollector {
     const managed = await this.resolveManagedProjects();
     const scoped = managed
       ? list.filter((info) => {
-          const project = info.Labels?.[PROJECT_LABEL];
+          const project = info.Labels?.[COMPOSE_PROJECT_LABEL];
           return !!project && managed.has(project);
         })
       : list;
@@ -243,8 +244,8 @@ export class MetricsCollector {
     return {
       id: info.Id,
       name: info.Names?.[0]?.replace(/^\//, '') ?? info.Id.slice(0, 12),
-      project: info.Labels?.[PROJECT_LABEL] ?? null,
-      service: info.Labels?.[SERVICE_LABEL] ?? null,
+      project: info.Labels?.[COMPOSE_PROJECT_LABEL] ?? null,
+      service: info.Labels?.[COMPOSE_SERVICE_LABEL] ?? null,
       state: info.State ?? 'unknown',
       cpuPercent,
       memUsageBytes,

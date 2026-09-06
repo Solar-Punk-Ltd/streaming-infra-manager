@@ -1,4 +1,7 @@
-import { nullify } from '@streaming-infra-manager/common';
+import {
+  type EngineSettings,
+  nullify,
+} from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
@@ -91,10 +94,16 @@ export class ProfileRepository {
     }
   }
 
+  /**
+   * @param engineSettings replaces the column in the same statement, for a
+   *   caller whose edit changes what the stored settings mean. Left out, the
+   *   column keeps what it holds, which is what every ordinary PUT body wants.
+   */
   async updateEditable(
     name: string,
     kind: ProfileKind,
     dataWithOptionalValues: ProfileWriteData = {},
+    engineSettings?: EngineSettings,
   ): Promise<Profile | null> {
     const data = nullify(dataWithOptionalValues);
     const result = await this.pool.query<Profile>(
@@ -110,6 +119,7 @@ export class ProfileRepository {
              bee_publishers = $10,
              bee_url = $11,
              srt_passphrase = $12,
+             engine_settings = COALESCE($13::jsonb, engine_settings),
              updated_at = NOW()
        WHERE name = $1
        RETURNING ${PROFILE_COLUMNS}`,
@@ -126,7 +136,32 @@ export class ProfileRepository {
         data.bee_publishers,
         data.bee_url,
         data.srt_passphrase,
+        engineSettings === undefined ? null : JSON.stringify(engineSettings),
       ],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
+  /**
+   * Replaces the whole engine settings object.
+   *
+   * Deliberately not part of `ProfileWriteData`, which `updateEditable` writes
+   * from a full-replace PUT body: a body that has never heard of engine
+   * settings would clear them, and every existing caller of that path is such
+   * a body. The settings have their own route and their own write, the way the
+   * stamp id does.
+   */
+  async updateEngineSettings(
+    name: string,
+    settings: EngineSettings,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET engine_settings = $2::jsonb,
+             updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name, JSON.stringify(settings)],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }

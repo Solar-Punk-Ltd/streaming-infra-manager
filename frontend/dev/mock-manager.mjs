@@ -39,6 +39,7 @@ import {
   refuseRequest,
   seedAuth,
 } from './mock-auth.mjs';
+import { engineRoutes } from './mock-engine.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -341,14 +342,19 @@ function openStream(res, clients) {
   res.on('close', () => clients.delete(res));
 }
 
-/** Wraps a handler that needs a profile, so the 404 is written once. */
+/**
+ * Wraps a handler that needs a profile, so the 404 is written once.
+ *
+ * The raw match groups follow the profile, for the routes that carry a second
+ * one (the container name in the log and restart paths).
+ */
 function withProfile(handler) {
   return (req, res, params) => {
     const profile = findProfile(params[0]);
     if (!profile) {
       return send(res, 404, { error: `profile ${params[0]} not found` });
     }
-    return handler(req, res, profile);
+    return handler(req, res, profile, params);
   };
 }
 
@@ -662,6 +668,7 @@ const ROUTES = [
       send(res, 202, { group, profiles });
     },
   ],
+  ...engineRoutes({ readBody, withProfile, deploy, publish }),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
   ['GET', /^\/metrics$/, (_req, res) => send(res, 200, metricsSnapshot())],
   [

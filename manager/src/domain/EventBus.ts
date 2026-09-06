@@ -18,7 +18,14 @@ export type ProfileEvent =
       profile: string;
       text: string;
       tone: NoticeTone;
-    };
+    }
+  /**
+   * One container was restarted on its own. It carries no profile, because a
+   * restart happens below the deploy state machine and changes no status: the
+   * deployment is running before and after, so there is nothing for a status
+   * pill to show and this exists to appear in the activity list.
+   */
+  | { type: 'engine.restarted'; profile: string; service: string };
 
 export const MAX_EVENT_CLIENTS = 100;
 

@@ -198,6 +198,14 @@ export function useDeploymentsStore(): DeploymentsStore {
       fetchGroups().then(setGroups).catch(() => undefined);
     });
 
+    source.addEventListener('engine.restarted', (event: MessageEvent<string>) => {
+      const { profile, service } = JSON.parse(event.data) as {
+        profile: string;
+        service: string;
+      };
+      log(`${service} restarted on ${profile}`, 'info');
+    });
+
     return () => source.close();
   }, [log, reload, toast]);
 

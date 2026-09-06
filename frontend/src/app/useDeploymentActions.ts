@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useState } from 'react';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  BEE_UPLOADER_SERVICE,
+  getErrorMessage,
+  OME_SERVICE,
+  SRS_SERVICE,
+  STREAM_UPLOADER_SERVICE,
+} from '@streaming-infra-manager/common';
 
 import type { ConfirmRequest } from '../components/ConfirmDialog';
 import {
@@ -10,9 +16,14 @@ import {
   deployUploader,
   stopProfile,
 } from '../data';
+import { restartContainer as postRestart } from '../deployments/engineApi';
+import {
+  isRunning,
+  isTransitional,
+  SERVICE_LABEL,
+} from '../deployments/shape';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
-import { isRunning, isTransitional } from '../deployments/shape';
 import { useToast } from './ToastProvider';
 import { useDeployments } from './useDeploymentsStore';
 
@@ -21,6 +32,8 @@ export interface DeploymentActions {
   start: (name: string) => void;
   stop: (name: string) => void;
   startUploader: (name: string) => void;
+  /** Asks first, then bounces one container. Leaves the deployment's status alone. */
+  restartContainer: (name: string, service: string) => void;
   requestRemove: (profile: Profile) => void;
   startGroup: (group: DeploymentGroup, members: Profile[]) => void;
   stopGroup: (group: DeploymentGroup, members: Profile[]) => void;
@@ -29,6 +42,22 @@ export interface DeploymentActions {
   confirm: ConfirmRequest | null;
   closeConfirm: () => void;
 }
+
+/** What a restart of each container actually costs the operator. */
+const ENGINE_RESTART_EFFECT =
+  'The publisher, if there is one, is disconnected for a few seconds and reconnects on its own if OBS is set to retry. Settings are not changed.';
+
+const RESTART_EFFECT: Record<string, string> = {
+  [SRS_SERVICE]: ENGINE_RESTART_EFFECT,
+  [OME_SERVICE]: ENGINE_RESTART_EFFECT,
+  [STREAM_UPLOADER_SERVICE]:
+    'Segments already on disk are picked up again when it comes back. Nothing else about the deployment changes.',
+  [BEE_UPLOADER_SERVICE]:
+    'The node reconnects to its peers, which takes a minute or two. Uploads wait for it. Nothing else about the deployment changes.',
+};
+
+const RESTART_EFFECT_DEFAULT =
+  'The container stops and starts again. Nothing else about the deployment changes.';
 
 const ActionsContext = createContext<DeploymentActions | null>(null);
 
@@ -121,6 +150,22 @@ export function useDeploymentActions(): DeploymentActions {
     [runOne],
   );
 
+  const restartContainer = useCallback(
+    (name: string, service: string) => {
+      const label = SERVICE_LABEL[service] ?? service;
+      setConfirm({
+        title: `Restart ${label} for ${name}?`,
+        body: RESTART_EFFECT[service] ?? RESTART_EFFECT_DEFAULT,
+        confirmLabel: 'Restart',
+        onConfirm: () =>
+          runOne(name, `Restarting ${label} for`, (profileName) =>
+            postRestart(profileName, service),
+          ),
+      });
+    },
+    [runOne],
+  );
+
   const requestRemove = useCallback(
     (profile: Profile) => {
       setConfirm({
@@ -193,6 +238,7 @@ export function useDeploymentActions(): DeploymentActions {
     start,
     stop,
     startUploader,
+    restartContainer,
     requestRemove,
     startGroup,
     stopGroup,

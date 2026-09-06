@@ -7,6 +7,7 @@ import {
 } from '../app/EditorsContext';
 import { EditDeploymentDrawer } from './EditDeploymentDrawer';
 import { EditGroupDrawer } from './EditGroupDrawer';
+import { EngineSettingsDrawer } from './EngineSettingsDrawer';
 import { NewDeploymentWizard } from './wizard/NewDeploymentWizard';
 
 /** Whichever form is open, if any. Only ever one at a time. */
@@ -14,6 +15,7 @@ type OpenEditor = (
   | { kind: 'wizard'; prefill?: WizardPrefill }
   | { kind: 'deployment'; name: string }
   | { kind: 'group'; id: number }
+  | { kind: 'engine'; name: string }
 ) & {
   /**
    * Bumped on every open, and used as the form's React key.
@@ -44,6 +46,8 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       openWizard: (prefill) => setOpen({ kind: 'wizard', prefill, seq: seq() }),
       openEditDeployment: (name) => setOpen({ kind: 'deployment', name, seq: seq() }),
       openEditGroup: (id) => setOpen({ kind: 'group', id, seq: seq() }),
+      openEngineSettings: (name) =>
+        setOpen({ kind: 'engine', name, seq: seq() }),
     };
   }, []);
 
@@ -60,6 +64,9 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       )}
       {open?.kind === 'group' && (
         <EditGroupDrawer key={open.seq} id={open.id} onClose={close} />
+      )}
+      {open?.kind === 'engine' && (
+        <EngineSettingsDrawer key={open.seq} name={open.name} onClose={close} />
       )}
     </EditorsProvider>
   );

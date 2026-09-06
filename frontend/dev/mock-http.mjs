@@ -14,6 +14,17 @@ export function send(res, status, body, headers = {}) {
   res.end(payload);
 }
 
+/** For the routes that answer a log or a config file rather than JSON. */
+export function sendText(res, status, text, headers = {}) {
+  const payload = Buffer.from(text, 'utf8');
+  res.writeHead(status, {
+    'content-type': 'text/plain; charset=utf-8',
+    'content-length': payload.length,
+    ...headers,
+  });
+  res.end(payload);
+}
+
 /** 204 has no body, and a browser reads a Set-Cookie off it just the same. */
 export function sendEmpty(res, status, headers = {}) {
   res.writeHead(status, headers);

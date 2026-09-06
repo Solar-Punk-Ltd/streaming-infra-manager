@@ -33,6 +33,7 @@ function profile(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     srt_passphrase: null,
+    engine_settings: {},
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,

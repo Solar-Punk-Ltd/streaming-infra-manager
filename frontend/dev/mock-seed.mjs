@@ -138,6 +138,7 @@ export function makeProfile(input) {
     bee_publishers: input.bee_publishers ?? null,
     bee_url: input.bee_url ?? null,
     srt_passphrase: input.srt_passphrase ?? null,
+    engine_settings: input.engine_settings ?? {},
     status: input.status ?? 'RUNNING',
     last_error: input.last_error ?? null,
     last_error_at: input.last_error_at ?? null,
@@ -278,6 +279,9 @@ export function seed() {
     bee_publishers: RUNGS.map(
       (rung, index) => `${rung.name}@http://10.0.0.7:${10015 + index * 10}<${batchId()}>`,
     ).join(' '),
+    // One deployment starts with the engine tuned away from the stack defaults,
+    // so the Engine card has something other than "default" to render.
+    engine_settings: { ABR_PRESET: 'faster', HLS_FRAGMENT: '2' },
     created_at: '2026-09-01T17:05:00Z',
   });
 

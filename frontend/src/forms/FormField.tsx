@@ -10,18 +10,25 @@ export function FormField({
   aside,
   hint,
   error,
+  htmlFor,
   children,
 }: {
   label: string;
   aside?: string;
   hint?: ReactNode;
   error?: string | null;
+  /**
+   * The id of the control this label names. Given one, the label is a real
+   * label: clicking it focuses the input, and a screen reader reads the two
+   * together instead of announcing an unnamed text box.
+   */
+  htmlFor?: string;
   children: ReactNode;
 }) {
   return (
     <Box>
       <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ mb: 0.75 }}>
-        <Typography variant="subtitle2" component="label">
+        <Typography variant="subtitle2" component="label" htmlFor={htmlFor}>
           {label}
         </Typography>
         {aside && (

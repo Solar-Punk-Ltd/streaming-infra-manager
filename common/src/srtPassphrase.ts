@@ -22,14 +22,13 @@
  * The RFC 3986 unreserved set is what passes all four untouched, so that is what
  * we accept — rather than escaping per hop and getting one of them wrong.
  */
+import { ENV_SAFE_CHARS } from './envSafeValue.js';
+
 export const SRT_PASSPHRASE_MIN = 10;
 export const SRT_PASSPHRASE_MAX = 79;
 
-// `-` is last so it stays a literal inside the character class.
-const SRT_PASSPHRASE_CHARS = 'A-Za-z0-9._~-';
-
 export const SRT_PASSPHRASE_RE = new RegExp(
-  `^[${SRT_PASSPHRASE_CHARS}]{${SRT_PASSPHRASE_MIN},${SRT_PASSPHRASE_MAX}}$`,
+  `^[${ENV_SAFE_CHARS}]{${SRT_PASSPHRASE_MIN},${SRT_PASSPHRASE_MAX}}$`,
 );
 
 export const SRT_PASSPHRASE_MESSAGE =

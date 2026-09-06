@@ -1,3 +1,5 @@
+import type { EngineSettings } from '@streaming-infra-manager/common';
+
 import type { ProfileKind, ProfileStatus } from './types';
 
 export interface Container {
@@ -23,6 +25,11 @@ export interface Profile {
   bee_url?: string | null;
   /** SRS only; null falls back to the host-wide SRT_PASSPHRASE. */
   srt_passphrase?: string | null;
+  /**
+   * Engine settings this deployment overrides, by env key. An absent key means
+   * the stack default. The column is NOT NULL, so the object is always there.
+   */
+  engine_settings: EngineSettings;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: string | null;

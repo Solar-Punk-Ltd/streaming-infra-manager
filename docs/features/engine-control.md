@@ -3,6 +3,9 @@
 Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first). D12 is on hold, so PR 1 (settings,
 restart, logs, effective config) proceeds and PR 2 (live status) waits for the upstream port change.
 
+PR 1 is built on `feat/engine-control`, against the stack as pinned today (`main-v2`, `ee99c36`).
+`SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is not started.
+
 ## What the engines are and how they are configured today
 
 A stream deployment runs a media server that takes the SRT feed from OBS and cuts it into HLS
@@ -134,7 +137,7 @@ Routes, `manager/src/api/routes/engine.ts`:
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/profiles/:name/engine` | `{ engine, settings, defaults, live }` where `live` is null in PR 1 |
+| GET | `/profiles/:name/engine` | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason }`, where `live` is null in PR 1 and `liveUnavailableReason` says why |
 | PUT | `/profiles/:name/engine-settings` | 202, the profile |
 | POST | `/profiles/:name/containers/:service/restart` | 202 |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | `text/plain` |

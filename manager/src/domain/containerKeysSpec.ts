@@ -2,10 +2,34 @@ import {
   BEE_GATEWAY_SERVICE,
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
+  type EngineName,
+  engineSettingsFields,
   OME_SERVICE,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
+
+/**
+ * The one engine setting the engine container never sees.
+ *
+ * `OME_HLS_POLL_INTERVAL_MS` is how often the uploader asks OvenMediaEngine
+ * for a new segment, so compose puts it in the uploader's environment and
+ * nowhere else. It is offered beside the OME settings because it is the same
+ * decision to an operator, and it is listed here so the snapshot shows it
+ * against the container that actually got it.
+ *
+ * `ProfileService.updateEngineSettings` reads the same list to decide which
+ * containers a saved change has to recreate.
+ */
+export const UPLOADER_ENGINE_SETTING_KEYS: readonly string[] = [
+  'OME_HLS_POLL_INTERVAL_MS',
+];
+
+function engineSettingKeysFor(engine: EngineName): string[] {
+  return engineSettingsFields(engine)
+    .map((field) => field.key)
+    .filter((key) => !UPLOADER_ENGINE_SETTING_KEYS.includes(key));
+}
 
 /**
  *
@@ -20,6 +44,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'SRS_MEDIA_PATH',
     'ABR_ENABLED',
     'ABR_LADDER',
+    ...engineSettingKeysFor(SRS_SERVICE),
   ],
   [OME_SERVICE]: [
     'OME_SRT_PORT',
@@ -27,6 +52,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'OME_ADAPTER_HOST',
     'OME_ADAPTER_PORT',
     'OME_HLS_URL',
+    ...engineSettingKeysFor(OME_SERVICE),
   ],
   [STREAM_UPLOADER_SERVICE]: [
     'API_PORT',
@@ -46,6 +72,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'BEE_PUBLISHERS',
     'ABR_ENABLED',
     'ABR_LADDER',
+    ...UPLOADER_ENGINE_SETTING_KEYS,
   ],
   [BEE_UPLOADER_SERVICE]: [
     'BEE_UPLOADER_API_PORT',

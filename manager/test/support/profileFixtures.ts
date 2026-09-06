@@ -1,4 +1,7 @@
-import { isPendingStamp } from '@streaming-infra-manager/common';
+import {
+  type EngineSettings,
+  isPendingStamp,
+} from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
@@ -30,6 +33,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     srt_passphrase: null,
+    engine_settings: {},
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,
@@ -127,12 +131,24 @@ export class InMemoryProfiles {
     name: string,
     kind: ProfileKind,
     data: ProfileWriteData = {},
+    engineSettings?: EngineSettings,
   ): Promise<Profile | null> {
     if (this.writesRefused.has(name)) {
       throw new Error(`write refused for ${name}`);
     }
     this.updateEditableCalls.push(name);
-    return this.write(name, { kind, ...definedFields(data) });
+    return this.write(name, {
+      kind,
+      ...definedFields(data),
+      ...(engineSettings === undefined ? {} : { engine_settings: engineSettings }),
+    });
+  }
+
+  async updateEngineSettings(
+    name: string,
+    settings: EngineSettings,
+  ): Promise<Profile | null> {
+    return this.write(name, { engine_settings: settings });
   }
 
   private write(name: string, patch: Partial<Profile>): Profile | null {

@@ -1,3 +1,5 @@
+import type { EngineSettings } from '@streaming-infra-manager/common';
+
 import { ProfileKind, ProfileStatus } from './types.js';
 
 export interface Profile {
@@ -26,6 +28,12 @@ export interface Profile {
   bee_url: string | null;
   /** SRS only; null falls back to the base .env. See migrations/007. */
   srt_passphrase: string | null;
+  /**
+   * Engine settings this deployment overrides, by their env key. An absent key
+   * means the stack's own default. See migrations/009 and
+   * common/src/engineSettings.ts.
+   */
+  engine_settings: EngineSettings;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: Date | null;

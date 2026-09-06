@@ -31,6 +31,7 @@ import { readySummary } from './readySummary';
 import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
+import { EngineCard } from './EngineCard';
 import { LastErrorCard } from './LastErrorCard';
 import { NextStepsCard } from './NextStepsCard';
 import { NotesCard } from './NotesCard';
@@ -40,7 +41,7 @@ import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
 import { ownsBeeNode, readinessOf } from './readiness';
 import { StorageCard } from './StorageCard';
-import { isRunning, shapeOf, streamersOf } from './shape';
+import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
 
 const STORAGE_ANCHOR = 'storage';
@@ -121,6 +122,7 @@ function DeploymentBody({
   }, [focus, profile.name]);
 
   const shape = shapeOf(profile);
+  const engine = engineOf(profile);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
   const stampHealth = stampHealthFrom(profile.stamp_id, bee?.stamps ?? null);
@@ -220,6 +222,8 @@ function DeploymentBody({
               ready={readiness.tone === 'ok'}
             />
           )}
+
+          {engine && <EngineCard profile={profile} engine={engine} />}
 
           {watchUrl && (
             <WatchCard

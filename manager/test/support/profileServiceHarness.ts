@@ -267,3 +267,51 @@ export function profileServiceHarness(
 
   return { service, profiles, containers, groups, orchestrator, events };
 }
+
+/** One deploy as the engine settings tests read it. */
+export interface EngineDeploy {
+  name: string;
+  services: string[];
+}
+
+export interface EngineSettingsHarness {
+  service: ProfileService;
+  /** The row as the fake repository holds it now, after every write so far. */
+  stored: () => Profile;
+  deploys: EngineDeploy[];
+}
+
+export function profileRow(overrides: Partial<Profile> = {}): Profile {
+  return makeProfile({
+    name: 'stream1',
+    stamp_id: 'a'.repeat(64),
+    ...overrides,
+  });
+}
+
+/**
+ * The harness above for one row, answering what a settings change recreated.
+ *
+ * The orchestrator fake keeps the claim rule, so a row that is not RUNNING,
+ * STOPPED or ERROR is refused the way the real one refuses it.
+ */
+export function harnessFor(initial: Profile): EngineSettingsHarness {
+  const harness = profileServiceHarness([initial]);
+  const deploys: EngineDeploy[] = [];
+  const orchestrator = harness.orchestrator;
+  const runReserved = orchestrator.runReserved.bind(orchestrator);
+  orchestrator.runReserved = async (reservation, profile) => {
+    deploys.push({ name: profile.name, services: [...reservation.services] });
+    return runReserved(reservation, profile);
+  };
+
+  return {
+    service: harness.service,
+    stored: () => {
+      const row = harness.profiles.rows.get(initial.name);
+      if (!row) throw new Error(`${initial.name} is gone from the fake repository`);
+      return row;
+    },
+    deploys,
+  };
+}

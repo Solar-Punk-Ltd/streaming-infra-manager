@@ -1,4 +1,8 @@
 export { AllSlotsUsedError } from './AllSlotsUsedError.js';
+export { ContainerNotRunningError } from './ContainerNotRunningError.js';
+export { DockerUnavailableError } from './DockerUnavailableError.js';
+export { RestartInProgressError } from './RestartInProgressError.js';
+export { UnknownServiceError } from './UnknownServiceError.js';
 export { ProfileBusyError } from './ProfileBusyError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';

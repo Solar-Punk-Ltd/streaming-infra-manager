@@ -5,6 +5,7 @@ import express from 'express';
 import { AuthService } from '../domain/auth/AuthService.js';
 import { OpenStreams } from '../domain/auth/OpenStreams.js';
 import { ChequebookService } from '../domain/ChequebookService.js';
+import { ContainerControl } from '../domain/ContainerControl.js';
 import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EventBus } from '../domain/EventBus.js';
@@ -22,6 +23,7 @@ import { createActionsRouter } from './routes/actions.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createChequebookRouter } from './routes/chequebook.js';
 import { createConfigRouter } from './routes/config.js';
+import { createEngineRouter } from './routes/engine.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
 import { createHealthRouter } from './routes/health.js';
@@ -42,6 +44,7 @@ export interface ApiDeps {
   deployService: DeployService;
   stampService: StampService;
   chequebookService: ChequebookService;
+  containerControl: ContainerControl;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -81,6 +84,7 @@ export function startApiServer(
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
   app.use('/', createChequebookRouter(deps.chequebookService));
+  app.use('/', createEngineRouter(deps.profileService, deps.containerControl));
 
   app.use(notFound);
   app.use(errorHandler);

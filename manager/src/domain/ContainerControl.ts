@@ -1,0 +1,284 @@
+import {
+  type EngineName,
+  OME_SERVICE,
+  RESTARTABLE_SERVICES,
+  SRS_SERVICE,
+} from '@streaming-infra-manager/common';
+import Docker from 'dockerode';
+
+import {
+  COMPOSE_PROJECT_LABEL,
+  COMPOSE_SERVICE_LABEL,
+} from './composeLabels.js';
+import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
+import {
+  ContainerNotRunningError,
+  DockerUnavailableError,
+  RestartInProgressError,
+  UnknownServiceError,
+} from './errors/index.js';
+import {
+  demultiplexDockerStream,
+  readBounded,
+  type StreamBounds,
+} from './dockerStream.js';
+import { EventBus } from './EventBus.js';
+import { Logger } from './Logger.js';
+
+const logger = Logger.getInstance();
+
+/** Seconds docker waits for the process to exit before it kills it. */
+const RESTART_TIMEOUT_SECONDS = 10;
+
+/**
+ * How long after a restart the same container refuses another one.
+ *
+ * Long enough to cover the seconds a container spends looking down while it
+ * comes back, which is when the button gets pressed a second time.
+ */
+const RESTART_COOLDOWN_MS = 10_000;
+
+const MAX_LOG_LINES = 2000;
+const DEFAULT_LOG_LINES = 200;
+
+/**
+ * A generated engine config runs to a few kilobytes. The cap is here because
+ * `cat` reads whatever is at that path, and an answer the browser cannot render
+ * is worse than a truncated one.
+ */
+export const MAX_CONFIG_BYTES = 256 * 1024;
+
+/**
+ * What a log read is allowed to cost.
+ *
+ * The line count alone is not a bound: a single line has no length limit, and a
+ * container that logs a stack trace per frame writes megabytes of them. The
+ * idle gap is what ends a normal read, because the followed stream stays open
+ * after the tail has been delivered, and the total is the backstop for a
+ * container writing continuously.
+ */
+export const DEFAULT_LOG_BOUNDS: StreamBounds = {
+  maxBytes: 1024 * 1024,
+  idleMs: 500,
+  totalMs: 5_000,
+};
+
+/** Overridable so a test does not have to wait out the real ones. */
+export interface ContainerControlLimits {
+  log: StreamBounds;
+  restartCooldownMs: number;
+  dockerTimeoutMs: number;
+}
+
+const DEFAULT_LIMITS: ContainerControlLimits = {
+  log: DEFAULT_LOG_BOUNDS,
+  restartCooldownMs: RESTART_COOLDOWN_MS,
+  dockerTimeoutMs: DOCKER_TIMEOUT_MS,
+};
+
+/** Where each entrypoint writes the config it generated from the template. */
+const ENGINE_CONFIG_PATHS: Record<EngineName, string> = {
+  [SRS_SERVICE]: '/usr/local/srs/conf/srs.conf',
+  [OME_SERVICE]: '/opt/ovenmediaengine/bin/origin_conf/Server.xml',
+};
+
+/**
+ * The slice of dockerode this uses.
+ *
+ * Named so a test can hand over a double without standing up a Docker daemon,
+ * and narrow so what this class is allowed to do to a container is visible in
+ * one place.
+ */
+export interface ContainerHandle {
+  restart(options: { t: number }): Promise<unknown>;
+  logs(
+    options: Docker.ContainerLogsOptions & { follow: true },
+  ): Promise<NodeJS.ReadableStream>;
+  exec(options: Docker.ExecCreateOptions): Promise<ExecHandle>;
+}
+
+export interface ExecHandle {
+  start(options: Docker.ExecStartOptions): Promise<NodeJS.ReadableStream>;
+}
+
+/** The two fields of a container listing this reads. */
+export interface ListedContainer {
+  Id: string;
+  Labels?: Record<string, string>;
+}
+
+export interface DockerEngine {
+  listContainers(
+    options: Docker.ContainerListOptions,
+  ): Promise<ListedContainer[]>;
+  getContainer(id: string): ContainerHandle;
+}
+
+/**
+ * Restarting one container, reading its logs, and reading the config the engine
+ * actually generated at startup.
+ *
+ * All three go through the Docker socket the metrics collector already uses,
+ * because none of them is expressible as a deploy: a restart must not move the
+ * profile's status, and the generated config only exists inside the container.
+ */
+export class ContainerControl {
+  private readonly limits: ContainerControlLimits;
+
+  /** Restarts under way, and when the last one of each stops refusing another. */
+  private readonly restarting = new Set<string>();
+  private readonly restartableFrom = new Map<string, number>();
+
+  constructor(
+    private readonly events: EventBus,
+    private readonly docker: DockerEngine = new Docker({
+      timeout: DOCKER_TIMEOUT_MS,
+    }),
+    limits: Partial<ContainerControlLimits> = {},
+  ) {
+    this.limits = { ...DEFAULT_LIMITS, ...limits };
+  }
+
+  /**
+   * The one running container for a deployment's service.
+   *
+   * Both labels are required. Matching on the project alone would return every
+   * container of the deployment, and on the service alone every deployment's
+   * copy of that service, which on a host with a dozen streams is eleven
+   * chances to restart the wrong one.
+   */
+  async find(profile: string, service: string): Promise<ContainerHandle> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: false,
+        filters: {
+          label: [
+            `${COMPOSE_PROJECT_LABEL}=${profile}`,
+            `${COMPOSE_SERVICE_LABEL}=${service}`,
+          ],
+        },
+      }),
+    );
+
+    // The daemon is asked to filter and the answer is checked anyway: an older
+    // daemon that ignored one of the label filters would hand back a container
+    // belonging to another deployment, and this is a restart.
+    const match = containers.find(
+      (info) =>
+        info.Labels?.[COMPOSE_PROJECT_LABEL] === profile &&
+        info.Labels?.[COMPOSE_SERVICE_LABEL] === service,
+    );
+    if (!match) throw new ContainerNotRunningError(profile, service);
+
+    return this.docker.getContainer(match.Id);
+  }
+
+  /**
+   * Bounces one container, at most one bounce at a time and not twice in a row.
+   *
+   * The guard is per deployment and service rather than global: two operators
+   * restarting two different streams are not in each other's way, and the
+   * failure this prevents is one container being restarted on top of itself.
+   * A restart that failed sets no cooldown, so a fixed problem can be retried
+   * at once.
+   */
+  async restart(profile: string, service: string): Promise<void> {
+    if (!RESTARTABLE_SERVICES.includes(service)) {
+      throw new UnknownServiceError(service, RESTARTABLE_SERVICES);
+    }
+
+    const key = `${profile}/${service}`;
+    const restartableFrom = this.restartableFrom.get(key) ?? 0;
+    if (this.restarting.has(key) || Date.now() < restartableFrom) {
+      throw new RestartInProgressError(profile, service);
+    }
+
+    this.restarting.add(key);
+    try {
+      const container = await this.find(profile, service);
+      await this.withinLimit(container.restart({ t: RESTART_TIMEOUT_SECONDS }));
+      this.restartableFrom.set(key, Date.now() + this.limits.restartCooldownMs);
+    } finally {
+      this.restarting.delete(key);
+    }
+
+    logger.info(`[ContainerControl] restarted ${service} for ${profile}`);
+    this.events.publish({ type: 'engine.restarted', profile, service });
+  }
+
+  async logs(
+    profile: string,
+    service: string,
+    tail: number = DEFAULT_LOG_LINES,
+  ): Promise<string> {
+    const container = await this.find(profile, service);
+    // Followed rather than fetched whole: without `follow` the daemon assembles
+    // the entire answer and hands it over as one buffer, so the line count is
+    // applied to something already in memory. Followed, it arrives in pieces
+    // that the bounds can stop.
+    const stream = await this.withinLimit(
+      container.logs({
+        stdout: true,
+        stderr: true,
+        follow: true,
+        timestamps: true,
+        tail: Math.min(Math.max(tail, 1), MAX_LOG_LINES),
+      }),
+    );
+
+    const raw = await readBounded(stream, this.limits.log);
+    return lastLines(demultiplexDockerStream(raw), MAX_LOG_LINES);
+  }
+
+  /**
+   * The config the engine is running, read out of the container.
+   *
+   * Both entrypoints fill a template from environment variables at startup, so
+   * this file is the only place that says which values actually applied. It
+   * carries the SRT passphrase in clear, which the profile JSON already does,
+   * but the route still answers it `no-store`.
+   */
+  async effectiveConfig(profile: string, engine: EngineName): Promise<string> {
+    const container = await this.find(profile, engine);
+    const exec = await this.withinLimit(
+      container.exec({
+        Cmd: ['cat', ENGINE_CONFIG_PATHS[engine]],
+        AttachStdout: true,
+        AttachStderr: true,
+      }),
+    );
+    const stream = await this.withinLimit(exec.start({ Detach: false }));
+
+    const raw = await readBounded(stream, {
+      maxBytes: MAX_CONFIG_BYTES,
+      totalMs: this.limits.dockerTimeoutMs,
+    });
+    return demultiplexDockerStream(raw);
+  }
+
+  /**
+   * The same call, with a bound on how long the daemon may take over it.
+   *
+   * A daemon that has stalled rather than refused holds the socket open and
+   * says nothing, and every one of these calls is answering an HTTP request.
+   */
+  private withinLimit<T>(call: Promise<T>): Promise<T> {
+    return answeredInTime(
+      call,
+      this.limits.dockerTimeoutMs,
+      () => new DockerUnavailableError(),
+    );
+  }
+}
+
+/**
+ * The last `limit` lines, without the empty one a trailing newline splits off.
+ *
+ * That empty string is not a line. Counted as one it pushed the oldest real
+ * line out of a full answer and put a blank at the end of every answer.
+ */
+function lastLines(text: string, limit: number): string {
+  const lines = text.split('\n');
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines.slice(-limit).join('\n');
+}

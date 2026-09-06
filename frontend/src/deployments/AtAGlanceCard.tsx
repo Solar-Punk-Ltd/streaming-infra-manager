@@ -11,6 +11,7 @@ import { SectionCard } from '../components/SectionCard';
 import { formatDate, formatTtl } from '../format';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
+import { engineSummary } from './engineText';
 import type { Readiness } from './readiness';
 import { engineOf } from './shape';
 
@@ -37,7 +38,12 @@ export function AtAGlanceCard({
     { key: 'Slot', value: <Mono>{profile.port_slot}</Mono> },
   ];
 
-  if (engine) entries.push({ key: 'Engine', value: <Mono>{engine}</Mono> });
+  if (engine) {
+    entries.push({
+      key: 'Engine',
+      value: engineSummary(engine, profile.engine_settings),
+    });
+  }
 
   if (profile.stamp_id) {
     entries.push({

@@ -1,11 +1,22 @@
 import {
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
+  applicableEngineSettings,
   assembleBeePublishers,
   type BeePublishersResult,
   beeTargetProblem,
+  defaultServicesFor,
+  type EngineDefaults,
+  type EngineName,
+  effectiveEngineDefaults,
+  engineOfServices,
+  type EngineSettings,
+  type EngineSettingsOverview,
+  engineSettingsFieldsFor,
+  engineSettingsProblem,
   type GroupKind,
   getErrorMessage,
+  hasBeePublishers,
   isLadderKind,
   ladderMemberNames,
   type PublishUrlState,
@@ -14,6 +25,7 @@ import {
   STANDARD_GROUP_KIND,
   type StampHealth,
   stampHealthFrom,
+  STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -30,7 +42,10 @@ import {
   TRANSITIONAL_STATUSES,
 } from '../types/index.js';
 
+import { parseBaseEnv } from '../utils/envUtils.js';
+
 import { ContainerRepository } from './ContainerRepository.js';
+import { UPLOADER_ENGINE_SETTING_KEYS } from './containerKeysSpec.js';
 import {
   DeploymentOrchestrator,
   DeployReservation,
@@ -89,6 +104,34 @@ export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
 const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
+
+/**
+ * The containers a settings change has to bring back with the new values.
+ *
+ * The engine always, and the uploader as well when one of the keys compose
+ * hands to the uploader rather than to the engine has a different value than
+ * before. Recreating the engine alone in that case leaves the value the
+ * operator typed sitting in the database, applied to nothing.
+ */
+/** What is left of the stored settings once this profile stops encoding a ladder. */
+function withoutLadderSettings(profile: Profile): EngineSettings {
+  const engine = engineOfServices(defaultServicesFor(profile));
+  if (!engine) return profile.engine_settings;
+  return applicableEngineSettings(engine, profile.engine_settings, {
+    abr: false,
+  });
+}
+
+function servicesToRecreate(
+  engine: EngineName,
+  before: EngineSettings,
+  after: EngineSettings,
+): string[] {
+  const uploaderChanged = UPLOADER_ENGINE_SETTING_KEYS.some(
+    (key) => before[key] !== after[key],
+  );
+  return uploaderChanged ? [engine, STREAM_UPLOADER_SERVICE] : [engine];
+}
 
 export class ProfileService {
   constructor(
@@ -263,6 +306,13 @@ export class ProfileService {
       throw new ProfileConfigError(name, configProblem);
     }
 
+    // Turning the ladder off in this same write leaves the rung settings behind,
+    // where no drawer renders them and no container reads them. They go out with
+    // the pool string, in one statement, so no state exists in which the column
+    // holds settings the deployment cannot act on.
+    const laddersEnded =
+      hasBeePublishers(existing) && !input.bee_publishers?.trim();
+
     // Claimed before anything is written. Two concurrent PUTs both pass the
     // busy check above, so without the claim the loser would rewrite the row
     // and the env file under the winner's running deploy, then mark the profile
@@ -284,7 +334,7 @@ export class ProfileService {
         bee_publishers: input.bee_publishers,
         bee_url: input.bee_url,
         srt_passphrase: input.srt_passphrase,
-      });
+      }, laddersEnded ? withoutLadderSettings(existing) : undefined);
       if (!written) {
         throw new ProfileNotFoundError(name);
       }
@@ -300,6 +350,124 @@ export class ProfileService {
     };
 
     this.publishChanged(withContainers);
+
+    await this.orchestrator.runReserved(reservation, row);
+
+    return this.containers.withContainers(row);
+  }
+
+  /**
+   * The engine this deployment runs, and whether it encodes the ABR ladder.
+   *
+   * ABR-ness follows the pool string, because that is what `writeProfileEnv`
+   * turns `ABR_ENABLED=true` on for. Reading it any other way would let the
+   * settings route accept a value the deploy then refuses.
+   */
+  private engineFacts(profile: Profile): { engine: EngineName; abr: boolean } {
+    const engine = engineOfServices(defaultServicesFor(profile));
+    if (!engine) {
+      throw new ProfileConfigError(
+        profile.name,
+        `${profile.name} runs no media server, so it has no engine settings. Only a stream or an ABR uploader has them.`,
+      );
+    }
+    return { engine, abr: hasBeePublishers(profile) };
+  }
+
+  /**
+   * What an unset setting falls back to on this host, and where each value came
+   * from.
+   *
+   * `.env.<profile>` is a fresh copy of the host's base `.env` on every deploy
+   * and an unset key is left out of it, so a key set on the box by hand is what
+   * the container starts with. Naming the stack's own value instead would
+   * describe a deployment nobody is running.
+   */
+  private engineDefaults(engine: EngineName): EngineDefaults {
+    const defaults = effectiveEngineDefaults(engine, parseBaseEnv());
+    if (defaults.rejected.length > 0) {
+      logger.warn(
+        `[ProfileService] The base .env sets ${defaults.rejected.join(', ')} to a value ${engine} would refuse. ` +
+          'The stack default stands for those.',
+      );
+    }
+    return defaults;
+  }
+
+  /** What `GET /profiles/:name/engine` answers, minus the live block. */
+  engineOverview(profile: Profile): EngineSettingsOverview {
+    const { engine, abr } = this.engineFacts(profile);
+    const defaults = this.engineDefaults(engine);
+    return {
+      engine,
+      abr,
+      settings: profile.engine_settings,
+      defaults: defaults.values,
+      defaultSources: defaults.sources,
+      fields: engineSettingsFieldsFor(engine, { abr }),
+    };
+  }
+
+  /**
+   * Stores the engine settings and recreates the containers that read them.
+   *
+   * Almost always that is the engine alone, and the Bee node and the uploader
+   * are left running because taking them down would interrupt an upload that
+   * has nothing to do with the change. The exception is
+   * `OME_HLS_POLL_INTERVAL_MS`, which compose puts in the uploader's
+   * environment, so a change to it has to recreate the uploader as well or the
+   * new value never reaches the process that reads it.
+   */
+  async updateEngineSettings(
+    name: string,
+    settings: EngineSettings,
+  ): Promise<ProfileWithContainers> {
+    const existing = await this.getByName(name);
+    if (
+      (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
+    ) {
+      throw new ProfileBusyError(name, existing.status);
+    }
+
+    const { engine, abr } = this.engineFacts(existing);
+    const problem = engineSettingsProblem(engine, settings, {
+      abr,
+      defaults: this.engineDefaults(engine).values,
+    });
+    if (problem) {
+      throw new ProfileConfigError(name, problem);
+    }
+
+    const services = servicesToRecreate(
+      engine,
+      existing.engine_settings,
+      settings,
+    );
+
+    // Claimed before the settings are written, for the same reason the PUT
+    // path claims first: two saves that both pass the busy check would both
+    // store, and the one refused the deploy would have left its settings behind
+    // under the other one's running recreate.
+    const reservation = await this.orchestrator.reserveDeploy(
+      existing,
+      services,
+    );
+
+    const row = await this.writeOrCancel([reservation], async () => {
+      const written = await this.repo.updateEngineSettings(name, settings);
+      if (!written) throw new ProfileNotFoundError(name);
+      return written;
+    });
+
+    logger.info(
+      `[ProfileService] Updated engine settings for ${name}; recreating ${services.join(', ')}`,
+    );
+
+    this.publishChanged({
+      ...row,
+      containers: existing.containers,
+      pendingStamp: isPendingStamp(row),
+    });
 
     await this.orchestrator.runReserved(reservation, row);
 

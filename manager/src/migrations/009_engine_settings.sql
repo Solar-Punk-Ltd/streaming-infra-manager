@@ -1,0 +1,28 @@
+-- Per-deployment engine settings: segment length, playlist window and, for a
+-- deployment that encodes the ABR ladder, the encoder parameters.
+--
+-- These values already existed. They lived in the submodule's
+-- engines/<engine>/.env, one set for every deployment on the host, editable
+-- only by hand on the box. They belong next to the other per-deployment
+-- parameters instead, so a stream can be tuned without touching its neighbours.
+--
+-- One JSONB column rather than one column per setting, deliberately:
+--
+--  * the set of keys differs per engine. SRS reads HLS_FRAGMENT and the ABR_*
+--    keys, OvenMediaEngine reads HLS_SEGMENT_DURATION and its own two. Nine
+--    columns would be nine columns that are NULL for every deployment running
+--    the other engine.
+--  * it differs per stack version as well. main-v3 adds SRT_LATENCY, which this
+--    pin does not read, and a settings table that has to grow a migration per
+--    upstream release is a table that will be behind the stack.
+--  * the rules are not a database's to keep. Bounds, choices and the keyframe
+--    rule (frame rate times segment length must be a whole number of frames)
+--    live in common/src/engineSettings.ts, which the manager, the drawer and
+--    the offline mock all read, so what the UI accepts is what the container
+--    starts with. A CHECK constraint here would be a fourth copy of them.
+--
+-- '{}' means every setting is the stack's own default: the key is simply not
+-- written into .env.<profile>, so whatever the host's base .env carries still
+-- applies, which is how every existing row behaved before this column existed.
+ALTER TABLE profiles
+  ADD COLUMN engine_settings JSONB NOT NULL DEFAULT '{}'::jsonb;

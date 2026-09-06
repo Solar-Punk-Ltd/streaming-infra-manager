@@ -12,7 +12,9 @@ import {
   ChequebookBusyError,
   ChequebookFundsError,
   ChequebookUnfundedError,
+  ContainerNotRunningError,
   CrossSiteRequestError,
+  DockerUnavailableError,
   ProfileBusyError,
   GroupExistsError,
   GroupNotFoundError,
@@ -26,8 +28,10 @@ import {
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
+  RestartInProgressError,
   StampNotUsableError,
   StampRequiredError,
+  UnknownServiceError,
   UserExistsError,
   UserNotFoundError,
   WeakPasswordError,
@@ -55,6 +59,11 @@ export function errorHandler(
     // Same shape as a schema rejection: the reason is the only useful text, and
     // the frontend already renders `errors` from a 400.
     res.status(400).json({ error: 'validation_error', errors: [err.reason] });
+    return;
+  }
+  if (err instanceof UnknownServiceError) {
+    // A rejected request, so the same 400 shape a schema rejection has.
+    res.status(400).json({ error: 'validation_error', errors: [err.message] });
     return;
   }
   if (err instanceof NotSignedInError) {
@@ -180,12 +189,34 @@ export function errorHandler(
     });
     return;
   }
+  if (err instanceof ContainerNotRunningError) {
+    res.status(409).json({
+      error: 'container_not_running',
+      name: err.profileName,
+      service: err.service,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof RestartInProgressError) {
+    res.status(409).json({
+      error: 'restart_in_progress',
+      name: err.profileName,
+      service: err.service,
+      message: err.message,
+    });
+    return;
+  }
   if (err instanceof BeeNodeError) {
     res.status(502).json({
       error: 'bee_node_unreachable',
       name: err.profileName,
       message: err.message,
     });
+    return;
+  }
+  if (err instanceof DockerUnavailableError) {
+    res.status(504).json({ error: 'docker_unavailable', message: err.message });
     return;
   }
   if (err instanceof AllSlotsUsedError) {

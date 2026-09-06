@@ -21,6 +21,7 @@ export function EditDrawerFrame({
   saving,
   error,
   saveDisabled,
+  saveLabel = 'Save and redeploy',
   onSave,
   onClose,
   children,
@@ -29,6 +30,8 @@ export function EditDrawerFrame({
   saving: boolean;
   error: string | null;
   saveDisabled: boolean;
+  /** What saving actually does, when it is not a full redeploy. */
+  saveLabel?: string;
   onSave: () => void;
   onClose: () => void;
   children: ReactNode;
@@ -71,7 +74,7 @@ export function EditDrawerFrame({
           </Button>
           <Box sx={{ flex: 1 }} />
           <Button variant="contained" onClick={onSave} disabled={saving || saveDisabled}>
-            Save and redeploy
+            {saveLabel}
           </Button>
         </Stack>
       </Stack>

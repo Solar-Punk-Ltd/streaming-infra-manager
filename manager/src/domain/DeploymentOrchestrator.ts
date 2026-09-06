@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   abrLadderEnvValue,
   engineForComponents,
+  engineSettingsEnv,
   getErrorMessage,
   ownsBeeNode,
 } from '@streaming-infra-manager/common';
@@ -342,6 +343,7 @@ export class DeploymentOrchestrator {
       beeUrl: profile.bee_url,
       srtPassphrase: profile.srt_passphrase,
       streamKey: profile.private_key,
+      engineSettings: profile.engine_settings,
       // From the profile's own components, deliberately not from the reserved
       // services: a held-back uploader is deployed on its own, and deploy.sh
       // must still resolve the local Bee address for it.
@@ -658,6 +660,13 @@ export class DeploymentOrchestrator {
     if (profile.srt_passphrase) {
       env.SRT_PASSPHRASE = profile.srt_passphrase;
     }
+    Object.assign(
+      env,
+      engineSettingsEnv(
+        engineForComponents(profile.components),
+        profile.engine_settings,
+      ),
+    );
 
     return env;
   }

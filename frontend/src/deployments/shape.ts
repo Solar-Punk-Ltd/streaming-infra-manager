@@ -4,6 +4,8 @@ import {
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
   defaultServicesFor,
+  type EngineName,
+  engineOfServices,
   isBeeNodeOnly,
   OME_SERVICE,
   SRS_SERVICE,
@@ -35,6 +37,16 @@ export const SHAPE_LABEL: Record<DeploymentShape, string> = {
   custom: 'Custom',
 };
 
+/** What a service is called in a sentence, for confirmations and toasts. */
+export const SERVICE_LABEL: Record<string, string> = {
+  [SRS_SERVICE]: 'SRS',
+  [OME_SERVICE]: 'OvenMediaEngine',
+  [STREAM_UPLOADER_SERVICE]: 'the uploader',
+  [BEE_UPLOADER_SERVICE]: 'the Bee node',
+  [CLIENT_SERVICE]: 'the web player',
+  [BEE_GATEWAY_SERVICE]: 'the Swarm gateway',
+};
+
 export const SERVICE_DESCRIPTIONS: Record<string, string> = {
   [SRS_SERVICE]: 'media server (SRT ingest)',
   [OME_SERVICE]: 'media server (OvenMediaEngine)',
@@ -44,8 +56,6 @@ export const SERVICE_DESCRIPTIONS: Record<string, string> = {
   [BEE_GATEWAY_SERVICE]: 'Swarm gateway for the player',
 };
 
-const ENGINES: readonly string[] = [SRS_SERVICE, OME_SERVICE];
-
 export function servicesOf(profile: Profile): string[] {
   return defaultServicesFor(profile);
 }
@@ -54,8 +64,8 @@ export function hasService(profile: Profile, service: string): boolean {
   return servicesOf(profile).includes(service);
 }
 
-export function engineOf(profile: Profile): string | null {
-  return servicesOf(profile).find((s) => ENGINES.includes(s)) ?? null;
+export function engineOf(profile: Profile): EngineName | null {
+  return engineOfServices(servicesOf(profile));
 }
 
 export function shapeOf(profile: Profile): DeploymentShape {
@@ -66,7 +76,7 @@ export function shapeOf(profile: Profile): DeploymentShape {
   const services = servicesOf(profile);
   if (
     services.includes(STREAM_UPLOADER_SERVICE) &&
-    services.some((s) => ENGINES.includes(s))
+    engineOfServices(services) !== null
   ) {
     return 'stream';
   }

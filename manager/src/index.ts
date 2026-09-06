@@ -12,6 +12,7 @@ import {
   startStreamRevalidation,
 } from './domain/auth/streamRevalidation.js';
 import { ChequebookService } from './domain/ChequebookService.js';
+import { ContainerControl } from './domain/ContainerControl.js';
 import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
@@ -189,6 +190,8 @@ async function main(): Promise<void> {
   );
   const deployService = new DeployService(profileService, orchestrator);
 
+  const containerControl = new ContainerControl(eventBus);
+
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(
     async () => new Set((await profileRepository.list()).map((p) => p.name)),
@@ -203,6 +206,7 @@ async function main(): Promise<void> {
       deployService,
       stampService,
       chequebookService,
+      containerControl,
       eventBus,
       metricsCollector,
     },

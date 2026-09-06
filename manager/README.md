@@ -174,6 +174,40 @@ malformed value stops the process rather than silently reverting to the default.
 `GET /config` answers it as `chequebookFloorBzz` so the UI shows the number the
 gate uses.
 
+### Engine control
+
+The media server of one deployment: what it is configured with, and the two
+things an operator does to it by hand.
+
+| Method | Path | Body | Answer |
+| ------ | ---- | ---- | ------ |
+| GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason }` |
+| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_WINDOW?, ABR_*? }` | 202 and the profile. Recreates the engine container only |
+| POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
+| GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
+| GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store` |
+
+`profiles.engine_settings` is a JSONB column holding only the keys a deployment
+overrides, by their env name. An absent key means the stack's own default: the
+key is not written into `.env.<name>` at all, so the base `.env` still decides
+it, exactly as an unset SRT passphrase does. The fields, their bounds, their
+choices and the rule that frame rate times segment length must be a whole
+number of frames live in `common/src/engineSettings.ts`, which the manager, the
+UI and the offline mock all read. One JSONB column rather than one per setting
+because the set differs per engine and per stack version, and
+`migrations/009_engine_settings.sql` says so at length.
+
+Saving settings redeploys the engine service alone, so the profile goes
+`DEPLOYING` and back while the uploader and the Bee node stay up. A restart is
+below that state machine: it changes no status and publishes an
+`engine.restarted` activity event instead.
+
+Live status (what is publishing right now) is not available on the pinned
+stack. SRS's HTTP API listens on 1985 inside the container and the compose file
+publishes no such port, and OvenMediaEngine's API needs a `<Managers>` block
+the template does not carry. `GET /profiles/:name/engine` therefore answers
+`live: null` with the reason in `liveUnavailableReason`.
+
 ### Misc
 
 | Method | Path        | Notes                             |
