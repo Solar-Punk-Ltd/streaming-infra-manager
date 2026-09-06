@@ -8,16 +8,26 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AllSlotsUsedError,
   BeeNodeError,
+  CannotRemoveUserError,
+  CrossSiteRequestError,
   ProfileBusyError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  InvalidCredentialsError,
+  InvalidUsernameError,
   LadderGroupError,
+  LockedOutError,
+  NotSignedInError,
+  NoUsersError,
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
   StampNotUsableError,
   StampRequiredError,
+  UserExistsError,
+  UserNotFoundError,
+  WeakPasswordError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
 
@@ -36,6 +46,51 @@ export function errorHandler(
 ): void {
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (err instanceof WeakPasswordError || err instanceof InvalidUsernameError) {
+    // Same shape as a schema rejection: the reason is the only useful text, and
+    // the frontend already renders `errors` from a 400.
+    res.status(400).json({ error: 'validation_error', errors: [err.reason] });
+    return;
+  }
+  if (err instanceof NotSignedInError) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  if (err instanceof InvalidCredentialsError) {
+    res.status(401).json({ error: 'invalid_credentials' });
+    return;
+  }
+  if (err instanceof LockedOutError) {
+    res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    res.status(429).json({
+      error: 'locked_out',
+      retryAfterSeconds: err.retryAfterSeconds,
+    });
+    return;
+  }
+  if (err instanceof CrossSiteRequestError) {
+    res.status(403).json({ error: 'cross_site_request', message: err.reason });
+    return;
+  }
+  if (err instanceof NoUsersError) {
+    res.status(409).json({ error: 'no_users' });
+    return;
+  }
+  if (err instanceof CannotRemoveUserError) {
+    res.status(409).json({
+      error: 'cannot_remove_user',
+      message: err.reason,
+    });
+    return;
+  }
+  if (err instanceof UserExistsError) {
+    res.status(409).json({ error: 'user_exists', username: err.username });
+    return;
+  }
+  if (err instanceof UserNotFoundError) {
+    res.status(404).json({ error: 'user_not_found', id: err.userId });
     return;
   }
   if (err instanceof ProfileConfigError) {

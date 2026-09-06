@@ -21,7 +21,83 @@ cp manager/.env.sample manager/.env
 cd manager
 docker compose up --build -d
 curl localhost:9876/health                      # {"status":"ok"}
+docker compose exec -it api node dist/cli.js user:add <username>
 ```
+
+Until that last command has been run once, every route but `/health` and
+`POST /auth/login` answers 401, and the sign-in page says so.
+
+## Authentication
+
+Every route needs a session except two: `GET /health`, which Docker's
+healthcheck reads, and `POST /auth/login`. That includes both Server-Sent
+Events streams, `/config`, `/metrics` and `/profiles`.
+
+### The first user
+
+There is no sign-up. The first user is created on the host, once:
+
+```bash
+docker compose exec -it api node dist/cli.js user:add levi
+```
+
+It asks for the password twice with nothing echoed, and writes only the hash.
+Without a terminal it refuses, unless `--password-stdin` is given, which reads
+the password from a pipe so a vault can supply it without the value landing in
+a file or an argument:
+
+```bash
+op read "op://<vault>/<item>/password" | \
+  docker compose exec -T api node dist/cli.js user:add levi --password-stdin
+```
+
+There is deliberately no environment variable and no seed file that carries a
+password. A password is 12 to 128 characters and must not contain the username.
+It is stored as `scrypt$N$r$p$<salt>$<key>`, so the cost parameters can be
+raised later without invalidating the passwords already set.
+
+### The session
+
+Signing in sets `sim_session=<token>; HttpOnly; SameSite=Lax; Path=/`, plus
+`Secure` when the browser reached the manager over HTTPS and only then. That is
+read from the request: `X-Forwarded-Proto: https` from the TLS edge, which
+nginx forwards, or a TLS connection to the manager itself. Over the plain HTTP
+of the SSH tunnel it is left off, because a browser drops a `Secure` cookie
+that did not arrive over TLS and the sign-in would loop.
+
+The token is 32 random bytes; the database stores only its SHA-256, so a dump of
+the sessions table signs nobody in. A session ends after twelve hours of
+inactivity, and fourteen days after it started whatever happens in between.
+
+Signing out, revoking a user's sessions, removing a user or changing a password
+also closes that session's open event streams at once, so a browser stops
+receiving profile events the moment it stops being signed in. A session that
+runs out rather than being revoked has its streams closed within a minute, and a
+stream is not activity, so a page left open with nothing but its streams still
+idles out after twelve hours.
+
+Five wrong passwords for a username, or from one address, start a one minute
+lockout that doubles per further attempt up to an hour, answered as 429 with
+`Retry-After`. Every failure is logged with the username and the address.
+
+Every request that is not a GET must carry the header
+`X-Requested-With: streaming-infra-manager`, and one whose `Origin` or
+`Sec-Fetch-Site` says it came from another site is refused with 403. The
+manager sets no CORS headers, which is what makes that header impossible for a
+cross-origin page to add.
+
+### Endpoints
+
+| Method | Path | Body | Answer |
+| ------ | ---- | ---- | ------ |
+| POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 when no user exists |
+| POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
+| GET | `/auth/session` | | `{ username, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
+| POST | `/auth/password` | `{ current, next }` | 204, every other session of yours revoked |
+| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 |
 
 ## API
 
@@ -125,43 +201,60 @@ Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
 exposes the web port; for the API use the manager port directly on the host):
 
 ```bash
-# one-shot
-curl -sS localhost:9876/metrics | jq
+# one-shot (cookies.txt comes from the sign-in under Example session)
+curl -sS -b cookies.txt localhost:9876/metrics | jq
 
 # live stream (Ctrl-C to stop)
-curl -N localhost:9876/metrics/stream
+curl -N -b cookies.txt localhost:9876/metrics/stream
 ```
 
 ## Example session
 
+Sign in first. The cookie file carries the session through the rest, and every
+request that is not a GET also needs the `X-Requested-With` header, without
+which the manager answers 403 whatever the cookie says.
+
 ```bash
-# Allocate streamer1 (port_slot=1)
-curl -sS -X POST localhost:9876/profiles \
+# Sign in once, keeping the session cookie in a file
+curl -sS -c cookies.txt -X POST localhost:9876/auth/login \
   -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' \
+  -d '{"username":"levi","password":"<the password>"}'
+
+# Allocate streamer1 (port_slot=1)
+curl -sS -b cookies.txt -X POST localhost:9876/profiles \
+  -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' \
   -d '{"name":"streamer1","kind":"streamer"}'
 
 # Allocate viewer1 (port_slot=2)
-curl -sS -X POST localhost:9876/profiles \
+curl -sS -b cookies.txt -X POST localhost:9876/profiles \
   -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' \
   -d '{"name":"viewer1","kind":"viewer"}'
 
 
 # Deploy and watch the logs stream
-curl -N -X POST localhost:9876/profiles/streamer1/deploy \
-  -H 'content-type: application/json' -d '{}'
-curl -N -X POST localhost:9876/profiles/viewer1/deploy \
-  -H 'content-type: application/json' -d '{}'
+curl -N -b cookies.txt -X POST localhost:9876/profiles/streamer1/deploy \
+  -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' -d '{}'
+curl -N -b cookies.txt -X POST localhost:9876/profiles/viewer1/deploy \
+  -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' -d '{}'
 
 # Tear down + release
-curl -N -X POST localhost:9876/profiles/streamer1/clean \
-  -H 'content-type: application/json' -d '{"volumes":true}'
-curl    -X DELETE localhost:9876/profiles/streamer1
+curl -N -b cookies.txt -X POST localhost:9876/profiles/streamer1/clean \
+  -H 'content-type: application/json' \
+  -H 'X-Requested-With: streaming-infra-manager' -d '{"volumes":true}'
+curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
+  -H 'X-Requested-With: streaming-infra-manager'
 ```
 
 ## Limitations (intentional, v1)
 
 - **Max 999 managed profiles per host** — `--portSlot` is an integer 1–999.
-- **No auth.** Internal/test tool; deploy behind a firewall.
+- **No HTTPS of its own.** The sign-in gate is only as good as the transport in
+  front of it, so put a TLS terminator there before opening it to the internet.
 - **Synchronous SSE.** A deploy holds an HTTP connection open for its duration;
   client disconnect kills the child.
 - **Local target only.** This iteration assumes `config.json` deploys to

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Alert, Box, Drawer } from '@mui/material';
+import { Alert, Box, Button, Drawer } from '@mui/material';
 
+import { AccessPage } from '../access/AccessPage';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DeploymentPage } from '../deployments/DeploymentPage';
 import { DeploymentsPage } from '../deployments/DeploymentsPage';
@@ -21,11 +22,13 @@ const PAGE_TITLES: Record<Route['page'], string> = {
   deployment: 'Deployments',
   group: 'Deployments',
   host: 'Host',
+  access: 'Access',
 };
 
 export function AppShell() {
   const route = useRoute();
-  const { profiles, serverHost, connected, loadError } = useDeployments();
+  const { profiles, serverHost, connected, loadError, reload } =
+    useDeployments();
   const actions = useActions();
   const [search, setSearch] = useState('');
   const [navOpen, setNavOpen] = useState(false);
@@ -80,7 +83,15 @@ export function AppShell() {
         />
         <Box sx={{ px: { xs: 2, md: 3.5 }, pt: 2, pb: 8, maxWidth: 1240 }}>
           {loadError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={reload}>
+                  Try again
+                </Button>
+              }
+            >
               Could not read the deployments from the manager. {loadError}
             </Alert>
           )}
@@ -108,6 +119,8 @@ function Page({ route, search }: { route: Route; search: string }) {
       return <GroupPage key={route.id} id={route.id} />;
     case 'host':
       return <HostPage />;
+    case 'access':
+      return <AccessPage />;
     case 'overview':
       return <OverviewPage />;
   }

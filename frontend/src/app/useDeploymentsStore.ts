@@ -7,6 +7,7 @@ import {
 
 import type { Tone } from '../components/tone';
 import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
+import { checkSessionAfterStreamClosed } from '../http';
 import type { DeploymentGroup, Profile } from '../types';
 
 export interface ActivityEntry {
@@ -135,7 +136,12 @@ export function useDeploymentsStore(): DeploymentsStore {
       if (hasOpened.current) reload();
       hasOpened.current = true;
     };
-    source.onerror = () => setConnected(false);
+    source.onerror = () => {
+      setConnected(false);
+      if (source.readyState === EventSource.CLOSED) {
+        void checkSessionAfterStreamClosed();
+      }
+    };
 
     source.addEventListener('profile.changed', (event: MessageEvent<string>) => {
       const { profile } = JSON.parse(event.data) as { profile: Profile };

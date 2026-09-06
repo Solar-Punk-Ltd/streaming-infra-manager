@@ -1,6 +1,16 @@
 import { getErrorStack } from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
+import { AuthService } from './domain/auth/AuthService.js';
+import { OpenStreams } from './domain/auth/OpenStreams.js';
+import { PostgresCredentialRepository } from './domain/auth/PostgresCredentialRepository.js';
+import { PostgresSessionRepository } from './domain/auth/PostgresSessionRepository.js';
+import { PostgresUserRepository } from './domain/auth/PostgresUserRepository.js';
+import { SessionSweep, startSessionSweep } from './domain/auth/sessionSweep.js';
+import {
+  StreamRevalidation,
+  startStreamRevalidation,
+} from './domain/auth/streamRevalidation.js';
 import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
@@ -45,6 +55,8 @@ function logStartupConfig(): void {
 let apiServer: ApiServerHandle | undefined;
 let database: Database | undefined;
 let metricsCollector: MetricsCollector | undefined;
+let sessionSweep: SessionSweep | undefined;
+let streamRevalidation: StreamRevalidation | undefined;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -56,6 +68,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
 
   try {
+    if (sessionSweep) {
+      sessionSweep.stop();
+      sessionSweep = undefined;
+    }
+    if (streamRevalidation) {
+      streamRevalidation.stop();
+      streamRevalidation = undefined;
+    }
     if (metricsCollector) {
       metricsCollector.stop();
       metricsCollector = undefined;
@@ -92,6 +112,22 @@ async function main(): Promise<void> {
   await database.migrate();
 
   const eventBus = new EventBus();
+  const openStreams = new OpenStreams();
+  const authService = new AuthService(
+    new PostgresUserRepository(database.pool),
+    new PostgresSessionRepository(database.pool),
+    new PostgresCredentialRepository(database.pool),
+    openStreams,
+  );
+  sessionSweep = startSessionSweep(authService);
+  streamRevalidation = startStreamRevalidation(authService);
+
+  if ((await authService.countUsers()) === 0) {
+    logger.warn(
+      '[Boot] no users exist yet. Every route but /health refuses until one is created with: node dist/cli.js user:add <username>',
+    );
+  }
+
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
 
@@ -150,6 +186,8 @@ async function main(): Promise<void> {
   apiServer = startApiServer(
     {
       database,
+      authService,
+      openStreams,
       profileService,
       deployService,
       stampService,

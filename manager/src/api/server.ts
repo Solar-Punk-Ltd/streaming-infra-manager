@@ -2,6 +2,8 @@ import http from 'node:http';
 
 import express from 'express';
 
+import { AuthService } from '../domain/auth/AuthService.js';
+import { OpenStreams } from '../domain/auth/OpenStreams.js';
 import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EventBus } from '../domain/EventBus.js';
@@ -13,7 +15,10 @@ import { StampService } from '../domain/StampService.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { requireSameSite } from './middleware/requireSameSite.js';
+import { createRequireSession } from './middleware/requireSession.js';
 import { createActionsRouter } from './routes/actions.js';
+import { createAuthRouter } from './routes/auth.js';
 import { createConfigRouter } from './routes/config.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
@@ -28,6 +33,9 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export interface ApiDeps {
   database: Database;
+  authService: AuthService;
+  /** The same registry the auth service revokes through. */
+  openStreams: OpenStreams;
   profileService: ProfileService;
   deployService: DeployService;
   stampService: StampService;
@@ -47,13 +55,23 @@ export function startApiServer(
   const app = express();
 
   app.use(requestLogger);
+  // Ahead of the body parser: a write from another site is refused before its
+  // body is read, not after.
+  app.use(requireSameSite);
   app.use(express.json({ limit: '256kb' }));
 
-  const events = createEventsRouter(deps.eventBus);
+  const events = createEventsRouter(deps.eventBus, deps.openStreams);
+  const metrics = createMetricsRouter(deps.metricsCollector, deps.openStreams);
+  const requireSession = createRequireSession(deps.authService);
 
+  // Everything above this line is open, everything below it needs a session.
+  // Docker's healthcheck reads /health, and /auth is where signing in happens.
   app.use('/health', createHealthRouter(deps.database));
+  app.use('/auth', createAuthRouter(deps.authService, requireSession));
+  app.use(requireSession);
+
   app.use('/config', createConfigRouter());
-  app.use('/metrics', createMetricsRouter(deps.metricsCollector));
+  app.use('/metrics', metrics);
   app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/groups', createGroupsRouter(deps.profileService));

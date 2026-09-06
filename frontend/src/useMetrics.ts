@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { METRICS_SAMPLE_INTERVAL_MS } from '@streaming-infra-manager/common';
 
+import { apiFetch, checkSessionAfterStreamClosed } from './http';
 import type { MetricsSnapshot } from './types';
 
 const HISTORY_LEN = 40;
@@ -41,7 +42,12 @@ export function useMetrics(): UseMetrics {
     const source = new EventSource('/metrics/stream');
 
     source.onopen = () => setConnected(true);
-    source.onerror = () => setConnected(false);
+    source.onerror = () => {
+      setConnected(false);
+      if (source.readyState === EventSource.CLOSED) {
+        void checkSessionAfterStreamClosed();
+      }
+    };
 
     source.addEventListener('snapshot', (ev: MessageEvent<string>) => {
       let snap: MetricsSnapshot;
@@ -92,7 +98,9 @@ export function useMetrics(): UseMetrics {
   const fetchProfileDiskBytes = useCallback(
     async (project: string): Promise<number | null> => {
       try {
-        const res = await fetch(`/metrics/disk/${encodeURIComponent(project)}`);
+        const res = await apiFetch(
+          `/metrics/disk/${encodeURIComponent(project)}`,
+        );
         if (!res.ok) return null;
         const body = (await res.json()) as { sizeBytes: number | null };
         return body.sizeBytes;

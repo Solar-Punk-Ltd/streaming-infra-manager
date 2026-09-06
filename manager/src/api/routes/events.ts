@@ -1,10 +1,13 @@
 import { Request, Response, Router } from 'express';
 
+import type { OpenStreams } from '../../domain/auth/OpenStreams.js';
 import {
   EventBus,
   MAX_EVENT_CLIENTS,
   ProfileEvent,
 } from '../../domain/EventBus.js';
+import { signedInSession } from '../middleware/requireSession.js';
+import { endEventStream } from '../sse.js';
 
 const HEARTBEAT_MS = 15_000;
 
@@ -13,11 +16,16 @@ export interface EventsRouter {
   closeAll(): void;
 }
 
-export function createEventsRouter(bus: EventBus): EventsRouter {
+export function createEventsRouter(
+  bus: EventBus,
+  openStreams: OpenStreams,
+): EventsRouter {
   const router = Router();
   const active = new Set<Response>();
 
-  router.get('/', (_req: Request, res: Response) => {
+  router.get('/', (req: Request, res: Response) => {
+    const session = signedInSession(req);
+
     if (bus.listenerCount() >= MAX_EVENT_CLIENTS) {
       res.status(503).json({ error: 'too many SSE clients' });
       return;
@@ -43,6 +51,11 @@ export function createEventsRouter(bus: EventBus): EventsRouter {
     }, HEARTBEAT_MS);
 
     active.add(res);
+    const unregister = openStreams.open(
+      session.tokenHash,
+      session.user.id,
+      () => endEventStream(res),
+    );
 
     let cleaned = false;
     const cleanup = (): void => {
@@ -54,6 +67,7 @@ export function createEventsRouter(bus: EventBus): EventsRouter {
       clearInterval(heartbeat);
 
       unsubscribe();
+      unregister();
       active.delete(res);
       res.end();
     };
@@ -66,8 +80,7 @@ export function createEventsRouter(bus: EventBus): EventsRouter {
     router,
     closeAll(): void {
       for (const res of active) {
-        res.end();
-        res.socket?.destroy();
+        endEventStream(res);
       }
       active.clear();
     },

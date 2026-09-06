@@ -1,6 +1,6 @@
 # Frontend UX rework
 
-Status: in progress on `feat/ux-rework`, targeting `main-v2`. Decided 2026-09-05 from the
+Status: merged into `main-v2` on 2026-09-05 as squash `007f558` (PR #39). Decided 2026-09-05 from the
 clickable mockup in [redesign-mockup.html](redesign-mockup.html) (open it in a browser, it runs
 on fake data and every button works).
 

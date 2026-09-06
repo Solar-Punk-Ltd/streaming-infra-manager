@@ -8,12 +8,14 @@ export type Route =
   | { page: 'deployments' }
   | { page: 'deployment'; name: string; focus: DeploymentFocus }
   | { page: 'group'; id: number }
-  | { page: 'host' };
+  | { page: 'host' }
+  | { page: 'access' };
 
 export const routes = {
   overview: '#/',
   deployments: '#/deployments',
   host: '#/host',
+  access: '#/access',
   deployment: (name: string): string =>
     `#/deployments/${encodeURIComponent(name)}`,
   deploymentStorage: (name: string): string =>
@@ -35,6 +37,7 @@ function parse(hash: string): Route {
 
   if (segments.length === 0) return { page: 'overview' };
   if (segments[0] === 'host') return { page: 'host' };
+  if (segments[0] === 'access') return { page: 'access' };
 
   if (segments[0] === 'deployments') {
     if (segments.length === 1) return { page: 'deployments' };

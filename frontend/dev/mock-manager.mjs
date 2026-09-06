@@ -11,10 +11,22 @@
  * in `mock-metrics.mjs`. This file is the transitions and the routes.
  *
  *   node frontend/dev/mock-manager.mjs        (or: pnpm -C frontend dev:mock)
+ *
+ * Signing in is real here too: every route but /health and the two sign-in
+ * routes needs the session cookie, so the frontend's 401 handling can be
+ * exercised offline. The login is in mock-auth.mjs and printed at startup.
  */
 import { createServer } from 'node:http';
 import { randomInt } from 'node:crypto';
 
+import {
+  authRoutes,
+  DEV_PASSWORD,
+  DEV_USERNAME,
+  refuseRequest,
+  seedAuth,
+} from './mock-auth.mjs';
+import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
   containersFor,
@@ -202,15 +214,6 @@ function beePublishersFor(group) {
 
 // --------------------------------------------------------------- server
 
-function send(res, status, body) {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    'content-type': 'application/json',
-    'content-length': Buffer.byteLength(payload),
-  });
-  res.end(payload);
-}
-
 function openStream(res, clients) {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -220,17 +223,6 @@ function openStream(res, clients) {
   res.write(': connected\n\n');
   clients.add(res);
   res.on('close', () => clients.delete(res));
-}
-
-async function readBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  if (chunks.length === 0) return {};
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    return {};
-  }
 }
 
 /** Wraps a handler that needs a profile, so the 404 is written once. */
@@ -284,6 +276,7 @@ function createFromBody(body, extra = {}) {
 
 const ROUTES = [
   ['GET', /^\/health$/, (_req, res) => send(res, 200, { status: 'ok' })],
+  ...authRoutes(readBody),
   [
     'GET',
     /^\/config$/,
@@ -512,8 +505,12 @@ const ROUTES = [
 ];
 
 const server = createServer((req, res) => {
-
   const path = decodeURI(new URL(req.url, `http://${PUBLIC_HOST}`).pathname);
+
+  // The same gate the manager has: a write that did not come from our own
+  // pages, or any request without a session, never reaches a route.
+  if (refuseRequest(req, res, path)) return;
+
   for (const [method, pattern, handler] of ROUTES) {
     const match = pattern.exec(path);
     if (match && method === req.method) {
@@ -527,8 +524,10 @@ const server = createServer((req, res) => {
 });
 
 seed();
+seedAuth();
 server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
-    `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles and ${state.groups.length} groups\n`,
+    `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles and ${state.groups.length} groups\n` +
+      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n`,
   );
 });

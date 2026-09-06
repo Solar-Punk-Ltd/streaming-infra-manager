@@ -7,7 +7,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { extractApiError } from './http';
+import { apiFetch, failWith, getJson, send, sendJson } from './http';
 import type {
   CreateProfileBody,
   DeploymentGroup,
@@ -20,14 +20,17 @@ export interface ServerConfig {
   srtPassphrase: string | null;
 }
 
+/** What every group write answers with: the group and its members. */
+export interface GroupWithMembers {
+  group: DeploymentGroup;
+  profiles: Profile[];
+}
+
 export async function fetchServerConfig(): Promise<ServerConfig> {
   try {
-    const res = await fetch('/config');
-    if (!res.ok) throw new Error(String(res.status));
-    const body = (await res.json()) as {
-      host: string;
-      srtPassphrase?: string | null;
-    };
+    const body = await getJson<{ host: string; srtPassphrase?: string | null }>(
+      '/config',
+    );
     return { host: body.host, srtPassphrase: body.srtPassphrase ?? null };
   } catch {
     return { host: window.location.hostname, srtPassphrase: null };
@@ -35,9 +38,7 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
 }
 
 export async function fetchProfiles(): Promise<Profile[]> {
-  const res = await fetch('/profiles');
-  if (!res.ok) throw new Error(`fetch profiles failed (${res.status})`);
-  const body = (await res.json()) as { profiles: Profile[] };
+  const body = await getJson<{ profiles: Profile[] }>('/profiles');
   return body.profiles;
 }
 
@@ -59,19 +60,8 @@ export function canDeployUploader(profile: Profile): boolean {
 
 type ProfileAction = 'deploy' | 'stop' | 'deploy-uploader';
 
-async function postAction(name: string, action: ProfileAction): Promise<void> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}/${action}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: '{}',
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `${action} failed (${res.status})`),
-    );
-  }
-
-  await res.text().catch(() => undefined);
+function postAction(name: string, action: ProfileAction): Promise<void> {
+  return send('POST', `/profiles/${encodeURIComponent(name)}/${action}`, {});
 }
 
 export function deployProfile(name: string): Promise<void> {
@@ -86,27 +76,12 @@ export function deployUploader(name: string): Promise<void> {
   return postAction(name, 'deploy-uploader');
 }
 
-export async function deleteProfile(name: string): Promise<void> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) {
-    throw new Error(await extractApiError(res, `delete failed (${res.status})`));
-  }
+export function deleteProfile(name: string): Promise<void> {
+  return send('DELETE', `/profiles/${encodeURIComponent(name)}`);
 }
 
-export async function createProfile(body: CreateProfileBody): Promise<Profile> {
-  const res = await fetch('/profiles', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as Profile;
+export function createProfile(body: CreateProfileBody): Promise<Profile> {
+  return sendJson<Profile>('POST', '/profiles', body);
 }
 
 export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
@@ -127,20 +102,10 @@ export interface CreateGroupBody {
   srt_passphrase?: string;
 }
 
-export async function createDeploymentGroup(
+export function createDeploymentGroup(
   body: CreateGroupBody,
-): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
-  const res = await fetch('/groups', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+): Promise<GroupWithMembers> {
+  return sendJson<GroupWithMembers>('POST', '/groups', body);
 }
 
 export interface UpdateGroupConfigBody {
@@ -158,38 +123,18 @@ export interface UpdateGroupConfigBody {
   srt_passphrase?: string | null;
 }
 
-export async function updateGroupConfig(
+export function updateGroupConfig(
   id: number,
   body: UpdateGroupConfigBody,
-): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
-  const res = await fetch(`/groups/${id}/config`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+): Promise<GroupWithMembers> {
+  return sendJson<GroupWithMembers>('PATCH', `/groups/${id}/config`, body);
 }
 
-export async function addGroupMembers(
+export function addGroupMembers(
   id: number,
   count: number,
-): Promise<{ group: DeploymentGroup; profiles: Profile[] }> {
-  const res = await fetch(`/groups/${id}/members`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ count }),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as { group: DeploymentGroup; profiles: Profile[] };
+): Promise<GroupWithMembers> {
+  return sendJson<GroupWithMembers>('POST', `/groups/${id}/members`, { count });
 }
 
 // Re-exported rather than redeclared: these are the manager's response shape, and
@@ -210,40 +155,27 @@ export type {
 export async function fetchBeePublishers(
   groupId: number,
 ): Promise<BeePublishersResult | null> {
-  const res = await fetch(`/groups/${groupId}/bee-publishers`);
+  const res = await apiFetch(`/groups/${groupId}/bee-publishers`);
   if (res.status === 409) return null;
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
+  if (!res.ok) await failWith(res, `request failed (${res.status})`);
   return (await res.json()) as BeePublishersResult;
 }
 
 export async function fetchGroups(): Promise<DeploymentGroup[]> {
   try {
-    const res = await fetch('/groups');
-    if (!res.ok) throw new Error(String(res.status));
-    const body = (await res.json()) as { groups: DeploymentGroup[] };
-    return body.groups;
+    return (await getJson<{ groups: DeploymentGroup[] }>('/groups')).groups;
   } catch {
     return [];
   }
 }
 
-export async function updateProfile(
+export function updateProfile(
   name: string,
   body: UpdateProfileBody,
 ): Promise<Profile> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `request failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as Profile;
+  return sendJson<Profile>(
+    'PUT',
+    `/profiles/${encodeURIComponent(name)}`,
+    body,
+  );
 }

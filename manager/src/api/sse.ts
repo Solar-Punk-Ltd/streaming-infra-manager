@@ -3,6 +3,18 @@ import { Response } from 'express';
 import { RunHandle } from '../domain/ScriptRunner.js';
 
 /**
+ * Ends a stream from the server's side, so the browser sees it stop now.
+ *
+ * The socket goes with the response: an SSE response is chunked over a
+ * keep-alive connection, and ending the response alone leaves that connection
+ * sitting there.
+ */
+export function endEventStream(res: Response): void {
+  res.end();
+  res.socket?.destroy();
+}
+
+/**
  * Bridge a ScriptRunner.RunHandle to an Express response as Server-Sent Events.
  *
  * Events emitted:

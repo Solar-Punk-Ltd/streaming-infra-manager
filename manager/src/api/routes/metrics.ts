@@ -1,7 +1,10 @@
 import { Request, Response, Router } from 'express';
 
+import type { OpenStreams } from '../../domain/auth/OpenStreams.js';
 import { getProfileDiskUsage } from '../../domain/DiskUsage.js';
 import { MetricsCollector } from '../../domain/MetricsCollector.js';
+import { signedInSession } from '../middleware/requireSession.js';
+import { endEventStream } from '../sse.js';
 
 const HEARTBEAT_MS = 15_000;
 const MAX_METRICS_CLIENTS = 50;
@@ -16,7 +19,10 @@ const MAX_METRICS_CLIENTS = 50;
  *   curl localhost:9876/metrics | jq
  *   curl -N localhost:9876/metrics/stream
  */
-export function createMetricsRouter(collector: MetricsCollector): Router {
+export function createMetricsRouter(
+  collector: MetricsCollector,
+  openStreams: OpenStreams,
+): Router {
   const router = Router();
   let clientCount = 0;
 
@@ -40,7 +46,9 @@ export function createMetricsRouter(collector: MetricsCollector): Router {
     res.json({ project, sizeBytes });
   });
 
-  router.get('/stream', (_req: Request, res: Response) => {
+  router.get('/stream', (req: Request, res: Response) => {
+    const session = signedInSession(req);
+
     if (clientCount >= MAX_METRICS_CLIENTS) {
       res.status(503).json({ error: 'too many metrics clients' });
       return;
@@ -67,12 +75,19 @@ export function createMetricsRouter(collector: MetricsCollector): Router {
       res.write(': heartbeat\n\n');
     }, HEARTBEAT_MS);
 
+    const unregister = openStreams.open(
+      session.tokenHash,
+      session.user.id,
+      () => endEventStream(res),
+    );
+
     let cleaned = false;
     const cleanup = (): void => {
       if (cleaned) return;
       cleaned = true;
       clearInterval(heartbeat);
       unsubscribe();
+      unregister();
       clientCount -= 1;
       res.end();
     };

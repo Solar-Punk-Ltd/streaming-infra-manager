@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import {
   Box,
+  Button,
   Divider,
   List,
   ListItemButton,
@@ -11,8 +13,12 @@ import {
 } from '@mui/material';
 import { useColorScheme } from '@mui/material/styles';
 
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
+import { useToast } from './ToastProvider';
 import { MONO_STACK } from './theme';
 import { navigate, routes, type Route } from './router';
+import { useSession } from './useSession';
 
 const NAV_ITEMS: { label: string; hash: string; pages: Route['page'][] }[] = [
   { label: 'Overview', hash: routes.overview, pages: ['overview'] },
@@ -22,6 +28,7 @@ const NAV_ITEMS: { label: string; hash: string; pages: Route['page'][] }[] = [
     pages: ['deployments', 'deployment', 'group'],
   },
   { label: 'Host', hash: routes.host, pages: ['host'] },
+  { label: 'Access', hash: routes.access, pages: ['access'] },
 ];
 
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -102,7 +109,47 @@ export function Sidebar({
           {serverHost}
         </Typography>
         <ThemeSwitch />
+        <SignedInAs />
       </Stack>
+    </Stack>
+  );
+}
+
+function SignedInAs() {
+  const session = useSession();
+  const toast = useToast();
+  const [leaving, setLeaving] = useState(false);
+
+  if (session.state.status !== 'signedIn') return null;
+
+  const signOut = async () => {
+    setLeaving(true);
+    try {
+      await session.signOut();
+    } catch (error) {
+      toast(`Could not sign out. ${getErrorMessage(error)}`, 'error');
+      setLeaving(false);
+    }
+  };
+
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="center"
+      sx={{ pt: 0.5, minWidth: 0 }}
+    >
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+        title={`Signed in as ${session.state.username}`}
+      >
+        {session.state.username}
+      </Typography>
+      <Button size="small" onClick={() => void signOut()} disabled={leaving}>
+        Sign out
+      </Button>
     </Stack>
   );
 }

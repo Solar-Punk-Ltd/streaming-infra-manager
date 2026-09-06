@@ -1,5 +1,5 @@
 import type { Profile } from '../types';
-import { extractApiError, getJson } from '../http';
+import { getJson, sendJson } from '../http';
 
 export interface BeeAddress {
   ethereum: string;
@@ -64,34 +64,21 @@ export async function fetchStamps(name: string): Promise<BeeStamp[]> {
   return body.stamps;
 }
 
-export async function buyStamp(
+export function buyStamp(
   name: string,
   input: BuyStampInput,
 ): Promise<{ batchID: string }> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}/stamp/buy`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) {
-    throw new Error(await extractApiError(res, `buy failed (${res.status})`));
-  }
-  return (await res.json()) as { batchID: string };
+  return sendJson<{ batchID: string }>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/stamp/buy`,
+    input,
+  );
 }
 
-export async function setStamp(
-  name: string,
-  stampId: string,
-): Promise<Profile> {
-  const res = await fetch(`/profiles/${encodeURIComponent(name)}/stamp/set`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ stamp_id: stampId }),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiError(res, `set stamp failed (${res.status})`),
-    );
-  }
-  return (await res.json()) as Profile;
+export function setStamp(name: string, stampId: string): Promise<Profile> {
+  return sendJson<Profile>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/stamp/set`,
+    { stamp_id: stampId },
+  );
 }

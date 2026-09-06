@@ -5,31 +5,31 @@ const MANAGER_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } })
     .process?.env?.VITE_MANAGER_URL ?? 'http://localhost:9876';
 
+/**
+ * Pass the browser's own Host through, the way nginx does in production with
+ * `proxy_set_header Host $host`.
+ *
+ * Vite's string shorthand would set changeOrigin, which rewrites Host to the
+ * manager's address while the browser's Origin still says localhost:5080. The
+ * manager reads those two against each other to refuse cross-site writes, so
+ * every write from the dev server would be answered with 403.
+ */
+const managerApi = () => ({ target: MANAGER_URL, changeOrigin: false });
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5080,
     proxy: {
-      '/profiles': MANAGER_URL,
-      '/groups': MANAGER_URL,
-      '/health': MANAGER_URL,
-      '/config': MANAGER_URL,
+      '/auth': managerApi(),
+      '/profiles': managerApi(),
+      '/groups': managerApi(),
+      '/health': managerApi(),
+      '/config': managerApi(),
       // SSE — disable any buffering / timeouts so events stream live.
-      '/events': {
-        target: MANAGER_URL,
-        changeOrigin: true,
-        ws: false,
-        proxyTimeout: 0,
-        timeout: 0,
-      },
+      '/events': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
       // Metrics: JSON one-shot, SSE stream, and on-demand disk lookups.
-      '/metrics': {
-        target: MANAGER_URL,
-        changeOrigin: true,
-        ws: false,
-        proxyTimeout: 0,
-        timeout: 0,
-      },
+      '/metrics': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
     },
   },
 });

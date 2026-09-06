@@ -50,6 +50,31 @@ From your local checkout:
 This rsyncs the repo (minus `node_modules`, `.git`, server `.env`), then
 `docker compose up -d --build` on the server.
 
+## The first user
+
+The manager has a login, and there is no sign-up. Once, after the first deploy,
+create a user on the server:
+
+```sh
+ssh manager-host
+cd ~/streaming-infra-manager/manager
+docker compose exec -it api node dist/cli.js user:add <username>
+```
+
+It asks for the password twice with nothing echoed and writes only the hash.
+Until it has been run, the manager answers 401 to everything but its health
+check, and the sign-in page says so.
+
+To feed the password from a vault instead of typing it:
+
+```sh
+op read "op://<vault>/<item>/password" | \
+  docker compose exec -T api node dist/cli.js user:add <username> --password-stdin
+```
+
+Every later user is added from the Access page in the UI. Anyone signed in can
+add or remove a user, and nobody can remove themselves or the last one left.
+
 ## Accessing
 
 ```sh
@@ -57,6 +82,9 @@ ssh manager-host       # the LocalForward in ssh_config opens the tunnel
 # then in your browser:
 open http://localhost:8080
 ```
+
+The sign-in page comes up first. A session lasts twelve hours of inactivity and
+fourteen days at most.
 
 If you skip the ssh_config entry: `ssh -L 8080:localhost:8080 solarpunk@<server>`.
 
