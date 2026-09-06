@@ -3,11 +3,12 @@
  *
  * Unit test, no database and no Docker. `pnpm test` in manager/.
  *
- * The stamp check used to sit on the "deploy uploader" action alone, so the
- * Retry button, a settings change and `POST /profiles/:name/deploy` all
- * recreated the uploader without asking the node anything. An uploader started
- * on an expired batch reports RUNNING and fails every upload, which is the one
- * failure the check exists to prevent, so it belongs where every route passes.
+ * The stamp and chequebook checks used to sit on the "deploy uploader" action
+ * alone, so the Retry button, a settings change and `POST /profiles/:name/deploy`
+ * all recreated the uploader without asking the node anything. An uploader
+ * started on an expired batch or a drained chequebook reports RUNNING and fails
+ * every upload, which is the one failure the checks exist to prevent, so they
+ * belong where every route passes.
  */
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { StampNotUsableError } from '../../src/domain/errors/index.js';
+import {
+  chequebookHealthFrom,
+  PLUR_PER_BZZ,
+} from '@streaming-infra-manager/common';
+
+import type { ChequebookService } from '../../src/domain/ChequebookService.js';
+import {
+  ChequebookUnfundedError,
+  StampNotUsableError,
+} from '../../src/domain/errors/index.js';
 import type { StampService } from '../../src/domain/StampService.js';
 import { UploaderStartGate } from '../../src/domain/UploaderStartGate.js';
 import { Profile } from '../../src/types/index.js';
@@ -166,38 +176,95 @@ describe('when there is nothing to ask', () => {
 });
 
 describe('UploaderStartGate', () => {
-  const stampsThatRefuse = (): {
-    service: StampService;
-    checked: string[];
-  } => {
+  const FLOOR = PLUR_PER_BZZ / 2n;
+  const EMPTY = chequebookHealthFrom(
+    { totalBalance: '0', availableBalance: '0' },
+    FLOOR,
+  );
+
+  const stamps = (
+    refuse: boolean,
+  ): { service: StampService; checked: string[] } => {
     const checked: string[] = [];
     const service = {
       async assertStampUsable(name: string, stampId: string): Promise<void> {
         checked.push(`${name}:${stampId}`);
-        throw new StampNotUsableError(name, 'the configured stamp has expired');
+        if (refuse) {
+          throw new StampNotUsableError(
+            name,
+            'the configured stamp has expired',
+          );
+        }
       },
     } as unknown as StampService;
     return { service, checked };
   };
 
+  const chequebook = (
+    refuse: boolean,
+  ): { service: ChequebookService; asked: string[] } => {
+    const asked: string[] = [];
+    const service = {
+      async assertFunded(name: string): Promise<void> {
+        asked.push(name);
+        if (refuse) throw new ChequebookUnfundedError(name, EMPTY);
+      },
+    } as unknown as ChequebookService;
+    return { service, asked };
+  };
+
   it('asks the node about the batch the profile carries', async () => {
-    const { service, checked } = stampsThatRefuse();
+    const batch = stamps(true);
+    const funds = chequebook(false);
 
     await assert.rejects(
-      new UploaderStartGate(service).assertCanStart(streamer()),
+      new UploaderStartGate(batch.service, funds.service).assertCanStart(
+        streamer(),
+      ),
       StampNotUsableError,
     );
 
-    assert.deepEqual(checked, [`stage:${BATCH}`]);
+    assert.deepEqual(batch.checked, [`stage:${BATCH}`]);
   });
 
-  it('asks nothing when the profile carries no batch', async () => {
-    const { service, checked } = stampsThatRefuse();
+  it('asks nothing about a batch when the profile carries none', async () => {
+    const batch = stamps(true);
+    const funds = chequebook(false);
 
-    await new UploaderStartGate(service).assertCanStart(
+    await new UploaderStartGate(batch.service, funds.service).assertCanStart(
       streamer({ stamp_id: null }),
     );
 
-    assert.deepEqual(checked, []);
+    assert.deepEqual(batch.checked, []);
+    assert.deepEqual(funds.asked, ['stage'], 'the chequebook is still asked');
+  });
+
+  it('refuses an uploader whose chequebook is under the floor', async () => {
+    const batch = stamps(false);
+    const funds = chequebook(true);
+
+    await assert.rejects(
+      new UploaderStartGate(batch.service, funds.service).assertCanStart(
+        streamer(),
+      ),
+      ChequebookUnfundedError,
+    );
+
+    assert.deepEqual(batch.checked, [`stage:${BATCH}`]);
+    assert.deepEqual(funds.asked, ['stage']);
+  });
+
+  it('never asks about the chequebook once the batch was refused', async () => {
+    const batch = stamps(true);
+    const funds = chequebook(true);
+
+    await assert.rejects(
+      new UploaderStartGate(batch.service, funds.service).assertCanStart(
+        streamer(),
+      ),
+      StampNotUsableError,
+    );
+
+    assert.deepEqual(funds.asked, []);
   });
 });

@@ -17,8 +17,8 @@ export function readySummary(
   input: ChecklistInput,
   health?: StampHealth,
 ): ReadySummary {
-  const { profile, publishUrl, clientUrl } = input;
-  const readiness = readinessOf(profile, health);
+  const { profile, publishUrl, clientUrl, chequebook } = input;
+  const readiness = readinessOf(profile, health, chequebook);
   const shape = shapeOf(profile);
 
   if (isStreamLike(profile, shape) || shape === 'abr-uploader') {

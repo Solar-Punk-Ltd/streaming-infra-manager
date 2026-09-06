@@ -6,14 +6,20 @@ import { resolveServerHost } from '../../utils/serverHost.js';
 
 const logger = Logger.getInstance();
 
-export function createConfigRouter(): Router {
+/**
+ * The host-wide facts the frontend needs before it can render anything.
+ *
+ * `chequebookFloorBzz` is passed in rather than read here, so the number the UI
+ * shows is provably the one the deploy gate refuses on.
+ */
+export function createConfigRouter(chequebookFloorBzz: string): Router {
   const router = Router();
 
   router.get('/', (_req: Request, res: Response) => {
     const host = resolveServerHost();
     const srtPassphrase = parseBaseEnv().SRT_PASSPHRASE?.trim() || null;
     logger.info(`[config] GET /config → host=${host}`);
-    res.json({ host, srtPassphrase });
+    res.json({ host, srtPassphrase, chequebookFloorBzz });
   });
 
   return router;

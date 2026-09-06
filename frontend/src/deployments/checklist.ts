@@ -1,7 +1,10 @@
 import {
   beePublishersProblem,
+  type ChequebookHealth,
+  chequebookStateReason,
   isStampExpiringSoon,
   parseBeePublishers,
+  plurToBzz,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -16,7 +19,7 @@ import {
 } from '../format';
 import type { Profile } from '../types';
 import type { BeeStamp, BeeWallet } from '../uploaders/stampApi';
-import { isStreamLike } from './readiness';
+import { isStreamLike, ownsBeeNode } from './readiness';
 import { hasService, isRunning, isTransitional, shapeOf } from './shape';
 
 export type StepState = 'ok' | 'warn' | 'err' | 'busy' | 'off';
@@ -25,6 +28,7 @@ export type StepActionKind =
   | 'start'
   | 'copy-address'
   | 'buy-stamp'
+  | 'fill-chequebook'
   | 'deploy-uploader'
   | 'edit'
   | 'open-stream';
@@ -48,6 +52,8 @@ export interface ChecklistInput {
   profile: Profile;
   /** What this deployment's own Bee node holds, when the page asked it. */
   wallet: BeeWallet | null;
+  /** What the same node can still pay peers with, null when it did not say. */
+  chequebook: ChequebookHealth | null;
   nodeAddress: string | null;
   stampHealth: StampHealth;
   /** The recorded batch as the node reports it, for its depth. */
@@ -63,8 +69,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
   const shape = shapeOf(profile);
   const steps: ChecklistStep[] = [containersStep(profile)];
 
-  const ownsNode = isStreamLike(profile, shape) || shape === 'bee-node';
-  if (ownsNode) {
+  if (ownsBeeNode(profile)) {
     steps.push(fundingStep(input));
     steps.push(stampStep(input));
   }
@@ -110,9 +115,27 @@ function containersStep(profile: Profile): ChecklistStep {
   };
 }
 
+const FUNDING_TITLE = 'Bee node funded';
+
+const FILL_CHEQUEBOOK: StepAction = {
+  label: 'Fill chequebook',
+  kind: 'fill-chequebook',
+  primary: true,
+};
+
+/**
+ * Whether this node can pay for its uploads at all, which takes two pots: the
+ * wallet, which buys stamps and refills the chequebook, and the chequebook,
+ * which pays the peers that forward what is uploaded.
+ *
+ * The wallet comes first when both are short. Filling a chequebook spends
+ * wallet BZZ, so "fill the chequebook" is not a thing an unfunded node can
+ * act on.
+ */
 function fundingStep({
   profile,
   wallet,
+  chequebook,
   nodeAddress,
 }: ChecklistInput): ChecklistStep {
   const action: StepAction | undefined = nodeAddress
@@ -121,7 +144,7 @@ function fundingStep({
 
   if (!wallet) {
     return {
-      title: 'Bee node funded',
+      title: FUNDING_TITLE,
       state: isRunning(profile) ? 'warn' : 'off',
       detail: isRunning(profile)
         ? 'Waiting for the node to report its balances.'
@@ -136,20 +159,50 @@ function fundingStep({
   const bzzText = formatTokenBalance(wallet.bzzBalance, BZZ_DECIMALS);
   const funded = xdai > 0n && bzz > 0n;
 
-  const detail = funded
-    ? `xDAI ${xdaiText} for gas · BZZ ${bzzText} for storage`
-    : bzz <= 0n && xdai > 0n
-      ? `Has xDAI ${xdaiText} but no BZZ. Send BZZ to the node address to be able to buy a stamp.`
-      : xdai <= 0n && bzz > 0n
-        ? `Has BZZ ${bzzText} but no xDAI. Send xDAI to the node address to pay for the purchase.`
-        : 'Send xDAI and BZZ to the node address.';
+  if (!funded) {
+    return {
+      title: FUNDING_TITLE,
+      state: isRunning(profile) ? 'warn' : 'off',
+      detail:
+        bzz <= 0n && xdai > 0n
+          ? `Has xDAI ${xdaiText} but no BZZ. Send BZZ to the node address to be able to buy a stamp.`
+          : xdai <= 0n && bzz > 0n
+            ? `Has BZZ ${bzzText} but no xDAI. Send xDAI to the node address to pay for the purchase.`
+            : 'Send xDAI and BZZ to the node address.',
+      action,
+    };
+  }
+
+  if (chequebook) {
+    const shortfall = chequebookStateReason(chequebook);
+    if (shortfall) {
+      return {
+        title: FUNDING_TITLE,
+        state: chequebook.state === 'empty' ? 'err' : 'warn',
+        detail: shortfall,
+        action: FILL_CHEQUEBOOK,
+      };
+    }
+  }
 
   return {
-    title: 'Bee node funded',
-    state: funded ? 'ok' : isRunning(profile) ? 'warn' : 'off',
-    detail,
+    title: FUNDING_TITLE,
+    state: 'ok',
+    detail: [
+      `xDAI ${xdaiText} for gas`,
+      `BZZ ${bzzText} for storage`,
+      chequebookNote(chequebook),
+    ]
+      .filter((part) => part !== null)
+      .join(' · '),
     action,
   };
+}
+
+/** Only a node that answered gets a line about its chequebook. */
+function chequebookNote(chequebook: ChequebookHealth | null): string | null {
+  if (chequebook?.availablePlur == null) return null;
+  return `chequebook ${plurToBzz(chequebook.availablePlur)} BZZ available`;
 }
 
 function stampStep({

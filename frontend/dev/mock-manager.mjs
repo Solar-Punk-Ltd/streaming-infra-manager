@@ -20,6 +20,19 @@ import { createServer } from 'node:http';
 import { randomInt } from 'node:crypto';
 
 import {
+  bzzToPlur,
+  chequebookHealthFrom,
+  chequebookHealthPayload,
+  DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+  depositOverWalletReason,
+  NO_XDAI_FOR_GAS_REASON,
+  plurToBzz,
+  uncheckedChequebookNotice,
+  uploaderUnfundedReason,
+  withdrawalOverChequebookReason,
+} from '@streaming-infra-manager/common';
+
+import {
   authRoutes,
   DEV_PASSWORD,
   DEV_USERNAME,
@@ -38,11 +51,13 @@ import {
   makeStamp,
   needsStamp,
   node,
+  nodeIfKnown,
   PORT_BASES,
   PUBLIC_HOST,
   refreshDerived,
   RUNGS,
   seed,
+  servicesOf,
   state,
   takeGroupId,
 } from './mock-seed.mjs';
@@ -53,6 +68,13 @@ const DEPLOY_MS = 1_500;
 const STOP_MS = 1_200;
 const REMOVE_MS = 1_200;
 const STAMP_SETTLE_MS = 4_000;
+
+// Bee answers a deposit once the transaction is submitted, so the balance only
+// moves a few Gnosis blocks later. Short enough to watch, long enough that the
+// dialog's waiting state is a real state and not a flicker.
+const CHEQUEBOOK_SETTLE_MS = 3_000;
+
+const CHEQUEBOOK_FLOOR_PLUR = bzzToPlur(DEFAULT_CHEQUEBOOK_FLOOR_BZZ);
 
 // ----------------------------------------------------------- transitions
 
@@ -133,6 +155,100 @@ function buyStamp(profile, { amount, depth }) {
     }
   }, STAMP_SETTLE_MS);
   return stamp;
+}
+
+// ----------------------------------------------------------- chequebook
+
+function chequebookSummary(name) {
+  const entry = nodeIfKnown(name);
+  if (!entry) {
+    return {
+      address: null,
+      totalBalance: null,
+      availableBalance: null,
+      totalSent: null,
+      totalReceived: null,
+      health: chequebookHealthPayload(
+        chequebookHealthFrom(null, CHEQUEBOOK_FLOOR_PLUR),
+      ),
+    };
+  }
+
+  const { chequebook } = entry;
+  return {
+    address: chequebook.address,
+    totalBalance: chequebook.total,
+    availableBalance: chequebook.available,
+    totalSent: chequebook.totalSent,
+    totalReceived: chequebook.totalReceived,
+    health: chequebookHealthPayload(
+      chequebookHealthFrom(
+        {
+          totalBalance: chequebook.total,
+          availableBalance: chequebook.available,
+        },
+        CHEQUEBOOK_FLOOR_PLUR,
+      ),
+    ),
+  };
+}
+
+/** The refusal the manager sends, worded the same way. */
+function chequebookFundsError(res, reason) {
+  return send(res, 400, { error: 'validation_error', errors: [reason] });
+}
+
+/**
+ * Move BZZ between a node's two pots, a few seconds after answering, the way
+ * bee does: the call returns a submitted transaction and the chain settles it.
+ */
+function moveBzz(name, amountPlur, direction) {
+  const entry = node(name);
+  setTimeout(() => {
+    const walletDelta = direction === 'fill' ? -amountPlur : amountPlur;
+    entry.bzz = String(BigInt(entry.bzz) + walletDelta);
+    entry.chequebook.total = String(BigInt(entry.chequebook.total) - walletDelta);
+    entry.chequebook.available = String(
+      BigInt(entry.chequebook.available) - walletDelta,
+    );
+  }, CHEQUEBOOK_SETTLE_MS);
+  return { transactionHash: `0x${hex(32)}` };
+}
+
+/**
+ * The uploader gate, refusing on the same rule and with the same 409 body.
+ *
+ * A deployment that publishes to a pool has no node of its own to ask, which in
+ * the real manager is a failed probe and never a refusal.
+ */
+function chequebookRefusal(profile) {
+  if (!servicesOf(profile).includes('bee-uploader')) return null;
+
+  const entry = nodeIfKnown(profile.name);
+  if (!entry) {
+    publish({
+      type: 'profile.notice',
+      profile: profile.name,
+      text: uncheckedChequebookNotice(profile.name),
+      tone: 'warn',
+    });
+    return null;
+  }
+
+  const health = chequebookHealthFrom(
+    {
+      totalBalance: entry.chequebook.total,
+      availableBalance: entry.chequebook.available,
+    },
+    CHEQUEBOOK_FLOOR_PLUR,
+  );
+  if (health.state !== 'low' && health.state !== 'empty') return null;
+
+  return {
+    error: 'chequebook_unfunded',
+    name: profile.name,
+    message: uploaderUnfundedReason(health),
+  };
 }
 
 // ------------------------------------------------------- bee-publishers
@@ -281,7 +397,11 @@ const ROUTES = [
     'GET',
     /^\/config$/,
     (_req, res) =>
-      send(res, 200, { host: PUBLIC_HOST, srtPassphrase: HOST_PASSPHRASE }),
+      send(res, 200, {
+        host: PUBLIC_HOST,
+        srtPassphrase: HOST_PASSPHRASE,
+        chequebookFloorBzz: plurToBzz(CHEQUEBOOK_FLOOR_PLUR),
+      }),
   ],
   ['GET', /^\/profiles$/, (_req, res) => send(res, 200, { profiles: state.profiles })],
   [
@@ -333,8 +453,67 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/deploy-uploader$/,
     withProfile((_req, res, profile) => {
+      const refusal = chequebookRefusal(profile);
+      if (refusal) return send(res, 409, refusal);
       deploy(profile, { withUploader: true });
       send(res, 202, { status: 'accepted' });
+    }),
+  ],
+  [
+    'GET',
+    /^\/profiles\/([^/]+)\/chequebook$/,
+    (_req, res, [name]) => send(res, 200, chequebookSummary(name)),
+  ],
+  [
+    'POST',
+    /^\/profiles\/([^/]+)\/chequebook\/deposit$/,
+    withProfile(async (req, res, profile) => {
+      const body = await readBody(req);
+      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
+        return chequebookFundsError(
+          res,
+          'amount must be a positive whole number of PLUR',
+        );
+      }
+
+      const amountPlur = BigInt(body.amount);
+      const entry = node(profile.name);
+      const walletBzz = BigInt(entry.bzz);
+      if (walletBzz < amountPlur) {
+        return chequebookFundsError(
+          res,
+          depositOverWalletReason(walletBzz, amountPlur),
+        );
+      }
+      if (BigInt(entry.xdai) === 0n) {
+        return chequebookFundsError(res, NO_XDAI_FOR_GAS_REASON);
+      }
+
+      send(res, 202, moveBzz(profile.name, amountPlur, 'fill'));
+    }),
+  ],
+  [
+    'POST',
+    /^\/profiles\/([^/]+)\/chequebook\/withdraw$/,
+    withProfile(async (req, res, profile) => {
+      const body = await readBody(req);
+      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
+        return chequebookFundsError(
+          res,
+          'amount must be a positive whole number of PLUR',
+        );
+      }
+
+      const amountPlur = BigInt(body.amount);
+      const available = BigInt(node(profile.name).chequebook.available);
+      if (available < amountPlur) {
+        return chequebookFundsError(
+          res,
+          withdrawalOverChequebookReason(available, amountPlur),
+        );
+      }
+
+      send(res, 202, moveBzz(profile.name, amountPlur, 'withdraw'));
     }),
   ],
   [

@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { BeeStampClient } from '../../src/domain/BeeStampClient.js';
+import { BeeClient } from '../../src/domain/BeeClient.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import { BeeHttpError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
@@ -71,7 +71,7 @@ function serviceAnswering(getStamp: (batchId: string) => Promise<unknown>): {
     {} as EventBus,
     (_url, timeoutMs) => {
       timeouts.push(timeoutMs);
-      return { getStamp } as unknown as BeeStampClient;
+      return { getStamp } as unknown as BeeClient;
     },
   );
   return { service, timeouts };

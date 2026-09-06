@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 
-import type { BeePublishersResult } from '@streaming-infra-manager/common';
+import {
+  type BeePublishersResult,
+  type ChequebookHealth,
+  chequebookStateReason,
+} from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes } from '../app/router';
@@ -13,6 +17,8 @@ import { StatusDot } from '../components/StatusDot';
 import type { Tone } from '../components/tone';
 import { poolProblems } from '../groups/groupReadiness';
 import {
+  CHEQUEBOOK_EMPTY,
+  CHEQUEBOOK_LOW,
   NEEDS_A_STAMP,
   POOL_STRING_INVALID,
   readinessOf,
@@ -22,6 +28,7 @@ import {
 } from '../deployments/readiness';
 import { shapeOf } from '../deployments/shape';
 import type { DeploymentGroup, Profile } from '../types';
+import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 
 export interface PoolAlert {
   group: DeploymentGroup;
@@ -32,9 +39,12 @@ export interface PoolAlert {
 export function AttentionList({
   profiles,
   pools,
+  chequebooks,
 }: {
   profiles: Profile[];
   pools: PoolAlert[];
+  /** What each node said about its chequebook, for the nodes that answered. */
+  chequebooks: ChequebookHealths;
 }) {
   const total = profiles.length + pools.length;
 
@@ -52,14 +62,18 @@ export function AttentionList({
       ) : (
         <Box>
           {profiles.map((profile) => (
-            <ProfileAlertRow key={profile.name} profile={profile} />
+            <ProfileAlertRow
+              key={profile.name}
+              profile={profile}
+              chequebook={chequebooks.get(profile.name) ?? null}
+            />
           ))}
           {pools.map(({ group, result }) => (
             <AlertRow
               key={group.id}
               tone="warn"
               name={group.name}
-              text={`Node pool not ready: ${poolProblems(result).join(', ') || 'a rung is not ready'}. The pool string cannot be copied yet.`}
+              text={`Node pool not ready: ${poolProblems(result, chequebooks).join(', ') || 'a rung is not ready'}. The pool string cannot be copied yet.`}
               action={
                 <Button size="small" onClick={() => navigate(routes.group(group.id))}>
                   Open pool
@@ -73,22 +87,25 @@ export function AttentionList({
   );
 }
 
-function ProfileAlertRow({ profile }: { profile: Profile }) {
+function ProfileAlertRow({
+  profile,
+  chequebook,
+}: {
+  profile: Profile;
+  chequebook: ChequebookHealth | null;
+}) {
   const actions = useActions();
   const { openEditDeployment } = useEditors();
-  const readiness = readinessOf(profile);
+  const readiness = readinessOf(profile, undefined, chequebook);
 
+  const openStorage = () => navigate(routes.deploymentStorage(profile.name));
   const buyStamp = (
-    <Button
-      size="small"
-      variant="contained"
-      onClick={() => navigate(routes.deploymentStorage(profile.name))}
-    >
+    <Button size="small" variant="contained" onClick={openStorage}>
       Buy stamp
     </Button>
   );
 
-  const { text, action } = describe(readiness.label, profile, {
+  const { text, action } = describe(readiness.label, profile, chequebook, {
     retry: (
       <Button
         size="small"
@@ -108,6 +125,11 @@ function ProfileAlertRow({ profile }: { profile: Profile }) {
       </Button>
     ),
     buyStamp,
+    fillChequebook: (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Fill chequebook
+      </Button>
+    ),
     edit: (
       <Button size="small" onClick={() => openEditDeployment(profile.name)}>
         Edit
@@ -130,12 +152,14 @@ interface AlertButtons {
   retry: ReactNode;
   startUploader: ReactNode;
   buyStamp: ReactNode;
+  fillChequebook: ReactNode;
   edit: ReactNode;
 }
 
 function describe(
   label: string,
   profile: Profile,
+  chequebook: ChequebookHealth | null,
   buttons: AlertButtons,
 ): { text: string; action: ReactNode } {
   if (profile.status === 'ERROR') {
@@ -167,6 +191,12 @@ function describe(
       return {
         text: 'Buy the next stamp before this one runs out.',
         action: buttons.buyStamp,
+      };
+    case CHEQUEBOOK_EMPTY:
+    case CHEQUEBOOK_LOW:
+      return {
+        text: chequebook ? (chequebookStateReason(chequebook) ?? label) : label,
+        action: buttons.fillChequebook,
       };
     case POOL_STRING_INVALID:
       return {

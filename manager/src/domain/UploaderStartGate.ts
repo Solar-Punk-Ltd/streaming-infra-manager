@@ -1,5 +1,6 @@
 import { Profile } from '../types/index.js';
 
+import { ChequebookService } from './ChequebookService.js';
 import { UploaderGate } from './DeploymentOrchestrator.js';
 import { StampService } from './StampService.js';
 
@@ -11,13 +12,23 @@ type StartCheck = (profile: Profile) => Promise<void>;
  * The checks used to sit on the "deploy uploader" route alone, so the Retry
  * button, a settings change and a plain API deploy all recreated the uploader
  * unchecked. They belong to starting an uploader, not to one button, so the
- * orchestrator asks this on every route that starts one.
+ * orchestrator asks this on every route that starts one, and only for a
+ * deployment whose own Bee node can be asked.
+ *
+ * The batch first, the chequebook second: a batch the node does not hold is
+ * the cheaper question, and an uploader that fails it never needs the other.
  */
 export class UploaderStartGate implements UploaderGate {
   private readonly checks: readonly StartCheck[];
 
-  constructor(private readonly stamps: StampService) {
-    this.checks = [(profile) => this.assertStampUsable(profile)];
+  constructor(
+    private readonly stamps: StampService,
+    private readonly chequebook: ChequebookService,
+  ) {
+    this.checks = [
+      (profile) => this.assertStampUsable(profile),
+      (profile) => this.chequebook.assertFunded(profile.name),
+    ];
   }
 
   async assertCanStart(profile: Profile): Promise<void> {

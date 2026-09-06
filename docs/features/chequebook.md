@@ -1,7 +1,7 @@
 # Chequebook on every Bee node
 
-Status: decided 2026-09-05 (D4 refuse below the floor, D5 0.5 BZZ, D6 no sending out of a node
-this round). Queued after the auth PRs, one PR against `main-v2`.
+Status: built on `feat/chequebook`, off `feat/auth` (D4 refuse below the floor, D5 0.5 BZZ, D6
+no sending out of a node this round). One PR against `main-v2`, unpushed.
 
 ## What a chequebook is, and why the manager needs to show it
 
@@ -31,13 +31,16 @@ it is reached, and offer the fix in place.
   balance shown next to it with a "Use all" link that leaves nothing behind, a sentence saying
   what happens: "Moves BZZ from this node's wallet into its chequebook. This is an on-chain
   transaction on Gnosis Chain, it costs a little xDAI in gas, and it cannot be undone from here."
-  Confirm sends it. The dialog then shows "Waiting for the transaction" and closes when the
-  balance has moved, or after two minutes with "Not confirmed yet, refresh in a moment".
-  Withdraw is the mirror image, chequebook to wallet, same dialog.
+  Confirm sends it. The dialog then shows the transaction hash bee answered with, shortened and
+  with a copy button, and closes once the chequebook total has moved by the amount. After two
+  minutes it stops waiting and says either that the total has not moved yet or that the node
+  stopped answering, with a **Check again** button either way. Withdraw is the mirror image,
+  chequebook to wallet, same dialog.
 - **Readiness checklist** (deployment page): the "Bee node funded" step gains a chequebook clause.
-  Above the floor: `xDAI 0.4 for gas · BZZ 2.1 for storage · chequebook 1.24 BZZ available`.
-  Below the floor: state warn, `Chequebook 0.12 BZZ available, under the 0.50 BZZ floor. Peers
-  stop forwarding this node's uploads when it cannot pay.` with the action **Fill chequebook**.
+  Above the floor: `xDAI 0.4 for gas · BZZ 2.1 for storage · chequebook 1.2400 BZZ available`.
+  Below the floor: state warn, `Chequebook 0.1200 BZZ available, under the 0.5000 BZZ floor.
+  Peers stop forwarding this node's uploads when it cannot pay.` with the action **Fill
+  chequebook**.
   At zero: state err, `Chequebook empty. Uploads stall until it is filled.`
 - **Readiness pill** (list rows, overview): two new labels. `Chequebook empty` (red) when the
   node reported zero available. `Chequebook low` (amber) when below the floor. Both only when
@@ -49,8 +52,8 @@ it is reached, and offer the fix in place.
   amber when low, red when empty. The pool string card lists `<rung> chequebook empty` among the
   things holding it up, because an uploader publishing to a dry rung uploads nothing on that rung.
 - **Start uploader** (decision D4): refused when the node's chequebook available balance is below
-  the floor. The refusal reads: `This deployment's Bee node has 0.12 BZZ available in its
-  chequebook and the floor is 0.50 BZZ. Fill the chequebook, then start the uploader.` A node
+  the floor. The refusal reads: `This deployment's Bee node has 0.1200 BZZ available in its
+  chequebook and the floor is 0.5000 BZZ. Fill the chequebook, then start the uploader.` A node
   that cannot be asked does not block, the same rule the stamp check already applies.
 
 ## Bee endpoints used
@@ -69,8 +72,12 @@ PLUR, the integer unit of BZZ: 1 BZZ is 10 to the 16 PLUR. The frontend's `BZZ_D
 
 Bee answers the deposit and withdraw calls once the transaction is submitted, not once it is
 mined. Gnosis blocks take about five seconds, so the balance moves shortly after. The frontend
-polls the balance until it changes. bee-js 9.8.1 in the stack's own dependencies uses exactly
-these paths, so they are confirmed against the Bee 2.8.1 image the stack runs.
+polls the chequebook until its total has moved by the amount, which is `transferOutcome` in
+common. The available balance is the wrong field to watch: every cheque the node writes and every
+one a peer cashes moves it, so an unrelated payment would confirm a transfer that had not mined.
+A reading that is missing or unreadable answers `unknown`, never movement. bee-js 9.8.1 in the
+stack's own dependencies uses exactly these paths, so they are confirmed against the Bee 2.8.1
+image the stack runs.
 
 Sending BZZ or xDAI from the node wallet to an outside address (`POST /wallet/withdraw/{coin}`)
 exists in Bee too, but it only works when the node was started with
@@ -82,13 +89,14 @@ swarm-hls-stream and a node restart per change. Decision D6, out of this PR unle
 **Shared package** `common/src/chequebook.ts`, new, tested:
 
 - `PLUR_PER_BZZ = 10n ** 16n`, `bzzToPlur(text): bigint | null` (decimal string with at most 16
-  fraction digits, no exponent, positive), `plurToBzz(plur): string` (used by messages).
+  fraction digits, no exponent, positive), `plurToBzz(plur): string` (four decimals, truncated,
+  the same the balances are shown with, used by messages).
 - `ChequebookHealth`: `{ state: 'unknown' | 'ok' | 'low' | 'empty', availablePlur: bigint | null,
   floorPlur: bigint }` and `chequebookHealthFrom(balance | null, floorPlur)`. `unknown` for no
   reading. Shared so the manager's gate and the frontend's pill cannot disagree.
 - `DEFAULT_CHEQUEBOOK_FLOOR_BZZ = '0.5'` (decision D5).
 
-**Bee client** `manager/src/domain/BeeStampClient.ts`: add `getChequebookAddress`,
+**Bee client** `manager/src/domain/BeeClient.ts`: add `getChequebookAddress`,
 `getChequebookBalance`, `depositChequebook(amountPlur)`, `withdrawChequebook(amountPlur)`,
 `getSettlements`. Deposit and withdraw use the existing 180 second buy timeout. The class name
 no longer fits, rename to `BeeClient.ts` in its own commit.
@@ -117,7 +125,7 @@ client factory and `beeApiUrlFor`:
 | POST | `/profiles/:name/chequebook/deposit` | `{ amount }` PLUR string `^[1-9][0-9]*$` | `202 { transactionHash }` |
 | POST | `/profiles/:name/chequebook/withdraw` | `{ amount }` same | `202 { transactionHash }` |
 
-`DeployService.run('deploy-uploader')` calls `assertFunded` after the stamp check (D4).
+`UploaderStartGate`, which the orchestrator asks before any route starts an uploader on a running or errored deployment, calls `assertFunded` after the stamp check (D4). The check is not tied to one button: Retry, a settings change and a plain API deploy pass through it too.
 `errorHandler` maps the two new errors. `frontend/nginx.conf` extends the long timeout location
 from `stamp` to `(stamp|chequebook)` because a deposit can take longer than the default upstream
 timeout.
@@ -126,8 +134,9 @@ timeout.
 
 - `uploaders/chequebookApi.ts`: `fetchChequebook`, `depositChequebook`, `withdrawChequebook`.
 - `uploaders/useBeeUtils.ts`: fetches the chequebook summary with the other node data, exposes
-  `chequebook` and a `waitForBalanceChange()` used by the dialog. Same rule as stamps: a failed
-  fetch sets it to null, never leaves a stale value standing.
+  `chequebook`, and watches a submitted transfer with `waitForBalanceChange(expectation)` and
+  `recheckBalance(expectation)`, both answering `settled`, `pending` or `unknown`. Same rule as
+  stamps: a failed fetch sets it to null, never leaves a stale value standing.
 - `uploaders/ChequebookRow.tsx` (inside `NodeFunding`), `uploaders/MoveBzzDialog.tsx` (one
   component, `direction: 'fill' | 'withdraw'`).
 - `deployments/checklist.ts` funding step, `deployments/readiness.ts` two labels with exported

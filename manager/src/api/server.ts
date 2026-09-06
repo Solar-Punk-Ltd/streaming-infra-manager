@@ -4,6 +4,7 @@ import express from 'express';
 
 import { AuthService } from '../domain/auth/AuthService.js';
 import { OpenStreams } from '../domain/auth/OpenStreams.js';
+import { ChequebookService } from '../domain/ChequebookService.js';
 import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EventBus } from '../domain/EventBus.js';
@@ -19,6 +20,7 @@ import { requireSameSite } from './middleware/requireSameSite.js';
 import { createRequireSession } from './middleware/requireSession.js';
 import { createActionsRouter } from './routes/actions.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createChequebookRouter } from './routes/chequebook.js';
 import { createConfigRouter } from './routes/config.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
@@ -39,6 +41,7 @@ export interface ApiDeps {
   profileService: ProfileService;
   deployService: DeployService;
   stampService: StampService;
+  chequebookService: ChequebookService;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -70,13 +73,14 @@ export function startApiServer(
   app.use('/auth', createAuthRouter(deps.authService, requireSession));
   app.use(requireSession);
 
-  app.use('/config', createConfigRouter());
+  app.use('/config', createConfigRouter(deps.chequebookService.floorBzz));
   app.use('/metrics', metrics);
   app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
+  app.use('/', createChequebookRouter(deps.chequebookService));
 
   app.use(notFound);
   app.use(errorHandler);

@@ -1,5 +1,6 @@
 import {
   type BeePublishersResult,
+  DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   defaultServicesFor,
   hasBeePublishers,
   hasStampId,
@@ -18,6 +19,12 @@ import type {
 export interface ServerConfig {
   host: string;
   srtPassphrase: string | null;
+  /**
+   * BZZ a node's chequebook must hold before this manager will start its
+   * uploader. Read from the manager so the number shown is the one it refuses
+   * on, rather than a copy that can drift.
+   */
+  chequebookFloorBzz: string;
 }
 
 /** What every group write answers with: the group and its members. */
@@ -28,12 +35,23 @@ export interface GroupWithMembers {
 
 export async function fetchServerConfig(): Promise<ServerConfig> {
   try {
-    const body = await getJson<{ host: string; srtPassphrase?: string | null }>(
-      '/config',
-    );
-    return { host: body.host, srtPassphrase: body.srtPassphrase ?? null };
+    const body = await getJson<{
+      host: string;
+      srtPassphrase?: string | null;
+      chequebookFloorBzz?: string;
+    }>('/config');
+    return {
+      host: body.host,
+      srtPassphrase: body.srtPassphrase ?? null,
+      chequebookFloorBzz:
+        body.chequebookFloorBzz ?? DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+    };
   } catch {
-    return { host: window.location.hostname, srtPassphrase: null };
+    return {
+      host: window.location.hostname,
+      srtPassphrase: null,
+      chequebookFloorBzz: DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+    };
   }
 }
 

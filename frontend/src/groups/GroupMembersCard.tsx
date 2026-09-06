@@ -22,6 +22,7 @@ import { SectionCard } from '../components/SectionCard';
 import { DeploymentRow } from '../deployments/DeploymentRow';
 import { isRunning } from '../deployments/shape';
 import type { DeploymentGroup, Profile } from '../types';
+import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 import { PoolRungRow } from './PoolRungRow';
 
 export function GroupMembersCard({
@@ -29,11 +30,14 @@ export function GroupMembersCard({
   members,
   isPool,
   poolResult,
+  chequebooks,
 }: {
   group: DeploymentGroup;
   members: Profile[];
   isPool: boolean;
   poolResult: BeePublishersResult | null;
+  /** What each rung's node said about its chequebook, where it answered. */
+  chequebooks: ChequebookHealths;
 }) {
   const running = members.filter(isRunning).length;
 
@@ -59,6 +63,7 @@ export function GroupMembersCard({
               {isPool ? (
                 <>
                   <TableCell>Funding</TableCell>
+                  <TableCell>Chequebook</TableCell>
                   <TableCell>Stamp</TableCell>
                 </>
               ) : (
@@ -69,7 +74,7 @@ export function GroupMembersCard({
           </TableHead>
           <TableBody>
             {isPool
-              ? poolRows(group, members, poolResult)
+              ? poolRows(group, members, poolResult, chequebooks)
               : members.map((profile) => (
                   <DeploymentRow key={profile.name} profile={profile} />
                 ))}
@@ -84,6 +89,7 @@ function poolRows(
   group: DeploymentGroup,
   members: Profile[],
   poolResult: BeePublishersResult | null,
+  chequebooks: ChequebookHealths,
 ) {
   return members
     .map((profile) => ({
@@ -102,6 +108,7 @@ function poolRows(
         rungState={
           poolResult?.rungs.find((entry) => entry.rung === rung) ?? null
         }
+        chequebook={chequebooks.get(profile.name) ?? null}
       />
     ));
 }

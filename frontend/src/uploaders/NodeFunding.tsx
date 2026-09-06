@@ -1,4 +1,10 @@
 import { Box, Stack, Typography } from '@mui/material';
+
+import type {
+  ChequebookHealth,
+  ChequebookSummary,
+} from '@streaming-infra-manager/common';
+
 import { CopyButton } from '../CopyButton';
 import {
   BZZ_DECIMALS,
@@ -6,14 +12,28 @@ import {
   NO_VALUE,
   XDAI_DECIMALS,
 } from '../format';
+import { ChequebookRow } from './ChequebookRow';
 import type { BeeAddress, BeeWallet } from './stampApi';
 
 export function NodeFunding({
   address,
   wallet,
+  chequebook,
+  chequebookHealth,
+  loading,
+  busy,
+  onFill,
+  onWithdraw,
 }: {
   address: BeeAddress | null;
   wallet: BeeWallet | null;
+  chequebook: ChequebookSummary | null;
+  chequebookHealth: ChequebookHealth | null;
+  /** The node is being asked and has not answered yet. */
+  loading: boolean;
+  busy: boolean;
+  onFill: () => void;
+  onWithdraw: () => void;
 }) {
   return (
     <>
@@ -55,6 +75,15 @@ export function NodeFunding({
           </Typography>
         </Box>
       </Stack>
+
+      <ChequebookRow
+        chequebook={chequebook}
+        health={chequebookHealth}
+        loading={loading}
+        busy={busy}
+        onFill={onFill}
+        onWithdraw={onWithdraw}
+      />
     </>
   );
 }

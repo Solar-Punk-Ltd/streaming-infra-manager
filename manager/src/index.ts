@@ -1,4 +1,4 @@
-import { getErrorStack } from '@streaming-infra-manager/common';
+import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { AuthService } from './domain/auth/AuthService.js';
@@ -11,6 +11,7 @@ import {
   StreamRevalidation,
   startStreamRevalidation,
 } from './domain/auth/streamRevalidation.js';
+import { ChequebookService } from './domain/ChequebookService.js';
 import { ContainerRepository } from './domain/ContainerRepository.js';
 import { Database } from './domain/Database.js';
 import { DeployService } from './domain/DeployService.js';
@@ -49,6 +50,9 @@ function logStartupConfig(): void {
   );
   logger.info(`[Boot]   serverHost (resolved): ${resolveServerHost()}`);
   logger.info(`[Boot]   logLevel: ${config.logLevel}`);
+  logger.info(
+    `[Boot]   chequebookFloor: ${plurToBzz(config.chequebookFloorPlur)} BZZ`,
+  );
   logger.info(`[Boot]   database: ${redactDatabaseUrl(config.databaseUrl)}`);
 }
 
@@ -159,13 +163,20 @@ async function main(): Promise<void> {
     containerRepository,
     eventBus,
   );
+  // A drained chequebook is the stamp failure one layer down: peers stop
+  // forwarding what the node cannot pay them for. The gate asks about both.
+  const chequebookService = new ChequebookService(
+    profileRepository,
+    config.chequebookFloorPlur,
+    eventBus,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
     scriptRunner,
     eventBus,
     deploymentGroupRepository,
-    new UploaderStartGate(stampService),
+    new UploaderStartGate(stampService, chequebookService),
   );
   const profileService = new ProfileService(
     profileRepository,
@@ -191,6 +202,7 @@ async function main(): Promise<void> {
       profileService,
       deployService,
       stampService,
+      chequebookService,
       eventBus,
       metricsCollector,
     },

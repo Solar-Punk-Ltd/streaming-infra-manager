@@ -1,6 +1,7 @@
 import { Button, Stack, TableCell, TableRow, Typography } from '@mui/material';
 
 import {
+  type ChequebookHealth,
   DEFAULT_ABR_LADDER,
   hasStampId,
   isDeadStampState,
@@ -21,6 +22,7 @@ import {
   BZZ_DECIMALS,
   formatTokenBalance,
   formatTtl,
+  NO_VALUE,
   XDAI_DECIMALS,
 } from '../format';
 import type { Profile } from '../types';
@@ -32,18 +34,27 @@ export function PoolRungRow({
   rung,
   profile,
   rungState,
+  chequebook,
 }: {
   rung: string;
   profile: Profile;
   /** What the manager's own assembly says about this rung, when it answered. */
   rungState: LadderRungState | null;
+  /**
+   * What this rung's node said about its chequebook, read once for the whole
+   * page rather than once per row.
+   */
+  chequebook: ChequebookHealth | null;
 }) {
-  const bee = useBeeUtils(profile);
+  // The wallet balances are this row's own business, the chequebook is not: the
+  // page already asked every rung for it, and asking again here doubled the
+  // requests a pool page makes on every load.
+  const bee = useBeeUtils(profile, { withChequebook: false });
   const actions = useActions();
   const { openEditDeployment } = useEditors();
 
   const spec = DEFAULT_ABR_LADDER.find((entry) => entry.name === rung);
-  const readiness = readinessOf(profile);
+  const readiness = readinessOf(profile, undefined, chequebook);
   const bzz = bee.wallet?.bzzBalance;
   // Only a balance the node actually reported counts as empty. Before the
   // wallet loads there is nothing to warn about yet.
@@ -93,6 +104,15 @@ export function PoolRungRow({
         </Typography>
       </TableCell>
       <TableCell>
+        <Typography
+          variant="caption"
+          sx={{ fontFamily: MONO_STACK }}
+          color={chequebookColour(chequebook)}
+        >
+          {chequebookText(chequebook)}
+        </Typography>
+      </TableCell>
+      <TableCell>
         <Typography variant="caption">{stampText(profile, rungState)}</Typography>
       </TableCell>
       <TableCell align="right" onClick={(event) => event.stopPropagation()}>
@@ -131,6 +151,19 @@ export function PoolRungRow({
       </TableCell>
     </TableRow>
   );
+}
+
+/** Only a node that answered gets a reading. The rest read as not asked. */
+function chequebookText(health: ChequebookHealth | null): string {
+  if (health === null || health.availablePlur === null) return NO_VALUE;
+  if (health.state === 'empty') return 'empty';
+  return `${formatTokenBalance(health.availablePlur.toString(), BZZ_DECIMALS)} BZZ`;
+}
+
+function chequebookColour(health: ChequebookHealth | null): string {
+  if (health?.state === 'empty') return 'error.main';
+  if (health?.state === 'low') return 'warning.main';
+  return 'text.primary';
 }
 
 function stampText(

@@ -8,11 +8,16 @@
  */
 import { randomBytes, randomInt } from 'node:crypto';
 
+import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
+
 /** The hostname this fake manager publishes its deployments on. */
 export const PUBLIC_HOST = 'lab-host-1';
 
 export const DAY = 86_400;
 export const GB = 1024 ** 3;
+
+/** The rung seeded below the floor, so the low state is visible at startup. */
+export const LOW_CHEQUEBOOK_RUNG = '480p';
 
 export const RUNGS = [
   { name: '360p', kbps: 700, depth: 17 },
@@ -20,6 +25,10 @@ export const RUNGS = [
   { name: '720p', kbps: 2800, depth: 19 },
   { name: '1080p', kbps: 5000, depth: 20 },
 ];
+
+/** A BZZ amount as the PLUR string bee would answer with. */
+export const bzz = (whole, hundredths = 0) =>
+  String((PLUR_PER_BZZ * BigInt(whole * 100 + hundredths)) / 100n);
 
 export const hex = (bytes) => randomBytes(bytes).toString('hex');
 /** A readable fake SRT passphrase, distinct per run like every other secret here. */
@@ -153,10 +162,30 @@ export function refreshDerived(profile) {
 export function node(name) {
   let entry = state.nodes.get(name);
   if (!entry) {
-    entry = { ethereum: address(), bzz: '0', xdai: '0', stamps: [] };
+    entry = {
+      ethereum: address(),
+      bzz: '0',
+      xdai: '0',
+      stamps: [],
+      chequebook: makeChequebook(),
+    };
     state.nodes.set(name, entry);
   }
   return entry;
+}
+
+/** Only a node this mock actually holds can answer about its chequebook. */
+export function nodeIfKnown(name) {
+  return state.nodes.get(name) ?? null;
+}
+
+export function makeChequebook({
+  total = '0',
+  available = total,
+  totalSent = '0',
+  totalReceived = '0',
+} = {}) {
+  return { address: address(), total, available, totalSent, totalReceived };
 }
 
 export function makeStamp({ depth, ttl, usable = true, amount = '48000000' }) {
@@ -190,6 +219,11 @@ export function seed() {
   const mainNode = node(mainStage.name);
   mainNode.xdai = '421300000000000000';
   mainNode.bzz = '125000000000000000';
+  mainNode.chequebook = makeChequebook({
+    total: bzz(1, 31),
+    available: bzz(1, 24),
+    totalSent: bzz(0, 7),
+  });
   const mainStamp = makeStamp({ depth: 20, ttl: 41 * DAY });
   mainNode.stamps = [mainStamp, makeStamp({ depth: 17, ttl: 12 * DAY, amount: '12000000' })];
   mainStage.stamp_id = mainStamp.batchID;
@@ -205,6 +239,27 @@ export function seed() {
   const backupNode = node(backupStage.name);
   backupNode.xdai = '200000000000000000';
   backupNode.bzz = '24000000000000000';
+  // Seeded empty on purpose: a node that looks entirely healthy and cannot pay
+  // a single peer is the state this whole feature exists to make visible.
+  backupNode.chequebook = makeChequebook();
+
+  // Stamped, funded, uploader running, and unable to pay a single peer. The
+  // one failure this whole feature exists to surface, so it is in the dataset.
+  const fieldUnit = makeProfile({
+    name: 'field-unit',
+    kind: 'streamer',
+    notes: 'Second camera position at the venue.',
+    private_key: key(),
+    public_key: address(),
+    created_at: '2026-09-03T11:20:00Z',
+  });
+  const fieldNode = node(fieldUnit.name);
+  fieldNode.xdai = '180000000000000000';
+  fieldNode.bzz = bzz(3, 40);
+  fieldNode.chequebook = makeChequebook({ totalSent: bzz(2, 10) });
+  const fieldStamp = makeStamp({ depth: 19, ttl: 22 * DAY });
+  fieldNode.stamps = [fieldStamp];
+  fieldUnit.stamp_id = fieldStamp.batchID;
 
   const viewerEu = makeProfile({
     name: 'viewer-eu',
@@ -250,11 +305,20 @@ export function seed() {
   const oldNode = node(oldDemo.name);
   oldNode.xdai = '10000000000000000';
   oldNode.bzz = '3100000000000000';
+  oldNode.chequebook = makeChequebook();
   const deadStamp = makeStamp({ depth: 17, ttl: 0, amount: '1000000' });
   oldNode.stamps = [deadStamp];
   oldDemo.stamp_id = deadStamp.batchID;
 
-  state.profiles.push(mainStage, backupStage, viewerEu, abrGcp, edgeTest, oldDemo);
+  state.profiles.push(
+    mainStage,
+    backupStage,
+    fieldUnit,
+    viewerEu,
+    abrGcp,
+    edgeTest,
+    oldDemo,
+  );
 
   const loadtest = {
     id: nextGroupId++,
@@ -294,6 +358,13 @@ export function seed() {
     });
     const memberNode = node(member.name);
     memberNode.xdai = '150000000000000000';
+    // One rung under the floor, so the amber column and the pool warning have
+    // something to show without editing this file.
+    memberNode.chequebook = makeChequebook(
+      rung.name === LOW_CHEQUEBOOK_RUNG
+        ? { total: bzz(0, 12), available: bzz(0, 12) }
+        : { total: bzz(1, 60), available: bzz(1, 40), totalSent: bzz(0, 20) },
+    );
     if (rung.name === '1080p') {
       memberNode.bzz = '0';
     } else {

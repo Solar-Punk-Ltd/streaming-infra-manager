@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  type ChequebookSummary,
   getErrorMessage,
   hasStampId,
   sameBatchId,
+  type TransferExpectation,
+  transferOutcome,
+  type TransferOutcome,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
+import { fetchChequebook } from './chequebookApi';
 import {
   type BeeAddress,
   type BeeChainState,
@@ -20,6 +25,21 @@ import {
 
 const STAMP_POLL_INTERVAL_MS = 5_000;
 const STAMP_POLL_MAX_ATTEMPTS = 120;
+
+const BALANCE_POLL_INTERVAL_MS = 3_000;
+
+/**
+ * How long to watch for a deposit or withdrawal to land.
+ *
+ * Bee answers the call once the transaction is submitted, not once it is mined,
+ * and a Gnosis block takes about five seconds. Two minutes is far longer than
+ * that needs, and short enough that a dialog waiting on a transaction which
+ * never confirms gives the operator their page back.
+ */
+const BALANCE_WAIT_MS = 120_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface BeeUtils {
   address: BeeAddress | null;
@@ -40,11 +60,42 @@ export interface BeeUtils {
    */
   stamps: BeeStamp[] | null;
   chainState: BeeChainState | null;
+  /**
+   * What the node can still pay peers with, or null when it did not say. The
+   * same rule as `stamps`: an unanswered node reports nothing, never zero.
+   */
+  chequebook: ChequebookSummary | null;
   loading: boolean;
   loadError: string | null;
   reload: () => Promise<void>;
   waitingBatch: string | null;
   waitForStamp: (batchID: string) => void;
+  /**
+   * Watch the chequebook until a submitted transfer has landed, resolving
+   * `settled` when it has and with what the last look said once the wait is
+   * given up on.
+   *
+   * A node that stops answering leaves the wait at `unknown` rather than at a
+   * verdict: the polling keeps going to the deadline, and the caller is told
+   * the transfer could not be judged instead of that it went through.
+   *
+   * Aborting the signal calls the watch off. The transaction is on its way
+   * either way, this only stops the polling and the state it would write.
+   */
+  waitForBalanceChange: (
+    expectation: TransferExpectation,
+    signal?: AbortSignal,
+  ) => Promise<TransferOutcome>;
+  /**
+   * One more look at the chequebook, answering the same question the wait did:
+   * has this transfer landed since it was submitted.
+   *
+   * For an operator asking again after the wait gave up. It reads, it never
+   * submits anything.
+   */
+  recheckBalance: (
+    expectation: TransferExpectation,
+  ) => Promise<TransferOutcome>;
 }
 
 function isRejected(
@@ -53,39 +104,82 @@ function isRejected(
   return result.status === 'rejected';
 }
 
+export interface BeeUtilsOptions {
+  /**
+   * Ask the node for its chequebook too. Off for a caller that is handed the
+   * reading from somewhere else, so a page listing many nodes asks each of them
+   * once rather than once per row.
+   */
+  withChequebook?: boolean;
+}
+
 /**
- * Loads the data a profile's bee node reports (address, wallet, stamps) and
- * tracks a freshly bought batch until the node reports it usable, refreshing
- * the stamp list on every poll. Each piece is fetched independently, so one
- * failing endpoint still lets the others render; the first failure becomes
- * `loadError`. The wait ends when the batch becomes usable, the profile gets
- * a stamp set, or the attempts run out.
+ * Loads the data a profile's bee node reports (address, wallet, stamps,
+ * chequebook) and tracks a freshly bought batch until the node reports it
+ * usable, refreshing the stamp list on every poll. Each piece is fetched
+ * independently, so one failing endpoint still lets the others render. The
+ * first failure becomes `loadError`. The wait ends when the batch becomes
+ * usable, the profile gets a stamp set, or the attempts run out.
  *
- * One rule throughout: a stamps fetch that failed sets `stamps` to null. Nothing
- * downstream may treat an unanswered node as a node with no batches.
+ * A failed fetch clears `stamps` and `chequebook`, the two whose absence
+ * nothing downstream may read as an answer: an unanswered node is never a node
+ * with no batches, nor one with an empty chequebook. `address`, `wallet` and
+ * `chainState` keep their last value, which is a stale reading rather than a
+ * false verdict.
  */
-export function useBeeUtils(profile: Profile): BeeUtils {
+export function useBeeUtils(
+  profile: Profile,
+  { withChequebook = true }: BeeUtilsOptions = {},
+): BeeUtils {
   const profileName = profile.name;
 
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
   const [stamps, setStamps] = useState<BeeStamp[] | null>(null);
   const [chainState, setChainState] = useState<BeeChainState | null>(null);
+  const [chequebook, setChequebook] = useState<ChequebookSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
 
+  // The waiting dialog compares against whatever was on screen when it started,
+  // which a closure over state would read one render too late.
+  const latestChequebook = useRef<ChequebookSummary | null>(null);
+  const applyChequebook = useCallback((next: ChequebookSummary | null) => {
+    latestChequebook.current = next;
+    setChequebook(next);
+  }, []);
+
+  // What the chequebook said before the transfer was submitted. The wait and a
+  // later "check again" answer against the same reading, so an operator who
+  // asks after the wait gave up gets the verdict the wait was looking for.
+  const beforeMove = useRef<ChequebookSummary | null>(null);
+
+  // Which reload the answers belong to. Two can be in flight at once, from
+  // StrictMode's double mount or from a balance wait refreshing the card while
+  // the operator presses Refresh, and the slower one must not land last.
+  const latestReload = useRef(0);
+
   const reload = useCallback(async () => {
+    const seq = ++latestReload.current;
     setLoading(true);
     setLoadError(null);
 
-    const [addressResult, walletResult, stampsResult, chainStateResult] =
-      await Promise.allSettled([
-        fetchStampAddress(profileName),
-        fetchStampWallet(profileName),
-        fetchStamps(profileName),
-        fetchChainState(profileName),
-      ]);
+    const [
+      addressResult,
+      walletResult,
+      stampsResult,
+      chainStateResult,
+      chequebookResult,
+    ] = await Promise.allSettled([
+      fetchStampAddress(profileName),
+      fetchStampWallet(profileName),
+      fetchStamps(profileName),
+      fetchChainState(profileName),
+      withChequebook ? fetchChequebook(profileName) : Promise.resolve(null),
+    ]);
+
+    if (seq !== latestReload.current) return;
 
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
     if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
@@ -94,6 +188,11 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     );
     if (chainStateResult.status === 'fulfilled')
       setChainState(chainStateResult.value);
+    if (withChequebook) {
+      applyChequebook(
+        chequebookResult.status === 'fulfilled' ? chequebookResult.value : null,
+      );
+    }
 
     const failure = [addressResult, walletResult, stampsResult].find(
       isRejected,
@@ -105,11 +204,51 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     }
 
     setLoading(false);
-  }, [profileName]);
+  }, [profileName, withChequebook, applyChequebook]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const recheckBalance = useCallback(
+    async (expectation: TransferExpectation): Promise<TransferOutcome> => {
+      let fresh: ChequebookSummary;
+      try {
+        fresh = await fetchChequebook(profileName);
+      } catch {
+        applyChequebook(null);
+        return 'unknown';
+      }
+
+      applyChequebook(fresh);
+      const outcome = transferOutcome(beforeMove.current, fresh, expectation);
+      if (outcome !== 'settled') return outcome;
+
+      // A deposit empties the wallet by the same amount, so the whole card is
+      // refreshed rather than only the half that was watched.
+      await reload();
+      return 'settled';
+    },
+    [profileName, applyChequebook, reload],
+  );
+
+  const waitForBalanceChange = useCallback(
+    async (expectation: TransferExpectation, signal?: AbortSignal) => {
+      beforeMove.current = latestChequebook.current;
+      const deadline = Date.now() + BALANCE_WAIT_MS;
+      let latest: TransferOutcome = 'unknown';
+
+      while (Date.now() < deadline) {
+        await sleep(BALANCE_POLL_INTERVAL_MS);
+        if (signal?.aborted) return latest;
+        latest = await recheckBalance(expectation);
+        if (latest === 'settled') return 'settled';
+        if (signal?.aborted) return latest;
+      }
+      return latest;
+    },
+    [recheckBalance],
+  );
 
   useEffect(() => {
     if (!waitingBatch) return;
@@ -145,10 +284,13 @@ export function useBeeUtils(profile: Profile): BeeUtils {
     wallet,
     stamps,
     chainState,
+    chequebook,
     loading,
     loadError,
     reload,
     waitingBatch,
     waitForStamp: setWaitingBatch,
+    waitForBalanceChange,
+    recheckBalance,
   };
 }

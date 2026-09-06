@@ -1,7 +1,9 @@
 import {
   beePublishersProblem,
+  type ChequebookHealth,
   hasStampId,
   isStampExpiringSoon,
+  ownsBeeNode,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
   usesNodePool,
@@ -17,24 +19,42 @@ export interface Readiness {
   tone: Tone;
 }
 
+// One rule for "has a node to ask", shared with the manager's deploy gate, so a
+// page cannot poll a node the gate has already decided does not exist.
+export { ownsBeeNode };
+
 const READY_TO_STREAM = 'Ready to stream';
 export const NEEDS_A_STAMP = 'Needs a stamp';
 export const STAMP_EXPIRED = 'Stamp expired';
 export const UPLOADER_NOT_STARTED = 'Uploader not started';
 export const STAMP_ENDS_SOON = 'Stamp ends soon';
 export const POOL_STRING_INVALID = 'Pool string invalid';
+export const CHEQUEBOOK_EMPTY = 'Chequebook empty';
+export const CHEQUEBOOK_LOW = 'Chequebook low';
+
+/** Which of two problems a pill shows when it has room for only one. */
+const TONE_URGENCY: Record<Tone, number> = {
+  err: 4,
+  warn: 3,
+  info: 2,
+  gray: 1,
+  ok: 0,
+};
 
 /**
  * Whether a deployment can do the job it exists for, in one phrase.
  *
  * `health` is what the deployment's own Bee node says about the batch recorded
- * on it, and is only known on a page that asked. Without it a recorded
- * `stamp_id` is taken at face value, which is the most that can honestly be
- * said from the profile list alone.
+ * on it, and `chequebook` is what the same node says it can still pay peers
+ * with. Both are only known on a page that asked, and both are left out
+ * otherwise: a recorded `stamp_id` is then taken at face value and no claim is
+ * made about the chequebook at all, which is the most that can honestly be said
+ * from the profile list alone.
  */
 export function readinessOf(
   profile: Profile,
   health?: StampHealth,
+  chequebook?: ChequebookHealth | null,
 ): Readiness {
   if (profile.status !== 'RUNNING') {
     const status = statusLabelOf(profile);
@@ -58,19 +78,22 @@ export function readinessOf(
     if (canDeployUploader(profile)) {
       return { label: UPLOADER_NOT_STARTED, tone: 'warn' };
     }
-    const stamp = stampReadiness(health);
-    return stamp ?? { label: READY_TO_STREAM, tone: 'ok' };
+    const problem = moreUrgent(
+      streamStampProblem(health),
+      chequebookProblem(chequebook),
+    );
+    return problem ?? { label: READY_TO_STREAM, tone: 'ok' };
   }
 
   if (shape === 'viewer') return { label: 'Watchable', tone: 'ok' };
 
   if (shape === 'bee-node') {
     if (!hasStampId(profile)) return { label: NEEDS_A_STAMP, tone: 'warn' };
-    if (health?.dead) return { label: STAMP_EXPIRED, tone: 'err' };
-    if (health?.state === 'pending') {
-      return { label: 'Stamp settling', tone: 'info' };
-    }
-    return { label: 'Stamped', tone: 'ok' };
+    const problem = moreUrgent(
+      nodeStampProblem(health),
+      chequebookProblem(chequebook),
+    );
+    return problem ?? { label: 'Stamped', tone: 'ok' };
   }
 
   return { label: 'Running', tone: 'ok' };
@@ -80,8 +103,9 @@ export function readinessOf(
 export function needsAttention(
   profile: Profile,
   health?: StampHealth,
+  chequebook?: ChequebookHealth | null,
 ): boolean {
-  const tone = readinessOf(profile, health).tone;
+  const tone = readinessOf(profile, health, chequebook).tone;
   return tone === 'warn' || tone === 'err';
 }
 
@@ -101,14 +125,37 @@ export function isStreamLike(
   );
 }
 
-function stampReadiness(health?: StampHealth): Readiness | null {
+function moreUrgent(
+  first: Readiness | null,
+  second: Readiness | null,
+): Readiness | null {
+  if (!first) return second;
+  if (!second) return first;
+  return TONE_URGENCY[second.tone] > TONE_URGENCY[first.tone] ? second : first;
+}
+
+function chequebookProblem(
+  health: ChequebookHealth | null | undefined,
+): Readiness | null {
+  if (health?.state === 'empty') return { label: CHEQUEBOOK_EMPTY, tone: 'err' };
+  if (health?.state === 'low') return { label: CHEQUEBOOK_LOW, tone: 'warn' };
+  return null;
+}
+
+function streamStampProblem(health?: StampHealth): Readiness | null {
+  const problem = nodeStampProblem(health);
+  if (problem) return problem;
+  if (isStampExpiringSoon(health?.ttl)) {
+    return { label: STAMP_ENDS_SOON, tone: 'warn' };
+  }
+  return null;
+}
+
+function nodeStampProblem(health?: StampHealth): Readiness | null {
   if (!health) return null;
   if (health.dead) return { label: STAMP_EXPIRED, tone: 'err' };
   if (health.state === 'pending') {
     return { label: 'Stamp settling', tone: 'info' };
-  }
-  if (isStampExpiringSoon(health.ttl)) {
-    return { label: STAMP_ENDS_SOON, tone: 'warn' };
   }
   return null;
 }

@@ -14,11 +14,11 @@ import { resolveServerHost } from '../utils/serverHost.js';
 import {
   BeeAddresses,
   BeeChainState,
+  BeeClient,
   BeeStamp,
-  BeeStampClient,
   BeeWallet,
   BuyStampInput,
-} from './BeeStampClient.js';
+} from './BeeClient.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
@@ -63,7 +63,7 @@ const sleep = (ms: number): Promise<void> =>
 export type BeeClientFactory = (
   baseUrl: string,
   timeoutMs?: number,
-) => BeeStampClient;
+) => BeeClient;
 
 /**
  * The node's network address, taken out of a deploy target.
@@ -122,7 +122,7 @@ export class StampService {
     private readonly containers: ContainerRepository,
     private readonly events: EventBus,
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
-      new BeeStampClient(url, timeoutMs),
+      new BeeClient(url, timeoutMs),
   ) {}
 
   async getAddress(name: string): Promise<BeeAddresses> {
@@ -258,6 +258,12 @@ export class StampService {
       logger.warn(
         `[StampService] ${name}: could not verify stamp usability, proceeding: ${getErrorMessage(err)}`,
       );
+      this.events.publish({
+        type: 'profile.notice',
+        profile: name,
+        text: `Started without checking the stamp of ${name}: its node did not answer.`,
+        tone: 'warn',
+      });
       return;
     }
     if (!stamp.usable) {
@@ -271,7 +277,7 @@ export class StampService {
 
   private async call<T>(
     name: string,
-    fn: (client: BeeStampClient) => Promise<T>,
+    fn: (client: BeeClient) => Promise<T>,
   ): Promise<T> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);

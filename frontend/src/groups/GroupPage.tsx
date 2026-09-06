@@ -23,6 +23,7 @@ import { streamerFor } from '../deployments/checklist';
 import { isRunning, isTransitional, SHAPE_LABEL, shapeOf, streamersOf } from '../deployments/shape';
 import { formatDate } from '../format';
 import type { Profile } from '../types';
+import { useChequebookHealths } from '../uploaders/useChequebookHealths';
 import { GroupMembersCard } from './GroupMembersCard';
 import { groupReadinessOf } from './groupReadiness';
 import { PoolStringCard } from './PoolStringCard';
@@ -45,6 +46,7 @@ export function GroupPage({ id }: { id: number }) {
     .map((member) => `${member.name}:${member.stamp_id ?? ''}:${member.status}`)
     .join('|');
   const publishers = useBeePublishers(isPool ? id : null, stampFingerprint);
+  const chequebooks = useChequebookHealths(members);
 
   if (!profiles) {
     return (
@@ -70,7 +72,12 @@ export function GroupPage({ id }: { id: number }) {
     );
   }
 
-  const readiness = groupReadinessOf(group, members, publishers.result);
+  const readiness = groupReadinessOf(
+    group,
+    members,
+    publishers.result,
+    chequebooks,
+  );
   const startable = members.some((m) => !isRunning(m) && !isTransitional(m));
   const streamerName =
     streamerFor(members[0]?.feed_owner, streamersOf(profiles))?.name ?? null;
@@ -134,6 +141,7 @@ export function GroupPage({ id }: { id: number }) {
           <PoolStringCard
             group={group}
             result={publishers.result}
+            chequebooks={chequebooks}
             loading={publishers.loading}
             error={publishers.error}
             onReload={() => void publishers.reload()}
@@ -145,6 +153,7 @@ export function GroupPage({ id }: { id: number }) {
           members={members}
           isPool={isPool}
           poolResult={publishers.result}
+          chequebooks={chequebooks}
         />
 
         {isPool ? (

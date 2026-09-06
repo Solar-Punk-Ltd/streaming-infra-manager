@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import {
+  DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   getErrorMessage,
   reconcileProfiles,
 } from '@streaming-infra-manager/common';
@@ -9,6 +10,7 @@ import type { Tone } from '../components/tone';
 import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
 import { checkSessionAfterStreamClosed } from '../http';
 import type { DeploymentGroup, Profile } from '../types';
+import { useToast, type ToastTone } from './ToastProvider';
 
 export interface ActivityEntry {
   id: number;
@@ -24,6 +26,8 @@ export interface DeploymentsStore {
   serverHost: string;
   /** The host-wide SRT passphrase, or null when the host has none. */
   hostPassphrase: string | null;
+  /** The chequebook floor the manager's uploader gate refuses below. */
+  chequebookFloorBzz: string;
   /** The /events stream is open, so what is on screen is live. */
   connected: boolean;
   activity: ActivityEntry[];
@@ -53,6 +57,22 @@ const ACTIVITY_TEXT: Record<string, { suffix: string; tone: Tone }> = {
   ERROR: { suffix: 'failed to deploy', tone: 'err' },
 };
 
+/**
+ * A notice the manager sent about a deployment, in the shape the SSE frame
+ * carries it. `profile` is the name it happened to.
+ */
+interface ProfileNotice {
+  profile: string;
+  text: string;
+  tone: Tone;
+}
+
+const NOTICE_TOAST: Record<string, ToastTone> = {
+  info: 'info',
+  warn: 'warning',
+  err: 'error',
+};
+
 function nowTime(): string {
   return new Date().toLocaleTimeString('en-GB', {
     hour: '2-digit',
@@ -75,11 +95,15 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [groups, setGroups] = useState<DeploymentGroup[]>([]);
   const [serverHost, setServerHost] = useState(window.location.hostname);
   const [hostPassphrase, setHostPassphrase] = useState<string | null>(null);
+  const [chequebookFloorBzz, setChequebookFloorBzz] = useState(
+    DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+  );
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const nextActivityId = useRef(0);
   const hasOpened = useRef(false);
+  const toast = useToast();
 
   const reload = useCallback(() => {
     const fetchStartedAt = Date.now();
@@ -123,6 +147,7 @@ export function useDeploymentsStore(): DeploymentsStore {
       .then((config) => {
         setServerHost(config.host);
         setHostPassphrase(config.srtPassphrase);
+        setChequebookFloorBzz(config.chequebookFloorBzz);
       })
       .catch(() => undefined);
   }, []);
@@ -157,6 +182,15 @@ export function useDeploymentsStore(): DeploymentsStore {
       if (entry) log(`${profile.name} ${entry.suffix}`, entry.tone);
     });
 
+    // Something the manager did that changed nothing about the deployment, so
+    // no other event would carry it: it goes to the activity feed and to a
+    // toast, because a deploy the operator is watching is where it matters.
+    source.addEventListener('profile.notice', (event: MessageEvent<string>) => {
+      const notice = JSON.parse(event.data) as ProfileNotice;
+      log(notice.text, notice.tone);
+      toast(notice.text, NOTICE_TOAST[notice.tone] ?? 'info');
+    });
+
     source.addEventListener('profile.deleted', (event: MessageEvent<string>) => {
       const { name } = JSON.parse(event.data) as { name: string };
       setProfiles((prev) => (prev ? prev.filter((p) => p.name !== name) : prev));
@@ -165,13 +199,14 @@ export function useDeploymentsStore(): DeploymentsStore {
     });
 
     return () => source.close();
-  }, [log, reload]);
+  }, [log, reload, toast]);
 
   return {
     profiles,
     groups,
     serverHost,
     hostPassphrase,
+    chequebookFloorBzz,
     connected,
     activity,
     loadError,

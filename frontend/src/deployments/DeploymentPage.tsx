@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { Box, Button, CircularProgress, Paper, Stack } from '@mui/material';
 
 import {
+  type ChequebookHealth,
+  chequebookHealthFromPayload,
   rungFromMemberName,
   sameBatchId,
   stampHealthFrom,
@@ -36,7 +38,7 @@ import { PoolTargetCard } from './PoolTargetCard';
 import { PublishCard } from './PublishCard';
 import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
-import { isStreamLike, readinessOf } from './readiness';
+import { ownsBeeNode, readinessOf } from './readiness';
 import { StorageCard } from './StorageCard';
 import { isRunning, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
@@ -80,8 +82,7 @@ export function DeploymentPage({
   // The hook has to run unconditionally, so the two cases are two components
   // rather than one with a conditional call. A viewer has no Bee node to ask,
   // and asking anyway would put a node-unreachable banner on every viewer page.
-  const shape = shapeOf(profile);
-  return isStreamLike(profile, shape) || shape === 'bee-node' ? (
+  return ownsBeeNode(profile) ? (
     <WithBeeNode profile={profile} focus={focus} />
   ) : (
     <DeploymentBody profile={profile} focus={focus} bee={null} />
@@ -123,6 +124,9 @@ function DeploymentBody({
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
   const stampHealth = stampHealthFrom(profile.stamp_id, bee?.stamps ?? null);
+  const chequebookHealth: ChequebookHealth | null = bee?.chequebook
+    ? chequebookHealthFromPayload(bee.chequebook.health)
+    : null;
   const stampId = profile.stamp_id;
   const currentStamp =
     (stampId &&
@@ -137,6 +141,7 @@ function DeploymentBody({
   const checklistInput: ChecklistInput = {
     profile,
     wallet: bee?.wallet ?? null,
+    chequebook: chequebookHealth,
     nodeAddress: bee?.address?.ethereum ?? null,
     stampHealth,
     currentStamp,
@@ -147,7 +152,7 @@ function DeploymentBody({
 
   const steps = buildChecklist(checklistInput);
   const summary = readySummary(checklistInput, stampHealth);
-  const readiness = readinessOf(profile, stampHealth);
+  const readiness = readinessOf(profile, stampHealth, chequebookHealth);
   const uploaderPending = Boolean(profile.pendingStamp);
 
   const runStepAction = (action: StepAction) => {
@@ -161,6 +166,7 @@ function DeploymentBody({
         }
         return;
       case 'buy-stamp':
+      case 'fill-chequebook':
         document
           .getElementById(STORAGE_ANCHOR)
           ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -228,6 +234,7 @@ function DeploymentBody({
               profile={profile}
               bee={bee}
               stampHealth={stampHealth}
+              chequebookHealth={chequebookHealth}
               defaultDepth={rung ? suggestedRungDepth(rung) : undefined}
               onChanged={reload}
             />

@@ -60,6 +60,19 @@ export function isBeeNodeOnly(profile: StampGatedProfile): boolean {
 }
 
 /**
+ * A profile that runs a Bee node of its own, so it has a wallet, a chequebook
+ * and a funding address.
+ *
+ * Anything that asks a node a question has to check this first. An ABR uploader
+ * publishes to a pool and runs no node, so a request to its bee API goes to a
+ * port nothing listens on, waits out the timeout, and reports a node that never
+ * existed as one that failed to answer.
+ */
+export function ownsBeeNode(profile: StampGatedProfile): boolean {
+  return defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE);
+}
+
+/**
  * Everything the Uploaders tab lists.
  *
  * "Uploads a stream" and "owns the postage that pays for it" were once the same
@@ -85,19 +98,6 @@ export function isUploader(profile: StampGatedProfile): boolean {
  */
 export function managesOwnStamp(profile: StampGatedProfile): boolean {
   return isUploader(profile) && !usesNodePool(profile);
-}
-
-/**
- * Whether this profile runs a Bee node of its own.
- *
- * That node is the only thing that can be asked about a postage batch, so this
- * is also the test for whether such a question can be asked at all: an uploader
- * that publishes to a node pool or to an external `bee_url` has no local node,
- * and deploy.sh needs the same answer to decide whether to resolve BEE_URL for
- * itself.
- */
-export function ownsBeeNode(profile: StampGatedProfile): boolean {
-  return defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE);
 }
 
 export function hasStampId(profile: StampGatedProfile): boolean {

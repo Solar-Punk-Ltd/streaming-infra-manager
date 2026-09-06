@@ -7,6 +7,7 @@ import { useEditors } from '../app/EditorsContext';
 import { CopyBox } from '../components/CopyBox';
 import { SectionCard } from '../components/SectionCard';
 import type { DeploymentGroup } from '../types';
+import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 import { poolProblems } from './groupReadiness';
 
 /**
@@ -16,18 +17,21 @@ import { poolProblems } from './groupReadiness';
 export function PoolStringCard({
   group,
   result,
+  chequebooks,
   loading,
   error,
   onReload,
 }: {
   group: DeploymentGroup;
   result: BeePublishersResult | null;
+  /** What each rung's node said about its chequebook, where it answered. */
+  chequebooks: ChequebookHealths;
   loading: boolean;
   error: string | null;
   onReload: () => void;
 }) {
   const { openWizard } = useEditors();
-  const problems = poolProblems(result);
+  const problems = poolProblems(result, chequebooks);
 
   return (
     <SectionCard
@@ -77,6 +81,13 @@ export function PoolStringCard({
                 its form.
               </Typography>
             </Stack>
+            {problems.length > 0 && (
+              <Alert severity="warning">
+                Usable, but a rung cannot pay for what it is sent:{' '}
+                {problems.join(', ')}. Fill it, or an uploader publishing here
+                lands nothing on that rung.
+              </Alert>
+            )}
             {result.warnings.length > 0 && (
               <Alert severity="warning">
                 Usable, but not everything could be confirmed.{' '}

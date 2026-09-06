@@ -9,6 +9,9 @@ import {
   AllSlotsUsedError,
   BeeNodeError,
   CannotRemoveUserError,
+  ChequebookBusyError,
+  ChequebookFundsError,
+  ChequebookUnfundedError,
   CrossSiteRequestError,
   ProfileBusyError,
   GroupExistsError,
@@ -142,6 +145,28 @@ export function errorHandler(
   if (err instanceof StampNotUsableError) {
     res.status(409).json({
       error: 'stamp_not_usable',
+      name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof ChequebookFundsError) {
+    // Same shape as a schema rejection: the amount asked for is the problem,
+    // and the reason is the only text worth showing.
+    res.status(400).json({ error: 'validation_error', errors: [err.reason] });
+    return;
+  }
+  if (err instanceof ChequebookBusyError) {
+    res.status(409).json({
+      error: 'chequebook_busy',
+      name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof ChequebookUnfundedError) {
+    res.status(409).json({
+      error: 'chequebook_unfunded',
       name: err.profileName,
       message: err.message,
     });

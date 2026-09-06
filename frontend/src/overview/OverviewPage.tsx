@@ -10,7 +10,10 @@ import {
   Typography,
 } from '@mui/material';
 
-import { isLadderKind } from '@streaming-infra-manager/common';
+import {
+  type ChequebookHealth,
+  isLadderKind,
+} from '@streaming-infra-manager/common';
 
 import { navigate, routes } from '../app/router';
 import { MONO_STACK } from '../app/theme';
@@ -25,6 +28,7 @@ import { usePoolResults } from '../groups/useBeePublishers';
 import { StaleReadings } from '../resources/StaleReadings';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
+import { useChequebookHealths } from '../uploaders/useChequebookHealths';
 import { srtPublishUrl } from '../urls';
 import { useMetrics } from '../useMetrics';
 import { ActivityCard } from './ActivityCard';
@@ -36,6 +40,7 @@ export function OverviewPage() {
   const serverHost = useServerHost();
   const { snapshot, stale, staleSeconds } = useMetrics();
   const poolResults = usePoolResults(groups, profiles);
+  const chequebooks = useChequebookHealths(profiles);
 
   if (!profiles) {
     return (
@@ -45,7 +50,9 @@ export function OverviewPage() {
     );
   }
 
-  const attention = profiles.filter((profile) => needsAttention(profile));
+  const attention = profiles.filter((profile) =>
+    needsAttention(profile, undefined, chequebooks.get(profile.name)),
+  );
   const poolAlerts: PoolAlert[] = groups
     .filter((group) => isLadderKind(group.kind))
     .map((group) => ({ group, result: poolResults.get(group.id) ?? null }))
@@ -97,7 +104,11 @@ export function OverviewPage() {
         </SectionCard>
       </Box>
 
-      <AttentionList profiles={attention} pools={poolAlerts} />
+      <AttentionList
+        profiles={attention}
+        pools={poolAlerts}
+        chequebooks={chequebooks}
+      />
 
       <Box
         sx={{
@@ -120,6 +131,7 @@ export function OverviewPage() {
                   <StreamRow
                     key={profile.name}
                     profile={profile}
+                    chequebook={chequebooks.get(profile.name) ?? null}
                     publishUrl={srtPublishUrl(profile, serverHost, hostPassphrase)}
                   />
                 ))}
@@ -136,12 +148,15 @@ export function OverviewPage() {
 
 function StreamRow({
   profile,
+  chequebook,
   publishUrl,
 }: {
   profile: Profile;
+  /** What this page's own poll of the node said, so the pill matches the alert. */
+  chequebook: ChequebookHealth | null;
   publishUrl: string | null;
 }) {
-  const readiness = readinessOf(profile);
+  const readiness = readinessOf(profile, undefined, chequebook);
   const copyable = publishUrl && readiness.tone === 'ok' ? publishUrl : null;
 
   return (

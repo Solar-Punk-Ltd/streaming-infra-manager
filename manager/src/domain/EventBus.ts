@@ -2,9 +2,23 @@ import { EventEmitter } from 'node:events';
 
 import { ProfileWithContainers } from '../types/index.js';
 
+/** How loud a notice is, in the three levels the UI already renders. */
+export type NoticeTone = 'info' | 'warn' | 'err';
+
 export type ProfileEvent =
   | { type: 'profile.changed'; profile: ProfileWithContainers }
-  | { type: 'profile.deleted'; name: string };
+  | { type: 'profile.deleted'; name: string }
+  /**
+   * Something that happened to a deployment which changes nothing about it, and
+   * which an operator would otherwise only find by reading the manager's log.
+   * `profile` is the name it happened to and `text` is the whole sentence.
+   */
+  | {
+      type: 'profile.notice';
+      profile: string;
+      text: string;
+      tone: NoticeTone;
+    };
 
 export const MAX_EVENT_CLIENTS = 100;
 

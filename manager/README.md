@@ -141,6 +141,39 @@ libsrt's and the character set keeps the value intact through the `sed` in
 `engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
 `srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
 
+### Chequebook (per profile, its own bee node)
+
+A bee node pays the peers that forward its uploads with cheques drawn on a
+chequebook, a contract on Gnosis Chain holding BZZ. It is a different pot from
+the node's wallet: the wallet holds xDAI for gas and BZZ for buying stamps and
+for topping the chequebook up. When the chequebook runs dry nothing looks
+broken, the node stays healthy and every push stalls waiting for a payment it
+cannot make.
+
+| Method | Path                                  | Body                    | Notes                                                                             |
+| ------ | ------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| GET    | `/profiles/:name/chequebook`          |                         | Address, balances, settlement totals and the health verdict. Any field is `null` when that call to the node failed. |
+| POST   | `/profiles/:name/chequebook/deposit`  | `{ amount }` PLUR string | Wallet to chequebook. `202 { transactionHash }`. Refused with 400 when the wallet holds less BZZ than asked or has no xDAI for gas. |
+| POST   | `/profiles/:name/chequebook/withdraw` | `{ amount }` PLUR string | Chequebook to wallet. `202 { transactionHash }`. Refused with 400 above the available balance. |
+
+`amount` is PLUR, bee's integer unit, matching `^[1-9][0-9]*$` and at most 30
+digits. 1 BZZ is 10^16 PLUR, so a decimal here is refused rather than
+interpreted. `common/src/chequebook.ts` converts.
+
+Both writes answer as soon as bee has submitted the transaction, not once it is
+mined, so the balance moves a few Gnosis blocks later. Poll the GET to see it.
+
+`POST /profiles/:name/deploy-uploader` refuses with `409 chequebook_unfunded`
+when the node reports less than the floor available. A node that cannot be
+asked does not block the deploy, the same rule the stamp check applies: a failed
+probe is no evidence about a chequebook.
+
+**`CHEQUEBOOK_FLOOR_BZZ`** sets that floor, default `0.5`. It is a decimal BZZ
+amount above zero with at most 16 decimal places, parsed once at startup, and a
+malformed value stops the process rather than silently reverting to the default.
+`GET /config` answers it as `chequebookFloorBzz` so the UI shows the number the
+gate uses.
+
 ### Misc
 
 | Method | Path        | Notes                             |
