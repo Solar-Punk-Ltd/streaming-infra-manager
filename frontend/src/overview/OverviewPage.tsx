@@ -22,6 +22,7 @@ import { StatusDot } from '../components/StatusDot';
 import { needsAttention, readinessOf } from '../deployments/readiness';
 import { isRunning, SHAPE_LABEL, shapeOf, statusLabelOf } from '../deployments/shape';
 import { usePoolResults } from '../groups/useBeePublishers';
+import { StaleReadings } from '../resources/StaleReadings';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
 import { srtPublishUrl } from '../urls';
@@ -33,7 +34,7 @@ import { HostCard } from './HostCard';
 export function OverviewPage() {
   const { profiles, groups, activity, hostPassphrase } = useDeployments();
   const serverHost = useServerHost();
-  const { snapshot } = useMetrics();
+  const { snapshot, stale, staleSeconds } = useMetrics();
   const poolResults = usePoolResults(groups, profiles);
 
   if (!profiles) {
@@ -62,6 +63,8 @@ export function OverviewPage() {
 
   return (
     <Stack spacing={2}>
+      {stale && <StaleReadings seconds={staleSeconds} />}
+
       <Box
         sx={{
           display: 'grid',

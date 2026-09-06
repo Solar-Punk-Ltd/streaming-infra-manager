@@ -1,3 +1,6 @@
+/** How often the manager takes a resource sample, and so how often one arrives. */
+export const METRICS_SAMPLE_INTERVAL_MS = 2000;
+
 // Resource snapshot shared by the manager API and the frontend.
 // Bytes are absolute; *Rate fields are bytes/second between samples.
 // host.cpuPercent is 0–100 for the whole box; container/infra cpuPercent is

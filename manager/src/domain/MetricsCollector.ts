@@ -1,4 +1,7 @@
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  getErrorMessage,
+  METRICS_SAMPLE_INTERVAL_MS,
+} from '@streaming-infra-manager/common';
 import Docker from 'dockerode';
 
 import {
@@ -9,18 +12,40 @@ import {
   OutsideTotals,
 } from '../types/index.js';
 
+import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
 import { HostCollector } from './HostCollector.js';
 import { Logger } from './Logger.js';
 
 const logger = Logger.getInstance();
 
-const SAMPLE_INTERVAL_MS = 2000;
 const PROJECT_LABEL = 'com.docker.compose.project';
 const SERVICE_LABEL = 'com.docker.compose.service';
 
 type Listener = (snapshot: MetricsSnapshot) => void;
 
 type ManagedProjectsProvider = () => Promise<Set<string>>;
+
+/** The one call this makes on a container. */
+export interface StatsHandle {
+  stats(options: { stream: false }): Promise<Docker.ContainerStats>;
+}
+
+/**
+ * The slice of dockerode this reads.
+ *
+ * Named so a test can hand over a double without standing up a Docker daemon.
+ */
+export interface MetricsDockerEngine {
+  listContainers(
+    options: Docker.ContainerListOptions,
+  ): Promise<Docker.ContainerInfo[]>;
+  getContainer(id: string): StatsHandle;
+}
+
+/** Where the host numbers come from, so a test can supply its own. */
+export interface HostSampler {
+  sample(): Promise<HostMetrics>;
+}
 
 interface PrevCounters {
   netRxBytes: number;
@@ -35,14 +60,17 @@ export class MetricsCollector {
   private readonly prev = new Map<string, PrevCounters>();
   private timer: NodeJS.Timeout | null = null;
   private latest: MetricsSnapshot | null = null;
-  private sampling = false;
+  private samplingStartedAt: number | null = null;
   private managedProjects: ManagedProjectsProvider | null = null;
   private lastManagedProjects: Set<string> | null = null;
 
   constructor(
-    private readonly docker: Docker = new Docker(),
-    private readonly host: HostCollector = new HostCollector(),
-    private readonly intervalMs: number = SAMPLE_INTERVAL_MS,
+    private readonly docker: MetricsDockerEngine = new Docker({
+      timeout: DOCKER_TIMEOUT_MS,
+    }),
+    private readonly host: HostSampler = new HostCollector(),
+    private readonly intervalMs: number = METRICS_SAMPLE_INTERVAL_MS,
+    private readonly dockerTimeoutMs: number = DOCKER_TIMEOUT_MS,
   ) {}
 
   setManagedProjectsProvider(provider: ManagedProjectsProvider): void {
@@ -77,12 +105,31 @@ export class MetricsCollector {
       this.timer = null;
       logger.info('[MetricsCollector] sampling stopped');
     }
+    this.samplingStartedAt = null;
     this.prev.clear();
   }
 
+  /**
+   * One sample, and only one at a time.
+   *
+   * The sample in flight blocks the next tick, but only until it is past the
+   * deadline every call inside it already carries. Otherwise anything that
+   * never settles would end sampling for the life of the process, and the
+   * resource cards would sit on old numbers through the failure they exist to
+   * show.
+   */
   private async tick(): Promise<void> {
-    if (this.sampling) return;
-    this.sampling = true;
+    const startedAt = Date.now();
+    const inFlightSince = this.samplingStartedAt;
+    if (inFlightSince !== null) {
+      const runningForMs = startedAt - inFlightSince;
+      if (runningForMs < this.dockerTimeoutMs) return;
+      logger.warn(
+        `[MetricsCollector] previous sample abandoned after ${runningForMs}ms`,
+      );
+    }
+
+    this.samplingStartedAt = startedAt;
     try {
       const snapshot = await this.collect();
       this.latest = snapshot;
@@ -98,7 +145,8 @@ export class MetricsCollector {
     } catch (err) {
       logger.warn(`[MetricsCollector] sample failed: ${getErrorMessage(err)}`);
     } finally {
-      this.sampling = false;
+      // An abandoned sample may still settle, long after a later one took over.
+      if (this.samplingStartedAt === startedAt) this.samplingStartedAt = null;
     }
   }
 
@@ -119,7 +167,10 @@ export class MetricsCollector {
   }
 
   private async collectContainers(): Promise<ContainerMetrics[]> {
-    const list = await this.docker.listContainers({ all: false });
+    const list = await answeredInTime(
+      this.docker.listContainers({ all: false }),
+      this.dockerTimeoutMs,
+    );
 
     const managed = await this.resolveManagedProjects();
     const scoped = managed
@@ -158,9 +209,10 @@ export class MetricsCollector {
     info: Docker.ContainerInfo,
   ): Promise<ContainerMetrics | null> {
     try {
-      const stats = await this.docker
-        .getContainer(info.Id)
-        .stats({ stream: false });
+      const stats = await answeredInTime(
+        this.docker.getContainer(info.Id).stats({ stream: false }),
+        this.dockerTimeoutMs,
+      );
       return this.toMetrics(info, stats);
     } catch (err) {
       logger.debug(

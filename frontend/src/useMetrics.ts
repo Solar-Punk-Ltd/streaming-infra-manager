@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { METRICS_SAMPLE_INTERVAL_MS } from '@streaming-infra-manager/common';
+
 import type { MetricsSnapshot } from './types';
 
 const HISTORY_LEN = 40;
+
+/** Three samples missed, so one slow sample does not raise it. */
+const STALE_AFTER_MS = 3 * METRICS_SAMPLE_INTERVAL_MS;
+const STALE_CHECK_MS = 1_000;
 
 export type CpuHistoryByContainer = Map<string, number[]>;
 
@@ -10,13 +16,25 @@ export interface UseMetrics {
   snapshot: MetricsSnapshot | null;
   history: CpuHistoryByContainer;
   connected: boolean;
+  /** No sample has arrived for several intervals, so the numbers are not live. */
+  stale: boolean;
+  /** Age of the newest sample in whole seconds. 0 while the numbers are live. */
+  staleSeconds: number;
   fetchProfileDiskBytes: (project: string) => Promise<number | null>;
 }
 
-// Subscribing also gates the backend: it samples Docker only while someone listens.
+/**
+ * The live resource numbers.
+ *
+ * Subscribing also gates the backend: it samples Docker only while someone
+ * listens. An open stream is not proof the numbers are moving, because the
+ * manager heartbeats it whether or not a sample lands, so the age of the newest
+ * one is tracked as well.
+ */
 export function useMetrics(): UseMetrics {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
+  const [staleAgeMs, setStaleAgeMs] = useState<number | null>(null);
   const historyRef = useRef<CpuHistoryByContainer>(new Map());
 
   useEffect(() => {
@@ -52,6 +70,25 @@ export function useMetrics(): UseMetrics {
     return () => source.close();
   }, []);
 
+  // On a timer of its own: nothing arrives while readings are stalled, so
+  // nothing else would re-render the age.
+  useEffect(() => {
+    if (!snapshot) {
+      setStaleAgeMs(null);
+      return;
+    }
+
+    const sampledAt = Date.parse(snapshot.timestamp);
+    const check = (): void => {
+      const ageMs = Date.now() - sampledAt;
+      setStaleAgeMs(ageMs >= STALE_AFTER_MS ? ageMs : null);
+    };
+
+    check();
+    const timer = setInterval(check, STALE_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [snapshot]);
+
   const fetchProfileDiskBytes = useCallback(
     async (project: string): Promise<number | null> => {
       try {
@@ -70,6 +107,8 @@ export function useMetrics(): UseMetrics {
     snapshot,
     history: historyRef.current,
     connected,
+    stale: staleAgeMs !== null,
+    staleSeconds: staleAgeMs === null ? 0 : Math.round(staleAgeMs / 1_000),
     fetchProfileDiskBytes,
   };
 }

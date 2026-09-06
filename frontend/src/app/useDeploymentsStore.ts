@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
+import {
+  getErrorMessage,
+  reconcileProfiles,
+} from '@streaming-infra-manager/common';
 
 import type { Tone } from '../components/tone';
 import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
@@ -63,7 +66,8 @@ function nowTime(): string {
  * The `/events` stream is the only thing that keeps a status current, so its
  * open flag is surfaced as `connected` and shown in the top bar. A screen that
  * has quietly stopped updating looks exactly like one where nothing is
- * happening, which is the worst way to read a deploy.
+ * happening, which is the worst way to read a deploy. Reconnecting refetches
+ * for the same reason: the stream has no backlog to replay.
  */
 export function useDeploymentsStore(): DeploymentsStore {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -74,11 +78,15 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const nextActivityId = useRef(0);
+  const hasOpened = useRef(false);
 
   const reload = useCallback(() => {
+    const fetchStartedAt = Date.now();
     fetchProfiles()
       .then((next) => {
-        setProfiles(next);
+        setProfiles((previous) =>
+          previous ? reconcileProfiles(previous, next, fetchStartedAt) : next,
+        );
         setLoadError(null);
       })
       .catch((error: unknown) => setLoadError(getErrorMessage(error)));
@@ -120,7 +128,13 @@ export function useDeploymentsStore(): DeploymentsStore {
 
   useEffect(() => {
     const source = new EventSource('/events');
-    source.onopen = () => setConnected(true);
+    source.onopen = () => {
+      setConnected(true);
+      // The stream carries no backlog, so a deployment that stopped, failed or
+      // was removed while it was down is only in the database.
+      if (hasOpened.current) reload();
+      hasOpened.current = true;
+    };
     source.onerror = () => setConnected(false);
 
     source.addEventListener('profile.changed', (event: MessageEvent<string>) => {
@@ -145,7 +159,7 @@ export function useDeploymentsStore(): DeploymentsStore {
     });
 
     return () => source.close();
-  }, [log]);
+  }, [log, reload]);
 
   return {
     profiles,

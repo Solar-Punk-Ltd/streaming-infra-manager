@@ -6,6 +6,7 @@ import { formatBytes, formatRate } from '../format';
 import { useMetrics } from '../useMetrics';
 import { ContainerTable } from './ContainerTable';
 import { HostBars, HostLegend } from './HostBars';
+import { StaleReadings } from './StaleReadings';
 import { StatCard } from './StatCard';
 
 /**
@@ -15,7 +16,8 @@ import { StatCard } from './StatCard';
  * Docker at all, so it only runs while this page is open.
  */
 export function HostPage() {
-  const { snapshot, history, connected, fetchProfileDiskBytes } = useMetrics();
+  const { snapshot, history, connected, stale, staleSeconds, fetchProfileDiskBytes } =
+    useMetrics();
   const [diskByProject, setDiskByProject] = useState<Map<string, number | null>>(
     new Map(),
   );
@@ -49,6 +51,8 @@ export function HostPage() {
 
   return (
     <Stack spacing={2}>
+      {stale && <StaleReadings seconds={staleSeconds} />}
+
       <HostBars snapshot={snapshot} />
 
       <Box

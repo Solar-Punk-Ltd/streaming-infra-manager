@@ -13,6 +13,7 @@ import { navigate, routes, type DeploymentFocus } from '../app/router';
 import { useActions } from '../app/useDeploymentActions';
 import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
+import { StaleReadings } from '../resources/StaleReadings';
 import { useMetrics } from '../useMetrics';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
@@ -110,7 +111,7 @@ function DeploymentBody({
   const { profiles, groups, serverHost, hostPassphrase, reload } = useDeployments();
   const actions = useActions();
   const { openEditDeployment } = useEditors();
-  const { snapshot } = useMetrics();
+  const { snapshot, stale, staleSeconds } = useMetrics();
 
   useEffect(() => {
     if (focus !== 'storage') return;
@@ -233,6 +234,8 @@ function DeploymentBody({
           )}
 
           {shape === 'abr-uploader' && <PoolTargetCard profile={profile} />}
+
+          {stale && <StaleReadings seconds={staleSeconds} />}
 
           <ContainersCard
             profile={profile}
