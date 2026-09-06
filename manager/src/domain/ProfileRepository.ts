@@ -5,7 +5,11 @@ import {
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
-import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import {
+  NEW_PROFILE_STACK_VERSION_SQL,
+  PROFILE_COLUMNS,
+  PROFILE_SLOT_LOCK_KEY,
+} from './profileSql.js';
 
 export interface ProfileWriteData {
   notes?: string | null;
@@ -57,9 +61,10 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url
+           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                ${NEW_PROFILE_STACK_VERSION_SQL}
          FROM generate_series(1, 999) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL

@@ -45,6 +45,12 @@ export interface AppConfig {
   databaseUrl: string;
   logLevel: string;
   chequebookFloorPlur: bigint;
+  /**
+   * Where added stack versions are checked out. A sibling of the data root,
+   * outside the tree `deploy/deploy.sh` rsyncs with --delete, and bind-mounted
+   * into the api container at this same absolute path.
+   */
+  stackVersionsRoot: string;
 }
 
 export const config: AppConfig = {
@@ -54,4 +60,8 @@ export const config: AppConfig = {
   databaseUrl: required('DATABASE_URL'),
   logLevel: optional('LOG_LEVEL', 'info'),
   chequebookFloorPlur: chequebookFloorPlur(),
+  stackVersionsRoot: optional(
+    'STACK_VERSIONS_ROOT',
+    '/home/solarpunk/streaming-infra-manager-versions',
+  ),
 };

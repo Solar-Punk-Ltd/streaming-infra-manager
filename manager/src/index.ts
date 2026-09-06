@@ -26,8 +26,11 @@ import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { StampService } from './domain/StampService.js';
 import { UploaderStartGate } from './domain/UploaderStartGate.js';
+import { readBundledCommit } from './domain/versions/bundledCommit.js';
+import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
+import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
-import { bootstrapSubmoduleDefaults } from './utils/envUtils.js';
+import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -55,6 +58,8 @@ function logStartupConfig(): void {
     `[Boot]   chequebookFloor: ${plurToBzz(config.chequebookFloorPlur)} BZZ`,
   );
   logger.info(`[Boot]   database: ${redactDatabaseUrl(config.databaseUrl)}`);
+  logger.info(`[Boot]   bundled stack: ${BUNDLED_STACK_ROOT}`);
+  logger.info(`[Boot]   stack versions root: ${config.stackVersionsRoot}`);
 }
 
 let apiServer: ApiServerHandle | undefined;
@@ -108,7 +113,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 async function main(): Promise<void> {
   logStartupConfig();
 
-  const bootstrapped = await bootstrapSubmoduleDefaults();
+  const bootstrapped = await bootstrapStackDefaults(BUNDLED_STACK_ROOT);
   for (const file of bootstrapped) {
     logger.info(`[Boot] created missing default: ${file}`);
   }
@@ -133,6 +138,28 @@ async function main(): Promise<void> {
     );
   }
 
+  const scriptRunner = new ScriptRunner();
+  const stackVersionRepository = new PostgresStackVersionRepository(
+    database.pool,
+  );
+  const stackVersionService = new StackVersionService(
+    stackVersionRepository,
+    scriptRunner,
+    eventBus,
+    config.stackVersionsRoot,
+  );
+  await stackVersionService.refreshBundled(
+    BUNDLED_STACK_ROOT,
+    readBundledCommit(BUNDLED_STACK_ROOT),
+  );
+
+  const interruptedBuilds = await stackVersionService.failInterruptedBuilds();
+  if (interruptedBuilds.length > 0) {
+    logger.warn(
+      `[Boot] stack version builds interrupted by a restart: ${interruptedBuilds.join(', ')}`,
+    );
+  }
+
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
 
@@ -152,7 +179,6 @@ async function main(): Promise<void> {
     }
   }
 
-  const scriptRunner = new ScriptRunner();
   const deploymentGroupRepository = new DeploymentGroupRepository(
     database.pool,
   );
@@ -177,6 +203,7 @@ async function main(): Promise<void> {
     scriptRunner,
     eventBus,
     deploymentGroupRepository,
+    stackVersionRepository,
     new UploaderStartGate(stampService, chequebookService),
   );
   const profileService = new ProfileService(
@@ -207,6 +234,7 @@ async function main(): Promise<void> {
       stampService,
       chequebookService,
       containerControl,
+      stackVersionService,
       eventBus,
       metricsCollector,
     },

@@ -13,6 +13,7 @@ export * from './nullify.js';
 export * from './profileReconcile.js';
 export * from './publishUrl.js';
 export * from './srtPassphrase.js';
+export * from './stackVersions.js';
 export * from './stampCost.js';
 export * from './stampGating.js';
 export * from './stampHealth.js';

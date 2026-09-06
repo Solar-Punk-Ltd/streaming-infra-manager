@@ -383,8 +383,12 @@ export class ProfileService {
    * the container starts with. Naming the stack's own value instead would
    * describe a deployment nobody is running.
    */
-  private engineDefaults(engine: EngineName): EngineDefaults {
-    const defaults = effectiveEngineDefaults(engine, parseBaseEnv());
+  private async engineDefaults(
+    profile: Profile,
+    engine: EngineName,
+  ): Promise<EngineDefaults> {
+    const root = await this.orchestrator.stackRootFor(profile);
+    const defaults = effectiveEngineDefaults(engine, parseBaseEnv(root));
     if (defaults.rejected.length > 0) {
       logger.warn(
         `[ProfileService] The base .env sets ${defaults.rejected.join(', ')} to a value ${engine} would refuse. ` +
@@ -395,9 +399,9 @@ export class ProfileService {
   }
 
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
-  engineOverview(profile: Profile): EngineSettingsOverview {
+  async engineOverview(profile: Profile): Promise<EngineSettingsOverview> {
     const { engine, abr } = this.engineFacts(profile);
-    const defaults = this.engineDefaults(engine);
+    const defaults = await this.engineDefaults(profile, engine);
     return {
       engine,
       abr,
@@ -432,7 +436,7 @@ export class ProfileService {
     const { engine, abr } = this.engineFacts(existing);
     const problem = engineSettingsProblem(engine, settings, {
       abr,
-      defaults: this.engineDefaults(engine).values,
+      defaults: (await this.engineDefaults(existing, engine)).values,
     });
     if (problem) {
       throw new ProfileConfigError(name, problem);

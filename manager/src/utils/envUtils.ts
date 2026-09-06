@@ -22,23 +22,21 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Default: the swarm-hls-stream submodule sits next to the manager source tree.
 // On the deploy server the submodule lives outside the image (bind-mounted
-// from the host) so the path differs from the in-image one — SHLS_ROOT lets
+// from the host) so the path differs from the in-image one. SHLS_ROOT lets
 // docker-compose.yml point at the bind-mount without code changes.
-export const SUBMODULE =
+//
+// This is the bundled version's checkout. Added versions live under their own
+// roots, so every function here takes the root it is working in rather than
+// reading this one.
+export const BUNDLED_STACK_ROOT =
   process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
-export const SCRIPTS_DIR = join(SUBMODULE, 'deploy', 'scripts');
 
-export const SCRIPT_DEPLOY = join(SCRIPTS_DIR, 'deploy.sh');
-export const SCRIPT_STOP = join(SCRIPTS_DIR, 'stop.sh');
-export const SCRIPT_CLEAN = join(SCRIPTS_DIR, 'clean.sh');
-export const SCRIPT_HEALTH = join(SCRIPTS_DIR, 'health.sh');
-
-export function profileEnvPath(name: string): string {
-  return join(SUBMODULE, `.env.${name}`);
+export function profileEnvPath(root: string, name: string): string {
+  return join(root, `.env.${name}`);
 }
 
-export function baseEnvPath(): string {
-  return join(SUBMODULE, '.env');
+export function baseEnvPath(root: string): string {
+  return join(root, '.env');
 }
 
 function parseEnvFile(path: string): Record<string, string> {
@@ -66,21 +64,30 @@ function parseEnvText(text: string): Record<string, string> {
   return out;
 }
 
-export function parseBaseEnv(): Record<string, string> {
-  return parseEnvFile(baseEnvPath());
+export function parseBaseEnv(root: string): Record<string, string> {
+  return parseEnvFile(baseEnvPath(root));
 }
 
-const BOOTSTRAP_FILES = [
-  { src: join(SUBMODULE, '.env.sample'), dst: join(SUBMODULE, '.env') },
-  {
-    src: join(SUBMODULE, 'deploy', 'config.sample.json'),
-    dst: join(SUBMODULE, 'deploy', 'config.json'),
-  },
-];
+/** A file the checkout ships as a sample, and the live file copied from it. */
+export interface BootstrapPair {
+  src: string;
+  dst: string;
+}
 
-export async function bootstrapSubmoduleDefaults(): Promise<string[]> {
+export function bootstrapPairsFor(root: string): readonly BootstrapPair[] {
+  return [
+    { src: join(root, '.env.sample'), dst: join(root, '.env') },
+    {
+      src: join(root, 'deploy', 'config.sample.json'),
+      dst: join(root, 'deploy', 'config.json'),
+    },
+  ];
+}
+
+/** Copies the samples a checkout needs, and answers what it had to create. */
+export async function bootstrapStackDefaults(root: string): Promise<string[]> {
   const created: string[] = [];
-  for (const { src, dst } of BOOTSTRAP_FILES) {
+  for (const { src, dst } of bootstrapPairsFor(root)) {
     if (!existsSync(dst) && existsSync(src)) {
       await copyFile(src, dst);
       created.push(dst);
@@ -162,11 +169,13 @@ export interface ProfileEnvValues {
 // compose's --env-file, so this must be a full copy of base .env with the
 // per-profile keys upserted, not just the overridden lines.
 export function writeProfileEnv(
+  root: string,
   name: string,
   values: ProfileEnvValues,
 ): string {
-  const baseContents = existsSync(baseEnvPath())
-    ? readFileSync(baseEnvPath(), 'utf8')
+  const basePath = baseEnvPath(root);
+  const baseContents = existsSync(basePath)
+    ? readFileSync(basePath, 'utf8')
     : '';
   let contents = baseContents;
 
@@ -318,13 +327,13 @@ export function writeProfileEnv(
     }
   }
 
-  const path = profileEnvPath(name);
+  const path = profileEnvPath(root, name);
   writeFileSync(path, contents, 'utf8');
   return path;
 }
 
-export function deleteProfileEnv(name: string): boolean {
-  const path = profileEnvPath(name);
+export function deleteProfileEnv(root: string, name: string): boolean {
+  const path = profileEnvPath(root, name);
 
   if (!existsSync(path)) {
     return false;

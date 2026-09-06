@@ -24,6 +24,15 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
   (`main`). This is the upstream application source: `packages/stream-uploader`,
   `packages/client`, `packages/cli`, and `engines/srs`. Docker images for the
   streamer and watcher servers are built from a pinned commit of this submodule.
+  The manager lists it as the **bundled** stack version, and it is the default
+  until another is chosen.
+- `/home/solarpunk/streaming-infra-manager-versions/` on the deploy host, one
+  directory per added stack version (`STACK_VERSIONS_ROOT`). Each holds a full
+  checkout of another branch or tag with its packages built, about a gigabyte.
+  It is a sibling of the data root and sits outside the tree `deploy/deploy.sh`
+  rsyncs with `--delete`, so a manager deploy cannot wipe it. The Versions page
+  in the manager adds, updates and removes these. See
+  [docs/features/stack-versions.md](docs/features/stack-versions.md).
 
 ## Cloning this repository
 

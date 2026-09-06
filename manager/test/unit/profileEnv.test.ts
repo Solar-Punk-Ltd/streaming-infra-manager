@@ -15,10 +15,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 
-// SUBMODULE is resolved when the module loads, so point it at a scratch
-// directory before importing.
+// Every case writes into a scratch checkout of its own, which is the root
+// writeProfileEnv is handed.
 const root = mkdtempSync(join(tmpdir(), 'shls-'));
-process.env.SHLS_ROOT = root;
 
 // The one definition of the base .env every case starts from. Cases that need
 // a different base overwrite the file; rewriting it before each test means
@@ -47,7 +46,7 @@ beforeEach(() => writeBaseEnv());
 
 describe('writeProfileEnv — BEE_PUBLISHERS', () => {
   it('writes the publishers unquoted, with ABR_ENABLED and the shipped ABR_LADDER', () => {
-    const path = writeProfileEnv('stage-a', {
+    const path = writeProfileEnv(root, 'stage-a', {
       engine: 'srs',
       beePublishers: PUBLISHERS,
     });
@@ -69,7 +68,7 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
     // upstream.
     const foreign = 'f'.repeat(64);
     writeBaseEnv(`ENGINE=srs\nSTAMP=${foreign}\n`);
-    const path = writeProfileEnv('stage-inherit', {
+    const path = writeProfileEnv(root, 'stage-inherit', {
       engine: 'srs',
       beePublishers: PUBLISHERS,
     });
@@ -78,7 +77,7 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
   });
 
   it('trims the pasted value', () => {
-    const path = writeProfileEnv('stage-b', {
+    const path = writeProfileEnv(root, 'stage-b', {
       engine: 'srs',
       beePublishers: `  ${PUBLISHERS}\n`,
     });
@@ -86,7 +85,7 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
   });
 
   it('writes none of the three when the profile publishes through its own node', () => {
-    const path = writeProfileEnv('stage-c', {
+    const path = writeProfileEnv(root, 'stage-c', {
       engine: 'srs',
       stampId: BATCH('own'),
     });
@@ -99,14 +98,14 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
   it('refuses a value the uploader would refuse, naming the reason', () => {
     const missing1080 = PUBLISHERS.split(' ').slice(0, 3).join(' ');
     assert.throws(
-      () => writeProfileEnv('stage-d', { engine: 'srs', beePublishers: missing1080 }),
+      () => writeProfileEnv(root, 'stage-d', { engine: 'srs', beePublishers: missing1080 }),
       /refusing to write BEE_PUBLISHERS.*missing 1080p/,
     );
   });
 
   it('refuses the OME engine — the ladder is SRS-only', () => {
     assert.throws(
-      () => writeProfileEnv('stage-e', { engine: 'ome', beePublishers: PUBLISHERS }),
+      () => writeProfileEnv(root, 'stage-e', { engine: 'ome', beePublishers: PUBLISHERS }),
       /srs engine/,
     );
   });
@@ -114,7 +113,7 @@ describe('writeProfileEnv — BEE_PUBLISHERS', () => {
 
 describe('writeProfileEnv — BEE_URL', () => {
   it('writes an explicit external node', () => {
-    const path = writeProfileEnv('ext-a', {
+    const path = writeProfileEnv(root, 'ext-a', {
       engine: 'srs',
       beeUrl: 'http://10.0.0.7:1633',
       stampId: BATCH('360p'),
@@ -123,12 +122,12 @@ describe('writeProfileEnv — BEE_URL', () => {
   });
 
   it('leaves the base env alone when none is set', () => {
-    const path = writeProfileEnv('ext-b', { engine: 'srs' });
+    const path = writeProfileEnv(root, 'ext-b', { engine: 'srs' });
     assert.equal(lineFor(path, 'BEE_URL'), 'BEE_URL=http://bee-uploader:1633');
   });
 
   it('yields to BEE_PUBLISHERS, which the uploader reads instead', () => {
-    const path = writeProfileEnv('ext-c', {
+    const path = writeProfileEnv(root, 'ext-c', {
       engine: 'srs',
       beePublishers: PUBLISHERS,
       beeUrl: 'http://10.0.0.7:1633',
@@ -139,7 +138,7 @@ describe('writeProfileEnv — BEE_URL', () => {
 
   it('refuses an ssh target', () => {
     assert.throws(
-      () => writeProfileEnv('ext-d', { engine: 'srs', beeUrl: 'http://deploy@10.0.0.7:1633' }),
+      () => writeProfileEnv(root, 'ext-d', { engine: 'srs', beeUrl: 'http://deploy@10.0.0.7:1633' }),
       /refusing to write BEE_URL.*ssh user info/,
     );
   });
@@ -148,7 +147,7 @@ describe('writeProfileEnv — BEE_URL', () => {
     // writeProfileEnv normalises as well as the schema, for rows written
     // before the transform existed. Without it a four-line value already in
     // the database would still produce an .env file compose refuses to read.
-    const path = writeProfileEnv('stage-legacy', {
+    const path = writeProfileEnv(root, 'stage-legacy', {
       engine: 'srs',
       beePublishers: PUBLISHERS.split(' ').join('\n'),
     });
@@ -162,7 +161,7 @@ describe('writeProfileEnv — BEE_URL', () => {
     // `$` is legal in a URL path and beeUrlProblem accepts it, so the value
     // came back mangled: the old line spliced into the middle of the new one.
     const url = 'http://10.0.0.7:1633/$&$`x';
-    const path = writeProfileEnv('ext-e', { engine: 'srs', beeUrl: url });
+    const path = writeProfileEnv(root, 'ext-e', { engine: 'srs', beeUrl: url });
     assert.equal(lineFor(path, 'BEE_URL'), `BEE_URL=${url}`);
   });
 });
@@ -176,7 +175,7 @@ describe('writeProfileEnv — STREAM_KEY', () => {
 
   it('writes the profile key over the host-wide one', () => {
     writeBaseEnv(`ENGINE=srs\nSTREAM_KEY=0x${'ff'.repeat(32)}\n`);
-    const path = writeProfileEnv('keyed', { engine: 'srs', streamKey: KEY });
+    const path = writeProfileEnv(root, 'keyed', { engine: 'srs', streamKey: KEY });
 
     assert.equal(lineFor(path, 'STREAM_KEY'), `STREAM_KEY=${KEY}`);
     assert.equal(
@@ -191,7 +190,7 @@ describe('writeProfileEnv — STREAM_KEY', () => {
     for (const unset of [undefined, null, '', '   ']) {
       writeBaseEnv(`ENGINE=srs\nSTREAM_KEY=${hostWide}\n`);
       assert.equal(
-        lineFor(writeProfileEnv('unkeyed', { engine: 'srs', streamKey: unset }), 'STREAM_KEY'),
+        lineFor(writeProfileEnv(root, 'unkeyed', { engine: 'srs', streamKey: unset }), 'STREAM_KEY'),
         `STREAM_KEY=${hostWide}`,
         `${JSON.stringify(unset)} should fall back to the base .env`,
       );
@@ -199,14 +198,14 @@ describe('writeProfileEnv — STREAM_KEY', () => {
   });
 
   it('adds the key to a base .env that has none', () => {
-    const path = writeProfileEnv('added-key', { engine: 'srs', streamKey: KEY });
+    const path = writeProfileEnv(root, 'added-key', { engine: 'srs', streamKey: KEY });
     assert.equal(lineFor(path, 'STREAM_KEY'), `STREAM_KEY=${KEY}`);
   });
 
   it('refuses anything that is not a private key', () => {
     for (const bad of [KEY.slice(0, -2), 'not-a-key', `${KEY} extra`]) {
       assert.throws(
-        () => writeProfileEnv('bad-key', { engine: 'srs', streamKey: bad }),
+        () => writeProfileEnv(root, 'bad-key', { engine: 'srs', streamKey: bad }),
         /refusing to write STREAM_KEY/,
         `should refuse ${bad}`,
       );
@@ -228,7 +227,7 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   // itself), so the uploader crash-looped beside its own healthy Bee node.
 
   it('says false when the profile runs no Bee node of its own', () => {
-    const path = writeProfileEnv('nolocal', {
+    const path = writeProfileEnv(root, 'nolocal', {
       engine: 'srs',
       localBeeUploader: false,
       beeUrl: 'http://10.0.0.7:1633',
@@ -241,7 +240,7 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   it('says true when it does, so the local address is still resolved', () => {
     // The staged case: only stream-uploader is being deployed, but the profile
     // owns a bee-uploader, so resolve_bee_url must still run.
-    const path = writeProfileEnv('withlocal', {
+    const path = writeProfileEnv(root, 'withlocal', {
       engine: 'srs',
       localBeeUploader: true,
       stampId: BATCH('360p'),
@@ -253,7 +252,7 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
     // .env.<profile> is a fresh copy of the base .env every deploy, so an
     // absent key would let a base-env value decide it.
     writeBaseEnv('ENGINE=srs\nLOCAL_BEE_UPLOADER=true\n');
-    const path = writeProfileEnv('override', {
+    const path = writeProfileEnv(root, 'override', {
       engine: 'srs',
       localBeeUploader: false,
     });
@@ -263,7 +262,7 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   it('is omitted when the caller does not say, so deploy.sh decides as before', () => {
     // Absent means "decide as before" in deploy.sh, which keeps a hand-run
     // deploy.sh and an older manager working.
-    const path = writeProfileEnv('unsaid', { engine: 'srs' });
+    const path = writeProfileEnv(root, 'unsaid', { engine: 'srs' });
     assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), undefined);
   });
 });

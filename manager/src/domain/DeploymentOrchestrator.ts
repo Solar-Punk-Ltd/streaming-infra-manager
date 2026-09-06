@@ -12,12 +12,7 @@ import {
 
 import { Profile, ProfileStatus } from '../types/index.js';
 import {
-  SCRIPT_CLEAN,
-  SCRIPT_DEPLOY,
-  SCRIPT_HEALTH,
-  SCRIPT_STOP,
-  SUBMODULE,
-  bootstrapSubmoduleDefaults,
+  bootstrapStackDefaults,
   deleteProfileEnv,
   parseBaseEnv,
   writeProfileEnv,
@@ -38,6 +33,8 @@ import {
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
+import { stackPaths, type StackPaths } from './versions/stackPaths.js';
+import type { StackVersionRepository } from './versions/StackVersionRepository.js';
 
 const logger = Logger.getInstance();
 
@@ -96,6 +93,7 @@ function omePortsFor(portSlot: number): {
 
 interface JobConfig {
   profileName: string;
+  paths: StackPaths;
   script: string;
   args: string[];
 
@@ -155,8 +153,30 @@ export class DeploymentOrchestrator {
     private readonly runner: ScriptRunner,
     private readonly eventBus: EventBus,
     private readonly groups: DeploymentGroupRepository,
+    private readonly versions: StackVersionRepository,
     private readonly uploaderGate?: UploaderGate,
   ) {}
+
+  /**
+   * The checkout this deployment runs against. Every script, env file and
+   * bootstrap copy comes from here, so moving a deployment to another version
+   * is a different root and nothing else.
+   */
+  private async pathsFor(profile: Profile): Promise<StackPaths> {
+    const version = await this.versions.findById(profile.stack_version_id);
+    if (!version) {
+      logger.warn(
+        `[Orchestrator] ${profile.name} names stack version ${profile.stack_version_id}, which is gone. Using the bundled checkout.`,
+      );
+      return stackPaths({ rootPath: null });
+    }
+    return stackPaths(version);
+  }
+
+  /** The checkout root this deployment's env file is built from. */
+  async stackRootFor(profile: Profile): Promise<string> {
+    return (await this.pathsFor(profile)).root;
+  }
 
   private async publishChanged(profile: Profile): Promise<void> {
     const withContainers = await this.containers.withContainers(profile);
@@ -330,13 +350,14 @@ export class DeploymentOrchestrator {
       return this.completeWithoutScript(profile);
     }
 
-    await this.ensureSubmoduleDefaults();
+    const paths = await this.pathsFor(profile);
+    await this.ensureStackDefaults(paths);
 
     // .env.<profile> carries the per-profile keys deploy.sh reads from its env
     // file: ENGINE selects the uploader's engine plugin (and OME ports when
     // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
     const engine = engineForComponents(profile.components);
-    const written = writeProfileEnv(profile.name, {
+    const written = writeProfileEnv(paths.root, profile.name, {
       engine,
       stampId: profile.stamp_id,
       beePublishers: profile.bee_publishers,
@@ -357,14 +378,15 @@ export class DeploymentOrchestrator {
     const services = [...reservation.services];
     return this.runJob({
       profileName: profile.name,
-      script: SCRIPT_DEPLOY,
+      paths,
+      script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, services);
+        await this.snapshotContainers(profile, paths, services);
         if (updated) {
           await this.publishChanged(updated);
         }
@@ -373,7 +395,7 @@ export class DeploymentOrchestrator {
   }
 
   private async completeWithoutScript(profile: Profile): Promise<RunHandle> {
-    await this.ensureSubmoduleDefaults();
+    await this.ensureStackDefaults(await this.pathsFor(profile));
 
     const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
     if (updated) {
@@ -388,9 +410,11 @@ export class DeploymentOrchestrator {
     profile: Profile,
     services: string[] | undefined,
   ): Promise<RunHandle> {
+    const paths = await this.pathsFor(profile);
     return this.runJob({
       profileName: profile.name,
-      script: SCRIPT_STOP,
+      paths,
+      script: paths.stop,
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
@@ -420,16 +444,18 @@ export class DeploymentOrchestrator {
       args.push('--all');
     }
 
+    const paths = await this.pathsFor(profile);
     return this.runJob({
       profileName: profile.name,
-      script: SCRIPT_CLEAN,
+      paths,
+      script: paths.clean,
       args,
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
-        deleteProfileEnv(profile.name);
+        deleteProfileEnv(paths.root, profile.name);
         this.eventBus.publish({ type: 'profile.deleted', name: profile.name });
         logger.info(
           `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
@@ -458,23 +484,24 @@ export class DeploymentOrchestrator {
   }
 
   async startHealth(profile: Profile): Promise<RunHandle> {
-    await this.ensureSubmoduleDefaults();
-    return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
-      cwd: SUBMODULE,
+    const paths = await this.pathsFor(profile);
+    await this.ensureStackDefaults(paths);
+    return this.runner.run(paths.health, this.buildScriptArgs(profile, []), {
+      cwd: paths.root,
       env: beeDataDirsFor(profile.name),
     });
   }
 
   // rsync --delete on deploy wipes these gitignored files; recreate before every script run.
-  private async ensureSubmoduleDefaults(): Promise<void> {
-    const created = await bootstrapSubmoduleDefaults();
+  private async ensureStackDefaults(paths: StackPaths): Promise<void> {
+    const created = await bootstrapStackDefaults(paths.root);
     for (const file of created) {
       logger.info(`[Orchestrator] created missing default: ${file}`);
     }
   }
 
   private async runJob(cfg: JobConfig): Promise<RunHandle> {
-    await this.ensureSubmoduleDefaults();
+    await this.ensureStackDefaults(cfg.paths);
 
     if (cfg.transitionTo && cfg.allowedFrom) {
       const transitioned = await this.profiles.transitionStatus(
@@ -497,7 +524,7 @@ export class DeploymentOrchestrator {
     );
 
     const handle = this.runner.run(cfg.script, cfg.args, {
-      cwd: SUBMODULE,
+      cwd: cfg.paths.root,
       env: beeDataDirsFor(cfg.profileName),
     });
 
@@ -588,10 +615,11 @@ export class DeploymentOrchestrator {
 
   private async snapshotContainers(
     profile: Profile,
+    paths: StackPaths,
     services: string[],
   ): Promise<void> {
     try {
-      const env = this.buildEffectiveEnv(profile);
+      const env = this.buildEffectiveEnv(profile, paths);
       for (const service of services) {
         const snapshot = buildContainerSnapshot(service, env);
         await this.containers.upsert(profile.name, snapshot);
@@ -603,8 +631,11 @@ export class DeploymentOrchestrator {
     }
   }
 
-  private buildEffectiveEnv(profile: Profile): Record<string, string> {
-    const env = parseBaseEnv();
+  private buildEffectiveEnv(
+    profile: Profile,
+    paths: StackPaths,
+  ): Record<string, string> {
+    const env = parseBaseEnv(paths.root);
 
     Object.assign(env, beeDataDirsFor(profile.name));
 

@@ -34,6 +34,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_url: null,
     srt_passphrase: null,
     engine_settings: {},
+    stack_version_id: 1,
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,

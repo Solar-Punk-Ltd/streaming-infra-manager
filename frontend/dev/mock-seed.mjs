@@ -97,6 +97,8 @@ export function takeGroupId() {
 export const state = {
   profiles: [],
   groups: [],
+  /** The stack versions this manager holds. Filled by mock-versions.mjs. */
+  versions: [],
   /** Per profile: what its Bee node would answer. */
   nodes: new Map(),
 };
@@ -147,6 +149,9 @@ export function makeProfile(input) {
     containers: [],
     group_id: input.group_id ?? null,
     pendingStamp: false,
+    // Null means the default version, which is what every deployment ran
+    // before a version could be chosen per deployment.
+    stack_version_id: input.stack_version_id ?? null,
   };
 }
 

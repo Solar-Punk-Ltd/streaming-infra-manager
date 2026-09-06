@@ -20,24 +20,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 
-// SUBMODULE resolves from SHLS_ROOT at module load, so the env var has to be set
-// before envUtils is imported — hence the dynamic import in `before`.
+import { writeProfileEnv } from '../../src/utils/envUtils.js';
+
+// A scratch checkout of its own, which is the root writeProfileEnv is handed.
 const root = mkdtempSync(join(tmpdir(), 'srt-passphrase-'));
-const previousRoot = process.env.SHLS_ROOT;
-
-let writeProfileEnv: typeof import('../../src/utils/envUtils.js').writeProfileEnv;
-
-before(async () => {
-  process.env.SHLS_ROOT = root;
-  ({ writeProfileEnv } = await import('../../src/utils/envUtils.js'));
-});
-
-after(() => {
-  if (previousRoot === undefined) delete process.env.SHLS_ROOT;
-  else process.env.SHLS_ROOT = previousRoot;
-});
 
 function withBaseEnv(contents: string): void {
   writeFileSync(join(root, '.env'), contents, 'utf8');
@@ -45,7 +33,7 @@ function withBaseEnv(contents: string): void {
 
 function envFor(name: string, srtPassphrase?: string | null): string {
   return readFileSync(
-    writeProfileEnv(name, { engine: 'srs', srtPassphrase }),
+    writeProfileEnv(root, name, { engine: 'srs', srtPassphrase }),
     'utf8',
   );
 }

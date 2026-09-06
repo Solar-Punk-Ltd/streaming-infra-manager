@@ -110,7 +110,8 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, reload } = useDeployments();
+  const { profiles, groups, serverHost, hostPassphrase, reload, versions } =
+    useDeployments();
   const actions = useActions();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
@@ -124,6 +125,8 @@ function DeploymentBody({
   const shape = shapeOf(profile);
   const engine = engineOf(profile);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
+  const version =
+    versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
   const stampHealth = stampHealthFrom(profile.stamp_id, bee?.stamps ?? null);
   const chequebookHealth: ChequebookHealth | null = bee?.chequebook
@@ -273,6 +276,7 @@ function DeploymentBody({
             readiness={readiness}
             stampHealth={stampHealth}
             group={group}
+            version={version}
           />
           {shape === 'stream' && isRunning(profile) && (
             <NextStepsCard streamName={profile.name} />

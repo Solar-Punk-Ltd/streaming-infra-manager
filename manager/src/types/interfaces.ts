@@ -40,6 +40,8 @@ export interface Profile {
   created_at: Date;
   updated_at: Date;
   group_id: number | null;
+  /** Which version of the streaming stack this deployment runs. Migration 010. */
+  stack_version_id: number;
 }
 
 export interface DeploymentGroup {

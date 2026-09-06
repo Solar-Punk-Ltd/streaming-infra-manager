@@ -28,6 +28,7 @@ const NAV_ITEMS: { label: string; hash: string; pages: Route['page'][] }[] = [
     pages: ['deployments', 'deployment', 'group'],
   },
   { label: 'Host', hash: routes.host, pages: ['host'] },
+  { label: 'Versions', hash: routes.versions, pages: ['versions'] },
   { label: 'Access', hash: routes.access, pages: ['access'] },
 ];
 

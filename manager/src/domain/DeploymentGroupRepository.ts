@@ -3,7 +3,11 @@ import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
-import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import {
+  NEW_PROFILE_STACK_VERSION_SQL,
+  PROFILE_COLUMNS,
+  PROFILE_SLOT_LOCK_KEY,
+} from './profileSql.js';
 
 export interface SharedProfileParams {
   kind: ProfileKind;
@@ -165,9 +169,10 @@ export class DeploymentGroupRepository {
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-         srt_passphrase, group_id
+         srt_passphrase, group_id, stack_version_id
        )
-       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12
+       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              ${NEW_PROFILE_STACK_VERSION_SQL}
        FROM generate_series(1, 999) AS s(n)
        LEFT JOIN profiles p ON p.port_slot = s.n
        WHERE p.port_slot IS NULL

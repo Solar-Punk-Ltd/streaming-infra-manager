@@ -8,6 +8,7 @@ import { DeploymentsPage } from '../deployments/DeploymentsPage';
 import { GroupPage } from '../groups/GroupPage';
 import { OverviewPage } from '../overview/OverviewPage';
 import { HostPage } from '../resources/HostPage';
+import { VersionsPage } from '../versions/VersionsPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { useActions } from './useDeploymentActions';
@@ -22,6 +23,7 @@ const PAGE_TITLES: Record<Route['page'], string> = {
   deployment: 'Deployments',
   group: 'Deployments',
   host: 'Host',
+  versions: 'Versions',
   access: 'Access',
 };
 
@@ -119,6 +121,8 @@ function Page({ route, search }: { route: Route; search: string }) {
       return <GroupPage key={route.id} id={route.id} />;
     case 'host':
       return <HostPage />;
+    case 'versions':
+      return <VersionsPage />;
     case 'access':
       return <AccessPage />;
     case 'overview':

@@ -37,7 +37,7 @@ export function createEngineRouter(
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const profile = await profileService.getByName(req.params.name as string);
-      const overview = profileService.engineOverview(profile);
+      const overview = await profileService.engineOverview(profile);
       res.json({
         ...overview,
         live: null,
@@ -104,7 +104,7 @@ export function createEngineRouter(
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const profile = await profileService.getByName(req.params.name as string);
-      const { engine } = profileService.engineOverview(profile);
+      const { engine } = await profileService.engineOverview(profile);
       const text = await containers.effectiveConfig(profile.name, engine);
       // The generated config carries the SRT passphrase in clear. The profile
       // JSON already does, so nothing new is exposed, but there is no reason

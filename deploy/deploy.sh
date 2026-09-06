@@ -77,6 +77,15 @@ echo "==> Building swarm-hls-stream locally (so dist/ ships over rsync)"
 pnpm -C manager/swarm-hls-stream install --frozen-lockfile
 pnpm -C manager/swarm-hls-stream -r build
 
+echo "==> Recording the bundled stack commit"
+# The rsync below excludes .git, so on the server the submodule tree carries no
+# way of saying which commit it is. The manager reads this file at boot and
+# shows it as the bundled version's commit. Written next to the checkout rather
+# than inside it, because the submodule's own .gitignore does not cover it and a
+# file in there would show up as an untracked change in the submodule.
+git -C manager/swarm-hls-stream rev-parse HEAD > manager/.stack-commit
+echo "[deploy] bundled stack commit: $(cat manager/.stack-commit)"
+
 echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH}"
 rsync -avz --delete \
     --exclude '.git/' \
@@ -103,6 +112,13 @@ fi
 
 export PUBLIC_HOST
 export BEE_DATA_ROOT="\${HOME}/streaming-infra-manager-data"
+
+# Added stack versions live here, a sibling of the data root and outside the
+# tree the rsync above deletes into, so a manager deploy cannot wipe them.
+export STACK_VERSIONS_ROOT="\${HOME}/streaming-infra-manager-versions"
+mkdir -p "\${STACK_VERSIONS_ROOT}"
+echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
+
 # --remove-orphans reaches a service renamed or deleted in the compose file,
 # and only inside the manager compose project, each deployment having its own
 # project name. It does not reach the edge: Compose counts a service whose

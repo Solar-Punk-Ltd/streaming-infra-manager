@@ -208,6 +208,50 @@ publishes no such port, and OvenMediaEngine's API needs a `<Managers>` block
 the template does not carry. `GET /profiles/:name/engine` therefore answers
 `live: null` with the reason in `liveUnavailableReason`.
 
+### Stack versions
+
+A version is a branch or tag of `swarm-hls-stream` pinned to a commit, checked
+out and built once, with its deploy contract read out of the checkout rather
+than assumed: the port table from `deploy/scripts/_lib.sh`, the port slot
+ceiling from `deploy.sh`, the secrets the containers refuse to start without
+from the `.env.sample` files, and the engine defaults from the entrypoints. A
+moving branch changes nothing until `update` is called.
+
+The **bundled** version is the submodule the manager ships with. It is the
+default until another is chosen, and it cannot be removed or updated here: it
+moves when the manager itself is deployed. Its commit comes from
+`manager/.stack-commit`, which `deploy/deploy.sh` writes before the rsync,
+because the tree reaches the server without a `.git`.
+
+The default records which version the new deployment wizard will preselect, and
+it takes effect on new deployments in the next pull request, the one that adds
+that select. Until then every deployment is created on the bundled version
+whatever carries the badge. Only a version marked **tested** can be made the
+default, which a person sets by hand after one real deployment has run on it,
+because reading a checkout's scripts proves its shape and not its behaviour.
+
+| Method | Path                    | Body            | Answer                                                          |
+| ------ | ----------------------- | --------------- | --------------------------------------------------------------- |
+| GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, builtAt, lastError, contract, deployments }]` |
+| POST   | `/versions`             | `{ name, ref }` | SSE build log, then `version.changed` on `/events`.              |
+| POST   | `/versions/:id/update`  |                 | SSE build log. Refused for `bundled`.                            |
+| POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
+| PATCH  | `/versions/:id`         | `{ tested }`    | 200 and the row.                                                 |
+| DELETE | `/versions/:id`         |                 | 204, or 409 with the deployment names when it is in use.         |
+
+Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
+<repo-url>`, which clones or fetches, exports the fetched commit into a staging
+tree beside the root, builds the packages there in a throwaway `node:22-alpine`
+container, copies the built tree back into the root with every env file kept,
+and copies `.env.sample` and `deploy/config.sample.json` into place. One build
+runs at a time: the stack still tags its images by service name alone, so two
+at once would overwrite each other's tags.
+
+Adding a version runs that branch's deploy scripts with the manager's Docker
+access, so only branches you trust belong here. The build container is shown
+the staging tree and never the root, because the root holds every deployment's
+`.env.<profile>` with its stream key, SRT passphrase and postage batch in it.
+
 ### Misc
 
 | Method | Path        | Notes                             |
@@ -316,6 +360,20 @@ curl -N -b cookies.txt -X POST localhost:9876/profiles/streamer1/clean \
 curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
   -H 'X-Requested-With: streaming-infra-manager'
 ```
+
+## Environment
+
+Everything comes from `manager/.env`, and `manager/.env.sample` documents each
+key. The two that decide where the streaming stack lives:
+
+| Variable              | Default                                            | What it points at                                                                  |
+| --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `SHLS_ROOT`           | the submodule next to the manager source           | The bundled version's checkout. Set by `docker-compose.yml` to the host bind mount. |
+| `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where added versions are checked out, one directory each.                           |
+
+Both are bind-mounted into the api container at the same absolute path they
+have on the host, because the docker daemon runs on the host and reads every
+path in a compose file as a host path.
 
 ## Limitations (intentional, v1)
 

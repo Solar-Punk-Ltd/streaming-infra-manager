@@ -45,6 +45,11 @@ export interface RunHandle {
   kill(): void;
 }
 
+/** What a caller needs from the runner, so a test can stand in for it. */
+export interface ScriptSpawner {
+  run(scriptPath: string, args: string[], options?: RunOptions): RunHandle;
+}
+
 /**
  * Pure-process wrapper. No HTTP, no DB knowledge — just spawn a bash script,
  * stream output via EventEmitter, and let the caller decide what to do (SSE,
@@ -53,7 +58,7 @@ export interface RunHandle {
  * Always invoked via /bin/bash (never `shell: true`) so caller-supplied args
  * can't be interpreted as shell metacharacters.
  */
-export class ScriptRunner {
+export class ScriptRunner implements ScriptSpawner {
   run(scriptPath: string, args: string[], options: RunOptions = {}): RunHandle {
     const emitter = new EventEmitter();
     let child: ChildProcess;

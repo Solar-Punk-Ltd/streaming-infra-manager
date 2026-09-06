@@ -16,6 +16,7 @@ import { ProfileBusyError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { ProfileService } from '../../src/domain/ProfileService.js';
 import { RunHandle } from '../../src/domain/ScriptRunner.js';
+import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 import { DeploymentGroup, Profile, ProfileStatus } from '../../src/types/index.js';
 
 import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
@@ -57,6 +58,11 @@ export class FakeOrchestrator {
 
   asOrchestrator(): DeploymentOrchestrator {
     return this as unknown as DeploymentOrchestrator;
+  }
+
+  /** Every fake row runs the bundled checkout, the one SHLS_ROOT names. */
+  async stackRootFor(): Promise<string> {
+    return BUNDLED_STACK_ROOT;
   }
 
   async reserveDeploy(

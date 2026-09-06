@@ -67,6 +67,7 @@ function member(rung: string, index: number): Profile {
     created_at: new Date(0),
     updated_at: new Date(0),
     group_id: GROUP.id,
+    stack_version_id: 1,
   };
 }
 

@@ -38,6 +38,16 @@ function proxyLines(prefix: string): string[] {
   return confLines().filter((line) => line.startsWith(prefix));
 }
 
+/** The body of one `location <match> { ... }` block, or null. */
+function locationBlock(match: string): string | null {
+  const conf = readFileSync(NGINX_CONF, 'utf8');
+  const start = conf.indexOf(`location ${match} {`);
+  if (start === -1) return null;
+
+  const end = conf.indexOf('\n    }', start);
+  return end === -1 ? null : conf.slice(start, end);
+}
+
 describe('nginx.conf proxy headers', () => {
   it('forwards the Host header with its port', () => {
     const hosts = proxyLines('proxy_set_header Host');
@@ -123,5 +133,32 @@ describe('nginx.conf sign-in rate limit', () => {
       ['limit_req_status 429;'],
       'nginx answers 503 by default, which reads as an outage',
     );
+  });
+});
+
+/**
+ * That a version build reaches the browser while it is running.
+ *
+ * Adding a version streams a clone and a `pnpm -r build` as Server-Sent Events
+ * for several minutes. On the defaults nginx would buffer the whole thing and
+ * give up at sixty seconds, so the operator would watch an empty pane and then
+ * be told the build failed while it was in fact still running.
+ */
+describe('nginx.conf /versions', () => {
+  it('streams the build log rather than buffering it', () => {
+    const block = locationBlock('^~ /versions');
+
+    assert.ok(block, 'no `location ^~ /versions` block found');
+    assert.match(block, /proxy_buffering off;/);
+    assert.match(block, /proxy_read_timeout 24h;/);
+    assert.match(block, /proxy_send_timeout 24h;/);
+    assert.match(block, /proxy_set_header Host \$http_host;/);
+  });
+
+  it('wins over the plain JSON routes, which nginx matches first', () => {
+    // nginx tries regex locations ahead of prefix ones, and `^~` is what takes
+    // that back. Without it, adding versions to the JSON block would quietly
+    // turn the build log into a minute of nothing and then a failure.
+    assert.match(readFileSync(NGINX_CONF, 'utf8'), /location \^~ \/versions \{/);
   });
 });

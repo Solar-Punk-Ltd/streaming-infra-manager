@@ -47,6 +47,8 @@ export interface ApiRequest {
    * rather than a session that has ended.
    */
   allowUnauthorized?: boolean;
+  /** Ends the request and its body stream, for a call nobody is waiting on. */
+  signal?: AbortSignal;
 }
 
 export async function apiFetch(
@@ -65,6 +67,7 @@ export async function apiFetch(
     method,
     headers,
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
+    signal: request.signal,
   });
 
   if (res.status === 401 && !request.allowUnauthorized) {

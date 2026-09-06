@@ -1,7 +1,7 @@
 import { Request, Response, Router } from 'express';
 
 import { Logger } from '../../domain/Logger.js';
-import { parseBaseEnv } from '../../utils/envUtils.js';
+import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import { resolveServerHost } from '../../utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -17,7 +17,9 @@ export function createConfigRouter(chequebookFloorBzz: string): Router {
 
   router.get('/', (_req: Request, res: Response) => {
     const host = resolveServerHost();
-    const srtPassphrase = parseBaseEnv().SRT_PASSPHRASE?.trim() || null;
+    // The host-wide passphrase, which lives in the bundled checkout's base .env.
+    const srtPassphrase =
+      parseBaseEnv(BUNDLED_STACK_ROOT).SRT_PASSPHRASE?.trim() || null;
     logger.info(`[config] GET /config → host=${host}`);
     res.json({ host, srtPassphrase, chequebookFloorBzz });
   });

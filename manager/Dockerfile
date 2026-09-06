@@ -34,13 +34,19 @@ RUN pnpm deploy --filter=@streaming-infra-manager/api --prod /out
 FROM node:22-alpine
 WORKDIR /app
 
+# git is for manager/scripts/stack-version-build.sh, which clones and updates
+# the checkout of every added stack version.
 RUN apk add --no-cache \
-      bash jq \
+      bash jq git \
       docker-cli docker-cli-compose \
       rsync openssh-client \
       ca-certificates
 
 COPY --from=build /out ./
+# Copied explicitly rather than left to what `pnpm deploy` decides to pack: a
+# missing build script is a Versions page that fails on its first Add, at
+# runtime, on the host.
+COPY manager/scripts ./scripts
 
 ENV NODE_ENV=production
 EXPOSE 9876

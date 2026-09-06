@@ -7,6 +7,7 @@ import { EventBus } from '../../src/domain/EventBus.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
+import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
 export interface OrchestratorHarness {
@@ -30,6 +31,9 @@ export function orchestratorHarness(
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
   const events = new EventBus();
+  // Every row names the bundled version, the one the seed inserts as id 1.
+  const versions = new InMemoryStackVersionRepository();
+  versions.seedBundled();
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -37,6 +41,7 @@ export function orchestratorHarness(
     runner,
     events,
     {} as DeploymentGroupRepository,
+    versions,
     uploaderGate,
   );
 

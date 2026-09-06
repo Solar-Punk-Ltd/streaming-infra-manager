@@ -25,7 +25,7 @@ import {
   ChequebookUnfundedError,
   ProfileNotFoundError,
 } from '../../src/domain/errors/index.js';
-import { EventBus, type ProfileEvent } from '../../src/domain/EventBus.js';
+import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { Profile } from '../../src/types/index.js';
 
@@ -49,6 +49,7 @@ const PROFILE: Profile = {
   bee_url: null,
   srt_passphrase: null,
   engine_settings: {},
+  stack_version_id: 1,
   status: 'RUNNING',
   last_error: null,
   last_error_at: null,
@@ -86,7 +87,7 @@ function build(client: Partial<BeeClient>, floorPlur: bigint = FLOOR) {
   } as unknown as ProfileRepository;
 
   const events = new EventBus();
-  const published: ProfileEvent[] = [];
+  const published: ManagerEvent[] = [];
   events.subscribe((event) => published.push(event));
 
   return {

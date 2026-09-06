@@ -117,6 +117,13 @@ export function formatDateTime(iso: string | null | undefined): string {
   return date.toLocaleString('en-GB');
 }
 
+/** How many characters of a commit sha are shown, the way git abbreviates. */
+const COMMIT_SHORT_LENGTH = 7;
+
+export function shortCommit(sha: string): string {
+  return sha.slice(0, COMMIT_SHORT_LENGTH);
+}
+
 /** A long hex value elided in the middle: batch ids, addresses, tx hashes. */
 export function shortHex(hex: string, lead = 8, tail = 6): string {
   if (hex.length <= lead + tail + 1) return hex;

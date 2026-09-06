@@ -43,6 +43,11 @@ import { engineRoutes } from './mock-engine.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
+  defaultVersionId,
+  seedVersions,
+  versionRoutes,
+} from './mock-versions.mjs';
+import {
   containersFor,
   DAY,
   GB,
@@ -388,6 +393,7 @@ function createFromBody(body, extra = {}) {
     ...extra,
     status: 'DEPLOYING',
     created_at: new Date().toISOString(),
+    stack_version_id: defaultVersionId(),
   });
   state.profiles.push(profile);
   refreshDerived(profile);
@@ -669,6 +675,7 @@ const ROUTES = [
     },
   ],
   ...engineRoutes({ readBody, withProfile, deploy, publish }),
+  ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
   ['GET', /^\/metrics$/, (_req, res) => send(res, 200, metricsSnapshot())],
   [
@@ -711,9 +718,10 @@ const server = createServer((req, res) => {
 
 seed();
 seedAuth();
+seedVersions();
 server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
-    `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles and ${state.groups.length} groups\n` +
+    `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles, ${state.groups.length} groups and ${state.versions.length} stack versions\n` +
       `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n`,
   );
 });

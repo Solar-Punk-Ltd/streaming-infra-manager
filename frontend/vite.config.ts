@@ -30,6 +30,8 @@ export default defineConfig({
       '/events': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
       // Metrics: JSON one-shot, SSE stream, and on-demand disk lookups.
       '/metrics': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
+      // Versions: adding or updating one streams its build for minutes.
+      '/versions': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
     },
   },
 });

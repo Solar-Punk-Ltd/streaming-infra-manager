@@ -1,9 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   getErrorMessage,
   reconcileProfiles,
+  type StackVersion,
 } from '@streaming-infra-manager/common';
 
 import type { Tone } from '../components/tone';
@@ -11,6 +20,7 @@ import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
 import { checkSessionAfterStreamClosed } from '../http';
 import type { DeploymentGroup, Profile } from '../types';
 import { useToast, type ToastTone } from './ToastProvider';
+import { fetchVersions } from '../versions/versionsApi';
 
 export interface ActivityEntry {
   id: number;
@@ -32,7 +42,11 @@ export interface DeploymentsStore {
   connected: boolean;
   activity: ActivityEntry[];
   loadError: string | null;
+  /** The stack versions this manager holds. Null until the first answer. */
+  versions: StackVersion[] | null;
+  versionsError: string | null;
   reload: () => void;
+  reloadVersions: () => void;
   /** Folds freshly created profiles in without waiting for their events. */
   mergeProfiles: (profiles: Profile[]) => void;
 }
@@ -101,6 +115,8 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [versions, setVersions] = useState<StackVersion[] | null>(null);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
   const nextActivityId = useRef(0);
   const hasOpened = useRef(false);
   const toast = useToast();
@@ -116,6 +132,15 @@ export function useDeploymentsStore(): DeploymentsStore {
       })
       .catch((error: unknown) => setLoadError(getErrorMessage(error)));
     fetchGroups().then(setGroups).catch(() => undefined);
+  }, []);
+
+  const reloadVersions = useCallback(() => {
+    fetchVersions()
+      .then((next) => {
+        setVersions(next);
+        setVersionsError(null);
+      })
+      .catch((error: unknown) => setVersionsError(getErrorMessage(error)));
   }, []);
 
   const mergeProfiles = useCallback((incoming: Profile[]) => {
@@ -141,6 +166,7 @@ export function useDeploymentsStore(): DeploymentsStore {
   }, []);
 
   useEffect(() => reload(), [reload]);
+  useEffect(() => reloadVersions(), [reloadVersions]);
 
   useEffect(() => {
     fetchServerConfig()
@@ -206,19 +232,47 @@ export function useDeploymentsStore(): DeploymentsStore {
       log(`${service} restarted on ${profile}`, 'info');
     });
 
-    return () => source.close();
-  }, [log, reload, toast]);
+    // No payload: the default badge, every usage count and a build's status
+    // move together, so the whole table is read again.
+    source.addEventListener('version.changed', () => reloadVersions());
 
-  return {
-    profiles,
-    groups,
-    serverHost,
-    hostPassphrase,
-    chequebookFloorBzz,
-    connected,
-    activity,
-    loadError,
-    reload,
-    mergeProfiles,
-  };
+    return () => source.close();
+  }, [log, reload, toast, reloadVersions]);
+
+  // A fresh object every render is a fresh context value, and every consumer
+  // of the store renders again for it. A version.changed event reloads the
+  // whole versions table, so without this each of those redrew the deployments
+  // list, the host page and the metrics too.
+  return useMemo(
+    () => ({
+      profiles,
+      groups,
+      serverHost,
+      hostPassphrase,
+      chequebookFloorBzz,
+      connected,
+      activity,
+      loadError,
+      versions,
+      versionsError,
+      reload,
+      reloadVersions,
+      mergeProfiles,
+    }),
+    [
+      profiles,
+      groups,
+      serverHost,
+      hostPassphrase,
+      chequebookFloorBzz,
+      connected,
+      activity,
+      loadError,
+      versions,
+      versionsError,
+      reload,
+      reloadVersions,
+      mergeProfiles,
+    ],
+  );
 }

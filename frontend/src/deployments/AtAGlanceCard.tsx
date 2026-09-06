@@ -1,19 +1,36 @@
 import type { ReactNode } from 'react';
 import { Box, Link } from '@mui/material';
 
-import type { StampHealth } from '@streaming-infra-manager/common';
+import type {
+  StackVersion,
+  StampHealth,
+} from '@streaming-infra-manager/common';
 
 import { routes } from '../app/router';
 import { MONO_STACK } from '../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../components/KeyValueList';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
-import { formatDate, formatTtl } from '../format';
+import { formatDate, formatTtl, shortCommit } from '../format';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
 import { engineSummary } from './engineText';
 import type { Readiness } from './readiness';
 import { engineOf } from './shape';
+
+const COMMIT_UNKNOWN = 'commit unknown on this host';
+
+/**
+ * `bundled @ ee99c36`, or the name alone when the host cannot name a commit.
+ *
+ * A commit is unknown when the checkout arrived without a .git and without the
+ * file deploy.sh writes next to it, which is a real state and not an error.
+ */
+function describeVersion(version: StackVersion): string {
+  return version.commitSha
+    ? `${version.name} @ ${shortCommit(version.commitSha)}`
+    : `${version.name}, ${COMMIT_UNKNOWN}`;
+}
 
 export function AtAGlanceCard({
   profile,
@@ -21,12 +38,15 @@ export function AtAGlanceCard({
   readiness,
   stampHealth,
   group,
+  version,
 }: {
   profile: Profile;
   serverHost: string;
   readiness: Readiness;
   stampHealth: StampHealth;
   group: DeploymentGroup | null;
+  /** The stack version this deployment runs, or null until the list arrives. */
+  version: StackVersion | null;
 }) {
   const engine = engineOf(profile);
   const entries: KeyValueEntry[] = [
@@ -42,6 +62,13 @@ export function AtAGlanceCard({
     entries.push({
       key: 'Engine',
       value: engineSummary(engine, profile.engine_settings),
+    });
+  }
+
+  if (version) {
+    entries.push({
+      key: 'Version',
+      value: <Mono>{describeVersion(version)}</Mono>,
     });
   }
 

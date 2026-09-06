@@ -2,7 +2,10 @@
 
 Status: decided 2026-09-05 (D9 upstream hook wanted, D10 sibling folder, D11 adopt main-v3). D12
 is on hold, so the per version image tags use the shared tag fallback with a build mutex until the
-upstream hook is allowed. Three PRs against `main-v2`.
+upstream hook is allowed. Three PRs against `main-v2`. **PR 1 is built on `feat/stack-versions`:**
+the versions table with the bundled row, per version paths, the Versions page, add and update with
+the build script, and the contract reader. Every deployment still runs the bundled version. PR 2
+and PR 3 are not started.
 
 ## Where we are
 
@@ -45,6 +48,10 @@ contract the manager reads instead of assuming.
   Building then Ready or Failed with the last lines of the log.
 - The built-in version is listed as **bundled** (`main-v2 @ ee99c36`), always present, the
   default until another is chosen. Every existing deployment runs it. Nothing changes for them.
+- **Set as default** records which version the new deployment wizard will preselect. It takes
+  effect on new deployments in PR 2, the one that gives the wizard its Stack version select.
+  In PR 1 every deployment created still runs the bundled version whatever the badge says, so
+  the confirmation dialog says so, and only a version marked **Tested** can be made the default.
 - **New deployment wizard**, Basics step: a **Stack version** select, preselected to the default,
   hidden when only one version exists. Its help text shows the branch and commit.
 - **Deployment page**, At a glance: `Version main-v3 @ be440d6`. A **Move to another version**
@@ -116,10 +123,18 @@ built, about one gigabyte each.
 1. `git clone --branch <ref> --single-branch https://github.com/Solar-Punk-Ltd/swarm-hls-stream.git
    <root>` on first add, `git fetch && git checkout <ref> && git reset --hard origin/<ref>` on
    Update. Records `git rev-parse HEAD`.
-2. Builds the packages in a throwaway container, not in the api image, so the api image stays as
-   it is: `docker run --rm -v <root>:<root> -w <root> node:22-alpine sh -c 'corepack enable &&
-   pnpm install --frozen-lockfile && pnpm -r build'`. The same host path on both sides is what
-   makes the bind work from inside the api container, exactly like the deploys.
+2. Exports that commit into `<root>.staging` with `git archive`, and builds the packages there in
+   a throwaway container, not in the api image, so the api image stays as it is: `docker run
+   --rm --memory 4g --cpus 2 --pids-limit 512 -v <staging>:<staging> -w <staging> node:22-alpine
+   sh -c 'corepack enable && pnpm install --frozen-lockfile && pnpm -r build'`. The same host
+   path on both sides is what makes the bind work from inside the api container, exactly like the
+   deploys. The staging tree rather than the root, because the root holds every deployment's
+   `.env.<profile>` with `STREAM_KEY`, `SRT_PASSPHRASE` and `STAMP` in it, and inside that
+   container the followed branch runs its own install and build scripts. The built tree is then
+   rsynced back into the root with `.git`, `.env`, `.env.*`, `deploy/config.json`,
+   `deploy/.env.deploy*` and `engines/*/.env*` excluded, so `dist` and `node_modules` land where
+   the deploy scripts read them and every env file survives. Adding a version therefore runs that
+   branch's deploy scripts with the manager's Docker access, which the Versions page says.
 3. Copies `.env.sample` to `.env` and `deploy/config.sample.json` to `deploy/config.json` when
    missing, which `bootstrapSubmoduleDefaults` does today for the one root and will do per root.
 4. Reads the contract (below) and writes it to the row. Status `ready`, or `failed` with the log
@@ -153,6 +168,12 @@ The contract is stored as JSON and shown on the Versions page in plain words: `1
 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ`. A row also has
 a **Tested** toggle Levi sets by hand after one real deployment on that version, because static
 reading of scripts proves the shape and not the behaviour.
+
+The approval belongs to the commit that was deployed, not to the row. An **Update** that fetches
+a moved branch clears **Tested** again, and one that lands on the commit the row already carried
+leaves it alone. The toggle can only be turned on while the version is Ready, because a building
+or failed version has no build anybody could have deployed. Turning it off works in any state, so
+an approval can always be withdrawn.
 
 ### Per version images (decision D9)
 
@@ -210,8 +231,8 @@ that deployment, falling back to the manager's own floor.
 | GET | `/versions` | | `[{ id, name, gitRef, commitSha, status, isDefault, builtAt, contract, tested, deployments }]` |
 | POST | `/versions` | `{ name, ref }` | SSE build log, then `version.changed` |
 | POST | `/versions/:id/update` | | SSE build log |
-| POST | `/versions/:id/default` | | 204 |
-| PATCH | `/versions/:id` | `{ tested }` | 200 |
+| POST | `/versions/:id/default` | | 204, 409 while the version is not marked tested |
+| PATCH | `/versions/:id` | `{ tested }` | 200, 400 for `{ tested: true }` while the version is not Ready |
 | DELETE | `/versions/:id` | | 204, 409 with deployment names |
 | POST | `/profiles/:name/move-version` | `{ version_id }` | 202, the profile |
 | POST | `/groups/:id/move-version` | `{ version_id }` | 202, the members |

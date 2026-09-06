@@ -4,7 +4,7 @@ import type { OpenStreams } from '../../domain/auth/OpenStreams.js';
 import {
   EventBus,
   MAX_EVENT_CLIENTS,
-  ProfileEvent,
+  ManagerEvent,
 } from '../../domain/EventBus.js';
 import { signedInSession } from '../middleware/requireSession.js';
 import { endEventStream } from '../sse.js';
@@ -40,7 +40,7 @@ export function createEventsRouter(
     // Flush headers so EventSource's `onopen` fires immediately.
     res.write(': connected\n\n');
 
-    const unsubscribe = bus.subscribe((event: ProfileEvent) => {
+    const unsubscribe = bus.subscribe((event: ManagerEvent) => {
       res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     });
 

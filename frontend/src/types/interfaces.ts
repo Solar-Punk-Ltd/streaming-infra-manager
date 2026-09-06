@@ -38,6 +38,8 @@ export interface Profile {
   containers: Container[];
   group_id?: number | null;
   pendingStamp?: boolean;
+  /** Which version of the streaming stack this deployment runs. */
+  stack_version_id?: number | null;
 }
 
 export interface DeploymentGroup {

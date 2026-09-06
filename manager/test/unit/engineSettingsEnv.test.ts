@@ -44,7 +44,7 @@ function withBaseEnv(contents: string = BASE_ENV): void {
 
 function envFor(name: string, engineSettings: EngineSettings): string {
   return readFileSync(
-    writeProfileEnv(name, { engine: 'srs', engineSettings }),
+    writeProfileEnv(root, name, { engine: 'srs', engineSettings }),
     'utf8',
   );
 }
@@ -74,7 +74,7 @@ describe('writeProfileEnv: engine settings', () => {
 
   it('writes only the keys the profile engine reads', () => {
     withBaseEnv('ENGINE=ome\n');
-    const path = writeProfileEnv('omeone', {
+    const path = writeProfileEnv(root, 'omeone', {
       engine: 'ome',
       engineSettings: { HLS_SEGMENT_COUNT: '8' },
     });
@@ -125,7 +125,7 @@ describe('writeProfileEnv: engine settings', () => {
       .join(' ');
     assert.throws(
       () =>
-        writeProfileEnv('ladder', {
+        writeProfileEnv(root, 'ladder', {
           engine: 'srs',
           beePublishers: publishers,
           engineSettings: { ABR_FPS: '25', HLS_FRAGMENT: '1.5' },

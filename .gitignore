@@ -1,4 +1,6 @@
 manager/.env
+# Written by deploy/deploy.sh so the server can name the bundled stack commit.
+manager/.stack-commit
 manager/node_modules
 manager/dist
 *.log

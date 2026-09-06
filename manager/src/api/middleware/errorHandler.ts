@@ -8,6 +8,7 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AllSlotsUsedError,
   BeeNodeError,
+  BundledVersionError,
   CannotRemoveUserError,
   ChequebookBusyError,
   ChequebookFundsError,
@@ -15,11 +16,13 @@ import {
   ContainerNotRunningError,
   CrossSiteRequestError,
   DockerUnavailableError,
+  DefaultVersionError,
   ProfileBusyError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
   InvalidCredentialsError,
+  InvalidStackVersionError,
   InvalidUsernameError,
   LadderGroupError,
   LockedOutError,
@@ -29,9 +32,14 @@ import {
   ProfileExistsError,
   ProfileNotFoundError,
   RestartInProgressError,
+  StackBuildBusyError,
+  StackVersionExistsError,
+  StackVersionInUseError,
+  StackVersionNotFoundError,
   StampNotUsableError,
   StampRequiredError,
   UnknownServiceError,
+  UntestedVersionError,
   UserExistsError,
   UserNotFoundError,
   WeakPasswordError,
@@ -55,7 +63,11 @@ export function errorHandler(
     res.status(400).json({ error: 'validation_error', errors: err.errors });
     return;
   }
-  if (err instanceof WeakPasswordError || err instanceof InvalidUsernameError) {
+  if (
+    err instanceof WeakPasswordError ||
+    err instanceof InvalidUsernameError ||
+    err instanceof InvalidStackVersionError
+  ) {
     // Same shape as a schema rejection: the reason is the only useful text, and
     // the frontend already renders `errors` from a 400.
     res.status(400).json({ error: 'validation_error', errors: [err.reason] });
@@ -217,6 +229,53 @@ export function errorHandler(
   }
   if (err instanceof DockerUnavailableError) {
     res.status(504).json({ error: 'docker_unavailable', message: err.message });
+    return;
+  }
+  if (err instanceof StackVersionNotFoundError) {
+    res.status(404).json({ error: 'stack_version_not_found', id: err.versionId });
+    return;
+  }
+  if (err instanceof StackVersionExistsError) {
+    res
+      .status(409)
+      .json({ error: 'stack_version_exists', name: err.versionName });
+    return;
+  }
+  if (err instanceof StackVersionInUseError) {
+    res.status(409).json({
+      error: 'stack_version_in_use',
+      name: err.versionName,
+      deployments: err.deployments,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof BundledVersionError) {
+    res.status(409).json({ error: 'bundled_version', message: err.reason });
+    return;
+  }
+  if (err instanceof DefaultVersionError) {
+    res.status(409).json({
+      error: 'stack_version_is_default',
+      name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof UntestedVersionError) {
+    res.status(409).json({
+      error: 'stack_version_untested',
+      name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof StackBuildBusyError) {
+    res.status(409).json({
+      error: 'stack_build_busy',
+      name: err.buildingName,
+      message: err.message,
+    });
     return;
   }
   if (err instanceof AllSlotsUsedError) {

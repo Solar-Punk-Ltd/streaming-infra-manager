@@ -22,7 +22,7 @@ import {
   type ContainerControlLimits,
   MAX_CONFIG_BYTES,
 } from '../../src/domain/ContainerControl.js';
-import { EventBus, type ProfileEvent } from '../../src/domain/EventBus.js';
+import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
 import {
   fakeDocker,
   frame,
@@ -60,11 +60,11 @@ function controlOver(
 ): {
   control: ContainerControl;
   docker: ReturnType<typeof fakeDocker>;
-  seen: ProfileEvent[];
+  seen: ManagerEvent[];
 } {
   const docker = fakeDocker(containers);
   const events = new EventBus();
-  const seen: ProfileEvent[] = [];
+  const seen: ManagerEvent[] = [];
   events.subscribe((event) => seen.push(event));
   return { control: new ContainerControl(events, docker, limits), docker, seen };
 }
