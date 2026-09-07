@@ -10,6 +10,22 @@ import { FakeScriptRunner } from './FakeScriptRunner.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
+/**
+ * Waits for a job's success hook to have run, which is what marks the row
+ * RUNNING again. A fixed pause was long enough on an idle laptop and not on
+ * one running the whole suite.
+ */
+export async function untilRunning(
+  profiles: InMemoryProfiles,
+  name: string,
+): Promise<void> {
+  for (let tick = 0; tick < 300; tick += 1) {
+    if (profiles.statusOf(name) === 'RUNNING') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`${name} never came back to RUNNING`);
+}
+
 export interface OrchestratorHarness {
   orchestrator: DeploymentOrchestrator;
   profiles: InMemoryProfiles;

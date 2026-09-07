@@ -90,7 +90,13 @@ class ScriptedWatcher implements EngineWatcher {
   }
 
   async logs(): Promise<string> {
-    return 'srs.conf generated from the custom config file\ninvalid config, exiting\n';
+    return [
+      'XCORE-SRS/6.0.184(Hang)',
+      'Authors: Winlin, ZhaoWenjie and others',
+      'srs.conf generated from the custom config file',
+      'thread [1][x]: acquire_pid_file() [errno=2](No such file or directory)',
+      'invalid config, exiting',
+    ].join('\n');
   }
 }
 
@@ -258,6 +264,8 @@ describe('an engine that will not stay up on the new file', () => {
     assert.equal(harness.profiles.engineConfigs.get('stream1'), 'listen 1935; # the old one\n');
     assert.match(row?.engine_config_error ?? '', /^SRS keeps restarting on the new config file, so the previous one is back\./);
     assert.match(row?.engine_config_error ?? '', /invalid config, exiting/);
+    assert.match(row?.engine_config_error ?? '', /acquire_pid_file/);
+    assert.equal(/Authors/.test(row?.engine_config_error ?? ''), false, 'the banner is not a reason');
     assert.deepEqual(
       harness.orchestrator.deploys.map((d) => d.services),
       [['srs'], ['srs']],

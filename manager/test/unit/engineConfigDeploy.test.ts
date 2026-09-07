@@ -24,7 +24,7 @@ process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = dataRoot;
 
 const { makeProfile } = await import('../support/profileFixtures.js');
-const { orchestratorHarness } = await import(
+const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
 const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
@@ -119,7 +119,7 @@ describe('a deploy with a stored config file', () => {
     harness.profiles.engineConfigs.set('again', CONFIG);
     await harness.orchestrator.startDeploy(stored, ['srs']);
     harness.runner.finish(0);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await untilRunning(harness.profiles, 'again');
     const first = envLine('again', 'SRS_CONF_FILE');
 
     harness.profiles.engineConfigs.set('again', CONFIG + 'max_connections 2000;\n');
@@ -127,8 +127,35 @@ describe('a deploy with a stored config file', () => {
 
     const second = envLine('again', 'SRS_CONF_FILE');
     assert.notEqual(second, first, 'the same path would leave the container on the old text');
-    assert.equal(configFilesOf('again').length, 1, 'the stale file is removed');
     assert.match(readFileSync(second!.slice('SRS_CONF_FILE='.length), 'utf8'), /max_connections 2000/);
+    // Both files are there while the recreate runs: a container still being
+    // restarted on the old one would otherwise get a directory in its place.
+    assert.equal(configFilesOf('again').length, 2, 'the old file stays until the recreate is done');
+
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'again');
+
+    assert.equal(configFilesOf('again').length, 1, 'the stale file is removed once the run succeeded');
+  });
+
+  it('removes a directory Docker left under a stale name, and the untagged name of the first build', async () => {
+    writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
+    const harness = orchestratorHarness([]);
+    await harness.versions.setContract(1, WITH_HOOK);
+    const stored = makeProfile({ name: 'tidy', stamp_id: 'a'.repeat(64) });
+    harness.profiles.rows.set('tidy', stored);
+    harness.profiles.engineConfigs.set('tidy', CONFIG);
+    const dir = join(dataRoot, 'tidy', 'engine');
+    await import('node:fs/promises').then((fs) => fs.mkdir(join(dir, 'srs.0123456789ab.conf'), { recursive: true }));
+    writeFileSync(join(dir, 'srs.conf'), 'from the first build\n', 'utf8');
+
+    await harness.orchestrator.startDeploy(stored, ['srs']);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'tidy');
+
+    assert.equal(existsSync(join(dir, 'srs.0123456789ab.conf')), false);
+    assert.equal(existsSync(join(dir, 'srs.conf')), false);
+    assert.equal(configFilesOf('tidy').length, 1);
   });
 
   it('leaves the key out and removes a stale file on a version without the hook', async () => {
@@ -144,6 +171,8 @@ describe('a deploy with a stored config file', () => {
     writeFileSync(file, 'left over\n', 'utf8');
 
     await harness.orchestrator.startDeploy(stored, ['srs']);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'plain');
 
     assert.equal(existsSync(file), false);
     assert.equal(envLine('plain', 'SRS_CONF_FILE'), undefined);
@@ -158,10 +187,12 @@ describe('a deploy with a stored config file', () => {
     harness.profiles.engineConfigs.set('reset', CONFIG);
     await harness.orchestrator.startDeploy(stored, ['srs']);
     harness.runner.finish(0);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await untilRunning(harness.profiles, 'reset');
     harness.profiles.engineConfigs.delete('reset');
 
     await harness.orchestrator.startDeploy(harness.profiles.rows.get('reset')!, ['srs']);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'reset');
 
     assert.deepEqual(configFilesOf('reset'), []);
     assert.equal(envLine('reset', 'SRS_CONF_FILE'), undefined);

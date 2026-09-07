@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import {
   abrLadderEnvValue,
@@ -55,7 +55,17 @@ const logger = Logger.getInstance();
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
-/** Every config file of the engine in the directory except `keep`, gone. A missing directory is nothing to do. */
+/**
+ * Every config file of the engine in the directory except `keep`, gone. A
+ * missing directory is nothing to do.
+ *
+ * Run after the recreate and not before it. A container that is crash looping
+ * on the old file is restarted by Docker until compose replaces it, and Docker
+ * restarts a container whose bind-mounted file has vanished by creating a
+ * directory of that name in its place. Pruning first left exactly such a
+ * directory behind on the host on 2026-09-07. Recursive, so that a directory
+ * left by an earlier pass goes too.
+ */
 async function removeStaleEngineConfigs(
   dir: string,
   engine: EngineName,
@@ -64,7 +74,7 @@ async function removeStaleEngineConfigs(
   const names = await readdir(dir).catch(() => [] as string[]);
   for (const name of names) {
     if (name === keep || !isEngineConfigFile(engine, name)) continue;
-    await rm(join(dir, name), { force: true });
+    await rm(join(dir, name), { recursive: true, force: true });
   }
 }
 
@@ -199,27 +209,22 @@ export class DeploymentOrchestrator {
    * Writes the deployment's own engine config into its data directory, where
    * the version's compose override mounts it from, and answers the path. Null
    * when the template runs. The file's name carries a hash of its content, see
-   * `engineConfigFileName`, and every other file of that engine in the
-   * directory is removed first, so the directory holds the one file the
-   * container mounts and a deployment put back on the template leaves nothing
-   * behind for a later version to pick up.
+   * `engineConfigFileName`. Older files of that engine are left in place until
+   * the recreate has succeeded, see `removeStaleEngineConfigs`.
    */
   private async engineConfigFileFor(
     profile: Profile,
     engine: EngineName,
     version: StackVersionRecord | null,
   ): Promise<string | null> {
-    const dir = engineConfigDirFor(profile.name);
     const supported = version?.contract?.engineConfig[engine] ?? false;
     const config = supported
       ? await this.profiles.engineConfigOf(profile.name)
       : null;
-    const current = config === null ? null : engineConfigFileName(engine, config);
+    if (config === null) return null;
 
-    await removeStaleEngineConfigs(dir, engine, current);
-    if (config === null || current === null) return null;
-
-    const path = join(dir, current);
+    const dir = engineConfigDirFor(profile.name);
+    const path = join(dir, engineConfigFileName(engine, config));
     await mkdir(dir, { recursive: true });
     await writeFile(path, config, 'utf8');
     return path;
@@ -439,11 +444,17 @@ export class DeploymentOrchestrator {
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
       onSuccess: async () => {
+        await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
+        await removeStaleEngineConfigs(
+          engineConfigDirFor(profile.name),
+          engine,
+          engineConfigFile === null ? null : basename(engineConfigFile),
+        );
+        // Last, because RUNNING is what tells everyone the deploy is over.
         const updated = await this.profiles.markTerminal(
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         if (updated) {
           await this.publishChanged(updated);
         }

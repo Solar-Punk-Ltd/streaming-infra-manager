@@ -31,7 +31,7 @@ import { profileServiceHarness } from '../support/profileServiceHarness.js';
 const root = mkdtempSync(join(tmpdir(), 'port-table-'));
 process.env.SHLS_ROOT = root;
 
-const { orchestratorHarness } = await import(
+const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
 
@@ -102,7 +102,7 @@ describe('the container snapshot after a deploy', () => {
 
     await harness.orchestrator.startDeploy(stored, ['srs']);
     harness.runner.finish(0);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await untilRunning(harness.profiles, 'stage');
 
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
@@ -120,7 +120,7 @@ describe('the container snapshot after a deploy', () => {
 
     await harness.orchestrator.startDeploy(stored, ['srs']);
     harness.runner.finish(0);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await untilRunning(harness.profiles, 'plain');
 
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);

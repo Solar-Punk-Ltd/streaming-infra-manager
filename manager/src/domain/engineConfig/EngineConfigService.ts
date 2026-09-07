@@ -50,9 +50,17 @@ export const DEFAULT_ENGINE_WATCH: EngineWatchTiming = {
   durationMs: 20_000,
 };
 
-/** How much of the engine's log a revert carries as its reason. */
-const LOG_TAIL_LINES = 30;
+/** How much of the engine's log a revert reads, and how much of it is kept. */
+const LOG_TAIL_LINES = 40;
+const LOG_KEPT_LINES = 10;
 const LOG_TAIL_BYTES = 4_096;
+
+/**
+ * The lines in a tail that say what went wrong. SRS prints its authors and
+ * its build flags on every start, and the one line that names the missing
+ * pid file sits under twenty of those.
+ */
+const LOG_REASON_RE = /error|fail|invalid|refus|cannot|denied|errno|no such|exit/i;
 
 /** The slice of ContainerControl the watch and the revert use. */
 export interface EngineWatcher {
@@ -323,12 +331,20 @@ function describeState(state: ContainerState | null): string {
   return `is ${state.status}`;
 }
 
+/** The reasons in a log tail, else its last lines, in the size a card can show. */
+function reasonLines(tail: string): string {
+  const lines = tail.split('\n').filter((line) => line.trim().length > 0);
+  const reasons = lines.filter((line) => LOG_REASON_RE.test(line));
+  const kept = (reasons.length > 0 ? reasons : lines).slice(-LOG_KEPT_LINES);
+  return kept.join('\n').slice(-LOG_TAIL_BYTES);
+}
+
 function revertMessage(
   engine: EngineName,
   state: ContainerState | null,
   tail: string,
 ): string {
-  const lines = tail.trim().slice(-LOG_TAIL_BYTES);
+  const lines = reasonLines(tail);
   const head = `${ENGINE_DISPLAY_NAMES[engine]} ${describeState(state)} on the new config file, so the previous one is back.`;
   return lines ? `${head} The engine's last lines:\n${lines}` : head;
 }

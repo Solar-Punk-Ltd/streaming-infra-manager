@@ -60,10 +60,17 @@ export function engineConfigFileName(engine: EngineName, config: string): string
   return `${stem}.${contentTag(config)}.${ext}`;
 }
 
-/** Whether a name in the engine directory is one of this engine's config files, current or stale. */
+/**
+ * Whether a name in the engine directory is one of this engine's config files,
+ * current or stale. The plain `srs.conf` is the name the first build of this
+ * used, before the tag; a directory under one of these names is what Docker
+ * leaves when it restarts a container whose bind-mounted file is gone.
+ */
 export function isEngineConfigFile(engine: EngineName, name: string): boolean {
   const { stem, ext } = ENGINE_CONFIG_FILE_PARTS[engine];
-  return new RegExp(`^${stem}\\.[0-9a-f]{${CONTENT_TAG_LENGTH}}\\.${ext}$`).test(name);
+  return new RegExp(
+    `^${stem}\\.(?:[0-9a-f]{${CONTENT_TAG_LENGTH}}\\.)?${ext}$`,
+  ).test(name);
 }
 
 /** The file the compose override mounts into the engine container. */

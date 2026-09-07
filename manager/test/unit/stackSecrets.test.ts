@@ -24,7 +24,7 @@ import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
 const root = mkdtempSync(join(tmpdir(), 'stack-secrets-'));
 process.env.SHLS_ROOT = root;
 
-const { orchestratorHarness } = await import(
+const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
 
@@ -111,7 +111,7 @@ describe('a deploy on a version that requires secrets', () => {
     );
 
     harness.runner.finish(0);
-    await new Promise((resolve) => setImmediate(resolve));
+    await untilRunning(harness.profiles, 'stage');
     const again = harness.profiles.rows.get('stage')!;
     await harness.orchestrator.startDeploy(again, undefined);
 
