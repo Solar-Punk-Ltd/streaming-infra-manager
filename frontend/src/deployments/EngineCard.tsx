@@ -46,6 +46,10 @@ function whyRestartIsOff(engineRunning: boolean, deploying: boolean): string {
   return '';
 }
 
+/** What a setting shows when the deployment's own config file dropped its placeholder. */
+const NOT_READ_BY_FILE =
+  'Not read by the config file this deployment runs on, so what the engine runs with is unverified. The running config under Logs has it.';
+
 /**
  * The media server this deployment runs: what it is configured with, and the
  * two things an operator does to it by hand.
@@ -55,10 +59,6 @@ function whyRestartIsOff(engineRunning: boolean, deploying: boolean): string {
  * is pinned. That is also where the live block's answer will come from once the
  * engine API port is published, which it is not on this one.
  */
-/** What a setting shows when the deployment's own config file dropped its placeholder. */
-const NOT_READ_BY_FILE =
-  'Not read by the config file this deployment runs on, so what the engine runs with is unverified. The running config under Logs has it.';
-
 export function EngineCard({
   profile,
   engine,
