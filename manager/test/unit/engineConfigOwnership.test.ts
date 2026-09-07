@@ -68,13 +68,35 @@ const OLD = 'listen 1935; # old\n';
 const A = 'listen 1935; # A\n';
 const B = 'listen 1935; # B\n';
 
-/** Answers what the test puts in `states`, the last one repeating, or throws when told to. */
+/** A promise the test resolves, so a watch tick can be held inside inspect. */
+function gate() {
+  let open = () => undefined as void;
+  const held = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { held, open };
+}
+
+/**
+ * Answers what the test puts in `states`, the last one repeating, or throws
+ * when told to. A tick that arrives while `hold` is set waits inside inspect
+ * until the test opens it, which is how a test puts a healthy tick exactly
+ * where it wants it.
+ */
 class ScriptedWatcher implements EngineWatcher {
   states: (ContainerState | null)[] = [RUNNING];
   failing = false;
+  hold: Promise<void> | null = null;
+  /** How many ticks are waiting on `hold` right now. */
+  holding = 0;
 
   async inspect(): Promise<ContainerState | null> {
     if (this.failing) throw new Error('the daemon did not answer');
+    if (this.hold) {
+      this.holding += 1;
+      await this.hold;
+      this.holding -= 1;
+    }
     return this.states.length > 1 ? this.states.shift()! : (this.states[0] ?? null);
   }
 
@@ -152,18 +174,38 @@ async function until(what: string, condition: () => boolean, timeoutMs = 3000): 
 
 describe('a rollout that lost ownership', () => {
   it('is superseded by the next apply, and its last healthy tick cannot relabel it applied', async () => {
-    const { service, harness, states } = await setup();
+    const { service, harness, states, watcher } = await setup();
 
     await service.apply('stream1', A);
     await until('the first rollout to be watching', () => states()[0] === 'watching');
+    // One of the first rollout's ticks has passed its ownership check and is
+    // held inside inspect. Everything the second rollout does happens while
+    // it waits, so what the tick does when it resumes is the whole question.
+    const tick = gate();
+    watcher.hold = tick.held;
+    await until('a tick of the first rollout to be held', () => watcher.holding === 1);
+    watcher.hold = null;
     await service.apply('stream1', B);
     await until('the second rollout to finish', () => states()[1] === 'applied');
-    // The first rollout's next tick, which finds it superseded.
+    tick.open();
     await settle(15);
 
     assert.deepEqual(states(), ['superseded', 'applied']);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), B);
     assert.equal(harness.orchestrator.deploys.length, 2);
+  });
+
+  it('ends interrupted rather than watching forever when a read fails mid watch', async () => {
+    const { service, harness, states, operations, row } = await setup();
+
+    await service.apply('stream1', A);
+    await until('the rollout to be watching', () => states()[0] === 'watching');
+    operations.failNextRead = new Error('the database went away');
+    await until('the rollout to end', () => states()[0] !== 'watching');
+
+    assert.deepEqual(states(), ['interrupted']);
+    assert.match(row().engine_config_error ?? '', /database went away/);
+    assert.equal(harness.orchestrator.deploys.length, 1);
   });
 
   it('ends interrupted, and not still watching, when the engine cannot be inspected mid watch', async () => {

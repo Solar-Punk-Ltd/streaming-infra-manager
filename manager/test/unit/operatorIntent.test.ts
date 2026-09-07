@@ -126,3 +126,39 @@ describe('an operator action while a rollout is under way', () => {
     await harness.orchestrator.cancelReservation(reservation);
   });
 });
+
+describe('what a deploy does with the hooks it was asked to run', () => {
+  it('leaves a deployment RUNNING when the hook after it throws', async () => {
+    const { harness, row } = setup();
+    const reservation = await harness.orchestrator.reserveForRollout(row(), 'srs');
+
+    await harness.orchestrator.runReserved(reservation, row(), {
+      afterRunning: async () => {
+        throw new Error('the bookkeeping failed');
+      },
+    });
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    await until('the hook to have run', () => harness.profiles.markErrorCalls.length === 0);
+
+    assert.equal(row().status, 'RUNNING');
+    assert.deepEqual(harness.profiles.markErrorCalls, []);
+  });
+
+  it('keeps the script failure as the reason when the hook after a failure throws', async () => {
+    const { harness, row } = setup();
+    const reservation = await harness.orchestrator.reserveForRollout(row(), 'srs');
+
+    await harness.orchestrator.runReserved(reservation, row(), {
+      afterFailure: async () => {
+        throw new Error('the recovery bookkeeping failed');
+      },
+    });
+    harness.runner.finish(0, 1);
+    await until('the failure to be recorded', () => row().status === 'ERROR');
+    await until('the hook to have run', () => harness.profiles.markErrorCalls.length >= 1);
+
+    assert.equal(harness.profiles.markErrorCalls.length, 1);
+    assert.match(row().last_error ?? '', /exited with code 1/);
+  });
+});

@@ -19,6 +19,9 @@ import type { InMemoryProfiles } from './profileFixtures.js';
 export class InMemoryEngineConfigOperations implements EngineConfigOperationRepository {
   readonly rows: EngineConfigOperation[] = [];
 
+  /** Thrown by the next findById, once, the way a database that went away throws. */
+  failNextRead: Error | null = null;
+
   private nextId = 1;
 
   constructor(private readonly profiles: InMemoryProfiles) {}
@@ -80,6 +83,11 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
   }
 
   async findById(id: number): Promise<EngineConfigOperation | null> {
+    if (this.failNextRead) {
+      const failure = this.failNextRead;
+      this.failNextRead = null;
+      throw failure;
+    }
     return this.rows.find((row) => row.id === id) ?? null;
   }
 
