@@ -192,11 +192,15 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   async setTested(
     id: number,
     tested: boolean,
+    forCommit: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
-      `UPDATE stack_versions SET tested = $2 WHERE id = $1
-       RETURNING ${VERSION_COLUMNS}`,
-      [id, tested],
+      `UPDATE stack_versions
+          SET tested = $2
+        WHERE id = $1
+          AND ($3::text IS NULL OR (status = 'ready' AND commit_sha = $3::text))
+        RETURNING ${VERSION_COLUMNS}`,
+      [id, tested, forCommit],
     );
   }
 

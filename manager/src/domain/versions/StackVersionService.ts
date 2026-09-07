@@ -15,6 +15,7 @@ import {
   DefaultVersionError,
   InvalidStackVersionError,
   StackBuildBusyError,
+  StackVersionChangedError,
   StackVersionExistsError,
   StackVersionInUseError,
   StackVersionNotFoundError,
@@ -188,16 +189,40 @@ export class StackVersionService {
     this.publishChanged();
   }
 
-  async setTested(id: number, tested: boolean): Promise<StackVersion> {
+  /**
+   * Approval names a build: turning Tested on carries the commit the page
+   * showed, and the write happens only while the version is still ready at
+   * that commit. A click from a page rendered before an Update or a refresh
+   * is refused rather than applied to whatever arrived since.
+   */
+  async setTested(
+    id: number,
+    tested: boolean,
+    forCommit: string | null = null,
+  ): Promise<StackVersion> {
     const version = await this.require(id);
-    if (tested && version.status !== 'ready') {
-      throw new InvalidStackVersionError(
-        `${version.name} is ${version.status}. Only a version that finished building can be marked as tested.`,
-      );
+    if (tested) {
+      if (version.status !== 'ready') {
+        throw new InvalidStackVersionError(
+          `${version.name} is ${version.status}. Only a version that finished building can be marked as tested.`,
+        );
+      }
+      if (version.commitSha === null) {
+        throw new InvalidStackVersionError(
+          `${version.name} is at a commit this host cannot tell, so there is no build to mark as tested.`,
+        );
+      }
+      if (forCommit !== version.commitSha) {
+        throw new StackVersionChangedError(version.name, version.commitSha, version.status);
+      }
     }
 
-    const updated = await this.versions.setTested(id, tested);
-    if (!updated) throw new StackVersionNotFoundError(id);
+    const updated = await this.versions.setTested(id, tested, tested ? forCommit : null);
+    if (!updated) {
+      const current = await this.versions.findById(id);
+      if (!current) throw new StackVersionNotFoundError(id);
+      throw new StackVersionChangedError(current.name, current.commitSha, current.status);
+    }
 
     this.publishChanged();
     const deployments = await this.versions.deploymentNames(id);

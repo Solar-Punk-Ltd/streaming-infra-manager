@@ -193,7 +193,10 @@ describe('POST /versions/:id/default', () => {
   it('answers 204 and moves the badge', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+    });
 
     const answer = await callJson('POST', `/versions/${added?.id}/default`);
     assert.equal(answer.status, 204);
@@ -271,6 +274,7 @@ describe('PATCH /versions/:id', () => {
 
     const answer = await callJson('PATCH', `/versions/${failed?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
     const body = answer.body as { error: string; errors: string[] };
 
@@ -318,7 +322,10 @@ describe('DELETE /versions/:id', () => {
   it('answers 409 for the version that is the default', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+    });
     await callJson('POST', `/versions/${added?.id}/default`);
 
     const answer = await callJson('DELETE', `/versions/${added?.id}`);

@@ -75,7 +75,17 @@ export interface StackVersionRepository {
   /** The contract alone, for the bundled version read at every boot. */
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
-  setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;
+  /**
+   * Turns approval on for the build the caller looked at, or off. Turning it
+   * on is conditioned in the write itself on the row being ready at
+   * `forCommit`, and null comes back when it is not any more, or when the row
+   * is gone, which the caller tells apart with a read.
+   */
+  setTested(
+    id: number,
+    tested: boolean,
+    forCommit?: string | null,
+  ): Promise<StackVersionRecord | null>;
   remove(id: number): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */
   deploymentNames(id: number): Promise<string[]>;
