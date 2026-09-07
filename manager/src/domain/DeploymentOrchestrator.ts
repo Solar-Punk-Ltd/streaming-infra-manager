@@ -3,6 +3,7 @@ import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import {
+  BUNDLED_VERSION_NAME,
   abrLadderEnvValue,
   engineForComponents,
   type EngineName,
@@ -167,14 +168,19 @@ export class DeploymentOrchestrator {
    * The version this deployment runs, or null when its row is gone, which the
    * deploy treats as the bundled version rather than refusing to run.
    */
+  /**
+   * The version this deployment names, or the bundled version when that row
+   * is gone, so the deploy still runs on a version with a build reference
+   * of its own. Null only when the bundled row is gone too, which is the
+   * tree the manager ships with, referenced by nothing.
+   */
   private async versionFor(profile: Profile): Promise<StackVersionRecord | null> {
     const version = await this.versions.findById(profile.stack_version_id);
-    if (!version) {
-      logger.warn(
-        `[Orchestrator] ${profile.name} names stack version ${profile.stack_version_id}, which is gone. Using the bundled checkout.`,
-      );
-    }
-    return version;
+    if (version) return version;
+    logger.warn(
+      `[Orchestrator] ${profile.name} names stack version ${profile.stack_version_id}, which is gone. Using the bundled version.`,
+    );
+    return this.versions.findByName(BUNDLED_VERSION_NAME);
   }
 
   /**
