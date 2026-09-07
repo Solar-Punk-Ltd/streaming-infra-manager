@@ -54,7 +54,13 @@ export function wizardError(
   return null;
 }
 
-function basicsError(
+/**
+ * What is wrong with the name, or null.
+ *
+ * One answer for the line under the field and for the footer next to the
+ * disabled Continue, so the two never disagree about the same name.
+ */
+export function nameError(
   state: WizardState,
   context: WizardContext,
 ): string | null {
@@ -64,6 +70,25 @@ function basicsError(
     return POOL_NAME_TOO_LONG;
   }
   if (isNameTaken(context, state.name)) return NAME_TAKEN;
+  return null;
+}
+
+/**
+ * What is wrong with a pasted pool string, or null. An empty one is not
+ * wrong yet, the footer asks for it.
+ */
+export function poolStringError(value: string): string | null {
+  if (!value.trim()) return null;
+  const problem = beePublishersProblem(value);
+  return problem ? `Pool string: ${problem}` : null;
+}
+
+function basicsError(
+  state: WizardState,
+  context: WizardContext,
+): string | null {
+  const name = nameError(state, context);
+  if (name) return name;
   if (state.host === 'custom') {
     const host = hostProblem(state.hostCustom);
     if (host) return host;
@@ -144,6 +169,5 @@ function poolError(
   if (!state.poolString.trim()) {
     return 'Paste the pool string, copied from a pool page';
   }
-  const problem = beePublishersProblem(state.poolString);
-  return problem ? `Pool string: ${problem}` : null;
+  return poolStringError(state.poolString);
 }
