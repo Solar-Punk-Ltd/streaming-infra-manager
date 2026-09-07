@@ -48,7 +48,7 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
       if (row.profileInstanceId === profile.instance_id && OPEN_OPERATION_STATES.includes(row.state)) {
         row.state = 'superseded';
         row.finishedAt = new Date();
-        row.message = `superseded by a new ${input.kind}`;
+        row.message = `Superseded by a new ${input.kind}.`;
       }
     }
     const stored = await this.profiles.setEngineConfig(input.profileName, input.config, null);
@@ -125,12 +125,16 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
   ): Promise<EngineConfigOperation | null> {
     const operation = this.owned(ownership);
     if (!operation || !from.includes(operation.state)) return null;
-    Object.assign(operation, patch, { state: to });
+    // As the SQL does with COALESCE: a patch field left out or null keeps the column.
+    const given = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined && value !== null),
+    );
+    Object.assign(operation, given, { state: to });
     if (!OPEN_OPERATION_STATES.includes(to) || to === 'interrupted') operation.finishedAt = new Date();
     this.profiles.write(operation.profileName, {
       engine_config_state: to,
       ...(to === 'applied' ? { engine_config_error: null } : {}),
-      ...(patch.message === undefined ? {} : { engine_config_error: patch.message }),
+      ...(patch.message == null ? {} : { engine_config_error: patch.message }),
     });
     return operation;
   }

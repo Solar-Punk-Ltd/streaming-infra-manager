@@ -1,5 +1,7 @@
 import type {
-  EngineConfigState, EngineSettings } from '@streaming-infra-manager/common';
+  EngineConfigState,
+  EngineSettings,
+} from '@streaming-infra-manager/common';
 
 import { ProfileKind, ProfileStatus } from './types.js';
 
