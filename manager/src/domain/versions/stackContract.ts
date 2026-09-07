@@ -89,7 +89,11 @@ export function readStackContract(root: string): StackContract {
   const sharedTags = compose === '' ? { shared: true, warning: null } : readSharedImageTags(compose);
   if (sharedTags.warning) warnings.push(sharedTags.warning);
   const mappings = readPortMappings(compose);
-  const portsWithProtocol = ports.map((port) => ({ ...port, protocol: mappings.protocols.get(port.name) ?? 'tcp' }));
+  const portsWithProtocol = ports.map((port) => ({
+    ...port,
+    protocol: mappings.published.get(port.name)?.protocol ?? 'tcp',
+    service: mappings.published.get(port.name)?.service ?? null,
+  }));
 
   return {
     ports: portsWithProtocol,
@@ -136,7 +140,7 @@ function readOptional(root: string, relative: string): string {
 // --------------------------------------------------------------- the ports
 
 /** A port table entry before the compose file says which protocol it is published on. */
-type PortTableEntry = Omit<StackPortVar, 'protocol'>;
+type PortTableEntry = Omit<StackPortVar, 'protocol' | 'service'>;
 
 /** What one PORT_VARS block held, including the lines it could not be read for. */
 interface PortTable {
@@ -251,9 +255,15 @@ const LONG_PUBLISHED = /^        published:\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/
 const LONG_PROTOCOL = /^        protocol:\s*['"]?(tcp|udp)['"]?\s*$/;
 const PUBLISHED_VAR = /^\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}$/;
 
+interface PublishedPort {
+  protocol: PortProtocol;
+  /** The compose service whose `ports:` the mapping sits in. */
+  service: string;
+}
+
 interface PortMappings {
-  /** Port variable name to the protocol its mapping names. */
-  protocols: Map<string, PortProtocol>;
+  /** Port variable name to how its mapping publishes it. */
+  published: Map<string, PublishedPort>;
   /** Mappings the reader could not follow, one message each, naming the line. */
   problems: string[];
 }
@@ -268,8 +278,9 @@ interface PortMappings {
  * version would bind the same port, or one the manager never reserved.
  */
 function readPortMappings(compose: string): PortMappings {
-  const protocols = new Map<string, PortProtocol>();
+  const published = new Map<string, PublishedPort>();
   const problems: string[] = [];
+  let service = '';
   let inPorts = false;
   let long: { published: string | null; protocol: PortProtocol; line: number } | null = null;
 
@@ -278,14 +289,14 @@ function readPortMappings(compose: string): PortMappings {
     record(long.published, long.protocol, long.line);
     long = null;
   };
-  const record = (published: string | null, protocol: PortProtocol, line: number): void => {
-    const name = published === null ? null : PUBLISHED_VAR.exec(published)?.[1] ?? null;
+  const record = (mapping: string | null, protocol: PortProtocol, line: number): void => {
+    const name = mapping === null ? null : PUBLISHED_VAR.exec(mapping)?.[1] ?? null;
     if (name) {
-      protocols.set(name, protocol);
+      published.set(name, { protocol, service });
       return;
     }
     problems.push(
-      `${DEPLOY_COMPOSE} line ${line} publishes ${published ?? 'no port'}, which no port variable shifts per slot, so every deployment would bind it.`,
+      `${DEPLOY_COMPOSE} line ${line} publishes ${mapping ?? 'no port'}, which no port variable shifts per slot, so every deployment would bind it.`,
     );
   };
 
@@ -297,8 +308,15 @@ function readPortMappings(compose: string): PortMappings {
       inPorts = true;
       continue;
     }
+    const serviceMatch = SERVICE_LINE.exec(line);
+    if (serviceMatch) {
+      closeLong();
+      service = serviceMatch[1]!;
+      inPorts = false;
+      continue;
+    }
     if (!inPorts) continue;
-    if (SERVICE_LINE.test(line) || FOUR_SPACE_KEY.test(line)) {
+    if (FOUR_SPACE_KEY.test(line)) {
       closeLong();
       inPorts = false;
       continue;
@@ -329,7 +347,7 @@ function readPortMappings(compose: string): PortMappings {
     record(parsed.published, parsed.protocol, lineNumber);
   }
   closeLong();
-  return { protocols, problems };
+  return { published, problems };
 }
 
 /** `[bind:]published:container[/protocol]`, split on the colons outside `${...}`. */

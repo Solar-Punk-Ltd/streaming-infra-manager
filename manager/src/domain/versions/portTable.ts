@@ -26,7 +26,17 @@ export const BUNDLED_PORT_TABLE: readonly StackPortVar[] = [
   slotBase: 10000 + index,
   // The SRT ingest is the one UDP mapping the bundled compose file carries.
   protocol: name === 'SRS_SRT_PORT' ? ('udp' as const) : ('tcp' as const),
+  service: bundledServiceOf(name),
 }));
+
+/** The compose service that publishes a bundled port variable, as its compose file maps it. */
+function bundledServiceOf(name: string): string {
+  if (name === 'API_PORT') return 'stream-uploader';
+  if (name === 'CLIENT_PORT') return 'client';
+  if (name.startsWith('SRS_')) return 'srs';
+  if (name.startsWith('BEE_UPLOADER_')) return 'bee-uploader';
+  return 'bee-gateway';
+}
 
 /** OvenMediaEngine listens where SRS would, so its ports follow the SRS entries. */
 const OME_PORTS_FOLLOW: Record<string, string> = {

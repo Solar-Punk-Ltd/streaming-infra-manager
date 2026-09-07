@@ -40,6 +40,7 @@ describe('readStackContract on main-v2', () => {
       defaultPort: 10000,
       slotBase: 10000,
       protocol: 'tcp',
+      service: 'stream-uploader',
     });
     assert.equal(portNames(v2).includes('SRS_HTTP_API_PORT'), false);
   });
@@ -100,12 +101,14 @@ describe('readStackContract on main-v3', () => {
       defaultPort: 3000,
       slotBase: 10000,
       protocol: 'tcp',
+      service: 'stream-uploader',
     });
     assert.deepEqual(v3.ports[15], {
       name: 'BEE_RUNG_1080P_P2P_PORT',
       defaultPort: 11006,
       slotBase: 11006,
       protocol: 'tcp',
+      service: 'bee-uploader-1080p',
     });
   });
 

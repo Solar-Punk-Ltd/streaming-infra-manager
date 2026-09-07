@@ -189,7 +189,7 @@ describe('parseStackContract', () => {
 
   it('reads a port stored without a protocol as tcp, and a contract stored without an allocation problem as having none', () => {
     const stored = JSON.parse(JSON.stringify(V3_CONTRACT)) as Record<string, unknown>;
-    stored.ports = (stored.ports as Record<string, unknown>[]).map(({ protocol: _protocol, ...rest }) => rest);
+    stored.ports = (stored.ports as Record<string, unknown>[]).map(({ protocol: _protocol, service: _service, ...rest }) => rest);
     delete stored.allocationProblem;
 
     const parsed = parseStackContract(stored);

@@ -54,6 +54,17 @@ const V3_PORTS = [
   'BEE_RUNG_1080P_P2P_PORT:11006:11006',
 ];
 
+/** The compose service that publishes a port variable, as both branches map them. */
+function serviceOf(name) {
+  if (name === 'API_PORT') return 'stream-uploader';
+  if (name === 'CLIENT_PORT') return 'client';
+  if (name.startsWith('SRS_')) return 'srs';
+  if (name.startsWith('BEE_UPLOADER_')) return 'bee-uploader';
+  if (name.startsWith('BEE_GATEWAY_')) return 'bee-gateway';
+  const rung = /^BEE_RUNG_(\d+P)_/.exec(name);
+  return rung ? `bee-uploader-${rung[1].toLowerCase()}` : null;
+}
+
 /** `NAME:default` or `NAME:default:slotbase`, the slot base being the last. */
 function portsFrom(entries) {
   return entries.map((entry) => {
@@ -63,6 +74,7 @@ function portsFrom(entries) {
       defaultPort: Number(fields[1]),
       slotBase: Number(fields[fields.length - 1]),
       protocol: fields[0] === 'SRS_SRT_PORT' ? 'udp' : 'tcp',
+      service: serviceOf(fields[0]),
     };
   });
 }

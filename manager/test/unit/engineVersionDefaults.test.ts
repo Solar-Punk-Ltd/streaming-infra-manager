@@ -37,7 +37,7 @@ const { harnessFor, profileRow } = await import(
 type EngineTestApp = Awaited<ReturnType<typeof startEngineTestApp>>;
 
 const V3_CONTRACT: StackContract = {
-  ports: [{ name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009, protocol: 'tcp' }],
+  ports: [{ name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009, protocol: 'tcp', service: 'srs' }],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: { HLS_FRAGMENT: '0.5', HLS_WINDOW: '15', SRT_LATENCY: '200' },

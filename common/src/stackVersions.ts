@@ -38,6 +38,8 @@ export interface StackPortVar {
   slotBase: number;
   /** From the compose file's mapping of this variable, tcp when it maps none. */
   protocol: PortProtocol;
+  /** The compose service that publishes it, or null when the file maps none. */
+  service: string | null;
 }
 
 export interface StackContractFeatures {
@@ -339,6 +341,7 @@ function parsePorts(value: unknown): StackPortVar[] | null {
       // A contract an older manager stored names no protocol: tcp, as the
       // mapping default is.
       protocol: entry.protocol === 'udp' ? 'udp' : 'tcp',
+      service: typeof entry.service === 'string' ? entry.service : null,
     });
   }
   return ports;
