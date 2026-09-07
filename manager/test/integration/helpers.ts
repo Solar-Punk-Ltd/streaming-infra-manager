@@ -1,17 +1,33 @@
 /**
  * Integration-test helpers: a thin HTTP client for the running manager API
  * plus polling utilities. These tests talk to a LIVE stack (Postgres + manager
- * + Docker + deploy scripts) over HTTP only — they import nothing from `src`,
- * so they exercise the real system exactly as the frontend does.
+ * + Docker + deploy scripts) over HTTP only. They import nothing from `src`,
+ * so they exercise the real system exactly as the frontend does: signed in,
+ * with the session cookie on every request and the write header on every
+ * write.
  *
- * Base URL is `MANAGER_URL` (default http://localhost:9876).
+ * Where the suite points and whether it may run at all is decided in
+ * target.ts, from the environment `op run --env-file` fills. See README.md.
  */
 import assert from 'node:assert/strict';
 
-export const BASE = process.env.MANAGER_URL ?? 'http://localhost:9876';
+import { requestHeaders, sessionCookieFrom } from './session.js';
+import {
+  baseUrlOf,
+  belongsToRun,
+  PASSWORD_VAR,
+  runIdFrom,
+  runName,
+  targetProblem,
+  USERNAME_VAR,
+} from './target.js';
 
-/** Prefix for every resource these tests create, so cleanup is unambiguous. */
-export const PREFIX = 'itest';
+export { PREFIX } from './target.js';
+
+export const BASE = baseUrlOf(process.env);
+
+/** Every name this run makes carries it, and cleanup removes nothing without it. */
+export const RUN_ID = runIdFrom(process.env);
 
 // Service names — mirrors common/src/constants.ts (kept as literals so the
 // tests stay decoupled from the app package).
@@ -71,18 +87,73 @@ export interface BeePublishersResult {
   warnings: RungNote[];
 }
 
+/** The session cookie of the signed-in client, sent on every request until signOut. */
+let session: string | null = null;
+
+export interface RequestOptions {
+  /** The cookie to send instead of the session's: null for none. */
+  cookie?: string | null;
+  /** Whether a write carries the request header. A test proves the refusal without it. */
+  requestedWith?: boolean;
+}
+
 async function rawRequest(
   method: string,
   path: string,
   body?: unknown,
-): Promise<{ status: number; text: string }> {
+  options: RequestOptions = {},
+): Promise<{ status: number; text: string; setCookies: string[] }> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers:
-      body !== undefined ? { 'content-type': 'application/json' } : undefined,
+    headers: requestHeaders({
+      method,
+      cookie: options.cookie === undefined ? session : options.cookie,
+      hasBody: body !== undefined,
+      requestedWith: options.requestedWith,
+    }),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  return { status: res.status, text: await res.text() };
+  return {
+    status: res.status,
+    text: await res.text(),
+    setCookies: res.headers.getSetCookie(),
+  };
+}
+
+/**
+ * Signs in with the pair the environment carries and keeps the cookie for
+ * every later request. The assertion messages carry the server's answer and
+ * never the pair.
+ */
+export async function signIn(): Promise<void> {
+  const username = process.env[USERNAME_VAR];
+  const password = process.env[PASSWORD_VAR];
+  assert.ok(username && password, `${USERNAME_VAR} and ${PASSWORD_VAR} must both be set`);
+
+  const { status, text, setCookies } = await rawRequest(
+    'POST',
+    '/auth/login',
+    { username, password },
+    { cookie: null },
+  );
+  assert.equal(status, 204, `POST /auth/login -> ${status}: ${text}`);
+  const cookie = sessionCookieFrom(setCookies);
+  assert.ok(cookie, 'the sign-in answered 204 without setting the session cookie');
+  session = cookie;
+}
+
+/**
+ * Ends the session on the server and forgets its cookie. The cookie it held
+ * is handed back, for the test that proves it no longer opens anything.
+ */
+export async function signOut(): Promise<string | null> {
+  const ended = session;
+  if (ended !== null) {
+    const { status, text } = await rawRequest('POST', '/auth/logout', {});
+    assert.equal(status, 204, `POST /auth/logout -> ${status}: ${text}`);
+  }
+  session = null;
+  return ended;
 }
 
 /** Request expecting a 2xx; throws with the server's body on any error. */
@@ -99,12 +170,22 @@ export async function api<T>(
 }
 
 /** Request that returns status + parsed body without throwing on 4xx/5xx. */
-export async function apiRaw(
+export function apiRaw(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: unknown }> {
-  const { status, text } = await rawRequest(method, path, body);
+  return requestWith(method, path, body);
+}
+
+/** The same, sent the way a test wants it: without the cookie, or without the write header. */
+export async function requestWith(
+  method: string,
+  path: string,
+  body?: unknown,
+  options: RequestOptions = {},
+): Promise<{ status: number; body: unknown }> {
+  const { status, text } = await rawRequest(method, path, body, options);
   let parsed: unknown = text;
   try {
     parsed = text ? JSON.parse(text) : undefined;
@@ -391,29 +472,52 @@ export async function waitForUploaderHealthy(
   );
 }
 
-/** A collision-resistant name within the itest namespace. */
+/** A name of this run's own, `itest-<run>-<base>-<random>`, the only kind cleanup removes. */
 export function uniqueName(base: string): string {
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `${PREFIX}-${base}-${rand}`;
+  return runName(RUN_ID, base);
 }
 
-/** Best-effort teardown: remove each profile and wait for it to disappear. */
+/**
+ * Teardown: removes what this run created and waits for each to disappear.
+ *
+ * A name without this run's prefix is never touched, whatever put it in the
+ * set, because the manager these tests run against can carry deployments
+ * that are nobody's to remove. Such a name fails the teardown after the
+ * run's own names are gone, so it is seen.
+ */
 export async function cleanup(names: Iterable<string>): Promise<void> {
+  const own: string[] = [];
+  const foreign: string[] = [];
   for (const name of names) {
+    (belongsToRun(RUN_ID, name) ? own : foreign).push(name);
+  }
+  for (const name of own) {
     try {
       if ((await getProfileOrNull(name)) === null) continue;
       await removeProfile(name);
       await waitForGone(name, { timeoutMs: 60_000 });
     } catch {
-      /* best-effort — a leftover is logged by the test, not fatal */
+      /* best-effort: a leftover is reported by the test, not fatal here */
     }
   }
+  assert.deepEqual(
+    foreign,
+    [],
+    `cleanup was handed names this run did not create, and left them alone: ${foreign.join(', ')}`,
+  );
 }
 
-/** Preflight used by every suite's before() hook. */
+/**
+ * Preflight used by every suite's before() hook: the target is declared, the
+ * manager answers, and the sign-in works. A suite that cannot start fails
+ * here, in words, rather than passing on nothing.
+ */
 export async function requireStack(): Promise<void> {
+  const problem = targetProblem(process.env);
+  assert.equal(problem, null, problem ?? '');
   assert.ok(
     await healthy(),
-    `manager API not reachable at ${BASE} — start the full stack first (see manager/test/integration/README.md)`,
+    `manager API not reachable at ${BASE}. Start the stack first, see manager/test/integration/README.md`,
   );
+  await signIn();
 }
