@@ -65,7 +65,9 @@ describe('what is wrong with the name', () => {
     assert.equal(wizardError(state, context), 'That name is taken');
   });
 
-  it('asks for a name when there is none', () => {
+  it('asks for a name in the footer when there is none', () => {
+    // The field itself stays on its hint for an empty name, see BasicsStep.
+    assert.equal(wizardError(basics(''), context), 'Enter a name');
     assert.equal(nameError(basics(''), context), 'Enter a name');
   });
 
@@ -97,6 +99,14 @@ describe('what is wrong with a pasted pool string', () => {
   });
 
   it('says nothing under an empty field, which the footer asks for on its own', () => {
+    const state = {
+      ...initialWizardState({ goal: 'abr-uploader' }, context),
+      step: 3,
+      poolMode: 'paste' as const,
+      poolString: '',
+    };
+
     assert.equal(poolStringError(''), null);
+    assert.equal(wizardError(state, context), 'Paste the pool string, copied from a pool page');
   });
 });
