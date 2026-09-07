@@ -75,7 +75,12 @@ export function EngineConfigDialog({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { mergeProfiles } = useDeployments();
+  const { mergeProfiles, profiles } = useDeployments();
+  // The view is read once, when the dialog opens, and holds the file. The
+  // rollout moves while the dialog is open, so its state and reason come from
+  // the live row the event stream keeps current, the view only until the row
+  // is known.
+  const live = profiles?.find((profile) => profile.name === name) ?? null;
   const [view, setView] = useState<EngineConfigView | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -136,8 +141,13 @@ export function EngineConfigDialog({
   };
 
   const engineName = view ? ENGINE_LABEL[view.engine] : 'engine';
-  const notice = view
-    ? rolloutNotice(view.state, { engine: engineName, hasConfig: view.config !== null })
+  const rollout = live
+    ? { state: live.engine_config_state, hasConfig: live.has_engine_config, reason: live.engine_config_error }
+    : view
+      ? { state: view.state, hasConfig: view.config !== null, reason: view.error }
+      : null;
+  const notice = rollout && view
+    ? rolloutNotice(rollout.state, { engine: engineName, hasConfig: rollout.hasConfig })
     : null;
 
   return (
@@ -169,9 +179,9 @@ export function EngineConfigDialog({
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {notice.title}
                 </Typography>
-                {notice.showsReason && view.error && (
+                {notice.showsReason && rollout?.reason && (
                   <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                    {view.error}
+                    {rollout.reason}
                   </Box>
                 )}
               </Alert>
