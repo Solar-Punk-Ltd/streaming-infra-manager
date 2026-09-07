@@ -240,7 +240,11 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
     setTimeout(() => {
       if (profile.engine_config_state !== 'watching') return;
       if (!/crash/.test(config)) {
-        setRolloutState(profile, 'applied', /note/.test(config) ? portNote(engine) : null);
+        setRolloutState(
+          profile,
+          'applied',
+          engine === OME_SERVICE && /note/.test(config) ? portNote(engine) : null,
+        );
         changed(profile);
         return;
       }
