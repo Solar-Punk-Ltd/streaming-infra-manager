@@ -188,6 +188,7 @@ export class StackVersionService {
 
     const incoming = bundledIncomingRootFor(this.versionsRoot);
     if (existsSync(incoming)) await this.publishShipment(bundled, incoming);
+    else await this.adoptOrphanedShipment(bundled);
 
     const current = await this.versions.findByName(BUNDLED_VERSION_NAME);
     if (!current) return;
@@ -228,9 +229,10 @@ export class StackVersionService {
 
   private async publishShipment(bundled: StackVersionRecord, incoming: string): Promise<void> {
     const configRoot = bundled.rootPath ?? configRootFor(this.versionsRoot, bundled.name);
+    let outcome: PublishedBuild | null = null;
     try {
       await this.commitShippedInputs(configRoot, incoming);
-      const outcome = await this.publishStaging(bundled, incoming);
+      outcome = await this.publishStaging(bundled, incoming);
       if (outcome.reused) await rm(incoming, { recursive: true, force: true });
       await this.versions.publish(bundled.id, { ...outcome, rootPath: configRoot });
       logger.info(
@@ -238,17 +240,78 @@ export class StackVersionService {
       );
       await this.pruneBuilds(bundled.id);
     } catch (err) {
-      const failure = getErrorMessage(err);
-      const standing = bundled.buildId
-        ? `Still on build ${bundled.buildId}.`
-        : 'Still on the tree the manager ships with.';
-      await this.versions.markUpdateFailed(
-        bundled.id,
-        `The shipped bundled stack was not published: ${failure} ${standing} The shipment is left in ${incoming} for a look, and the next deploy replaces it.`,
-      );
-      logger.warn(`[Versions] the shipped bundled stack was not published: ${failure}`);
+      await this.recordShipmentFailure(bundled, incoming, outcome, getErrorMessage(err));
     }
     this.publishChanged();
+  }
+
+  /**
+   * Where the shipment is after a failure, said truthfully: still in the
+   * incoming directory when nothing moved it, or already renamed into the
+   * builds directory when the row update after the rename is what failed,
+   * in which case the next boot adopts it.
+   */
+  private async recordShipmentFailure(
+    bundled: StackVersionRecord,
+    incoming: string,
+    outcome: PublishedBuild | null,
+    failure: string,
+  ): Promise<void> {
+    const standing = bundled.buildId
+      ? `Still on build ${bundled.buildId}.`
+      : 'Still on the tree the manager ships with.';
+    const where = outcome
+      ? `The build is complete in ${buildDirFor(this.versionsRoot, bundled.name, outcome.buildId)}, and the next boot adopts it.`
+      : existsSync(incoming)
+        ? `The shipment is left in ${incoming} for a look, and the next deploy replaces it.`
+        : 'The shipment is gone.';
+    logger.warn(`[Versions] the shipped bundled stack was not published: ${failure} ${where}`);
+    try {
+      await this.versions.markUpdateFailed(
+        bundled.id,
+        `The shipped bundled stack was not published: ${failure} ${standing} ${where}`,
+      );
+    } catch (writeErr) {
+      logger.error(`[Versions] could not record the failed bundled publication: ${getErrorMessage(writeErr)}`);
+    }
+  }
+
+  /**
+   * A complete bundled build the row does not name and nothing mounts is
+   * the shipment a crash between its rename and the row update left behind:
+   * prune would have removed anything else. The newest is adopted as the
+   * current build, as the row update would have made it.
+   */
+  private async adoptOrphanedShipment(bundled: StackVersionRecord): Promise<void> {
+    const buildsRoot = buildsRootFor(this.versionsRoot, bundled.name);
+    if (!existsSync(buildsRoot)) return;
+    const referenced = new Set((await this.references.openReferences(bundled.id)).map((reference) => reference.buildId));
+    let newest: { buildId: string; manifest: BuildManifest } | null = null;
+    for (const entry of await readdir(buildsRoot)) {
+      if (buildIdProblem(entry) !== null) continue;
+      if (entry === bundled.buildId || entry === bundled.previousBuildId || referenced.has(entry)) continue;
+      const read = readBuildManifest(join(buildsRoot, entry));
+      if (!read.manifest) continue;
+      if (!newest || read.manifest.builtAt > newest.manifest.builtAt) newest = { buildId: entry, manifest: read.manifest };
+    }
+    if (!newest) return;
+    const configRoot = bundled.rootPath ?? configRootFor(this.versionsRoot, bundled.name);
+    try {
+      const contract = readStackContract(join(buildsRoot, newest.buildId));
+      await this.versions.publish(bundled.id, {
+        buildId: newest.buildId,
+        commitSha: newest.manifest.commit,
+        contract,
+        rootPath: configRoot,
+      });
+      logger.warn(
+        `[Versions] bundled adopted build ${newest.buildId}, which a crash before the row update left unreferenced`,
+      );
+      await this.pruneBuilds(bundled.id);
+      this.publishChanged();
+    } catch (err) {
+      logger.warn(`[Versions] could not adopt the unreferenced bundled build ${newest.buildId}: ${getErrorMessage(err)}`);
+    }
   }
 
   /**
