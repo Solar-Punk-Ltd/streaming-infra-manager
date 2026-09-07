@@ -13,9 +13,10 @@ import { notesProblem } from '../forms/validation';
 /**
  * The notes, edited in place and saved on their own: no claim on the
  * deployment and no deploy, so a note can be saved while a stamp is invalid
- * or a node is unfunded. The save carries the revision this page loaded, and
- * a note saved elsewhere since is a refusal from the manager, not an
- * overwrite.
+ * or a node is unfunded. The save carries the revision the note had when
+ * editing began, not the live one, which the event stream moves the moment
+ * someone else saves. A note saved elsewhere since is then a refusal from
+ * the manager, not an overwrite.
  */
 export function NotesCard({
   name,
@@ -28,27 +29,28 @@ export function NotesCard({
 }) {
   const { mergeProfiles } = useDeployments();
   const toast = useToast();
-  /** The text being edited, or null while the card only shows the note. */
-  const [draft, setDraft] = useState<string | null>(null);
+  /** The text being edited and the revision it started from, or null while the card only shows the note. */
+  const [editing, setEditing] = useState<{ draft: string; startedAt: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const draft = editing?.draft ?? null;
   const problem = draft === null ? null : notesProblem(draft);
   const unchanged = draft !== null && draft.trim() === (notes ?? '').trim();
 
   const stopEditing = () => {
-    setDraft(null);
+    setEditing(null);
     setError(null);
   };
 
   const save = async () => {
-    if (draft === null) return;
+    if (editing === null) return;
     setSaving(true);
     setError(null);
     try {
-      const saved = await updateNotes(name, draft.trim() || null, notesRevision);
+      const saved = await updateNotes(name, editing.draft.trim() || null, editing.startedAt);
       mergeProfiles([saved]);
-      setDraft(null);
+      setEditing(null);
       toast('Notes saved.');
     } catch (caught) {
       setError(getErrorMessage(caught, 'failed to save the notes'));
@@ -62,7 +64,10 @@ export function NotesCard({
       title="Notes"
       actions={
         draft === null ? (
-          <Button size="small" onClick={() => setDraft(notes ?? '')}>
+          <Button
+            size="small"
+            onClick={() => setEditing({ draft: notes ?? '', startedAt: notesRevision })}
+          >
             Edit
           </Button>
         ) : (
@@ -98,7 +103,9 @@ export function NotesCard({
             minRows={2}
             autoFocus
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) =>
+              setEditing((current) => current && { ...current, draft: event.target.value })
+            }
             placeholder="What this deployment is for"
           />
         </FormField>
