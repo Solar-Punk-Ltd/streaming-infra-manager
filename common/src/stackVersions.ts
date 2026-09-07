@@ -81,11 +81,12 @@ export interface StackContract {
   /** What each engine service runs, so a config can be checked with the same image. */
   engineImages: EngineImages;
   /**
-   * The lines of the version's port table the reader could not make sense of,
-   * one message each. A port the manager did not read is a port it will not
-   * shift per slot, so two deployments of this version would bind the same one,
-   * and a silently shorter table looks exactly like a version that has fewer
-   * ports.
+   * The lines of the version's files the reader could not make sense of, one
+   * message each, naming the file. A port the manager did not read is a port
+   * it will not shift per slot, so two deployments of this version would bind
+   * the same one, and a silently shorter table looks exactly like a version
+   * that has fewer ports. A compose file it could not follow is treated as
+   * sharing image tags, and the message says so.
    */
   warnings: string[];
 }
@@ -206,7 +207,7 @@ export function describeStackContract(contract: StackContract): string {
   if (editable) parts.push(editable);
   if (contract.warnings.length > 0) {
     const count = contract.warnings.length;
-    parts.push(`${count} port ${count === 1 ? 'line' : 'lines'} not understood`);
+    parts.push(`${count} ${count === 1 ? 'line' : 'lines'} not understood`);
   }
   return parts.join(', ');
 }
