@@ -751,10 +751,13 @@ const server = createServer((req, res) => {
 seed();
 seedAuth();
 seedVersions();
-seedAttempts();
+const held = seedAttempts();
 server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
     `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles, ${state.groups.length} groups and ${state.versions.length} stack versions\n` +
-      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n`,
+      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n` +
+      (held
+        ? `${held.project} has a blocked deploy attempt, ${held.jobId}, holding every deploy of a version with shared image tags, as the manager would. Release it on the Versions page first.\n`
+        : ''),
   );
 });
