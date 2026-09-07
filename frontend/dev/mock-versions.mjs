@@ -13,7 +13,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { send, sendEmpty } from './mock-http.mjs';
-import { state } from './mock-seed.mjs';
+import { containersFor, state } from './mock-seed.mjs';
 
 const BUILD_STEP_MS = 400;
 
@@ -201,6 +201,13 @@ export function seedVersions() {
   for (const profile of state.profiles) {
     profile.stack_version_id =
       profile.name === 'backup-stage' && v3 ? v3.id : defaultVersionId();
+    // The containers were built before the version was known: what they
+    // are seen to run is the version's commit, as this mock's deploys land.
+    if (profile.containers.length > 0) {
+      profile.containers = containersFor(profile, {
+        withUploader: profile.containers.some((container) => container.service === 'stream-uploader'),
+      });
+    }
   }
 }
 
