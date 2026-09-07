@@ -197,14 +197,6 @@ export class ContainerControl {
   }
 
   /**
-   * The state of a deployment's service container in any state, or null when
-   * there is none at all.
-   *
-   * Every state rather than the running ones only, because the question this
-   * answers is whether a container the deploy just created is still up, and
-   * one that died is exactly the answer wanted.
-   */
-  /**
    * The root the service's container was started from, read off the compose
    * working directory label the container carries, or null when there is no
    * container. This is what a build reference is resolved by: what runs,
@@ -243,6 +235,14 @@ export class ContainerControl {
     }
   }
 
+  /**
+   * The state of a deployment's service container in any state, or null when
+   * there is none at all.
+   *
+   * Every state rather than the running ones only, because the question this
+   * answers is whether a container the deploy just created is still up, and
+   * one that died is exactly the answer wanted.
+   */
   async inspect(profile: string, service: string): Promise<ContainerState | null> {
     const containers = await this.withinLimit(
       this.docker.listContainers({
