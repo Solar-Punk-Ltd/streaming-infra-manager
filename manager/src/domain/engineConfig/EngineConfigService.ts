@@ -9,6 +9,7 @@ import {
   type EngineName,
   engineOfServices,
   getErrorMessage,
+  OME_SERVICE,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -32,6 +33,7 @@ import {
 import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { ProfileRepository } from '../ProfileRepository.js';
+import { omePortsFor, portTableOf } from '../versions/portTable.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -56,16 +58,20 @@ const logger = Logger.getInstance();
 export interface EngineWatchTiming {
   intervalMs: number;
   durationMs: number;
+  /** How long the HLS port is tried for after the watch, for an engine with no parser to ask. */
+  probeBudgetMs: number;
 }
 
 /**
  * Twenty seconds, which covers a config the engine parses and then dies on a
  * few seconds in, and is short enough that an operator who is watching sees
- * the revert happen rather than finding it later.
+ * the revert happen rather than finding it later. The port is tried for ten
+ * more, which covers an engine that binds late.
  */
 export const DEFAULT_ENGINE_WATCH: EngineWatchTiming = {
   intervalMs: 2_000,
   durationMs: 20_000,
+  probeBudgetMs: 10_000,
 };
 
 /** How much of the engine's log a revert reads, and how much of it is kept. */
@@ -80,10 +86,12 @@ const LOG_TAIL_BYTES = 4_096;
  */
 const LOG_REASON_RE = /error|fail|invalid|refus|cannot|denied|errno|no such|exit/i;
 
-/** The slice of ContainerControl the watch and the revert use. */
+/** The slice of ContainerControl the watch, the revert and the probe after the watch use. */
 export interface EngineWatcher {
   inspect(profile: string, service: string): Promise<ContainerState | null>;
   logs(profile: string, service: string, tail: number): Promise<string>;
+  /** Whether a TCP connection to a published port opens within the budget. */
+  reachable(port: number, budgetMs: number): Promise<boolean>;
 }
 
 /**
@@ -409,12 +417,37 @@ export class EngineConfigService {
       await this.revertOwned(operation, 'RUNNING', state, 'reverted');
       return;
     }
-    const applied = await this.operations.transition(ownership, ['watching'], 'applied');
+    const note = await this.livenessNote(operation);
+    const applied = await this.operations.transition(ownership, ['watching'], 'applied', {
+      message: note,
+    });
     if (applied) {
       logger.info(
-        `[EngineConfig] ${operation.profileName}: ${operation.engine} stayed up on the new config file for ${this.watch.durationMs / 1000} s`,
+        `[EngineConfig] ${operation.profileName}: ${operation.engine} stayed up on the new config file for ${this.watch.durationMs / 1000} s${note ? `, ${note}` : ''}`,
       );
     }
+  }
+
+  /**
+   * What the port the engine publishes on says once the watch is over, for
+   * an engine whose parser could not be asked before the recreate. A port
+   * that answers is liveness, not a verdict on the file, and one that does
+   * not is a note the card shows next to the applied rollout, never a reason
+   * to put the previous file back: the engine is up, and the file may be
+   * what it is meant to be.
+   */
+  private async livenessNote(operation: EngineConfigOperation): Promise<string | null> {
+    if (operation.engine !== OME_SERVICE) return null;
+    const profile = await this.profiles.findByName(operation.profileName);
+    if (!profile) return null;
+    const version = await this.versions.findById(profile.stack_version_id);
+    const port = omePortsFor(profile.port_slot, portTableOf(version?.contract)).omeHlsPort;
+    if (!port) return null;
+    if (await this.control.reachable(port, this.watch.probeBudgetMs)) return null;
+    return (
+      `The HLS port ${port} did not answer from the manager within ${Math.round(this.watch.probeBudgetMs / 1000)} s after the watch. ` +
+      `${ENGINE_DISPLAY_NAMES[operation.engine]} is running, so this is a diagnosis and not a verdict on the file: check its logs and the port.`
+    );
   }
 
   /** Whether the rollout still owns the deployment: its state, the instance, both revisions, and the status when one is required. */
