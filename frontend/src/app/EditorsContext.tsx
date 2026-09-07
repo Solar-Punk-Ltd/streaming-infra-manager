@@ -22,6 +22,7 @@ export interface Editors {
   openEditDeployment: (name: string) => void;
   openEditGroup: (id: number) => void;
   openEngineSettings: (name: string) => void;
+  openEngineConfig: (name: string) => void;
 }
 
 const EditorsContext = createContext<Editors | null>(null);

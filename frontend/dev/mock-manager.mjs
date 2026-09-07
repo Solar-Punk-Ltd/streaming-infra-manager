@@ -40,6 +40,7 @@ import {
   seedAuth,
 } from './mock-auth.mjs';
 import { engineRoutes } from './mock-engine.mjs';
+import { engineConfigRoutes } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -684,6 +685,7 @@ const ROUTES = [
     },
   ],
   ...engineRoutes({ readBody, withProfile, deploy, publish }),
+  ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
   ['GET', /^\/metrics$/, (_req, res) => send(res, 200, metricsSnapshot())],

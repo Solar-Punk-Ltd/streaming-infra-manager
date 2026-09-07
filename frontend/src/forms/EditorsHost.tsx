@@ -7,6 +7,7 @@ import {
 } from '../app/EditorsContext';
 import { EditDeploymentDrawer } from './EditDeploymentDrawer';
 import { EditGroupDrawer } from './EditGroupDrawer';
+import { EngineConfigDialog } from './EngineConfigDialog';
 import { EngineSettingsDrawer } from './EngineSettingsDrawer';
 import { NewDeploymentWizard } from './wizard/NewDeploymentWizard';
 
@@ -16,6 +17,7 @@ type OpenEditor = (
   | { kind: 'deployment'; name: string }
   | { kind: 'group'; id: number }
   | { kind: 'engine'; name: string }
+  | { kind: 'engine-config'; name: string }
 ) & {
   /**
    * Bumped on every open, and used as the form's React key.
@@ -48,6 +50,8 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       openEditGroup: (id) => setOpen({ kind: 'group', id, seq: seq() }),
       openEngineSettings: (name) =>
         setOpen({ kind: 'engine', name, seq: seq() }),
+      openEngineConfig: (name) =>
+        setOpen({ kind: 'engine-config', name, seq: seq() }),
     };
   }, []);
 
@@ -67,6 +71,9 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       )}
       {open?.kind === 'engine' && (
         <EngineSettingsDrawer key={open.seq} name={open.name} onClose={close} />
+      )}
+      {open?.kind === 'engine-config' && (
+        <EngineConfigDialog key={open.seq} name={open.name} onClose={close} />
       )}
     </EditorsProvider>
   );

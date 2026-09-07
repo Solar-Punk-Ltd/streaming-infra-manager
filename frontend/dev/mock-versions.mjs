@@ -182,9 +182,13 @@ export function seedVersions() {
   ];
 
   // Every seeded deployment runs the bundled version, which is what the
-  // migration does to the rows that existed before the table did.
+  // migration does to the rows that existed before the table did. One stream
+  // is put on main-v3 so what only that version offers, the published SRS API
+  // port and a config file of the deployment's own, can be seen offline.
+  const v3 = state.versions.find((version) => version.name === 'main-v3');
   for (const profile of state.profiles) {
-    profile.stack_version_id = defaultVersionId();
+    profile.stack_version_id =
+      profile.name === 'backup-stage' && v3 ? v3.id : defaultVersionId();
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Divider,
@@ -8,6 +9,7 @@ import {
   Typography,
 } from '@mui/material';
 import ArticleIcon from '@mui/icons-material/Article';
+import CodeIcon from '@mui/icons-material/Code';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import TuneIcon from '@mui/icons-material/Tune';
 
@@ -29,6 +31,9 @@ import { ENGINE_LABEL } from './engineText';
 import { LogsDialog } from './LogsDialog';
 
 const ABR_SECTION_TITLE = 'Transcoding';
+
+const OWN_CONFIG_NOTE =
+  'Runs on a config file of its own. The Settings drawer still fills the placeholders that file kept.';
 
 /**
  * Why Restart is greyed out, or an empty string when it is not.
@@ -58,7 +63,7 @@ export function EngineCard({
   profile: Profile;
   engine: EngineName;
 }) {
-  const { openEngineSettings } = useEditors();
+  const { openEngineSettings, openEngineConfig } = useEditors();
   const actions = useActions();
   const [overview, setOverview] = useState<EngineOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -110,6 +115,13 @@ export function EngineCard({
           >
             Settings
           </Button>
+          <Button
+            size="small"
+            startIcon={<CodeIcon />}
+            onClick={() => openEngineConfig(profile.name)}
+          >
+            Config file
+          </Button>
           <Tooltip title={restartOffBecause}>
             <Box component="span">
               <Button
@@ -133,6 +145,24 @@ export function EngineCard({
       }
     >
       <Stack spacing={2}>
+        {profile.engine_config_error && (
+          <Alert severity="warning">
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              The last config file was reverted.
+            </Typography>
+            <Box
+              component="pre"
+              sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}
+            >
+              {profile.engine_config_error}
+            </Box>
+          </Alert>
+        )}
+        {profile.has_engine_config && (
+          <Typography variant="caption" color="text.secondary">
+            {OWN_CONFIG_NOTE}
+          </Typography>
+        )}
         {overview && (
           <>
             <SettingsList

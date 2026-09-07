@@ -196,6 +196,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
             engine,
             contractOfVersion(profile.stack_version_id)?.features,
           ),
+          notInConfig: [],
         });
       }),
     ],

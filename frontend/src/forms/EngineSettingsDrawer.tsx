@@ -44,6 +44,9 @@ const SETTLE_MS = 600;
 const ABR_SECTION_HINT =
   'These apply to every rung of the ABR ladder. They are read only by a deployment that encodes one.';
 
+const NOT_IN_CONFIG =
+  'Not read: the config file this deployment runs on dropped the placeholder for it. Put the token back in the file, or set the value there.';
+
 function whatSavingDoes(engineName: string): string {
   return `Recreates the ${engineName} container with the new values. A live publisher is disconnected for a few seconds and reconnects on its own if OBS is set to retry.`;
 }
@@ -255,6 +258,7 @@ function SettingField({
   const defaultNote =
     `${defaultLabel(fallback, source, unit)}. Leave it empty to use it. ` +
     'Check the effective config under Logs to see what the container is running.';
+  const notInConfig = overview.notInConfig.includes(field.key);
 
   // Shown late, but Save is not gated on it: the drawer's own check runs over
   // every field on every keystroke and is what decides whether Save is live.
@@ -264,7 +268,7 @@ function SettingField({
     <FormField
       label={field.label}
       aside={field.unit ?? undefined}
-      hint={`${field.help} ${defaultNote}`}
+      hint={notInConfig ? `${NOT_IN_CONFIG} ${field.help}` : `${field.help} ${defaultNote}`}
       error={blurred || settled ? problem : null}
       htmlFor={inputId}
     >
