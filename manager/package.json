@@ -21,6 +21,7 @@
     "dotenv": "16.4.7",
     "express": "5.2.1",
     "pg": "8.13.1",
+    "saxes": "6.0.0",
     "yup": "1.7.0"
   },
   "devDependencies": {
