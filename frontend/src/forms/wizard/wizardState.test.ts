@@ -15,6 +15,7 @@ import {
   chosenPassphrase,
   initialWizardState,
   needsPassphrase,
+  passphraseSummary,
   withGoal,
   type WizardContext,
 } from './wizardState';
@@ -58,5 +59,40 @@ describe('the passphrase a new deployment starts with', () => {
     const state = withGoal(initialWizardState({ goal: 'viewer' }, context), 'stream', context);
 
     assert.equal(state.passMode, 'generate');
+  });
+});
+
+describe('what the Review step says about the passphrase', () => {
+  it('names the host-wide one when the host has one', () => {
+    const context = hostWith('shared-by-the-host');
+
+    assert.equal(
+      passphraseSummary(initialWizardState({ goal: 'stream' }, context), context),
+      'the host-wide passphrase',
+    );
+  });
+
+  it('says the ingest is unencrypted when the host-wide one is chosen on a host without one', () => {
+    // The choice stays offered, as D03 decided, and the Review says what the
+    // Publish card will say afterwards, not the name of a passphrase that is
+    // not there.
+    const context = hostWith(null);
+    const state = { ...initialWizardState({ goal: 'stream' }, context), passMode: 'host' as const };
+
+    assert.equal(
+      passphraseSummary(state, context),
+      'none, this host has no shared passphrase, so the ingest is unencrypted',
+    );
+  });
+
+  it('says generated, and your own', () => {
+    const context = hostWith(null);
+    const generated = initialWizardState({ goal: 'stream' }, context);
+
+    assert.equal(passphraseSummary(generated, context), 'generated for this deployment');
+    assert.equal(
+      passphraseSummary({ ...generated, passMode: 'custom' }, context),
+      'a passphrase of your own',
+    );
   });
 });
