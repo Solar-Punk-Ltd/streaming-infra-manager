@@ -4,6 +4,15 @@ Full control of the media engine's configuration file, per deployment, from the
 manager, with the file checked before the engine is recreated on it and rolled
 back when the engine will not start.
 
+Status: decided 2026-09-07, every decision as recommended, and built the same
+day. Manager side on `main-v2` (wizard version select, generated secrets, ports
+and slot cap from the contract, engine defaults per version, contract flag,
+migration 012, the editor with check, watch and revert). Stack side on the
+swarm-hls-stream branch `feat/engine-config-file` off `main-v3`, commit
+`8157390`, to be pushed and either merged into `main-v3` or added to the
+manager as a version of its own. `manager/README.md`, "A config file of the
+deployment's own", is the operator's page.
+
 ## Motivation
 
 The engine settings drawer edits the handful of values the stack's config

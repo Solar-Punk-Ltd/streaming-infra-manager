@@ -181,11 +181,14 @@ things an operator does to it by hand.
 
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
-| GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason }` |
+| GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
 | PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_WINDOW?, ABR_*? }` | 202 and the profile. Recreates the engine container only |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
-| GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store` |
+| GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
+| GET | `/profiles/:name/engine-config` | none | `{ engine, supported, unsupportedReason, config, template, placeholders, error, references }`, `no-store` |
+| PUT | `/profiles/:name/engine-config` | `{ config }` | 202 and the profile, or 400 with the engine's own reason. Recreates the engine and watches it |
+| DELETE | `/profiles/:name/engine-config` | none | 202 and the profile. Back to the version's template |
 
 `profiles.engine_settings` is a JSONB column holding only the keys a deployment
 overrides, by their env name. An absent key means the stack's own default: the
@@ -202,11 +205,55 @@ Saving settings redeploys the engine service alone, so the profile goes
 below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
-Live status (what is publishing right now) is not available on the pinned
-stack. SRS's HTTP API listens on 1985 inside the container and the compose file
+Live status (what is publishing right now) is not read yet. On the bundled
+stack SRS's HTTP API listens on 1985 inside the container and the compose file
 publishes no such port, and OvenMediaEngine's API needs a `<Managers>` block
-the template does not carry. `GET /profiles/:name/engine` therefore answers
-`live: null` with the reason in `liveUnavailableReason`.
+the template does not carry. `main-v3` publishes the SRS port and the manager
+does not read it yet. `GET /profiles/:name/engine` answers `live: null` with
+the reason for that deployment's version in `liveUnavailableReason`.
+
+#### A config file of the deployment's own
+
+Everything an engine can do beyond the settings drawer is a matter of editing
+its config file, and both engines are configured by file alone: SRS by
+`srs.conf`, OvenMediaEngine by `Server.xml`. Neither has a configuration web
+page. The Engine card's **Config file** button opens the whole file, and the
+manager stores it in `profiles.engine_config` (migration 012), whole, with the
+stack's `*_PLACEHOLDER` tokens kept in it. The stack fills those at container
+start, so the passphrase, the ports, the webhook token and the values from the
+settings drawer never sit in the stored text, and a token the file drops is a
+setting the drawer marks as not read (`notInConfig`).
+
+It works on a stack version whose contract has the hook, `engineConfig` in
+`GET /versions`, which the reader sets when the checkout ships
+`deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
+`main-v3` from the commit that added them. The bundled `main-v2` renders its
+template and the editor says so. At deploy the orchestrator writes the file to
+`<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
+`SRS_CONF_FILE` or `OME_CONF_FILE` in `.env.<name>`, which the stack's
+`build_compose_files` turns into a read-only mount. The data root survives a
+manager deploy, which rsyncs only the checkout, and goes with the deployment
+when it is removed.
+
+Nothing is applied unchecked. A PUT first refuses a placeholder the version's
+entrypoint does not fill, then asks the engine: for SRS, `srs -t` in a
+throwaway container of the version's own image (`engineImages` in the
+contract), on a copy with every placeholder filled by a dummy value, and the
+line SRS names comes back as the 400. OvenMediaEngine has no test mode, so it
+gets a well-formedness check and the watch. Then the deployment is claimed the
+way a settings save claims it, the file stored, the engine recreated, and the
+container inspected every two seconds for twenty. An engine that is not a
+running container with no restarts by then gets the previous file back, is
+recreated again, and `engine_config_error` on the profile says why, with the
+engine's last log lines. The watch lives in the manager process: a manager
+restart during those twenty seconds leaves the new file applied and nothing
+reverted.
+
+Where every directive is documented: SRS's annotated
+[full.conf](https://github.com/ossrs/srs/blob/develop/trunk/conf/full.conf)
+and OvenMediaEngine's
+[configuration guide](https://airensoft.gitbook.io/ovenmediaengine/configuration).
+The stack's own notes are in `engines/README.md` under "Your own config file".
 
 ### Stack versions
 
@@ -223,12 +270,24 @@ moves when the manager itself is deployed. Its commit comes from
 `manager/.stack-commit`, which `deploy/deploy.sh` writes before the rsync,
 because the tree reaches the server without a `.git`.
 
-The default records which version the new deployment wizard will preselect, and
-it takes effect on new deployments in the next pull request, the one that adds
-that select. Until then every deployment is created on the bundled version
-whatever carries the badge. Only a version marked **tested** can be made the
-default, which a person sets by hand after one real deployment has run on it,
-because reading a checkout's scripts proves its shape and not its behaviour.
+Every deployment runs one version, chosen in the new deployment wizard when
+more than one has finished building and preselected to the default. `POST
+/profiles` and `POST /groups` take `stack_version_id`, absent means the default,
+and a version still building or failed is refused. A group's members all run
+the version the group was made on. A deployment stays on its version: moving
+one is not offered. Only a version marked **tested** can be made the default,
+which a person sets by hand after one real deployment has run on it, because
+reading a checkout's scripts proves its shape and not its behaviour.
+
+What the version's contract decides for a deployment on it: the port table the
+container snapshot and the OME ports are computed from, the port slot ceiling
+(99 on `main-v3`, 999 on the bundled version), the engine defaults the settings
+drawer names, whether the engine can run on a config file of its own, and the
+secrets its containers refuse to start without. Those secrets,
+`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on `main-v3`, are generated the first
+time the deployment is deployed, 64 hex characters each, kept in
+`profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
+answered by the API.
 
 | Method | Path                    | Body            | Answer                                                          |
 | ------ | ----------------------- | --------------- | --------------------------------------------------------------- |

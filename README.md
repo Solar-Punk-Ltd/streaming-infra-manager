@@ -33,6 +33,11 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
   rsyncs with `--delete`, so a manager deploy cannot wipe it. The Versions page
   in the manager adds, updates and removes these. See
   [docs/features/stack-versions.md](docs/features/stack-versions.md).
+- `/home/solarpunk/streaming-infra-manager-data/<deployment>/` on the deploy
+  host (`BEE_DATA_ROOT`): the deployment's Bee node data and keys, and under
+  `engine/` the config file of its own when it runs on one. Survives a manager
+  deploy, removed with the deployment. See
+  [docs/features/engine-config.md](docs/features/engine-config.md).
 
 ## Cloning this repository
 
