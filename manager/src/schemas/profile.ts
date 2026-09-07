@@ -89,6 +89,17 @@ const beeUrlField = () =>
       return true;
     });
 
+/**
+ * The stack version a new deployment runs. Absent means the default one.
+ * Whether the id names a version, and whether that version has finished
+ * building, is the service's to answer.
+ */
+const stackVersionIdField = () =>
+  number()
+    .notRequired()
+    .integer('stack_version_id must be a whole number')
+    .positive('stack_version_id must be a positive number');
+
 export const profileNameSchema = object({
   name: string()
     .required()
@@ -185,6 +196,7 @@ export const createProfileSchema = object({
   srt_passphrase: string()
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
+  stack_version_id: stackVersionIdField(),
 }).noUnknown(true);
 
 export type CreateProfileInput = InferType<typeof createProfileSchema>;
@@ -301,6 +313,7 @@ export const createGroupSchema = object({
   srt_passphrase: string()
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
+  stack_version_id: stackVersionIdField(),
 }).noUnknown(true);
 
 export type CreateGroupInput = InferType<typeof createGroupSchema>;

@@ -65,4 +65,6 @@ export interface CreateProfileBody {
   bee_publishers?: string | null;
   bee_url?: string | null;
   srt_passphrase?: string;
+  /** The stack version to run. Absent means the manager's default one. */
+  stack_version_id?: number;
 }

@@ -6,6 +6,7 @@ import {
   isLadderKind,
   OME_SERVICE,
   SRS_SERVICE,
+  type StackVersion,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 import { generatePrivateKey } from 'viem/accounts';
@@ -55,6 +56,8 @@ export interface WizardState {
   poolId: number | null;
   poolString: string;
   components: string[];
+  /** The stack version to deploy on. Null until the versions have arrived. */
+  versionId: number | null;
 }
 
 export const WIZARD_STEPS = [
@@ -80,6 +83,39 @@ export interface WizardContext {
   serverHost: string;
   hostPassphrase: string | null;
   poolResults: PoolResults;
+  /** Every stack version the manager holds, in any state. */
+  versions: StackVersion[];
+}
+
+/** The versions a deployment can be made on: the ones that finished building. */
+export function choosableVersions(context: WizardContext): StackVersion[] {
+  return context.versions.filter((version) => version.status === 'ready');
+}
+
+/**
+ * Whether the wizard asks for a version at all. With one version there is
+ * nothing to choose, and the row would only name what every deployment runs.
+ */
+export function versionChoiceShown(context: WizardContext): boolean {
+  return choosableVersions(context).length > 1;
+}
+
+export function chosenVersion(
+  state: WizardState,
+  context: WizardContext,
+): StackVersion | null {
+  return (
+    choosableVersions(context).find((version) => version.id === state.versionId) ??
+    null
+  );
+}
+
+/** What Set as default on the Versions page decides: the preselected version. */
+function defaultVersionIn(context: WizardContext): number | null {
+  const choosable = choosableVersions(context);
+  return (
+    choosable.find((version) => version.isDefault)?.id ?? choosable[0]?.id ?? null
+  );
 }
 
 export function streamsIn(context: WizardContext): Profile[] {
@@ -148,6 +184,7 @@ export function initialWizardState(
     poolId: prefilledPool,
     poolString: '',
     components: DEFAULT_CUSTOM_COMPONENTS,
+    versionId: defaultVersionIn(context),
   };
 }
 
@@ -172,6 +209,7 @@ export function withGoal(
     notes: state.notes,
     group: allowsGroup(goal) ? state.group : false,
     size: state.size,
+    versionId: state.versionId,
   };
 }
 

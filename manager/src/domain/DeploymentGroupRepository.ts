@@ -3,11 +3,7 @@ import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
-import {
-  NEW_PROFILE_STACK_VERSION_SQL,
-  PROFILE_COLUMNS,
-  PROFILE_SLOT_LOCK_KEY,
-} from './profileSql.js';
+import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface SharedProfileParams {
   kind: ProfileKind;
@@ -20,6 +16,8 @@ export interface SharedProfileParams {
   public_key: string | null;
   stamp_id: string | null;
   srt_passphrase: string | null;
+  /** Every member of a group runs one version, the one the group was made on. */
+  stack_version_id: number;
 }
 
 export interface MemberSeed {
@@ -171,8 +169,7 @@ export class DeploymentGroupRepository {
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
          srt_passphrase, group_id, stack_version_id
        )
-       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12,
-              ${NEW_PROFILE_STACK_VERSION_SQL}
+       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
        FROM generate_series(1, 999) AS s(n)
        LEFT JOIN profiles p ON p.port_slot = s.n
        WHERE p.port_slot IS NULL
@@ -192,6 +189,7 @@ export class DeploymentGroupRepository {
         shared.stamp_id,
         shared.srt_passphrase,
         groupId,
+        shared.stack_version_id,
       ],
     );
     if (!r.rowCount) {

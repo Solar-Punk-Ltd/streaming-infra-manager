@@ -55,6 +55,7 @@ import {
   GroupBusyError,
   GroupExistsError,
   GroupNotFoundError,
+  InvalidStackVersionError,
   LadderGroupError,
   ProfileBusyError,
   ProfileConfigError,
@@ -66,6 +67,10 @@ import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
+import type {
+  StackVersionRecord,
+  StackVersionRepository,
+} from './versions/StackVersionRepository.js';
 
 const logger = Logger.getInstance();
 
@@ -140,6 +145,7 @@ export class ProfileService {
     private readonly orchestrator: DeploymentOrchestrator,
     private readonly events: EventBus,
     private readonly groupRepo: DeploymentGroupRepository,
+    private readonly versions: StackVersionRepository,
     private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
     private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
   ) {}
@@ -189,11 +195,15 @@ export class ProfileService {
     bee_publishers?: string | null;
     bee_url?: string | null;
     srt_passphrase?: string | null;
+    /** Absent means the default version. */
+    stack_version_id?: number | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
       throw new ProfileExistsError(input.name);
     }
+
+    const version = await this.versionForNewDeployment(input.stack_version_id);
 
     // The same rule the update path applies, over the same shape. The schema
     // checks these per-field too, with nicer field-scoped messages; this is the
@@ -227,6 +237,7 @@ export class ProfileService {
           bee_url: input.bee_url,
           srt_passphrase: input.srt_passphrase,
         },
+        { stackVersionId: version.id },
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -243,7 +254,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot})`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -363,6 +374,36 @@ export class ProfileService {
    * turns `ABR_ENABLED=true` on for. Reading it any other way would let the
    * settings route accept a value the deploy then refuses.
    */
+  /**
+   * The version a new deployment runs: the one asked for, else the default.
+   *
+   * Only a version that finished building can be chosen. A building one has no
+   * scripts to run yet, and a failed one has whatever its failed build left
+   * behind. Answered as a rejected body either way, because the reason is the
+   * only useful text.
+   */
+  private async versionForNewDeployment(
+    id: number | null | undefined,
+  ): Promise<StackVersionRecord> {
+    const version =
+      id == null
+        ? await this.versions.findDefault()
+        : await this.versions.findById(id);
+    if (!version) {
+      throw new InvalidStackVersionError(
+        id == null
+          ? 'No stack version is the default. Set one on the Versions page.'
+          : `Stack version ${id} does not exist. Pick one from the Versions page.`,
+      );
+    }
+    if (version.status !== 'ready') {
+      throw new InvalidStackVersionError(
+        `${version.name} is ${version.status}. Only a version that finished building can run a deployment.`,
+      );
+    }
+    return version;
+  }
+
   private engineFacts(profile: Profile): { engine: EngineName; abr: boolean } {
     const engine = engineOfServices(defaultServicesFor(profile));
     if (!engine) {
@@ -536,6 +577,8 @@ export class ProfileService {
     stamp_id?: string;
     srt_passphrase?: string;
     abr_ladder?: boolean;
+    /** Absent means the default version. */
+    stack_version_id?: number | null;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
@@ -554,6 +597,8 @@ export class ProfileService {
     if (existingGroup) {
       throw new GroupExistsError(input.group_name);
     }
+
+    const version = await this.versionForNewDeployment(input.stack_version_id);
 
     const usedNames = new Set((await this.repo.list()).map((p) => p.name));
 
@@ -601,6 +646,7 @@ export class ProfileService {
       public_key: input.public_key ?? null,
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
+      stack_version_id: version.id,
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -616,7 +662,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };
@@ -916,6 +962,7 @@ export class ProfileService {
       public_key: canonical.public_key,
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
+      stack_version_id: canonical.stack_version_id,
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.

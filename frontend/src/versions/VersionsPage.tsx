@@ -90,7 +90,7 @@ const CANNOT_DEFAULT_UNTESTED =
   'Mark this version as tested first, after one real deployment on it. Reading the scripts proves the shape and not the behaviour.';
 
 const SET_DEFAULT_MEANS =
-  "New deployments will run this version's scripts once the wizard can choose a version. Only a tested version can be the default.";
+  'The new deployment wizard preselects this version from now on. Deployments that already exist stay where they are. Only a tested version can be the default.';
 
 const CANNOT_TEST_UNBUILT =
   'Only a version that finished building can be marked as tested. There is no build here to have deployed.';
@@ -205,7 +205,7 @@ export function VersionsPage() {
       onConfirm: () =>
         void run(
           version,
-          `New deployments use ${version.name}`,
+          `The wizard now preselects ${version.name}`,
           setDefaultVersion,
         ),
     });

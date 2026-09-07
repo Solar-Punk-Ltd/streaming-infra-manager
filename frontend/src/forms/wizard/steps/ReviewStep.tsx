@@ -7,15 +7,18 @@ import { MONO_STACK } from '../../../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../../../components/KeyValueList';
 import { ServiceChip } from '../../../components/ServiceChip';
 import { shortHex } from '../../../format';
+import { describeVersion } from '../../../versions/versionText';
 import { GOALS } from '../wizardGoals';
 import {
   chosenComponents,
+  chosenVersion,
   hostLabel,
   needsFeedOwner,
   needsPassphrase,
   needsStreamKey,
   poolsIn,
   usesExternalBee,
+  versionChoiceShown,
   type WizardGoal,
   type WizardStepProps,
 } from '../wizardState';
@@ -38,10 +41,14 @@ export function ReviewStep({ state, context }: WizardStepProps) {
   const goal = GOALS.find((entry) => entry.id === state.goal);
   if (!goal || !state.goal) return null;
 
+  const version = chosenVersion(state, context);
   const entries: KeyValueEntry[] = [
     { key: 'What', value: goal.title },
     { key: 'Name', value: <NameSummary state={state} /> },
     { key: 'Host', value: <Mono>{hostLabel(state, context)}</Mono> },
+    ...(versionChoiceShown(context) && version
+      ? [{ key: 'Stack version', value: <Mono>{describeVersion(version)}</Mono> }]
+      : []),
     {
       key: 'Components',
       value: (

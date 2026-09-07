@@ -6,6 +6,7 @@ import {
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
+  NewProfilePlacement,
   ProfileRepository,
   ProfileWriteData,
 } from '../../src/domain/ProfileRepository.js';
@@ -91,6 +92,27 @@ export class InMemoryProfiles {
 
   async list(): Promise<Profile[]> {
     return [...this.rows.values()];
+  }
+
+  /** The next slot is the next number: no gaps, the way a fresh host fills up. */
+  async insertWithFreeSlot(
+    name: string,
+    kind: ProfileKind,
+    status: ProfileStatus,
+    data: ProfileWriteData,
+    placement: NewProfilePlacement,
+  ): Promise<Profile | null> {
+    if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
+    const row = makeProfile({
+      name,
+      kind,
+      status,
+      ...definedFields(data),
+      port_slot: this.rows.size + 1,
+      stack_version_id: placement.stackVersionId,
+    });
+    this.rows.set(name, row);
+    return row;
   }
 
   async transitionStatus(

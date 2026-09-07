@@ -5,11 +5,7 @@ import {
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
-import {
-  NEW_PROFILE_STACK_VERSION_SQL,
-  PROFILE_COLUMNS,
-  PROFILE_SLOT_LOCK_KEY,
-} from './profileSql.js';
+import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface ProfileWriteData {
   notes?: string | null;
@@ -24,6 +20,11 @@ export interface ProfileWriteData {
   bee_url?: string | null;
   srt_passphrase?: string | null;
   group_id?: number | null;
+}
+
+/** Where a new deployment goes: which stack version it runs. */
+export interface NewProfilePlacement {
+  stackVersionId: number;
 }
 
 export class ProfileRepository {
@@ -48,7 +49,8 @@ export class ProfileRepository {
     name: string,
     kind: ProfileKind,
     status: ProfileStatus,
-    data: ProfileWriteData = {},
+    data: ProfileWriteData,
+    placement: NewProfilePlacement,
   ): Promise<Profile | null> {
     const dataWithNullFields = nullify(data);
     const client = await this.pool.connect();
@@ -63,8 +65,7 @@ export class ProfileRepository {
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
            srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ${NEW_PROFILE_STACK_VERSION_SQL}
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
          FROM generate_series(1, 999) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
@@ -87,6 +88,7 @@ export class ProfileRepository {
           dataWithNullFields.group_id,
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
+          placement.stackVersionId,
         ],
       );
       await client.query('COMMIT');

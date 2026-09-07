@@ -28,6 +28,7 @@ import { LadderGroupError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { ProfileService } from '../../src/domain/ProfileService.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import type { StackVersionRepository } from '../../src/domain/versions/StackVersionRepository.js';
 import { Profile } from '../../src/types/index.js';
 
 const BATCH = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
@@ -295,6 +296,7 @@ describe('creating a node pool — the stamp guard', () => {
       {} as DeploymentOrchestrator,
       new EventBus(),
       {} as DeploymentGroupRepository,
+      {} as StackVersionRepository,
     );
 
   const create = (over: Record<string, unknown> = {}) =>

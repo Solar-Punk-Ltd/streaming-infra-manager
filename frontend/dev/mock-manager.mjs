@@ -44,6 +44,7 @@ import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
   defaultVersionId,
+  newDeploymentVersionProblem,
   seedVersions,
   versionRoutes,
 } from './mock-versions.mjs';
@@ -393,7 +394,7 @@ function createFromBody(body, extra = {}) {
     ...extra,
     status: 'DEPLOYING',
     created_at: new Date().toISOString(),
-    stack_version_id: defaultVersionId(),
+    stack_version_id: body.stack_version_id ?? defaultVersionId(),
   });
   state.profiles.push(profile);
   refreshDerived(profile);
@@ -423,6 +424,10 @@ const ROUTES = [
       const body = await readBody(req);
       if (findProfile(body.name)) {
         return send(res, 409, { error: `profile ${body.name} already exists` });
+      }
+      const versionProblem = newDeploymentVersionProblem(body.stack_version_id);
+      if (versionProblem) {
+        return send(res, 400, { error: 'validation_error', errors: [versionProblem] });
       }
       send(res, 202, createFromBody(body));
     },
@@ -592,6 +597,10 @@ const ROUTES = [
     /^\/groups$/,
     async (req, res) => {
       const body = await readBody(req);
+      const versionProblem = newDeploymentVersionProblem(body.stack_version_id);
+      if (versionProblem) {
+        return send(res, 400, { error: 'validation_error', errors: [versionProblem] });
+      }
       const isPool = Boolean(body.abr_ladder);
       const group = {
         id: takeGroupId(),

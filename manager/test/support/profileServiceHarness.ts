@@ -19,6 +19,7 @@ import { RunHandle } from '../../src/domain/ScriptRunner.js';
 import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 import { DeploymentGroup, Profile, ProfileStatus } from '../../src/types/index.js';
 
+import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
 
 const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
@@ -236,6 +237,7 @@ export class InMemoryGroups {
       public_key: shared.public_key,
       stamp_id: shared.stamp_id,
       srt_passphrase: shared.srt_passphrase,
+      stack_version_id: shared.stack_version_id,
       status: 'STOPPED',
       port_slot: this.profiles.rows.size + 1,
       group_id: groupId,
@@ -252,6 +254,8 @@ export interface ProfileServiceHarness {
   groups: InMemoryGroups;
   orchestrator: FakeOrchestrator;
   events: EventBus;
+  /** Seeded with the bundled version as the default, the way a host starts. */
+  versions: InMemoryStackVersionRepository;
 }
 
 export function profileServiceHarness(
@@ -262,6 +266,8 @@ export function profileServiceHarness(
   const groups = new InMemoryGroups(profiles);
   const orchestrator = new FakeOrchestrator(profiles);
   const events = new EventBus();
+  const versions = new InMemoryStackVersionRepository();
+  versions.seedBundled();
 
   const service = new ProfileService(
     profiles.asRepository(),
@@ -269,9 +275,10 @@ export function profileServiceHarness(
     orchestrator.asOrchestrator(),
     events,
     groups.asRepository(),
+    versions,
   );
 
-  return { service, profiles, containers, groups, orchestrator, events };
+  return { service, profiles, containers, groups, orchestrator, events, versions };
 }
 
 /** One deploy as the engine settings tests read it. */

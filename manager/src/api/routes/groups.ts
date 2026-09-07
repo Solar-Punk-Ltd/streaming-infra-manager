@@ -36,6 +36,7 @@ export function createGroupsRouter(profileService: ProfileService): Router {
         public_key: body.public_key ?? undefined,
         stamp_id: body.stamp_id ?? undefined,
         srt_passphrase: body.srt_passphrase ?? undefined,
+        stack_version_id: body.stack_version_id,
       });
       res.status(202).json(result);
     }),

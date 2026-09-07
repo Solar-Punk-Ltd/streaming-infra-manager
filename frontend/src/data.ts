@@ -118,6 +118,8 @@ export interface CreateGroupBody {
   public_key?: string;
   stamp_id?: string;
   srt_passphrase?: string;
+  /** The stack version every member runs. Absent means the manager's default one. */
+  stack_version_id?: number;
 }
 
 export function createDeploymentGroup(

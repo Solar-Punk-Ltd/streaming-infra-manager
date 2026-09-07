@@ -1,18 +1,32 @@
 import {
   Box,
   FormControlLabel,
+  MenuItem,
   Stack,
   Switch,
   TextField,
   Typography,
 } from '@mui/material';
 
+import {
+  describeStackContract,
+  type StackVersion,
+} from '@streaming-infra-manager/common';
+
 import { MONO_STACK } from '../../../app/theme';
+import { describeVersion } from '../../../versions/versionText';
 import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField } from '../../FormField';
 import { NOTES_MAX } from '../../validation';
 import { GOALS } from '../wizardGoals';
-import { allowsGroup, namePreview, type WizardStepProps } from '../wizardState';
+import {
+  allowsGroup,
+  choosableVersions,
+  chosenVersion,
+  namePreview,
+  versionChoiceShown,
+  type WizardStepProps,
+} from '../wizardState';
 
 const LARGE_GROUP = 20;
 
@@ -79,6 +93,33 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
         />
       </FormField>
 
+      {versionChoiceShown(context) && (
+        <FormField
+          label="Stack version"
+          aside="the swarm-hls-stream it runs"
+          hint={versionHint(chosenVersion(state, context))}
+          htmlFor="wizard-version"
+        >
+          <TextField
+            select
+            size="small"
+            fullWidth
+            value={state.versionId ?? ''}
+            onChange={(event) => update({ versionId: Number(event.target.value) })}
+            SelectProps={{
+              'aria-label': 'Stack version',
+              SelectDisplayProps: { id: 'wizard-version' },
+            }}
+          >
+            {choosableVersions(context).map((version) => (
+              <MenuItem key={version.id} value={version.id}>
+                {versionLabel(version)}
+              </MenuItem>
+            ))}
+          </TextField>
+        </FormField>
+      )}
+
       {allowsGroup(state.goal) && (
         <Box>
           <FormControlLabel
@@ -128,6 +169,26 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
       </FormField>
     </Stack>
   );
+}
+
+function versionLabel(version: StackVersion): string {
+  const suffix = version.isDefault ? ', the default' : '';
+  return `${describeVersion(version)} (${version.gitRef}${suffix})`;
+}
+
+/**
+ * What the pick means: whether anyone has run a real deployment on it, and
+ * what its deploy contract says, in the same words the Versions page uses.
+ */
+function versionHint(version: StackVersion | null): string {
+  if (!version) return 'Pick the version the containers are built from.';
+  const tested = version.tested
+    ? 'Tested on this host.'
+    : 'Not yet marked as tested on this host.';
+  const contract = version.contract
+    ? ` ${describeStackContract(version.contract)}.`
+    : '';
+  return `${tested}${contract}`;
 }
 
 function groupHint(size: string, goal: string | null): string {

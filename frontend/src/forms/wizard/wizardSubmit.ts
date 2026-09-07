@@ -45,6 +45,7 @@ export async function submitWizard(
       kind: 'custom',
       host: chosenHost(state),
       notes: notesOf(state),
+      stack_version_id: versionOf(state),
     });
     return { profiles: result.profiles, route: routes.group(result.group.id), toast };
   }
@@ -69,6 +70,11 @@ export async function submitWizard(
 
 function notesOf(state: WizardState): string | null {
   return state.notes.trim() || null;
+}
+
+/** Left out while the versions have not arrived, so the manager's default applies. */
+function versionOf(state: WizardState): number | undefined {
+  return state.versionId ?? undefined;
 }
 
 /** The address of the feed a viewer or a client follows. */
@@ -96,6 +102,7 @@ function sharedBody(state: WizardState, context: WizardContext) {
     private_key: key || undefined,
     public_key: (key && addressForKey(key)) || undefined,
     srt_passphrase: passphrase ?? undefined,
+    stack_version_id: versionOf(state),
   };
 }
 
@@ -106,7 +113,12 @@ function profileBody(
   const shared = sharedBody(state, context);
 
   if (state.goal === 'viewer') {
-    return { kind: 'viewer', notes: shared.notes, feed_owner: shared.feed_owner };
+    return {
+      kind: 'viewer',
+      notes: shared.notes,
+      feed_owner: shared.feed_owner,
+      stack_version_id: shared.stack_version_id,
+    };
   }
 
   if (state.goal === 'abr-uploader') {

@@ -135,6 +135,22 @@ export function defaultVersionId() {
   return state.versions.find((version) => version.isDefault)?.id ?? null;
 }
 
+/**
+ * Why a new deployment cannot run the version the body names, in the
+ * manager's words, or null. Null for an absent id, which means the default.
+ */
+export function newDeploymentVersionProblem(id) {
+  if (id == null) return null;
+  const version = findVersion(id);
+  if (!version) {
+    return `Stack version ${id} does not exist. Pick one from the Versions page.`;
+  }
+  if (version.status !== 'ready') {
+    return `${version.name} is ${version.status}. Only a version that finished building can run a deployment.`;
+  }
+  return null;
+}
+
 export function seedVersions() {
   nextId = 1;
   state.versions = [

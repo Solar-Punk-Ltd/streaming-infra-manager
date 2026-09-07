@@ -50,8 +50,15 @@ export function NewDeploymentWizard({
   prefill?: WizardPrefill;
   onClose: () => void;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, mergeProfiles, reload } =
-    useDeployments();
+  const {
+    profiles,
+    groups,
+    serverHost,
+    hostPassphrase,
+    versions,
+    mergeProfiles,
+    reload,
+  } = useDeployments();
   const poolResults = usePoolResults(groups, profiles);
   const toast = useToast();
 
@@ -62,8 +69,9 @@ export function NewDeploymentWizard({
       serverHost,
       hostPassphrase,
       poolResults,
+      versions: versions ?? [],
     }),
-    [profiles, groups, serverHost, hostPassphrase, poolResults],
+    [profiles, groups, serverHost, hostPassphrase, poolResults, versions],
   );
 
   const [state, setState] = useState<WizardState>(() =>

@@ -34,6 +34,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
         bee_publishers: body.bee_publishers,
         bee_url: body.bee_url,
         srt_passphrase: body.srt_passphrase,
+        stack_version_id: body.stack_version_id,
       });
       res.status(202).json(profile);
     }),

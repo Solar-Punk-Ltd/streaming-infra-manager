@@ -1,5 +1,3 @@
-import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
-
 /**
  * SQL fragments shared by every repository that reads or writes `profiles`.
  *
@@ -24,15 +22,3 @@ export const PROFILE_COLUMNS = `
 
 /** Advisory-lock key guarding port-slot allocation. ASCII "prof". */
 export const PROFILE_SLOT_LOCK_KEY = 0x70726f66;
-
-/**
- * The stack version a newly created deployment is put on.
- *
- * The bundled row by name, and deliberately not the row marked as the default.
- * Setting a default decides what the new deployment wizard will preselect, and
- * that wizard cannot choose a version yet, so reading is_default here would
- * make Set as default quietly move every deployment created after it onto a
- * version whose scripts have never run on this host. The next pull request adds
- * the select, and this becomes the version the operator picked.
- */
-export const NEW_PROFILE_STACK_VERSION_SQL = `(SELECT id FROM stack_versions WHERE name = '${BUNDLED_VERSION_NAME}')`;

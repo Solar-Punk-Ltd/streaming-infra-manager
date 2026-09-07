@@ -32,6 +32,7 @@ import {
   type StampHealthProbe,
 } from '../../src/domain/ProfileService.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import type { StackVersionRepository } from '../../src/domain/versions/StackVersionRepository.js';
 import { DeploymentGroup, Profile } from '../../src/types/index.js';
 
 const GROUP: DeploymentGroup = {
@@ -140,6 +141,7 @@ function serviceFor(
     {} as DeploymentOrchestrator,
     {} as EventBus,
     groupRepo,
+    {} as StackVersionRepository,
     stampProbe,
     urlProbe,
   );
@@ -241,6 +243,7 @@ describe('beePublishersForGroup — live batch state', () => {
       {} as DeploymentOrchestrator,
       {} as EventBus,
       groupRepo,
+      {} as StackVersionRepository,
       async () => {
         throw new Error('bee node on fire');
       },
@@ -342,6 +345,7 @@ describe('beePublishersForGroup — rung address and status', () => {
       {} as DeploymentOrchestrator,
       {} as EventBus,
       groupRepo,
+      {} as StackVersionRepository,
       async () => healthOf('active'),
       async () => {
         throw new Error('dns exploded');

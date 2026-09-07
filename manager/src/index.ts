@@ -212,6 +212,7 @@ async function main(): Promise<void> {
     orchestrator,
     eventBus,
     deploymentGroupRepository,
+    stackVersionRepository,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
   );

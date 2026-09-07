@@ -11,26 +11,13 @@ import { MONO_STACK } from '../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../components/KeyValueList';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
-import { formatDate, formatTtl, shortCommit } from '../format';
+import { formatDate, formatTtl } from '../format';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
+import { describeVersion } from '../versions/versionText';
 import { engineSummary } from './engineText';
 import type { Readiness } from './readiness';
 import { engineOf } from './shape';
-
-const COMMIT_UNKNOWN = 'commit unknown on this host';
-
-/**
- * `bundled @ ee99c36`, or the name alone when the host cannot name a commit.
- *
- * A commit is unknown when the checkout arrived without a .git and without the
- * file deploy.sh writes next to it, which is a real state and not an error.
- */
-function describeVersion(version: StackVersion): string {
-  return version.commitSha
-    ? `${version.name} @ ${shortCommit(version.commitSha)}`
-    : `${version.name}, ${COMMIT_UNKNOWN}`;
-}
 
 export function AtAGlanceCard({
   profile,

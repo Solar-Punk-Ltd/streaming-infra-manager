@@ -15,6 +15,7 @@ import {
   stampIdProblem,
 } from '../validation';
 import {
+  chosenVersion,
   isNameTaken,
   LAST_STEP,
   needsExternalBeeUrl,
@@ -23,11 +24,13 @@ import {
   needsStamp,
   needsStreamKey,
   poolValueIn,
+  versionChoiceShown,
   type WizardContext,
   type WizardState,
 } from './wizardState';
 
 const NAME_TAKEN = 'That name is taken';
+const NO_VERSION = 'Pick a stack version';
 const POOL_NAME_TOO_LONG = `Pool name: at most ${LADDER_GROUP_NAME_MAX} characters, because the members are named <pool>-1080p`;
 
 /**
@@ -68,6 +71,11 @@ function basicsError(
   if (state.group) {
     const size = groupSizeProblem(state.size);
     if (size) return size;
+  }
+  // A version can stop being choosable while the dialog is open: an Update
+  // puts it back to building, and the select then names nothing.
+  if (versionChoiceShown(context) && !chosenVersion(state, context)) {
+    return NO_VERSION;
   }
   return notesProblem(state.notes);
 }
