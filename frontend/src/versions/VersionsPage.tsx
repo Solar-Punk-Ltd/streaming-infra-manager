@@ -19,7 +19,6 @@ import {
   BUNDLED_VERSION_NAME,
   describeStackContract,
   getErrorMessage,
-  type DeployAttemptView,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -38,6 +37,7 @@ import { needsRelease } from './attemptHold';
 import { AttemptsCard } from './AttemptsCard';
 import { BuildLogPane } from './BuildLogPane';
 import { ReleaseAttemptDialog } from './ReleaseAttemptDialog';
+import { useAttemptRelease } from './useAttemptRelease';
 import {
   ANOTHER_BUILDING,
   BuildSlotProvider,
@@ -151,7 +151,7 @@ export function VersionsPage() {
   } = useDeployments();
   const toast = useToast();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
-  const [releasing, setReleasing] = useState<DeployAttemptView | null>(null);
+  const release = useAttemptRelease();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [buildingName, setBuildingName] = useState<string | null>(null);
   const [log, setLog] = useState<BuildLog | null>(null);
@@ -252,7 +252,7 @@ export function VersionsPage() {
           attempts={attempts}
           error={attemptsError}
           canRelease={(attempt) => needsRelease(attempt, profiles)}
-          onRelease={setReleasing}
+          onRelease={release.open}
           onReload={reloadAttempts}
         />
       )}
@@ -365,15 +365,10 @@ export function VersionsPage() {
 
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
       <ReleaseAttemptDialog
-        attempt={releasing}
-        onClose={() => setReleasing(null)}
-        onReleased={(released) => {
-          toast(
-            `Released ${released.jobId}. ${released.project} can be deployed again.`,
-            'success',
-          );
-          reloadAttempts();
-        }}
+        attempt={release.releasing}
+        onClose={release.close}
+        onReleased={release.released}
+        onGone={release.gone}
       />
     </Stack>
     </BuildSlotProvider>

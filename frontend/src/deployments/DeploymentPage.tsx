@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Box, Button, CircularProgress, Paper, Stack } from '@mui/material';
 
 import {
   type ChequebookHealth,
-  type DeployAttemptView,
   chequebookHealthFromPayload,
   rungFromMemberName,
   sameBatchId,
@@ -13,7 +12,6 @@ import {
 
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes, type DeploymentFocus } from '../app/router';
-import { useToast } from '../app/ToastProvider';
 import { useActions } from '../app/useDeploymentActions';
 import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
@@ -24,6 +22,7 @@ import type { Profile } from '../types';
 import { clientUrl, srtPublishUrl } from '../urls';
 import { attemptHolding } from '../versions/attemptHold';
 import { ReleaseAttemptDialog } from '../versions/ReleaseAttemptDialog';
+import { useAttemptRelease } from '../versions/useAttemptRelease';
 import { AtAGlanceCard } from './AtAGlanceCard';
 import {
   buildChecklist,
@@ -115,19 +114,10 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const {
-    profiles,
-    groups,
-    serverHost,
-    hostPassphrase,
-    reload,
-    versions,
-    attempts,
-    reloadAttempts,
-  } = useDeployments();
+  const { profiles, groups, serverHost, hostPassphrase, reload, versions, attempts } =
+    useDeployments();
   const actions = useActions();
-  const toast = useToast();
-  const [releasing, setReleasing] = useState<DeployAttemptView | null>(null);
+  const release = useAttemptRelease();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
 
@@ -225,7 +215,7 @@ function DeploymentBody({
       >
         <Stack spacing={2}>
           {heldBy && (
-            <HeldAttemptCard attempt={heldBy} onRelease={() => setReleasing(heldBy)} />
+            <HeldAttemptCard attempt={heldBy} onRelease={() => release.open(heldBy)} />
           )}
 
           {profile.last_error && (
@@ -306,15 +296,10 @@ function DeploymentBody({
       </Box>
 
       <ReleaseAttemptDialog
-        attempt={releasing}
-        onClose={() => setReleasing(null)}
-        onReleased={(released) => {
-          toast(
-            `Released ${released.jobId}. ${profile.name} can be deployed again.`,
-            'success',
-          );
-          reloadAttempts();
-        }}
+        attempt={release.releasing}
+        onClose={release.close}
+        onReleased={release.released}
+        onGone={release.gone}
       />
     </Box>
   );

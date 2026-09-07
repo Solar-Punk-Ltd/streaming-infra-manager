@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -20,6 +20,7 @@ import {
 
 import { MONO_STACK } from '../app/theme';
 import { formatDateTime } from '../format';
+import { ApiError } from '../http';
 
 import { releaseAttempt } from './attemptsApi';
 
@@ -29,20 +30,27 @@ const CHECK_THE_HOST =
 /**
  * Ends an attempt by hand. The job id has to be typed back, the same rule the
  * manager applies to the request, because a click is not a person who
- * checked the host.
+ * checked the host. `attempt` is the page's live read of it: null closes the
+ * dialog, and what was shown stays on screen through the closing animation.
  */
 export function ReleaseAttemptDialog({
   attempt,
   onClose,
   onReleased,
+  onGone,
 }: {
   attempt: DeployAttemptView | null;
   onClose: () => void;
   onReleased: (released: DeployAttemptView) => void;
+  /** The manager answered that the attempt is not there any more. */
+  onGone: () => void;
 }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastShown = useRef<DeployAttemptView | null>(null);
+  if (attempt) lastShown.current = attempt;
+  const shown = attempt ?? lastShown.current;
 
   // A fresh field per attempt: what was typed for one must not release another.
   useEffect(() => {
@@ -62,6 +70,10 @@ export function ReleaseAttemptDialog({
       onReleased(released);
       onClose();
     } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'attempt_not_found') {
+        onGone();
+        return;
+      }
       setError(getErrorMessage(caught));
     } finally {
       setBusy(false);
@@ -75,22 +87,22 @@ export function ReleaseAttemptDialog({
       maxWidth="sm"
       fullWidth
     >
-      <DialogTitle>Release attempt {attempt?.jobId}?</DialogTitle>
+      <DialogTitle>Release attempt {shown?.jobId}?</DialogTitle>
       <DialogContent>
-        {attempt && (
+        {shown && (
           <Stack spacing={1.5}>
             <Typography variant="body2">
-              {describeAttemptHold(attempt)} Started{' '}
-              {formatDateTime(attempt.startedAt)}, touching{' '}
-              {attempt.services.join(', ')}.
+              {describeAttemptHold(shown)} Started{' '}
+              {formatDateTime(shown.startedAt)}, touching{' '}
+              {shown.services.join(', ')}.
             </Typography>
-            {attempt.reason && (
+            {shown.reason && (
               <Typography
                 variant="body2"
                 color="text.secondary"
                 sx={{ fontFamily: MONO_STACK, fontSize: 12, whiteSpace: 'pre-wrap' }}
               >
-                {attempt.reason}
+                {shown.reason}
               </Typography>
             )}
             <Typography variant="body2">{CHECK_THE_HOST}</Typography>
@@ -101,7 +113,7 @@ export function ReleaseAttemptDialog({
               error={typed !== '' && problem !== null}
               helperText={
                 typed === ''
-                  ? `Type ${attempt.jobId} to confirm you checked.`
+                  ? `Type ${shown.jobId} to confirm you checked.`
                   : (problem ?? 'That is this attempt.')
               }
               disabled={busy}
