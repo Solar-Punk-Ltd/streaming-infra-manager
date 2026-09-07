@@ -69,9 +69,14 @@ beforeEach(() => {
   repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
   references = [];
-  service = new StackVersionService(repository, new FakeScriptSpawner(), new EventBus(), versionsRoot, {
-    openReferences: async () => references.map((reference) => ({ buildId: reference.buildId })) as never,
-  });
+  service = new StackVersionService(
+    repository,
+    new FakeScriptSpawner(),
+    new EventBus(),
+    versionsRoot,
+    { openReferences: async () => references.map((reference) => ({ buildId: reference.buildId })) as never },
+    legacyRoot,
+  );
 });
 
 /** What the deploy ships: the built stack, its commit, and the base env of the checkout it came from. */

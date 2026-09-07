@@ -145,15 +145,14 @@ export class StackVersionService {
   /** The version building right now, or null. This is the mutex. */
   private buildingName: string | null = null;
 
-  /** The tree the manager ships with, as boot named it. What a legacy bundled row runs. */
-  private bundledRoot: string = BUNDLED_STACK_ROOT;
-
   constructor(
     private readonly versions: StackVersionRepository,
     private readonly runner: ScriptSpawner,
     private readonly eventBus: EventBus,
     private readonly versionsRoot: string,
     private readonly references: BuildReferenceReader,
+    /** The tree the manager ships with, what a legacy bundled row runs. */
+    private bundledRoot: string = BUNDLED_STACK_ROOT,
   ) {}
 
   async list(): Promise<StackVersion[]> {

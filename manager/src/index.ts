@@ -157,6 +157,7 @@ async function main(): Promise<void> {
     eventBus,
     config.stackVersionsRoot,
     buildLedger,
+    BUNDLED_STACK_ROOT,
   );
   await stackVersionService.syncBundled(
     BUNDLED_STACK_ROOT,
