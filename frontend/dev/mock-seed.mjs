@@ -130,6 +130,7 @@ export function makeProfile(input) {
     port_slot: input.port_slot ?? nextSlot++,
     kind: input.kind ?? 'custom',
     notes: input.notes ?? null,
+    notes_revision: 0,
     host: input.host ?? 'localhost',
     components: input.components ?? null,
     feed_owner: input.feed_owner ?? null,
