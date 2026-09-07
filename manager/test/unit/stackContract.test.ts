@@ -12,6 +12,8 @@
  * contract changed and the reader has to be looked at again.
  */
 import assert from 'node:assert/strict';
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -58,7 +60,7 @@ describe('readStackContract on main-v2', () => {
   });
 
   it('reports neither the SRS API nor a chequebook gate', () => {
-    assert.deepEqual(v2.features, { srsApiPort: false, chequebookGate: false });
+    assert.deepEqual(v2.features, { srsApiPort: false, chequebookGate: false, sharedImageTags: true });
     assert.equal(v2.chequebookMinBzz, null);
   });
 
@@ -126,7 +128,7 @@ describe('readStackContract on main-v3', () => {
   });
 
   it('reports the SRS API and the chequebook floor of 0.5 BZZ', () => {
-    assert.deepEqual(v3.features, { srsApiPort: true, chequebookGate: true });
+    assert.deepEqual(v3.features, { srsApiPort: true, chequebookGate: true, sharedImageTags: true });
     assert.equal(v3.chequebookMinBzz, '0.5');
   });
 
@@ -179,5 +181,46 @@ describe('readStackContract on a checkout that is not a stack', () => {
       () => readStackContract(join(here, '..', 'fixtures')),
       /_lib\.sh is missing/,
     );
+  });
+});
+
+describe('readStackContract and the image tags a version builds', () => {
+  /** The v3 fixture with its compose file replaced, or removed for null. */
+  const withCompose = (compose: string | null): string => {
+    const root = mkdtempSync(join(tmpdir(), 'stack-contract-'));
+    cpSync(fixture('v3'), root, { recursive: true });
+    const path = join(root, 'deploy', 'docker-compose.yml');
+    if (compose === null) rmSync(path);
+    else writeFileSync(path, compose);
+    return root;
+  };
+
+  it('reports shared tags when a built service declares an image name, as both branches do today', () => {
+    assert.equal(v2.features.sharedImageTags, true);
+    assert.equal(v3.features.sharedImageTags, true);
+  });
+
+  it('reports fixed images once no built service names its image, so compose names each after its project', () => {
+    const contract = readStackContract(
+      withCompose('services:\n  stream-uploader:\n    build:\n      context: ..\n  srs:\n    image: ossrs/srs:6\n'),
+    );
+
+    assert.equal(contract.features.sharedImageTags, false);
+    assert.deepEqual(contract.warnings, []);
+  });
+
+  it('counts a service whose build and image are declared in either order', () => {
+    const contract = readStackContract(
+      withCompose('services:\n  stream-client:\n    build:\n      context: ..\n    image: stream-client\n'),
+    );
+
+    assert.equal(contract.features.sharedImageTags, true);
+  });
+
+  it('treats a compose file it cannot read as shared, and says so', () => {
+    const contract = readStackContract(withCompose(null));
+
+    assert.equal(contract.features.sharedImageTags, true);
+    assert.ok(contract.warnings.some((warning) => /docker-compose\.yml/.test(warning) && /shared/.test(warning)));
   });
 });
