@@ -718,7 +718,9 @@ export class DeploymentOrchestrator {
    * Records which build each service's container was started from, as the
    * container says it, and resolves the job's reference when every service
    * it touched has been seen. A daemon that does not answer keeps the
-   * reference, which is the safe side: the build stays.
+   * reference, which is the safe side: the build stays. A row that cannot
+   * be written is logged and nothing more: this runs inside the success
+   * hook, and the containers are up whatever the rows managed to say.
    */
   private async observeMounts(profile: Profile, services: string[]): Promise<void> {
     let observations: Observation[];
@@ -730,19 +732,25 @@ export class DeploymentOrchestrator {
       );
       return;
     }
-    for (const seen of observations) {
-      await this.containers.setBuild(profile.name, seen.service, seen.buildId, seen.commit);
-    }
-    // One commit for the deployment only when this deploy touched every
-    // service it has and every one was seen on that commit. A partial deploy
-    // advances the services it touched and nothing else.
-    const every = defaultServicesFor(profile);
-    const agreed = observations[0]?.commit ?? null;
-    const full =
-      agreed !== null &&
-      every.every((service) => observations.some((seen) => seen.service === service && seen.commit === agreed));
-    if (full) {
-      await this.profiles.setLastFullDeployCommit(profile.name, agreed);
+    try {
+      for (const seen of observations) {
+        await this.containers.setBuild(profile.name, seen.service, seen.buildId, seen.commit);
+      }
+      // One commit for the deployment only when this deploy touched every
+      // service it has and every one was seen on that commit. A partial deploy
+      // advances the services it touched and nothing else.
+      const every = defaultServicesFor(profile);
+      const agreed = observations[0]?.commit ?? null;
+      const full =
+        agreed !== null &&
+        every.every((service) => observations.some((seen) => seen.service === service && seen.commit === agreed));
+      if (full) {
+        await this.profiles.setLastFullDeployCommit(profile.name, agreed);
+      }
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] could not record what ${profile.name} runs: ${getErrorMessage(err)}. The rows say what they said before.`,
+      );
     }
   }
 
