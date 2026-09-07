@@ -210,7 +210,7 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
-  private write(name: string, patch: Partial<Profile>): Profile | null {
+  write(name: string, patch: Partial<Profile>): Profile | null {
     const row = this.rows.get(name);
     if (!row) return null;
     const next: Profile = { ...row, ...patch, updated_at: new Date() };

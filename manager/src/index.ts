@@ -30,6 +30,7 @@ import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
+import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
@@ -199,6 +200,14 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  const containerControl = new ContainerControl(eventBus);
+  // Which build each deployment runs on. The claim writes it, the success
+  // hook and boot observe the containers, and prune keeps what they mount.
+  const buildLedger = new PostgresBuildLedger(
+    database.pool,
+    containerControl,
+    config.stackVersionsRoot,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -206,6 +215,7 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    buildLedger,
     new UploaderStartGate(stampService, chequebookService),
   );
   const profileService = new ProfileService(
@@ -220,7 +230,6 @@ async function main(): Promise<void> {
   );
   const deployService = new DeployService(profileService, orchestrator);
 
-  const containerControl = new ContainerControl(eventBus);
   const engineConfigService = new EngineConfigService(
     profileRepository,
     containerRepository,

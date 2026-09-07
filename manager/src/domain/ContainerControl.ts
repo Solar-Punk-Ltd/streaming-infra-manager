@@ -5,10 +5,12 @@ import {
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
 import Docker from 'dockerode';
+import { dirname } from 'node:path';
 
 import {
   COMPOSE_PROJECT_LABEL,
   COMPOSE_SERVICE_LABEL,
+  COMPOSE_WORKING_DIR_LABEL,
 } from './composeLabels.js';
 import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
 import {
@@ -202,6 +204,45 @@ export class ContainerControl {
    * answers is whether a container the deploy just created is still up, and
    * one that died is exactly the answer wanted.
    */
+  /**
+   * The root the service's container was started from, read off the compose
+   * working directory label the container carries, or null when there is no
+   * container. This is what a build reference is resolved by: what runs,
+   * never what a deploy planned.
+   */
+  async mountedRootOf(profile: string, service: string): Promise<string | null> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: true,
+        filters: {
+          label: [
+            `${COMPOSE_PROJECT_LABEL}=${profile}`,
+            `${COMPOSE_SERVICE_LABEL}=${service}`,
+          ],
+        },
+      }),
+    );
+    const match = containers.find(
+      (info) =>
+        info.Labels?.[COMPOSE_PROJECT_LABEL] === profile &&
+        info.Labels?.[COMPOSE_SERVICE_LABEL] === service,
+    );
+    const workingDir = match?.Labels?.[COMPOSE_WORKING_DIR_LABEL];
+    if (!workingDir) return null;
+    return dirname(workingDir);
+  }
+
+  /** Whether a container of exactly this name exists, in any state. Throws when Docker cannot be asked. */
+  async containerExists(name: string): Promise<boolean> {
+    try {
+      await this.withinLimit(this.docker.getContainer(name).inspect());
+      return true;
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return false;
+      throw err;
+    }
+  }
+
   async inspect(profile: string, service: string): Promise<ContainerState | null> {
     const containers = await this.withinLimit(
       this.docker.listContainers({

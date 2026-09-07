@@ -49,6 +49,11 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     this.deployments.set(id, names);
   }
 
+  /** A row as migration 015 leaves every existing one: deploying from its flat root. */
+  markLegacy(id: number): void {
+    this.rows = this.rows.map((row) => (row.id === id ? { ...row, layout: 'legacy', buildId: null } : row));
+  }
+
   async list(): Promise<StackVersionUsage[]> {
     return this.rows.map((row) => ({
       ...row,
@@ -105,8 +110,13 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     const before = this.rows.find((row) => row.id === id);
     if (!before) return null;
 
+    // The build outcome of the flat layout: a row marked built this way is a
+    // legacy row, deploying from its flat root, as every row was before
+    // migration 015.
     return this.patch(id, {
       status: 'ready',
+      layout: 'legacy',
+      buildId: null,
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.commitSha === outcome.commitSha,

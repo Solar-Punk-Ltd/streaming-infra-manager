@@ -26,7 +26,6 @@ import {
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
 
 const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
-const versionsRoot = join(root, 'versions');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'bundled'), { recursive: true });
@@ -51,7 +50,7 @@ const COMMIT_A = 'a'.repeat(40);
 const COMMIT_B = 'b'.repeat(40);
 
 /** A complete build of v3 on disk, with the sample the deploy bootstraps from. */
-function buildOnDisk(buildId: string): string {
+function buildOnDisk(versionsRoot: string, buildId: string): string {
   const dir = buildDirFor(versionsRoot, 'v3', buildId);
   mkdirSync(join(dir, 'deploy', 'scripts'), { recursive: true });
   writeFileSync(join(dir, '.env'), 'ENGINE=srs\n');
@@ -60,11 +59,17 @@ function buildOnDisk(buildId: string): string {
   return dir;
 }
 
+/** Every test gets its own versions root, so what one puts on disk is not another's build. */
 async function setup(buildId: string | null = COMMIT_A) {
-  const harness = orchestratorHarness([makeProfile({ name: 'stage', stack_version_id: 2 })], undefined, versionsRoot);
+  const versionsRoot = mkdtempSync(join(root, 'versions-'));
+  const harness = orchestratorHarness(
+    [makeProfile({ name: 'stage', stack_version_id: 2, stamp_id: 'a'.repeat(64) })],
+    undefined,
+    versionsRoot,
+  );
   const v3 = await harness.versions.insert({ name: 'v3', gitRef: 'main-v3', rootPath: join(versionsRoot, 'v3') });
   if (buildId) {
-    buildOnDisk(buildId);
+    buildOnDisk(versionsRoot, buildId);
     await harness.versions.publish(v3.id, { buildId, commitSha: buildId.slice(0, 40), contract: CONTRACT });
   }
   const row = () => {
@@ -72,12 +77,12 @@ async function setup(buildId: string | null = COMMIT_A) {
     if (!found) throw new Error('stage is gone');
     return found;
   };
-  return { harness, v3, row };
+  return { harness, v3, row, versionsRoot };
 }
 
 describe('the build a deploy runs', () => {
   it('is captured at the claim with a job reference, and the job runs on it whatever is published meanwhile', async () => {
-    const { harness, v3 } = await setup();
+    const { harness, v3, versionsRoot } = await setup();
     const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
 
     const reservation = await harness.orchestrator.reserveDeploy(harness.profiles.rows.get('stage')!, undefined);
@@ -85,12 +90,13 @@ describe('the build a deploy runs', () => {
     assert.equal(reservation.build?.buildId, COMMIT_A);
     assert.deepEqual(harness.ledger.openJobReferences('stage').map((r) => [r.buildId, [...r.services]]), [[COMMIT_A, reservation.services]]);
 
-    buildOnDisk(COMMIT_B);
+    buildOnDisk(versionsRoot, COMMIT_B);
     await harness.versions.publish(v3.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: CONTRACT });
     await harness.orchestrator.runReserved(reservation, harness.profiles.rows.get('stage')!);
 
-    assert.equal(harness.runner.last.options.cwd, buildA, 'the job ran on the build the claim captured');
-    assert.match(harness.runner.last.script, new RegExp(`^${buildA}/`));
+    const run = harness.runner.runs[harness.runner.runs.length - 1];
+    assert.equal(run?.options.cwd, buildA, 'the job ran on the build the claim captured');
+    assert.match(run?.script ?? '', new RegExp(`^${buildA}/`));
   });
 
   it('refuses a builds row whose build is missing, naming it, and takes no claim', async () => {
@@ -114,9 +120,10 @@ describe('the build a deploy runs', () => {
   });
 
   it('runs a legacy row from its flat root, referenced as legacy', async () => {
-    const { harness, v3, row } = await setup(null);
+    const { harness, v3, row, versionsRoot } = await setup(null);
     mkdirSync(join(versionsRoot, 'v3', 'deploy', 'scripts'), { recursive: true });
     writeFileSync(join(versionsRoot, 'v3', '.env'), 'ENGINE=srs\n');
+    harness.versions.markLegacy(v3.id);
     await harness.versions.markBuilt(v3.id, { commitSha: COMMIT_A, contract: CONTRACT });
 
     const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
@@ -129,7 +136,7 @@ describe('the build a deploy runs', () => {
 
 describe('what the success hook records', () => {
   it('observes what each service mounts, and resolves the job reference the observation covers', async () => {
-    const { harness, row } = await setup();
+    const { harness, row, versionsRoot } = await setup();
     const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
     harness.ledger.mounted.set('stage/srs', buildA);
     harness.ledger.mounted.set('stage/stream-uploader', buildA);
@@ -161,7 +168,7 @@ describe('what the success hook records', () => {
     const { harness, row } = await setup();
 
     await harness.orchestrator.startDeploy(row(), undefined);
-    harness.runner.finish(1);
+    harness.runner.finish(0, 1);
     for (let tick = 0; tick < 200 && row().status !== 'ERROR'; tick += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -171,7 +178,7 @@ describe('what the success hook records', () => {
   });
 
   it('leaves the uploader job open after an engine-only deploy whose observation saw only the engine', async () => {
-    const { harness, row } = await setup();
+    const { harness, row, versionsRoot } = await setup();
     const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
     harness.ledger.mounted.set('stage/srs', buildA);
 
