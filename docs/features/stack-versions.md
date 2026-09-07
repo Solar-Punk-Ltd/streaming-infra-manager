@@ -205,8 +205,25 @@ service it has and found every one on that commit. The deployment page shows one
 every container agrees and names each service's own when they differ. The Versions page shows
 the layout, the current build and the previous one.
 
-Out of scope here: the bundled checkout stays on the old layout until T04b publishes it as builds
-of its own, and the legacy flat root is never pruned, because it doubles as the config root.
+**The bundled version.** The manager's own deploy (`deploy/deploy.sh`) used to rsync the bundled
+stack over `manager/swarm-hls-stream` on the host, the tree the api and the engines mount, so a
+container restart after a manager deploy ran an old container on replacement files. It now leaves
+that tree as it is and ships the built stack into `bundled.incoming/` under the versions root, with
+its commit. At boot the api publishes the shipment the way an added version's build is published:
+the shipped `.env`, `deploy/config.json` and `engines/<engine>/.env` are committed as the bundled
+version's host configuration under `<versions>/bundled/` when they changed, so the checkout the
+deploy ran from stays their source of truth, the tree becomes `bundled.builds/<commit>/` with its
+manifest and marker, or a complete build of the same commit and inputs is adopted and the shipment
+dropped, and one row update makes it current and gives the row `<versions>/bundled` as its root.
+The same reference and prune rules apply, so a build a container still mounts stays. A shipment
+that cannot be published is left in place with the reason on the row, and the next deploy replaces
+it. A bundled row never published stays legacy on the tree the manager ships with, and the
+Versions page says so: `with the manager, legacy tree` against `build ee99c36`. An engine mounted
+from the legacy tree, or from an earlier bundled build, keeps reading it after a publication and
+after a container restart, until its own deployment is deployed again, which is what moves it. A
+deployment whose version row is gone runs the bundled version, with a reference on it, rather than
+the raw tree. The legacy flat root of an added version is never pruned, because it doubles as the
+config root.
 
 ### Reading the contract
 
