@@ -205,3 +205,32 @@ describe('what boot does with the attempts a gone manager left open', () => {
     assert.match(harness.attempts.rows[0]?.reason ?? '', /srs, stream-uploader, bee-uploader|never seen/);
   });
 });
+
+describe('what the pages are told', () => {
+  it('says attempt.changed when an attempt opens and again when it is judged', async () => {
+    const { harness, row, recreated } = await setup();
+    const told: string[] = [];
+    harness.events.subscribe((event) => told.push(event.type));
+
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+    assert.equal(told.filter((type) => type === 'attempt.changed').length, 1, 'once for the opening');
+
+    recreated('stage');
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    assert.equal(told.filter((type) => type === 'attempt.changed').length, 2, 'and once for the judgement');
+  });
+
+  it('says attempt.changed when a person releases one, and nothing about versions', async () => {
+    const { harness, row } = await setup();
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    const told: string[] = [];
+    harness.events.subscribe((event) => told.push(event.type));
+
+    await harness.orchestrator.releaseAttempt(harness.attempts.rows[0]!.id, 'levi');
+
+    assert.deepEqual(told, ['attempt.changed']);
+  });
+});
