@@ -19,13 +19,16 @@
 #      files it was started with. Excludes node_modules, build caches and
 #      .git. The manager's .env DOES ship, and --delete means this checkout
 #      is the only source of truth for it.
-#   3. rsyncs the built stack into bundled.incoming/ under the versions root.
-#      The api publishes it at boot as bundled.builds/<commit>/, one
-#      immutable directory per build, and commits the stack's .env, deploy
-#      config and engine envs as the bundled version's host configuration
-#      when they changed, so this checkout stays their source of truth too.
-#      A new deploy of a deployment runs from the published build. A
-#      container keeps what it mounts until its deployment is deployed.
+#   3. rsyncs the built stack into bundled.incoming.tmp/ under the versions
+#      root and promotes it to bundled.incoming/ with one rename once every
+#      file, the commit included, arrived, so the api never sees a tree a
+#      dropped connection left half copied. The api publishes it at boot as
+#      bundled.builds/<commit>/, one immutable directory per build, and
+#      commits the stack's .env, deploy config and engine envs as the bundled
+#      version's host configuration when they changed, so this checkout
+#      stays their source of truth too. A new deploy of a deployment runs
+#      from the published build. A container keeps what it mounts until its
+#      deployment is deployed.
 #   4. SSHes in and runs `docker compose up -d --build --remove-orphans`.
 #      Builds happen on the server, so the image tags match the server's
 #      docker engine. With MANAGER_DOMAIN set, the `public` profile joins in
@@ -115,12 +118,15 @@ rsync -avz --delete \
     --exclude '.DS_Store' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
-echo "==> rsync the built stack → ${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming"
-# Into its own directory beside the published builds, replaced whole by every
-# deploy, never into a published build and never into the legacy tree. The
-# per deployment files a local run may have left, .env.<profile> and the like,
-# stay home. The sample they are made from ships.
-ssh "$SSH_TARGET" "mkdir -p '${REMOTE_VERSIONS_ROOT}/bundled.incoming'"
+echo "==> rsync the built stack → ${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp"
+# Into a staging directory beside the published builds, replaced whole by
+# every deploy, never into a published build and never into the legacy tree,
+# and made the shipment with one rename once every file arrived: a dropped
+# connection leaves a torn staging directory the next deploy replaces, never
+# a shipment the api would read. The per deployment files a local run may
+# have left, .env.<profile> and the like, stay home. The sample they are made
+# from ships.
+ssh "$SSH_TARGET" "rm -rf '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp' && mkdir -p '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp'"
 rsync -avz --delete \
     --exclude '.git/' \
     --exclude 'node_modules/' \
@@ -128,8 +134,11 @@ rsync -avz --delete \
     --include '.env.sample' \
     --exclude '.env.*' \
     --exclude '.DS_Store' \
-    manager/swarm-hls-stream/ "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming/"
-rsync -avz manager/.stack-commit "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming/.stack-commit"
+    manager/swarm-hls-stream/ "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp/"
+rsync -avz manager/.stack-commit "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp/.stack-commit"
+
+echo "==> promote the shipment"
+ssh "$SSH_TARGET" "rm -rf '${REMOTE_VERSIONS_ROOT}/bundled.incoming' && mv '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp' '${REMOTE_VERSIONS_ROOT}/bundled.incoming'"
 
 echo "==> Remote build + up"
 # Detect the server's primary IP on the host (the manager runs in a container,
