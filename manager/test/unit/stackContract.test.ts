@@ -170,7 +170,7 @@ describe('readStackContract on a table it cannot fully read', () => {
   it('carries the count into the plain words the page shows', () => {
     assert.match(
       describeStackContract(odd),
-      /2 ports, slots 1 to 999, no generated secrets, 1 port line not understood/,
+      /2 ports, slots 1 to 999, no generated secrets, 1 line not understood/,
     );
   });
 });
