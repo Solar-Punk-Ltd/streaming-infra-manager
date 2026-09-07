@@ -252,13 +252,19 @@ describe('PATCH /versions/:id', () => {
     assert.match(body.errors?.[0] ?? '', /cannot tell/);
   });
 
-  it('refuses to approve without naming the commit', async () => {
+  it('refuses to approve without naming the commit, left out or null', async () => {
     const bundled = await app.repository.findByName('bundled');
     await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
 
-    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, { tested: true });
+    const leftOut = await callJson('PATCH', `/versions/${bundled?.id}`, { tested: true });
+    const asNull = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: null,
+    });
 
-    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.equal(leftOut.status, 400, JSON.stringify(leftOut.body));
+    assert.equal(asNull.status, 400, JSON.stringify(asNull.body));
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
   });
 
   it('refuses a body with no tested flag', async () => {
