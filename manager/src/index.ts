@@ -159,10 +159,6 @@ async function main(): Promise<void> {
     buildLedger,
     BUNDLED_STACK_ROOT,
   );
-  await stackVersionService.syncBundled(
-    BUNDLED_STACK_ROOT,
-    readBundledCommit(BUNDLED_STACK_ROOT),
-  );
 
   const interruptedBuilds = await stackVersionService.failInterruptedBuilds();
   if (interruptedBuilds.length > 0) {
@@ -183,9 +179,23 @@ async function main(): Promise<void> {
       containerExists: (name) => containerControl.containerExists(name),
     });
     await buildLedger.observeAll();
-    await stackVersionService.pruneAll();
   } catch (err) {
     logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // After the containers were observed, so a bundled build one still mounts
+  // has its reference before the publication of a shipment prunes.
+  try {
+    await stackVersionService.syncBundled(
+      BUNDLED_STACK_ROOT,
+      readBundledCommit(BUNDLED_STACK_ROOT),
+    );
+  } catch (err) {
+    logger.warn(`[Boot] the bundled version was not synced: ${getErrorMessage(err)}`);
+  }
+  try {
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
