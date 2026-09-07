@@ -95,6 +95,11 @@ export interface RequestOptions {
   cookie?: string | null;
   /** Whether a write carries the request header. A test proves the refusal without it. */
   requestedWith?: boolean;
+  /**
+   * Sent as the body verbatim, in place of the JSON of `body`, for the test
+   * that proves a write is refused before its body is read.
+   */
+  rawBody?: string;
 }
 
 async function rawRequest(
@@ -108,10 +113,10 @@ async function rawRequest(
     headers: requestHeaders({
       method,
       cookie: options.cookie === undefined ? session : options.cookie,
-      hasBody: body !== undefined,
+      hasBody: body !== undefined || options.rawBody !== undefined,
       requestedWith: options.requestedWith,
     }),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: options.rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined),
   });
   return {
     status: res.status,

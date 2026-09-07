@@ -30,12 +30,12 @@ describe('signed in the way the browser is', () => {
   });
 
   it('is refused a write without the request header, before the body is read', async () => {
-    const { status, body } = await requestWith(
-      'POST',
-      '/profiles',
-      { name: 'never-created' },
-      { requestedWith: false },
-    );
+    // The body is not JSON on purpose: read first, it would be answered with
+    // 400 for the body rather than 403 for the missing header.
+    const { status, body } = await requestWith('POST', '/profiles', undefined, {
+      requestedWith: false,
+      rawBody: '{ not json',
+    });
 
     assert.equal(status, 403);
     assert.equal((body as { error?: string }).error, 'cross_site_request');
