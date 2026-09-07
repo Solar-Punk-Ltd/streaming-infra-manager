@@ -223,15 +223,21 @@ describe('the SRS check', () => {
       assert.equal(readFileSync(source, 'utf8'), bytes, 'still its own copy once the other check ran');
       return bytes.includes('hls_fragmnt') ? SRS_REFUSED : SRS_OK;
     });
-    const started = new Promise<void>((resolve) => setTimeout(resolve, 200));
+    // The gate never opens when both checks wrote one file, which is the
+    // failure under test. The valve opens it after 200 ms so that failure is
+    // a wrong answer rather than a hang, and a passing run never waits on it.
+    const valve = setTimeout(() => bothWritten.open(), 200);
 
-    const [good, bad] = await Promise.all([
-      checker.problem({ ...SRS_INPUT, config: 'hls_fragment 1.5;\n', scratchDir }),
-      checker.problem({ ...SRS_INPUT, config: 'hls_fragmnt 1.5;\n', scratchDir }),
-      // The gate never opens when both checks wrote one file, so the test
-      // ends on this instead of hanging.
-      started.then(() => bothWritten.open()),
-    ]);
+    let good: string | null;
+    let bad: string | null;
+    try {
+      [good, bad] = await Promise.all([
+        checker.problem({ ...SRS_INPUT, config: 'hls_fragment 1.5;\n', scratchDir }),
+        checker.problem({ ...SRS_INPUT, config: 'hls_fragmnt 1.5;\n', scratchDir }),
+      ]);
+    } finally {
+      clearTimeout(valve);
+    }
 
     assert.equal(seen.size, 2, `two copies, one per check, not ${seen.size}`);
     assert.notEqual(seen.get('hls_fragment 1.5;\n'), seen.get('hls_fragmnt 1.5;\n'));
