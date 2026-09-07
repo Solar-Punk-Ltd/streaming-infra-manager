@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -108,6 +108,21 @@ export function NewDeploymentWizard({
     }
   };
 
+  // A keyboard user arrives on each step at its content, not left on the
+  // button they pressed, unless the step already put focus in a field of its
+  // own.
+  const stepRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const step = stepRef.current;
+    if (step && !step.contains(document.activeElement)) step.focus();
+  }, [state.step]);
+
+  // A failed submission is reached and read out, not only painted.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (submitError) errorRef.current?.focus();
+  }, [submitError]);
+
   const blocked =
     state.step === 1 ? state.goal === null : stepError !== null;
 
@@ -122,13 +137,13 @@ export function NewDeploymentWizard({
       <DialogContent dividers>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <StepRail step={state.step} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box ref={stepRef} tabIndex={-1} sx={{ flex: 1, minWidth: 0, outline: 'none' }}>
             {state.step === 1 && <GoalStep {...stepProps} />}
             {state.step === 2 && <BasicsStep {...stepProps} />}
             {state.step === 3 && <SettingsStep {...stepProps} />}
             {state.step === LAST_STEP && <ReviewStep {...stepProps} />}
             {submitError && (
-              <Alert severity="error" sx={{ mt: 2 }}>
+              <Alert ref={errorRef} tabIndex={-1} severity="error" sx={{ mt: 2 }}>
                 {submitError}
               </Alert>
             )}
