@@ -1,0 +1,11 @@
+{
+  // The tests run under node:test, so they see Node's types. The app's own
+  // typecheck keeps those out, so a stray process.env in browser code still
+  // fails there. Imported app modules are checked here as well, under both.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src/**/*.test.ts"],
+  "exclude": []
+}
