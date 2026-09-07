@@ -56,6 +56,19 @@ function whyRestartIsOff(engineRunning: boolean, deploying: boolean): string {
 }
 
 /**
+ * Why the two ways out of a rollout are greyed out, or an empty string.
+ *
+ * Both recreate the engine, which on a stopped deployment would start it,
+ * and that is the operator's call to make from the Start button, not from a
+ * notice about a config file.
+ */
+function whyRolloutActionsAreOff(profile: Profile, busy: boolean): string {
+  if (profile.status === 'STOPPED') return 'Start the deployment first.';
+  if (isTransitional(profile) || busy) return 'Wait for the current deploy to finish.';
+  return '';
+}
+
+/**
  * The media server this deployment runs: what it is configured with, and the
  * two things an operator does to it by hand.
  *
@@ -109,9 +122,10 @@ export function EngineCard({
     engine: ENGINE_LABEL[engine],
     hasConfig: profile.has_engine_config,
   });
-  // Both ways out of a rollout recreate the engine, which a deployment mid
-  // transition cannot take, and the manager would refuse.
-  const rolloutActionsOff = isTransitional(profile) || actions.isBusy(profile.name);
+  const rolloutActionsOffBecause = whyRolloutActionsAreOff(
+    profile,
+    actions.isBusy(profile.name),
+  );
   const rolloutAction = (offer: RolloutAction) =>
     offer === 'verify'
       ? actions.verifyEngineConfig(profile.name, engine)
@@ -171,15 +185,18 @@ export function EngineCard({
               notice.offers.length > 0 ? (
                 <Stack direction="row" spacing={1} sx={{ alignSelf: 'center' }}>
                   {notice.offers.map((offer) => (
-                    <Button
-                      key={offer}
-                      size="small"
-                      color="inherit"
-                      disabled={rolloutActionsOff}
-                      onClick={() => rolloutAction(offer)}
-                    >
-                      {ROLLOUT_ACTION_LABEL[offer]}
-                    </Button>
+                    <Tooltip key={offer} title={rolloutActionsOffBecause}>
+                      <Box component="span">
+                        <Button
+                          size="small"
+                          color="inherit"
+                          disabled={rolloutActionsOffBecause !== ''}
+                          onClick={() => rolloutAction(offer)}
+                        >
+                          {ROLLOUT_ACTION_LABEL[offer]}
+                        </Button>
+                      </Box>
+                    </Tooltip>
                   ))}
                 </Stack>
               ) : undefined
