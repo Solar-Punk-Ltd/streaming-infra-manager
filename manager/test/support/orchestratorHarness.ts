@@ -7,6 +7,7 @@ import { EventBus } from '../../src/domain/EventBus.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
+import { FakeDaemon, InMemoryDeployAttempts } from './InMemoryDeployAttempts.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
@@ -34,6 +35,9 @@ export interface OrchestratorHarness {
   /** Seeded with the bundled version as id 1. A test adds what else it needs. */
   versions: InMemoryStackVersionRepository;
   containers: FakeContainers;
+  /** The project guard and the daemon lock, and what Docker says about the projects. */
+  attempts: InMemoryDeployAttempts;
+  daemon: FakeDaemon;
 }
 
 /**
@@ -54,6 +58,8 @@ export function orchestratorHarness(
   const versions = new InMemoryStackVersionRepository();
   versions.seedBundled();
   const containers = new FakeContainers();
+  const attempts = new InMemoryDeployAttempts();
+  const daemon = new FakeDaemon();
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -62,8 +68,10 @@ export function orchestratorHarness(
     events,
     {} as DeploymentGroupRepository,
     versions,
+    attempts,
+    daemon,
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers };
+  return { orchestrator, profiles, runner, events, versions, containers, attempts, daemon };
 }

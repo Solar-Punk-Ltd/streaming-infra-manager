@@ -1,0 +1,83 @@
+import {
+  type AttemptOutcome,
+  type DeployAttempt,
+  whyAdmissionIsRefused,
+} from '../../src/domain/deployAttempts.js';
+import type {
+  DaemonObserver,
+  DeployAttemptRepository,
+  NewDeployAttempt,
+} from '../../src/domain/DeployAttemptRepository.js';
+import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
+
+/** The attempts table over an array, with the admission rules the SQL applies under its lock. */
+export class InMemoryDeployAttempts implements DeployAttemptRepository {
+  readonly rows: DeployAttempt[] = [];
+
+  private nextId = 1;
+
+  async open(attempt: NewDeployAttempt): Promise<DeployAttempt> {
+    const refusal = whyAdmissionIsRefused(attempt, this.rows);
+    if (refusal) throw new DeployAttemptRefusedError(attempt.project, refusal);
+    const row: DeployAttempt = {
+      id: this.nextId++,
+      ...attempt,
+      services: [...attempt.services],
+      preJobContainerIds: [...attempt.preJobContainerIds],
+      state: 'open',
+      reason: null,
+      startedAt: new Date(),
+      resolvedAt: null,
+      releasedBy: null,
+    };
+    this.rows.push(row);
+    return row;
+  }
+
+  async findByJob(jobId: string): Promise<DeployAttempt | null> {
+    return this.rows.find((row) => row.jobId === jobId) ?? null;
+  }
+
+  async listUnresolved(daemonId: string): Promise<DeployAttempt[]> {
+    return this.rows.filter((row) => row.daemonId === daemonId && row.state !== 'released');
+  }
+
+  async listBlocked(): Promise<DeployAttempt[]> {
+    return this.rows.filter((row) => row.state === 'blocked');
+  }
+
+  async resolve(id: number, outcome: AttemptOutcome): Promise<DeployAttempt | null> {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row || row.state !== 'open') return null;
+    Object.assign(row, { state: outcome.state, reason: outcome.reason, resolvedAt: new Date() });
+    return row;
+  }
+
+  async release(id: number, by: string): Promise<DeployAttempt | null> {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row || row.state === 'released') return null;
+    Object.assign(row, { state: 'released', releasedBy: by, resolvedAt: new Date() });
+    return row;
+  }
+}
+
+/** Docker as a test scripts it: one daemon id, and the containers of each project by service. */
+export class FakeDaemon implements DaemonObserver {
+  id = 'daemon-1';
+
+  readonly containers = new Map<string, Map<string, string[]>>();
+
+  async daemonId(): Promise<string> {
+    return this.id;
+  }
+
+  async containerIdsOf(project: string): Promise<Map<string, string[]>> {
+    return new Map([...(this.containers.get(project) ?? new Map())].map(([service, ids]) => [service, [...ids]]));
+  }
+
+  set(project: string, service: string, ids: string[]): void {
+    const byService = this.containers.get(project) ?? new Map<string, string[]>();
+    byService.set(service, ids);
+    this.containers.set(project, byService);
+  }
+}
