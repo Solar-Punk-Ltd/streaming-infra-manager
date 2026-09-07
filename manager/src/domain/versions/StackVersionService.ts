@@ -52,6 +52,7 @@ import {
   bundledIncomingRootFor,
   configRootFor,
   repoRootFor,
+  stackRootOf,
   stagingDirFor,
   versionRootFor,
 } from './stackPaths.js';
@@ -144,6 +145,9 @@ export class StackVersionService {
   /** The version building right now, or null. This is the mutex. */
   private buildingName: string | null = null;
 
+  /** The tree the manager ships with, as boot named it. What a legacy bundled row runs. */
+  private bundledRoot: string = BUNDLED_STACK_ROOT;
+
   constructor(
     private readonly versions: StackVersionRepository,
     private readonly runner: ScriptSpawner,
@@ -178,6 +182,7 @@ export class StackVersionService {
    * is read from it, as before.
    */
   async syncBundled(bundledRoot: string, legacyCommit: string | null): Promise<void> {
+    this.bundledRoot = bundledRoot;
     const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
     if (!bundled) return;
 
@@ -208,6 +213,17 @@ export class StackVersionService {
         `[Versions] could not read the bundled version's contract: ${getErrorMessage(err)}`,
       );
     }
+  }
+
+  /**
+   * The host-wide SRT passphrase, from the base env of the tree the bundled
+   * version runs: the tree the manager ships with while the row is legacy,
+   * and its current build once published.
+   */
+  async hostPassphrase(): Promise<string | null> {
+    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
+    const root = bundled && bundled.layout === 'builds' ? stackRootOf(bundled) : this.bundledRoot;
+    return parseBaseEnv(root).SRT_PASSPHRASE?.trim() || null;
   }
 
   private async publishShipment(bundled: StackVersionRecord, incoming: string): Promise<void> {

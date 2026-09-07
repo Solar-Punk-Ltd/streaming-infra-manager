@@ -82,7 +82,10 @@ export function startApiServer(
   app.use('/auth', createAuthRouter(deps.authService, requireSession));
   app.use(requireSession);
 
-  app.use('/config', createConfigRouter(deps.chequebookService.floorBzz));
+  app.use(
+    '/config',
+    createConfigRouter(deps.chequebookService.floorBzz, () => deps.stackVersionService.hostPassphrase()),
+  );
   app.use('/metrics', metrics);
   app.use('/events', events.router);
   app.use('/profiles', createProfilesRouter(deps.profileService));
