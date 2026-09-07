@@ -181,7 +181,8 @@ export function seedVersions() {
       tested: true,
       builtAt: '2026-08-04T11:20:00Z',
       contract: BUNDLED_CONTRACT,
-      layout: 'legacy',
+      // Published by the manager's own deploy, so it deploys from a build of its own.
+      buildId: 'ee99c368bd45c12defcb10ca726f0db0777defb0',
     }),
     makeVersion({
       name: 'main-v3',
