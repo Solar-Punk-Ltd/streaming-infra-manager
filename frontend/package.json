@@ -8,6 +8,7 @@
     "dev:mock": "pnpm --filter @streaming-infra-manager/common build && node dev/mock-manager.mjs",
     "build": "pnpm --filter @streaming-infra-manager/common build && tsc -b && vite build",
     "preview": "vite preview",
+    "test": "tsx --conditions=development --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,9 +22,11 @@
     "viem": "^2.48.11"
   },
   "devDependencies": {
+    "@types/node": "22.9.0",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.3.4",
+    "tsx": "4.19.2",
     "typescript": "5.6.3",
     "vite": "5.4.11"
   }
