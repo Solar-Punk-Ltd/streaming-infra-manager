@@ -85,7 +85,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: null,
       status: 'building',
       rootPath: version.rootPath,
-      layout: 'builds',
+      // The column's default: a row is legacy until its first publication.
+      layout: 'legacy',
       buildId: null,
       previousBuildId: null,
       contract: null,
