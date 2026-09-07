@@ -36,6 +36,8 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_url: null,
     srt_passphrase: null,
     engine_settings: {},
+    has_engine_config: false,
+    engine_config_error: null,
     stack_version_id: 1,
     status: 'RUNNING',
     last_error: null,
@@ -77,6 +79,9 @@ export class InMemoryProfiles {
 
   /** The `stack_secrets` column, kept apart from the rows the way the real one is read. */
   readonly secrets = new Map<string, StackSecrets>();
+
+  /** The `engine_config` column, kept apart from the rows for the same reason. */
+  readonly engineConfigs = new Map<string, string>();
 
   constructor(profiles: readonly Profile[] = []) {
     for (const profile of profiles) this.rows.set(profile.name, profile);
@@ -178,6 +183,23 @@ export class InMemoryProfiles {
     settings: EngineSettings,
   ): Promise<Profile | null> {
     return this.write(name, { engine_settings: settings });
+  }
+
+  async engineConfigOf(name: string): Promise<string | null> {
+    return this.engineConfigs.get(name) ?? null;
+  }
+
+  async setEngineConfig(
+    name: string,
+    config: string | null,
+    error: string | null,
+  ): Promise<Profile | null> {
+    if (config === null) this.engineConfigs.delete(name);
+    else this.engineConfigs.set(name, config);
+    return this.write(name, {
+      has_engine_config: config !== null,
+      engine_config_error: error,
+    });
   }
 
   async stackSecretsOf(name: string): Promise<StackSecrets> {

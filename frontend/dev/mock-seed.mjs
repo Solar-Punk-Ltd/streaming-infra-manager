@@ -141,6 +141,8 @@ export function makeProfile(input) {
     bee_url: input.bee_url ?? null,
     srt_passphrase: input.srt_passphrase ?? null,
     engine_settings: input.engine_settings ?? {},
+    has_engine_config: false,
+    engine_config_error: null,
     status: input.status ?? 'RUNNING',
     last_error: input.last_error ?? null,
     last_error_at: input.last_error_at ?? null,

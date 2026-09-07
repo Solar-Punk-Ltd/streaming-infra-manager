@@ -51,6 +51,8 @@ const PROFILE: Profile = {
   bee_url: null,
   srt_passphrase: null,
   engine_settings: {},
+  has_engine_config: false,
+  engine_config_error: null,
   stack_version_id: 1,
   status: 'RUNNING',
   last_error: null,

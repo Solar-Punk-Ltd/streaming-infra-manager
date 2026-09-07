@@ -177,6 +177,37 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
+  /** The engine's config file as stored, whole, or null when the template runs. */
+  async engineConfigOf(name: string): Promise<string | null> {
+    const result = await this.pool.query<{ engine_config: string | null }>(
+      'SELECT engine_config FROM profiles WHERE name = $1',
+      [name],
+    );
+    return result.rows[0]?.engine_config ?? null;
+  }
+
+  /**
+   * Stores the file and the outcome of the last apply in one statement, so a
+   * revert that puts the previous file back cannot leave the error of the
+   * attempt behind on a row that no longer runs it, or the other way round.
+   */
+  async setEngineConfig(
+    name: string,
+    config: string | null,
+    error: string | null,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET engine_config = $2,
+             engine_config_error = $3,
+             updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name, config, error],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
   /**
    * The deployment's generated secrets. Read on their own rather than as a
    * column of every row, because a row travels: it is answered to the browser

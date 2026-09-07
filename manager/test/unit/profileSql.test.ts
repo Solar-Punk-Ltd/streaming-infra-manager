@@ -29,11 +29,16 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const INTERFACES = join(here, '..', '..', 'src', 'types', 'interfaces.ts');
 
-/** Column names in the shared SELECT list. */
+/**
+ * Column names in the shared SELECT list. An expression is counted by its
+ * alias, which is the name the row carries it under: `(engine_config IS NOT
+ * NULL) AS has_engine_config` is the field `has_engine_config`.
+ */
 const selected = (): string[] =>
   PROFILE_COLUMNS.split(',')
     .map((c) => c.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((c) => c.split(/\s+AS\s+/i).pop()!);
 
 /**
  * Field names declared on `export interface Profile`, read from the source

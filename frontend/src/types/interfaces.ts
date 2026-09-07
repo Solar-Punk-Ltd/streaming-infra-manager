@@ -30,6 +30,10 @@ export interface Profile {
    * the stack default. The column is NOT NULL, so the object is always there.
    */
   engine_settings: EngineSettings;
+  /** The engine runs on a config file of this deployment's own, not the stack's template. */
+  has_engine_config: boolean;
+  /** Why the last config file apply was reverted, or null. */
+  engine_config_error: string | null;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: string | null;

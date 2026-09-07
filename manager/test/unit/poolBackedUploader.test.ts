@@ -57,6 +57,8 @@ function streamer(over: Partial<Profile> = {}): Profile {
     bee_url: null,
     srt_passphrase: null,
     engine_settings: {},
+    has_engine_config: false,
+    engine_config_error: null,
     status: 'STOPPED',
     last_error: null,
     last_error_at: null,

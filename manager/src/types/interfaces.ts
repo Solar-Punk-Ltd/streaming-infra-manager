@@ -34,6 +34,13 @@ export interface Profile {
    * common/src/engineSettings.ts.
    */
   engine_settings: EngineSettings;
+  /**
+   * The engine runs on a config file of this deployment's own rather than the
+   * stack's template. The file itself is read on its own, see migration 012.
+   */
+  has_engine_config: boolean;
+  /** Why the last config file apply was reverted, or null. */
+  engine_config_error: string | null;
   status: ProfileStatus;
   last_error: string | null;
   last_error_at: Date | null;
