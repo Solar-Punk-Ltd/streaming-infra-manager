@@ -25,6 +25,19 @@ export interface BuildReference {
   resolvedAt: Date | null;
 }
 
+/**
+ * The reference key of a root: the build id under `<name>.builds`, `legacy`
+ * for a version's flat root, `bundled` for anything else, which is the
+ * bundled checkout.
+ */
+export function buildIdOfRoot(versionsRoot: string, root: string): string {
+  const relative = root.startsWith(`${versionsRoot}/`) ? root.slice(versionsRoot.length + 1) : null;
+  if (relative === null) return 'bundled';
+  const [first, second] = relative.split('/');
+  if (first?.endsWith('.builds') && second) return second;
+  return 'legacy';
+}
+
 export interface NewBuildReference {
   versionId: number;
   buildId: string;
