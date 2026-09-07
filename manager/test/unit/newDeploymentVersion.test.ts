@@ -29,6 +29,7 @@ const EMPTY_CONTRACT: StackContract = {
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 async function addVersion(

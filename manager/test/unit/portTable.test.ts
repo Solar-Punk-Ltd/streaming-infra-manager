@@ -41,7 +41,7 @@ const V3_CONTRACT: StackContract = {
       ...port,
       defaultPort: [3000, 10080, 1935, 8080, 5173, 1633, 1634, 1733, 1734][index]!,
     })),
-    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009 },
+    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009, protocol: 'tcp' },
   ],
   maxSlot: 99,
   requiredSecrets: [],
@@ -51,6 +51,7 @@ const V3_CONTRACT: StackContract = {
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 async function v3On(harness: { versions: OrchestratorHarness['versions'] }): Promise<number> {

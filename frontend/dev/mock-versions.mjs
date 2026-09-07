@@ -62,6 +62,7 @@ function portsFrom(entries) {
       name: fields[0],
       defaultPort: Number(fields[1]),
       slotBase: Number(fields[fields.length - 1]),
+      protocol: fields[0] === 'SRS_SRT_PORT' ? 'udp' : 'tcp',
     };
   });
 }
@@ -81,6 +82,7 @@ const BUNDLED_CONTRACT = {
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const V3_CONTRACT = {
@@ -99,6 +101,7 @@ const V3_CONTRACT = {
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const BUILD_LOG = [

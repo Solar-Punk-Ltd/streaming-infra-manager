@@ -26,6 +26,9 @@ export const STACK_VERSION_STATUSES: readonly StackVersionStatus[] = [
   'failed',
 ];
 
+/** The transport a port is published on. Docker's port mapping names it, tcp when it does not. */
+export type PortProtocol = 'tcp' | 'udp';
+
 /** One entry of a version's PORT_VARS table in `deploy/scripts/_lib.sh`. */
 export interface StackPortVar {
   name: string;
@@ -33,6 +36,8 @@ export interface StackPortVar {
   defaultPort: number;
   /** A slot shifts this by ten per slot: `slotBase + slot * 10`. */
   slotBase: number;
+  /** From the compose file's mapping of this variable, tcp when it maps none. */
+  protocol: PortProtocol;
 }
 
 export interface StackContractFeatures {
@@ -89,6 +94,13 @@ export interface StackContract {
    * sharing image tags, and the message says so.
    */
   warnings: string[];
+  /**
+   * Why no deployment can be allocated a port slot on this version, or
+   * null: a compose port mapping the reader could not follow, a published
+   * port no variable shifts, or a port table with nothing in it. A port the
+   * manager cannot reserve is a port two deployments would bind.
+   */
+  allocationProblem: string | null;
 }
 
 /** One row of the Versions page, as `GET /versions` answers it. */
@@ -121,6 +133,20 @@ export interface StackVersion {
 
 /** Slot ceiling for a version whose deploy script names no other. */
 export const DEFAULT_MAX_SLOT = 999;
+
+/**
+ * The highest port slot the manager allocates on any version (D01). Above
+ * it the stack's two port bands land on each other: slot 101's RTMP port is
+ * the second band's slot 1 P2P port. The firewall generator stops at the
+ * same number. The cap counts every stored deployment record, stopped ones
+ * included, because a stopped deployment keeps its slot.
+ */
+export const MANAGER_SLOT_CAP = 100;
+
+/** The highest slot a deployment of this version may get: the version's own limit, and never above the manager's. */
+export function slotCapFor(contract: Pick<StackContract, 'maxSlot'> | null | undefined): number {
+  return Math.min(contract?.maxSlot ?? DEFAULT_MAX_SLOT, MANAGER_SLOT_CAP);
+}
 
 // --------------------------------------------------------------- the names
 
@@ -270,6 +296,9 @@ export function parseStackContract(value: unknown): StackContract | null {
     engineConfig: engineConfigOf(value.engineConfig),
     engineImages: engineImagesOf(value.engineImages),
     warnings: stringsOf(value.warnings),
+    // Absent from a contract an older manager stored, which read no mapping.
+    allocationProblem:
+      typeof value.allocationProblem === 'string' ? value.allocationProblem : null,
   };
 }
 
@@ -307,6 +336,9 @@ function parsePorts(value: unknown): StackPortVar[] | null {
       name: entry.name,
       defaultPort: entry.defaultPort,
       slotBase: entry.slotBase,
+      // A contract an older manager stored names no protocol: tcp, as the
+      // mapping default is.
+      protocol: entry.protocol === 'udp' ? 'udp' : 'tcp',
     });
   }
   return ports;

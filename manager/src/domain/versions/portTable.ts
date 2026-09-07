@@ -24,6 +24,8 @@ export const BUNDLED_PORT_TABLE: readonly StackPortVar[] = [
   name,
   defaultPort: 10000 + index,
   slotBase: 10000 + index,
+  // The SRT ingest is the one UDP mapping the bundled compose file carries.
+  protocol: name === 'SRS_SRT_PORT' ? ('udp' as const) : ('tcp' as const),
 }));
 
 /** OvenMediaEngine listens where SRS would, so its ports follow the SRS entries. */

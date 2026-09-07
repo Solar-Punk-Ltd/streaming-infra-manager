@@ -35,6 +35,7 @@ const CONTRACT: StackContract = {
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const A = 'a'.repeat(40);

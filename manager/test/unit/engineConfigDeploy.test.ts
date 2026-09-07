@@ -39,6 +39,7 @@ const WITH_HOOK: StackContract = {
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const CONFIG = 'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n';

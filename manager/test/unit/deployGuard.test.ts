@@ -38,6 +38,7 @@ const contract = (sharedImageTags: boolean): StackContract => ({
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
   warnings: [],
+  allocationProblem: null,
 });
 
 async function setup(sharedImageTags = true) {

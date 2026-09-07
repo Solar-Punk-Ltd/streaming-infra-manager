@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  type PortProtocol,
   DEFAULT_MAX_SLOT,
   type EngineConfigSupport,
   type EngineImages,
@@ -87,9 +88,11 @@ export function readStackContract(root: string): StackContract {
   const compose = readOptional(root, DEPLOY_COMPOSE);
   const sharedTags = compose === '' ? { shared: true, warning: null } : readSharedImageTags(compose);
   if (sharedTags.warning) warnings.push(sharedTags.warning);
+  const mappings = readPortMappings(compose);
+  const portsWithProtocol = ports.map((port) => ({ ...port, protocol: mappings.protocols.get(port.name) ?? 'tcp' }));
 
   return {
-    ports,
+    ports: portsWithProtocol,
     maxSlot: parseMaxSlot(readOptional(root, DEPLOY_SCRIPT)),
     requiredSecrets: readRequiredSecrets(root),
     engineDefaults: readEngineDefaults(root),
@@ -102,7 +105,14 @@ export function readStackContract(root: string): StackContract {
     engineConfig: readEngineConfigSupport(root),
     engineImages: readEngineImages(compose),
     warnings,
+    allocationProblem: allocationProblemOf(ports, mappings.problems),
   };
+}
+
+/** Why no slot can be allocated on this version, or null. The first problem is the one named. */
+function allocationProblemOf(ports: PortTableEntry[], problems: string[]): string | null {
+  if (ports.length === 0) return `${LIB_SCRIPT} has no port table the manager could read, so it cannot reserve this version's ports.`;
+  return problems[0] ?? null;
 }
 
 // ------------------------------------------------------------- the sources
@@ -125,9 +135,12 @@ function readOptional(root: string, relative: string): string {
 
 // --------------------------------------------------------------- the ports
 
+/** A port table entry before the compose file says which protocol it is published on. */
+type PortTableEntry = Omit<StackPortVar, 'protocol'>;
+
 /** What one PORT_VARS block held, including the lines it could not be read for. */
 interface PortTable {
-  ports: StackPortVar[];
+  ports: PortTableEntry[];
   warnings: string[];
 }
 
@@ -143,7 +156,7 @@ interface PortTable {
  */
 function parsePortVars(lib: string): PortTable {
   const lines = lib.split('\n');
-  const ports: StackPortVar[] = [];
+  const ports: PortTableEntry[] = [];
   const warnings: string[] = [];
   let inside = false;
 
@@ -175,7 +188,7 @@ function contentOf(raw: string): string {
   return raw.split('#')[0]?.trim().replace(/^["']|["']$/g, '') ?? '';
 }
 
-function parsePortVarEntry(line: string): StackPortVar | null {
+function parsePortVarEntry(line: string): PortTableEntry | null {
   const fields = line.split(':');
   const name = fields[0];
   const defaultPort = Number(fields[1]);
@@ -226,6 +239,122 @@ function declaredValue(sample: string, key: string): string | null {
 
   const value = line.slice(key.length + 1).trim();
   return value === '' ? null : value;
+}
+
+// ------------------------------------------------------------ the mappings
+
+const PORTS_KEY = /^    ports:\s*$/;
+const FOUR_SPACE_KEY = /^    [a-z_]+:/;
+const SHORT_ENTRY = /^      - (?:"([^"]*)"|'([^']*)'|(\S+))\s*$/;
+const LONG_ENTRY_START = /^      - target:/;
+const LONG_PUBLISHED = /^        published:\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/;
+const LONG_PROTOCOL = /^        protocol:\s*['"]?(tcp|udp)['"]?\s*$/;
+const PUBLISHED_VAR = /^\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}$/;
+
+interface PortMappings {
+  /** Port variable name to the protocol its mapping names. */
+  protocols: Map<string, PortProtocol>;
+  /** Mappings the reader could not follow, one message each, naming the line. */
+  problems: string[];
+}
+
+/**
+ * The protocol each port variable is published with, from the `ports:` of
+ * every service in the compose file. Both forms Docker documents are read:
+ * the short string, `[bind:]published:container[/protocol]`, where any part
+ * may be a `${VAR:-default}` reference, and the long map with `target`,
+ * `published` and `protocol` keys. A mapping the reader cannot follow, and a
+ * published port no variable shifts, are problems: every deployment of the
+ * version would bind the same port, or one the manager never reserved.
+ */
+function readPortMappings(compose: string): PortMappings {
+  const protocols = new Map<string, PortProtocol>();
+  const problems: string[] = [];
+  let inPorts = false;
+  let long: { published: string | null; protocol: PortProtocol; line: number } | null = null;
+
+  const closeLong = (): void => {
+    if (!long) return;
+    record(long.published, long.protocol, long.line);
+    long = null;
+  };
+  const record = (published: string | null, protocol: PortProtocol, line: number): void => {
+    const name = published === null ? null : PUBLISHED_VAR.exec(published)?.[1] ?? null;
+    if (name) {
+      protocols.set(name, protocol);
+      return;
+    }
+    problems.push(
+      `${DEPLOY_COMPOSE} line ${line} publishes ${published ?? 'no port'}, which no port variable shifts per slot, so every deployment would bind it.`,
+    );
+  };
+
+  const lines = compose.split('\n');
+  for (const [index, line] of lines.entries()) {
+    const lineNumber = index + 1;
+    if (PORTS_KEY.test(line)) {
+      closeLong();
+      inPorts = true;
+      continue;
+    }
+    if (!inPorts) continue;
+    if (SERVICE_LINE.test(line) || FOUR_SPACE_KEY.test(line)) {
+      closeLong();
+      inPorts = false;
+      continue;
+    }
+    if (line.trim() === '' || line.trim().startsWith('#')) continue;
+    if (LONG_ENTRY_START.test(line)) {
+      closeLong();
+      long = { published: null, protocol: 'tcp', line: lineNumber };
+      continue;
+    }
+    if (long) {
+      const published = LONG_PUBLISHED.exec(line);
+      if (published) {
+        long.published = published[1] ?? published[2] ?? published[3] ?? null;
+        continue;
+      }
+      const protocol = LONG_PROTOCOL.exec(line);
+      if (protocol) long.protocol = protocol[1] as PortProtocol;
+      continue;
+    }
+    const short = SHORT_ENTRY.exec(line);
+    const entry = short ? (short[1] ?? short[2] ?? short[3] ?? '') : null;
+    const parsed = entry === null ? null : parseShortMapping(entry);
+    if (!parsed) {
+      problems.push(`${DEPLOY_COMPOSE} line ${lineNumber} is a port mapping the manager cannot read: ${line.trim()}`);
+      continue;
+    }
+    record(parsed.published, parsed.protocol, lineNumber);
+  }
+  closeLong();
+  return { protocols, problems };
+}
+
+/** `[bind:]published:container[/protocol]`, split on the colons outside `${...}`. */
+function parseShortMapping(entry: string): { published: string; protocol: PortProtocol } | null {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const char of entry) {
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (char === ':' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part === '')) return null;
+  const published = parts[parts.length - 2]!;
+  const container = parts[parts.length - 1]!;
+  const slash = container.indexOf('/');
+  const protocol = slash === -1 ? 'tcp' : container.slice(slash + 1);
+  if (protocol !== 'tcp' && protocol !== 'udp') return null;
+  return { published, protocol };
 }
 
 // ------------------------------------------------------------- the engines
