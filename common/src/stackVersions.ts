@@ -40,6 +40,12 @@ export interface StackContractFeatures {
   srsApiPort: boolean;
   /** The uploader refuses to start on a Bee node whose chequebook is too low. */
   chequebookGate: boolean;
+  /**
+   * A built service declares an `image:` name, so every deployment's build
+   * of it moves one shared tag. True as well when the compose file could not
+   * be read, because unknown must not run concurrently.
+   */
+  sharedImageTags: boolean;
 }
 
 /** Per engine: whether the version runs it on a config file of the operator's own when asked. */
@@ -246,6 +252,9 @@ export function parseStackContract(value: unknown): StackContract | null {
     features: {
       srsApiPort: features.srsApiPort === true,
       chequebookGate: features.chequebookGate === true,
+      // Absent from a contract an older manager stored, which was never
+      // classified, and unknown must not run concurrently.
+      sharedImageTags: features.sharedImageTags !== false,
     },
     chequebookMinBzz:
       typeof value.chequebookMinBzz === 'string' ? value.chequebookMinBzz : null,

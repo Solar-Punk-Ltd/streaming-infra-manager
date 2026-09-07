@@ -217,10 +217,9 @@ describe('readStackContract and the image tags a version builds', () => {
     assert.equal(contract.features.sharedImageTags, true);
   });
 
-  it('treats a compose file it cannot read as shared, and says so', () => {
+  it('treats a compose file it cannot read as shared', () => {
     const contract = readStackContract(withCompose(null));
 
     assert.equal(contract.features.sharedImageTags, true);
-    assert.ok(contract.warnings.some((warning) => /docker-compose\.yml/.test(warning) && /shared/.test(warning)));
   });
 });

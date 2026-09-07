@@ -82,6 +82,11 @@ export function readStackContract(root: string): StackContract {
   const rootEnvSample = readOptional(root, ROOT_ENV_SAMPLE);
   const chequebookMinBzz = declaredValue(rootEnvSample, CHEQUEBOOK_FLOOR_KEY);
 
+  // A compose file that cannot be read leaves the tags shared: unknown must
+  // not run concurrently. The port table's warnings are the port table's.
+  const compose = readOptional(root, DEPLOY_COMPOSE);
+  const sharedTags = compose === '' ? true : readSharedImageTags(compose);
+
   return {
     ports,
     maxSlot: parseMaxSlot(readOptional(root, DEPLOY_SCRIPT)),
@@ -90,10 +95,11 @@ export function readStackContract(root: string): StackContract {
     features: {
       srsApiPort: ports.some((port) => port.name === SRS_API_PORT_VAR),
       chequebookGate: chequebookMinBzz !== null,
+      sharedImageTags: sharedTags,
     },
     chequebookMinBzz,
     engineConfig: readEngineConfigSupport(root),
-    engineImages: readEngineImages(readOptional(root, DEPLOY_COMPOSE)),
+    engineImages: readEngineImages(compose),
     warnings,
   };
 }
@@ -232,6 +238,30 @@ function readEngineConfigSupport(root: string): EngineConfigSupport {
 
 const SERVICE_LINE = /^  ([a-z][a-z0-9-]*):\s*$/;
 const IMAGE_LINE = /^    image:\s*['"]?([^'"\s]+)['"]?\s*$/;
+const BUILD_LINE = /^    build:/;
+
+/**
+ * Whether a built service names its image. Compose tags a build by that
+ * name, one tag for every project that builds the service, so two
+ * deployments building at once race on it. Without the name compose tags
+ * the build `<project>-<service>`, one per deployment.
+ */
+function readSharedImageTags(compose: string): boolean {
+  const built = new Set<string>();
+  const named = new Set<string>();
+  let service: string | null = null;
+  for (const line of compose.split('\n')) {
+    const serviceMatch = SERVICE_LINE.exec(line);
+    if (serviceMatch) {
+      service = serviceMatch[1]!;
+      continue;
+    }
+    if (service === null) continue;
+    if (BUILD_LINE.test(line)) built.add(service);
+    if (IMAGE_LINE.test(line)) named.add(service);
+  }
+  return [...built].some((name) => named.has(name));
+}
 
 /**
  * The `image:` of the `srs` and `ome` services in the deploy compose file.
