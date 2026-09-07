@@ -6,7 +6,9 @@
  *
  * The passphrase default is the one that matters here: on a host without a
  * shared passphrase, "use the host-wide passphrase" is unencrypted ingest,
- * and a default is what most deployments keep.
+ * and a default is what most deployments keep. The second suite is what the
+ * Review step says about the choice, which has to match what the Publish
+ * card says once the deployment runs.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -54,7 +56,7 @@ describe('the passphrase a new deployment starts with', () => {
     assert.ok(needsPassphrase(state) && chosenPassphrase(state) === state.generatedPassphrase);
   });
 
-  it('is kept when the goal changes', () => {
+  it('is recomputed from the host when a change of goal starts the settings over', () => {
     const context = hostWith(null);
     const state = withGoal(initialWizardState({ goal: 'viewer' }, context), 'stream', context);
 
