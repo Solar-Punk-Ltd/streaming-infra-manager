@@ -50,15 +50,14 @@ const V3_CONTRACT: StackContract = {
 
 describe('GET /profiles/:name/engine on a version with its own defaults', () => {
   let app: EngineTestApp;
-  let harness: ReturnType<typeof harnessFor>;
 
   before(async () => {
-    harness = harnessFor(profileRow());
+    const { service, versions } = harnessFor(profileRow());
     // The bundled row stands in for a main-v3 checkout: the contract is what
     // the route reads, and the row's name is not.
-    await harness.versions.setContract(1, V3_CONTRACT);
+    await versions.setContract(1, V3_CONTRACT);
     app = await startEngineTestApp(
-      harness.service,
+      service,
       new ContainerControl(new EventBus(), fakeDocker([])),
     );
   });
@@ -91,21 +90,32 @@ describe('GET /profiles/:name/engine on a version with its own defaults', () => 
   });
 
   it('follows an override, and goes back to the version default once it is cleared', async () => {
-    // The fake orchestrator leaves a recreated deployment DEPLOYING, so the
-    // row is put back between the two saves the way the real success hook does.
-    await harness.service.updateEngineSettings('stream1', { HLS_WINDOW: '20' });
-    harness.stored().status = 'RUNNING';
-    const overridden = (await callEngine(app, 'GET', '/profiles/stream1/engine'))
-      .body as EngineOverview;
+    // A row of its own, since this one is written to. The fake orchestrator
+    // leaves a recreated deployment DEPLOYING, so the row is put back between
+    // the two saves the way the real success hook does.
+    const own = harnessFor(profileRow());
+    await own.versions.setContract(1, V3_CONTRACT);
+    const ownApp = await startEngineTestApp(
+      own.service,
+      new ContainerControl(new EventBus(), fakeDocker([])),
+    );
+    try {
+      await own.service.updateEngineSettings('stream1', { HLS_WINDOW: '20' });
+      own.stored().status = 'RUNNING';
+      const overridden = (await callEngine(ownApp, 'GET', '/profiles/stream1/engine'))
+        .body as EngineOverview;
 
-    await harness.service.updateEngineSettings('stream1', {});
-    harness.stored().status = 'RUNNING';
-    const cleared = (await callEngine(app, 'GET', '/profiles/stream1/engine'))
-      .body as EngineOverview;
+      await own.service.updateEngineSettings('stream1', {});
+      own.stored().status = 'RUNNING';
+      const cleared = (await callEngine(ownApp, 'GET', '/profiles/stream1/engine'))
+        .body as EngineOverview;
 
-    assert.equal(overridden.effective.HLS_WINDOW, '20');
-    assert.equal(overridden.effective.HLS_FRAGMENT, '0.5', 'the other key keeps the version default');
-    assert.equal(cleared.effective.HLS_WINDOW, '15');
+      assert.equal(overridden.effective.HLS_WINDOW, '20');
+      assert.equal(overridden.effective.HLS_FRAGMENT, '0.5', 'the other key keeps the version default');
+      assert.equal(cleared.effective.HLS_WINDOW, '15');
+    } finally {
+      await ownApp.close();
+    }
   });
 });
 
