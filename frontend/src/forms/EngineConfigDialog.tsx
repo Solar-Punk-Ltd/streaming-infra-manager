@@ -51,7 +51,7 @@ const WHAT_THIS_IS =
  */
 const WHAT_APPLYING_DOES: Record<EngineName, string> = {
   [SRS_SERVICE]:
-    'Applying runs the file through SRS\'s own parser first, in a throwaway container, so a file it refuses changes nothing. Then the engine is recreated on it and watched for twenty seconds, and if it will not stay up the previous file comes back on its own. A publisher, if one is live, is disconnected for a few seconds either way.',
+    'Applying runs the file through SRS\'s own parser first, in a throwaway container, so a file it refuses changes nothing. Then the engine is recreated on it and watched for twenty seconds, and if it will not stay up the previous file comes back on its own, which is a recovery attempt and not a promise. A publisher, if one is live, is disconnected for a few seconds either way.',
   [OME_SERVICE]:
     'OvenMediaEngine has no parser to ask, so applying checks the file here first: it must be well formed XML and keep what the stack\'s uploader depends on from this version\'s template. Then the engine is recreated on it, watched for twenty seconds, and its HLS port is tried once the watch is over. If the engine will not stay up the previous file comes back on its own, which is a recovery attempt and not a promise, and a port that does not answer is reported as a note, not a failure. A publisher, if one is live, is disconnected for a few seconds either way.',
 };
