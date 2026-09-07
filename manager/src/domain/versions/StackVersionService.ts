@@ -385,8 +385,17 @@ export class StackVersionService {
       failure = getErrorMessage(err);
     }
     // Before the row says anything, so a reader that sees the outcome finds
-    // the builds directory as the outcome describes it.
-    await rm(staging, { recursive: true, force: true });
+    // the builds directory as the outcome describes it. A tree the build
+    // container left owned by root is one the manager's own user cannot
+    // remove, and that is a warning to act on, not a reason for the process
+    // to go down with an unhandled rejection.
+    try {
+      await rm(staging, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn(
+        `[Versions] could not remove staging ${staging}: ${getErrorMessage(err)}. Remove it by hand.`,
+      );
+    }
 
     try {
       if (outcome) {
