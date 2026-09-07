@@ -13,7 +13,7 @@
  * One definition, so the next column added cannot repeat that.
  */
 export const PROFILE_COLUMNS = `
-  name, port_slot, kind, notes,
+  name, port_slot, kind, notes, notes_revision,
   components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
   bee_publishers, bee_url, srt_passphrase, engine_settings,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error,

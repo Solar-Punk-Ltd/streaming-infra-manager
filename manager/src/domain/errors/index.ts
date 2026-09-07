@@ -6,6 +6,7 @@ export { UnknownServiceError } from './UnknownServiceError.js';
 export { ProfileBusyError } from './ProfileBusyError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';
+export { NotesConflictError } from './NotesConflictError.js';
 export { GroupExistsError } from './GroupExistsError.js';
 export { GroupNotFoundError } from './GroupNotFoundError.js';
 export { GroupBusyError } from './GroupBusyError.js';

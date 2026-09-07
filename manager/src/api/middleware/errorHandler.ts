@@ -29,6 +29,7 @@ import {
   LadderGroupError,
   LockedOutError,
   NotSignedInError,
+  NotesConflictError,
   NoUsersError,
   ProfileConfigError,
   ProfileExistsError,
@@ -135,6 +136,14 @@ export function errorHandler(
   }
   if (err instanceof ProfileExistsError) {
     res.status(409).json({ error: 'profile_exists', name: err.profileName });
+    return;
+  }
+  if (err instanceof NotesConflictError) {
+    res.status(409).json({
+      error: 'notes_conflict',
+      name: err.profileName,
+      message: err.message,
+    });
     return;
   }
   if (err instanceof ProfileBusyError) {

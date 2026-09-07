@@ -46,6 +46,7 @@ function streamer(over: Partial<Profile> = {}): Profile {
     port_slot: 2,
     kind: 'streamer',
     notes: null,
+    notes_revision: 0,
     components: null,
     host: null,
     feed_owner: null,

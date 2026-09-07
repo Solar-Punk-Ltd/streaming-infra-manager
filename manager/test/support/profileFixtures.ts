@@ -25,6 +25,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     port_slot: 1,
     kind: 'streamer',
     notes: null,
+    notes_revision: 0,
     components: null,
     host: null,
     feed_owner: null,
@@ -166,16 +167,35 @@ export class InMemoryProfiles {
     kind: ProfileKind,
     data: ProfileWriteData = {},
     engineSettings?: EngineSettings,
+    expectedNotesRevision?: number,
   ): Promise<Profile | null> {
     if (this.writesRefused.has(name)) {
       throw new Error(`write refused for ${name}`);
     }
     this.updateEditableCalls.push(name);
+    const row = this.rows.get(name);
+    if (!row) return null;
+    if (expectedNotesRevision !== undefined && row.notes_revision !== expectedNotesRevision) {
+      return null;
+    }
+    const fields = definedFields(data);
+    const notesChanged = 'notes' in fields && fields.notes !== row.notes;
     return this.write(name, {
       kind,
-      ...definedFields(data),
+      ...fields,
+      ...(notesChanged ? { notes_revision: row.notes_revision + 1 } : {}),
       ...(engineSettings === undefined ? {} : { engine_settings: engineSettings }),
     });
+  }
+
+  async updateNotes(
+    name: string,
+    notes: string | null,
+    expectedRevision: number,
+  ): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || row.notes_revision !== expectedRevision) return null;
+    return this.write(name, { notes, notes_revision: row.notes_revision + 1 });
   }
 
   async updateEngineSettings(

@@ -40,6 +40,7 @@ const PROFILE: Profile = {
   port_slot: 1,
   kind: 'streamer',
   notes: null,
+  notes_revision: 0,
   components: null,
   host: '10.0.0.9',
   feed_owner: null,
