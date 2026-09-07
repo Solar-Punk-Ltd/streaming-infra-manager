@@ -143,9 +143,9 @@ export function ContainersCard({
 }
 
 /**
- * One port: a link only when a browser is meant to open it, otherwise the
- * number as it is, and in either case who it is for and a copy of the address
- * in the form its tool takes.
+ * One port on two lines: the key, the number and a copy of the address in
+ * the form its tool takes, then who it is for. The number is a link only when
+ * a browser is meant to open it.
  */
 function PortCell({
   portKey,
@@ -159,29 +159,28 @@ function PortCell({
   const kind = endpointKindOf(portKey);
   const address = endpointAddress(kind, host, port);
   return (
-    <Box
-      sx={{
-        fontSize: 12,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.5,
-        flexWrap: 'wrap',
-      }}
-    >
-      <span>{portKey}</span>
-      {kind.opensInBrowser ? (
-        <Link href={address} target="_blank" rel="noopener noreferrer">
-          {port}
-        </Link>
-      ) : (
-        <Box component="span" sx={{ fontFamily: MONO_STACK }}>
-          {port}
-        </Box>
-      )}
-      <Typography variant="caption" color="text.secondary">
+    <Box sx={{ fontSize: 12, mb: 0.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <span>{portKey}</span>
+        {kind.opensInBrowser ? (
+          <Link
+            href={address}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${address}, the ${kind.label}`}
+          >
+            {port}
+          </Link>
+        ) : (
+          <Box component="span" sx={{ fontFamily: MONO_STACK }}>
+            {port}
+          </Box>
+        )}
+        <CopyButton value={address} label={address} />
+      </Box>
+      <Typography variant="caption" color="text.secondary" component="div">
         {kind.label}
       </Typography>
-      <CopyButton value={address} label={`Copy ${address}`} />
     </Box>
   );
 }
