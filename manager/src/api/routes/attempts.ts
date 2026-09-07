@@ -9,6 +9,9 @@ import type { DeploymentOrchestrator } from '../../domain/DeploymentOrchestrator
 import type { DeployAttempt } from '../../domain/deployAttempts.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
+/** The attempt was resolved or released between the page's read and this request. */
+const ATTEMPT_GONE = 'That attempt was resolved or released meanwhile. There is nothing to release.';
+
 /** What a page may see of an attempt: the container ids stay in the manager. */
 function toApiAttempt(attempt: DeployAttempt): DeployAttemptView {
   return {
@@ -54,7 +57,7 @@ export function createAttemptsRouter(
         ? (await orchestrator.unresolvedAttempts()).find((entry) => entry.id === id)
         : undefined;
       if (!attempt) {
-        res.status(404).json({ error: 'attempt_not_found', id: req.params.id });
+        res.status(404).json({ error: 'attempt_not_found', id: req.params.id, message: ATTEMPT_GONE });
         return;
       }
       const typed = (req.body as { jobId?: unknown } | undefined)?.jobId;
@@ -65,7 +68,7 @@ export function createAttemptsRouter(
       }
       const released = await orchestrator.releaseAttempt(id, whoIs(req));
       if (!released) {
-        res.status(404).json({ error: 'attempt_not_found', id });
+        res.status(404).json({ error: 'attempt_not_found', id, message: ATTEMPT_GONE });
         return;
       }
       res.json({ attempt: toApiAttempt(released) });
