@@ -83,7 +83,7 @@ describe('what the Review step says about the passphrase', () => {
 
     assert.equal(
       passphraseSummary(state, context),
-      'none, this host has no shared passphrase, so the ingest is unencrypted',
+      'none on this host, so the ingest is unencrypted',
     );
   });
 

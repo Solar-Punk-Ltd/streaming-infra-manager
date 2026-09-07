@@ -239,7 +239,7 @@ export function passphraseSummary(state: WizardState, context: WizardContext): s
   if (state.passMode === 'custom') return 'a passphrase of your own';
   return context.hostPassphrase
     ? 'the host-wide passphrase'
-    : 'none, this host has no shared passphrase, so the ingest is unencrypted';
+    : 'none on this host, so the ingest is unencrypted';
 }
 
 export function chosenKey(state: WizardState): string {
