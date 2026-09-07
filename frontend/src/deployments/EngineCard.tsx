@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Alert,
   Box,
@@ -16,7 +16,6 @@ import TuneIcon from '@mui/icons-material/Tune';
 import {
   type EngineName,
   type EngineSettingField,
-  getErrorMessage,
 } from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
@@ -26,7 +25,7 @@ import { KeyValueList, type KeyValueEntry } from '../components/KeyValueList';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
-import { fetchEngine, type EngineOverview } from './engineApi';
+import type { EngineOverview } from './engineApi';
 import { ENGINE_LABEL } from './engineText';
 import { LogsDialog } from './LogsDialog';
 
@@ -56,39 +55,25 @@ function whyRestartIsOff(engineRunning: boolean, deploying: boolean): string {
  * is pinned. That is also where the live block's answer will come from once the
  * engine API port is published, which it is not on this one.
  */
+/** What a setting shows when the deployment's own config file dropped its placeholder. */
+const NOT_READ_BY_FILE =
+  'Not read by the config file this deployment runs on, so what the engine runs with is unverified. The running config under Logs has it.';
+
 export function EngineCard({
   profile,
   engine,
+  overview,
+  loadError,
 }: {
   profile: Profile;
   engine: EngineName;
+  /** The manager's answer about the engine, loaded once for the page. Null until it arrives. */
+  overview: EngineOverview | null;
+  loadError: string | null;
 }) {
   const { openEngineSettings, openEngineConfig } = useEditors();
   const actions = useActions();
-  const [overview, setOverview] = useState<EngineOverview | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
-
-  // Reloads after a save: the profile's updated_at moves on every write, and
-  // the drawer's save merges the new profile into the store.
-  useEffect(() => {
-    let current = true;
-    fetchEngine(profile.name)
-      .then((loaded) => {
-        if (current) {
-          setOverview(loaded);
-          setLoadError(null);
-        }
-      })
-      .catch((caught) => {
-        if (current) {
-          setLoadError(getErrorMessage(caught, 'The manager did not say why.'));
-        }
-      });
-    return () => {
-      current = false;
-    };
-  }, [profile.name, profile.updated_at]);
 
   const engineRunning = profile.containers.some(
     (container) => container.service === engine,
@@ -227,8 +212,18 @@ function SettingsList({
 }) {
   const entries: KeyValueEntry[] = fields.map((field) => {
     const stored = overview.settings[field.key];
-    const value = stored ?? overview.defaults[field.key] ?? field.defaultValue;
+    const value = overview.effective[field.key];
     const source = overview.defaultSources[field.key] ?? 'stack';
+    if (value === undefined) {
+      return {
+        key: field.label,
+        value: (
+          <Typography variant="caption" color="text.secondary">
+            {NOT_READ_BY_FILE}
+          </Typography>
+        ),
+      };
+    }
     return {
       key: field.label,
       value: (

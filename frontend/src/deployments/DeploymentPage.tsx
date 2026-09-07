@@ -32,6 +32,7 @@ import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
+import { useEngineOverview } from './useEngineOverview';
 import { LastErrorCard } from './LastErrorCard';
 import { NextStepsCard } from './NextStepsCard';
 import { NotesCard } from './NotesCard';
@@ -124,6 +125,7 @@ function DeploymentBody({
 
   const shape = shapeOf(profile);
   const engine = engineOf(profile);
+  const engineLoad = useEngineOverview(engine ? profile : null);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const version =
     versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
@@ -226,7 +228,14 @@ function DeploymentBody({
             />
           )}
 
-          {engine && <EngineCard profile={profile} engine={engine} />}
+          {engine && (
+            <EngineCard
+              profile={profile}
+              engine={engine}
+              overview={engineLoad.overview}
+              loadError={engineLoad.loadError}
+            />
+          )}
 
           {watchUrl && (
             <WatchCard
@@ -277,6 +286,7 @@ function DeploymentBody({
             stampHealth={stampHealth}
             group={group}
             version={version}
+            engineOverview={engineLoad.overview}
           />
           {shape === 'stream' && isRunning(profile) && (
             <NextStepsCard streamName={profile.name} />
