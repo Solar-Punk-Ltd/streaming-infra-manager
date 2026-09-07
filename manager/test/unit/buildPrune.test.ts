@@ -134,7 +134,7 @@ describe('pruneBuilds', () => {
 
   it('runs after a publication, so a build neither current nor previous nor referenced goes then', async () => {
     // Published C, then D: A and B are neither, E too. The publication of D
-    // above already ran prune once a service publishes; assert on a fresh one.
+    // above already ran prune once a service publishes. Assert on a fresh one.
     await repository.publish(versionId, { buildId: A, commitSha: A, contract: CONTRACT });
 
     await service.pruneBuilds(versionId);
