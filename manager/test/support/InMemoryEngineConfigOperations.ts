@@ -101,7 +101,10 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
         row.state = 'superseded';
         row.finishedAt = new Date();
         row.message = message;
-        this.profiles.write(row.profileName, { engine_config_state: 'superseded' });
+        this.profiles.write(row.profileName, {
+          engine_config_state: 'superseded',
+          engine_config_error: message,
+        });
       }
     }
   }
@@ -116,7 +119,11 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
     if (!operation || !from.includes(operation.state)) return null;
     Object.assign(operation, patch, { state: to });
     if (!OPEN_OPERATION_STATES.includes(to) || to === 'interrupted') operation.finishedAt = new Date();
-    this.profiles.write(operation.profileName, { engine_config_state: to });
+    this.profiles.write(operation.profileName, {
+      engine_config_state: to,
+      ...(to === 'applied' ? { engine_config_error: null } : {}),
+      ...(patch.message === undefined ? {} : { engine_config_error: patch.message }),
+    });
     return operation;
   }
 

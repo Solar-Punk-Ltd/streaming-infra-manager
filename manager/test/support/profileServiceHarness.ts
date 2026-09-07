@@ -98,6 +98,11 @@ export class FakeOrchestrator {
     };
   }
 
+  /** The rollout's claim, which the fake does not tell from the operator's. */
+  async reserveForRollout(profile: Profile, engine: string): Promise<DeployReservation> {
+    return this.reserveDeploy(profile, [engine]);
+  }
+
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     this.cancelled.push(reservation.profileName);
     if (reservation.transitioned) {

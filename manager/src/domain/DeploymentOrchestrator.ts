@@ -31,6 +31,7 @@ import {
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
 import { ProfileBusyError, StampRequiredError } from './errors/index.js';
+import type { EngineConfigOperationRepository } from './engineConfig/EngineConfigOperationRepository.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -103,6 +104,9 @@ interface JobConfig {
 
   allowedFrom?: readonly ProfileStatus[];
 
+  /** Runs once the status claim is committed, before the script starts. */
+  afterClaim?: () => Promise<void>;
+
   onSuccess: () => Promise<void>;
   onFailure?: (message: string) => Promise<void>;
 }
@@ -157,6 +161,7 @@ export class DeploymentOrchestrator {
     private readonly eventBus: EventBus,
     private readonly groups: DeploymentGroupRepository,
     private readonly versions: StackVersionRepository,
+    private readonly operations: EngineConfigOperationRepository,
     private readonly uploaderGate?: UploaderGate,
   ) {}
 
@@ -256,6 +261,41 @@ export class DeploymentOrchestrator {
    * `runReserved`, so a caller that loses the race changes nothing.
    */
   async reserveDeploy(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<DeployReservation> {
+    const reservation = await this.claim(profile, requested);
+    await this.operatorActed(
+      profile,
+      'Redeployed by the operator before the file was verified.',
+    );
+    return reservation;
+  }
+
+  /**
+   * The claim a config file rollout takes: the same claim, without moving the
+   * intent. A rollout is not the operator acting on the deployment, and its
+   * own writes are conditional on the intent it started under.
+   */
+  async reserveForRollout(
+    profile: Profile,
+    engine: EngineName,
+  ): Promise<DeployReservation> {
+    return this.claim(profile, [engine]);
+  }
+
+  /**
+   * An operator acted on the deployment, so a config file rollout under way
+   * is over, durably: the intent it started under moves, and its open
+   * operation closes with the reason. After the claim, never before it, so a
+   * refused action moves nothing.
+   */
+  private async operatorActed(profile: Profile, reason: string): Promise<void> {
+    await this.profiles.bumpIntent(profile.name);
+    await this.operations.supersedeOpen(profile.instance_id, reason);
+  }
+
+  private async claim(
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
@@ -499,6 +539,11 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
+      afterClaim: () =>
+        this.operatorActed(
+          profile,
+          'Stopped by the operator before the file was verified.',
+        ),
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
@@ -533,6 +578,8 @@ export class DeploymentOrchestrator {
       args,
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+      afterClaim: () =>
+        this.operatorActed(profile, 'The deployment was removed.'),
       onSuccess: async () => {
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
@@ -598,6 +645,7 @@ export class DeploymentOrchestrator {
         );
       }
       await this.publishChanged(transitioned);
+      await cfg.afterClaim?.();
     }
 
     logger.info(

@@ -78,7 +78,7 @@ describe('an operator action while a rollout is under way', () => {
 
     assert.equal(row().intent_revision, 4);
     assert.equal(watching.state, 'superseded');
-    assert.match(watching.message ?? '', /stopped/);
+    assert.match(watching.message ?? '', /Stopped by the operator/);
     assert.equal(row().engine_config_state, 'superseded');
   });
 
@@ -91,7 +91,7 @@ describe('an operator action while a rollout is under way', () => {
 
     assert.equal(row().intent_revision, 4);
     assert.equal(watching.state, 'superseded');
-    assert.match(watching.message ?? '', /redeployed/);
+    assert.match(watching.message ?? '', /Redeployed by the operator/);
   });
 
   it('a removal closes the open rollout before the row goes', async () => {
@@ -102,7 +102,7 @@ describe('an operator action while a rollout is under way', () => {
     await until('the removal to finish', () => !harness.profiles.rows.has('stage'));
 
     assert.equal(watching.state, 'superseded');
-    assert.match(watching.message ?? '', /removed/);
+    assert.match(watching.message ?? '', /was removed/);
   });
 
   it('a refused stop moves nothing, because the operator did not act on the deployment', async () => {
