@@ -27,7 +27,14 @@
 set -euo pipefail
 
 readonly BUILD_IMAGE="node:22-alpine"
-readonly BUILD_COMMAND='corepack enable && pnpm install --frozen-lockfile && pnpm -r build'
+# corepack, left to pick its own pnpm, installs the latest major, and a recent
+# one stopped reading the `pnpm.overrides` block in package.json. A checkout
+# that keeps its overrides there (as swarm-hls-stream does) then fails the
+# frozen install with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH. Pin the pnpm that
+# matches the lockfile format instead. A branch that names its own in a
+# `packageManager` field still wins, because corepack honours that over this.
+readonly PINNED_PNPM='pnpm@9.12.0'
+readonly BUILD_COMMAND="corepack enable && corepack prepare ${PINNED_PNPM} --activate && pnpm install --frozen-lockfile && pnpm -r build"
 
 if [ "$#" -ne 3 ]; then
     echo "usage: stack-version-build.sh <root> <ref> <repo-url>" >&2
