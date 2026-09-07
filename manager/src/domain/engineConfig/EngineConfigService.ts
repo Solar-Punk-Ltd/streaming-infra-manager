@@ -160,6 +160,7 @@ export class EngineConfigService {
       config,
       image: version?.contract?.engineImages[engine] ?? null,
       filled: template.placeholders,
+      template: template.text,
       scratchDir: engineConfigDirFor(name),
     });
     if (problem) throw new ProfileConfigError(name, problem);

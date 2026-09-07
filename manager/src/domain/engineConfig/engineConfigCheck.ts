@@ -9,6 +9,7 @@ import {
   unknownPlaceholders,
 } from '@streaming-infra-manager/common';
 
+import { omeContractProblem } from './omeContract.js';
 import { omeXmlProblem } from './omeXml.js';
 import { substituteForCheck } from './placeholders.js';
 
@@ -51,6 +52,8 @@ export interface ConfigCheckInput {
   image: string | null;
   /** The tokens the version's entrypoint fills. Anything else in the file is refused. */
   filled: readonly string[];
+  /** The version's own template, which sets the contract an OvenMediaEngine file has to keep. */
+  template: string;
   /** A host visible directory the scratch copy for the check goes in. */
   scratchDir: string;
 }
@@ -98,7 +101,7 @@ export class EngineConfigChecker {
     }
 
     if (input.engine === OME_SERVICE) {
-      return omeXmlProblem(substituteForCheck(input.config));
+      return omeXmlProblem(input.config) ?? omeContractProblem(input.template, input.config);
     }
     return this.srsProblem(input);
   }
