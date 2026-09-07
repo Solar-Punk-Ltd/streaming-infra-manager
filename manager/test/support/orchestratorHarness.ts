@@ -1,3 +1,5 @@
+import { defaultServicesFor } from '@streaming-infra-manager/common';
+
 import { DeploymentGroupRepository } from '../../src/domain/DeploymentGroupRepository.js';
 import {
   DeploymentOrchestrator,
@@ -8,6 +10,7 @@ import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
 import { InMemoryBuildLedger } from './InMemoryBuildLedger.js';
+import { FakeDaemon, InMemoryDeployAttempts } from './InMemoryDeployAttempts.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
@@ -37,6 +40,9 @@ export interface OrchestratorHarness {
   containers: FakeContainers;
   /** Which build each deployment runs on, and what its containers were seen to mount. */
   ledger: InMemoryBuildLedger;
+  /** The project guard and the daemon lock, and what Docker says about the projects. */
+  attempts: InMemoryDeployAttempts;
+  daemon: FakeDaemon;
 }
 
 /**
@@ -59,6 +65,25 @@ export function orchestratorHarness(
   versions.seedBundled();
   const containers = new FakeContainers();
   const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
+  const attempts = new InMemoryDeployAttempts();
+  const daemon = new FakeDaemon();
+  // Every stored deployment starts with a container per service, and a
+  // finished deploy script leaves new ones, the way compose does.
+  for (const profile of stored) {
+    for (const service of defaultServicesFor(profile)) {
+      daemon.set(profile.name, service, [`${profile.name}-${service}-0`]);
+    }
+  }
+  runner.onFinish = (run) => {
+    const project = run.args.find((arg) => arg.startsWith('--profile='))?.slice('--profile='.length);
+    if (!project || !daemon.autoRecreate) return;
+    // Compose gives every service the attempt touched a new container, so
+    // the attempt that opened for this run resolves as a real one would.
+    const attempt = attempts.rows.find((row) => row.project === project && row.state === 'open');
+    for (const service of attempt?.services ?? []) {
+      daemon.set(project, service, [`${project}-${service}-${run.args.length}-${Date.now()}`]);
+    }
+  };
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -68,8 +93,10 @@ export function orchestratorHarness(
     {} as DeploymentGroupRepository,
     versions,
     ledger,
+    attempts,
+    daemon,
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers, ledger };
+  return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon };
 }

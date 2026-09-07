@@ -15,6 +15,7 @@ import { MetricsCollector } from '../domain/MetricsCollector.js';
 import { ProfileService } from '../domain/ProfileService.js';
 import { StampService } from '../domain/StampService.js';
 import { StackVersionService } from '../domain/versions/StackVersionService.js';
+import type { DeploymentOrchestrator } from '../domain/DeploymentOrchestrator.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
@@ -33,6 +34,7 @@ import { createHealthRouter } from './routes/health.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { createProfilesRouter } from './routes/profiles.js';
 import { createStampRouter } from './routes/stamp.js';
+import { createAttemptsRouter } from './routes/attempts.js';
 import { createVersionsRouter } from './routes/versions.js';
 
 const logger = Logger.getInstance();
@@ -51,6 +53,8 @@ export interface ApiDeps {
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   stackVersionService: StackVersionService;
+  /** For the deploy attempts that hold a project or the daemon, and their release. */
+  orchestrator: DeploymentOrchestrator;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -85,6 +89,11 @@ export function startApiServer(
   app.use('/config', createConfigRouter(deps.chequebookService.floorBzz));
   app.use('/metrics', metrics);
   app.use('/events', events.router);
+  // Before /versions, whose /:id route would otherwise take "attempts" for an id.
+  app.use(
+    '/versions/attempts',
+    createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
+  );
   app.use('/profiles', createProfilesRouter(deps.profileService));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));

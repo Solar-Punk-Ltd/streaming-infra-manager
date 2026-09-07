@@ -20,6 +20,9 @@ import { useMetrics } from '../useMetrics';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
 import { clientUrl, srtPublishUrl } from '../urls';
+import { attemptHolding } from '../versions/attemptHold';
+import { ReleaseAttemptDialog } from '../versions/ReleaseAttemptDialog';
+import { useAttemptRelease } from '../versions/useAttemptRelease';
 import { AtAGlanceCard } from './AtAGlanceCard';
 import {
   buildChecklist,
@@ -32,6 +35,7 @@ import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
+import { HeldAttemptCard } from './HeldAttemptCard';
 import { LastErrorCard } from './LastErrorCard';
 import { NextStepsCard } from './NextStepsCard';
 import { NotesCard } from './NotesCard';
@@ -110,9 +114,10 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, reload, versions } =
+  const { profiles, groups, serverHost, hostPassphrase, reload, versions, attempts } =
     useDeployments();
   const actions = useActions();
+  const release = useAttemptRelease();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
 
@@ -138,6 +143,7 @@ function DeploymentBody({
       bee?.stamps?.find((stamp) => sameBatchId(stamp.batchID, stampId))) ||
     null;
 
+  const heldBy = attemptHolding(profile.name, attempts, profiles);
   const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
   const watchUrl = clientUrl(profile, serverHost);
   const streamers = streamersOf(profiles ?? []);
@@ -208,6 +214,10 @@ function DeploymentBody({
         }}
       >
         <Stack spacing={2}>
+          {heldBy && (
+            <HeldAttemptCard attempt={heldBy} onRelease={() => release.open(heldBy)} />
+          )}
+
           {profile.last_error && (
             <LastErrorCard
               message={profile.last_error}
@@ -284,6 +294,13 @@ function DeploymentBody({
           <NotesCard name={profile.name} notes={profile.notes} />
         </Stack>
       </Box>
+
+      <ReleaseAttemptDialog
+        attempt={release.releasing}
+        onClose={release.close}
+        onReleased={release.released}
+        onGone={release.gone}
+      />
     </Box>
   );
 }

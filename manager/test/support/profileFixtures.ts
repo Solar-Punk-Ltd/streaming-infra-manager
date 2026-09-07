@@ -153,6 +153,13 @@ export class InMemoryProfiles {
     });
   }
 
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    this.rows.delete(name);
+    return { port_slot: row.port_slot };
+  }
+
   async markError(name: string, message: string): Promise<Profile | null> {
     this.markErrorCalls.push(name);
     return this.write(name, {

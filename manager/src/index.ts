@@ -33,6 +33,7 @@ import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js'
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
+import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
@@ -226,6 +227,10 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  // The project guard and the daemon lock: every deploy attempt holds its
+  // project until its containers prove it over, and shared-tag builds wait
+  // for each other on the daemon.
+  const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -234,8 +239,18 @@ async function main(): Promise<void> {
     deploymentGroupRepository,
     stackVersionRepository,
     buildLedger,
+    deployAttempts,
+    containerControl,
     new UploaderStartGate(stampService, chequebookService),
   );
+  try {
+    const judged = await orchestrator.reconcileAttempts();
+    if (judged.released.length > 0 || judged.blocked.length > 0) {
+      logger.info(`[Boot] deploy attempts judged: released ${judged.released.join(', ') || 'none'}, blocked ${judged.blocked.join(', ') || 'none'}`);
+    }
+  } catch (err) {
+    logger.warn(`[Boot] the deploy attempts were not judged: ${getErrorMessage(err)}. They stay as they are.`);
+  }
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -275,6 +290,7 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       stackVersionService,
+      orchestrator,
       eventBus,
       metricsCollector,
     },

@@ -82,6 +82,12 @@ export function readStackContract(root: string): StackContract {
   const rootEnvSample = readOptional(root, ROOT_ENV_SAMPLE);
   const chequebookMinBzz = declaredValue(rootEnvSample, CHEQUEBOOK_FLOOR_KEY);
 
+  // A compose file that cannot be read leaves the tags shared: unknown must
+  // not run concurrently. The port table's warnings are the port table's.
+  const compose = readOptional(root, DEPLOY_COMPOSE);
+  const sharedTags = compose === '' ? { shared: true, warning: null } : readSharedImageTags(compose);
+  if (sharedTags.warning) warnings.push(sharedTags.warning);
+
   return {
     ports,
     maxSlot: parseMaxSlot(readOptional(root, DEPLOY_SCRIPT)),
@@ -90,10 +96,11 @@ export function readStackContract(root: string): StackContract {
     features: {
       srsApiPort: ports.some((port) => port.name === SRS_API_PORT_VAR),
       chequebookGate: chequebookMinBzz !== null,
+      sharedImageTags: sharedTags.shared,
     },
     chequebookMinBzz,
     engineConfig: readEngineConfigSupport(root),
-    engineImages: readEngineImages(readOptional(root, DEPLOY_COMPOSE)),
+    engineImages: readEngineImages(compose),
     warnings,
   };
 }
@@ -232,6 +239,45 @@ function readEngineConfigSupport(root: string): EngineConfigSupport {
 
 const SERVICE_LINE = /^  ([a-z][a-z0-9-]*):\s*$/;
 const IMAGE_LINE = /^    image:\s*['"]?([^'"\s]+)['"]?\s*$/;
+const IMAGE_KEY = /^    image:/;
+const BUILD_LINE = /^    build:/;
+
+const COMPOSE_NOT_READ = `${DEPLOY_COMPOSE}: no service could be read from it (a service is a two-space indented name under services:), so the version is treated as sharing image tags.`;
+
+interface SharedImageTags {
+  shared: boolean;
+  warning: string | null;
+}
+
+/**
+ * Whether a built service names its image. Compose tags a build by that
+ * name, one tag for every project that builds the service, so two
+ * deployments building at once race on it. Without the name compose tags
+ * the build `<project>-<service>`, one per deployment.
+ *
+ * Unknown must not run concurrently: a file whose services this reader
+ * cannot follow counts as shared, and says so, and an image key names the
+ * build whatever its value looks like.
+ */
+function readSharedImageTags(compose: string): SharedImageTags {
+  const built = new Set<string>();
+  const named = new Set<string>();
+  let service: string | null = null;
+  let services = 0;
+  for (const line of compose.split('\n')) {
+    const serviceMatch = SERVICE_LINE.exec(line);
+    if (serviceMatch) {
+      service = serviceMatch[1]!;
+      services += 1;
+      continue;
+    }
+    if (service === null) continue;
+    if (BUILD_LINE.test(line)) built.add(service);
+    if (IMAGE_KEY.test(line)) named.add(service);
+  }
+  if (services === 0) return { shared: true, warning: COMPOSE_NOT_READ };
+  return { shared: [...built].some((name) => named.has(name)), warning: null };
+}
 
 /**
  * The `image:` of the `srs` and `ome` services in the deploy compose file.

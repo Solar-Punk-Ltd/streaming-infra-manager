@@ -40,6 +40,12 @@ export interface StackContractFeatures {
   srsApiPort: boolean;
   /** The uploader refuses to start on a Bee node whose chequebook is too low. */
   chequebookGate: boolean;
+  /**
+   * A built service declares an `image:` name, so every deployment's build
+   * of it moves one shared tag. True as well when the compose file could not
+   * be read, because unknown must not run concurrently.
+   */
+  sharedImageTags: boolean;
 }
 
 /** Per engine: whether the version runs it on a config file of the operator's own when asked. */
@@ -75,11 +81,12 @@ export interface StackContract {
   /** What each engine service runs, so a config can be checked with the same image. */
   engineImages: EngineImages;
   /**
-   * The lines of the version's port table the reader could not make sense of,
-   * one message each. A port the manager did not read is a port it will not
-   * shift per slot, so two deployments of this version would bind the same one,
-   * and a silently shorter table looks exactly like a version that has fewer
-   * ports.
+   * The lines of the version's files the reader could not make sense of, one
+   * message each, naming the file. A port the manager did not read is a port
+   * it will not shift per slot, so two deployments of this version would bind
+   * the same one, and a silently shorter table looks exactly like a version
+   * that has fewer ports. A compose file it could not follow is treated as
+   * sharing image tags, and the message says so.
    */
   warnings: string[];
 }
@@ -206,7 +213,7 @@ export function describeStackContract(contract: StackContract): string {
   if (editable) parts.push(editable);
   if (contract.warnings.length > 0) {
     const count = contract.warnings.length;
-    parts.push(`${count} port ${count === 1 ? 'line' : 'lines'} not understood`);
+    parts.push(`${count} ${count === 1 ? 'line' : 'lines'} not understood`);
   }
   return parts.join(', ');
 }
@@ -252,6 +259,9 @@ export function parseStackContract(value: unknown): StackContract | null {
     features: {
       srsApiPort: features.srsApiPort === true,
       chequebookGate: features.chequebookGate === true,
+      // Absent from a contract an older manager stored, which was never
+      // classified, and unknown must not run concurrently.
+      sharedImageTags: features.sharedImageTags !== false,
     },
     chequebookMinBzz:
       typeof value.chequebookMinBzz === 'string' ? value.chequebookMinBzz : null,
