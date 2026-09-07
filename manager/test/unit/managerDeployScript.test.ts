@@ -37,19 +37,27 @@ describe('deploy/deploy.sh', () => {
     assert.match(repo, /--exclude 'manager\/swarm-hls-stream\/'/);
   });
 
-  it('ships the built stack into the incoming directory under the versions root, without the runtime files', () => {
-    const stack = rsyncs().find((block) => block.includes(`${BUNDLED_INCOMING_DIR}`) && block.includes('manager/swarm-hls-stream/'));
-    assert.ok(stack, 'the rsync of the stack into the incoming directory');
+  it('ships the built stack into a staging directory under the versions root, without the runtime files', () => {
+    const stack = rsyncs().find((block) => block.includes(`${BUNDLED_INCOMING_DIR}.tmp`) && block.includes('manager/swarm-hls-stream/'));
+    assert.ok(stack, 'the rsync of the stack into the staging directory');
     assert.match(stack, /--delete/);
     assert.match(stack, /--exclude '\.git\/'/);
     assert.match(stack, /--exclude 'node_modules\/'/);
     assert.match(stack, /--exclude 'deploy\/data\/'/);
     assert.ok(stack.indexOf("--include '.env.sample'") < stack.indexOf("--exclude '.env.*'"), 'the sample is kept, the per deployment envs are not');
-    assert.match(stack, /\$\{REMOTE_VERSIONS_ROOT\}\/bundled\.incoming\//, 'under the versions root the host side exports');
+    assert.match(stack, /\$\{REMOTE_VERSIONS_ROOT\}\/bundled\.incoming\.tmp\//, 'under the versions root the host side exports');
   });
 
-  it('writes the commit into the shipment, where the api reads it', () => {
-    assert.match(script, new RegExp(`${BUNDLED_INCOMING_DIR}[^\\n]*${STACK_COMMIT_FILE.replace('.', '\\.')}`));
+  it('writes the commit into the staging directory, where the api reads it once promoted', () => {
+    assert.match(script, new RegExp(`${BUNDLED_INCOMING_DIR}\\.tmp[^\\n]*${STACK_COMMIT_FILE.replace('.', '\\.')}`));
+  });
+
+  it('promotes the staging directory to the incoming one with a single rename, after everything arrived', () => {
+    const promote = script.indexOf(`mv '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}.tmp' '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}'`);
+    assert.notEqual(promote, -1, 'the rename that makes the shipment visible');
+    const lastRsync = script.lastIndexOf('\nrsync ');
+    assert.ok(promote > lastRsync, 'nothing is visible to the api before the last rsync finished');
+    assert.ok(script.indexOf(`rm -rf '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}.tmp'`) < lastRsync, 'a torn staging directory from an earlier deploy goes first');
   });
 
   it('names one versions root on both sides', () => {

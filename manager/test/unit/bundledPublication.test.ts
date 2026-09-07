@@ -15,7 +15,7 @@
  * written to again. A row that was never published stays legacy on it.
  */
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
@@ -40,7 +40,10 @@ const COMMIT_A = 'a'.repeat(40);
 const COMMIT_B = 'b'.repeat(40);
 /** The base env a checkout ships: every key the sample declares, which capture insists on, with a value that tells two apart. */
 function baseEnv(token: string): string {
-  return readFileSync(join(V3_FIXTURE, '.env.sample'), 'utf8').replace('API_AUTH_TOKEN=', `API_AUTH_TOKEN=${token}`);
+  return (
+    readFileSync(join(V3_FIXTURE, '.env.sample'), 'utf8').replace('API_AUTH_TOKEN=', `API_AUTH_TOKEN=${token}`) +
+    `SRT_PASSPHRASE=pass-${token}\n`
+  );
 }
 const ENV_ONE = baseEnv('one');
 const ENV_TWO = baseEnv('two');
@@ -50,6 +53,8 @@ let versionsRoot: string;
 let legacyRoot: string;
 let repository: InMemoryStackVersionRepository;
 let service: StackVersionService;
+/** The open build references the service asks about, as `openReferences` answers them. */
+let references: { buildId: string }[];
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'bundled-publication-'));
@@ -63,8 +68,9 @@ beforeEach(() => {
   writeFileSync(join(legacyRoot, 'engines', 'srs', 'marker'), 'the engine reads this\n');
   repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
+  references = [];
   service = new StackVersionService(repository, new FakeScriptSpawner(), new EventBus(), versionsRoot, {
-    openReferences: async () => [],
+    openReferences: async () => references.map((reference) => ({ buildId: reference.buildId })) as never,
   });
 });
 
@@ -201,5 +207,80 @@ describe('publishing the shipped bundled stack', () => {
     assert.equal(row.status, 'ready');
     assert.match(row.lastError ?? '', new RegExp(STACK_COMMIT_FILE.replace('.', '\\.')));
     assert.ok(existsSync(incoming), 'the shipment is left for a look, the next deploy replaces it');
+  });
+
+  it('seeds the samples in the legacy tree for a row never published, as before, and never once the bundled version is published', async () => {
+    rmSync(join(legacyRoot, '.env'));
+    await service.syncBundled(legacyRoot, COMMIT_B);
+    assert.equal(existsSync(join(legacyRoot, '.env')), true, 'a legacy host gets its defaults, as it always did');
+
+    shipped(COMMIT_A);
+    await service.syncBundled(legacyRoot, null);
+    rmSync(join(legacyRoot, '.env'));
+    await service.syncBundled(legacyRoot, null);
+
+    assert.equal(existsSync(join(legacyRoot, '.env')), false, 'nothing writes into the tree the engines mount');
+  });
+
+  it('adopts at the next boot a build that a crash between its rename and the row left unreferenced, and says where it is', async () => {
+    shipped(COMMIT_A);
+    await service.syncBundled(legacyRoot, null);
+    shipped(COMMIT_B);
+    repository.failNextPublish = true;
+
+    await service.syncBundled(legacyRoot, null);
+
+    const afterCrash = await bundled();
+    assert.equal(afterCrash.buildId, COMMIT_A, 'the row did not move');
+    assert.match(afterCrash.lastError ?? '', new RegExp(buildDirFor(versionsRoot, 'bundled', COMMIT_B).replace(/\./g, '\\.')), 'the message names where the build is');
+    assert.doesNotMatch(afterCrash.lastError ?? '', /bundled\.incoming/, 'and not a shipment that is gone');
+    assert.equal(existsSync(bundledIncomingRootFor(versionsRoot)), false);
+
+    await service.syncBundled(legacyRoot, null);
+
+    const adopted = await bundled();
+    assert.equal(adopted.buildId, COMMIT_B);
+    assert.equal(adopted.previousBuildId, COMMIT_A);
+    assert.equal(adopted.lastError, null);
+  });
+
+  it('leaves alone a build a deployment still mounts, which is no orphan', async () => {
+    shipped(COMMIT_A);
+    await service.syncBundled(legacyRoot, null);
+    // A build nothing in the row names but a container still mounts: it is
+    // kept by its reference and is never the shipment a crash left behind.
+    const mounted = buildDirFor(versionsRoot, 'bundled', COMMIT_B);
+    cpSync(buildDirFor(versionsRoot, 'bundled', COMMIT_A), mounted, { recursive: true });
+    references.push({ buildId: COMMIT_B });
+
+    await service.syncBundled(legacyRoot, null);
+
+    assert.equal((await bundled()).buildId, COMMIT_A);
+  });
+
+  it('removes from the bundled configuration an engine env the shipment no longer carries', async () => {
+    const withOme = shipped(COMMIT_A);
+    mkdirSync(join(withOme, 'engines', 'ome'), { recursive: true });
+    writeFileSync(join(withOme, 'engines', 'ome', '.env'), 'OME_LOG=debug\n');
+    await service.syncBundled(legacyRoot, null);
+    const configRoot = configRootFor(versionsRoot, 'bundled');
+    assert.equal(existsSync(join(configRoot, 'engines', 'ome', '.env')), true);
+
+    shipped(COMMIT_A);
+    await service.syncBundled(legacyRoot, null);
+
+    assert.equal(existsSync(join(configRoot, 'engines', 'ome', '.env')), false);
+    const revision = await readHostConfigRevision(configRoot);
+    assert.equal(revision?.generation, 2);
+    assert.equal('engines/ome/.env' in (revision?.files ?? {}), false);
+  });
+
+  it('answers the host passphrase from the tree a legacy row runs and from the build once published', async () => {
+    assert.equal(await service.hostPassphrase(), 'pass-legacy');
+
+    shipped(COMMIT_A, baseEnv('one'));
+    await service.syncBundled(legacyRoot, null);
+
+    assert.equal(await service.hostPassphrase(), 'pass-one');
   });
 });

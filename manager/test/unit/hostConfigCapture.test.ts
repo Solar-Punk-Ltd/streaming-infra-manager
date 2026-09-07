@@ -169,6 +169,19 @@ describe('commitHostConfig', () => {
     assert.equal(existsSync(join(dir, CONFIG_LOCK_DIR)), false);
   });
 
+  it('removes the files a commit names for removal, and the revision no longer lists them', async () => {
+    const dir = root();
+    mkdirSync(join(dir, 'engines', 'ome'), { recursive: true });
+    writeFileSync(join(dir, 'engines', 'ome', '.env'), 'OME_LOG=debug\n');
+    await commitHostConfig(dir, { 'engines/ome/.env': Buffer.from('OME_LOG=info\n') });
+
+    const revision = await commitHostConfig(dir, {}, { remove: ['engines/ome/.env'] });
+
+    assert.equal(existsSync(join(dir, 'engines', 'ome', '.env')), false);
+    assert.equal('engines/ome/.env' in revision.files, false);
+    assert.equal(revision.generation, 3);
+  });
+
   it('refuses while an edit is under way, and changes nothing', async () => {
     const dir = root();
     const release = await holdHostConfigLock(dir);
