@@ -126,7 +126,12 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
-    await this.patch(id, { commitSha });
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return;
+    await this.patch(id, {
+      commitSha,
+      tested: before.tested && before.commitSha === commitSha,
+    });
   }
 
   async setContract(id: number, contract: StackContract): Promise<void> {

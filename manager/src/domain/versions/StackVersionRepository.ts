@@ -66,6 +66,11 @@ export interface StackVersionRepository {
    * is gone and nothing will ever finish it.
    */
   failInterruptedBuilds(lastError: string): Promise<StackVersionRecord[]>;
+  /**
+   * The bundled checkout's commit at boot. Approval given for another commit
+   * goes with the move, the way `markBuilt` drops it: what was tested is that
+   * commit, not the name.
+   */
   setCommitSha(id: number, commitSha: string | null): Promise<void>;
   /** The contract alone, for the bundled version read at every boot. */
   setContract(id: number, contract: StackContract): Promise<void>;

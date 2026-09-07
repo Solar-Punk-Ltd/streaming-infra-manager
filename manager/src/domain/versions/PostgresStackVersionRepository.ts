@@ -149,8 +149,14 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
+    // The same rule as `markBuilt`: approval names a commit, and the row is
+    // read before the update, so the comparison is against the commit the
+    // approval was given for.
     await this.pool.query(
-      'UPDATE stack_versions SET commit_sha = $2 WHERE id = $1',
+      `UPDATE stack_versions
+          SET tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+              commit_sha = $2
+        WHERE id = $1`,
       [id, commitSha],
     );
   }
