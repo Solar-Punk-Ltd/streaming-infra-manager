@@ -11,8 +11,10 @@
  * The rollout's states are played on the row the way the manager records
  * them: applying while the engine is recreated, watching for a few seconds
  * after, then applied. A file containing the word `crash` is reverted from
- * the watch, and one containing `interrupt` is left interrupted, the way a
- * manager restart leaves one, with the two ways out the card offers.
+ * the watch, one containing `fail` cannot be recreated on and ends failed
+ * with the previous file back, and one containing `interrupt` is left
+ * interrupted, the way a manager restart leaves one, with the two ways out
+ * the card offers.
  */
 import {
   defaultServicesFor,
@@ -38,6 +40,10 @@ const INTERRUPTED_REASON =
   'Apply interrupted by a manager restart. The file is stored, the engine was not verified.';
 
 const NO_INTERRUPTED_ROLLOUT = 'There is no interrupted rollout to go back from.';
+
+function failReason(engine) {
+  return `${ENGINE_DISPLAY_NAMES[engine]} could not be recreated on the new config file (deploy.sh exited with code 1), so the previous one is back.`;
+}
 
 function crashReason(engine) {
   return (
@@ -250,6 +256,10 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
       onRunning: () => {
         if (config === null) {
           setRolloutState(profile, 'applied');
+        } else if (/fail/.test(config)) {
+          const reason = failReason(engine);
+          store(profile, previous, reason);
+          setRolloutState(profile, 'failed', reason);
         } else if (/interrupt/.test(config)) {
           setRolloutState(profile, 'interrupted', INTERRUPTED_REASON);
         } else {
@@ -319,7 +329,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
       withProfile((_req, res, profile) => {
         const engine = refusal(res, profile);
         if (!engine) return;
-        if (profile.has_engine_config || OPEN_STATES.includes(profile.engine_config_state)) {
+        if (profile.has_engine_config || profile.engine_config_state !== null) {
           rollOut(profile, engine, null);
         }
         send(res, 202, profile);
