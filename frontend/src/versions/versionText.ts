@@ -7,6 +7,7 @@ import {
 import { shortCommit } from '../format';
 
 const COMMIT_UNKNOWN = 'commit unknown on this host';
+const NOT_OBSERVED = 'not observed yet';
 
 /**
  * `bundled @ ee99c36`, or the name alone when the host cannot name a commit.
@@ -50,8 +51,8 @@ export function shortBuildId(buildId: string): string {
 export function describeRunning(containers: readonly ObservedContainer[]): string {
   const running = runningCommitOf(containers);
   if (running.kind === 'one') return `commit ${shortCommit(running.commit)}`;
-  if (running.kind === 'unknown') return 'not observed yet';
+  if (running.kind === 'unknown') return NOT_OBSERVED;
   return `mixed: ${running.byService
-    .map(({ service, commit }) => `${service} ${commit ? shortCommit(commit) : 'unknown'}`)
+    .map(({ service, commit }) => `${service} ${commit ? shortCommit(commit) : NOT_OBSERVED}`)
     .join(', ')}`;
 }

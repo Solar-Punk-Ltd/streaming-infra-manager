@@ -369,6 +369,7 @@ function VersionRow({
   const cannotApprove = !version.tested && testBlocked !== '';
   const waiting = buildingElsewhere ? ANOTHER_BUILDING : '';
   const acting = busy || buildingElsewhere;
+  const previousBuild = describePreviousBuild(version);
 
   return (
     <TableRow hover>
@@ -424,7 +425,7 @@ function VersionRow({
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: MONO_STACK }}>
           {describeBuild(version)}
-          {describePreviousBuild(version) ? `, ${describePreviousBuild(version)}` : ''}
+          {previousBuild ? `, ${previousBuild}` : ''}
         </Typography>
         {version.status === 'ready' && version.lastError && (
           <Typography
