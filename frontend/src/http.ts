@@ -115,10 +115,27 @@ async function runSessionProbe(): Promise<boolean> {
   }
 }
 
+/** A refusal the manager explained: its error code travels with the message. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string | null,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+interface ApiFailure {
+  message: string;
+  code: string | null;
+}
+
 async function extractApiError(
   res: Response,
   fallback: string,
-): Promise<string> {
+): Promise<ApiFailure> {
   try {
     const err = (await res.json()) as {
       error?: string;
@@ -131,10 +148,11 @@ async function extractApiError(
     // operator the literal string "validation_error" and threw the reason
     // away, so "bee_publishers is required for a abr-uploader" arrived as a
     // single word carrying no information.
-    if (err.errors?.length) return err.errors.join('. ');
-    return err.message ?? err.error ?? fallback;
+    const code = err.error ?? null;
+    if (err.errors?.length) return { message: err.errors.join('. '), code };
+    return { message: err.message ?? err.error ?? fallback, code };
   } catch {
-    return fallback;
+    return { message: fallback, code: null };
   }
 }
 
@@ -143,7 +161,8 @@ export async function failWith(
   res: Response,
   fallback: string,
 ): Promise<never> {
-  throw new Error(await extractApiError(res, fallback));
+  const failure = await extractApiError(res, fallback);
+  throw new ApiError(failure.message, failure.code, res.status);
 }
 
 export async function getJson<T>(path: string): Promise<T> {

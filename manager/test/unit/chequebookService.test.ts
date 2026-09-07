@@ -19,7 +19,9 @@ import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
 import { BeeClient } from '../../src/domain/BeeClient.js';
 import { ChequebookService } from '../../src/domain/ChequebookService.js';
 import {
+  BeeHttpError,
   BeeNodeError,
+  BeeNotReadyError,
   ChequebookBusyError,
   ChequebookFundsError,
   ChequebookUnfundedError,
@@ -177,6 +179,19 @@ describe('ChequebookService.deposit', () => {
     await assert.rejects(
       () => service.deposit(PROFILE.name, HALF_BZZ),
       BeeNodeError,
+    );
+  });
+
+  it('reports a node that answered 503 as still starting, not unreachable', async () => {
+    const service = serviceAnswering({
+      getWallet: async () => {
+        throw new BeeHttpError(503, 'bee GET /wallet → 503: Node is syncing');
+      },
+    });
+
+    await assert.rejects(
+      () => service.deposit(PROFILE.name, HALF_BZZ),
+      BeeNotReadyError,
     );
   });
 

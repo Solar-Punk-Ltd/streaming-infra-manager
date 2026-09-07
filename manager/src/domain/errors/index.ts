@@ -17,6 +17,7 @@ export { ChequebookUnfundedError } from './ChequebookUnfundedError.js';
 export { LadderGroupError } from './LadderGroupError.js';
 export { ProfileConfigError } from './ProfileConfigError.js';
 export { BeeNodeError } from './BeeNodeError.js';
+export { BeeNotReadyError } from './BeeNotReadyError.js';
 export { BeeHttpError } from './BeeHttpError.js';
 export { InvalidCredentialsError } from './InvalidCredentialsError.js';
 export { LockedOutError } from './LockedOutError.js';

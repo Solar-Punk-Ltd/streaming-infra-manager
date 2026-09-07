@@ -8,6 +8,7 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AllSlotsUsedError,
   BeeNodeError,
+  BeeNotReadyError,
   BundledVersionError,
   CannotRemoveUserError,
   ChequebookBusyError,
@@ -215,6 +216,14 @@ export function errorHandler(
       error: 'restart_in_progress',
       name: err.profileName,
       service: err.service,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof BeeNotReadyError) {
+    res.status(503).json({
+      error: 'bee_node_not_ready',
+      name: err.profileName,
       message: err.message,
     });
     return;

@@ -19,10 +19,10 @@ import {
   BeeWallet,
   BuyStampInput,
 } from './BeeClient.js';
+import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
-  BeeNodeError,
   ProfileNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
@@ -286,7 +286,7 @@ export class StampService {
     try {
       return await fn(client);
     } catch (err) {
-      throw new BeeNodeError(name, getErrorMessage(err));
+      throw beeCallFailed(name, err);
     }
   }
 

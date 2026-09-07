@@ -15,8 +15,8 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { BeeClient } from './BeeClient.js';
+import { beeCallFailed } from './beeFailure.js';
 import {
-  BeeNodeError,
   ChequebookBusyError,
   ChequebookFundsError,
   ChequebookUnfundedError,
@@ -206,7 +206,7 @@ export class ChequebookService {
     try {
       return await call();
     } catch (err) {
-      throw new BeeNodeError(name, getErrorMessage(err));
+      throw beeCallFailed(name, err);
     }
   }
 

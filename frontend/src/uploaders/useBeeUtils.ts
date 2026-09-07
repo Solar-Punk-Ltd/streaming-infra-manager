@@ -10,6 +10,7 @@ import {
   type TransferOutcome,
 } from '@streaming-infra-manager/common';
 
+import { ApiError } from '../http';
 import type { Profile } from '../types';
 import { fetchChequebook } from './chequebookApi';
 import {
@@ -37,6 +38,20 @@ const BALANCE_POLL_INTERVAL_MS = 3_000;
  * never confirms gives the operator their page back.
  */
 const BALANCE_WAIT_MS = 120_000;
+
+/** The manager's code for a node that answered 503: up, still syncing. */
+const NODE_NOT_READY_CODE = 'bee_node_not_ready';
+
+/**
+ * A node that is still starting is not one that cannot be reached: the first
+ * sorts itself out in a minute, the second needs the operator to go and look.
+ */
+function beeLoadError(reason: unknown): string {
+  if (reason instanceof ApiError && reason.code === NODE_NOT_READY_CODE) {
+    return "This deployment's Bee node is still starting. Its balances and stamps appear once it has synced, usually within a minute. Press Refresh then.";
+  }
+  return `This deployment's Bee node could not be reached. ${getErrorMessage(reason)}`;
+}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -198,9 +213,7 @@ export function useBeeUtils(
       isRejected,
     );
     if (failure) {
-      setLoadError(
-        `This deployment's Bee node could not be reached. ${getErrorMessage(failure.reason)}`,
-      );
+      setLoadError(beeLoadError(failure.reason));
     }
 
     setLoading(false);
