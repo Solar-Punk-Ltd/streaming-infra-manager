@@ -81,10 +81,11 @@ describe('POST /:id/release', () => {
     assert.equal(released.length, 1);
   });
 
-  it('answers 404 for an attempt that is not there', async () => {
+  it('answers 404 for an attempt that is not there, saying so where the page reads it', async () => {
     const res = await call(app, 'POST', '/99/release', { jobId: 'job-abc123' });
 
     assert.equal(res.status, 404);
+    assert.match(String((res.body as { message?: unknown }).message), /resolved or released/);
   });
 
   it('refuses a body without the job id', async () => {
