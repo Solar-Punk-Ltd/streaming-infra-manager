@@ -167,7 +167,7 @@ export function initialWizardState(
     group: false,
     size: '2',
     engine: SRS_SERVICE,
-    passMode: 'host',
+    passMode: defaultPassphraseChoice(context),
     generatedPassphrase: generateSrtPassphrase(),
     ownPassphrase: '',
     keyMode: 'generate',
@@ -211,6 +211,15 @@ export function withGoal(
     size: state.size,
     versionId: state.versionId,
   };
+}
+
+/**
+ * The host-wide passphrase when the host has one, one generated for the
+ * deployment when it has none. 'host' on a host without a passphrase is
+ * unencrypted ingest, which a default must never be.
+ */
+export function defaultPassphraseChoice(context: WizardContext): PassphraseChoice {
+  return context.hostPassphrase ? 'host' : 'generate';
 }
 
 /** The passphrase this deployment would get, or null for the host-wide one. */
