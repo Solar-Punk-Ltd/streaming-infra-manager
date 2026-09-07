@@ -371,6 +371,18 @@ export class EngineConfigService {
    * rollout cannot relabel itself applied from its last healthy tick.
    */
   private async watchEngine(operation: EngineConfigOperation): Promise<void> {
+    try {
+      await this.watchTicks(operation);
+    } catch (err) {
+      // A read or a write that failed mid watch. Left alone the row would say
+      // watching with nothing watching it until the next restart.
+      await this.operations.transition(ownershipOf(operation), ['watching'], 'interrupted', {
+        message: `Verification interrupted: ${getErrorMessage(err)}`,
+      });
+    }
+  }
+
+  private async watchTicks(operation: EngineConfigOperation): Promise<void> {
     const ownership = ownershipOf(operation);
     const ticks = Math.max(1, Math.round(this.watch.durationMs / this.watch.intervalMs));
     for (let tick = 0; tick < ticks; tick += 1) {
