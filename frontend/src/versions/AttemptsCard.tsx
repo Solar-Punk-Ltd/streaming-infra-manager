@@ -26,6 +26,9 @@ const STATE_TONES: Record<DeployAttemptView['state'], Tone> = {
 const RUNNING_RESOLVES_ITSELF =
   'Judged when its script ends: released once every service it touched has a new container.';
 
+const NEVER_JUDGED =
+  'Its script ended but the manager never got to judge it, so it still counts as running. Release it after checking the host.';
+
 /**
  * The deploy attempts still holding something, on the Versions page because
  * an attempt on a version with shared image tags holds every such deploy on
@@ -113,7 +116,7 @@ function AttemptRow({
           color={attempt.reason ? 'error.main' : 'text.secondary'}
           sx={{ display: 'block', fontFamily: MONO_STACK, whiteSpace: 'pre-wrap' }}
         >
-          {attempt.reason ?? (releasable ? '' : RUNNING_RESOLVES_ITSELF)}
+          {attempt.reason ?? (releasable ? NEVER_JUDGED : RUNNING_RESOLVES_ITSELF)}
         </Typography>
       </Box>
       {releasable && (
