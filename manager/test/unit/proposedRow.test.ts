@@ -32,6 +32,23 @@ const nodeRefusing =
 const streamer = (over: Partial<Profile> = {}): Profile =>
   makeProfile({ name: 'stage', stamp_id: LIVE, notes: 'before', ...over });
 
+const EDITABLE_FIELDS = [
+  'notes',
+  'feed_owner',
+  'feed_topic',
+  'private_key',
+  'public_key',
+  'stamp_id',
+  'bee_publishers',
+  'bee_url',
+  'srt_passphrase',
+] as const;
+
+/** The fields a PUT replaces, as the gate and the deploy saw them. */
+function editableFieldsOf(row: Profile | undefined): Record<string, unknown> {
+  return Object.fromEntries(EDITABLE_FIELDS.map((field) => [field, row?.[field]]));
+}
+
 describe('an edit is judged on the state it proposes', () => {
   it('replaces a dead stamp with a live one through Edit', async () => {
     const harness = profileServiceHarness([streamer({ stamp_id: DEAD })]);
@@ -74,6 +91,9 @@ describe('an edit is judged on the state it proposes', () => {
     assert.equal(judged?.bee_url, null, 'a field the body leaves out is null, as the PUT stores it');
     assert.equal(deployed?.notes, 'after');
     assert.equal(deployed?.stamp_id, LIVE);
+    // Every editable field, not the two looked at above: the deploy runs on
+    // exactly the state the gate judged.
+    assert.deepEqual(editableFieldsOf(deployed), editableFieldsOf(judged));
     assert.equal(harness.profiles.rows.get('stage')?.notes, 'after');
   });
 });
