@@ -242,3 +242,66 @@ describe('readStackContract and the image tags a version builds', () => {
     assert.deepEqual(contract.warnings, []);
   });
 });
+
+describe('readStackContract and the protocol of each port', () => {
+  const withCompose = (compose: string): string => {
+    const root = mkdtempSync(join(tmpdir(), 'stack-contract-ports-'));
+    cpSync(fixture('v3'), root, { recursive: true });
+    writeFileSync(join(root, 'deploy', 'docker-compose.yml'), compose);
+    return root;
+  };
+  const protocolOf = (contract: typeof v2, name: string) =>
+    contract.ports.find((port) => port.name === name)?.protocol;
+
+  it('reads udp for the SRT ingest and tcp for every other port, on both branches', () => {
+    assert.equal(protocolOf(v2, 'SRS_SRT_PORT'), 'udp');
+    assert.equal(protocolOf(v2, 'API_PORT'), 'tcp');
+    assert.deepEqual(v2.ports.filter((port) => port.protocol === 'udp').map((port) => port.name), ['SRS_SRT_PORT']);
+    assert.equal(protocolOf(v3, 'SRS_SRT_PORT'), 'udp');
+    assert.equal(protocolOf(v3, 'SRS_HTTP_API_PORT'), 'tcp');
+    assert.equal(protocolOf(v3, 'BEE_RUNG_480P_P2P_PORT'), 'tcp');
+    assert.equal(v2.allocationProblem, null);
+    assert.equal(v3.allocationProblem, null);
+  });
+
+  it('reads a mapping with a bind address in front and a fixed container port behind', () => {
+    assert.equal(protocolOf(v2, 'BEE_UPLOADER_API_PORT'), 'tcp');
+    assert.equal(protocolOf(v2, 'CLIENT_PORT'), 'tcp');
+  });
+
+  it('reads the long form too', () => {
+    const contract = readStackContract(
+      withCompose(
+        'services:\n  srs:\n    image: ossrs/srs:6\n    ports:\n      - target: 10080\n        published: "${SRS_SRT_PORT:-10080}"\n        protocol: udp\n      - target: 1935\n        published: ${SRS_RTMP_PORT:-1935}\n',
+      ),
+    );
+
+    assert.equal(protocolOf(contract, 'SRS_SRT_PORT'), 'udp');
+    assert.equal(protocolOf(contract, 'SRS_RTMP_PORT'), 'tcp');
+    assert.equal(contract.allocationProblem, null);
+  });
+
+  it('takes tcp for a port the compose file does not map', () => {
+    const contract = readStackContract(withCompose('services:\n  srs:\n    image: ossrs/srs:6\n'));
+
+    assert.ok(contract.ports.every((port) => port.protocol === 'tcp'));
+    assert.equal(contract.allocationProblem, null);
+  });
+
+  it('refuses allocation, naming the file and the line, for a mapping it cannot read, and still reads the rest', () => {
+    const contract = readStackContract(
+      withCompose('services:\n  srs:\n    image: ossrs/srs:6\n    ports:\n      - "${SRS_SRT_PORT:-10080}:10080/udp"\n      - "what:is:this:even:here"\n'),
+    );
+
+    assert.equal(protocolOf(contract, 'SRS_SRT_PORT'), 'udp');
+    assert.match(contract.allocationProblem ?? '', /docker-compose\.yml line 6/);
+  });
+
+  it('refuses allocation for a published port no variable shifts, since every deployment would bind it', () => {
+    const contract = readStackContract(
+      withCompose('services:\n  srs:\n    image: ossrs/srs:6\n    ports:\n      - "8080:80"\n'),
+    );
+
+    assert.match(contract.allocationProblem ?? '', /8080/);
+  });
+});

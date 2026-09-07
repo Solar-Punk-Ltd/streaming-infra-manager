@@ -11,7 +11,9 @@ import { describe, it } from 'node:test';
 
 import {
   describeStackContract,
+  MANAGER_SLOT_CAP,
   parseStackContract,
+  slotCapFor,
   stackRefProblem,
   stackVersionNameProblem,
   versionNameFromRef,
@@ -23,6 +25,7 @@ const V3_CONTRACT: StackContract = {
     name: `PORT_${index}`,
     defaultPort: 3000 + index,
     slotBase: 10000 + index,
+    protocol: index === 1 ? ('udp' as const) : ('tcp' as const),
   })),
   maxSlot: 99,
   requiredSecrets: ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'],
@@ -32,6 +35,7 @@ const V3_CONTRACT: StackContract = {
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const V2_CONTRACT: StackContract = {
@@ -39,6 +43,7 @@ const V2_CONTRACT: StackContract = {
     name: `PORT_${index}`,
     defaultPort: 10000 + index,
     slotBase: 10000 + index,
+    protocol: 'tcp' as const,
   })),
   maxSlot: 999,
   requiredSecrets: [],
@@ -48,6 +53,7 @@ const V2_CONTRACT: StackContract = {
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 describe('stackRefProblem', () => {
@@ -177,5 +183,36 @@ describe('parseStackContract', () => {
       }),
       null,
     );
+  });
+
+  it('reads a port stored without a protocol as tcp, and a contract stored without an allocation problem as having none', () => {
+    const stored = JSON.parse(JSON.stringify(V3_CONTRACT)) as Record<string, unknown>;
+    stored.ports = (stored.ports as Record<string, unknown>[]).map(({ protocol: _protocol, ...rest }) => rest);
+    delete stored.allocationProblem;
+
+    const parsed = parseStackContract(stored);
+
+    assert.ok(parsed);
+    assert.ok(parsed.ports.every((port) => port.protocol === 'tcp'));
+    assert.equal(parsed.allocationProblem, null);
+  });
+
+  it('keeps udp, and reads any other protocol word as tcp', () => {
+    const stored = JSON.parse(JSON.stringify(V3_CONTRACT)) as { ports: Record<string, unknown>[] };
+    stored.ports[0]!.protocol = 'sctp';
+
+    const parsed = parseStackContract(stored);
+
+    assert.equal(parsed?.ports[0]?.protocol, 'tcp');
+    assert.equal(parsed?.ports[1]?.protocol, 'udp');
+  });
+});
+
+describe('slotCapFor', () => {
+  it('is the lower of the version maximum and the manager cap of 100, counting every stored record', () => {
+    assert.equal(MANAGER_SLOT_CAP, 100);
+    assert.equal(slotCapFor({ ...V2_CONTRACT, maxSlot: 999 }), 100);
+    assert.equal(slotCapFor({ ...V3_CONTRACT, maxSlot: 99 }), 99);
+    assert.equal(slotCapFor(null), 100);
   });
 });
