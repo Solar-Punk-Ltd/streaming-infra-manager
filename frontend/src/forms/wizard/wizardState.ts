@@ -230,6 +230,18 @@ export function chosenPassphrase(state: WizardState): string | null {
     : state.ownPassphrase.trim();
 }
 
+/**
+ * The Review line for the passphrase, in the words the Publish card will use
+ * once the deployment runs.
+ */
+export function passphraseSummary(state: WizardState, context: WizardContext): string {
+  if (state.passMode === 'generate') return 'generated for this deployment';
+  if (state.passMode === 'custom') return 'a passphrase of your own';
+  return context.hostPassphrase
+    ? 'the host-wide passphrase'
+    : 'none, this host has no shared passphrase, so the ingest is unencrypted';
+}
+
 export function chosenKey(state: WizardState): string {
   return state.keyMode === 'generate'
     ? state.generatedKey

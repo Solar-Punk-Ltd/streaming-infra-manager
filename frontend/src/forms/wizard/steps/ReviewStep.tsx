@@ -16,6 +16,7 @@ import {
   needsFeedOwner,
   needsPassphrase,
   needsStreamKey,
+  passphraseSummary,
   poolsIn,
   usesExternalBee,
   versionChoiceShown,
@@ -62,7 +63,7 @@ export function ReviewStep({ state, context }: WizardStepProps) {
   ];
 
   if (needsPassphrase(state)) {
-    entries.push({ key: 'SRT passphrase', value: passphraseSummary(state.passMode) });
+    entries.push({ key: 'SRT passphrase', value: passphraseSummary(state, context) });
   }
   if (needsStreamKey(state)) {
     entries.push({
@@ -158,13 +159,6 @@ export function ReviewStep({ state, context }: WizardStepProps) {
       </Box>
     </Stack>
   );
-}
-
-function passphraseSummary(mode: string): string {
-  if (mode === 'host') return 'the host-wide passphrase';
-  return mode === 'generate'
-    ? 'generated for this deployment'
-    : 'a passphrase of your own';
 }
 
 function NameSummary({ state }: { state: WizardStepProps['state'] }) {
