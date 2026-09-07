@@ -9,9 +9,16 @@
  * words it refuses with are the whole point.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
@@ -62,6 +69,40 @@ function scratch(): string {
   return mkdtempSync(join(tmpdir(), 'engine-config-check-'));
 }
 
+interface MountOption {
+  type: string;
+  source: string;
+  target: string;
+  readonly: boolean;
+}
+
+/** The `--mount` option as docker parses it: comma separated key=value pairs. */
+function mountOptionIn(args: string[]): MountOption {
+  const option = args[args.indexOf('--mount') + 1] ?? '';
+  const pairs = new Map<string, string>();
+  for (const part of option.split(',')) {
+    const [key, value = ''] = part.split('=');
+    pairs.set(key ?? '', value);
+  }
+  return {
+    type: pairs.get('type') ?? '',
+    source: pairs.get('source') ?? '',
+    target: pairs.get('target') ?? '',
+    readonly: pairs.has('readonly'),
+  };
+}
+
+/** A point a fake runner waits at, so the test decides when the containers run. */
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open = (): void => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
+
+const SRS_INPUT = { engine: 'srs' as const, image: null, filled: [] };
+
 describe('substituteForCheck', () => {
   it('fills every placeholder with a parseable dummy and drops the line placeholders', () => {
     const text = substituteForCheck(
@@ -111,10 +152,13 @@ describe('the SRS check', () => {
     assert.ok(args.includes('--network') && args.includes('none'), 'no network for a parser');
     assert.ok(args.includes('ossrs/srs:6.0.184'), 'the version image');
     assert.deepEqual(args.slice(-4), ['./objs/srs', '-t', '-c', '/check/srs.conf']);
-    const mount = args[args.indexOf('-v') + 1] ?? '';
-    assert.ok(mount.startsWith(join(scratchDir, 'srs.conf.check')), mount);
-    assert.ok(mount.endsWith(':/check/srs.conf:ro'), mount);
-    assert.equal(existsSync(join(scratchDir, 'srs.conf.check')), false, 'the copy is removed afterwards');
+    const mount = mountOptionIn(args);
+    assert.equal(mount.type, 'bind');
+    assert.ok(mount.source.startsWith(join(scratchDir, 'check-')), mount.source);
+    assert.equal(mount.target, '/check/srs.conf');
+    assert.equal(mount.readonly, true);
+    assert.equal(existsSync(dirname(mount.source)), false, 'the copy and its directory are removed afterwards');
+    assert.ok(existsSync(scratchDir), 'the engine directory is not');
   });
 
   it("answers SRS's own reason without its log prefix, naming your config", async () => {
@@ -161,6 +205,115 @@ describe('the SRS check', () => {
     });
 
     assert.ok(calls[0]?.args.includes('ossrs/srs:6'));
+  });
+
+  it('gives two checks in flight a copy each, and refuses only the refused one', async () => {
+    // Both containers are held at the gate until both copies have been
+    // written, which is the interleaving that made one check read the other's
+    // file when both wrote the same name.
+    const scratchDir = scratch();
+    const bothWritten = gate();
+    const seen = new Map<string, string>();
+    const checker = new EngineConfigChecker(async (_file, args) => {
+      const { source } = mountOptionIn(args);
+      const bytes = readFileSync(source, 'utf8');
+      seen.set(bytes, source);
+      if (seen.size === 2) bothWritten.open();
+      await bothWritten.opened;
+      assert.equal(readFileSync(source, 'utf8'), bytes, 'still its own copy once the other check ran');
+      return bytes.includes('hls_fragmnt') ? SRS_REFUSED : SRS_OK;
+    });
+    const started = new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+    const [good, bad] = await Promise.all([
+      checker.problem({ ...SRS_INPUT, config: 'hls_fragment 1.5;\n', scratchDir }),
+      checker.problem({ ...SRS_INPUT, config: 'hls_fragmnt 1.5;\n', scratchDir }),
+      // The gate never opens when both checks wrote one file, so the test
+      // ends on this instead of hanging.
+      started.then(() => bothWritten.open()),
+    ]);
+
+    assert.equal(seen.size, 2, `two copies, one per check, not ${seen.size}`);
+    assert.notEqual(seen.get('hls_fragment 1.5;\n'), seen.get('hls_fragmnt 1.5;\n'));
+    assert.equal(good, null);
+    assert.match(bad ?? '', /^SRS refused the file/);
+    assert.deepEqual(readdirSync(scratchDir), [], 'nothing left behind');
+  });
+
+  it('removes its copy when the runner fails, and lets the failure through', async () => {
+    const scratchDir = scratch();
+    let source = '';
+    const checker = new EngineConfigChecker(async (_file, args) => {
+      source = mountOptionIn(args).source;
+      throw new Error('spawn docker ENOENT');
+    });
+
+    await assert.rejects(
+      checker.problem({ ...SRS_INPUT, config: 'listen 1935;\n', scratchDir }),
+      /spawn docker ENOENT/,
+    );
+
+    assert.ok(source.startsWith(scratchDir), source);
+    assert.equal(existsSync(dirname(source)), false);
+    assert.deepEqual(readdirSync(scratchDir), []);
+  });
+
+  it('fails, and creates nothing, when its copy is gone by the time the container starts', async () => {
+    // `-v` would have created a directory at the missing source, which is what
+    // poisoned the fixed name for every check after. `--mount` refuses instead.
+    const scratchDir = scratch();
+    let source = '';
+    const checker = new EngineConfigChecker(async (_file, args) => {
+      source = mountOptionIn(args).source;
+      rmSync(dirname(source), { recursive: true, force: true });
+      return {
+        code: 125,
+        stdout: '',
+        stderr: `docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: ${source}\n`,
+      };
+    });
+
+    const problem = await checker.problem({ ...SRS_INPUT, config: 'listen 1935;\n', scratchDir });
+
+    assert.match(problem ?? '', /bind source path does not exist/);
+    assert.equal(existsSync(source), false);
+    assert.deepEqual(readdirSync(scratchDir), []);
+  });
+
+  it('works beside a srs.conf.check directory the old scheme left behind', async () => {
+    // What a race under the old fixed name left on a host: a directory where
+    // the copy went, and EISDIR for every check after. Left alone here, and
+    // not in the way.
+    const scratchDir = scratch();
+    mkdirSync(join(scratchDir, 'srs.conf.check'));
+    const { checker } = checkerAnswering(SRS_OK);
+
+    const problem = await checker.problem({ ...SRS_INPUT, config: 'listen 1935;\n', scratchDir });
+
+    assert.equal(problem, null);
+    assert.deepEqual(readdirSync(scratchDir), ['srs.conf.check']);
+  });
+
+  it('leaves nothing behind after a hundred interleaved checks', async () => {
+    const scratchDir = scratch();
+    const checker = new EngineConfigChecker(async (_file, args) => {
+      const bytes = readFileSync(mountOptionIn(args).source, 'utf8');
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 3));
+      return bytes.startsWith('bad') ? SRS_REFUSED : SRS_OK;
+    });
+
+    const answers = await Promise.all(
+      Array.from({ length: 100 }, (_value, i) =>
+        checker.problem({
+          ...SRS_INPUT,
+          config: i % 3 === 0 ? `bad ${i};\n` : `listen ${i};\n`,
+          scratchDir,
+        }),
+      ),
+    );
+
+    assert.equal(answers.filter((answer) => answer === null).length, 66, 'each check answered for its own file');
+    assert.deepEqual(readdirSync(scratchDir), []);
   });
 });
 
