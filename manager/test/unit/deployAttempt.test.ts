@@ -111,6 +111,20 @@ describe('whyAdmissionIsRefused', () => {
     assert.equal(whyAdmissionIsRefused({ daemonId: 'daemon-1', project: 'stage', kind: 'shared' }, [fixedOnOther]), null);
   });
 
+  it('says a running attempt resolves on its own and a blocked one waits for a person', () => {
+    const request = { daemonId: 'daemon-1', project: 'stage', kind: 'shared' as const };
+
+    const running = whyAdmissionIsRefused(request, [OPEN]) ?? '';
+    assert.match(running, /still running/);
+    assert.match(running, /on its own/);
+
+    const blocked = whyAdmissionIsRefused(request, [blockedOnStage]) ?? '';
+    assert.match(blocked, /blocked/);
+    assert.match(blocked, /stream-uploader/);
+    assert.doesNotMatch(blocked, /on its own/, 'a judged attempt is never judged again');
+    assert.match(blocked, /release/);
+  });
+
   it('ignores attempts on another daemon and attempts already released', () => {
     const elsewhere = { ...OPEN, daemonId: 'daemon-2' };
     const released = { ...OPEN, state: 'released' as const, resolvedAt: new Date(1) };
