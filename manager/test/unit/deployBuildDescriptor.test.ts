@@ -209,3 +209,45 @@ describe('what the success hook records', () => {
     assert.ok(open[0]!.services.includes('stream-uploader'));
   });
 });
+
+describe('what the row says runs', () => {
+  it('records each service\'s build and commit from observation, and the profile\'s last full deploy commit when every service agrees', async () => {
+    const { harness, row, versionsRoot } = await setup();
+    const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildA);
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.deepEqual(
+      [...harness.containers.builds.entries()].sort(),
+      [
+        ['stage/bee-uploader', { buildId: COMMIT_A, commit: COMMIT_A }],
+        ['stage/srs', { buildId: COMMIT_A, commit: COMMIT_A }],
+        ['stage/stream-uploader', { buildId: COMMIT_A, commit: COMMIT_A }],
+      ],
+    );
+    assert.equal(row().last_full_deploy_commit, COMMIT_A);
+  });
+
+  it('does not advance untouched services or the full deploy commit on an engine-only deploy', async () => {
+    const { harness, row, versionsRoot, v3 } = await setup();
+    const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildA);
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    buildOnDisk(versionsRoot, COMMIT_B);
+    await harness.versions.publish(v3.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: CONTRACT });
+    harness.ledger.mounted.set('stage/srs', buildDirFor(versionsRoot, 'v3', COMMIT_B));
+    await harness.orchestrator.startDeploy(row(), ['srs']);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.deepEqual(harness.containers.builds.get('stage/srs'), { buildId: COMMIT_B, commit: COMMIT_B });
+    assert.deepEqual(harness.containers.builds.get('stage/stream-uploader'), { buildId: COMMIT_A, commit: COMMIT_A });
+    assert.equal(row().last_full_deploy_commit, COMMIT_A, 'a partial deploy is not a full one');
+  });
+});
