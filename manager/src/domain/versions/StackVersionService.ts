@@ -316,24 +316,27 @@ export class StackVersionService {
   /**
    * The base env, the deploy config and the engine envs the deploy shipped,
    * committed as the bundled version's host configuration when they differ
-   * from what is committed. The deploy is the supported editor of these
+   * from what is committed, and a file of the set the shipment no longer
+   * carries taken out of it. The deploy is the supported editor of these
    * files for the bundled version, so the checkout it ran from stays their
    * source of truth, and an unchanged shipment bumps no generation.
    */
   private async commitShippedInputs(configRoot: string, incoming: string): Promise<void> {
     const shipped = hostConfigFilesOf(incoming);
-    if (shipped.length === 0) return;
-    const files: Record<string, Buffer> = {};
-    for (const relative of shipped) files[relative] = await readFile(join(incoming, relative));
+    const gone = hostConfigFilesOf(configRoot).filter((relative) => !shipped.includes(relative));
+    if (shipped.length === 0 && gone.length === 0) return;
+    const contents = await Promise.all(shipped.map((relative) => readFile(join(incoming, relative))));
+    const files = Object.fromEntries(shipped.map((relative, index) => [relative, contents[index]!]));
     const committed = await readHostConfigRevision(configRoot);
     const unchanged =
       committed !== null &&
+      gone.length === 0 &&
       shipped.every((relative) => committed.files[relative] === hostConfigHash(files[relative]!));
     if (unchanged) return;
     await mkdir(configRoot, { recursive: true });
-    const revision = await commitHostConfig(configRoot, files);
+    const revision = await commitHostConfig(configRoot, files, { remove: gone });
     logger.info(
-      `[Versions] committed the shipped ${shipped.join(', ')} as bundled's host configuration, generation ${revision.generation}`,
+      `[Versions] committed the shipped ${shipped.join(', ')}${gone.length > 0 ? `, without ${gone.join(', ')},` : ''} as bundled's host configuration, generation ${revision.generation}`,
     );
   }
 

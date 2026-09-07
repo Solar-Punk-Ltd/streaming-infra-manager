@@ -58,6 +58,12 @@ export type HostConfigCapture =
   | { captured: CapturedHostConfig; problem: null }
   | { captured: null; problem: string };
 
+export interface CommitOptions {
+  lockWaitMs?: number;
+  /** Files of the set to take out of the revision, relative posix paths. */
+  remove?: readonly string[];
+}
+
 export interface CaptureOptions {
   /** The keys the version's .env.sample holds, which the base env must all carry. */
   sampleEnvKeys?: readonly string[];
@@ -255,7 +261,7 @@ export async function captureHostConfig(
 export async function commitHostConfig(
   root: string,
   files: Record<string, Buffer>,
-  options: Pick<CaptureOptions, 'lockWaitMs'> = {},
+  options: CommitOptions = {},
 ): Promise<ConfigRevision> {
   const release = await holdHostConfigLock(root, options.lockWaitMs);
   try {
@@ -263,6 +269,9 @@ export async function commitHostConfig(
     for (const [relative, bytes] of Object.entries(files)) {
       await mkdir(join(root, relative, '..'), { recursive: true });
       await replaceAtomically(join(root, relative), bytes);
+    }
+    for (const relative of options.remove ?? []) {
+      await rm(join(root, relative), { force: true });
     }
     const revision = await revisionOfPresentFiles(root, (current?.generation ?? 0) + 1);
     await writeRevision(root, revision);

@@ -173,13 +173,14 @@ describe('commitHostConfig', () => {
     const dir = root();
     mkdirSync(join(dir, 'engines', 'ome'), { recursive: true });
     writeFileSync(join(dir, 'engines', 'ome', '.env'), 'OME_LOG=debug\n');
-    await commitHostConfig(dir, { 'engines/ome/.env': Buffer.from('OME_LOG=info\n') });
+    const withOme = await commitHostConfig(dir, { 'engines/ome/.env': Buffer.from('OME_LOG=info\n') });
+    assert.equal('engines/ome/.env' in withOme.files, true);
 
     const revision = await commitHostConfig(dir, {}, { remove: ['engines/ome/.env'] });
 
     assert.equal(existsSync(join(dir, 'engines', 'ome', '.env')), false);
     assert.equal('engines/ome/.env' in revision.files, false);
-    assert.equal(revision.generation, 3);
+    assert.equal(revision.generation, withOme.generation + 1);
   });
 
   it('refuses while an edit is under way, and changes nothing', async () => {
