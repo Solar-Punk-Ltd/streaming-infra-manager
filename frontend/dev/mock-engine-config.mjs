@@ -12,7 +12,8 @@
  * them: applying while the engine is recreated, watching for a few seconds
  * after, then applied. A file containing the word `crash` is reverted from
  * the watch, one containing `fail` cannot be recreated on and ends failed
- * with the previous file back, and one containing `interrupt` is left
+ * with the previous file back, one containing `note` applies with the note
+ * an unanswered HLS port leaves, and one containing `interrupt` is left
  * interrupted, the way a manager restart leaves one, with the two ways out
  * the card offers.
  */
@@ -43,6 +44,11 @@ const NO_INTERRUPTED_ROLLOUT = 'There is no interrupted rollout to go back from.
 
 function failReason(engine) {
   return `${ENGINE_DISPLAY_NAMES[engine]} could not be recreated on the new config file (deploy.sh exited with code 1), so the previous one is back.`;
+}
+
+/** The note an applied OvenMediaEngine file carries when its HLS port did not answer the manager. */
+function portNote(engine) {
+  return `The HLS port 8091 did not answer from the manager within 10 s after the watch. ${ENGINE_DISPLAY_NAMES[engine]} is running, so this is a diagnosis and not a verdict on the file: check its logs and the port.`;
 }
 
 function crashReason(engine) {
@@ -234,7 +240,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
     setTimeout(() => {
       if (profile.engine_config_state !== 'watching') return;
       if (!/crash/.test(config)) {
-        setRolloutState(profile, 'applied');
+        setRolloutState(profile, 'applied', /note/.test(config) ? portNote(engine) : null);
         changed(profile);
         return;
       }
