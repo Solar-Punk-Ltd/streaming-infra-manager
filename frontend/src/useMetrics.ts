@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { METRICS_SAMPLE_INTERVAL_MS } from '@streaming-infra-manager/common';
 
-import { apiFetch, checkSessionAfterStreamClosed } from './http';
+import { apiFetch } from './http';
+import { openLiveStream } from './liveStream';
 import type { MetricsSnapshot } from './types';
 
 const HISTORY_LEN = 40;
@@ -38,43 +39,39 @@ export function useMetrics(): UseMetrics {
   const [staleAgeMs, setStaleAgeMs] = useState<number | null>(null);
   const historyRef = useRef<CpuHistoryByContainer>(new Map());
 
-  useEffect(() => {
-    const source = new EventSource('/metrics/stream');
+  useEffect(
+    () =>
+      openLiveStream('/metrics/stream', {
+        onOpen: () => setConnected(true),
+        onDown: () => setConnected(false),
+        events: {
+          snapshot: (ev: MessageEvent<string>) => {
+            let snap: MetricsSnapshot;
+            try {
+              snap = JSON.parse(ev.data) as MetricsSnapshot;
+            } catch {
+              return;
+            }
 
-    source.onopen = () => setConnected(true);
-    source.onerror = () => {
-      setConnected(false);
-      if (source.readyState === EventSource.CLOSED) {
-        void checkSessionAfterStreamClosed();
-      }
-    };
+            const history = historyRef.current;
+            const seen = new Set<string>();
+            for (const c of snap.containers) {
+              seen.add(c.id);
+              const arr = history.get(c.id) ?? [];
+              arr.push(c.cpuPercent);
+              if (arr.length > HISTORY_LEN) arr.splice(0, arr.length - HISTORY_LEN);
+              history.set(c.id, arr);
+            }
+            for (const id of [...history.keys()]) {
+              if (!seen.has(id)) history.delete(id);
+            }
 
-    source.addEventListener('snapshot', (ev: MessageEvent<string>) => {
-      let snap: MetricsSnapshot;
-      try {
-        snap = JSON.parse(ev.data) as MetricsSnapshot;
-      } catch {
-        return;
-      }
-
-      const history = historyRef.current;
-      const seen = new Set<string>();
-      for (const c of snap.containers) {
-        seen.add(c.id);
-        const arr = history.get(c.id) ?? [];
-        arr.push(c.cpuPercent);
-        if (arr.length > HISTORY_LEN) arr.splice(0, arr.length - HISTORY_LEN);
-        history.set(c.id, arr);
-      }
-      for (const id of [...history.keys()]) {
-        if (!seen.has(id)) history.delete(id);
-      }
-
-      setSnapshot(snap);
-    });
-
-    return () => source.close();
-  }, []);
+            setSnapshot(snap);
+          },
+        },
+      }),
+    [],
+  );
 
   // On a timer of its own: nothing arrives while readings are stalled, so
   // nothing else would re-render the age.

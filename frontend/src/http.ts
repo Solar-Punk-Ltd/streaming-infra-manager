@@ -78,7 +78,7 @@ export async function apiFetch(
   return res;
 }
 
-let sessionProbe: Promise<void> | null = null;
+let sessionProbe: Promise<boolean> | null = null;
 
 /**
  * Asks whether the session is still there, after a live stream stopped.
@@ -87,9 +87,10 @@ let sessionProbe: Promise<void> | null = null;
  * but 200, and keeps reconnecting only when the failure was the network. So a
  * stream that has reached CLOSED is where a session ending goes unnoticed:
  * nothing else on the page is fetching. Concurrent calls share one probe, so
- * both streams closing together ask once.
+ * both streams closing together ask once. The answer says whether reopening
+ * the stream is worth trying.
  */
-export function checkSessionAfterStreamClosed(): Promise<void> {
+export function checkSessionAfterStreamClosed(): Promise<boolean> {
   if (!sessionProbe) {
     sessionProbe = runSessionProbe().finally(() => {
       sessionProbe = null;
@@ -98,13 +99,19 @@ export function checkSessionAfterStreamClosed(): Promise<void> {
   return sessionProbe;
 }
 
-async function runSessionProbe(): Promise<void> {
+/** Resolves false only when the manager said the session is gone. */
+async function runSessionProbe(): Promise<boolean> {
   try {
     const res = await apiFetch('/auth/session', { allowUnauthorized: true });
-    if (res.status === 401) onSessionEnded?.();
+    if (res.status === 401) {
+      onSessionEnded?.();
+      return false;
+    }
+    return true;
   } catch {
     // A manager that cannot be reached is not a session that ended, and the
-    // stream reconnecting is what will tell the two apart.
+    // stream reopening is what will tell the two apart.
+    return true;
   }
 }
 

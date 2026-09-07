@@ -17,7 +17,7 @@ import {
 
 import type { Tone } from '../components/tone';
 import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
-import { checkSessionAfterStreamClosed } from '../http';
+import { openLiveStream } from '../liveStream';
 import type { DeploymentGroup, Profile } from '../types';
 import { useToast, type ToastTone } from './ToastProvider';
 import { fetchVersions } from '../versions/versionsApi';
@@ -178,66 +178,66 @@ export function useDeploymentsStore(): DeploymentsStore {
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    const source = new EventSource('/events');
-    source.onopen = () => {
-      setConnected(true);
-      // The stream carries no backlog, so a deployment that stopped, failed or
-      // was removed while it was down is only in the database.
-      if (hasOpened.current) reload();
-      hasOpened.current = true;
-    };
-    source.onerror = () => {
-      setConnected(false);
-      if (source.readyState === EventSource.CLOSED) {
-        void checkSessionAfterStreamClosed();
-      }
-    };
+  useEffect(
+    () =>
+      openLiveStream('/events', {
+        onOpen: () => {
+          setConnected(true);
+          // The stream carries no backlog, so a deployment that stopped, failed
+          // or was removed while it was down is only in the database.
+          if (hasOpened.current) reload();
+          hasOpened.current = true;
+        },
+        onDown: () => setConnected(false),
+        events: {
+          'profile.changed': (event: MessageEvent<string>) => {
+            const { profile } = JSON.parse(event.data) as { profile: Profile };
+            setProfiles((prev) => {
+              if (!prev) return [profile];
+              const index = prev.findIndex((p) => p.name === profile.name);
+              if (index === -1) return [profile, ...prev];
+              const copy = prev.slice();
+              copy[index] = profile;
+              return copy;
+            });
+            const entry = ACTIVITY_TEXT[profile.status];
+            if (entry) log(`${profile.name} ${entry.suffix}`, entry.tone);
+          },
 
-    source.addEventListener('profile.changed', (event: MessageEvent<string>) => {
-      const { profile } = JSON.parse(event.data) as { profile: Profile };
-      setProfiles((prev) => {
-        if (!prev) return [profile];
-        const index = prev.findIndex((p) => p.name === profile.name);
-        if (index === -1) return [profile, ...prev];
-        const copy = prev.slice();
-        copy[index] = profile;
-        return copy;
-      });
-      const entry = ACTIVITY_TEXT[profile.status];
-      if (entry) log(`${profile.name} ${entry.suffix}`, entry.tone);
-    });
+          // Something the manager did that changed nothing about the
+          // deployment, so no other event would carry it: it goes to the
+          // activity feed and to a toast, because a deploy the operator is
+          // watching is where it matters.
+          'profile.notice': (event: MessageEvent<string>) => {
+            const notice = JSON.parse(event.data) as ProfileNotice;
+            log(notice.text, notice.tone);
+            toast(notice.text, NOTICE_TOAST[notice.tone] ?? 'info');
+          },
 
-    // Something the manager did that changed nothing about the deployment, so
-    // no other event would carry it: it goes to the activity feed and to a
-    // toast, because a deploy the operator is watching is where it matters.
-    source.addEventListener('profile.notice', (event: MessageEvent<string>) => {
-      const notice = JSON.parse(event.data) as ProfileNotice;
-      log(notice.text, notice.tone);
-      toast(notice.text, NOTICE_TOAST[notice.tone] ?? 'info');
-    });
+          'profile.deleted': (event: MessageEvent<string>) => {
+            const { name } = JSON.parse(event.data) as { name: string };
+            setProfiles((prev) =>
+              prev ? prev.filter((p) => p.name !== name) : prev,
+            );
+            log(`${name} removed`, 'gray');
+            fetchGroups().then(setGroups).catch(() => undefined);
+          },
 
-    source.addEventListener('profile.deleted', (event: MessageEvent<string>) => {
-      const { name } = JSON.parse(event.data) as { name: string };
-      setProfiles((prev) => (prev ? prev.filter((p) => p.name !== name) : prev));
-      log(`${name} removed`, 'gray');
-      fetchGroups().then(setGroups).catch(() => undefined);
-    });
+          'engine.restarted': (event: MessageEvent<string>) => {
+            const { profile, service } = JSON.parse(event.data) as {
+              profile: string;
+              service: string;
+            };
+            log(`${service} restarted on ${profile}`, 'info');
+          },
 
-    source.addEventListener('engine.restarted', (event: MessageEvent<string>) => {
-      const { profile, service } = JSON.parse(event.data) as {
-        profile: string;
-        service: string;
-      };
-      log(`${service} restarted on ${profile}`, 'info');
-    });
-
-    // No payload: the default badge, every usage count and a build's status
-    // move together, so the whole table is read again.
-    source.addEventListener('version.changed', () => reloadVersions());
-
-    return () => source.close();
-  }, [log, reload, toast, reloadVersions]);
+          // No payload: the default badge, every usage count and a build's
+          // status move together, so the whole table is read again.
+          'version.changed': () => reloadVersions(),
+        },
+      }),
+    [log, reload, toast, reloadVersions],
+  );
 
   // A fresh object every render is a fresh context value, and every consumer
   // of the store renders again for it. A version.changed event reloads the
