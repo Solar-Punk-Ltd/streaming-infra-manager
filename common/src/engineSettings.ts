@@ -42,6 +42,13 @@ export interface EngineSettingField {
   help: string;
   /** Read only when the ABR ladder is on, which is the abr-uploader kind. */
   abrOnly: boolean;
+  /**
+   * The token in the engine's config template that this value fills at
+   * container start. Absent for a setting the config never carries, which the
+   * uploader reads instead. A custom config file that drops the token stops
+   * reading the setting, see `settingsNotInConfig`.
+   */
+  placeholder?: string;
 }
 
 /**
@@ -79,6 +86,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 30,
     help: "How long each piece of the stream is. SRS can only cut on a keyframe, so keep the publisher's keyframe interval at or below this, otherwise the pieces come out longer than you asked for.",
     abrOnly: false,
+    placeholder: 'HLS_FRAGMENT_PLACEHOLDER',
   },
   {
     key: 'HLS_WINDOW',
@@ -90,6 +98,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 600,
     help: 'How much of the stream the playlist keeps. It is a duration and not a count, so raising the segment length on its own leaves fewer pieces in the playlist. Move the two together. The player aims about 10 seconds behind live and that has to stay comfortably inside this.',
     abrOnly: false,
+    placeholder: 'HLS_WINDOW_PLACEHOLDER',
   },
   {
     key: 'ABR_FPS',
@@ -101,6 +110,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 120,
     help: 'Frames per second every rung is encoded at. Frame rate times segment length has to be a whole number of frames, because that product is the keyframe interval and every rung has to place its keyframes at the same moments.',
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_PRESET',
@@ -111,6 +121,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     choices: X264_PRESETS,
     help: 'How hard the encoder works on each frame. A slower preset looks better and costs more CPU, and there is one encode per rung.',
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_PROFILE',
@@ -121,6 +132,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     choices: H264_PROFILES,
     help: 'The H.264 feature set the rungs are encoded with. Main plays everywhere that matters. Baseline is for very old devices and costs quality at the same bitrate.',
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_THREADS',
@@ -132,6 +144,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 64,
     help: 'Threads for each rung, and 0 lets the encoder pick. There is one encoder process per rung and each decodes the source on its own, so four rungs is four decodes. That is usually the real CPU floor of the ladder.',
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_ACODEC',
@@ -142,6 +155,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     choices: AUDIO_CODECS,
     help: "Copy passes the publisher's audio through unchanged on every rung, which costs no CPU and keeps the rungs in sync with each other. Switch to aac when the publisher sends something the players cannot take.",
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_AUDIO_BITRATE',
@@ -153,6 +167,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 512,
     help: "Only used when the audio codec is aac. With copy the publisher's own audio is passed through and this has no effect.",
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
   {
     key: 'ABR_VBV_SECONDS',
@@ -164,6 +179,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     max: 10,
     help: "Seconds of buffer, as a multiple of each rung's bitrate. It turns the rung's bitrate from an average the encoder may overshoot into a ceiling. 1 is tight, which is what a live ladder wants, because a larger buffer lets a busy scene borrow bitrate from the next one and produces the size spikes that stall a viewer.",
     abrOnly: true,
+    placeholder: 'TRANSCODE_PLACEHOLDER',
   },
 ];
 
@@ -178,6 +194,7 @@ export const OME_SETTINGS: readonly EngineSettingField[] = [
     max: 30,
     help: 'How long each piece of the stream is, for both the video and the audio application.',
     abrOnly: false,
+    placeholder: 'SEGMENT_DURATION_PLACEHOLDER',
   },
   {
     key: 'HLS_SEGMENT_COUNT',
@@ -189,6 +206,7 @@ export const OME_SETTINGS: readonly EngineSettingField[] = [
     max: 30,
     help: 'How many pieces the playlist keeps. Duration times count is the playlist window, and the player aims about 10 seconds behind live, so keep the product comfortably above that. At the defaults the two are equal, which parks the playhead on the oldest piece.',
     abrOnly: false,
+    placeholder: 'SEGMENT_COUNT_PLACEHOLDER',
   },
   {
     key: 'OME_HLS_POLL_INTERVAL_MS',

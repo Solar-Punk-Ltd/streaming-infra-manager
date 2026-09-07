@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import {
   abrLadderEnvValue,
   engineForComponents,
+  type EngineName,
   engineSettingsEnv,
   getErrorMessage,
   ownsBeeNode,
@@ -14,12 +15,18 @@ import { Profile, ProfileStatus } from '../types/index.js';
 import {
   bootstrapStackDefaults,
   deleteProfileEnv,
+  ENGINE_CONFIG_ENV_KEYS,
   parseBaseEnv,
   writeProfileEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
+import {
+  beeDataDirsFor,
+  engineConfigPathFor,
+  profileDataRoot,
+} from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
 import { ProfileBusyError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
@@ -51,20 +58,6 @@ function stripDockerWarnings(text: string): string {
     .split('\n')
     .filter((line) => !/\blevel=(warning|info)\b/.test(line))
     .join('\n');
-}
-
-const BEE_DATA_ROOT =
-  process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
-
-function beeDataDirsFor(profileName: string): Record<string, string> {
-  return {
-    BEE_UPLOADER_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-uploader`,
-    BEE_GATEWAY_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-gateway`,
-  };
-}
-
-function profileDataRoot(profileName: string): string {
-  return join(BEE_DATA_ROOT, profileName);
 }
 
 interface JobConfig {
@@ -185,6 +178,32 @@ export class DeploymentOrchestrator {
       secrets[key] = generated[key] ?? stored[key]!;
     }
     return secrets;
+  }
+
+  /**
+   * Writes the deployment's own engine config into its data directory, where
+   * the version's compose override mounts it from, and answers the path. Null
+   * when the template runs, with any stale file removed, so a deployment put
+   * back on the template does not leave an old file behind for a later
+   * version to pick up.
+   */
+  private async engineConfigFileFor(
+    profile: Profile,
+    engine: EngineName,
+    version: StackVersionRecord | null,
+  ): Promise<string | null> {
+    const path = engineConfigPathFor(profile.name, engine);
+    const supported = version?.contract?.engineConfig[engine] ?? false;
+    const config = supported
+      ? await this.profiles.engineConfigOf(profile.name)
+      : null;
+    if (config === null) {
+      await rm(path, { force: true });
+      return null;
+    }
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, config, 'utf8');
+    return path;
   }
 
   /** The checkout root this deployment's env file is built from. */
@@ -372,6 +391,7 @@ export class DeploymentOrchestrator {
     // file: ENGINE selects the uploader's engine plugin (and OME ports when
     // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
     const engine = engineForComponents(profile.components);
+    const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
     const written = writeProfileEnv(paths.root, profile.name, {
       engine,
       stampId: profile.stamp_id,
@@ -382,6 +402,7 @@ export class DeploymentOrchestrator {
       engineSettings: profile.engine_settings,
       stackSecrets: await this.stackSecretsFor(profile, version),
       stackEngineDefaults: version?.contract?.engineDefaults,
+      engineConfigFile,
       // From the profile's own components, deliberately not from the reserved
       // services: a held-back uploader is deployed on its own, and deploy.sh
       // must still resolve the local Bee address for it.
@@ -403,7 +424,7 @@ export class DeploymentOrchestrator {
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, paths, version, services);
+        await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         if (updated) {
           await this.publishChanged(updated);
         }
@@ -635,9 +656,14 @@ export class DeploymentOrchestrator {
     paths: StackPaths,
     version: StackVersionRecord | null,
     services: string[],
+    engineConfigFile: string | null,
   ): Promise<void> {
     try {
       const env = this.buildEffectiveEnv(profile, paths, version);
+      if (engineConfigFile) {
+        env[ENGINE_CONFIG_ENV_KEYS[engineForComponents(profile.components)]] =
+          engineConfigFile;
+      }
       for (const service of services) {
         const snapshot = buildContainerSnapshot(service, env);
         await this.containers.upsert(profile.name, snapshot);

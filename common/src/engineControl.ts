@@ -82,6 +82,11 @@ export interface EngineSettingsOverview {
   fields: readonly EngineSettingField[];
   /** Why live status is not shown, in words the card can show as it stands. */
   liveUnavailableReason: string;
+  /**
+   * Settings the deployment's own config file no longer reads, by key: their
+   * placeholder is not in it. Empty while the template runs.
+   */
+  notInConfig: string[];
 }
 
 /** What `GET /profiles/:name/engine` answers. */

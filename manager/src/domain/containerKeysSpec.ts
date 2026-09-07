@@ -39,6 +39,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
   [SRS_SERVICE]: [
     'SRS_SRT_PORT',
     'SRS_HTTP_API_PORT',
+    'SRS_CONF_FILE',
     'SRT_PASSPHRASE',
     'SRS_ADAPTER_HOST',
     'SRS_ADAPTER_PORT',
@@ -50,6 +51,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
   [OME_SERVICE]: [
     'OME_SRT_PORT',
     'OME_HLS_PORT',
+    'OME_CONF_FILE',
     'OME_ADAPTER_HOST',
     'OME_ADAPTER_PORT',
     'OME_HLS_URL',

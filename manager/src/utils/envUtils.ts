@@ -37,6 +37,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const BUNDLED_STACK_ROOT =
   process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
 
+/** The env key each engine's compose override reads the config file path from. */
+export const ENGINE_CONFIG_ENV_KEYS: Record<EngineName, string> = {
+  srs: 'SRS_CONF_FILE',
+  ome: 'OME_CONF_FILE',
+};
+
+const ENGINE_CONFIG_FILE_RE = /^\/[A-Za-z0-9._\/-]+$/;
+
 export function profileEnvPath(root: string, name: string): string {
   return join(root, `.env.${name}`);
 }
@@ -162,6 +170,13 @@ export interface ProfileEnvValues {
    * base env sets nothing, because that is the value the container starts with.
    */
   stackEngineDefaults?: EngineSettings;
+
+  /**
+   * The deployment's own engine config file on the host, which the stack's
+   * compose override mounts into the engine container when the key is set.
+   * Absent, the key is left out and the version's template runs.
+   */
+  engineConfigFile?: string | null;
 
   /**
    * Engine settings this profile overrides, by env key. An absent key is left
@@ -361,6 +376,23 @@ export function writeProfileEnv(
         String(values.omeHlsPort),
       );
     }
+  }
+
+  // An absolute path the manager built from the profile name, checked as one
+  // because it becomes a bind mount source: a relative path would be resolved
+  // against the compose file, and a quote or a space would end the mount.
+  const configFile = values.engineConfigFile?.trim();
+  if (configFile) {
+    if (!ENGINE_CONFIG_FILE_RE.test(configFile)) {
+      throw new Error(
+        `refusing to write ${ENGINE_CONFIG_ENV_KEYS[values.engine]}: ${configFile} is not a plain absolute path`,
+      );
+    }
+    contents = upsertEnvLine(
+      contents,
+      ENGINE_CONFIG_ENV_KEYS[values.engine],
+      configFile,
+    );
   }
 
   const path = profileEnvPath(root, name);

@@ -23,6 +23,7 @@ import {
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
+  settingsNotInConfig,
   type StackContract,
   STANDARD_GROUP_KIND,
   type StampHealth,
@@ -466,6 +467,12 @@ export class ProfileService {
       defaultSources: defaults.sources,
       fields: engineSettingsFieldsFor(engine, { abr }),
       liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
+      notInConfig: profile.has_engine_config
+        ? settingsNotInConfig(
+            engine,
+            (await this.repo.engineConfigOf(profile.name)) ?? '',
+          )
+        : [],
     };
   }
 

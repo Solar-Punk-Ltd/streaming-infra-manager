@@ -13,6 +13,7 @@ import type {
   ContainerHandle,
   DockerEngine,
   ExecHandle,
+  InspectedContainer,
   ListedContainer,
 } from '../../src/domain/ContainerControl.js';
 
@@ -33,6 +34,8 @@ export interface FakeContainer {
    * that has stalled rather than refused behaves.
    */
   stalls?: boolean;
+  /** What `inspect` answers. A running container that never restarted when absent. */
+  state?: { status: string; restartCount: number };
 }
 
 /** A promise for a call the daemon accepted and will never answer. */
@@ -112,6 +115,18 @@ export function fakeDocker(
       return {
         async start() {
           return Readable.from([container.execBytes ?? Buffer.alloc(0)]);
+        },
+      };
+    },
+    async inspect(): Promise<InspectedContainer> {
+      if (container.stalls) return neverAnswered<InspectedContainer>();
+      const state = container.state ?? { status: 'running', restartCount: 0 };
+      return {
+        Id: container.id,
+        State: {
+          Status: state.status,
+          RestartCount: state.restartCount,
+          StartedAt: '2026-09-07T10:00:00Z',
         },
       };
     },

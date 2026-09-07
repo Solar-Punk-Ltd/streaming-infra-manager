@@ -95,6 +95,27 @@ export interface ContainerHandle {
     options: Docker.ContainerLogsOptions & { follow: true },
   ): Promise<NodeJS.ReadableStream>;
   exec(options: Docker.ExecCreateOptions): Promise<ExecHandle>;
+  inspect(): Promise<InspectedContainer>;
+}
+
+/** The part of `docker inspect` the watch after a config change reads. */
+export interface InspectedContainer {
+  Id: string;
+  State: {
+    Status: string;
+    RestartCount?: number;
+    StartedAt?: string;
+  };
+}
+
+/** One container's state, as `inspect` answers it. */
+export interface ContainerState {
+  id: string;
+  /** `running`, `restarting`, `exited` and the rest of Docker's words. */
+  status: string;
+  /** How many times the restart policy brought it back. Zero for a fresh one. */
+  restartCount: number;
+  startedAt: string | null;
 }
 
 export interface ExecHandle {
@@ -171,6 +192,42 @@ export class ContainerControl {
     if (!match) throw new ContainerNotRunningError(profile, service);
 
     return this.docker.getContainer(match.Id);
+  }
+
+  /**
+   * The state of a deployment's service container in any state, or null when
+   * there is none at all.
+   *
+   * Every state rather than the running ones only, because the question this
+   * answers is whether a container the deploy just created is still up, and
+   * one that died is exactly the answer wanted.
+   */
+  async inspect(profile: string, service: string): Promise<ContainerState | null> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: true,
+        filters: {
+          label: [
+            `${COMPOSE_PROJECT_LABEL}=${profile}`,
+            `${COMPOSE_SERVICE_LABEL}=${service}`,
+          ],
+        },
+      }),
+    );
+    const match = containers.find(
+      (info) =>
+        info.Labels?.[COMPOSE_PROJECT_LABEL] === profile &&
+        info.Labels?.[COMPOSE_SERVICE_LABEL] === service,
+    );
+    if (!match) return null;
+
+    const info = await this.withinLimit(this.docker.getContainer(match.Id).inspect());
+    return {
+      id: info.Id,
+      status: info.State.Status,
+      restartCount: info.State.RestartCount ?? 0,
+      startedAt: info.State.StartedAt ?? null,
+    };
   }
 
   /**

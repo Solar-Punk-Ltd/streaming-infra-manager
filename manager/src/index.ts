@@ -27,6 +27,8 @@ import { ScriptRunner } from './domain/ScriptRunner.js';
 import { StampService } from './domain/StampService.js';
 import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
+import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
+import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
@@ -219,6 +221,15 @@ async function main(): Promise<void> {
   const deployService = new DeployService(profileService, orchestrator);
 
   const containerControl = new ContainerControl(eventBus);
+  const engineConfigService = new EngineConfigService(
+    profileRepository,
+    containerRepository,
+    orchestrator,
+    stackVersionRepository,
+    containerControl,
+    new EngineConfigChecker(),
+    eventBus,
+  );
 
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(
@@ -235,6 +246,7 @@ async function main(): Promise<void> {
       stampService,
       chequebookService,
       containerControl,
+      engineConfigService,
       stackVersionService,
       eventBus,
       metricsCollector,

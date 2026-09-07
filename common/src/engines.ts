@@ -3,6 +3,12 @@ import { OME_SERVICE, SRS_SERVICE } from './constants.js';
 export const ENGINE_SERVICES = [SRS_SERVICE, OME_SERVICE] as const;
 export type EngineName = (typeof ENGINE_SERVICES)[number];
 
+/** What each engine is called in a sentence. */
+export const ENGINE_DISPLAY_NAMES: Record<EngineName, string> = {
+  [SRS_SERVICE]: 'SRS',
+  [OME_SERVICE]: 'OvenMediaEngine',
+};
+
 export function engineForComponents(
   components?: readonly string[] | null,
 ): EngineName {
