@@ -267,6 +267,16 @@ describe('readStackContract and the protocol of each port', () => {
     assert.equal(v3.allocationProblem, null);
   });
 
+  it('names the service that publishes each port, and none for a port the file does not map', () => {
+    const serviceOf = (contract: typeof v2, name: string) =>
+      contract.ports.find((port) => port.name === name)?.service;
+    assert.equal(serviceOf(v2, 'API_PORT'), 'stream-uploader');
+    assert.equal(serviceOf(v2, 'SRS_SRT_PORT'), 'srs');
+    assert.equal(serviceOf(v3, 'BEE_RUNG_480P_P2P_PORT'), 'bee-uploader-480p');
+    const unmapped = readStackContract(withCompose('services:\n  srs:\n    image: ossrs/srs:6\n'));
+    assert.ok(unmapped.ports.every((port) => port.service === null));
+  });
+
   it('reads a mapping with a bind address in front and a fixed container port behind', () => {
     assert.equal(protocolOf(v2, 'BEE_UPLOADER_API_PORT'), 'tcp');
     assert.equal(protocolOf(v2, 'CLIENT_PORT'), 'tcp');

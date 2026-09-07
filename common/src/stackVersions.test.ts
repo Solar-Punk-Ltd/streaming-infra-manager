@@ -26,6 +26,7 @@ const V3_CONTRACT: StackContract = {
     defaultPort: 3000 + index,
     slotBase: 10000 + index,
     protocol: index === 1 ? ('udp' as const) : ('tcp' as const),
+    service: index === 1 ? 'srs' : null,
   })),
   maxSlot: 99,
   requiredSecrets: ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'],
@@ -44,6 +45,7 @@ const V2_CONTRACT: StackContract = {
     defaultPort: 10000 + index,
     slotBase: 10000 + index,
     protocol: 'tcp' as const,
+    service: null,
   })),
   maxSlot: 999,
   requiredSecrets: [],
@@ -194,6 +196,7 @@ describe('parseStackContract', () => {
 
     assert.ok(parsed);
     assert.ok(parsed.ports.every((port) => port.protocol === 'tcp'));
+    assert.ok(parsed.ports.every((port) => port.service === null), 'a port stored without a service is unmapped');
     assert.equal(parsed.allocationProblem, null);
   });
 
