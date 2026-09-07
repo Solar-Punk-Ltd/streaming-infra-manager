@@ -6,6 +6,8 @@ import {
   type BootstrapPair,
 } from '../../utils/envUtils.js';
 
+import { buildIdProblem } from './buildManifest.js';
+
 /**
  * Where one version's checkout keeps everything the manager runs against it.
  *
@@ -61,4 +63,46 @@ export function stackPathsForRoot(root: string): StackPaths {
  */
 export function versionRootFor(versionsRoot: string, name: string): string {
   return join(versionsRoot, name);
+}
+
+/*
+ * The layout of a version with builds. A dot cannot appear in a version name
+ * (stack_versions_name_format in migration 010), so the three directories
+ * below are siblings of the flat root and the flat root is never an ancestor
+ * of a build, which is what keeps a legacy tree's removal from taking a build
+ * with it.
+ */
+const REPO_SUFFIX = '.repo';
+const BUILDS_SUFFIX = '.builds';
+const STAGING_PREFIX = 'tmp-';
+
+/** The clone a version fetches into. Never deployed from. */
+export function repoRootFor(versionsRoot: string, name: string): string {
+  return join(versionsRoot, `${name}${REPO_SUFFIX}`);
+}
+
+/** The parent of every build of the version, one immutable directory each. */
+export function buildsRootFor(versionsRoot: string, name: string): string {
+  return join(versionsRoot, `${name}${BUILDS_SUFFIX}`);
+}
+
+/** One build. Throws on an id that is not one, because the id becomes a path. */
+export function buildDirFor(versionsRoot: string, name: string, buildId: string): string {
+  const problem = buildIdProblem(buildId);
+  if (problem) throw new Error(problem);
+  return join(buildsRootFor(versionsRoot, name), buildId);
+}
+
+/** Where one build attempt stages its candidate. No two attempts share one. */
+export function stagingDirFor(versionsRoot: string, name: string, attemptId: string): string {
+  return join(buildsRootFor(versionsRoot, name), `${STAGING_PREFIX}${attemptId}`);
+}
+
+/**
+ * Where the host-owned inputs of a version live: the base env, the deploy
+ * config and the engine envs. The flat root the version always had, which a
+ * legacy row also deploys from.
+ */
+export function configRootFor(versionsRoot: string, name: string): string {
+  return versionRootFor(versionsRoot, name);
 }
