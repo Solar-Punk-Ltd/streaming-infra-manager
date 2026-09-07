@@ -92,10 +92,16 @@ export function whyAdmissionIsRefused(
   );
   const sameProject = unresolved.find((attempt) => attempt.project === request.project);
   if (sameProject) {
-    const standing =
-      sameProject.state === 'blocked' ? `blocked: ${sameProject.reason}` : 'still running';
+    // A judged attempt is never judged again, so only a running one can end
+    // without a person.
+    if (sameProject.state === 'blocked') {
+      return (
+        `${request.project} has a blocked deploy attempt, ${sameProject.jobId}: ${sameProject.reason} ` +
+        'A person releases it after checking the host.'
+      );
+    }
     return (
-      `${request.project} has an unresolved deploy attempt, ${sameProject.jobId} (${standing}). ` +
+      `${request.project} has a deploy attempt still running, ${sameProject.jobId}. ` +
       'It resolves on its own once every service it touched has a new container, or a person releases it after checking the host.'
     );
   }

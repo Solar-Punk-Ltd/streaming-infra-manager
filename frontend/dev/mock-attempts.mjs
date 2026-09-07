@@ -70,14 +70,11 @@ export function unresolvedAttempts() {
 export function attemptRefusal(profile) {
   const holder = unresolvedAttempts().find((attempt) => attempt.project === profile.name);
   if (!holder) return null;
-  const standing = holder.state === 'blocked' ? `blocked: ${holder.reason}` : 'still running';
-  return {
-    error: 'deploy_attempt_refused',
-    name: profile.name,
-    message:
-      `${profile.name} has an unresolved deploy attempt, ${holder.jobId} (${standing}). ` +
-      'It resolves on its own once every service it touched has a new container, or a person releases it after checking the host.',
-  };
+  const message =
+    holder.state === 'blocked'
+      ? `${profile.name} has a blocked deploy attempt, ${holder.jobId}: ${holder.reason} A person releases it after checking the host.`
+      : `${profile.name} has a deploy attempt still running, ${holder.jobId}. It resolves on its own once every service it touched has a new container, or a person releases it after checking the host.`;
+  return { error: 'deploy_attempt_refused', name: profile.name, message };
 }
 
 /** The attempt a deploy opens before anything runs. */
