@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import type { StackSecrets } from './versions/stackSecrets.js';
 
 export interface ProfileWriteData {
   notes?: string | null;
@@ -171,6 +172,30 @@ export class ProfileRepository {
       [name, JSON.stringify(settings)],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
+  /**
+   * The deployment's generated secrets. Read on their own rather than as a
+   * column of every row, because a row travels: it is answered to the browser
+   * and published on the event stream, and these values must not.
+   */
+  async stackSecretsOf(name: string): Promise<StackSecrets> {
+    const result = await this.pool.query<{ stack_secrets: StackSecrets }>(
+      'SELECT stack_secrets FROM profiles WHERE name = $1',
+      [name],
+    );
+    return result.rows[0]?.stack_secrets ?? {};
+  }
+
+  /** Adds to what is stored. A key already held keeps its value. */
+  async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {
+    await this.pool.query(
+      `UPDATE profiles
+         SET stack_secrets = $2::jsonb || stack_secrets,
+             updated_at = NOW()
+       WHERE name = $1`,
+      [name, JSON.stringify(secrets)],
+    );
   }
 
   async updateStampId(

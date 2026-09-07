@@ -4,6 +4,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
+import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
   NewProfilePlacement,
@@ -73,6 +74,9 @@ export class InMemoryProfiles {
 
   /** Names whose `updateEditable` throws, standing in for a rejected write. */
   readonly writesRefused = new Set<string>();
+
+  /** The `stack_secrets` column, kept apart from the rows the way the real one is read. */
+  readonly secrets = new Map<string, StackSecrets>();
 
   constructor(profiles: readonly Profile[] = []) {
     for (const profile of profiles) this.rows.set(profile.name, profile);
@@ -172,6 +176,14 @@ export class InMemoryProfiles {
     settings: EngineSettings,
   ): Promise<Profile | null> {
     return this.write(name, { engine_settings: settings });
+  }
+
+  async stackSecretsOf(name: string): Promise<StackSecrets> {
+    return { ...(this.secrets.get(name) ?? {}) };
+  }
+
+  async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {
+    this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
   private write(name: string, patch: Partial<Profile>): Profile | null {

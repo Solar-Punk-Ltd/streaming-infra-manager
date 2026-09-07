@@ -15,6 +15,8 @@ export interface OrchestratorHarness {
   profiles: InMemoryProfiles;
   runner: FakeScriptRunner;
   events: EventBus;
+  /** Seeded with the bundled version as id 1. A test adds what else it needs. */
+  versions: InMemoryStackVersionRepository;
 }
 
 /**
@@ -45,5 +47,5 @@ export function orchestratorHarness(
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events };
+  return { orchestrator, profiles, runner, events, versions };
 }

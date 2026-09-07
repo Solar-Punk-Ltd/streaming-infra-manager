@@ -34,7 +34,11 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
 import { stackPaths, type StackPaths } from './versions/stackPaths.js';
-import type { StackVersionRepository } from './versions/StackVersionRepository.js';
+import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
+import type {
+  StackVersionRecord,
+  StackVersionRepository,
+} from './versions/StackVersionRepository.js';
 
 const logger = Logger.getInstance();
 
@@ -158,19 +162,57 @@ export class DeploymentOrchestrator {
   ) {}
 
   /**
-   * The checkout this deployment runs against. Every script, env file and
-   * bootstrap copy comes from here, so moving a deployment to another version
-   * is a different root and nothing else.
+   * The version this deployment runs, or null when its row is gone, which the
+   * deploy treats as the bundled version rather than refusing to run.
    */
-  private async pathsFor(profile: Profile): Promise<StackPaths> {
+  private async versionFor(profile: Profile): Promise<StackVersionRecord | null> {
     const version = await this.versions.findById(profile.stack_version_id);
     if (!version) {
       logger.warn(
         `[Orchestrator] ${profile.name} names stack version ${profile.stack_version_id}, which is gone. Using the bundled checkout.`,
       );
-      return stackPaths({ rootPath: null });
     }
-    return stackPaths(version);
+    return version;
+  }
+
+  /**
+   * The checkout this deployment runs against. Every script, env file and
+   * bootstrap copy comes from here, so moving a deployment to another version
+   * is a different root and nothing else.
+   */
+  private async pathsFor(profile: Profile): Promise<StackPaths> {
+    return stackPaths((await this.versionFor(profile)) ?? { rootPath: null });
+  }
+
+  /**
+   * The secrets this version's containers refuse to start without, generated
+   * the first time the deployment runs on it and kept from then on.
+   *
+   * Generated at deploy rather than at creation, so a version whose contract
+   * grows a secret on Update is covered by the next deploy of every deployment
+   * on it, with nothing to migrate.
+   */
+  private async stackSecretsFor(
+    profile: Profile,
+    version: StackVersionRecord | null,
+  ): Promise<StackSecrets> {
+    const required = version?.contract?.requiredSecrets ?? [];
+    if (required.length === 0) return {};
+
+    const stored = await this.profiles.stackSecretsOf(profile.name);
+    const generated = missingStackSecrets(required, stored);
+    if (Object.keys(generated).length > 0) {
+      await this.profiles.storeStackSecrets(profile.name, generated);
+      logger.info(
+        `[Orchestrator] ${profile.name}: generated ${Object.keys(generated).join(', ')} for ${version?.name}`,
+      );
+    }
+
+    const secrets: StackSecrets = {};
+    for (const key of required) {
+      secrets[key] = generated[key] ?? stored[key]!;
+    }
+    return secrets;
   }
 
   /** The checkout root this deployment's env file is built from. */
@@ -350,7 +392,8 @@ export class DeploymentOrchestrator {
       return this.completeWithoutScript(profile);
     }
 
-    const paths = await this.pathsFor(profile);
+    const version = await this.versionFor(profile);
+    const paths = stackPaths(version ?? { rootPath: null });
     await this.ensureStackDefaults(paths);
 
     // .env.<profile> carries the per-profile keys deploy.sh reads from its env
@@ -365,6 +408,7 @@ export class DeploymentOrchestrator {
       srtPassphrase: profile.srt_passphrase,
       streamKey: profile.private_key,
       engineSettings: profile.engine_settings,
+      stackSecrets: await this.stackSecretsFor(profile, version),
       // From the profile's own components, deliberately not from the reserved
       // services: a held-back uploader is deployed on its own, and deploy.sh
       // must still resolve the local Bee address for it.
