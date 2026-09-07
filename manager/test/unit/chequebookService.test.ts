@@ -384,33 +384,31 @@ describe('ChequebookService.assertFunded', () => {
     await service.assertFunded(PROFILE.name);
   });
 
-  it('proceeds when the node cannot be asked', async () => {
-    // A failed probe is not evidence of an empty chequebook, and refusing on
-    // one would stop a deploy for a reason the operator cannot see or fix.
+  it('refuses when the node cannot be asked, naming the node and how to try again', async () => {
+    // A failed probe is not evidence of an empty chequebook, but an uploader
+    // started on an unverified one looks exactly like one that was checked
+    // until nothing it uploads lands. Refused, with the retry in words.
     const service = serviceAnswering({
       getChequebookBalance: failing('GET /chequebook/balance'),
     });
 
-    await service.assertFunded(PROFILE.name);
+    await assert.rejects(
+      () => service.assertFunded(PROFILE.name),
+      (err: unknown) =>
+        err instanceof BeeNodeError &&
+        /did not answer the chequebook check/.test(err.message) &&
+        /try again/i.test(err.message),
+    );
   });
 
-  it('says on screen that it started without checking', async () => {
-    // Proceeding silently is the whole problem: an uploader running on an
-    // unverified chequebook looks exactly like one that was checked.
+  it('publishes no notice for a refusal, since nothing started', async () => {
     const { service, published } = build({
       getChequebookBalance: failing('GET /chequebook/balance'),
     });
 
-    await service.assertFunded(PROFILE.name);
+    await assert.rejects(() => service.assertFunded(PROFILE.name), BeeNodeError);
 
-    assert.deepEqual(published, [
-      {
-        type: 'profile.notice',
-        profile: PROFILE.name,
-        text: 'Started without checking the chequebook of main-stage: its node did not answer.',
-        tone: 'warn',
-      },
-    ]);
+    assert.deepEqual(published, []);
   });
 
   it('says nothing when the node answered', async () => {
@@ -423,12 +421,15 @@ describe('ChequebookService.assertFunded', () => {
     assert.deepEqual(published, []);
   });
 
-  it('proceeds when the node answers with something unreadable', async () => {
+  it('refuses when the node answers with a balance that cannot be read', async () => {
     const service = serviceAnswering({
       getChequebookBalance: async () => balance('not a number'),
     });
 
-    await service.assertFunded(PROFILE.name);
+    await assert.rejects(
+      () => service.assertFunded(PROFILE.name),
+      (err: unknown) => err instanceof BeeNodeError && /could not be read/.test(err.message),
+    );
   });
 
   it('reads the floor it was built with, not a hardcoded one', async () => {
