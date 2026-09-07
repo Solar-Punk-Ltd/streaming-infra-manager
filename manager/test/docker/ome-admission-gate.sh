@@ -24,6 +24,7 @@ IMAGE="${OME_GATE_IMAGE:-airensoft/ovenmediaengine@sha256:172da9129d32093f3c92c4
 RUN="ome-gate-$$"
 NET="$RUN"
 SECRET="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+[ "${#SECRET}" -eq 32 ] || { echo "FAIL: could not draw a secret from /dev/urandom" >&2; exit 2; }
 PUBLISH_SECONDS=25
 PLAYLIST_WAIT_SECONDS=40
 CLOSING_WAIT_SECONDS=20
@@ -34,17 +35,19 @@ if [ ! -f "$STACK/engines/ome/Server.xml.template" ] || [ ! -f "$STACK/engines/o
 fi
 
 cleanup() {
-  docker rm -f "$RUN-ome" "$RUN-uploader" "$RUN-publisher" >/dev/null 2>&1 || true
+  docker rm -f "$RUN-ome" "$RUN-uploader" "$RUN-publisher" "$RUN-poll" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# Runs a one-off command on the gate's network, from a busybox image with wget.
-on_net() { docker run --rm --network "$NET" alpine:3.20 "$@"; }
-
 docker network create "$NET" >/dev/null || fail "could not create the network"
+
+# One long-lived busybox on the gate's network answers every poll, so a poll
+# costs a request and not a container, and the loops' seconds are seconds.
+docker run -d --name "$RUN-poll" --network "$NET" alpine:3.20 sleep 600 >/dev/null || fail "could not start the poller"
+on_net() { docker exec "$RUN-poll" "$@"; }
 
 # The fake uploader: the admission route, signature checked the way the
 # stack's uploader checks it, every call kept and served back at /calls.
@@ -80,6 +83,15 @@ http.createServer((req, res) => {
   });
 }).listen(3000, () => console.log("fake uploader listening on 3000"));
 ' >/dev/null || fail "could not start the fake uploader"
+for _ in $(seq 1 20); do
+  if on_net wget -q -O - -T 2 http://uploader:3000/calls >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+on_net wget -q -O - -T 2 http://uploader:3000/calls >/dev/null 2>&1 || {
+  docker logs "$RUN-uploader" 2>&1 | tail -10 >&2
+  fail "the fake uploader did not answer within 20 s"
+}
+echo "fake uploader up"
 
 # The engine, run the way the stack runs it: this template, this entrypoint,
 # the substitutions from the environment, nothing published on the host.
@@ -112,6 +124,12 @@ docker run -d --name "$RUN-publisher" --network "$NET" alpine:3.20 sh -c "
     -c:a aac -b:a 64k -f mpegts \
     'srt://ome:10080?streamid=srt%3A%2F%2Fome%3A10080%2Fvideo%2Fgate&pkt_size=1316'
 " >/dev/null || fail "could not start the publisher"
+sleep 5
+[ "$(docker inspect -f '{{.State.Running}}' "$RUN-publisher")" = "true" ] || {
+  docker logs "$RUN-publisher" 2>&1 | tail -10 >&2
+  fail "the publisher exited within 5 s of starting"
+}
+echo "publisher running"
 
 # The playlist the uploader polls: the master at ts:playlist.m3u8, then the
 # media playlist it names, with at least one segment in it.
@@ -139,7 +157,7 @@ printf '%s' "$media" | grep -q '^#EXTINF' || {
 segments="$(printf '%s' "$media" | grep -c '^#EXTINF')"
 echo "playlist served: $segments segment(s) in the media playlist"
 
-calls="$(on_net wget -q -O - -T 2 http://uploader:3000/calls)"
+calls="$(on_net wget -q -O - -T 2 http://uploader:3000/calls 2>/dev/null || true)"
 printf '%s' "$calls" | grep -q '"ok":true,"direction":"incoming","status":"opening","url":"[^"]*/video/gate' \
   || { echo "admission calls: $calls" >&2; fail "no signed, incoming, opening admission call for video/gate"; }
 printf '%s' "$calls" | grep -q '"ok":false' && { echo "admission calls: $calls" >&2; fail "an admission call failed the signature check"; }
@@ -147,7 +165,7 @@ echo "admission: signed opening call received for video/gate"
 
 # The publisher ends on its own, and the engine tells the uploader.
 for _ in $(seq 1 $((PUBLISH_SECONDS + CLOSING_WAIT_SECONDS))); do
-  calls="$(on_net wget -q -O - -T 2 http://uploader:3000/calls)"
+  calls="$(on_net wget -q -O - -T 2 http://uploader:3000/calls 2>/dev/null || true)"
   if printf '%s' "$calls" | grep -q '"status":"closing"'; then break; fi
   sleep 1
 done
