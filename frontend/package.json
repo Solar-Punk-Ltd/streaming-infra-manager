@@ -9,7 +9,7 @@
     "build": "pnpm --filter @streaming-infra-manager/common build && tsc -b && vite build",
     "preview": "vite preview",
     "test": "tsx --conditions=development --test 'src/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@streaming-infra-manager/common": "workspace:*",
