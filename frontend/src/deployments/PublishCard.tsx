@@ -5,7 +5,7 @@ import { OME_SERVICE } from '@streaming-infra-manager/common';
 import { CopyBox } from '../components/CopyBox';
 import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
-import { engineOf } from './shape';
+import { engineOf, isRunning } from './shape';
 
 /**
  * Which passphrase is already baked into the URL on screen.
@@ -44,11 +44,18 @@ export function PublishCard({
   return (
     <SectionCard title="Publish" sub="OBS, FFmpeg or any SRT sender">
       <Stack spacing={1.25}>
-        {!ready && (
-          <Alert severity="warning">
-            Ingest is up, but nothing reaches Swarm until the checklist above is
-            complete.
+        {!isRunning(profile) ? (
+          <Alert severity="info">
+            Ingest is down while the deployment is stopped. Start it, then
+            publish to this URL.
           </Alert>
+        ) : (
+          !ready && (
+            <Alert severity="warning">
+              Ingest is up, but nothing reaches Swarm until the checklist above
+              is complete.
+            </Alert>
+          )
         )}
         <CopyBox value={url} />
         <Typography variant="caption" color="text.secondary">
