@@ -61,11 +61,20 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
   }
 }
 
-/** Docker as a test scripts it: one daemon id, and the containers of each project by service. */
+/**
+ * Docker as a test scripts it: one daemon id, and the containers of each
+ * project by service. With `autoRecreate` on, the harness gives every known
+ * service of a project a new container when its deploy script finishes,
+ * which is what compose does, so a test that is not about the guard sees
+ * its attempts released. A test about the guard turns it off.
+ */
 export class FakeDaemon implements DaemonObserver {
   id = 'daemon-1';
 
+  autoRecreate = true;
+
   readonly containers = new Map<string, Map<string, string[]>>();
+
 
   async daemonId(): Promise<string> {
     return this.id;

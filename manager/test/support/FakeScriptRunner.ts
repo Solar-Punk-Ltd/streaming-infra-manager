@@ -34,7 +34,12 @@ export class FakeScriptRunner extends ScriptRunner {
     return { emitter, kill: () => undefined };
   }
 
+  /** Runs before a finish is reported, with the run: what the script would have left behind. */
+  onFinish?: (run: RecordedScriptRun) => void;
+
   finish(index: number, code = 0): void {
+    const run = this.runs[index];
+    if (run) this.onFinish?.(run);
     this.emitters[index]?.emit('done', { code });
   }
 }

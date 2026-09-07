@@ -45,6 +45,7 @@ import {
   UserExistsError,
   UserNotFoundError,
   WeakPasswordError,
+  DeployAttemptRefusedError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
 
@@ -135,6 +136,14 @@ export function errorHandler(
   }
   if (err instanceof ProfileExistsError) {
     res.status(409).json({ error: 'profile_exists', name: err.profileName });
+    return;
+  }
+  if (err instanceof DeployAttemptRefusedError) {
+    res.status(409).json({
+      error: 'deploy_attempt_refused',
+      name: err.profileName,
+      reason: err.reason,
+    });
     return;
   }
   if (err instanceof ProfileBusyError) {

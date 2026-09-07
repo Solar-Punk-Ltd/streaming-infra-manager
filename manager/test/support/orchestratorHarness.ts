@@ -1,3 +1,5 @@
+import { defaultServicesFor } from '@streaming-infra-manager/common';
+
 import { DeploymentGroupRepository } from '../../src/domain/DeploymentGroupRepository.js';
 import {
   DeploymentOrchestrator,
@@ -60,6 +62,23 @@ export function orchestratorHarness(
   const containers = new FakeContainers();
   const attempts = new InMemoryDeployAttempts();
   const daemon = new FakeDaemon();
+  // Every stored deployment starts with a container per service, and a
+  // finished deploy script leaves new ones, the way compose does.
+  for (const profile of stored) {
+    for (const service of defaultServicesFor(profile)) {
+      daemon.set(profile.name, service, [`${profile.name}-${service}-0`]);
+    }
+  }
+  runner.onFinish = (run) => {
+    const project = run.args.find((arg) => arg.startsWith('--profile='))?.slice('--profile='.length);
+    if (!project || !daemon.autoRecreate) return;
+    // Compose gives every service the attempt touched a new container, so
+    // the attempt that opened for this run resolves as a real one would.
+    const attempt = attempts.rows.find((row) => row.project === project && row.state === 'open');
+    for (const service of attempt?.services ?? []) {
+      daemon.set(project, service, [`${project}-${service}-${run.args.length}-${Date.now()}`]);
+    }
+  };
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),

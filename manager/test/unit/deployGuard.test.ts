@@ -46,6 +46,8 @@ async function setup(sharedImageTags = true) {
     makeProfile({ name: 'other', port_slot: 2, stamp_id: 'a'.repeat(64) }),
   ]);
   await harness.versions.setContract(1, contract(sharedImageTags));
+  // These tests say what the containers show. Nothing is recreated on its own.
+  harness.daemon.autoRecreate = false;
   harness.daemon.set('stage', 'srs', ['c-srs-1']);
   harness.daemon.set('stage', 'stream-uploader', ['c-up-1']);
   harness.daemon.set('stage', 'bee-uploader', ['c-bee-1']);

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -30,7 +31,15 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { ProfileBusyError, StampRequiredError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, StampRequiredError } from './errors/index.js';
+import {
+  type AttemptOutcome,
+  type DeployAttempt,
+  type DeployAttemptKind,
+  attemptOutcome,
+  whyAdmissionIsRefused,
+} from './deployAttempts.js';
+import type { DaemonObserver, DeployAttemptRepository } from './DeployAttemptRepository.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -95,6 +104,9 @@ interface JobConfig {
 
   allowedFrom?: readonly ProfileStatus[];
 
+  /** For a job that creates containers: the guard it holds while it runs. */
+  guard?: { kind: DeployAttemptKind; services: readonly string[] };
+
   onSuccess: () => Promise<void>;
 }
 
@@ -148,8 +160,60 @@ export class DeploymentOrchestrator {
     private readonly eventBus: EventBus,
     private readonly groups: DeploymentGroupRepository,
     private readonly versions: StackVersionRepository,
+    private readonly attempts: DeployAttemptRepository,
+    private readonly daemon: DaemonObserver,
     private readonly uploaderGate?: UploaderGate,
   ) {}
+
+  /**
+   * Whether a deploy of the profile may start now, asked before the claim
+   * so a refusal changes nothing. The guard itself is taken when the job
+   * starts, under the daemon's lock, which is what decides.
+   */
+  private async assertAttemptAdmissible(profile: Profile, kind: DeployAttemptKind): Promise<void> {
+    const daemonId = await this.daemon.daemonId();
+    const refusal = whyAdmissionIsRefused(
+      { daemonId, project: profile.name, kind },
+      await this.attempts.listUnresolved(daemonId),
+    );
+    if (refusal) throw new DeployAttemptRefusedError(profile.name, refusal);
+  }
+
+  /** Shared tags, unless the version's contract says its built services name no image. Unknown is shared. */
+  private async attemptKindFor(profile: Profile): Promise<DeployAttemptKind> {
+    const version = await this.versionFor(profile);
+    return version?.contract?.features?.sharedImageTags === false ? 'fixed' : 'shared';
+  }
+
+  /** A blocked attempt released by a person who checked the host. */
+  async releaseAttempt(id: number, by: string): Promise<DeployAttempt | null> {
+    const released = await this.attempts.release(id, by);
+    if (released) {
+      logger.info(`[Orchestrator] attempt ${released.jobId} on ${released.project} released by ${by}`);
+      this.eventBus.publish({ type: 'version.changed' });
+    }
+    return released;
+  }
+
+  /**
+   * What boot does with the attempts a gone manager left open: each is
+   * judged by its project's containers now, released when every touched
+   * service shows a new one and blocked otherwise. Never by time.
+   */
+  async reconcileAttempts(): Promise<{ released: string[]; blocked: string[] }> {
+    const outcome = { released: [] as string[], blocked: [] as string[] };
+    const daemonId = await this.daemon.daemonId();
+    for (const attempt of await this.attempts.listUnresolved(daemonId)) {
+      if (attempt.state !== 'open') continue;
+      const judged = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project));
+      await this.attempts.resolve(attempt.id, judged);
+      (judged.state === 'released' ? outcome.released : outcome.blocked).push(attempt.project);
+    }
+    if (outcome.blocked.length > 0) {
+      logger.warn(`[Orchestrator] deploy attempts left blocked at boot: ${outcome.blocked.join(', ')}`);
+    }
+    return outcome;
+  }
 
   /**
    * The version this deployment runs, or null when its row is gone, which the
@@ -253,6 +317,7 @@ export class DeploymentOrchestrator {
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
+    await this.assertAttemptAdmissible(profile, await this.attemptKindFor(profile));
 
     const transitioned = await this.profiles.transitionStatus(
       profile.name,
@@ -443,6 +508,7 @@ export class DeploymentOrchestrator {
       paths,
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
+      guard: { kind: await this.attemptKindFor(profile), services },
       onSuccess: async () => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         await removeStaleEngineConfigs(
@@ -587,6 +653,22 @@ export class DeploymentOrchestrator {
       await this.publishChanged(transitioned);
     }
 
+    // The guard, before anything is spawned: the project's containers as they
+    // are, so what the attempt creates can be told from what was there.
+    let attempt: DeployAttempt | null = null;
+    if (cfg.guard) {
+      const daemonId = await this.daemon.daemonId();
+      const before = await this.daemon.containerIdsOf(cfg.profileName);
+      attempt = await this.attempts.open({
+        daemonId,
+        project: cfg.profileName,
+        jobId: `job-${randomBytes(6).toString('hex')}`,
+        kind: cfg.guard.kind,
+        services: cfg.guard.services,
+        preJobContainerIds: [...before.values()].flat(),
+      });
+    }
+
     logger.info(
       `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${describeArgsForLog(cfg.args)}`,
     );
@@ -606,13 +688,36 @@ export class DeploymentOrchestrator {
     });
 
     handle.emitter.on('done', ({ code }: { code: number }) => {
-      void this.finalizeJob(cfg, code, stderrTail, stdoutTail);
+      void (async () => {
+        if (attempt) await this.judgeAttempt(attempt);
+        await this.finalizeJob(cfg, code, stderrTail, stdoutTail);
+      })();
     });
     handle.emitter.on('error', (err: Error) => {
       void this.finalizeJob(cfg, -1, err.message, stdoutTail);
     });
 
     return handle;
+  }
+
+  /**
+   * The attempt is judged by its project's containers the moment the script
+   * ends, whatever the exit code: released when every touched service shows
+   * a new container, blocked naming the rest. A daemon that does not answer
+   * leaves it open for boot to judge.
+   */
+  private async judgeAttempt(attempt: DeployAttempt): Promise<void> {
+    try {
+      const judged: AttemptOutcome = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project));
+      await this.attempts.resolve(attempt.id, judged);
+      if (judged.state === 'blocked') {
+        logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);
+      }
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] could not judge attempt ${attempt.jobId} on ${attempt.project}: ${getErrorMessage(err)}. It stays open until the next boot judges it.`,
+      );
+    }
   }
 
   private async finalizeJob(

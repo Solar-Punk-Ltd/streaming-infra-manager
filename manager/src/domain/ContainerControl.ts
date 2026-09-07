@@ -129,6 +129,8 @@ export interface ListedContainer {
 }
 
 export interface DockerEngine {
+  /** `docker info`, for the daemon's own id. */
+  info(): Promise<unknown>;
   listContainers(
     options: Docker.ContainerListOptions,
   ): Promise<ListedContainer[]>;
@@ -144,6 +146,8 @@ export interface DockerEngine {
  * profile's status, and the generated config only exists inside the container.
  */
 export class ContainerControl {
+  private daemon: string | null = null;
+
   private readonly limits: ContainerControlLimits;
 
   /** Restarts under way, and when the last one of each stops refusing another. */
@@ -202,6 +206,37 @@ export class ContainerControl {
    * answers is whether a container the deploy just created is still up, and
    * one that died is exactly the answer wanted.
    */
+  /** The daemon's own id, read once: a lock keyed by it never crosses hosts. */
+  async daemonId(): Promise<string> {
+    if (this.daemon === null) {
+      const info = (await this.withinLimit(this.docker.info())) as { ID?: string };
+      if (!info.ID) {
+        logger.error('[ContainerControl] docker info answered no daemon id');
+        throw new DockerUnavailableError();
+      }
+      this.daemon = info.ID;
+    }
+    return this.daemon;
+  }
+
+  /** Every container of the project, all states, by the service compose labels it. */
+  async containerIdsOf(project: string): Promise<Map<string, string[]>> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: true,
+        filters: { label: [`${COMPOSE_PROJECT_LABEL}=${project}`] },
+      }),
+    );
+    const byService = new Map<string, string[]>();
+    for (const info of containers) {
+      if (info.Labels?.[COMPOSE_PROJECT_LABEL] !== project) continue;
+      const service = info.Labels?.[COMPOSE_SERVICE_LABEL];
+      if (!service) continue;
+      byService.set(service, [...(byService.get(service) ?? []), info.Id]);
+    }
+    return byService;
+  }
+
   async inspect(profile: string, service: string): Promise<ContainerState | null> {
     const containers = await this.withinLimit(
       this.docker.listContainers({
