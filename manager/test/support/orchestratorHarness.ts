@@ -7,6 +7,7 @@ import { EventBus } from '../../src/domain/EventBus.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
+import { InMemoryEngineConfigOperations } from './InMemoryEngineConfigOperations.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
@@ -34,6 +35,8 @@ export interface OrchestratorHarness {
   /** Seeded with the bundled version as id 1. A test adds what else it needs. */
   versions: InMemoryStackVersionRepository;
   containers: FakeContainers;
+  /** The config file rollouts, which an operator's action closes. */
+  operations: InMemoryEngineConfigOperations;
 }
 
 /**
@@ -54,6 +57,7 @@ export function orchestratorHarness(
   const versions = new InMemoryStackVersionRepository();
   versions.seedBundled();
   const containers = new FakeContainers();
+  const operations = new InMemoryEngineConfigOperations(profiles);
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -62,8 +66,9 @@ export function orchestratorHarness(
     events,
     {} as DeploymentGroupRepository,
     versions,
+    operations,
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers };
+  return { orchestrator, profiles, runner, events, versions, containers, operations };
 }

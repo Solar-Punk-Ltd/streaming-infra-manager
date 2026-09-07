@@ -134,8 +134,11 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
       engine_config_state: 'reverting',
     });
     if (!written) return null;
-    Object.assign(operation, { state: 'reverting', message });
-    ownership.appliedRevision = written.engine_config_revision;
+    Object.assign(operation, {
+      state: 'reverting',
+      message,
+      appliedRevision: written.engine_config_revision,
+    });
     return { profile: written, operation };
   }
 }

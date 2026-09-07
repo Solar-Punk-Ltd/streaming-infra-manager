@@ -214,6 +214,13 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    this.rows.delete(name);
+    return { port_slot: row.port_slot };
+  }
+
   /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
   async bumpIntent(name: string): Promise<Profile | null> {
     const row = this.rows.get(name);

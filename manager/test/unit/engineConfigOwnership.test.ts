@@ -141,25 +141,50 @@ async function setup() {
 
 const settle = (ms = 90) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Waits for the condition, naming what it waited for when it never comes. Absence is still waited out with `settle`. */
+async function until(what: string, condition: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await settle(2);
+  }
+}
+
 describe('a rollout that lost ownership', () => {
   it('is superseded by the next apply, and its last healthy tick cannot relabel it applied', async () => {
     const { service, harness, states } = await setup();
 
     await service.apply('stream1', A);
-    await settle(10);
+    await until('the first rollout to be watching', () => states()[0] === 'watching');
     await service.apply('stream1', B);
-    await settle();
+    await until('the second rollout to finish', () => states()[1] === 'applied');
+    // The first rollout's next tick, which finds it superseded.
+    await settle(15);
 
     assert.deepEqual(states(), ['superseded', 'applied']);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), B);
     assert.equal(harness.orchestrator.deploys.length, 2);
   });
 
-  it('leaves a stopped deployment stopped when its container is gone', async () => {
-    const { service, harness, operations, watcher, row } = await setup();
+  it('ends interrupted, and not still watching, when the engine cannot be inspected mid watch', async () => {
+    const { service, harness, states, watcher, row } = await setup();
 
     await service.apply('stream1', A);
-    await settle(10);
+    await until('the rollout to be watching', () => states()[0] === 'watching');
+    watcher.failing = true;
+    await until('the rollout to end', () => states()[0] !== 'watching');
+
+    assert.deepEqual(states(), ['interrupted']);
+    assert.equal(row().engine_config_state, 'interrupted');
+    assert.match(row().engine_config_error ?? '', /could not be inspected/);
+    assert.equal(harness.orchestrator.deploys.length, 1, 'nothing was recreated');
+  });
+
+  it('leaves a stopped deployment stopped when its container is gone', async () => {
+    const { service, harness, operations, watcher, row, states } = await setup();
+
+    await service.apply('stream1', A);
+    await until('the rollout to be watching', () => states()[0] === 'watching');
     // Stop, as the stop path does it: the intent moves, the open operation is
     // over, the row is STOPPED. The watcher then finds no container.
     await harness.profiles.bumpIntent('stream1');
@@ -195,7 +220,7 @@ describe('a recreate that fails', () => {
     harness.orchestrator.exitCodes.set('stream1', 1);
 
     await service.apply('stream1', A);
-    await settle();
+    await until('the rollout to end', () => states()[0] === 'failed');
 
     assert.deepEqual(states(), ['failed']);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), OLD);
@@ -226,9 +251,27 @@ describe('what boot does with a rollout a gone manager left open', () => {
     leftBehind('watching');
 
     await service.reconcileAtBoot();
-    await settle();
+    await until('the fresh watch to finish', () => states()[0] === 'applied');
 
     assert.deepEqual(states(), ['applied']);
+  });
+
+  it('supersedes one watching a deployment that is not running any more, and recreates nothing', async () => {
+    const { service, harness, leftBehind, states, watcher, row } = await setup();
+    leftBehind('watching');
+    // Stopped by an older manager that did not close the operation, or by a
+    // stop the crash cut short. The container is gone, and that is not
+    // failure evidence: nothing may recreate a stopped deployment.
+    harness.profiles.write('stream1', { status: 'STOPPED' });
+    watcher.states = [null];
+
+    await service.reconcileAtBoot();
+    await settle();
+
+    assert.deepEqual(states(), ['superseded']);
+    assert.equal(row().status, 'STOPPED');
+    assert.deepEqual(harness.orchestrator.deploys, []);
+    assert.equal(harness.profiles.engineConfigs.get('stream1'), A);
   });
 
   it('reverts one that was watching a container that restarted meanwhile', async () => {
@@ -237,7 +280,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
     watcher.states = [RESTARTED];
 
     await service.reconcileAtBoot();
-    await settle();
+    await until('the revert to finish', () => states()[0] === 'reverted');
 
     assert.deepEqual(states(), ['reverted']);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), OLD);
@@ -279,5 +322,55 @@ describe('what boot does with a rollout a gone manager left open', () => {
     assert.deepEqual(states(), ['superseded']);
     assert.deepEqual(harness.orchestrator.deploys, []);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), A);
+  });
+});
+
+describe('what the operator does with an interrupted rollout', () => {
+  it('verifies the stored file again, as a rollout of its own that supersedes the interrupted one', async () => {
+    const { service, harness, leftBehind, states } = await setup();
+    leftBehind('interrupted');
+
+    await service.verifyNow('stream1');
+    await until('the new rollout to finish', () => states()[1] === 'applied');
+
+    assert.deepEqual(states(), ['superseded', 'applied']);
+    assert.equal(harness.profiles.engineConfigs.get('stream1'), A);
+    assert.equal(harness.orchestrator.deploys.length, 1);
+  });
+
+  it('verifies an interrupted reset by recreating on the template, so the operation does not stay open', async () => {
+    const { service, harness, leftBehind, states, row } = await setup();
+    leftBehind('interrupted', { kind: 'reset' });
+    harness.profiles.engineConfigs.delete('stream1');
+    harness.profiles.write('stream1', { has_engine_config: false });
+
+    await service.verifyNow('stream1');
+    await until('the new rollout to finish', () => states()[1] === 'applied');
+
+    assert.deepEqual(states(), ['superseded', 'applied']);
+    assert.equal(row().has_engine_config, false);
+    assert.equal(harness.orchestrator.deploys.length, 1);
+  });
+
+  it('goes back to the previous file the interrupted rollout recorded, through a rollout of its own', async () => {
+    const { service, harness, leftBehind, states } = await setup();
+    leftBehind('interrupted');
+
+    await service.recreateOnPrevious('stream1');
+    await until('the new rollout to finish', () => states()[1] === 'applied');
+
+    assert.deepEqual(states(), ['superseded', 'applied']);
+    assert.equal(harness.profiles.engineConfigs.get('stream1'), OLD);
+    assert.equal(harness.orchestrator.deploys.length, 1);
+  });
+
+  it('refuses to go back when no rollout is interrupted', async () => {
+    const { service, harness } = await setup();
+
+    await assert.rejects(
+      service.recreateOnPrevious('stream1'),
+      /no interrupted rollout/,
+    );
+    assert.deepEqual(harness.orchestrator.deploys, []);
   });
 });
