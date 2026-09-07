@@ -26,6 +26,9 @@ import {
 let app: VersionsTestApp;
 let versionsRoot: string;
 
+/** The commit a page showed when the operator clicked Tested. */
+const SHOWN_COMMIT = 'b'.repeat(40);
+
 beforeEach(async () => {
   versionsRoot = scratchVersionsRoot();
   app = await startVersionsTestApp(versionsRoot);
@@ -206,14 +209,53 @@ describe('POST /versions/:id/default', () => {
 });
 
 describe('PATCH /versions/:id', () => {
-  it('sets the tested flag and answers the row', async () => {
+  it('approves the commit the page showed, and answers the row', async () => {
     const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
     const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
 
-    assert.equal(answer.status, 200);
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
     assert.equal((answer.body as { tested: boolean }).tested, true);
+  });
+
+  it('refuses a click made for a commit the version has moved past, and changes nothing', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, 'e'.repeat(40));
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal((answer.body as { error: string }).error, 'stack_version_changed');
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
+  });
+
+  it('refuses to approve a version at a commit this host cannot tell', async () => {
+    const bundled = await app.repository.findByName('bundled');
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+    const body = answer.body as { errors?: string[] };
+
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.match(body.errors?.[0] ?? '', /cannot tell/);
+  });
+
+  it('refuses to approve without naming the commit', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, { tested: true });
+
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
   });
 
   it('refuses a body with no tested flag', async () => {
