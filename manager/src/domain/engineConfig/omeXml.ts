@@ -92,9 +92,9 @@ export function parseOmeXml(text: string): OmeParse {
 
   parser.write(text).close();
 
+  // saxes reports an element left open and a document without a root itself
+  // on close, so a null problem here means a whole tree under a root.
   if (problem !== null) return { root: null, problem };
-  const open = stack[stack.length - 1];
-  if (open) return { root: null, problem: `<${open.name}> opened on line ${open.line} is never closed.` };
   if (root === null) return { root: null, problem: 'The file has no XML element in it.' };
   return { root, problem: null };
 }
