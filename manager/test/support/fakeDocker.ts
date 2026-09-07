@@ -36,6 +36,12 @@ export interface FakeContainer {
   stalls?: boolean;
   /** What `inspect` answers. A running container that never restarted when absent. */
   state?: { status: string; restartCount: number };
+  /**
+   * What `inspect` answers verbatim, `Id` included, in place of `state`. For a
+   * test that feeds in an answer the way Docker shapes it, so the adapter is
+   * checked against the daemon's shape and not against this file's idea of it.
+   */
+  inspectAnswer?: InspectedContainer;
 }
 
 /** A promise for a call the daemon accepted and will never answer. */
@@ -120,6 +126,7 @@ export function fakeDocker(
     },
     async inspect(): Promise<InspectedContainer> {
       if (container.stalls) return neverAnswered<InspectedContainer>();
+      if (container.inspectAnswer) return container.inspectAnswer;
       const state = container.state ?? { status: 'running', restartCount: 0 };
       return {
         Id: container.id,
@@ -155,3 +162,30 @@ export function fakeDocker(
     },
   };
 }
+
+/**
+ * A `docker inspect` answer the way Docker shapes it, cut to the fields around
+ * the ones the adapter reads. `RestartCount` sits beside `State`, not inside
+ * it: a container that died on its config file and was brought back by its
+ * restart policy is `running` again with a count above zero, and nothing under
+ * `State` says so. Handed to `inspectAnswer`, it reaches the adapter untouched.
+ */
+export const RUNNING_AFTER_TWO_RESTARTS = {
+  Id: 'own-srs',
+  Created: '2026-09-07T10:00:00.000000000Z',
+  Name: '/stream1-srs-1',
+  RestartCount: 2,
+  State: {
+    Status: 'running',
+    Running: true,
+    Paused: false,
+    Restarting: false,
+    OOMKilled: false,
+    Dead: false,
+    Pid: 4242,
+    ExitCode: 0,
+    Error: '',
+    StartedAt: '2026-09-07T10:00:09.000000000Z',
+    FinishedAt: '2026-09-07T10:00:08.000000000Z',
+  },
+};
