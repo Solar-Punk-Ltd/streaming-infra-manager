@@ -9,6 +9,7 @@
  * edits the structure.
  */
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
+import type { EngineConfigState } from './engineConfigRollout.js';
 import type { EngineName } from './engines.js';
 import { engineSettingsFields } from './engineSettings.js';
 
@@ -52,7 +53,9 @@ export interface EngineConfigView {
   template: string;
   /** The tokens the version's entrypoint fills, in the order it names them. */
   placeholders: string[];
-  /** Why the last apply was reverted, or null. */
+  /** Where the deployment's latest rollout stands, or null before the first. */
+  state: EngineConfigState | null;
+  /** Why the latest rollout did not end applied, or null. */
   error: string | null;
   references: EngineConfigReference[];
 }

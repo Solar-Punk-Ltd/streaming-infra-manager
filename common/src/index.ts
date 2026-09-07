@@ -3,6 +3,7 @@ export * from './auth.js';
 export * from './chequebook.js';
 export * from './constants.js';
 export * from './engineConfig.js';
+export * from './engineConfigRollout.js';
 export * from './engineControl.js';
 export * from './engineDefaults.js';
 export * from './engineSettings.js';

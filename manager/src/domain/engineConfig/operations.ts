@@ -1,19 +1,12 @@
-import type { EngineName } from '@streaming-infra-manager/common';
+import type { EngineConfigState, EngineName } from '@streaming-infra-manager/common';
 
 /**
- * Where a config file rollout stands. The open states hold the one open
+ * Where a config file rollout stands, the shared state under the name the
+ * manager uses for the operation row. The open states hold the one open
  * operation per deployment instance, so a second rollout has to supersede
  * the first before it stores anything.
  */
-export type EngineConfigOperationState =
-  | 'applying'
-  | 'watching'
-  | 'applied'
-  | 'reverting'
-  | 'reverted'
-  | 'failed'
-  | 'interrupted'
-  | 'superseded';
+export type EngineConfigOperationState = EngineConfigState;
 
 export const OPEN_OPERATION_STATES: readonly EngineConfigOperationState[] = [
   'applying',

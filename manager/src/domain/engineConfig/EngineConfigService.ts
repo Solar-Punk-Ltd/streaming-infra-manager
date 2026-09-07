@@ -127,6 +127,7 @@ export class EngineConfigService {
       config: await this.profiles.engineConfigOf(name),
       template: template.text,
       placeholders: template.placeholders,
+      state: profile.engine_config_state,
       error: profile.engine_config_error,
       references: ENGINE_CONFIG_REFERENCES[engine],
     };

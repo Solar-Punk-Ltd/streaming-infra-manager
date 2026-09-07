@@ -1,4 +1,5 @@
-import type { EngineSettings } from '@streaming-infra-manager/common';
+import type {
+  EngineConfigState, EngineSettings } from '@streaming-infra-manager/common';
 
 import { ProfileKind, ProfileStatus } from './types.js';
 
@@ -42,7 +43,7 @@ export interface Profile {
   /** Why the last config file apply was reverted, or null. */
   engine_config_error: string | null;
   /** Where the last config file rollout stands, an operation state, or null before any. Migration 014. */
-  engine_config_state: string | null;
+  engine_config_state: EngineConfigState | null;
   /** This deployment as distinct from a later one of the same name. Migration 014. */
   instance_id: string;
   /** Moves with every write of engine_config. Every such write names the revision it expects. */
