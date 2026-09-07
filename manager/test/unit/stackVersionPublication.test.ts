@@ -14,6 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -229,6 +230,33 @@ describe('updating a version', () => {
     assert.equal(row.buildId, COMMIT_A);
     assert.match(row.lastError ?? '', /pnpm install failed/);
     assert.equal(existsSync(staging), false, 'the staging directory is gone');
+  });
+
+  it('records the failure even when the staging directory cannot be removed, and leaves it for a hand', async () => {
+    const id = await addBuilt('v3', COMMIT_A);
+
+    await service.update(id);
+    const staging = stagingDirFor(versionsRoot, 'v3', attemptOf());
+    mkdirSync(staging, { recursive: true });
+    // A builds root nobody may write to: the staging directory cannot be
+    // unlinked from it, the way a tree the build container left owned by
+    // root cannot be removed by the manager's own user.
+    const buildsRoot = buildsRootFor(versionsRoot, 'v3');
+    chmodSync(buildsRoot, 0o555);
+    try {
+      await finished('v3', 1, 'pnpm install failed\n');
+    } finally {
+      chmodSync(buildsRoot, 0o755);
+    }
+
+    const row = await rowNamed('v3');
+    assert.equal(row.status, 'ready');
+    assert.equal(row.buildId, COMMIT_A);
+    assert.match(row.lastError ?? '', /pnpm install failed/);
+    // Root removes anything, so only a plain user sees the directory stay.
+    if (process.getuid?.() !== 0) {
+      assert.equal(existsSync(staging), true, 'the staging directory is left where it could not be removed');
+    }
   });
 
   it('treats a build that left no commit behind as failed, naming what is missing', async () => {

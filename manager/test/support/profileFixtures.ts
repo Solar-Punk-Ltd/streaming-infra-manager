@@ -246,7 +246,11 @@ export class FakeContainers {
   /** `<profile>/<service>` to what the container was seen to run, as `setBuild` recorded it. */
   readonly builds = new Map<string, { buildId: string; commit: string | null }>();
 
+  /** When set, `setBuild` throws, the way a database that went away would. */
+  failSetBuild = false;
+
   async setBuild(profileName: string, service: string, buildId: string, commit: string | null): Promise<void> {
+    if (this.failSetBuild) throw new Error('the database went away');
     this.builds.set(`${profileName}/${service}`, { buildId, commit });
   }
 

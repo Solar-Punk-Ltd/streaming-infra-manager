@@ -50,8 +50,8 @@ const COMMIT_A = 'a'.repeat(40);
 const COMMIT_B = 'b'.repeat(40);
 
 /** A complete build of v3 on disk, with the sample the deploy bootstraps from. */
-function buildOnDisk(versionsRoot: string, buildId: string): string {
-  const dir = buildDirFor(versionsRoot, 'v3', buildId);
+function buildOnDisk(versionsRoot: string, buildId: string, name = 'v3'): string {
+  const dir = buildDirFor(versionsRoot, name, buildId);
   mkdirSync(join(dir, 'deploy', 'scripts'), { recursive: true });
   writeFileSync(join(dir, '.env'), 'ENGINE=srs\n');
   writeFileSync(join(dir, BUILD_MANIFEST_FILE), JSON.stringify({ commit: buildId.slice(0, 40), buildId, builtAt: new Date().toISOString(), toolchain: 't' }));
@@ -180,6 +180,44 @@ describe('what the success hook records', () => {
 
     assert.equal(harness.ledger.openJobReferences('stage').length, 1);
     assert.equal(row().status, 'RUNNING');
+  });
+
+  it('brings the deployment up when recording what its containers run fails, and records no full deploy past it', async () => {
+    const { harness, row, versionsRoot } = await setup();
+    const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildA);
+    harness.containers.failSetBuild = true;
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.equal(row().status, 'RUNNING', 'the script exited 0 and the containers are up, whatever the row says');
+    assert.equal(row().last_full_deploy_commit, null, 'nothing was recorded past the failure');
+  });
+
+  it('names the version whose build a container mounts, not the version of an earlier job', async () => {
+    const { harness, row, versionsRoot } = await setup();
+    const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildA);
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    const v4 = await harness.versions.insert({ name: 'v4', gitRef: 'main-v4', rootPath: join(versionsRoot, 'v4') });
+    buildOnDisk(versionsRoot, COMMIT_B, 'v4');
+    await harness.versions.publish(v4.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: CONTRACT });
+    harness.profiles.write('stage', { stack_version_id: v4.id });
+    const buildB = buildDirFor(versionsRoot, 'v4', COMMIT_B);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildB);
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'stage');
+
+    const standing = harness.ledger.references.filter(
+      (r) => r.holderKind === 'snapshot' && r.holderId === 'stage/srs' && r.resolvedAt === null,
+    );
+    assert.deepEqual(standing.map((r) => [r.versionId, r.buildId]), [[v4.id, COMMIT_B]]);
   });
 
   it('keeps the job reference when the script fails', async () => {
