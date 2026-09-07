@@ -403,6 +403,20 @@ describe('the bundled version at boot', () => {
     assert.equal(bundled?.commitSha, null);
     assert.equal(bundled?.contract, null);
   });
+
+  it('keeps the approval on the same commit, and takes it with a move to another', async () => {
+    // Approval names a build. A manager deploy that moves the bundled
+    // checkout is a new build nobody has run yet, the way an Update is.
+    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    const bundled = await repository.findByName('bundled');
+    await repository.setTested(bundled?.id ?? 0, true);
+
+    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    assert.equal((await repository.findByName('bundled'))?.tested, true, 'the same commit');
+
+    await service.refreshBundled(V3_FIXTURE, 'f'.repeat(40));
+    assert.equal((await repository.findByName('bundled'))?.tested, false, 'another commit');
+  });
 });
 
 describe('a build the manager was restarted during', () => {
