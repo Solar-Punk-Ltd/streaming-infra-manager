@@ -227,7 +227,7 @@ export class ContainerControl {
       id: info.Id,
       status: info.State.Status,
       restartCount: info.RestartCount,
-      startedAt: info.State.StartedAt ?? null,
+      startedAt: info.State.StartedAt,
     };
   }
 
