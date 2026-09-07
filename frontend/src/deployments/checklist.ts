@@ -284,7 +284,8 @@ function uploaderStep({ profile, stampHealth }: ChecklistInput): ChecklistStep {
     return {
       title,
       state: 'ok',
-      detail: 'stream-uploader is publishing segments to Swarm.',
+      detail:
+        'stream-uploader is running. It publishes segments while a stream is being sent.',
     };
   }
 
