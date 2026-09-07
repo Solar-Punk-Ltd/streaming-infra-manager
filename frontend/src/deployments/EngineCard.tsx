@@ -118,10 +118,11 @@ export function EngineCard({
     engineRunning,
     actions.isBusy(profile.name),
   );
-  const notice = rolloutNotice(profile.engine_config_state, {
-    engine: ENGINE_LABEL[engine],
-    hasConfig: profile.has_engine_config,
-  });
+  const notice = rolloutNotice(
+    profile.engine_config_state,
+    { engine: ENGINE_LABEL[engine], hasConfig: profile.has_engine_config },
+    profile.engine_config_error,
+  );
   const rolloutActionsOffBecause = whyRolloutActionsAreOff(
     profile,
     actions.isBusy(profile.name),

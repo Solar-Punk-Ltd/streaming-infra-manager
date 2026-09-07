@@ -147,7 +147,7 @@ export function EngineConfigDialog({
       ? { state: view.state, hasConfig: view.config !== null, reason: view.error }
       : null;
   const notice = rollout && view
-    ? rolloutNotice(rollout.state, { engine: engineName, hasConfig: rollout.hasConfig })
+    ? rolloutNotice(rollout.state, { engine: engineName, hasConfig: rollout.hasConfig }, rollout.reason)
     : null;
 
   return (

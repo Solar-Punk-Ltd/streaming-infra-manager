@@ -43,15 +43,28 @@ export interface RolloutSubject {
   hasConfig: boolean;
 }
 
-/** The card's notice for a rollout state, or null when there is nothing to say. */
+/**
+ * The card's notice for a rollout state, or null when there is nothing to
+ * say. `reason` is the row's `engine_config_error`: for an applied rollout it
+ * is a note from the check that ran after the apply, shown as a diagnosis.
+ */
 export function rolloutNotice(
   state: EngineConfigState | null,
   subject: RolloutSubject,
+  reason: string | null,
 ): RolloutNotice | null {
   switch (state) {
     case null:
-    case 'applied':
       return null;
+    case 'applied':
+      return reason
+        ? {
+            severity: 'info',
+            title: 'Applied, with a note from the check that ran after it.',
+            showsReason: true,
+            offers: [],
+          }
+        : null;
     case 'applying':
       return {
         severity: 'info',
