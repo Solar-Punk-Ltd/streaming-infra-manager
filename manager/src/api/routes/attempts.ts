@@ -1,17 +1,22 @@
 import { Request, Response, Router } from 'express';
 
+import {
+  attemptReleaseProblem,
+  type DeployAttemptView,
+} from '@streaming-infra-manager/common';
+
 import type { DeploymentOrchestrator } from '../../domain/DeploymentOrchestrator.js';
 import type { DeployAttempt } from '../../domain/deployAttempts.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 /** What a page may see of an attempt: the container ids stay in the manager. */
-function toApiAttempt(attempt: DeployAttempt) {
+function toApiAttempt(attempt: DeployAttempt): DeployAttemptView {
   return {
     id: attempt.id,
     project: attempt.project,
     jobId: attempt.jobId,
     kind: attempt.kind,
-    services: attempt.services,
+    services: [...attempt.services],
     state: attempt.state,
     reason: attempt.reason,
     startedAt: attempt.startedAt.toISOString(),
@@ -45,24 +50,17 @@ export function createAttemptsRouter(
     '/:id/release',
     asyncHandler(async (req: Request, res: Response) => {
       const id = Number.parseInt(req.params.id as string, 10);
-      const typed = (req.body as { jobId?: unknown } | undefined)?.jobId;
-      if (!Number.isInteger(id) || typeof typed !== 'string' || typed.trim() === '') {
-        res.status(400).json({
-          error: 'validation_error',
-          errors: ['Type the job id of the attempt to release it.'],
-        });
-        return;
-      }
-      const attempt = (await orchestrator.unresolvedAttempts()).find((entry) => entry.id === id);
+      const attempt = Number.isInteger(id)
+        ? (await orchestrator.unresolvedAttempts()).find((entry) => entry.id === id)
+        : undefined;
       if (!attempt) {
-        res.status(404).json({ error: 'attempt_not_found', id });
+        res.status(404).json({ error: 'attempt_not_found', id: req.params.id });
         return;
       }
-      if (attempt.jobId !== typed.trim()) {
-        res.status(400).json({
-          error: 'validation_error',
-          errors: [`The job id typed does not match. This attempt is ${attempt.jobId}.`],
-        });
+      const typed = (req.body as { jobId?: unknown } | undefined)?.jobId;
+      const problem = attemptReleaseProblem(typeof typed === 'string' ? typed : '', attempt);
+      if (problem) {
+        res.status(400).json({ error: 'validation_error', errors: [problem] });
         return;
       }
       const released = await orchestrator.releaseAttempt(id, whoIs(req));

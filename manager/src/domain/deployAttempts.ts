@@ -21,9 +21,12 @@
  * phase finished and no delayed export can follow. Anything less blocks,
  * and a person who checked the host releases it.
  */
-export type DeployAttemptKind = 'shared' | 'fixed';
+import type {
+  DeployAttemptKind,
+  DeployAttemptState,
+} from '@streaming-infra-manager/common';
 
-export type DeployAttemptState = 'open' | 'released' | 'blocked';
+export type { DeployAttemptKind, DeployAttemptState };
 
 export interface DeployAttempt {
   id: number;
