@@ -48,18 +48,31 @@ beforeEach(() => {
   runner = new FakeScriptSpawner();
   bus = new EventBus();
   events = [];
+  landed = 0;
   bus.subscribe((event) => events.push(event.type));
   service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] });
 });
 
 /** Waits until no version is building any more, which is when the outcome is recorded. */
+/** How many builds the test has waited out, so the wait below knows how many announcements to expect. */
+let landed = 0;
+
+/**
+ * Waits for a build to land: no row building, and the service's own
+ * announcement of it seen. The row leaves `building` before the service
+ * prunes and announces, so a wait on the row alone let a test read the
+ * events a moment too early on a loaded laptop, and the suite runs its
+ * files in parallel.
+ */
 const settled = async (): Promise<void> => {
-  for (let tick = 0; tick < 600; tick += 1) {
+  landed += 1;
+  for (let tick = 0; tick < 2000; tick += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
     const rows = await repository.list();
-    if (!rows.some((row) => row.status === 'building')) return;
+    const announced = events.filter((event) => event === 'version.changed').length;
+    if (!rows.some((row) => row.status === 'building') && announced >= landed) return;
   }
-  throw new Error('a version is still building');
+  throw new Error('a version is still building, or was never announced');
 };
 
 /**
