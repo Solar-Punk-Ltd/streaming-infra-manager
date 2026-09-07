@@ -24,7 +24,7 @@ import {
 } from './deploymentEdits';
 import { EditDrawerFrame } from './EditDrawerFrame';
 import { FixedAtCreation } from './FixedAtCreation';
-import { FormField } from './FormField';
+import { FormField, messageIdFor } from './FormField';
 import { PassphraseField } from './PassphraseField';
 import { StreamKeyField } from './StreamKeyField';
 import { addressProblem, notesProblem, stampIdProblem } from './validation';
@@ -201,14 +201,17 @@ export function EditDeploymentDrawer({
         </FormField>
       )}
 
-      <FormField label="Notes" error={notesProblem(edits.notes)}>
+      <FormField label="Notes" error={notesProblem(edits.notes)} htmlFor="edit-notes">
         <TextField
+          id="edit-notes"
           size="small"
           fullWidth
           multiline
           minRows={2}
+          error={notesProblem(edits.notes) !== null}
           value={edits.notes}
           onChange={(event) => update({ notes: event.target.value })}
+          inputProps={{ 'aria-describedby': messageIdFor('edit-notes') }}
         />
       </FormField>
     </EditDrawerFrame>

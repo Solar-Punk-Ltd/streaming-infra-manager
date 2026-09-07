@@ -2,6 +2,15 @@ import { Box, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 /**
+ * The id of the hint or error under the control `htmlFor` names. A control
+ * that points `aria-describedby` at it has its hint or error read out with
+ * it, instead of the message sitting on screen unannounced.
+ */
+export function messageIdFor(htmlFor: string): string {
+  return `${htmlFor}-message`;
+}
+
+/**
  * One question in a form: a label, an optional aside on the same line, the
  * control, and a hint or an error underneath.
  */
@@ -11,6 +20,7 @@ export function FormField({
   hint,
   error,
   htmlFor,
+  messageId: givenMessageId,
   children,
 }: {
   label: string;
@@ -23,8 +33,15 @@ export function FormField({
    * together instead of announcing an unnamed text box.
    */
   htmlFor?: string;
+  /**
+   * The id the hint or error is rendered under, for a control that is not the
+   * one the label names, such as a field inside a choice. Derived from
+   * `htmlFor` when left out.
+   */
+  messageId?: string;
   children: ReactNode;
 }) {
+  const messageId = givenMessageId ?? (htmlFor ? messageIdFor(htmlFor) : undefined);
   return (
     <Box>
       <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ mb: 0.75 }}>
@@ -39,12 +56,23 @@ export function FormField({
       </Stack>
       {children}
       {error ? (
-        <Typography variant="caption" color="warning.main" sx={{ mt: 0.75, display: 'block' }}>
+        <Typography
+          id={messageId}
+          variant="caption"
+          color="warning.main"
+          aria-live="polite"
+          sx={{ mt: 0.75, display: 'block' }}
+        >
           {error}
         </Typography>
       ) : (
         hint && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+          <Typography
+            id={messageId}
+            variant="caption"
+            color="text.secondary"
+            sx={{ mt: 0.75, display: 'block' }}
+          >
             {hint}
           </Typography>
         )
