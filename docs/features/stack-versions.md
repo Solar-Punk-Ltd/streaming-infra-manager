@@ -208,17 +208,24 @@ the layout, the current build and the previous one.
 **The bundled version.** The manager's own deploy (`deploy/deploy.sh`) used to rsync the bundled
 stack over `manager/swarm-hls-stream` on the host, the tree the api and the engines mount, so a
 container restart after a manager deploy ran an old container on replacement files. It now leaves
-that tree as it is and ships the built stack into `bundled.incoming/` under the versions root, with
-its commit. At boot the api publishes the shipment the way an added version's build is published:
-the shipped `.env`, `deploy/config.json` and `engines/<engine>/.env` are committed as the bundled
-version's host configuration under `<versions>/bundled/` when they changed, so the checkout the
-deploy ran from stays their source of truth, the tree becomes `bundled.builds/<commit>/` with its
-manifest and marker, or a complete build of the same commit and inputs is adopted and the shipment
-dropped, and one row update makes it current and gives the row `<versions>/bundled` as its root.
-The same reference and prune rules apply, so a build a container still mounts stays. A shipment
-that cannot be published is left in place with the reason on the row, and the next deploy replaces
-it. A bundled row never published stays legacy on the tree the manager ships with, and the
-Versions page says so: `with the manager, legacy tree` against `build ee99c36`. An engine mounted
+that tree as it is and ships the built stack into `bundled.incoming.tmp/` under the versions root,
+with its commit, and promotes it to `bundled.incoming/` with one rename once everything arrived,
+so a dropped connection leaves a torn staging directory the next deploy replaces and never a
+shipment the api would read. At boot, after the containers were observed, the api publishes the
+shipment the way an added version's build is published: the shipped `.env`, `deploy/config.json`
+and `engines/<engine>/.env` are committed as the bundled version's host configuration under
+`<versions>/bundled/` when they changed, a file of that set the shipment no longer carries leaves
+it, so the checkout the deploy ran from stays their source of truth, the tree becomes
+`bundled.builds/<commit>/` with its manifest and marker, or a complete build of the same commit and
+inputs is adopted and the shipment dropped, and one row update makes it current and gives the row
+`<versions>/bundled` as its root. The same reference and prune rules apply, so a build a container
+still mounts stays. A shipment that cannot be published is left in place with the reason on the
+row, and the next deploy replaces it. A crash between the rename and the row update leaves a
+complete build the row does not name, which the next boot adopts, the reason on the row saying
+where it is. A bundled row never published stays legacy on the tree the manager ships with, gets
+its samples seeded there as before, and the Versions page says so: `with the manager, legacy tree`
+against `build ee99c36`. The host passphrase the pages show is read from the tree the bundled
+version runs, the legacy tree or its current build. An engine mounted
 from the legacy tree, or from an earlier bundled build, keeps reading it after a publication and
 after a container restart, until its own deployment is deployed again, which is what moves it. A
 deployment whose version row is gone runs the bundled version, with a reference on it, rather than
