@@ -17,6 +17,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
+import {
+  nextVersionChange,
+  readSseFrames,
+  startVersionsTestApp,
+  type VersionsTestApp,
+} from '../support/versionsTestApp.js';
 
 const ROUTE_COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
 
@@ -26,12 +32,6 @@ function builtInStaging(args: string[]): void {
   cpSync(V3_FIXTURE, staging, { recursive: true });
   writeFileSync(join(staging, '.stack-commit'), `${ROUTE_COMMIT}\n`);
 }
-import {
-  nextVersionChange,
-  readSseFrames,
-  startVersionsTestApp,
-  type VersionsTestApp,
-} from '../support/versionsTestApp.js';
 
 let app: VersionsTestApp;
 let versionsRoot: string;
