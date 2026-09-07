@@ -11,7 +11,7 @@
  * later version that does have one would pick up a file nobody applied.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -42,6 +42,14 @@ const WITH_HOOK: StackContract = {
 };
 
 const CONFIG = 'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n';
+
+const CONFIG_FILE_RE = /^srs\.[0-9a-f]{12}\.conf$/;
+
+/** The engine directory's config files, which should be one or none. */
+function configFilesOf(name: string): string[] {
+  const dir = join(dataRoot, name, 'engine');
+  return existsSync(dir) ? readdirSync(dir).filter((file) => CONFIG_FILE_RE.test(file)) : [];
+}
 
 function envLine(name: string, key: string): string | undefined {
   return readFileSync(join(root, `.env.${name}`), 'utf8')
@@ -95,9 +103,32 @@ describe('a deploy with a stored config file', () => {
 
     await harness.orchestrator.startDeploy(stored, ['srs']);
 
-    const file = join(dataRoot, 'stage', 'engine', 'srs.conf');
+    const files = configFilesOf('stage');
+    assert.equal(files.length, 1, `expected one config file, found ${files.join(', ')}`);
+    const file = join(dataRoot, 'stage', 'engine', files[0]!);
     assert.equal(readFileSync(file, 'utf8'), CONFIG);
     assert.equal(envLine('stage', 'SRS_CONF_FILE'), `SRS_CONF_FILE=${file}`);
+  });
+
+  it('writes a changed file under a new name, so the mount changes and compose recreates', async () => {
+    writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
+    const harness = orchestratorHarness([]);
+    await harness.versions.setContract(1, WITH_HOOK);
+    const stored = makeProfile({ name: 'again', stamp_id: 'a'.repeat(64) });
+    harness.profiles.rows.set('again', stored);
+    harness.profiles.engineConfigs.set('again', CONFIG);
+    await harness.orchestrator.startDeploy(stored, ['srs']);
+    harness.runner.finish(0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const first = envLine('again', 'SRS_CONF_FILE');
+
+    harness.profiles.engineConfigs.set('again', CONFIG + 'max_connections 2000;\n');
+    await harness.orchestrator.startDeploy(harness.profiles.rows.get('again')!, ['srs']);
+
+    const second = envLine('again', 'SRS_CONF_FILE');
+    assert.notEqual(second, first, 'the same path would leave the container on the old text');
+    assert.equal(configFilesOf('again').length, 1, 'the stale file is removed');
+    assert.match(readFileSync(second!.slice('SRS_CONF_FILE='.length), 'utf8'), /max_connections 2000/);
   });
 
   it('leaves the key out and removes a stale file on a version without the hook', async () => {
@@ -105,7 +136,7 @@ describe('a deploy with a stored config file', () => {
     const stored = makeProfile({ name: 'plain', stamp_id: 'a'.repeat(64) });
     const harness = orchestratorHarness([stored]);
     harness.profiles.engineConfigs.set('plain', CONFIG);
-    const file = join(dataRoot, 'plain', 'engine', 'srs.conf');
+    const file = join(dataRoot, 'plain', 'engine', 'srs.0123456789ab.conf');
     writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
     await import('node:fs/promises').then((fs) =>
       fs.mkdir(join(dataRoot, 'plain', 'engine'), { recursive: true }),
@@ -132,7 +163,7 @@ describe('a deploy with a stored config file', () => {
 
     await harness.orchestrator.startDeploy(harness.profiles.rows.get('reset')!, ['srs']);
 
-    assert.equal(existsSync(join(dataRoot, 'reset', 'engine', 'srs.conf')), false);
+    assert.deepEqual(configFilesOf('reset'), []);
     assert.equal(envLine('reset', 'SRS_CONF_FILE'), undefined);
   });
 });

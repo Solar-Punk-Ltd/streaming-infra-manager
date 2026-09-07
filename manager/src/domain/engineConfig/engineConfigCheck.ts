@@ -142,7 +142,9 @@ function srsReason(result: CommandResult): string {
     .split('\n')
     .map((line) => line.replace(SRS_LOG_PREFIX_RE, '').trim())
     .filter((line) => line.length > 0);
-  const reasons = lines.filter((line) => /invalid config|parse|illegal/i.test(line));
+  const reasons = lines.filter(
+    (line) => /invalid config|parse|illegal/i.test(line) && !/parse complete/i.test(line),
+  );
   const picked = reasons.length > 0 ? reasons : lines.slice(-OUTPUT_TAIL_LINES);
   const text = picked.join(' ').split(SRS_CHECK_PATH).join('your config');
   return text || `srs -t exited with code ${result.code} and printed nothing.`;

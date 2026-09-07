@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   abrLadderEnvValue,
@@ -24,7 +24,9 @@ import { ContainerRepository } from './ContainerRepository.js';
 import { buildContainerSnapshot } from './containerKeysSpec.js';
 import {
   beeDataDirsFor,
-  engineConfigPathFor,
+  engineConfigDirFor,
+  engineConfigFileName,
+  isEngineConfigFile,
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
@@ -52,6 +54,19 @@ const logger = Logger.getInstance();
 
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
+
+/** Every config file of the engine in the directory except `keep`, gone. A missing directory is nothing to do. */
+async function removeStaleEngineConfigs(
+  dir: string,
+  engine: EngineName,
+  keep: string | null,
+): Promise<void> {
+  const names = await readdir(dir).catch(() => [] as string[]);
+  for (const name of names) {
+    if (name === keep || !isEngineConfigFile(engine, name)) continue;
+    await rm(join(dir, name), { force: true });
+  }
+}
 
 function stripDockerWarnings(text: string): string {
   return text
@@ -183,25 +198,29 @@ export class DeploymentOrchestrator {
   /**
    * Writes the deployment's own engine config into its data directory, where
    * the version's compose override mounts it from, and answers the path. Null
-   * when the template runs, with any stale file removed, so a deployment put
-   * back on the template does not leave an old file behind for a later
-   * version to pick up.
+   * when the template runs. The file's name carries a hash of its content, see
+   * `engineConfigFileName`, and every other file of that engine in the
+   * directory is removed first, so the directory holds the one file the
+   * container mounts and a deployment put back on the template leaves nothing
+   * behind for a later version to pick up.
    */
   private async engineConfigFileFor(
     profile: Profile,
     engine: EngineName,
     version: StackVersionRecord | null,
   ): Promise<string | null> {
-    const path = engineConfigPathFor(profile.name, engine);
+    const dir = engineConfigDirFor(profile.name);
     const supported = version?.contract?.engineConfig[engine] ?? false;
     const config = supported
       ? await this.profiles.engineConfigOf(profile.name)
       : null;
-    if (config === null) {
-      await rm(path, { force: true });
-      return null;
-    }
-    await mkdir(dirname(path), { recursive: true });
+    const current = config === null ? null : engineConfigFileName(engine, config);
+
+    await removeStaleEngineConfigs(dir, engine, current);
+    if (config === null || current === null) return null;
+
+    const path = join(dir, current);
+    await mkdir(dir, { recursive: true });
     await writeFile(path, config, 'utf8');
     return path;
   }

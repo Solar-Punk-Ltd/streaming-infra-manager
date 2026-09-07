@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import {
@@ -32,15 +33,44 @@ export function engineConfigDirFor(profileName: string): string {
   return join(profileDataRoot(profileName), 'engine');
 }
 
-const ENGINE_CONFIG_FILE_NAMES: Record<EngineName, string> = {
-  [SRS_SERVICE]: 'srs.conf',
-  [OME_SERVICE]: 'Server.xml',
+const ENGINE_CONFIG_FILE_PARTS: Record<EngineName, { stem: string; ext: string }> = {
+  [SRS_SERVICE]: { stem: 'srs', ext: 'conf' },
+  [OME_SERVICE]: { stem: 'Server', ext: 'xml' },
 };
+
+const CONTENT_TAG_LENGTH = 12;
+
+function contentTag(config: string): string {
+  return createHash('sha256').update(config, 'utf8').digest('hex').slice(0, CONTENT_TAG_LENGTH);
+}
+
+/**
+ * The name the file is written under: `srs.<tag>.conf`, the tag being a hash
+ * of the content.
+ *
+ * The content is in the name because compose recreates a container only when
+ * its spec changes, and a bind mount's spec is its source path, not what is
+ * in the file. A file rewritten in place under one fixed name left the
+ * container running on the old text while the manager reported the new one
+ * applied, measured on the host on 2026-09-07. A new name is a new mount and
+ * a recreate, exactly as the first apply was.
+ */
+export function engineConfigFileName(engine: EngineName, config: string): string {
+  const { stem, ext } = ENGINE_CONFIG_FILE_PARTS[engine];
+  return `${stem}.${contentTag(config)}.${ext}`;
+}
+
+/** Whether a name in the engine directory is one of this engine's config files, current or stale. */
+export function isEngineConfigFile(engine: EngineName, name: string): boolean {
+  const { stem, ext } = ENGINE_CONFIG_FILE_PARTS[engine];
+  return new RegExp(`^${stem}\\.[0-9a-f]{${CONTENT_TAG_LENGTH}}\\.${ext}$`).test(name);
+}
 
 /** The file the compose override mounts into the engine container. */
 export function engineConfigPathFor(
   profileName: string,
   engine: EngineName,
+  config: string,
 ): string {
-  return join(engineConfigDirFor(profileName), ENGINE_CONFIG_FILE_NAMES[engine]);
+  return join(engineConfigDirFor(profileName), engineConfigFileName(engine, config));
 }

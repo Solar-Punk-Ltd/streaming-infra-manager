@@ -43,6 +43,7 @@ const SRS_OK: CommandResult = {
 const SRS_REFUSED: CommandResult = {
   code: 255,
   stdout:
+    '[2026-09-07 04:58:12.836][INFO][1][2914ku12] config parse complete\n' +
     '[2026-09-07 04:58:12.836][INFO][1][2914ku12] invalid configcode=1023(ConfigInvalid) : check normal : illegal vhost.hls.hls_fragmnt of __defaultVhost__ in /check/srs.conf\n' +
     '[2026-09-07 04:58:12.836][INFO][1][2914ku12] config file /check/srs.conf test is failed\n',
   stderr: '',
@@ -127,9 +128,10 @@ describe('the SRS check', () => {
       scratchDir: scratch(),
     });
 
-    assert.match(problem ?? '', /^SRS refused the file\./);
+    assert.match(problem ?? '', /^SRS refused the file\. invalid config/);
     assert.match(problem ?? '', /illegal vhost\.hls\.hls_fragmnt of __defaultVhost__ in your config/);
     assert.equal(/\[INFO\]/.test(problem ?? ''), false);
+    assert.equal(/parse complete/.test(problem ?? ''), false);
   });
 
   it('refuses a placeholder the version does not fill before running anything', async () => {
