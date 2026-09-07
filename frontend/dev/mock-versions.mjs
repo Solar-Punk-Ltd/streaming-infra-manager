@@ -270,7 +270,11 @@ function playBuild(res, version, publish) {
     version.gitRef,
   ]);
   const willFail = version.gitRef.includes('fail');
-  const commit = randomCommit();
+  // A ref that says `same` lands on the commit the version already has, so
+  // the rebuild gets a distinct identity beside it, as the manager gives a
+  // commit published again with other inputs.
+  const sameCommit = version.gitRef.includes('same') && version.commitSha;
+  const commit = sameCommit ? version.commitSha : randomCommit();
 
   version.status = 'building';
   version.lastError = null;
@@ -290,15 +294,21 @@ function playBuild(res, version, publish) {
       frame('stderr', {
         chunk: `fatal: couldn't find remote ref ${version.gitRef}\n`,
       });
-      version.status = 'failed';
-      version.lastError = `fatal: couldn't find remote ref ${version.gitRef}`;
+      const reason = `fatal: couldn't find remote ref ${version.gitRef}`;
+      // A version with a usable build keeps it, ready, with the reason. Only
+      // one with nothing to deploy from is failed, as the manager does.
+      version.status = version.buildId ? 'ready' : 'failed';
+      version.lastError = version.buildId ? `${reason}. Still on build ${version.buildId}.` : reason;
     } else {
       // The approval belongs to the build that was tested, as in the manager,
-      // and the build the new one replaces is kept as the previous one.
-      version.tested = version.tested && version.buildId === commit;
-      if (version.buildId && version.buildId !== commit) version.previousBuildId = version.buildId;
+      // and the build the new one replaces is kept as the previous one. The
+      // same commit published again gets <commit>-r<n>.
+      const rebuilds = (version.buildId ?? '').startsWith(commit) ? (Number(/-r(\d+)$/.exec(version.buildId)?.[1] ?? 0) + 1) : 0;
+      const buildId = rebuilds > 0 ? `${commit}-r${rebuilds}` : commit;
+      version.tested = version.tested && version.buildId === buildId;
+      if (version.buildId && version.buildId !== buildId) version.previousBuildId = version.buildId;
       version.layout = 'builds';
-      version.buildId = commit;
+      version.buildId = buildId;
       version.status = 'ready';
       version.commitSha = commit;
       version.builtAt = new Date().toISOString();
