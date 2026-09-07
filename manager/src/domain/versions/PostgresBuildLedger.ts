@@ -6,6 +6,7 @@ import { PROFILE_COLUMNS } from '../profileSql.js';
 import {
   type BuildDescriptor,
   type BuildLedger,
+  type BuildReferenceReader,
   BUNDLED_BUILD_ID,
   type ClaimedDeploy,
   type MountObserver,
@@ -54,7 +55,7 @@ function toReference(row: ReferenceRow): BuildReference {
  * left it. Observation writes what the containers mount and resolves the
  * job references the new snapshots cover.
  */
-export class PostgresBuildLedger implements BuildLedger {
+export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
   constructor(
     private readonly pool: Pool,
     private readonly observer: MountObserver,
@@ -156,6 +157,16 @@ export class PostgresBuildLedger implements BuildLedger {
           [versionId, buildIdOfRoot(this.versionsRoot, root), `${profileName}/${service}`, [service]],
         );
       }
+      // A newer snapshot of a service replaces the older one of the same
+      // service: the older no longer describes what runs.
+      if (mounted.length > 0) {
+        await client.query(
+          `UPDATE build_references SET resolved_at = NOW()
+            WHERE holder_kind = 'snapshot' AND resolved_at IS NULL AND holder_id = ANY($1::text[])
+              AND id < (SELECT MAX(id) FROM build_references b WHERE b.holder_id = build_references.holder_id)`,
+          [mounted.map(({ service }) => `${profileName}/${service}`)],
+        );
+      }
       const own = await client.query<ReferenceRow>(
         `SELECT ${REFERENCE_COLUMNS} FROM build_references
           WHERE resolved_at IS NULL AND (holder_id = $1 OR holder_id LIKE $2)`,
@@ -190,6 +201,30 @@ export class PostgresBuildLedger implements BuildLedger {
     }
     for (const [profileName, services] of byProfile) {
       await this.observe(profileName, [...services]);
+    }
+  }
+
+  async openReferences(versionId: number): Promise<BuildReference[]> {
+    const result = await this.pool.query<ReferenceRow>(
+      `SELECT ${REFERENCE_COLUMNS} FROM build_references WHERE version_id = $1 AND resolved_at IS NULL`,
+      [versionId],
+    );
+    return result.rows.map(toReference);
+  }
+
+  async lockVersion<T>(versionId: number, work: () => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM stack_versions WHERE id = $1 FOR UPDATE', [versionId]);
+      const result = await work();
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
   }
 

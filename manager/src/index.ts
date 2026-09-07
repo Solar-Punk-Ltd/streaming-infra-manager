@@ -1,4 +1,6 @@
-import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
+import { getErrorStack, plurToBzz,
+  getErrorMessage,
+} from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { AuthService } from './domain/auth/AuthService.js';
@@ -145,11 +147,21 @@ async function main(): Promise<void> {
   const stackVersionRepository = new PostgresStackVersionRepository(
     database.pool,
   );
+  // Ahead of the profiles: the versions are what deployments run on.
+  const containerControl = new ContainerControl(eventBus);
+  // Which build each deployment runs on. The claim writes it, the success
+  // hook and boot observe the containers, and prune keeps what they mount.
+  const buildLedger = new PostgresBuildLedger(
+    database.pool,
+    containerControl,
+    config.stackVersionsRoot,
+  );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,
     scriptRunner,
     eventBus,
     config.stackVersionsRoot,
+    buildLedger,
   );
   await stackVersionService.refreshBundled(
     BUNDLED_STACK_ROOT,
@@ -165,6 +177,20 @@ async function main(): Promise<void> {
 
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
+
+  // What a gone manager left: attempts whose builder is gone go, containers
+  // are asked what they mount so a crashed job's reference can resolve, and
+  // then builds nothing protects go. A daemon that does not answer keeps
+  // everything, which is the safe side.
+  try {
+    await stackVersionService.cleanInterruptedAttempts({
+      containerExists: (name) => containerControl.containerExists(name),
+    });
+    await buildLedger.observeAll();
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
@@ -199,14 +225,6 @@ async function main(): Promise<void> {
     profileRepository,
     config.chequebookFloorPlur,
     eventBus,
-  );
-  const containerControl = new ContainerControl(eventBus);
-  // Which build each deployment runs on. The claim writes it, the success
-  // hook and boot observe the containers, and prune keeps what they mount.
-  const buildLedger = new PostgresBuildLedger(
-    database.pool,
-    containerControl,
-    config.stackVersionsRoot,
   );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,

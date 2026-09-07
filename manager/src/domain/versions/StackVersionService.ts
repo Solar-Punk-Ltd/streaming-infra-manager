@@ -26,12 +26,15 @@ import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { RunHandle, ScriptSpawner } from '../ScriptRunner.js';
 
+import type { BuildReferenceReader } from './buildLedger.js';
 import {
   BUILD_COMPLETE_MARKER,
   BUILD_MANIFEST_FILE,
+  buildIdProblem,
   type BuildManifest,
   readBuildManifest,
 } from './buildManifest.js';
+import { protectedBuildIds } from './buildReferences.js';
 import {
   adoptHostConfig,
   captureHostConfig,
@@ -108,6 +111,11 @@ interface PublishedBuild extends PublishOutcome {
   reused: boolean;
 }
 
+export interface PrunedBuilds {
+  removed: string[];
+  kept: string[];
+}
+
 /** What a version left mid-build by a restart says when the manager comes back. */
 const INTERRUPTED_BUILD =
   'Interrupted by a manager restart. Update the version to build it again.';
@@ -136,6 +144,7 @@ export class StackVersionService {
     private readonly runner: ScriptSpawner,
     private readonly eventBus: EventBus,
     private readonly versionsRoot: string,
+    private readonly references: BuildReferenceReader,
   ) {}
 
   async list(): Promise<StackVersion[]> {
@@ -385,6 +394,7 @@ export class StackVersionService {
         logger.info(
           `[Versions] ${version.name} is ready on build ${outcome.buildId}${outcome.reused ? ', the complete build it already had' : ''}`,
         );
+        await this.pruneBuilds(version.id);
       } else {
         const current = await this.versions.findById(version.id);
         if (current?.buildId) {
@@ -511,6 +521,46 @@ export class StackVersionService {
     const buildsRoot = buildsRootFor(this.versionsRoot, name);
     if (!existsSync(buildsRoot)) return [];
     return (await readdir(buildsRoot)).filter((entry) => entry === commit || entry.startsWith(`${commit}-r`));
+  }
+
+  /**
+   * Deletes every build directory of the version that nothing protects: not
+   * the current build, not the previous one, and not one an open reference
+   * names. Under the version row's lock, so a claim taking its reference
+   * either committed before this read or waits and reads the row as prune
+   * left it. An attempt's staging directory is boot's, and the flat root,
+   * which keeps the host-owned inputs, is never a build.
+   */
+  async pruneBuilds(versionId: number): Promise<PrunedBuilds> {
+    const prune = async (): Promise<PrunedBuilds> => {
+      const version = await this.versions.findById(versionId);
+      const outcome: PrunedBuilds = { removed: [], kept: [] };
+      if (!version || version.layout !== 'builds') return outcome;
+      const buildsRoot = buildsRootFor(this.versionsRoot, version.name);
+      if (!existsSync(buildsRoot)) return outcome;
+      const keep = protectedBuildIds(version, await this.references.openReferences(versionId));
+      for (const entry of (await readdir(buildsRoot)).sort()) {
+        if (buildIdProblem(entry) !== null) continue;
+        if (keep.has(entry)) {
+          outcome.kept.push(entry);
+          continue;
+        }
+        await rm(join(buildsRoot, entry), { recursive: true, force: true });
+        outcome.removed.push(entry);
+      }
+      if (outcome.removed.length > 0) {
+        logger.info(`[Versions] pruned ${version.name}: removed ${outcome.removed.join(', ')}, kept ${outcome.kept.join(', ') || 'none'}`);
+      }
+      return outcome;
+    };
+    return this.references.lockVersion ? this.references.lockVersion(versionId, prune) : prune();
+  }
+
+  /** Prune for every version, at boot, after the containers were observed. */
+  async pruneAll(): Promise<void> {
+    for (const version of await this.versions.list()) {
+      await this.pruneBuilds(version.id);
+    }
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { Profile, ProfileStatus } from '../../types/index.js';
 
+import type { BuildReference } from './buildReferences.js';
 import type { StackVersionRecord } from './StackVersionRepository.js';
 
 /** The reference key of a legacy row's flat root, and of the bundled checkout, which are not builds. */
@@ -67,4 +68,16 @@ export interface BuildLedger {
   observe(profileName: string, services: readonly string[]): Promise<void>;
   /** The same observation for every profile, at boot. */
   observeAll(): Promise<void>;
+}
+
+/**
+ * What prune reads, and the lock it holds while it deletes: the version
+ * row's update lock, so a claim that takes the row's share lock either
+ * committed its reference before prune read, or waits and reads the row as
+ * prune left it. Held for the deletion only, never for a build.
+ */
+export interface BuildReferenceReader {
+  openReferences(versionId: number): Promise<BuildReference[]>;
+  /** Runs `work` while the version row is locked for update. */
+  lockVersion?<T>(versionId: number, work: () => Promise<T>): Promise<T>;
 }

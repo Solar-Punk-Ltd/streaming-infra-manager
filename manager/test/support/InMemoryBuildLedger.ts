@@ -2,6 +2,7 @@ import type { StackVersionRecord } from '../../src/domain/versions/StackVersionR
 import {
   type BuildDescriptor,
   type BuildLedger,
+  type BuildReferenceReader,
   BUNDLED_BUILD_ID,
   type ClaimedDeploy,
   LEGACY_BUILD_ID,
@@ -21,7 +22,7 @@ import type { InMemoryProfiles } from './profileFixtures.js';
  * holds the root each profile's service mounts, and a profile in
  * `observeFailures` is one Docker cannot be asked about.
  */
-export class InMemoryBuildLedger implements BuildLedger {
+export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
   readonly references: BuildReference[] = [];
 
   /** `<profile>/<service>` to the root the container was started from. */
@@ -83,6 +84,11 @@ export class InMemoryBuildLedger implements BuildLedger {
       if (!root) continue;
       const versionId = versionOf(root);
       if (versionId === null) continue;
+      for (const older of this.references) {
+        if (older.holderKind === 'snapshot' && older.holderId === `${profileName}/${service}` && older.resolvedAt === null) {
+          older.resolvedAt = new Date(++this.clock);
+        }
+      }
       this.references.push({
         id: this.nextId++,
         versionId,
@@ -105,6 +111,10 @@ export class InMemoryBuildLedger implements BuildLedger {
       const services = [...new Set(this.references.filter((r) => r.holderId === profile.name && r.holderKind === 'job').flatMap((r) => [...r.services]))];
       await this.observe(profile.name, services);
     }
+  }
+
+  async openReferences(versionId: number): Promise<BuildReference[]> {
+    return this.references.filter((r) => r.versionId === versionId && r.resolvedAt === null);
   }
 
   openJobReferences(profileName: string): BuildReference[] {

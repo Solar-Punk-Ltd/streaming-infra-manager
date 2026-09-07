@@ -35,7 +35,7 @@ export async function startVersionsTestApp(
   repository.seedBundled();
   const runner = new FakeScriptSpawner();
   const bus = new EventBus();
-  const service = new StackVersionService(repository, runner, bus, versionsRoot);
+  const service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] });
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
