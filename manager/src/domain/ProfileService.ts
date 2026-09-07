@@ -19,9 +19,11 @@ import {
   hasBeePublishers,
   isLadderKind,
   ladderMemberNames,
+  liveUnavailableReason,
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
+  type StackContract,
   STANDARD_GROUP_KIND,
   type StampHealth,
   stampHealthFrom,
@@ -430,7 +432,12 @@ export class ProfileService {
     engine: EngineName,
   ): Promise<EngineDefaults> {
     const root = await this.orchestrator.stackRootFor(profile);
-    const defaults = effectiveEngineDefaults(engine, parseBaseEnv(root));
+    const contract = await this.contractFor(profile);
+    const defaults = effectiveEngineDefaults(
+      engine,
+      parseBaseEnv(root),
+      contract?.engineDefaults ?? {},
+    );
     if (defaults.rejected.length > 0) {
       logger.warn(
         `[ProfileService] The base .env sets ${defaults.rejected.join(', ')} to a value ${engine} would refuse. ` +
@@ -440,10 +447,17 @@ export class ProfileService {
     return defaults;
   }
 
+  /** The deploy contract of the version this deployment runs, or null. */
+  private async contractFor(profile: Profile): Promise<StackContract | null> {
+    const version = await this.versions.findById(profile.stack_version_id);
+    return version?.contract ?? null;
+  }
+
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
   async engineOverview(profile: Profile): Promise<EngineSettingsOverview> {
     const { engine, abr } = this.engineFacts(profile);
     const defaults = await this.engineDefaults(profile, engine);
+    const contract = await this.contractFor(profile);
     return {
       engine,
       abr,
@@ -451,6 +465,7 @@ export class ProfileService {
       defaults: defaults.values,
       defaultSources: defaults.sources,
       fields: engineSettingsFieldsFor(engine, { abr }),
+      liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
     };
   }
 

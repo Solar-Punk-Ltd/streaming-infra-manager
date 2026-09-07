@@ -157,6 +157,13 @@ export interface ProfileEnvValues {
   stackSecrets?: StackSecrets;
 
   /**
+   * What the version's entrypoints fall back to for an unset engine setting,
+   * from its contract. The keyframe rule is checked against these where the
+   * base env sets nothing, because that is the value the container starts with.
+   */
+  stackEngineDefaults?: EngineSettings;
+
+  /**
    * Engine settings this profile overrides, by env key. An absent key is left
    * out of the file for the same reason an absent passphrase is: the base .env
    * still decides it.
@@ -310,8 +317,11 @@ export function writeProfileEnv(
   // that would start and passes one that would not.
   const settingsProblem = engineSettingsProblem(values.engine, engineSettings, {
     abr,
-    defaults: effectiveEngineDefaults(values.engine, parseEnvText(baseContents))
-      .values,
+    defaults: effectiveEngineDefaults(
+      values.engine,
+      parseEnvText(baseContents),
+      values.stackEngineDefaults ?? {},
+    ).values,
   });
   if (settingsProblem) {
     throw new Error(

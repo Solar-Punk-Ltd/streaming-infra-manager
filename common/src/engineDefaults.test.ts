@@ -54,6 +54,30 @@ describe('effectiveEngineDefaults', () => {
     assert.deepEqual(rejected, []);
   });
 
+  it("takes the version's own fallback over the pinned one, and still calls it the stack's", () => {
+    const { values, sources } = effectiveEngineDefaults(
+      SRS_SERVICE,
+      {},
+      { HLS_FRAGMENT: '0.5', HLS_WINDOW: '15' },
+    );
+
+    assert.equal(values.HLS_FRAGMENT, '0.5');
+    assert.equal(values.HLS_WINDOW, '15');
+    assert.equal(sources.HLS_FRAGMENT, 'stack');
+    assert.equal(values.ABR_PRESET, 'veryfast');
+  });
+
+  it('lets the host value win over the version fallback as well', () => {
+    const { values, sources } = effectiveEngineDefaults(
+      SRS_SERVICE,
+      { HLS_FRAGMENT: '2' },
+      { HLS_FRAGMENT: '0.5' },
+    );
+
+    assert.equal(values.HLS_FRAGMENT, '2');
+    assert.equal(sources.HLS_FRAGMENT, 'host');
+  });
+
   it('answers only the keys the engine reads', () => {
     const { values } = effectiveEngineDefaults(OME_SERVICE, {
       API_PORT: '10000',

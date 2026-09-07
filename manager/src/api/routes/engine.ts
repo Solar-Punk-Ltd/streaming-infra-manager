@@ -1,4 +1,3 @@
-import { LIVE_UNAVAILABLE_REASON } from '@streaming-infra-manager/common';
 import { Request, Response, Router } from 'express';
 
 import { ContainerControl } from '../../domain/ContainerControl.js';
@@ -38,11 +37,7 @@ export function createEngineRouter(
     asyncHandler(async (req: Request, res: Response) => {
       const profile = await profileService.getByName(req.params.name as string);
       const overview = await profileService.engineOverview(profile);
-      res.json({
-        ...overview,
-        live: null,
-        liveUnavailableReason: LIVE_UNAVAILABLE_REASON[overview.engine],
-      });
+      res.json({ ...overview, live: null });
     }),
   );
 

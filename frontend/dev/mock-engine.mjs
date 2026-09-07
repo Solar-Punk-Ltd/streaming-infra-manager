@@ -20,7 +20,7 @@ import {
   engineSettingsFieldsFor,
   engineSettingsProblem,
   hasBeePublishers,
-  LIVE_UNAVAILABLE_REASON,
+  liveUnavailableReason,
   OME_SERVICE,
   RESTARTABLE_SERVICES,
   SRS_SERVICE,
@@ -28,6 +28,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { send, sendText } from './mock-http.mjs';
+import { contractOfVersion } from './mock-versions.mjs';
 
 const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 2000;
@@ -60,6 +61,16 @@ function engineFacts(profile) {
  * offline as well.
  */
 const HOST_BASE_ENV = { HLS_FRAGMENT: '2' };
+
+/** What an unset setting falls back to for this deployment: the host's value, else its version's. */
+function hostDefaults(engine, profile) {
+  const contract = contractOfVersion(profile.stack_version_id);
+  return effectiveEngineDefaults(
+    engine,
+    HOST_BASE_ENV,
+    contract?.engineDefaults ?? {},
+  );
+}
 
 function noEngine(res, profile) {
   return send(res, 400, {
@@ -172,7 +183,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
       withProfile((_req, res, profile) => {
         const { engine, abr } = engineFacts(profile);
         if (!engine) return noEngine(res, profile);
-        const defaults = effectiveEngineDefaults(engine, HOST_BASE_ENV);
+        const defaults = hostDefaults(engine, profile);
         send(res, 200, {
           engine,
           abr,
@@ -181,7 +192,10 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
           defaultSources: defaults.sources,
           fields: engineSettingsFieldsFor(engine, { abr }),
           live: null,
-          liveUnavailableReason: LIVE_UNAVAILABLE_REASON[engine],
+          liveUnavailableReason: liveUnavailableReason(
+            engine,
+            contractOfVersion(profile.stack_version_id)?.features,
+          ),
         });
       }),
     ],
@@ -195,7 +209,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
         const settings = await readBody(req);
         const problem = engineSettingsProblem(engine, settings, {
           abr,
-          defaults: effectiveEngineDefaults(engine, HOST_BASE_ENV).values,
+          defaults: hostDefaults(engine, profile).values,
         });
         if (problem) {
           return send(res, 400, {
@@ -278,7 +292,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
         const settings = effectiveEngineSettings(
           engine,
           profile.engine_settings,
-          effectiveEngineDefaults(engine, HOST_BASE_ENV).values,
+          hostDefaults(engine, profile).values,
         );
         sendText(
           res,

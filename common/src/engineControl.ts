@@ -14,6 +14,7 @@ import type {
   EngineSettings,
 } from './engineSettings.js';
 import type { EngineName } from './engines.js';
+import type { StackContractFeatures } from './stackVersions.js';
 
 /**
  * The containers an operator has a reason to bounce on their own: the media
@@ -46,6 +47,25 @@ export const LIVE_UNAVAILABLE_REASON: Record<EngineName, string> = {
     'Live status needs the OvenMediaEngine API, which this stack version does not enable.',
 };
 
+const SRS_API_NOT_READ_YET =
+  'This stack version publishes the SRS API port. Reading live status from it is not built into the manager yet.';
+
+/**
+ * Why the Engine card cannot show what is publishing right now, on the version
+ * this deployment runs. A version that publishes the port is told the truth,
+ * which is that the manager does not read it yet, rather than that the port
+ * is not there.
+ */
+export function liveUnavailableReason(
+  engine: EngineName,
+  features: StackContractFeatures | null | undefined,
+): string {
+  if (engine === SRS_SERVICE && features?.srsApiPort) {
+    return SRS_API_NOT_READ_YET;
+  }
+  return LIVE_UNAVAILABLE_REASON[engine];
+}
+
 /** What the manager knows about a deployment's engine without asking Docker. */
 export interface EngineSettingsOverview {
   engine: EngineName;
@@ -60,17 +80,17 @@ export interface EngineSettingsOverview {
   defaults: EngineSettings;
   defaultSources: EngineDefaultSources;
   fields: readonly EngineSettingField[];
+  /** Why live status is not shown, in words the card can show as it stands. */
+  liveUnavailableReason: string;
 }
 
 /** What `GET /profiles/:name/engine` answers. */
 export interface EngineOverview extends EngineSettingsOverview {
   /**
-   * What is publishing right now. Always null on the pinned stack, which
-   * publishes no engine API port. Filled in once that lands upstream.
+   * What is publishing right now. Always null for now: the manager does not
+   * read the engine API yet, whether or not the version publishes its port.
    */
   live: null;
-  /** Why `live` is null, in words the card can show as it stands. */
-  liveUnavailableReason: string;
 }
 
 /**

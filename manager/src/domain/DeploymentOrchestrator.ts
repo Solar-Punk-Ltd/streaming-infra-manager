@@ -381,6 +381,7 @@ export class DeploymentOrchestrator {
       streamKey: profile.private_key,
       engineSettings: profile.engine_settings,
       stackSecrets: await this.stackSecretsFor(profile, version),
+      stackEngineDefaults: version?.contract?.engineDefaults,
       // From the profile's own components, deliberately not from the reserved
       // services: a held-back uploader is deployed on its own, and deploy.sh
       // must still resolve the local Bee address for it.

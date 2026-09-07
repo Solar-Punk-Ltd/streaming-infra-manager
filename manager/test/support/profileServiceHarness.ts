@@ -295,6 +295,7 @@ export interface EngineSettingsHarness {
   /** The row as the fake repository holds it now, after every write so far. */
   stored: () => Profile;
   deploys: EngineDeploy[];
+  versions: InMemoryStackVersionRepository;
 }
 
 export function profileRow(overrides: Partial<Profile> = {}): Profile {
@@ -329,5 +330,6 @@ export function harnessFor(initial: Profile): EngineSettingsHarness {
       return row;
     },
     deploys,
+    versions: harness.versions,
   };
 }

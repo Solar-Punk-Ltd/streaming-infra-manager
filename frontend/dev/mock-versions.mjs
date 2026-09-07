@@ -130,6 +130,11 @@ function makeVersion(input) {
   };
 }
 
+/** The deploy contract of the version a deployment runs, or null. */
+export function contractOfVersion(id) {
+  return findVersion(id)?.contract ?? null;
+}
+
 /** The version a new deployment gets, as the manager reads it at insert time. */
 export function defaultVersionId() {
   return state.versions.find((version) => version.isDefault)?.id ?? null;

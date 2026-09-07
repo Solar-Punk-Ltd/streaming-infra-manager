@@ -8,8 +8,14 @@
  * drawer that names the stack's value there, and a keyframe rule computed with
  * it, both describe a deployment nobody is running.
  *
- * The manager reads the base env and calls this. The offline mock calls it with
- * its own stand-in for one, so the two answer the same shape from one rule.
+ * The stack's own value is the version's, too: main-v3 cuts 0.5 second
+ * segments where main-v2 cuts 1.5, and the field list carries the pinned
+ * version's numbers. A version's contract names what its entrypoints fall back
+ * to, and that wins over the field.
+ *
+ * The manager reads the base env and the contract and calls this. The offline
+ * mock calls it with its own stand-ins, so the two answer the same shape from
+ * one rule.
  */
 import type { EngineName } from './engines.js';
 import {
@@ -47,28 +53,34 @@ interface ChosenDefault {
 function chooseDefault(
   field: EngineSettingField,
   hostValue: string | undefined,
+  stackValue: string,
 ): ChosenDefault {
   const value = hostValue?.trim();
   if (!value) {
-    return { value: field.defaultValue, source: 'stack', refused: null };
+    return { value: stackValue, source: 'stack', refused: null };
   }
   if (engineSettingFieldProblem(field, value)) {
-    return { value: field.defaultValue, source: 'stack', refused: value };
+    return { value: stackValue, source: 'stack', refused: value };
   }
   return { value, source: 'host', refused: null };
 }
 
-/** What every setting of one engine falls back to on the host this base env came from. */
+/**
+ * What every setting of one engine falls back to on the host this base env
+ * came from, on the version whose entrypoint fallbacks `stackDefaults` are.
+ */
 export function effectiveEngineDefaults(
   engine: EngineName,
   baseEnv: Record<string, string> = {},
+  stackDefaults: EngineSettings = {},
 ): EngineDefaults {
   const values: EngineSettings = {};
   const sources: EngineDefaultSources = {};
   const rejected: string[] = [];
 
   for (const field of engineSettingsFields(engine)) {
-    const chosen = chooseDefault(field, baseEnv[field.key]);
+    const stackValue = stackDefaults[field.key]?.trim() || field.defaultValue;
+    const chosen = chooseDefault(field, baseEnv[field.key], stackValue);
     values[field.key] = chosen.value;
     sources[field.key] = chosen.source;
     if (chosen.refused !== null) rejected.push(field.key);
