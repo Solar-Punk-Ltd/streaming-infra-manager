@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -37,7 +37,9 @@ const CONTAINER_LIMITS = ['--network', 'none', '--memory', '256m', '--pids-limit
 
 const SRS_CHECK_PATH = '/check/srs.conf';
 const SRS_DEFAULT_IMAGE = 'ossrs/srs:6';
-const CHECK_FILE_NAME = 'srs.conf.check';
+/** Each check writes its copy into a directory of its own, `check-<random>/srs.conf`. */
+const CHECK_DIR_PREFIX = 'check-';
+const CHECK_FILE_NAME = 'srs.conf';
 
 /** SRS's own log prefix: `[time][level][pid][id] `. */
 const SRS_LOG_PREFIX_RE = /^\[[^\]]*\]\[[^\]]*\]\[[^\]]*\]\[[^\]]*\]\s*/;
@@ -103,19 +105,26 @@ export class EngineConfigChecker {
     return this.srsProblem(input);
   }
 
+  /**
+   * A directory per check, so two checks in flight never read each other's
+   * copy and the cleanup of one cannot take the other's file away. The copy
+   * is mounted with `--mount`, which refuses a source that is gone, where
+   * `-v` creates a directory in its place and poisons the name for good.
+   */
   private async srsProblem(input: ConfigCheckInput): Promise<string | null> {
     await mkdir(input.scratchDir, { recursive: true });
-    const file = join(input.scratchDir, CHECK_FILE_NAME);
-    await writeFile(file, substituteForCheck(input.config), 'utf8');
+    const dir = await mkdtemp(join(input.scratchDir, CHECK_DIR_PREFIX));
     try {
+      const file = join(dir, CHECK_FILE_NAME);
+      await writeFile(file, substituteForCheck(input.config), 'utf8');
       const result = await this.run(
         'docker',
         [
           'run',
           '--rm',
           ...CONTAINER_LIMITS,
-          '-v',
-          `${file}:${SRS_CHECK_PATH}:ro`,
+          '--mount',
+          `type=bind,source=${file},target=${SRS_CHECK_PATH},readonly`,
           input.image ?? SRS_DEFAULT_IMAGE,
           './objs/srs',
           '-t',
@@ -127,7 +136,7 @@ export class EngineConfigChecker {
       if (result.code === 0) return null;
       return `${ENGINE_DISPLAY_NAMES[input.engine]} refused the file. ${srsReason(result)}`;
     } finally {
-      await rm(file, { force: true });
+      await rm(dir, { recursive: true, force: true });
     }
   }
 }
