@@ -190,6 +190,14 @@ export class DeploymentOrchestrator {
     return this.attempts.listUnresolved(await this.daemon.daemonId());
   }
 
+  /** A removed deployment's attempts hold nothing: its containers are gone, and its name may be used again. */
+  private async releaseAttemptsOf(project: string, by: string): Promise<void> {
+    const released = await this.attempts.releaseProject(await this.daemon.daemonId(), project, by);
+    if (released.length === 0) return;
+    logger.info(`[Orchestrator] released ${released.map((attempt) => attempt.jobId).join(', ')} of ${project}: ${by}`);
+    this.eventBus.publish({ type: 'attempt.changed' });
+  }
+
   /** A blocked attempt released by a person who checked the host. */
   async releaseAttempt(id: number, by: string): Promise<DeployAttempt | null> {
     const released = await this.attempts.release(id, by);
@@ -592,6 +600,9 @@ export class DeploymentOrchestrator {
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
+        // First, so a failure here keeps the deployment and its attempts
+        // together for another try, and the name is free once the row goes.
+        await this.releaseAttemptsOf(profile.name, 'removed with the deployment');
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(paths.root, profile.name);

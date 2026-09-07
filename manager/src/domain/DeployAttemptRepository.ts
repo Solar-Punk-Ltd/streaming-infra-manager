@@ -28,6 +28,12 @@ export interface DeployAttemptRepository {
   resolve(id: number, outcome: AttemptOutcome): Promise<DeployAttempt | null>;
   /** Released by a person who checked the host, from any unresolved state. */
   release(id: number, by: string): Promise<DeployAttempt | null>;
+  /**
+   * Every unresolved attempt of a project on the daemon released, for a
+   * deployment that is being removed: its containers are gone, and the name
+   * may be used again. Answers what was released.
+   */
+  releaseProject(daemonId: string, project: string, by: string): Promise<DeployAttempt[]>;
 }
 
 /** What Docker says about the project an attempt is about. */

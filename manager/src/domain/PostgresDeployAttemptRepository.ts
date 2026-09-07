@@ -133,4 +133,14 @@ export class PostgresDeployAttemptRepository implements DeployAttemptRepository 
     );
     return result.rows[0] ? toAttempt(result.rows[0]) : null;
   }
+
+  async releaseProject(daemonId: string, project: string, by: string): Promise<DeployAttempt[]> {
+    const result = await this.pool.query<AttemptRow>(
+      `UPDATE deploy_attempts SET state = 'released', released_by = $3, resolved_at = NOW()
+        WHERE daemon_id = $1 AND project = $2 AND state <> 'released'
+        RETURNING ${COLUMNS}`,
+      [daemonId, project, by],
+    );
+    return result.rows.map(toAttempt);
+  }
 }
