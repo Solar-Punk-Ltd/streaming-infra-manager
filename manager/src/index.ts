@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     config.stackVersionsRoot,
     buildLedger,
   );
-  await stackVersionService.refreshBundled(
+  await stackVersionService.syncBundled(
     BUNDLED_STACK_ROOT,
     readBundledCommit(BUNDLED_STACK_ROOT),
   );

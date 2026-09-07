@@ -121,8 +121,21 @@ export function stagingDirFor(versionsRoot: string, name: string, attemptId: str
 /**
  * Where the host-owned inputs of a version live: the base env, the deploy
  * config and the engine envs. The flat root the version always had, which a
- * legacy row also deploys from.
+ * legacy row also deploys from. The bundled version never had one: its
+ * config root is created by its first publication and holds the inputs the
+ * manager's deploy shipped.
  */
 export function configRootFor(versionsRoot: string, name: string): string {
   return versionRootFor(versionsRoot, name);
+}
+
+/**
+ * Where the manager's own deploy leaves the built bundled stack for the api
+ * to publish at boot. A sibling of `bundled.builds`, not inside it, so
+ * neither prune nor the cleanup of interrupted attempts ever looks at it.
+ */
+export const BUNDLED_INCOMING_DIR = 'bundled.incoming';
+
+export function bundledIncomingRootFor(versionsRoot: string): string {
+  return join(versionsRoot, BUNDLED_INCOMING_DIR);
 }

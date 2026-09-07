@@ -66,6 +66,9 @@ export interface CaptureOptions {
 
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
+/** The hash a revision records for a file's bytes. */
+export const hostConfigHash = sha256;
+
 /** The host-owned files a root has, relative, posix: the base env, the deploy config and every engine env. */
 export function hostConfigFilesOf(root: string): string[] {
   const files: string[] = [];
@@ -151,6 +154,11 @@ function formatProblem(relative: string, bytes: Buffer, sampleEnvKeys: readonly 
     }
   }
   return null;
+}
+
+/** The committed revision of a root, or null for a root without one. Throws on a manifest that does not parse. */
+export async function readHostConfigRevision(root: string): Promise<ConfigRevision | null> {
+  return readRevision(root);
 }
 
 async function readRevision(root: string): Promise<ConfigRevision | null> {

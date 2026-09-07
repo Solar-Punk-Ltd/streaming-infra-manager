@@ -147,11 +147,12 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
                 build_id = $2,
                 commit_sha = $3,
                 contract = $4::jsonb,
+                root_path = COALESCE($5, root_path),
                 built_at = NOW(),
                 last_error = NULL
           WHERE id = $1
           RETURNING ${VERSION_COLUMNS}`,
-        [id, outcome.buildId, outcome.commitSha, JSON.stringify(outcome.contract)],
+        [id, outcome.buildId, outcome.commitSha, JSON.stringify(outcome.contract), outcome.rootPath ?? null],
       );
       await client.query('COMMIT');
       const row = result.rows[0];

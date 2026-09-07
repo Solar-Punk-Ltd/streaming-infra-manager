@@ -24,6 +24,7 @@ import {
   BUILD_MANIFEST_FILE,
 } from '../../src/domain/versions/buildManifest.js';
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
+import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 
 const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
 process.env.SHLS_ROOT = join(root, 'bundled');
@@ -143,7 +144,7 @@ describe('a deployment on the bundled version', () => {
     await harness.orchestrator.startDeploy(row(), undefined);
     harness.runner.finish(0);
     await untilRunning(harness.profiles, 'stage');
-    assert.equal(harness.runner.runs[0]?.options.cwd, process.env.SHLS_ROOT, 'the legacy tree, as before');
+    assert.equal(harness.runner.runs[0]?.options.cwd, BUNDLED_STACK_ROOT, 'the legacy tree, as before');
 
     // The manager's deploy published the bundled stack as a build. Nothing
     // moved the deployment, so what it runs is unchanged until the next deploy.
@@ -174,7 +175,7 @@ describe('a deployment on the bundled version', () => {
     harness.runner.finish(0);
     await untilRunning(harness.profiles, 'stage');
 
-    assert.equal(harness.runner.runs[0]?.options.cwd, process.env.SHLS_ROOT);
+    assert.equal(harness.runner.runs[0]?.options.cwd, BUNDLED_STACK_ROOT);
     assert.deepEqual(harness.ledger.references.filter((r) => r.holderKind === 'job').map((r) => r.versionId), [1]);
   });
 });

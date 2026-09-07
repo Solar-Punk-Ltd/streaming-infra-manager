@@ -31,14 +31,19 @@ import {
   stackRootOf,
 } from '../../src/domain/versions/stackPaths.js';
 import { STACK_COMMIT_FILE, StackVersionService } from '../../src/domain/versions/StackVersionService.js';
+import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
 import { InMemoryStackVersionRepository } from '../support/InMemoryStackVersionRepository.js';
 import { V3_FIXTURE } from '../support/stackFixtures.js';
 
 const COMMIT_A = 'a'.repeat(40);
 const COMMIT_B = 'b'.repeat(40);
-const ENV_ONE = 'API_AUTH_TOKEN=one\nSRS_WEBHOOK_TOKEN=one\n';
-const ENV_TWO = 'API_AUTH_TOKEN=two\nSRS_WEBHOOK_TOKEN=two\n';
+/** The base env a checkout ships: every key the sample declares, which capture insists on, with a value that tells two apart. */
+function baseEnv(token: string): string {
+  return readFileSync(join(V3_FIXTURE, '.env.sample'), 'utf8').replace('API_AUTH_TOKEN=', `API_AUTH_TOKEN=${token}`);
+}
+const ENV_ONE = baseEnv('one');
+const ENV_TWO = baseEnv('two');
 
 let root: string;
 let versionsRoot: string;
@@ -54,7 +59,7 @@ beforeEach(() => {
   // tell whether anything touched it.
   legacyRoot = join(root, 'manager', 'swarm-hls-stream');
   cpSync(V3_FIXTURE, legacyRoot, { recursive: true });
-  writeFileSync(join(legacyRoot, '.env'), 'API_AUTH_TOKEN=legacy\nSRS_WEBHOOK_TOKEN=legacy\n');
+  writeFileSync(join(legacyRoot, '.env'), baseEnv('legacy'));
   writeFileSync(join(legacyRoot, 'engines', 'srs', 'marker'), 'the engine reads this\n');
   repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
@@ -123,7 +128,7 @@ describe('publishing the shipped bundled stack', () => {
     assert.equal(row.layout, 'legacy');
     assert.equal(row.rootPath, null);
     assert.equal(row.commitSha, COMMIT_B, 'the commit the deploy wrote next to the tree');
-    assert.equal(stackRootOf(row), legacyRoot);
+    assert.equal(stackRootOf(row), BUNDLED_STACK_ROOT, 'the tree the manager ships with, wherever this manager has it');
     assert.equal(legacyBytes(), before);
   });
 

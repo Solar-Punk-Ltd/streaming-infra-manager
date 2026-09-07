@@ -415,7 +415,7 @@ describe('the tested flag', () => {
 
 describe('the bundled version at boot', () => {
   it('records the commit and reads the contract from its own checkout', async () => {
-    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    await service.syncBundled(V3_FIXTURE, COMMIT);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, COMMIT);
@@ -423,7 +423,7 @@ describe('the bundled version at boot', () => {
   });
 
   it('keeps the row when the checkout cannot be read, with no commit', async () => {
-    await service.refreshBundled(join(versionsRoot, 'nowhere'), null);
+    await service.syncBundled(join(versionsRoot, 'nowhere'), null);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, null);

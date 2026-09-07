@@ -133,6 +133,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     return this.patch(id, {
       status: 'ready',
       layout: 'builds',
+      rootPath: outcome.rootPath ?? before.rootPath,
       buildId: outcome.buildId,
       previousBuildId: replaced ? before.buildId : before.previousBuildId,
       commitSha: outcome.commitSha,
