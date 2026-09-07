@@ -35,7 +35,7 @@ export interface Profile {
   engine_settings: EngineSettings;
   /** The engine runs on a config file of this deployment's own, not the stack's template. */
   has_engine_config: boolean;
-  /** Why the latest config file rollout did not end applied, or null. */
+  /** Why the latest config file rollout did not end applied, or a note from a check that ran after one that did, or null. */
   engine_config_error: string | null;
   /** Where the latest config file rollout stands, or null before the first. */
   engine_config_state: EngineConfigState | null;

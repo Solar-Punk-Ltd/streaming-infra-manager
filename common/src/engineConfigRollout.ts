@@ -5,8 +5,9 @@
  * A rollout is one apply or reset: the file is stored, the engine is
  * recreated on it and then watched for a while, and the previous file comes
  * back if the engine does not stay up. The row carries the state of the
- * deployment's latest rollout as `engine_config_state`, with the reason of
- * one that did not end applied in `engine_config_error`.
+ * deployment's latest rollout as `engine_config_state`, and in
+ * `engine_config_error` why one did not end applied, or a note from a check
+ * that ran after one that did.
  */
 export const ENGINE_CONFIG_STATES = [
   'applying',
