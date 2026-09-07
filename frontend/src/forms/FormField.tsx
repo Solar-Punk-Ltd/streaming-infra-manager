@@ -20,6 +20,7 @@ export function FormField({
   hint,
   error,
   htmlFor,
+  labelId,
   messageId: givenMessageId,
   children,
 }: {
@@ -34,6 +35,12 @@ export function FormField({
    */
   htmlFor?: string;
   /**
+   * An id for the label itself, for a group of choices that names the label
+   * through `aria-labelledby` rather than being one control `htmlFor` could
+   * point at.
+   */
+  labelId?: string;
+  /**
    * The id the hint or error is rendered under, for a control that is not the
    * one the label names, such as a field inside a choice. Derived from
    * `htmlFor` when left out.
@@ -42,10 +49,11 @@ export function FormField({
   children: ReactNode;
 }) {
   const messageId = givenMessageId ?? (htmlFor ? messageIdFor(htmlFor) : undefined);
+  const message = error || hint || null;
   return (
     <Box>
       <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ mb: 0.75 }}>
-        <Typography variant="subtitle2" component="label" htmlFor={htmlFor}>
+        <Typography variant="subtitle2" component="label" htmlFor={htmlFor} id={labelId}>
           {label}
         </Typography>
         {aside && (
@@ -55,27 +63,20 @@ export function FormField({
         )}
       </Stack>
       {children}
-      {error ? (
+      {(message !== null || messageId) && (
+        // Always there once it has an id, empty or not, so the control that
+        // points aria-describedby at it never names an element that does not
+        // exist, and a live region that is already on the page is the one
+        // screen readers announce a change in.
         <Typography
           id={messageId}
           variant="caption"
-          color="warning.main"
+          color={error ? 'warning.main' : 'text.secondary'}
           aria-live="polite"
-          sx={{ mt: 0.75, display: 'block' }}
+          sx={{ mt: message === null ? 0 : 0.75, display: 'block' }}
         >
-          {error}
+          {message}
         </Typography>
-      ) : (
-        hint && (
-          <Typography
-            id={messageId}
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 0.75, display: 'block' }}
-          >
-            {hint}
-          </Typography>
-        )
       )}
     </Box>
   );

@@ -23,15 +23,18 @@ export function ChoiceGroup<T extends string>({
   value,
   choices,
   onChange,
+  labelledBy,
 }: {
   /** Groups the radios, so arrow keys move within one question. */
   name: string;
   value: T;
   choices: Choice<T>[];
   onChange: (next: T) => void;
+  /** The id of the question's label, so the group is announced by it. */
+  labelledBy?: string;
 }) {
   return (
-    <Stack spacing={1}>
+    <Stack spacing={1} role="radiogroup" aria-labelledby={labelledBy}>
       {choices.map((choice) => {
         const selected = choice.value === value;
         return (

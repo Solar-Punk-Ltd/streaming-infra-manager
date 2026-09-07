@@ -21,11 +21,13 @@ export function UploaderSettings(props: WizardStepProps) {
     <Stack spacing={2.5}>
       <FormField
         label="Node pool to publish to"
+        labelId="wizard-pool-label"
         error={poolFieldError}
         messageId={messageIdFor('wizard-pool-string')}
       >
         <ChoiceGroup
           name="wizard-pool"
+          labelledBy="wizard-pool-label"
           value={state.poolMode}
           onChange={(poolMode) => update({ poolMode })}
           choices={[
