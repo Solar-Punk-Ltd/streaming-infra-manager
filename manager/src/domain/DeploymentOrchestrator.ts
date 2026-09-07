@@ -371,6 +371,15 @@ export class DeploymentOrchestrator {
     try {
       return await this.startReservedJob(reservation, profile);
     } catch (err) {
+      // The guard is taken under the daemon's lock when the job starts, and
+      // a deploy that passed the check a moment earlier can lose it there.
+      // That is a refusal, not a failure: a claimed deployment gets its
+      // status back. One that exists for this deploy alone has no status to
+      // go back to and is marked failed with the reason, like any failure.
+      if (err instanceof DeployAttemptRefusedError && reservation.transitioned) {
+        await this.cancelReservation(reservation);
+        throw err;
+      }
       await this.markFailed(reservation.profileName, getErrorMessage(err));
       throw err;
     }
