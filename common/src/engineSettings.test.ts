@@ -369,3 +369,17 @@ describe('the keyframe rule against a host default', () => {
     );
   });
 });
+
+describe('effectiveEngineSettings on a deployment whose config file dropped a key', () => {
+  it('leaves that key out rather than naming a value nothing reads', () => {
+    const effective = effectiveEngineSettings(
+      'srs',
+      { HLS_WINDOW: '20' },
+      { HLS_FRAGMENT: '0.5' },
+      ['HLS_WINDOW'],
+    );
+
+    assert.equal(effective.HLS_FRAGMENT, '0.5');
+    assert.equal('HLS_WINDOW' in effective, false);
+  });
+});
