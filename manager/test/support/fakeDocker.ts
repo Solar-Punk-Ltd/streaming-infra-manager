@@ -185,4 +185,4 @@ export const RUNNING_AFTER_TWO_RESTARTS = {
     StartedAt: '2026-09-07T10:00:09.000000000Z',
     FinishedAt: '2026-09-07T10:00:08.000000000Z',
   },
-};
+} as const;
