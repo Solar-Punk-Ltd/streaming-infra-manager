@@ -79,6 +79,7 @@ export function NewDeploymentWizard({
   );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitFailures, setSubmitFailures] = useState(0);
 
   const update = useCallback((patch: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -103,6 +104,7 @@ export function NewDeploymentWizard({
       navigate(outcome.route);
     } catch (caught) {
       setSubmitError(getErrorMessage(caught, 'failed to create the deployment'));
+      setSubmitFailures((count) => count + 1);
     } finally {
       setSubmitting(false);
     }
@@ -117,11 +119,12 @@ export function NewDeploymentWizard({
     if (step && !step.contains(document.activeElement)) step.focus();
   }, [state.step]);
 
-  // A failed submission is reached and read out, not only painted.
+  // A failed submission is reached and read out, not only painted. Counted,
+  // so a second failure with the same words is reached again.
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (submitError) errorRef.current?.focus();
-  }, [submitError]);
+    if (submitFailures > 0) errorRef.current?.focus();
+  }, [submitFailures]);
 
   const blocked =
     state.step === 1 ? state.goal === null : stepError !== null;
@@ -137,7 +140,16 @@ export function NewDeploymentWizard({
       <DialogContent dividers>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <StepRail step={state.step} />
-          <Box ref={stepRef} tabIndex={-1} sx={{ flex: 1, minWidth: 0, outline: 'none' }}>
+          <Box
+            ref={stepRef}
+            tabIndex={-1}
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              borderRadius: 1,
+              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '4px' },
+            }}
+          >
             {state.step === 1 && <GoalStep {...stepProps} />}
             {state.step === 2 && <BasicsStep {...stepProps} />}
             {state.step === 3 && <SettingsStep {...stepProps} />}
