@@ -45,6 +45,7 @@ import {
   readHostConfigRevision,
 } from './hostConfigCapture.js';
 import { readStackContract } from './stackContract.js';
+import { bootstrapStackDefaults, BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import {
   buildDirFor,
   buildsRootFor,
@@ -194,6 +195,12 @@ export class StackVersionService {
     logger.info(
       `[Versions] bundled is at ${legacyCommit ?? 'a commit unknown on this host'}, on the tree the manager ships with`,
     );
+    // A legacy host gets its defaults from the samples, as it always did.
+    // Only here: once published, nothing writes into the tree the engines
+    // of existing deployments mount.
+    for (const file of await bootstrapStackDefaults(bundledRoot)) {
+      logger.info(`[Versions] created missing default: ${file}`);
+    }
     try {
       await this.versions.setContract(current.id, readStackContract(bundledRoot));
     } catch (err) {

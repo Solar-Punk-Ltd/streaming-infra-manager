@@ -35,7 +35,7 @@ import { PostgresStackVersionRepository } from './domain/versions/PostgresStackV
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
-import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
+import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -117,11 +117,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 async function main(): Promise<void> {
   logStartupConfig();
-
-  const bootstrapped = await bootstrapStackDefaults(BUNDLED_STACK_ROOT);
-  for (const file of bootstrapped) {
-    logger.info(`[Boot] created missing default: ${file}`);
-  }
 
   database = new Database(config.databaseUrl);
   await database.migrate();
