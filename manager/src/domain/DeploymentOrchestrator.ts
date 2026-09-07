@@ -699,8 +699,13 @@ export class DeploymentOrchestrator {
         await this.finalizeJob(cfg, code, stderrTail, stdoutTail);
       })();
     });
+    // A script that never started ends the attempt the same way: nothing new
+    // was created, so it blocks, and the host is not held open for nothing.
     handle.emitter.on('error', (err: Error) => {
-      void this.finalizeJob(cfg, -1, err.message, stdoutTail);
+      void (async () => {
+        if (attempt) await this.judgeAttempt(attempt);
+        await this.finalizeJob(cfg, -1, err.message, stdoutTail);
+      })();
     });
 
     return handle;
