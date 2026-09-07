@@ -29,6 +29,8 @@ const V3_CONTRACT: StackContract = {
   engineDefaults: { HLS_FRAGMENT: '0.5' },
   features: { srsApiPort: true, chequebookGate: true },
   chequebookMinBzz: '0.5',
+  engineConfig: { srs: true, ome: true },
+  engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
 };
 
@@ -43,6 +45,8 @@ const V2_CONTRACT: StackContract = {
   engineDefaults: { HLS_FRAGMENT: '1.5' },
   features: { srsApiPort: false, chequebookGate: false },
   chequebookMinBzz: null,
+  engineConfig: { srs: false, ome: false },
+  engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
 };
 
@@ -115,7 +119,17 @@ describe('describeStackContract', () => {
   it('reads the way the Versions page shows it', () => {
     assert.equal(
       describeStackContract(V3_CONTRACT),
-      '10 ports, slots 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ',
+      '10 ports, slots 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ, own config file for both engines',
+    );
+  });
+
+  it('names the one engine that takes a config file when only one does', () => {
+    assert.equal(
+      describeStackContract({
+        ...V2_CONTRACT,
+        engineConfig: { srs: true, ome: false },
+      }),
+      '9 ports, slots 1 to 999, no generated secrets, own config file for SRS',
     );
   });
 

@@ -42,6 +42,18 @@ export interface StackContractFeatures {
   chequebookGate: boolean;
 }
 
+/** Per engine: whether the version runs it on a config file of the operator's own when asked. */
+export interface EngineConfigSupport {
+  srs: boolean;
+  ome: boolean;
+}
+
+/** Per engine: the image its compose service runs, or null when the version has no such service. */
+export interface EngineImages {
+  srs: string | null;
+  ome: string | null;
+}
+
 /** What the manager reads out of a version's checkout instead of assuming it. */
 export interface StackContract {
   ports: StackPortVar[];
@@ -54,6 +66,14 @@ export interface StackContract {
   features: StackContractFeatures;
   /** The chequebook floor in BZZ when `features.chequebookGate`, else null. */
   chequebookMinBzz: string | null;
+  /**
+   * Which engines can run on a config file of the operator's own: the version
+   * ships the compose override that mounts one. Read at build time, so an
+   * editor knows before it opens whether the file it saves would be applied.
+   */
+  engineConfig: EngineConfigSupport;
+  /** What each engine service runs, so a config can be checked with the same image. */
+  engineImages: EngineImages;
   /**
    * The lines of the version's port table the reader could not make sense of,
    * one message each. A port the manager did not read is a port it will not
@@ -176,11 +196,20 @@ export function describeStackContract(contract: StackContract): string {
   if (contract.features.chequebookGate && contract.chequebookMinBzz) {
     parts.push(`chequebook gate ${contract.chequebookMinBzz} BZZ`);
   }
+  const editable = describeEngineConfig(contract.engineConfig);
+  if (editable) parts.push(editable);
   if (contract.warnings.length > 0) {
     const count = contract.warnings.length;
     parts.push(`${count} port ${count === 1 ? 'line' : 'lines'} not understood`);
   }
   return parts.join(', ');
+}
+
+function describeEngineConfig(support: EngineConfigSupport): string | null {
+  if (support.srs && support.ome) return 'own config file for both engines';
+  if (support.srs) return 'own config file for SRS';
+  if (support.ome) return 'own config file for OvenMediaEngine';
+  return null;
 }
 
 function describeSecrets(count: number): string {
@@ -220,7 +249,24 @@ export function parseStackContract(value: unknown): StackContract | null {
     },
     chequebookMinBzz:
       typeof value.chequebookMinBzz === 'string' ? value.chequebookMinBzz : null,
+    // Absent from a contract read by an older manager, which is a version
+    // that was never asked and so is not known to support it.
+    engineConfig: engineConfigOf(value.engineConfig),
+    engineImages: engineImagesOf(value.engineImages),
     warnings: stringsOf(value.warnings),
+  };
+}
+
+function engineConfigOf(value: unknown): EngineConfigSupport {
+  const record = isRecord(value) ? value : {};
+  return { srs: record.srs === true, ome: record.ome === true };
+}
+
+function engineImagesOf(value: unknown): EngineImages {
+  const record = isRecord(value) ? value : {};
+  return {
+    srs: typeof record.srs === 'string' ? record.srs : null,
+    ome: typeof record.ome === 'string' ? record.ome : null,
   };
 }
 

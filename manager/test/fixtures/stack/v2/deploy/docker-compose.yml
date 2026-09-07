@@ -1,0 +1,18 @@
+# Cut from deploy/docker-compose.yml: the two engine services and the image each
+# runs, which the contract reader takes for the config check. Everything else
+# the real file carries is left out.
+
+services:
+  stream-uploader:
+    image: stream-uploader
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.uploader
+
+  srs:
+    image: ossrs/srs:6
+    profiles: ['srs']
+
+  ome:
+    image: airensoft/ovenmediaengine:latest
+    profiles: ['ome']

@@ -1,0 +1,7 @@
+# The override main-v3 ships: its presence is what tells the manager the
+# version runs SRS on a config file of the operator's own when SRS_CONF_FILE
+# is set.
+services:
+  srs:
+    volumes:
+      - ${SRS_CONF_FILE}:/usr/local/srs/conf/srs.conf.custom:ro

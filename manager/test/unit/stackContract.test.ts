@@ -72,6 +72,17 @@ describe('readStackContract on main-v2', () => {
       '9 ports, slots 1 to 999, no generated secrets',
     );
   });
+
+  it('runs neither engine on a config file of its own', () => {
+    assert.deepEqual(v2.engineConfig, { srs: false, ome: false });
+  });
+
+  it('names the image each engine service runs', () => {
+    assert.deepEqual(v2.engineImages, {
+      srs: 'ossrs/srs:6',
+      ome: 'airensoft/ovenmediaengine:latest',
+    });
+  });
 });
 
 describe('readStackContract on main-v3', () => {
@@ -122,8 +133,12 @@ describe('readStackContract on main-v3', () => {
   it('reads in plain words as the Versions page shows it', () => {
     assert.equal(
       describeStackContract(v3),
-      '16 ports, slots 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ',
+      '16 ports, slots 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ, own config file for both engines',
     );
+  });
+
+  it('runs both engines on a config file of their own, because it ships the overrides', () => {
+    assert.deepEqual(v3.engineConfig, { srs: true, ome: true });
   });
 });
 

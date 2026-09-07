@@ -43,6 +43,8 @@ const V3_CONTRACT: StackContract = {
   engineDefaults: { HLS_FRAGMENT: '0.5', HLS_WINDOW: '15', SRT_LATENCY: '200' },
   features: { srsApiPort: true, chequebookGate: true },
   chequebookMinBzz: '0.5',
+  engineConfig: { srs: true, ome: true },
+  engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
 };
 

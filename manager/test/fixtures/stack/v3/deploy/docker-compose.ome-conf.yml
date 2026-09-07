@@ -1,0 +1,4 @@
+services:
+  ome:
+    volumes:
+      - ${OME_CONF_FILE}:/opt/ovenmediaengine/conf-template/Server.xml.custom:ro

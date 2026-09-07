@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import {
   DEFAULT_MAX_SLOT,
+  type EngineConfigSupport,
+  type EngineImages,
   type StackContract,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
@@ -30,6 +32,17 @@ const SLOT_CAP_RE = /--portSlot=<N>\s*\(1-(\d+)\)/;
 
 const LIB_SCRIPT = join('deploy', 'scripts', '_lib.sh');
 const DEPLOY_SCRIPT = join('deploy', 'scripts', 'deploy.sh');
+const DEPLOY_COMPOSE = join('deploy', 'docker-compose.yml');
+
+/**
+ * The compose override a version ships when its engine can run on a config
+ * file of the operator's own. `build_compose_files` in `_lib.sh` appends it
+ * when the matching env key is set, so the file being there is the feature.
+ */
+const ENGINE_CONFIG_OVERRIDES: Record<keyof EngineConfigSupport, string> = {
+  srs: join('deploy', 'docker-compose.srs-conf.yml'),
+  ome: join('deploy', 'docker-compose.ome-conf.yml'),
+};
 const ROOT_ENV_SAMPLE = '.env.sample';
 const SRS_ENV_SAMPLE = join('engines', 'srs', '.env.sample');
 
@@ -79,6 +92,8 @@ export function readStackContract(root: string): StackContract {
       chequebookGate: chequebookMinBzz !== null,
     },
     chequebookMinBzz,
+    engineConfig: readEngineConfigSupport(root),
+    engineImages: readEngineImages(readOptional(root, DEPLOY_COMPOSE)),
     warnings,
   };
 }
@@ -207,6 +222,43 @@ function declaredValue(sample: string, key: string): string | null {
 }
 
 // ------------------------------------------------------------- the engines
+
+function readEngineConfigSupport(root: string): EngineConfigSupport {
+  return {
+    srs: existsSync(join(root, ENGINE_CONFIG_OVERRIDES.srs)),
+    ome: existsSync(join(root, ENGINE_CONFIG_OVERRIDES.ome)),
+  };
+}
+
+const SERVICE_LINE = /^  ([a-z][a-z0-9-]*):\s*$/;
+const IMAGE_LINE = /^    image:\s*['"]?([^'"\s]+)['"]?\s*$/;
+
+/**
+ * The `image:` of the `srs` and `ome` services in the deploy compose file.
+ *
+ * A line scan rather than a YAML parser, and enough for it: a service is a
+ * two-space indented name under `services:` and its image is the four-space
+ * indented `image:` line inside it. The whole file is what `docker compose
+ * config` would need, and this only wants two strings out of it.
+ */
+function readEngineImages(compose: string): EngineImages {
+  const images: EngineImages = { srs: null, ome: null };
+  let service: string | null = null;
+
+  for (const line of compose.split('\n')) {
+    const serviceMatch = SERVICE_LINE.exec(line);
+    if (serviceMatch) {
+      service = serviceMatch[1]!;
+      continue;
+    }
+    const imageMatch = IMAGE_LINE.exec(line);
+    if (!imageMatch) continue;
+    if (service === 'srs' && images.srs === null) images.srs = imageMatch[1]!;
+    if (service === 'ome' && images.ome === null) images.ome = imageMatch[1]!;
+  }
+
+  return images;
+}
 
 function readEngineDefaults(root: string): Record<string, string> {
   const defaults: Record<string, string> = {};

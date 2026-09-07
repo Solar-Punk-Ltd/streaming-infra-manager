@@ -26,6 +26,8 @@ const EMPTY_CONTRACT: StackContract = {
   engineDefaults: {},
   features: { srsApiPort: false, chequebookGate: false },
   chequebookMinBzz: null,
+  engineConfig: { srs: false, ome: false },
+  engineImages: { srs: null, ome: null },
   warnings: [],
 };
 
