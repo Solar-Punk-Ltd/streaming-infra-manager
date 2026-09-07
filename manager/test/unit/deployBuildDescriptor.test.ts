@@ -134,6 +134,51 @@ describe('the build a deploy runs', () => {
   });
 });
 
+describe('a deployment on the bundled version', () => {
+  it('runs the legacy tree until the bundled version is published, and its build after, each by its own deploy', async () => {
+    const { harness, versionsRoot } = await setup(null);
+    harness.profiles.write('stage', { stack_version_id: 1 });
+    const row = () => harness.profiles.rows.get('stage')!;
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    assert.equal(harness.runner.runs[0]?.options.cwd, process.env.SHLS_ROOT, 'the legacy tree, as before');
+
+    // The manager's deploy published the bundled stack as a build. Nothing
+    // moved the deployment, so what it runs is unchanged until the next deploy.
+    buildOnDisk(versionsRoot, COMMIT_B, 'bundled');
+    await harness.versions.publish(1, {
+      buildId: COMMIT_B,
+      commitSha: COMMIT_B,
+      contract: CONTRACT,
+      rootPath: join(versionsRoot, 'bundled'),
+    });
+    assert.equal(harness.ledger.openJobReferences('stage').length, 1, 'the deploy on the legacy tree keeps its reference');
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.equal(harness.runner.runs[1]?.options.cwd, buildDirFor(versionsRoot, 'bundled', COMMIT_B));
+    const job = harness.ledger.references.filter((r) => r.holderKind === 'job' && r.holderId === 'stage');
+    assert.deepEqual(job.map((r) => [r.versionId, r.buildId]), [[1, 'bundled'], [1, COMMIT_B]]);
+  });
+
+  it('falls back to the bundled version, with a reference on it, when the deployment names a version that is gone', async () => {
+    const { harness } = await setup(null);
+    harness.profiles.write('stage', { stack_version_id: 99 });
+    const row = () => harness.profiles.rows.get('stage')!;
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.equal(harness.runner.runs[0]?.options.cwd, process.env.SHLS_ROOT);
+    assert.deepEqual(harness.ledger.references.filter((r) => r.holderKind === 'job').map((r) => r.versionId), [1]);
+  });
+});
+
 describe('what the success hook records', () => {
   it('observes what each service mounts, and resolves the job reference the observation covers', async () => {
     const { harness, row, versionsRoot } = await setup();
