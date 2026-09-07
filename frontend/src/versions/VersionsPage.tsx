@@ -61,6 +61,15 @@ const STATUS_TONES: Record<StackVersion['status'], Tone> = {
 
 const COMMIT_UNKNOWN = 'commit unknown on this host';
 
+/**
+ * The bundled version ships inside the manager and is built by its deploy, so
+ * it has no build of its own to date.
+ */
+function builtLabel(version: StackVersion, isBundled: boolean): string {
+  if (version.builtAt) return formatDateTime(version.builtAt);
+  return isBundled ? 'With the manager' : 'Not yet';
+}
+
 const CANNOT_REMOVE = {
   bundled:
     'The bundled version comes with the manager and cannot be removed. Set another version as the default instead.',
@@ -410,7 +419,7 @@ function VersionRow({
       </TableCell>
       <TableCell>
         <Typography variant="body2" color="text.secondary">
-          {version.builtAt ? formatDateTime(version.builtAt) : 'Not yet'}
+          {builtLabel(version, isBundled)}
         </Typography>
       </TableCell>
       <TableCell>
