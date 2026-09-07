@@ -185,6 +185,11 @@ export class DeploymentOrchestrator {
     return version?.contract?.features?.sharedImageTags === false ? 'fixed' : 'shared';
   }
 
+  /** Every attempt still holding a project or the daemon here, for the pages. */
+  async unresolvedAttempts(): Promise<DeployAttempt[]> {
+    return this.attempts.listUnresolved(await this.daemon.daemonId());
+  }
+
   /** A blocked attempt released by a person who checked the host. */
   async releaseAttempt(id: number, by: string): Promise<DeployAttempt | null> {
     const released = await this.attempts.release(id, by);

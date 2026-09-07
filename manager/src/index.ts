@@ -265,6 +265,7 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       stackVersionService,
+      orchestrator,
       eventBus,
       metricsCollector,
     },
