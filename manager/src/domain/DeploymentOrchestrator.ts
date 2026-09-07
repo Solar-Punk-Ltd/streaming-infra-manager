@@ -195,7 +195,7 @@ export class DeploymentOrchestrator {
     const released = await this.attempts.release(id, by);
     if (released) {
       logger.info(`[Orchestrator] attempt ${released.jobId} on ${released.project} released by ${by}`);
-      this.eventBus.publish({ type: 'version.changed' });
+      this.eventBus.publish({ type: 'attempt.changed' });
     }
     return released;
   }
@@ -672,6 +672,7 @@ export class DeploymentOrchestrator {
         services: cfg.guard.services,
         preJobContainerIds: [...before.values()].flat(),
       });
+      this.eventBus.publish({ type: 'attempt.changed' });
     }
 
     logger.info(
@@ -718,6 +719,7 @@ export class DeploymentOrchestrator {
       if (judged.state === 'blocked') {
         logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);
       }
+      this.eventBus.publish({ type: 'attempt.changed' });
     } catch (err) {
       logger.warn(
         `[Orchestrator] could not judge attempt ${attempt.jobId} on ${attempt.project}: ${getErrorMessage(err)}. It stays open until the next boot judges it.`,

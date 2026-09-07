@@ -142,7 +142,7 @@ export function errorHandler(
     res.status(409).json({
       error: 'deploy_attempt_refused',
       name: err.profileName,
-      reason: err.reason,
+      message: err.reason,
     });
     return;
   }
