@@ -64,6 +64,16 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versionsRoot: string,
   ) {}
 
+  /**
+   * The version handed in is the caller's read from the tick before this
+   * transaction, and the job reference names that read's build without
+   * reading the row again under the share lock. That holds because a build
+   * stays protected while it is the row's current or previous build, and
+   * losing that takes two publications after the read, minutes of build
+   * each, and then a prune, all before an insert that follows the read
+   * within one tick of one process. A second manager on one database is the
+   * case this rests on not existing, and nothing in the manager allows one.
+   */
   async claim(
     profileName: string,
     from: readonly ProfileStatus[],
