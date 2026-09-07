@@ -19,6 +19,7 @@ import {
   BUNDLED_VERSION_NAME,
   describeStackContract,
   getErrorMessage,
+  type DeployAttemptView,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -33,7 +34,10 @@ import { formatDateTime, shortCommit } from '../format';
 import type { Tone } from '../components/tone';
 
 import { AddVersionForm } from './AddVersionForm';
+import { needsRelease } from './attemptHold';
+import { AttemptsCard } from './AttemptsCard';
 import { BuildLogPane } from './BuildLogPane';
+import { ReleaseAttemptDialog } from './ReleaseAttemptDialog';
 import {
   ANOTHER_BUILDING,
   BuildSlotProvider,
@@ -136,9 +140,18 @@ function removalBlockedBecause(
  * each is spelled out in the table rather than assumed to be the same.
  */
 export function VersionsPage() {
-  const { versions, versionsError, reloadVersions } = useDeployments();
+  const {
+    versions,
+    versionsError,
+    reloadVersions,
+    attempts,
+    attemptsError,
+    reloadAttempts,
+    profiles,
+  } = useDeployments();
   const toast = useToast();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [releasing, setReleasing] = useState<DeployAttemptView | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [buildingName, setBuildingName] = useState<string | null>(null);
   const [log, setLog] = useState<BuildLog | null>(null);
@@ -230,6 +243,19 @@ export function VersionsPage() {
         deploy scripts with the manager's Docker access, so only branches you
         trust belong here.
       </Typography>
+
+      {(attempts.length > 0 || attemptsError) && (
+        // Above the table: an attempt on a version with shared image tags
+        // holds every such deploy on the host, so it is the first thing to
+        // know before pressing anything below.
+        <AttemptsCard
+          attempts={attempts}
+          error={attemptsError}
+          canRelease={(attempt) => needsRelease(attempt, profiles)}
+          onRelease={setReleasing}
+          onReload={reloadAttempts}
+        />
+      )}
 
       <SectionCard
         title="Versions"
@@ -338,6 +364,17 @@ export function VersionsPage() {
       <AddVersionForm onBuilt={reloadVersions} />
 
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
+      <ReleaseAttemptDialog
+        attempt={releasing}
+        onClose={() => setReleasing(null)}
+        onReleased={(released) => {
+          toast(
+            `Released ${released.jobId}. ${released.project} can be deployed again.`,
+            'success',
+          );
+          reloadAttempts();
+        }}
+      />
     </Stack>
     </BuildSlotProvider>
   );

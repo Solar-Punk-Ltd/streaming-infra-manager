@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, CircularProgress, Paper, Stack } from '@mui/material';
 
 import {
   type ChequebookHealth,
+  type DeployAttemptView,
   chequebookHealthFromPayload,
   rungFromMemberName,
   sameBatchId,
@@ -12,6 +13,7 @@ import {
 
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes, type DeploymentFocus } from '../app/router';
+import { useToast } from '../app/ToastProvider';
 import { useActions } from '../app/useDeploymentActions';
 import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
@@ -20,6 +22,8 @@ import { useMetrics } from '../useMetrics';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
 import { clientUrl, srtPublishUrl } from '../urls';
+import { attemptHolding } from '../versions/attemptHold';
+import { ReleaseAttemptDialog } from '../versions/ReleaseAttemptDialog';
 import { AtAGlanceCard } from './AtAGlanceCard';
 import {
   buildChecklist,
@@ -32,6 +36,7 @@ import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
+import { HeldAttemptCard } from './HeldAttemptCard';
 import { LastErrorCard } from './LastErrorCard';
 import { NextStepsCard } from './NextStepsCard';
 import { NotesCard } from './NotesCard';
@@ -110,9 +115,19 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, reload, versions } =
-    useDeployments();
+  const {
+    profiles,
+    groups,
+    serverHost,
+    hostPassphrase,
+    reload,
+    versions,
+    attempts,
+    reloadAttempts,
+  } = useDeployments();
   const actions = useActions();
+  const toast = useToast();
+  const [releasing, setReleasing] = useState<DeployAttemptView | null>(null);
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
 
@@ -138,6 +153,7 @@ function DeploymentBody({
       bee?.stamps?.find((stamp) => sameBatchId(stamp.batchID, stampId))) ||
     null;
 
+  const heldBy = attemptHolding(profile.name, attempts, profiles);
   const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
   const watchUrl = clientUrl(profile, serverHost);
   const streamers = streamersOf(profiles ?? []);
@@ -208,6 +224,10 @@ function DeploymentBody({
         }}
       >
         <Stack spacing={2}>
+          {heldBy && (
+            <HeldAttemptCard attempt={heldBy} onRelease={() => setReleasing(heldBy)} />
+          )}
+
           {profile.last_error && (
             <LastErrorCard
               message={profile.last_error}
@@ -284,6 +304,18 @@ function DeploymentBody({
           <NotesCard name={profile.name} notes={profile.notes} />
         </Stack>
       </Box>
+
+      <ReleaseAttemptDialog
+        attempt={releasing}
+        onClose={() => setReleasing(null)}
+        onReleased={(released) => {
+          toast(
+            `Released ${released.jobId}. ${profile.name} can be deployed again.`,
+            'success',
+          );
+          reloadAttempts();
+        }}
+      />
     </Box>
   );
 }
