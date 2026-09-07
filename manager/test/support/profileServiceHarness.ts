@@ -12,7 +12,7 @@ import {
   DeploymentOrchestrator,
   DeployReservation,
 } from '../../src/domain/DeploymentOrchestrator.js';
-import { ProfileBusyError } from '../../src/domain/errors/index.js';
+import { AllSlotsUsedError, ProfileBusyError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { ProfileService } from '../../src/domain/ProfileService.js';
 import { RunHandle } from '../../src/domain/ScriptRunner.js';
@@ -225,6 +225,9 @@ export class InMemoryGroups {
     shared: SharedProfileParams,
     groupId: number,
   ): Profile {
+    if (this.profiles.rows.size + 1 > shared.max_slot) {
+      throw new AllSlotsUsedError(shared.max_slot);
+    }
     const row = makeProfile({
       name,
       kind: shared.kind,

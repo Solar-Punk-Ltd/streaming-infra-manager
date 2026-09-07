@@ -17,6 +17,7 @@ export interface OrchestratorHarness {
   events: EventBus;
   /** Seeded with the bundled version as id 1. A test adds what else it needs. */
   versions: InMemoryStackVersionRepository;
+  containers: FakeContainers;
 }
 
 /**
@@ -36,10 +37,11 @@ export function orchestratorHarness(
   // Every row names the bundled version, the one the seed inserts as id 1.
   const versions = new InMemoryStackVersionRepository();
   versions.seedBundled();
+  const containers = new FakeContainers();
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
-    new FakeContainers().asRepository(),
+    containers.asRepository(),
     runner,
     events,
     {} as DeploymentGroupRepository,
@@ -47,5 +49,5 @@ export function orchestratorHarness(
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events, versions };
+  return { orchestrator, profiles, runner, events, versions, containers };
 }

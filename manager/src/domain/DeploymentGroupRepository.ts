@@ -18,6 +18,8 @@ export interface SharedProfileParams {
   srt_passphrase: string | null;
   /** Every member of a group runs one version, the one the group was made on. */
   stack_version_id: number;
+  /** The highest port slot that version's deploy script accepts. */
+  max_slot: number;
 }
 
 export interface MemberSeed {
@@ -170,7 +172,7 @@ export class DeploymentGroupRepository {
          srt_passphrase, group_id, stack_version_id
        )
        SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-       FROM generate_series(1, 999) AS s(n)
+       FROM generate_series(1, $14::int) AS s(n)
        LEFT JOIN profiles p ON p.port_slot = s.n
        WHERE p.port_slot IS NULL
        ORDER BY s.n
@@ -190,10 +192,11 @@ export class DeploymentGroupRepository {
         shared.srt_passphrase,
         groupId,
         shared.stack_version_id,
+        shared.max_slot,
       ],
     );
     if (!r.rowCount) {
-      throw new AllSlotsUsedError();
+      throw new AllSlotsUsedError(shared.max_slot);
     }
     return r.rows[0]!;
   }

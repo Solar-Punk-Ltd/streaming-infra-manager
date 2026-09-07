@@ -23,9 +23,11 @@ export interface ProfileWriteData {
   group_id?: number | null;
 }
 
-/** Where a new deployment goes: which stack version it runs. */
+/** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
+  /** The highest slot that version's deploy script accepts. */
+  maxSlot: number;
 }
 
 export class ProfileRepository {
@@ -67,7 +69,7 @@ export class ProfileRepository {
            srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
          )
          SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-         FROM generate_series(1, 999) AS s(n)
+         FROM generate_series(1, $17::int) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
          ORDER BY s.n
@@ -90,6 +92,7 @@ export class ProfileRepository {
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
           placement.stackVersionId,
+          placement.maxSlot,
         ],
       );
       await client.query('COMMIT');

@@ -33,6 +33,7 @@ import {
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
+import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
 import { stackPaths, type StackPaths } from './versions/stackPaths.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
 import type {
@@ -64,35 +65,6 @@ function beeDataDirsFor(profileName: string): Record<string, string> {
 
 function profileDataRoot(profileName: string): string {
   return join(BEE_DATA_ROOT, profileName);
-}
-
-// Mirrors PORT_VARS in deploy/scripts/_lib.sh — keep in sync.
-const PORT_VAR_DEFAULTS: Record<string, number> = {
-  API_PORT: 10000,
-  SRS_SRT_PORT: 10001,
-  SRS_RTMP_PORT: 10002,
-  SRS_HTTP_PORT: 10003,
-  CLIENT_PORT: 10004,
-  BEE_UPLOADER_API_PORT: 10005,
-  BEE_UPLOADER_P2P_PORT: 10006,
-  BEE_GATEWAY_API_PORT: 10007,
-  BEE_GATEWAY_P2P_PORT: 10008,
-};
-
-const OME_PORT_BASES = {
-  OME_SRT_PORT: PORT_VAR_DEFAULTS.SRS_SRT_PORT!,
-  OME_HLS_PORT: PORT_VAR_DEFAULTS.SRS_HTTP_PORT!,
-} as const;
-
-function omePortsFor(portSlot: number): {
-  omeSrtPort?: number;
-  omeHlsPort?: number;
-} {
-  if (portSlot <= 0) return {};
-  return {
-    omeSrtPort: OME_PORT_BASES.OME_SRT_PORT + portSlot * 10,
-    omeHlsPort: OME_PORT_BASES.OME_HLS_PORT + portSlot * 10,
-  };
 }
 
 interface JobConfig {
@@ -413,7 +385,7 @@ export class DeploymentOrchestrator {
       // services: a held-back uploader is deployed on its own, and deploy.sh
       // must still resolve the local Bee address for it.
       localBeeUploader: ownsBeeNode(profile),
-      ...omePortsFor(profile.port_slot),
+      ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
     });
     logger.info(
       `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
@@ -430,7 +402,7 @@ export class DeploymentOrchestrator {
           profile.name,
           'RUNNING',
         );
-        await this.snapshotContainers(profile, paths, services);
+        await this.snapshotContainers(profile, paths, version, services);
         if (updated) {
           await this.publishChanged(updated);
         }
@@ -660,10 +632,11 @@ export class DeploymentOrchestrator {
   private async snapshotContainers(
     profile: Profile,
     paths: StackPaths,
+    version: StackVersionRecord | null,
     services: string[],
   ): Promise<void> {
     try {
-      const env = this.buildEffectiveEnv(profile, paths);
+      const env = this.buildEffectiveEnv(profile, paths, version);
       for (const service of services) {
         const snapshot = buildContainerSnapshot(service, env);
         await this.containers.upsert(profile.name, snapshot);
@@ -675,9 +648,16 @@ export class DeploymentOrchestrator {
     }
   }
 
+  /**
+   * The environment the containers were started with, as far as the manager
+   * can tell without asking Docker: the base env of the version's checkout,
+   * the version's port table shifted by the slot the way `deploy.sh` shifts
+   * it, and the per profile values `.env.<profile>` carries.
+   */
   private buildEffectiveEnv(
     profile: Profile,
     paths: StackPaths,
+    version: StackVersionRecord | null,
   ): Record<string, string> {
     const env = parseBaseEnv(paths.root);
 
@@ -685,13 +665,14 @@ export class DeploymentOrchestrator {
 
     env.ENGINE = engineForComponents(profile.components);
 
-    for (const [name, def] of Object.entries(PORT_VAR_DEFAULTS)) {
+    const table = portTableOf(version?.contract);
+    for (const port of table) {
       if (profile.port_slot === 0) {
-        if (env[name] === undefined || env[name] === '') {
-          env[name] = String(def);
+        if (env[port.name] === undefined || env[port.name] === '') {
+          env[port.name] = String(port.defaultPort);
         }
       } else {
-        env[name] = String(def + profile.port_slot * 10);
+        env[port.name] = String(portFor(port, profile.port_slot));
       }
     }
     if (env.API_PORT) {
@@ -699,11 +680,9 @@ export class DeploymentOrchestrator {
       env.OME_ADAPTER_PORT = env.API_PORT;
     }
 
-    if (profile.port_slot > 0) {
-      for (const [name, base] of Object.entries(OME_PORT_BASES)) {
-        env[name] = String(base + profile.port_slot * 10);
-      }
-    }
+    const omePorts = omePortsFor(profile.port_slot, table);
+    if (omePorts.omeSrtPort) env.OME_SRT_PORT = String(omePorts.omeSrtPort);
+    if (omePorts.omeHlsPort) env.OME_HLS_PORT = String(omePorts.omeHlsPort);
 
     // Parameter overrides — same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
     if (profile.feed_owner) {

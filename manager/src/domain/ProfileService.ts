@@ -67,6 +67,7 @@ import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
+import { maxSlotOf } from './versions/portTable.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -237,7 +238,7 @@ export class ProfileService {
           bee_url: input.bee_url,
           srt_passphrase: input.srt_passphrase,
         },
-        { stackVersionId: version.id },
+        { stackVersionId: version.id, maxSlot: maxSlotOf(version.contract) },
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -250,7 +251,7 @@ export class ProfileService {
       throw err;
     }
     if (!row) {
-      throw new AllSlotsUsedError();
+      throw new AllSlotsUsedError(maxSlotOf(version.contract));
     }
 
     logger.info(
@@ -647,6 +648,7 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
       stack_version_id: version.id,
+      max_slot: maxSlotOf(version.contract),
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -951,6 +953,7 @@ export class ProfileService {
     );
 
     const canonical = members[0]!;
+    const version = await this.versions.findById(canonical.stack_version_id);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
@@ -963,6 +966,7 @@ export class ProfileService {
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
       stack_version_id: canonical.stack_version_id,
+      max_slot: maxSlotOf(version?.contract),
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.

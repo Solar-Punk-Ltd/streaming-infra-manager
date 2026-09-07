@@ -38,6 +38,7 @@ function engineSettingKeysFor(engine: EngineName): string[] {
 export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
   [SRS_SERVICE]: [
     'SRS_SRT_PORT',
+    'SRS_HTTP_API_PORT',
     'SRT_PASSPHRASE',
     'SRS_ADAPTER_HOST',
     'SRS_ADAPTER_PORT',
@@ -103,7 +104,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
 };
 
 export const SERVICE_PORT_KEYS: Record<string, readonly string[]> = {
-  [SRS_SERVICE]: ['SRS_SRT_PORT', 'SRS_ADAPTER_PORT'],
+  [SRS_SERVICE]: ['SRS_SRT_PORT', 'SRS_HTTP_API_PORT', 'SRS_ADAPTER_PORT'],
   [OME_SERVICE]: ['OME_SRT_PORT', 'OME_HLS_PORT'],
   [STREAM_UPLOADER_SERVICE]: ['API_PORT'],
   [BEE_UPLOADER_SERVICE]: ['BEE_UPLOADER_API_PORT', 'BEE_UPLOADER_P2P_PORT'],

@@ -107,12 +107,14 @@ export class InMemoryProfiles {
     placement: NewProfilePlacement,
   ): Promise<Profile | null> {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
+    const slot = this.rows.size + 1;
+    if (slot > placement.maxSlot) return null;
     const row = makeProfile({
       name,
       kind,
       status,
       ...definedFields(data),
-      port_slot: this.rows.size + 1,
+      port_slot: slot,
       stack_version_id: placement.stackVersionId,
     });
     this.rows.set(name, row);
@@ -196,14 +198,22 @@ export class InMemoryProfiles {
 }
 
 export class FakeContainers {
-  readonly snapshots: { profileName: string; service: string }[] = [];
+  readonly snapshots: {
+    profileName: string;
+    service: string;
+    ports: Record<string, number>;
+  }[] = [];
 
   asRepository(): ContainerRepository {
     return this as unknown as ContainerRepository;
   }
 
   async upsert(profileName: string, snapshot: ContainerSnapshot): Promise<void> {
-    this.snapshots.push({ profileName, service: snapshot.service });
+    this.snapshots.push({
+      profileName,
+      service: snapshot.service,
+      ports: snapshot.ports,
+    });
   }
 
   async listApiContainers(): Promise<ApiContainer[]> {
