@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import {
   BUNDLED_STACK_ROOT,
@@ -6,7 +6,8 @@ import {
   type BootstrapPair,
 } from '../../utils/envUtils.js';
 
-import { buildIdProblem } from './buildManifest.js';
+import { buildIdProblem, readBuildManifest } from './buildManifest.js';
+import type { StackVersionLayout } from './StackVersionRepository.js';
 
 /**
  * Where one version's checkout keeps everything the manager runs against it.
@@ -18,6 +19,9 @@ import { buildIdProblem } from './buildManifest.js';
  */
 export interface StackVersionRoot {
   rootPath: string | null;
+  /** Legacy when left out: a caller that names only a root means the flat one. */
+  layout?: StackVersionLayout;
+  buildId?: string | null;
 }
 
 export interface StackPaths {
@@ -32,9 +36,25 @@ export interface StackPaths {
   bootstrapPairs: readonly BootstrapPair[];
 }
 
-/** The checkout a version lives in. A null rootPath is the bundled one. */
+/**
+ * Where a version deploys from. A null rootPath is the bundled one. A legacy
+ * row deploys from its flat root. A builds row deploys from its current
+ * build, a sibling of the flat root, and never from the flat root itself,
+ * so a missing build is a refusal from `deployRootProblem` and not a
+ * fallback.
+ */
 export function stackRootOf(version: StackVersionRoot): string {
-  return version.rootPath ?? BUNDLED_STACK_ROOT;
+  if (version.rootPath === null) return BUNDLED_STACK_ROOT;
+  if ((version.layout ?? 'legacy') !== 'builds' || !version.buildId) return version.rootPath;
+  return buildDirFor(dirname(version.rootPath), basename(version.rootPath), version.buildId);
+}
+
+/** Why a version cannot be deployed from right now, naming what is missing, or null. */
+export function deployRootProblem(version: StackVersionRoot): string | null {
+  if (version.rootPath === null || (version.layout ?? 'legacy') !== 'builds') return null;
+  if (!version.buildId) return 'This version has no build to deploy from yet.';
+  const problem = readBuildManifest(stackRootOf(version)).problem;
+  return problem ? `Build ${version.buildId} of this version cannot be deployed from. ${problem}` : null;
 }
 
 export function stackPaths(version: StackVersionRoot): StackPaths {

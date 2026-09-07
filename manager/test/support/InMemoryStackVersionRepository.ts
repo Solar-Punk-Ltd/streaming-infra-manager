@@ -3,6 +3,7 @@ import type { StackContract } from '@streaming-infra-manager/common';
 import type {
   BuildOutcome,
   NewStackVersion,
+  PublishOutcome,
   StackVersionRecord,
   StackVersionRepository,
   StackVersionUsage,
@@ -30,6 +31,9 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: null,
       status: 'ready',
       rootPath: null,
+      layout: 'legacy',
+      buildId: null,
+      previousBuildId: null,
       contract: null,
       isDefault: true,
       tested: true,
@@ -76,6 +80,9 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: null,
       status: 'building',
       rootPath: version.rootPath,
+      layout: 'builds',
+      buildId: null,
+      previousBuildId: null,
       contract: null,
       isDefault: false,
       tested: false,
@@ -108,6 +115,27 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     });
   }
 
+  async publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null> {
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return null;
+    const replaced = before.buildId !== null && before.buildId !== outcome.buildId;
+    return this.patch(id, {
+      status: 'ready',
+      layout: 'builds',
+      buildId: outcome.buildId,
+      previousBuildId: replaced ? before.buildId : before.previousBuildId,
+      commitSha: outcome.commitSha,
+      contract: outcome.contract,
+      tested: before.tested && before.buildId === outcome.buildId,
+      builtAt: new Date(),
+      lastError: null,
+    });
+  }
+
+  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+    return this.patch(id, { status: 'ready', lastError });
+  }
+
   async markFailed(
     id: number,
     lastError: string,
@@ -120,7 +148,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   ): Promise<StackVersionRecord[]> {
     const interrupted = this.rows.filter((row) => row.status === 'building');
     for (const row of interrupted) {
-      await this.patch(row.id, { status: 'failed', lastError });
+      const usable = row.layout === 'builds' ? row.buildId !== null : row.commitSha !== null;
+      await this.patch(row.id, { status: usable ? 'ready' : 'failed', lastError });
     }
     return this.rows.filter((row) => interrupted.some((r) => r.id === row.id));
   }

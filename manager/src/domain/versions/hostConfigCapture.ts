@@ -120,14 +120,17 @@ async function readSteady(path: string, relative: string): Promise<Buffer> {
   throw new Error(`${relative} kept changing while it was read.`);
 }
 
-function envKeysOf(bytes: Buffer): Set<string> {
+/** The keys an env file assigns, comments and blank lines skipped. */
+export function envKeysIn(text: string): Set<string> {
   const keys = new Set<string>();
-  for (const line of bytes.toString('utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
     if (match) keys.add(match[1]!);
   }
   return keys;
 }
+
+const envKeysOf = (bytes: Buffer): Set<string> => envKeysIn(bytes.toString('utf8'));
 
 /** Why the captured bytes are not a file of their kind, or null. A truncated intermediate fails here too. */
 function formatProblem(relative: string, bytes: Buffer, sampleEnvKeys: readonly string[]): string | null {

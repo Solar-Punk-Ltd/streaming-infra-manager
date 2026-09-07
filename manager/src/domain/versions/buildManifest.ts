@@ -18,6 +18,9 @@ export interface BuildManifest {
   builtAt: string;
   /** The image and the package manager the build ran with. */
   toolchain: string;
+  /** The generation of the host configuration copied into the build, and its hashes. Absent on a build an older manager wrote. */
+  inputGeneration?: number;
+  inputHashes?: Record<string, string>;
 }
 
 export type BuildManifestRead =
@@ -86,6 +89,10 @@ export function readBuildManifest(dir: string): BuildManifestRead {
       buildId: record.buildId as string,
       builtAt: record.builtAt as string,
       toolchain: record.toolchain as string,
+      ...(Number.isInteger(record.inputGeneration) ? { inputGeneration: record.inputGeneration as number } : {}),
+      ...(typeof record.inputHashes === 'object' && record.inputHashes !== null
+        ? { inputHashes: record.inputHashes as Record<string, string> }
+        : {}),
     },
     problem: null,
   };
