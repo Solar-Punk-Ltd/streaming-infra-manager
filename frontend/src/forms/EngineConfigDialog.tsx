@@ -19,6 +19,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import {
   type EngineConfigView,
   getErrorMessage,
+  rolloutNotice,
   unknownPlaceholders,
 } from '@streaming-infra-manager/common';
 
@@ -135,6 +136,9 @@ export function EngineConfigDialog({
   };
 
   const engineName = view ? ENGINE_LABEL[view.engine] : 'engine';
+  const notice = view
+    ? rolloutNotice(view.state, { engine: engineName, hasConfig: view.config !== null })
+    : null;
 
   return (
     <Dialog open maxWidth="lg" fullWidth onClose={close}>
@@ -160,14 +164,16 @@ export function EngineConfigDialog({
             {!view.supported && (
               <Alert severity="info">{view.unsupportedReason}</Alert>
             )}
-            {view.error && (
-              <Alert severity="warning">
+            {notice && (
+              <Alert severity={notice.severity}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  The last file was reverted.
+                  {notice.title}
                 </Typography>
-                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                  {view.error}
-                </Box>
+                {notice.showsReason && view.error && (
+                  <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                    {view.error}
+                  </Box>
+                )}
               </Alert>
             )}
             <Typography variant="body2" color="text.secondary">

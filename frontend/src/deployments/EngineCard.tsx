@@ -17,6 +17,8 @@ import {
   type EngineName,
   type EngineSettingField,
   getErrorMessage,
+  type RolloutAction,
+  rolloutNotice,
 } from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
@@ -29,11 +31,17 @@ import type { Profile } from '../types';
 import { fetchEngine, type EngineOverview } from './engineApi';
 import { ENGINE_LABEL } from './engineText';
 import { LogsDialog } from './LogsDialog';
+import { isTransitional } from './shape';
 
 const ABR_SECTION_TITLE = 'Transcoding';
 
 const OWN_CONFIG_NOTE =
   'Runs on a config file of its own. The Settings drawer still fills the placeholders that file kept.';
+
+const ROLLOUT_ACTION_LABEL: Record<RolloutAction, string> = {
+  verify: 'Verify now',
+  previous: 'Back to the previous file',
+};
 
 /**
  * Why Restart is greyed out, or an empty string when it is not.
@@ -97,6 +105,17 @@ export function EngineCard({
     engineRunning,
     actions.isBusy(profile.name),
   );
+  const notice = rolloutNotice(profile.engine_config_state, {
+    engine: ENGINE_LABEL[engine],
+    hasConfig: profile.has_engine_config,
+  });
+  // Both ways out of a rollout recreate the engine, which a deployment mid
+  // transition cannot take, and the manager would refuse.
+  const rolloutActionsOff = isTransitional(profile) || actions.isBusy(profile.name);
+  const rolloutAction = (offer: RolloutAction) =>
+    offer === 'verify'
+      ? actions.verifyEngineConfig(profile.name, engine)
+      : actions.restorePreviousEngineConfig(profile.name, engine);
 
   return (
     <SectionCard
@@ -145,17 +164,38 @@ export function EngineCard({
       }
     >
       <Stack spacing={2}>
-        {profile.engine_config_error && (
-          <Alert severity="warning">
+        {notice && (
+          <Alert
+            severity={notice.severity}
+            action={
+              notice.offers.length > 0 ? (
+                <Stack direction="row" spacing={1} sx={{ alignSelf: 'center' }}>
+                  {notice.offers.map((offer) => (
+                    <Button
+                      key={offer}
+                      size="small"
+                      color="inherit"
+                      disabled={rolloutActionsOff}
+                      onClick={() => rolloutAction(offer)}
+                    >
+                      {ROLLOUT_ACTION_LABEL[offer]}
+                    </Button>
+                  ))}
+                </Stack>
+              ) : undefined
+            }
+          >
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              The last config file was reverted.
+              {notice.title}
             </Typography>
-            <Box
-              component="pre"
-              sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}
-            >
-              {profile.engine_config_error}
-            </Box>
+            {notice.showsReason && profile.engine_config_error && (
+              <Box
+                component="pre"
+                sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}
+              >
+                {profile.engine_config_error}
+              </Box>
+            )}
           </Alert>
         )}
         {profile.has_engine_config && (
