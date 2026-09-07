@@ -14,23 +14,9 @@ import type { Profile } from '../../types';
 import { nameError, poolStringError, wizardError } from './wizardError';
 import { initialWizardState, type WizardContext } from './wizardState';
 
+/** A deployment that exists already. The name is all the taken-name check reads. */
 function existing(name: string): Profile {
-  return {
-    name,
-    port_slot: 1,
-    kind: 'viewer',
-    notes: null,
-    engine_settings: {},
-    has_engine_config: false,
-    engine_config_error: null,
-    status: 'RUNNING',
-    last_error: null,
-    last_error_at: null,
-    created_at: '2026-09-08T00:00:00Z',
-    updated_at: '2026-09-08T00:00:00Z',
-    containers: [],
-    stack_version_id: 1,
-  };
+  return { name } as Profile;
 }
 
 const context: WizardContext = {
