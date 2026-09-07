@@ -85,6 +85,14 @@ function stripDockerWarnings(text: string): string {
     .join('\n');
 }
 
+/** What a caller asks to run once the deploy it started has settled. */
+export interface DeployHooks {
+  /** After RUNNING is committed, which is when a watch on the result may begin. */
+  afterRunning?: () => Promise<void>;
+  /** After the script failed and the deployment was marked ERROR with the message. */
+  afterFailure?: (message: string) => Promise<void>;
+}
+
 interface JobConfig {
   profileName: string;
   paths: StackPaths;
@@ -96,6 +104,7 @@ interface JobConfig {
   allowedFrom?: readonly ProfileStatus[];
 
   onSuccess: () => Promise<void>;
+  onFailure?: (message: string) => Promise<void>;
 }
 
 const REDEPLOY_STATUS: ProfileStatus = 'DEPLOYING';
@@ -289,9 +298,10 @@ export class DeploymentOrchestrator {
   async runReserved(
     reservation: DeployReservation,
     profile: Profile,
+    hooks: DeployHooks = {},
   ): Promise<RunHandle> {
     try {
-      return await this.startReservedJob(reservation, profile);
+      return await this.startReservedJob(reservation, profile, hooks);
     } catch (err) {
       await this.markFailed(reservation.profileName, getErrorMessage(err));
       throw err;
@@ -395,6 +405,7 @@ export class DeploymentOrchestrator {
   private async startReservedJob(
     reservation: DeployReservation,
     profile: Profile,
+    hooks: DeployHooks,
   ): Promise<RunHandle> {
     if (reservation.heldBackForStamp.length > 0) {
       logger.info(
@@ -458,7 +469,9 @@ export class DeploymentOrchestrator {
         if (updated) {
           await this.publishChanged(updated);
         }
+        await hooks.afterRunning?.();
       },
+      onFailure: hooks.afterFailure,
     });
   }
 
@@ -636,6 +649,7 @@ export class DeploymentOrchestrator {
       if (errored) {
         await this.publishChanged(errored);
       }
+      await cfg.onFailure?.(message);
       logger.warn(
         `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
       );
