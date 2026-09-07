@@ -86,6 +86,20 @@ function stripDockerWarnings(text: string): string {
     .join('\n');
 }
 
+/**
+ * Runs what a caller asked to run once its deploy settled, and keeps the
+ * hook's failure to itself. The deploy's own outcome is committed by then, so
+ * a hook that throws must not turn a RUNNING row into an ERROR one or replace
+ * the script's own reason with its own.
+ */
+async function runHook(when: string, hook: () => Promise<void> | undefined): Promise<void> {
+  try {
+    await hook();
+  } catch (err) {
+    logger.error(`[Orchestrator] the hook ${when} failed: ${getErrorMessage(err)}`);
+  }
+}
+
 /** What a caller asks to run once the deploy it started has settled. */
 export interface DeployHooks {
   /** After RUNNING is committed, which is when a watch on the result may begin. */
@@ -509,9 +523,11 @@ export class DeploymentOrchestrator {
         if (updated) {
           await this.publishChanged(updated);
         }
-        await hooks.afterRunning?.();
+        await runHook('after it came up', () => hooks.afterRunning?.());
       },
-      onFailure: hooks.afterFailure,
+      onFailure: hooks.afterFailure
+        ? (message) => runHook('after it failed', () => hooks.afterFailure?.(message))
+        : undefined,
     });
   }
 
