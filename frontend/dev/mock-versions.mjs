@@ -131,7 +131,17 @@ function makeVersion(input) {
     lastError: null,
     contract: input.contract ?? null,
     deployments: 0,
+    // Every row that existed before builds deploys from its flat root. An
+    // added version deploys from one immutable build per commit.
+    layout: input.layout ?? 'builds',
+    buildId: input.buildId ?? null,
+    previousBuildId: null,
   };
+}
+
+/** The commit of the version a deployment runs, which its containers are seen to run in this mock. */
+export function commitOfVersion(id) {
+  return findVersion(id)?.commitSha ?? null;
 }
 
 /** The deploy contract of the version a deployment runs, or null. */
@@ -171,6 +181,7 @@ export function seedVersions() {
       tested: true,
       builtAt: '2026-08-04T11:20:00Z',
       contract: BUNDLED_CONTRACT,
+      layout: 'legacy',
     }),
     makeVersion({
       name: 'main-v3',
@@ -178,6 +189,7 @@ export function seedVersions() {
       commitSha: 'be440d65e0e82bcf9000a8a0dde905dc215255d6',
       builtAt: '2026-09-05T21:05:00Z',
       contract: V3_CONTRACT,
+      buildId: 'be440d65e0e82bcf9000a8a0dde905dc215255d6',
     }),
   ];
 
@@ -274,8 +286,12 @@ function playBuild(res, version, publish) {
       version.status = 'failed';
       version.lastError = `fatal: couldn't find remote ref ${version.gitRef}`;
     } else {
-      // The approval belongs to the commit that was tested, as in the manager.
-      version.tested = version.tested && version.commitSha === commit;
+      // The approval belongs to the build that was tested, as in the manager,
+      // and the build the new one replaces is kept as the previous one.
+      version.tested = version.tested && version.buildId === commit;
+      if (version.buildId && version.buildId !== commit) version.previousBuildId = version.buildId;
+      version.layout = 'builds';
+      version.buildId = commit;
       version.status = 'ready';
       version.commitSha = commit;
       version.builtAt = new Date().toISOString();
