@@ -165,6 +165,20 @@ describe('the HLS port after an OvenMediaEngine file applied', () => {
     assert.equal(harness.profiles.engineConfigs.get('ome1'), EDITED, 'the file stays');
   });
 
+  it('is not tried on a version whose port table publishes no HLS port, and leaves no note', async () => {
+    const { service, harness, watcher, states, row } = await setup();
+    await harness.versions.setContract(1, {
+      ...V3_CONTRACT,
+      ports: [{ name: 'SRS_SRT_PORT', slotBase: 10000, defaultPort: 10080 }],
+    });
+
+    await service.apply('ome1', EDITED);
+    await until('the rollout to end', () => states()[0] === 'applied');
+
+    assert.deepEqual(watcher.probed, []);
+    assert.equal(row('ome1').engine_config_error, null);
+  });
+
   it('is never tried for an SRS deployment, whose parser was asked before the recreate', async () => {
     const { service, watcher, states } = await setup();
 

@@ -122,6 +122,60 @@ describe('the protected part', () => {
   });
 });
 
+describe('a duplicate of a protected element', () => {
+  it('refuses a second application of the same name, however faithful the first copy is', () => {
+    const [head, video, rest] = OME_TEMPLATE.split(/(?=<Application>)/);
+    const twin = video!
+      .replace('${OriginStreamName}', 'attacker-controlled')
+      .replace(/<Providers>\s*<SRT \/>\s*<\/Providers>/, '<Providers/>');
+    const duplicated = head! + video! + twin + rest!;
+
+    const problem = omeContractProblem(OME_TEMPLATE, duplicated);
+
+    assert.match(problem ?? '', /Application\[video\]/);
+    assert.match(problem ?? '', /twice|2 times/);
+  });
+
+  it('refuses a second virtual host, which would admit publishers past the uploader', () => {
+    const rogue =
+      '<VirtualHost><Name>evil</Name><Host><Names><Name>*</Name></Names></Host>' +
+      '<Applications><Application><Name>video</Name><Type>live</Type><Providers><SRT /></Providers>' +
+      '<Publishers><HLS><Port>8081</Port></HLS></Publishers></Application></Applications></VirtualHost>';
+    const withRogue = OME_TEMPLATE.replace('</VirtualHosts>', `${rogue}</VirtualHosts>`);
+
+    const problem = omeContractProblem(OME_TEMPLATE, withRogue);
+
+    assert.match(problem ?? '', /VirtualHost\[evil\]/);
+    assert.match(problem ?? '', /not in this version's template/);
+  });
+
+  it('refuses a second admission block or bind block inside the host', () => {
+    const twoBinds = OME_TEMPLATE.replace('</Bind>', '</Bind><Bind><Providers><SRT><Port>10081</Port></SRT></Providers></Bind>');
+    assert.match(omeContractProblem(OME_TEMPLATE, twoBinds) ?? '', /Bind/);
+
+    const twoAdmissions = OME_TEMPLATE.replace(
+      '</AdmissionWebhooks>',
+      '</AdmissionWebhooks><AdmissionWebhooks><ControlServerUrl>http://x/</ControlServerUrl><SecretKey>s</SecretKey><Timeout>1</Timeout><Enables><Providers>srt</Providers></Enables></AdmissionWebhooks>',
+    );
+    assert.match(omeContractProblem(OME_TEMPLATE, twoAdmissions) ?? '', /AdmissionWebhooks/);
+  });
+
+  it('refuses an application without a name', () => {
+    const nameless = OME_TEMPLATE.replace('</Applications>', '<Application><Type>live</Type></Application></Applications>');
+
+    assert.match(omeContractProblem(OME_TEMPLATE, nameless) ?? '', /Application.*Name/);
+  });
+
+  it('still allows a second output profile with a name of its own', () => {
+    const more = OME_TEMPLATE.replace(
+      '</OutputProfiles>',
+      '<OutputProfile><Name>720p</Name><OutputStreamName>${OriginStreamName}_720</OutputStreamName><Encodes><Video><Codec>h264</Codec></Video></Encodes></OutputProfile></OutputProfiles>',
+    );
+
+    assert.equal(omeContractProblem(OME_TEMPLATE, more), null);
+  });
+});
+
 describe('the tunable part', () => {
   it('accepts the segment duration as a literal in range, and T11 reports it as controlled by the file', () => {
     const literal = OME_TEMPLATE.split('SEGMENT_DURATION_PLACEHOLDER').join('4');
@@ -137,8 +191,8 @@ describe('the tunable part', () => {
     );
 
     assert.match(problem ?? '', /Segment duration/);
-    assert.match(problem ?? '', /0\.5/);
-    assert.match(problem ?? '', /30/);
+    assert.match(problem ?? '', /at most 30/);
+    assert.match(problem ?? '', /45/);
   });
 
   it('refuses a count that is not a whole number', () => {
@@ -152,6 +206,27 @@ describe('the tunable part', () => {
     assert.match(
       omeContractProblem(OME_TEMPLATE, OME_TEMPLATE.split('SEGMENT_DURATION_PLACEHOLDER').join('fast')) ?? '',
       /Segment duration/,
+    );
+  });
+
+  it('refuses the shapes the drawer refuses, so the two cannot drift', () => {
+    for (const literal of ['1e1', '0x10', '+5', '5.0']) {
+      assert.match(
+        omeContractProblem(OME_TEMPLATE, OME_TEMPLATE.split('SEGMENT_COUNT_PLACEHOLDER').join(literal)) ?? '',
+        /Segment count/,
+        literal,
+      );
+    }
+    assert.match(
+      omeContractProblem(OME_TEMPLATE, OME_TEMPLATE.split('SEGMENT_DURATION_PLACEHOLDER').join('2.1234567')) ?? '',
+      /Segment duration/,
+    );
+  });
+
+  it('names an empty literal as empty', () => {
+    assert.match(
+      omeContractProblem(OME_TEMPLATE, OME_TEMPLATE.split('SEGMENT_COUNT_PLACEHOLDER').join('')) ?? '',
+      /Segment count is empty/,
     );
   });
 
