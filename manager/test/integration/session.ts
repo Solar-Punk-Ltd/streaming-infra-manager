@@ -12,14 +12,20 @@ export const REQUESTED_WITH_VALUE = 'streaming-infra-manager';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
 
-/** The session cookie among a sign-in answer's Set-Cookie headers, as a Cookie header value, or null. */
+/**
+ * The session cookie among a sign-in answer's Set-Cookie headers, as a Cookie
+ * header value, or null. The last one wins, as it does in a browser's jar, so
+ * a cleared cookie after a set one is no session.
+ */
 export function sessionCookieFrom(setCookies: readonly string[]): string | null {
   const wanted = `${SESSION_COOKIE_NAME}=`;
+  let session: string | null = null;
   for (const header of setCookies) {
     const pair = header.split(';')[0]?.trim() ?? '';
-    if (pair.startsWith(wanted) && pair.length > wanted.length) return pair;
+    if (!pair.startsWith(wanted)) continue;
+    session = pair.length > wanted.length ? pair : null;
   }
-  return null;
+  return session;
 }
 
 export interface RequestShape {
