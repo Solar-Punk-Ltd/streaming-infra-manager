@@ -45,7 +45,7 @@ describe('deploy/deploy.sh', () => {
     assert.match(stack, /--exclude 'node_modules\/'/);
     assert.match(stack, /--exclude 'deploy\/data\/'/);
     assert.ok(stack.indexOf("--include '.env.sample'") < stack.indexOf("--exclude '.env.*'"), 'the sample is kept, the per deployment envs are not');
-    assert.match(stack, /streaming-infra-manager-versions/);
+    assert.match(stack, /\$\{REMOTE_VERSIONS_ROOT\}\/bundled\.incoming\//, 'under the versions root the host side exports');
   });
 
   it('writes the commit into the shipment, where the api reads it', () => {

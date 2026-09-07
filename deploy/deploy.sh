@@ -13,11 +13,20 @@
 #   1. Builds swarm-hls-stream locally so its dist/ artifacts ship over rsync
 #      (the host docker daemon mounts those into sibling containers spawned
 #      by the manager, so they must exist on the server filesystem).
-#   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager.
-#      Excludes node_modules, build caches and .git. Both .env files (the
-#      manager's and swarm-hls-stream's) DO ship, and --delete means this
-#      checkout is the only source of truth for them.
-#   3. SSHes in and runs `docker compose up -d --build --remove-orphans`.
+#   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager, without
+#      manager/swarm-hls-stream: the tree the engines of existing deployments
+#      mount is never written over again, so a container restart keeps the
+#      files it was started with. Excludes node_modules, build caches and
+#      .git. The manager's .env DOES ship, and --delete means this checkout
+#      is the only source of truth for it.
+#   3. rsyncs the built stack into bundled.incoming/ under the versions root.
+#      The api publishes it at boot as bundled.builds/<commit>/, one
+#      immutable directory per build, and commits the stack's .env, deploy
+#      config and engine envs as the bundled version's host configuration
+#      when they changed, so this checkout stays their source of truth too.
+#      A new deploy of a deployment runs from the published build. A
+#      container keeps what it mounts until its deployment is deployed.
+#   4. SSHes in and runs `docker compose up -d --build --remove-orphans`.
 #      Builds happen on the server, so the image tags match the server's
 #      docker engine. With MANAGER_DOMAIN set, the `public` profile joins in
 #      and starts the TLS edge. With it cleared, the edge is removed by name
@@ -86,15 +95,41 @@ echo "==> Recording the bundled stack commit"
 git -C manager/swarm-hls-stream rev-parse HEAD > manager/.stack-commit
 echo "[deploy] bundled stack commit: $(cat manager/.stack-commit)"
 
-echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH}"
+# The host's versions root, where the api publishes from: the path the remote
+# block below exports and manager/docker-compose.yml bind-mounts, under the
+# home of the user the api runs as.
+REMOTE_HOME="$(ssh "$SSH_TARGET" 'printf %s "$HOME"')"
+if [ -z "$REMOTE_HOME" ]; then
+    echo "ERROR: could not read the home directory on ${SSH_TARGET}." >&2
+    exit 1
+fi
+REMOTE_VERSIONS_ROOT="${REMOTE_HOME}/streaming-infra-manager-versions"
+
+echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH} (manager/swarm-hls-stream left as it is)"
 rsync -avz --delete \
     --exclude '.git/' \
     --exclude 'node_modules/' \
+    --exclude 'manager/swarm-hls-stream/' \
     --exclude '**/dist/.tsbuildinfo' \
     --exclude '*.tsbuildinfo' \
     --exclude '.DS_Store' \
-    --exclude 'manager/swarm-hls-stream/deploy/data/' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
+
+echo "==> rsync the built stack → ${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming"
+# Into its own directory beside the published builds, replaced whole by every
+# deploy, never into a published build and never into the legacy tree. The
+# per deployment files a local run may have left, .env.<profile> and the like,
+# stay home. The sample they are made from ships.
+ssh "$SSH_TARGET" "mkdir -p '${REMOTE_VERSIONS_ROOT}/bundled.incoming'"
+rsync -avz --delete \
+    --exclude '.git/' \
+    --exclude 'node_modules/' \
+    --exclude 'deploy/data/' \
+    --include '.env.sample' \
+    --exclude '.env.*' \
+    --exclude '.DS_Store' \
+    manager/swarm-hls-stream/ "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming/"
+rsync -avz manager/.stack-commit "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming/.stack-commit"
 
 echo "==> Remote build + up"
 # Detect the server's primary IP on the host (the manager runs in a container,
@@ -143,6 +178,8 @@ fi
 echo "[deploy] PUBLIC_HOST seen inside api container:"
 docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' || \
     echo "[deploy] (could not exec into api container to verify)"
+echo "[deploy] the api publishes the shipped bundled stack as it boots. Its log names the build:"
+echo "[deploy]   docker compose logs api | grep 'bundled'"
 REMOTE
 
 
