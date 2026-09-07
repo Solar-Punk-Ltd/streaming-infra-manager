@@ -129,6 +129,20 @@ describe('the session cookie', () => {
     assert.equal(cookie, 'sim_session=tok3n');
   });
 
+  it('keeps the last one when the answer sets it more than once, the way a browser does', () => {
+    assert.equal(
+      sessionCookieFrom(['sim_session=first; Path=/', 'sim_session=second; Path=/']),
+      'sim_session=second',
+    );
+    assert.equal(
+      sessionCookieFrom([
+        'sim_session=first; Path=/',
+        'sim_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ]),
+      null,
+    );
+  });
+
   it('is null when the answer cleared it, or set none', () => {
     assert.equal(
       sessionCookieFrom(['sim_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT']),
