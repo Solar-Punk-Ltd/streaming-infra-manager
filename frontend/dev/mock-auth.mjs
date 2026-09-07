@@ -31,6 +31,12 @@ import { parseCookies, send, sendEmpty } from './mock-http.mjs';
 export const DEV_USERNAME = 'dev';
 export const DEV_PASSWORD = 'dev-password-1234';
 
+/** What the manager answers a user who cannot manage users. */
+const ADMIN_REQUIRED = {
+  error: 'admin_required',
+  message: 'Only a user who can manage users may do this.',
+};
+
 const state = {
   users: [],
   nextUserId: 1,
@@ -40,11 +46,13 @@ const state = {
   attempts: new Map(),
 };
 
-function addUser(username, password) {
+function addUser(username, password, admin = false) {
   const user = {
     id: state.nextUserId++,
     username,
     password,
+    // The first user can manage users whatever was asked, as on the manager.
+    isAdmin: admin || state.users.length === 0,
     createdAt: new Date().toISOString(),
     lastLoginAt: null,
   };
@@ -134,6 +142,7 @@ function summarise(user) {
   return {
     id: user.id,
     username: user.username,
+    isAdmin: user.isAdmin,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
     sessions: sessionsOf(user.id),
@@ -235,6 +244,7 @@ export function authRoutes(readBody) {
         if (open) {
           return send(res, 200, {
             username: open.user.username,
+            isAdmin: open.user.isAdmin,
             expiresAt: new Date(endsAt(open.session)).toISOString(),
           });
         }
@@ -286,6 +296,7 @@ export function authRoutes(readBody) {
       'POST',
       /^\/auth\/users$/,
       async (req, res) => {
+        if (!userFor(req).isAdmin) return send(res, 403, ADMIN_REQUIRED);
         const body = await readBody(req);
         const username = String(body.username ?? '');
         const badName = usernameProblem(username);
@@ -301,7 +312,11 @@ export function authRoutes(readBody) {
           return send(res, 400, { error: 'validation_error', errors: [problem] });
         }
 
-        send(res, 201, summarise(addUser(username, body.password)));
+        send(
+          res,
+          201,
+          summarise(addUser(username, body.password, body.admin === true)),
+        );
       },
     ],
     [
@@ -309,6 +324,7 @@ export function authRoutes(readBody) {
       /^\/auth\/users\/(\d+)$/,
       (req, res, [id]) => {
         const userId = Number(id);
+        if (!userFor(req).isAdmin) return send(res, 403, ADMIN_REQUIRED);
         if (userFor(req).id === userId && state.users.length > 1) {
           return send(res, 409, {
             error: 'cannot_remove_user',
@@ -329,8 +345,12 @@ export function authRoutes(readBody) {
     [
       'POST',
       /^\/auth\/users\/(\d+)\/revoke-sessions$/,
-      (_req, res, [id]) => {
+      (req, res, [id]) => {
         const userId = Number(id);
+        const actor = userFor(req);
+        if (!actor.isAdmin && actor.id !== userId) {
+          return send(res, 403, ADMIN_REQUIRED);
+        }
         if (!exists(userId)) {
           return send(res, 404, { error: 'user_not_found', id: userId });
         }

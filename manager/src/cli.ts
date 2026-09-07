@@ -27,14 +27,17 @@ import { promptSecret, readSecretFromStdin } from './utils/secretInput.js';
 
 const USER_ADD = 'user:add';
 const PASSWORD_STDIN_FLAG = '--password-stdin';
+const ADMIN_FLAG = '--admin';
 
 const USAGE = [
   'Usage:',
-  `  node dist/cli.js ${USER_ADD} <username> [${PASSWORD_STDIN_FLAG}]`,
+  `  node dist/cli.js ${USER_ADD} <username> [${PASSWORD_STDIN_FLAG}] [${ADMIN_FLAG}]`,
   '',
   'Prompts for the password twice, with nothing echoed. Needs a terminal,',
   `so run it with "docker compose exec -it". With ${PASSWORD_STDIN_FLAG} the`,
   'password is read from a pipe instead, for feeding it from a vault.',
+  `${ADMIN_FLAG} lets the new user add and remove users. The first user`,
+  'ever added can do that whether or not the flag is given.',
 ].join('\n');
 
 const logger = Logger.getInstance();
@@ -58,7 +61,11 @@ async function readPassword(fromStdin: boolean): Promise<string> {
   return password;
 }
 
-async function addUser(username: string, fromStdin: boolean): Promise<void> {
+async function addUser(
+  username: string,
+  fromStdin: boolean,
+  admin: boolean,
+): Promise<void> {
   // Checked before the prompt, so a bad name is not found out after the
   // password has been typed twice.
   const badName = usernameProblem(username);
@@ -77,8 +84,10 @@ async function addUser(username: string, fromStdin: boolean): Promise<void> {
       new PostgresCredentialRepository(database.pool),
       new OpenStreams(),
     );
-    await authService.addUser(username, password);
-    logger.info(`[cli] created user ${username}`);
+    const created = await authService.addUser(username, password, { admin });
+    logger.info(
+      `[cli] created user ${username}${created.isAdmin ? ' (can manage users)' : ''}`,
+    );
   } finally {
     await database.close();
   }
@@ -94,7 +103,9 @@ async function main(): Promise<void> {
   }
 
   const flags = rest.filter((argument) => argument.startsWith('-'));
-  const unknownFlag = flags.find((flag) => flag !== PASSWORD_STDIN_FLAG);
+  const unknownFlag = flags.find(
+    (flag) => flag !== PASSWORD_STDIN_FLAG && flag !== ADMIN_FLAG,
+  );
   if (unknownFlag) throw new Error(`unknown option: ${unknownFlag}\n\n${USAGE}`);
 
   const [username, ...extra] = rest.filter(
@@ -104,7 +115,11 @@ async function main(): Promise<void> {
     throw new Error(`${USER_ADD} takes exactly one username\n\n${USAGE}`);
   }
 
-  await addUser(username, flags.includes(PASSWORD_STDIN_FLAG));
+  await addUser(
+    username,
+    flags.includes(PASSWORD_STDIN_FLAG),
+    flags.includes(ADMIN_FLAG),
+  );
 }
 
 main()

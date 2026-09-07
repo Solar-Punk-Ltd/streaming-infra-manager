@@ -1,5 +1,13 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Button, Stack, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Button,
+  Checkbox,
+  FormControlLabel,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
@@ -17,6 +25,7 @@ const EMPTY = { username: '', password: '', again: '' };
 export function AddUserCard({ onAdded }: { onAdded: () => Promise<void> }) {
   const toast = useToast();
   const [form, setForm] = useState(EMPTY);
+  const [admin, setAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -35,8 +44,9 @@ export function AddUserCard({ onAdded }: { onAdded: () => Promise<void> }) {
     setPending(true);
     setError(null);
     try {
-      await addUser(form.username.trim(), form.password);
+      await addUser(form.username.trim(), form.password, admin);
       setForm(EMPTY);
+      setAdmin(false);
       toast(`Added ${form.username.trim()}`, 'success');
       await onAdded();
     } catch (caught) {
@@ -94,6 +104,17 @@ export function AddUserCard({ onAdded }: { onAdded: () => Promise<void> }) {
           autoComplete="new-password"
           disabled={pending}
           fullWidth
+        />
+
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={admin}
+              onChange={(event) => setAdmin(event.target.checked)}
+              disabled={pending}
+            />
+          }
+          label="Can manage users: add and remove them, sign anyone out"
         />
 
         {error && <Alert severity="error">{error}</Alert>}

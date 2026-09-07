@@ -6,6 +6,7 @@ import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
 import {
+  AdminRequiredError,
   AllSlotsUsedError,
   BeeNodeError,
   BeeNotReadyError,
@@ -218,6 +219,10 @@ export function errorHandler(
       service: err.service,
       message: err.message,
     });
+    return;
+  }
+  if (err instanceof AdminRequiredError) {
+    res.status(403).json({ error: 'admin_required', message: err.message });
     return;
   }
   if (err instanceof BeeNotReadyError) {

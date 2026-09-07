@@ -4,7 +4,7 @@ import {
   USERNAME_MESSAGE,
   USERNAME_RE,
 } from '@streaming-infra-manager/common';
-import { InferType, object, string } from 'yup';
+import { boolean, InferType, object, string } from 'yup';
 
 const usernameField = () =>
   string().required('username is required').matches(USERNAME_RE, USERNAME_MESSAGE);
@@ -26,6 +26,8 @@ export type LoginBody = InferType<typeof loginSchema>;
 export const createUserSchema = object({
   username: usernameField(),
   password: string().required('password is required'),
+  /** Let the new user manage users too. Left out means no. */
+  admin: boolean().optional(),
 }).noUnknown(true);
 
 export type CreateUserBody = InferType<typeof createUserSchema>;

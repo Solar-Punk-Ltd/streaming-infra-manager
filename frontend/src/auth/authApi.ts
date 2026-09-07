@@ -7,6 +7,8 @@ import { SIGN_IN_MESSAGES, tooManyAttempts } from './messages';
 /** What `GET /auth/session` says when there is a session. */
 export interface SessionInfo {
   username: string;
+  /** May add and remove users and sign anyone out. */
+  isAdmin: boolean;
   /** ISO. When this session stops working if nothing else touches it. */
   expiresAt: string;
 }
@@ -104,8 +106,9 @@ export function fetchUsers(): Promise<UserSummary[]> {
 export function addUser(
   username: string,
   password: string,
+  admin: boolean,
 ): Promise<void> {
-  return send('POST', '/auth/users', { username, password });
+  return send('POST', '/auth/users', { username, password, admin });
 }
 
 export function removeUser(id: number): Promise<void> {

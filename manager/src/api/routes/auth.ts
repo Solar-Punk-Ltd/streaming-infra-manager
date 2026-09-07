@@ -1,6 +1,7 @@
 import { Request, RequestHandler, Response, Router } from 'express';
 
 import { AuthService } from '../../domain/auth/AuthService.js';
+import { AdminRequiredError } from '../../domain/errors/index.js';
 import {
   ChangePasswordBody,
   CreateUserBody,
@@ -12,7 +13,11 @@ import {
 } from '../../schemas/auth.js';
 import { clientIpOf } from '../../utils/clientIp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { signedInSession, signedInUser } from '../middleware/requireSession.js';
+import {
+  requireAdmin,
+  signedInSession,
+  signedInUser,
+} from '../middleware/requireSession.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import {
   clearSessionCookie,
@@ -71,6 +76,7 @@ export function createAuthRouter(
       if (session) {
         res.json({
           username: session.user.username,
+          isAdmin: session.user.isAdmin,
           expiresAt: session.expiresAt.toISOString(),
         });
         return;
@@ -119,16 +125,22 @@ export function createAuthRouter(
   router.post(
     '/users',
     requireSession,
+    requireAdmin,
     validateBody(createUserSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as CreateUserBody;
-      res.status(201).json(await authService.addUser(body.username, body.password));
+      res.status(201).json(
+        await authService.addUser(body.username, body.password, {
+          admin: body.admin === true,
+        }),
+      );
     }),
   );
 
   router.delete(
     '/users/:id',
     requireSession,
+    requireAdmin,
     validateParams(userIdParamSchema),
     asyncHandler(async (req: Request, res: Response) => {
       await authService.removeUser(userIdOf(req), signedInUser(req).id);
@@ -141,6 +153,12 @@ export function createAuthRouter(
     requireSession,
     validateParams(userIdParamSchema),
     asyncHandler(async (req: Request, res: Response) => {
+      // Anyone may sign themselves out everywhere. Doing it to someone else
+      // is managing users.
+      const user = signedInUser(req);
+      if (!user.isAdmin && user.id !== userIdOf(req)) {
+        throw new AdminRequiredError();
+      }
       await authService.revokeSessions(userIdOf(req));
       res.status(204).end();
     }),

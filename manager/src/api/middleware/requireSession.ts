@@ -5,7 +5,10 @@ import type {
   SessionInfo,
   SignedInUser,
 } from '../../domain/auth/AuthService.js';
-import { NotSignedInError } from '../../domain/errors/index.js';
+import {
+  AdminRequiredError,
+  NotSignedInError,
+} from '../../domain/errors/index.js';
 import { clearSessionCookie, readSessionToken } from '../sessionCookie.js';
 
 import { asyncHandler } from './asyncHandler.js';
@@ -43,3 +46,8 @@ export function signedInSession(req: Request): SessionInfo {
 export function signedInUser(req: Request): SignedInUser {
   return signedInSession(req).user;
 }
+
+/** Mounted after `requireSession`: refuses anyone who cannot manage users. */
+export const requireAdmin: RequestHandler = (req, _res, next) => {
+  next(signedInUser(req).isAdmin ? undefined : new AdminRequiredError());
+};

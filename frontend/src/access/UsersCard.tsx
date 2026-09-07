@@ -30,10 +30,13 @@ const NEVER_SIGNED_IN = 'Never';
 const CANNOT_REMOVE = {
   self: 'You cannot remove your own account. Ask another user to remove it.',
   last: 'This is the last user. Removing it would lock everyone out.',
+  forbidden: 'Only a user who can manage users can remove one.',
   none: '',
 } as const;
 
 const NO_SESSIONS = 'This user has no open sessions.';
+const CANNOT_REVOKE_OTHERS =
+  'Only a user who can manage users can sign someone else out.';
 
 // A disabled button receives no pointer events, so each Tooltip below wraps its
 // button in a span that does. Without it the reason a button is greyed out is
@@ -43,7 +46,9 @@ function removalBlockedBecause(
   user: UserSummary,
   currentUsername: string,
   total: number,
+  canManage: boolean,
 ): keyof typeof CANNOT_REMOVE {
+  if (!canManage) return 'forbidden';
   if (user.username === currentUsername) return 'self';
   if (total <= 1) return 'last';
   return 'none';
@@ -59,11 +64,14 @@ export function UsersCard({
   users,
   error,
   currentUsername,
+  canManage,
   reload,
 }: {
   users: UserSummary[] | null;
   error: string | null;
   currentUsername: string;
+  /** Whether the signed-in user may act on the others. */
+  canManage: boolean;
   reload: () => Promise<void>;
 }) {
   const toast = useToast();
@@ -151,15 +159,33 @@ export function UsersCard({
                 user,
                 currentUsername,
                 users.length,
+                canManage,
               );
               const busy = busyId === user.id;
+              const isSelf = user.username === currentUsername;
+              const revokeBlocked =
+                user.sessions === 0
+                  ? NO_SESSIONS
+                  : !canManage && !isSelf
+                    ? CANNOT_REVOKE_OTHERS
+                    : '';
 
               return (
                 <TableRow key={user.id} hover>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {user.username}
-                      {user.username === currentUsername && (
+                      {user.isAdmin && (
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ ml: 0.75 }}
+                        >
+                          manages users
+                        </Typography>
+                      )}
+                      {isSelf && (
                         <Typography
                           component="span"
                           variant="caption"
@@ -185,11 +211,11 @@ export function UsersCard({
                       spacing={0.5}
                       justifyContent="flex-end"
                     >
-                      <Tooltip title={user.sessions === 0 ? NO_SESSIONS : ''}>
+                      <Tooltip title={revokeBlocked}>
                         <Box component="span">
                           <Button
                             size="small"
-                            disabled={busy || user.sessions === 0}
+                            disabled={busy || revokeBlocked !== ''}
                             onClick={() => askRevoke(user)}
                           >
                             Sign out everywhere

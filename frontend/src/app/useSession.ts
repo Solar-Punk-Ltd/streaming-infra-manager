@@ -12,7 +12,12 @@ import { SessionEndedError, setSessionEndedHandler } from '../http';
 export type SessionState =
   | { status: 'loading' }
   | { status: 'signedOut'; reason: SignedOutReason }
-  | { status: 'signedIn'; username: string; expiresAt: string };
+  | {
+      status: 'signedIn';
+      username: string;
+      isAdmin: boolean;
+      expiresAt: string;
+    };
 
 export interface SessionStore {
   state: SessionState;

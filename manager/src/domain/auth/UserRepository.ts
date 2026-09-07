@@ -5,10 +5,14 @@ export interface UserRow {
   password_hash: string;
   created_at: Date;
   last_login_at: Date | null;
+  is_admin: boolean;
 }
 
-/** What a removal did: took the row, refused to take the last one, found none. */
-export type UserDeletion = 'deleted' | 'last' | 'missing';
+/**
+ * What a removal did: took the row, refused to take the last user, refused to
+ * take the last one who can manage users, or found none.
+ */
+export type UserDeletion = 'deleted' | 'last' | 'last_admin' | 'missing';
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -17,10 +21,15 @@ export interface UserRepository {
   findById(id: number): Promise<UserRow | null>;
   findByUsername(username: string): Promise<UserRow | null>;
   /** Null when the username is already taken. */
-  insert(username: string, passwordHash: string): Promise<UserRow | null>;
+  insert(
+    username: string,
+    passwordHash: string,
+    isAdmin: boolean,
+  ): Promise<UserRow | null>;
   markSignedIn(id: number, at: Date): Promise<void>;
   /**
-   * Removes a user unless it is the only one left.
+   * Removes a user unless it is the only one left, or the only one left who
+   * can manage users, which would leave nobody able to add the next.
    *
    * One step rather than a count and a delete: two people removing each other
    * at the same moment both counted two users and both deleted, which empties

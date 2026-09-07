@@ -7,7 +7,8 @@ import type {
   UserRow,
 } from './UserRepository.js';
 
-const USER_COLUMNS = 'id, username, password_hash, created_at, last_login_at';
+const USER_COLUMNS =
+  'id, username, password_hash, created_at, last_login_at, is_admin';
 
 export class PostgresUserRepository implements UserRepository {
   constructor(private readonly pool: Pool) {}
@@ -45,13 +46,14 @@ export class PostgresUserRepository implements UserRepository {
   async insert(
     username: string,
     passwordHash: string,
+    isAdmin: boolean,
   ): Promise<UserRow | null> {
     const result = await this.pool.query<UserRow>(
-      `INSERT INTO users (username, password_hash)
-       VALUES ($1, $2)
+      `INSERT INTO users (username, password_hash, is_admin)
+       VALUES ($1, $2, $3)
        ON CONFLICT (username) DO NOTHING
        RETURNING ${USER_COLUMNS}`,
-      [username, passwordHash],
+      [username, passwordHash, isAdmin],
     );
     return result.rows[0] ?? null;
   }
@@ -71,9 +73,17 @@ export class PostgresUserRepository implements UserRepository {
         USER_REMOVAL_LOCK_KEY,
       ]);
 
-      const counted = await client.query<{ total: number; matching: number }>(
+      const counted = await client.query<{
+        total: number;
+        matching: number;
+        admins: number;
+        target_admin: boolean;
+      }>(
         `SELECT COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE id = $1)::int AS matching
+                COUNT(*) FILTER (WHERE id = $1)::int AS matching,
+                COUNT(*) FILTER (WHERE is_admin)::int AS admins,
+                COALESCE(BOOL_OR(is_admin) FILTER (WHERE id = $1), false)
+                  AS target_admin
            FROM users`,
         [id],
       );
@@ -86,6 +96,10 @@ export class PostgresUserRepository implements UserRepository {
       if (row.total <= 1) {
         await client.query('COMMIT');
         return 'last';
+      }
+      if (row.target_admin && row.admins <= 1) {
+        await client.query('COMMIT');
+        return 'last_admin';
       }
 
       await client.query('DELETE FROM users WHERE id = $1', [id]);

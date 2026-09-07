@@ -43,6 +43,8 @@ const logger = Logger.getInstance();
 export interface SignedInUser {
   id: number;
   username: string;
+  /** May add and remove users and sign anyone out. */
+  isAdmin: boolean;
 }
 
 export interface SessionInfo {
@@ -50,6 +52,11 @@ export interface SessionInfo {
   tokenHash: string;
   /** When this session stops working if nothing else touches it. */
   expiresAt: Date;
+}
+
+export interface AddUserOptions {
+  /** Let the new user add and remove users too. */
+  admin?: boolean;
 }
 
 export interface SignInInput {
@@ -166,7 +173,11 @@ export class AuthService {
     if (touch) await this.sessions.touch(tokenHash, now);
 
     return {
-      user: { id: session.userId, username: session.username },
+      user: {
+        id: session.userId,
+        username: session.username,
+        isAdmin: session.isAdmin,
+      },
       tokenHash,
       expiresAt: endsAt({
         ...session,
@@ -185,29 +196,43 @@ export class AuthService {
     return rows.map((row) => ({
       id: row.id,
       username: row.username,
+      isAdmin: row.is_admin,
       createdAt: row.created_at.toISOString(),
       lastLoginAt: row.last_login_at?.toISOString() ?? null,
       sessions: sessionCounts.get(row.id) ?? 0,
     }));
   }
 
-  async addUser(username: string, password: string): Promise<UserSummary> {
+  /**
+   * The first user ever added can manage users whatever the caller asked,
+   * because somebody has to be able to add the second.
+   */
+  async addUser(
+    username: string,
+    password: string,
+    options: AddUserOptions = {},
+  ): Promise<UserSummary> {
     const badName = usernameProblem(username);
     if (badName) throw new InvalidUsernameError(badName);
 
     const problem = passwordProblem(password, username);
     if (problem) throw new WeakPasswordError(problem);
 
+    const isAdmin = options.admin === true || (await this.users.count()) === 0;
     const row = await this.users.insert(
       username,
       await hashPassword(password),
+      isAdmin,
     );
     if (!row) throw new UserExistsError(username);
 
-    logger.info(`[Auth] user added: ${username}`);
+    logger.info(
+      `[Auth] user added: ${username}${isAdmin ? ' (can manage users)' : ''}`,
+    );
     return {
       id: row.id,
       username: row.username,
+      isAdmin: row.is_admin,
       createdAt: row.created_at.toISOString(),
       lastLoginAt: null,
       sessions: 0,
@@ -226,6 +251,11 @@ export class AuthService {
     if (outcome === 'last') {
       throw new CannotRemoveUserError(
         'This is the last user. Removing it would lock everyone out.',
+      );
+    }
+    if (outcome === 'last_admin') {
+      throw new CannotRemoveUserError(
+        'This is the only user who can manage users. Removing it would leave nobody able to add or remove one.',
       );
     }
     this.openStreams.closeUser(userId);

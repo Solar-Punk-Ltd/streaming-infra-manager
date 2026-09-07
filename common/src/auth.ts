@@ -16,6 +16,8 @@ const HOUR_MS = 60 * MINUTE_MS;
 export interface UserSummary {
   id: number;
   username: string;
+  /** May add and remove users and sign anyone out. */
+  isAdmin: boolean;
   /** ISO. */
   createdAt: string;
   /** ISO, or null for a user who has never signed in. */

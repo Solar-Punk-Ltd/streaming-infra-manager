@@ -10,6 +10,7 @@ interface SessionJoinRow {
   token_hash: string;
   user_id: number;
   username: string;
+  is_admin: boolean;
   created_at: Date;
   last_seen_at: Date;
   expires_at: Date;
@@ -20,6 +21,7 @@ function toStoredSession(row: SessionJoinRow): StoredSession {
     tokenHash: row.token_hash,
     userId: row.user_id,
     username: row.username,
+    isAdmin: row.is_admin,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
     expiresAt: row.expires_at,
@@ -45,7 +47,7 @@ export class PostgresSessionRepository implements SessionRepository {
 
   async findByTokenHash(tokenHash: string): Promise<StoredSession | null> {
     const result = await this.pool.query<SessionJoinRow>(
-      `SELECT s.token_hash, s.user_id, u.username,
+      `SELECT s.token_hash, s.user_id, u.username, u.is_admin,
               s.created_at, s.last_seen_at, s.expires_at
          FROM sessions s
          JOIN users u ON u.id = s.user_id

@@ -7,6 +7,7 @@ export interface StoredSession {
   tokenHash: string;
   userId: number;
   username: string;
+  isAdmin: boolean;
   createdAt: Date;
   lastSeenAt: Date;
   expiresAt: Date;

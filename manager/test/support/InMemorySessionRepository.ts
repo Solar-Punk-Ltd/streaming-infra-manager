@@ -43,7 +43,7 @@ export class InMemorySessionRepository implements SessionRepository {
     const user = await this.users.findById(row.userId);
     if (!user) return null;
 
-    return { ...row, username: user.username };
+    return { ...row, username: user.username, isAdmin: user.is_admin };
   }
 
   async touch(tokenHash: string, seenAt: Date): Promise<void> {

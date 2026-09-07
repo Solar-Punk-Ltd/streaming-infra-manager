@@ -37,6 +37,7 @@ export class InMemoryUserRepository implements UserRepository {
   async insert(
     username: string,
     passwordHash: string,
+    isAdmin: boolean,
   ): Promise<UserRow | null> {
     if (this.rows.some((row) => row.username === username)) return null;
 
@@ -46,6 +47,7 @@ export class InMemoryUserRepository implements UserRepository {
       password_hash: passwordHash,
       created_at: new Date(),
       last_login_at: null,
+      is_admin: isAdmin,
     };
     this.rows = [...this.rows, row];
     return { ...row };
@@ -65,8 +67,12 @@ export class InMemoryUserRepository implements UserRepository {
   }
 
   async deleteUnlessLast(id: number): Promise<UserDeletion> {
-    if (!this.rows.some((row) => row.id === id)) return 'missing';
+    const target = this.rows.find((row) => row.id === id);
+    if (!target) return 'missing';
     if (this.rows.length <= 1) return 'last';
+    if (target.is_admin && this.rows.filter((row) => row.is_admin).length <= 1) {
+      return 'last_admin';
+    }
 
     this.rows = this.rows.filter((row) => row.id !== id);
     return 'deleted';

@@ -31,6 +31,7 @@ const OTHER_PASSWORD = 'another-fine-password';
 interface UserRow {
   id: number;
   username: string;
+  isAdmin: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   sessions: number;
@@ -553,6 +554,92 @@ describe('managing users', () => {
 
     const withNew = await signIn(app, USERNAME, next);
     assert.ok(withNew.cookie);
+  });
+});
+
+describe('who may manage users', () => {
+  let app: AuthTestApp;
+  let adminCookie: string;
+  let adminId: number;
+  let plainCookie: string;
+  let plainId: number;
+
+  before(async () => {
+    app = await startAuthTestApp();
+    adminId = (await app.authService.addUser(USERNAME, PASSWORD)).id;
+    plainId = (await app.authService.addUser('plain', OTHER_PASSWORD)).id;
+    adminCookie = (await signIn(app, USERNAME, PASSWORD)).cookie;
+    plainCookie = (await signIn(app, 'plain', OTHER_PASSWORD)).cookie;
+  });
+  after(() => app.close());
+
+  it('makes the first user an admin and the next one plain', async () => {
+    const res = await call(app, 'GET', '/auth/users', { cookie: adminCookie });
+    const users = res.body as UserRow[];
+
+    assert.equal(users.find((user) => user.id === adminId)?.isAdmin, true);
+    assert.equal(users.find((user) => user.id === plainId)?.isAdmin, false);
+  });
+
+  it('tells each session whether it can manage users', async () => {
+    const admin = await call(app, 'GET', '/auth/session', { cookie: adminCookie });
+    const plain = await call(app, 'GET', '/auth/session', { cookie: plainCookie });
+
+    assert.equal((admin.body as { isAdmin: boolean }).isAdmin, true);
+    assert.equal((plain.body as { isAdmin: boolean }).isAdmin, false);
+  });
+
+  it('refuses a plain user who tries to add or remove one', async () => {
+    const added = await call(app, 'POST', '/auth/users', {
+      cookie: plainCookie,
+      body: { username: 'mate', password: OTHER_PASSWORD },
+    });
+    const removed = await call(app, 'DELETE', `/auth/users/${adminId}`, {
+      cookie: plainCookie,
+    });
+
+    assert.equal(added.status, 403);
+    assert.equal((added.body as { error: string }).error, 'admin_required');
+    assert.equal(removed.status, 403);
+  });
+
+  it('lets a plain user sign themselves out everywhere, but nobody else', async () => {
+    const other = await call(
+      app,
+      'POST',
+      `/auth/users/${adminId}/revoke-sessions`,
+      { cookie: plainCookie },
+    );
+    assert.equal(other.status, 403);
+
+    const self = await call(
+      app,
+      'POST',
+      `/auth/users/${plainId}/revoke-sessions`,
+      { cookie: plainCookie },
+    );
+    assert.equal(self.status, 204);
+    assert.equal(
+      (await call(app, 'GET', '/profiles', { cookie: plainCookie })).status,
+      401,
+    );
+  });
+
+  it('lets an admin add another admin, and refuses to remove the only one', async () => {
+    const added = await call(app, 'POST', '/auth/users', {
+      cookie: adminCookie,
+      body: { username: 'second', password: OTHER_PASSWORD, admin: true },
+    });
+    assert.equal(added.status, 201);
+    assert.equal((added.body as UserRow).isAdmin, true);
+
+    // With two admins the first can go. Then the second is the only one.
+    const secondId = (added.body as UserRow).id;
+    await app.authService.removeUser(adminId, secondId);
+    await assert.rejects(
+      () => app.authService.removeUser(secondId, plainId),
+      /only user who can manage users/,
+    );
   });
 });
 
