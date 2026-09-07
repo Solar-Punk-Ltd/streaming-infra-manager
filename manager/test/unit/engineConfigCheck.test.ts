@@ -318,7 +318,10 @@ describe('the SRS check', () => {
       ),
     );
 
-    assert.equal(answers.filter((answer) => answer === null).length, 66, 'each check answered for its own file');
+    answers.forEach((answer, i) => {
+      const refused = answer !== null;
+      assert.equal(refused, i % 3 === 0, `check ${i} answered for its own file`);
+    });
     assert.deepEqual(readdirSync(scratchDir), []);
   });
 });
