@@ -58,7 +58,7 @@ export function orchestratorHarness(
   const versions = new InMemoryStackVersionRepository();
   versions.seedBundled();
   const containers = new FakeContainers();
-  const ledger = new InMemoryBuildLedger(profiles, versionsRoot);
+  const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),

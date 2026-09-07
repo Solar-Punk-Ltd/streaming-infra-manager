@@ -1,4 +1,7 @@
-import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
+import type {
+  StackVersionRecord,
+  StackVersionRepository,
+} from '../../src/domain/versions/StackVersionRepository.js';
 import {
   type BuildDescriptor,
   type BuildLedger,
@@ -40,6 +43,7 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
 
   constructor(
     private readonly profiles: InMemoryProfiles,
+    private readonly versions: Pick<StackVersionRepository, 'findByName'>,
     private readonly versionsRoot: string,
   ) {}
 
@@ -80,13 +84,11 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     if (this.observeFailures.has(profileName)) throw new Error('the daemon did not answer');
     this.observed.push(profileName);
     const observations: Observation[] = [];
-    const versionOf = (root: string): number | null =>
-      this.references.find((reference) => reference.holderId === profileName && reference.holderKind === 'job')?.versionId ?? null;
     for (const service of services) {
       const root = this.mounted.get(`${profileName}/${service}`);
       if (!root) continue;
       observations.push({ service, buildId: buildIdOfRoot(this.versionsRoot, root), commit: commitOfRoot(root) });
-      const versionId = versionOf(root);
+      const versionId = await this.versionOfRoot(root);
       if (versionId === null) continue;
       for (const older of this.references) {
         if (older.holderKind === 'snapshot' && older.holderId === `${profileName}/${service}` && older.resolvedAt === null) {
@@ -128,4 +130,16 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
 
   /** What the legacy and bundled keys stand for, for a test that asserts them. */
   static readonly LEGACY = LEGACY_BUILD_ID;
+
+  /**
+   * The version a root belongs to, from the path segment under the versions
+   * root, the way the real ledger reads it: `<name>`, `<name>.builds` and
+   * `<name>.repo` all belong to `<name>`, and a root elsewhere to no version.
+   */
+  private async versionOfRoot(root: string): Promise<number | null> {
+    if (!root.startsWith(`${this.versionsRoot}/`)) return null;
+    const first = root.slice(this.versionsRoot.length + 1).split('/')[0] ?? '';
+    const name = first.replace(/\.(builds|repo)$/, '');
+    return (await this.versions.findByName(name))?.id ?? null;
+  }
 }
