@@ -28,6 +28,7 @@ export function AtAGlanceCard({
   group,
   version,
   engineOverview,
+  engineLoadError,
 }: {
   profile: Profile;
   serverHost: string;
@@ -38,6 +39,8 @@ export function AtAGlanceCard({
   version: StackVersion | null;
   /** The manager's answer about the engine, null until it arrives or when there is no engine. */
   engineOverview: EngineOverview | null;
+  /** Why it did not arrive, or null. */
+  engineLoadError: string | null;
 }) {
   const engine = engineOf(profile);
   const entries: KeyValueEntry[] = [
@@ -54,7 +57,9 @@ export function AtAGlanceCard({
       key: 'Engine',
       value: engineOverview
         ? engineSummary(engine, engineOverview.effective)
-        : ENGINE_LABEL[engine],
+        : engineLoadError
+          ? `${ENGINE_LABEL[engine]} · settings could not be loaded`
+          : ENGINE_LABEL[engine],
     });
   }
 

@@ -287,6 +287,7 @@ function DeploymentBody({
             group={group}
             version={version}
             engineOverview={engineLoad.overview}
+            engineLoadError={engineLoad.loadError}
           />
           {shape === 'stream' && isRunning(profile) && (
             <NextStepsCard streamName={profile.name} />
