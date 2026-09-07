@@ -206,6 +206,55 @@ describe('what boot does with the attempts a gone manager left open', () => {
   });
 });
 
+describe('what ends an attempt without its script', () => {
+  it('blocks when the script never started, so nothing holds the host open for nothing', async () => {
+    const { harness, row } = await setup();
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+
+    harness.runner.abort(0, 'spawn bash ENOENT');
+    await untilStatus(harness, 'stage', 'ERROR');
+
+    assert.equal(harness.attempts.rows[0]?.state, 'blocked');
+    assert.match(harness.attempts.rows[0]?.reason ?? '', /never seen/);
+  });
+
+  it('is released when its deployment is removed, so the name can be deployed again', async () => {
+    const { harness, row } = await setup();
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    assert.equal(harness.attempts.rows[0]?.state, 'blocked');
+
+    await harness.orchestrator.startRemove(row('stage'));
+    harness.runner.finish(1, 0);
+    for (let tick = 0; tick < 300 && harness.profiles.rows.has('stage'); tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(harness.profiles.rows.has('stage'), false, 'the deployment is gone');
+    assert.equal(harness.attempts.rows[0]?.state, 'released');
+    assert.match(harness.attempts.rows[0]?.releasedBy ?? '', /removed/);
+
+    harness.profiles.rows.set('stage', makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64) }));
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+    assert.equal(harness.attempts.rows.length, 2, 'the new deployment of that name is admitted');
+  });
+
+  it('refuses, with the deployment as it was, a deploy that passed the check and lost the guard', async () => {
+    const { harness, row } = await setup();
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+    harness.attempts.precheckBlind = true;
+
+    await assert.rejects(
+      harness.orchestrator.startDeploy(row('other'), undefined),
+      (err: unknown) => err instanceof DeployAttemptRefusedError,
+    );
+
+    assert.equal(harness.profiles.statusOf('other'), 'RUNNING', 'a refusal changes nothing');
+    assert.equal(harness.attempts.rows.length, 1);
+    assert.equal(harness.runner.runs.length, 1, 'nothing was spawned for it');
+  });
+});
+
 describe('what the pages are told', () => {
   it('says attempt.changed when an attempt opens and again when it is judged', async () => {
     const { harness, row, recreated } = await setup();

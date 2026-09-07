@@ -14,6 +14,13 @@ import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
 export class InMemoryDeployAttempts implements DeployAttemptRepository {
   readonly rows: DeployAttempt[] = [];
 
+  /**
+   * When set, the list the orchestrator's pre-check reads is empty while
+   * `open` still applies the rules: the moment between two deploys' checks
+   * and their guards, when both passed the check and one loses the guard.
+   */
+  precheckBlind = false;
+
   private nextId = 1;
 
   async open(attempt: NewDeployAttempt): Promise<DeployAttempt> {
@@ -39,7 +46,18 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
   }
 
   async listUnresolved(daemonId: string): Promise<DeployAttempt[]> {
+    if (this.precheckBlind) return [];
     return this.rows.filter((row) => row.daemonId === daemonId && row.state !== 'released');
+  }
+
+  async releaseProject(daemonId: string, project: string, by: string): Promise<DeployAttempt[]> {
+    const released = this.rows.filter(
+      (row) => row.daemonId === daemonId && row.project === project && row.state !== 'released',
+    );
+    for (const row of released) {
+      Object.assign(row, { state: 'released', releasedBy: by, resolvedAt: new Date() });
+    }
+    return released;
   }
 
   async listBlocked(): Promise<DeployAttempt[]> {

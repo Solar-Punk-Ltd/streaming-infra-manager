@@ -42,4 +42,9 @@ export class FakeScriptRunner extends ScriptRunner {
     if (run) this.onFinish?.(run);
     this.emitters[index]?.emit('done', { code });
   }
+
+  /** The script never started: what a bad path or a missing bash looks like from the runner. */
+  abort(index: number, message: string): void {
+    this.emitters[index]?.emit('error', new Error(message));
+  }
 }

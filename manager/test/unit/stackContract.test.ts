@@ -222,4 +222,23 @@ describe('readStackContract and the image tags a version builds', () => {
 
     assert.equal(contract.features.sharedImageTags, true);
   });
+
+  it('treats a compose file whose services it could not read as shared, and says which file', () => {
+    const contract = readStackContract(
+      withCompose('services:\n    stream-uploader:\n        build: .\n        image: stream-uploader\n'),
+    );
+
+    assert.equal(contract.features.sharedImageTags, true);
+    assert.equal(contract.warnings.length, 1);
+    assert.match(contract.warnings[0] ?? '', /docker-compose\.yml/);
+  });
+
+  it('counts an image key whose value it cannot read as a name, since a build under any name is shared', () => {
+    const contract = readStackContract(
+      withCompose('services:\n  stream-uploader:\n    build:\n      context: ..\n    image: stream-uploader # one tag for every deployment\n'),
+    );
+
+    assert.equal(contract.features.sharedImageTags, true);
+    assert.deepEqual(contract.warnings, []);
+  });
 });

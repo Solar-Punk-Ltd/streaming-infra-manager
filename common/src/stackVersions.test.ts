@@ -146,7 +146,7 @@ describe('describeStackContract', () => {
         ...V2_CONTRACT,
         warnings: ['_lib.sh line 12 is not a port entry: SRS_SRT_PORT'],
       }),
-      '9 ports, slots 1 to 999, no generated secrets, 1 port line not understood',
+      '9 ports, slots 1 to 999, no generated secrets, 1 line not understood',
     );
   });
 
