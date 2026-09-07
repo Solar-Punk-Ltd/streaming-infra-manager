@@ -25,6 +25,9 @@ export interface EndpointKind {
  * protocol. A key this does not know is shown as a plain TCP port with no
  * link, which claims nothing. A version's port contract can name the protocol
  * outright once it carries one.
+ *
+ * The API check comes before the HTTP one on purpose: `SRS_HTTP_API_PORT` is
+ * an API, and the order is what keeps it off the HLS branch.
  */
 export function endpointKindOf(portKey: string): EndpointKind {
   const key = portKey.toUpperCase();

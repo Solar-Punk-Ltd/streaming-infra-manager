@@ -56,7 +56,7 @@ describe('what a port is, by its key', () => {
     assert.equal(kind.opensInBrowser, false);
   });
 
-  it('says RTMP ingest is TCP and not a page', () => {
+  it('knows RTMP ingest as its own protocol, and not a page', () => {
     assert.equal(endpointKindOf('SRS_RTMP_PORT').protocol, 'rtmp');
     assert.equal(endpointKindOf('SRS_RTMP_PORT').opensInBrowser, false);
   });
