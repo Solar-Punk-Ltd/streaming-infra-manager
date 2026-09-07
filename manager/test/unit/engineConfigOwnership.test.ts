@@ -103,6 +103,10 @@ class ScriptedWatcher implements EngineWatcher {
   async logs(): Promise<string> {
     return 'invalid config, exiting';
   }
+
+  async reachable(): Promise<boolean> {
+    return true;
+  }
 }
 
 async function setup() {
@@ -120,7 +124,7 @@ async function setup() {
     new EngineConfigChecker(async () => ({ code: 0, stdout: 'test is successful', stderr: '' })),
     harness.events,
     operations,
-    { intervalMs: 5, durationMs: 25 },
+    { intervalMs: 5, durationMs: 25, probeBudgetMs: 20 },
   );
   const row = () => {
     const found = harness.profiles.rows.get('stream1');

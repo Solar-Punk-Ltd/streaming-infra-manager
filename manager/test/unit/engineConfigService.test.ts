@@ -101,6 +101,9 @@ class ScriptedWatcher implements EngineWatcher {
       'invalid config, exiting',
     ].join('\n');
   }
+  async reachable(): Promise<boolean> {
+    return true;
+  }
 }
 
 interface Setup {
@@ -134,7 +137,7 @@ async function setup(options: {
     checker,
     harness.events,
     new InMemoryEngineConfigOperations(harness.profiles),
-    { intervalMs: 5, durationMs: 20 },
+    { intervalMs: 5, durationMs: 20, probeBudgetMs: 20 },
   );
   return {
     harness,
