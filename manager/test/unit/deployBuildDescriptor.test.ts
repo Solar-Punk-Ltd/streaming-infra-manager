@@ -152,6 +152,24 @@ describe('what the success hook records', () => {
     assert.ok(snapshots.every((r) => r.buildId === COMMIT_A));
   });
 
+  it('resolves the older snapshot of a service when a newer observation replaces it', async () => {
+    const { harness, row, versionsRoot } = await setup();
+    const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) harness.ledger.mounted.set(`stage/${service}`, buildA);
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'stage');
+
+    const srs = harness.ledger.references.filter((r) => r.holderId === 'stage/srs');
+    assert.equal(srs.length, 2);
+    assert.notEqual(srs[0]!.resolvedAt, null, 'the first snapshot is replaced');
+    assert.equal(srs[1]!.resolvedAt, null, 'the newest snapshot stands');
+  });
+
   it('keeps the job reference when the observation fails, and the deployment still comes up', async () => {
     const { harness, row } = await setup();
     harness.ledger.observeFailures.add('stage');
