@@ -17,6 +17,11 @@ import { hasService, shapeOf, statusLabelOf } from './shape';
 export interface Readiness {
   label: string;
   tone: Tone;
+  /**
+   * The deployment works as it is and the label says what needs attention
+   * next, so a summary may call it ready. Left out, the label is a blocker.
+   */
+  working?: boolean;
 }
 
 // One rule for "has a node to ask", shared with the manager's deploy gate, so a
@@ -138,7 +143,9 @@ function chequebookProblem(
   health: ChequebookHealth | null | undefined,
 ): Readiness | null {
   if (health?.state === 'empty') return { label: CHEQUEBOOK_EMPTY, tone: 'err' };
-  if (health?.state === 'low') return { label: CHEQUEBOOK_LOW, tone: 'warn' };
+  if (health?.state === 'low') {
+    return { label: CHEQUEBOOK_LOW, tone: 'warn', working: true };
+  }
   return null;
 }
 
@@ -146,7 +153,7 @@ function streamStampProblem(health?: StampHealth): Readiness | null {
   const problem = nodeStampProblem(health);
   if (problem) return problem;
   if (isStampExpiringSoon(health?.ttl)) {
-    return { label: STAMP_ENDS_SOON, tone: 'warn' };
+    return { label: STAMP_ENDS_SOON, tone: 'warn', working: true };
   }
   return null;
 }

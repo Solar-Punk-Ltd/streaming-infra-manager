@@ -22,10 +22,13 @@ export function readySummary(
   const shape = shapeOf(profile);
 
   if (isStreamLike(profile, shape) || shape === 'abr-uploader') {
-    if (readiness.tone === 'ok' && publishUrl) {
+    if ((readiness.tone === 'ok' || readiness.working) && publishUrl) {
       return {
-        tone: 'ok',
-        title: 'Ready. Point OBS or FFmpeg at this URL:',
+        tone: readiness.tone,
+        title:
+          readiness.tone === 'ok'
+            ? 'Ready. Point OBS or FFmpeg at this URL:'
+            : `Ready, but ${readiness.label.toLowerCase()}. Point OBS or FFmpeg at this URL:`,
         url: publishUrl,
       };
     }
@@ -59,10 +62,13 @@ export function readySummary(
   }
 
   if (shape === 'bee-node') {
-    return readiness.tone === 'ok'
+    return readiness.tone === 'ok' || readiness.working
       ? {
-          tone: 'ok',
-          title: 'This node is ready to receive uploads for its rung.',
+          tone: readiness.tone,
+          title:
+            readiness.tone === 'ok'
+              ? 'This node is ready to receive uploads for its rung.'
+              : `This node receives uploads for its rung, but ${readiness.label.toLowerCase()}.`,
           url: null,
         }
       : {
