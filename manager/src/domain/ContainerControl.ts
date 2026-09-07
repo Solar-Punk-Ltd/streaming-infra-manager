@@ -98,15 +98,16 @@ export interface ContainerHandle {
   inspect(): Promise<InspectedContainer>;
 }
 
-/** The part of `docker inspect` the watch after a config change reads. */
-export interface InspectedContainer {
-  Id: string;
-  State: {
-    Status: string;
-    RestartCount?: number;
-    StartedAt?: string;
-  };
-}
+/**
+ * The part of `docker inspect` the watch after a config change reads.
+ *
+ * Picked out of dockerode's own type so the shape stays Docker's: the restart
+ * count sits beside `State`, not inside it, and a double that puts it under
+ * `State` no longer compiles.
+ */
+export type InspectedContainer = Pick<Docker.ContainerInspectInfo, 'Id' | 'RestartCount'> & {
+  State: Pick<Docker.ContainerInspectInfo['State'], 'Status' | 'StartedAt'>;
+};
 
 /** One container's state, as `inspect` answers it. */
 export interface ContainerState {
@@ -225,7 +226,7 @@ export class ContainerControl {
     return {
       id: info.Id,
       status: info.State.Status,
-      restartCount: info.State.RestartCount ?? 0,
+      restartCount: info.RestartCount,
       startedAt: info.State.StartedAt ?? null,
     };
   }

@@ -130,11 +130,8 @@ export function fakeDocker(
       const state = container.state ?? { status: 'running', restartCount: 0 };
       return {
         Id: container.id,
-        State: {
-          Status: state.status,
-          RestartCount: state.restartCount,
-          StartedAt: '2026-09-07T10:00:00Z',
-        },
+        RestartCount: state.restartCount,
+        State: { Status: state.status, StartedAt: '2026-09-07T10:00:00Z' },
       };
     },
   });
