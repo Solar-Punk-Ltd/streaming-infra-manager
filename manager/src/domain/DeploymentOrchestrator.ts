@@ -180,8 +180,7 @@ export class DeploymentOrchestrator {
   }
 
   /** Shared tags, unless the version's contract says its built services name no image. Unknown is shared. */
-  private async attemptKindFor(profile: Profile): Promise<DeployAttemptKind> {
-    const version = await this.versionFor(profile);
+  private attemptKindOf(version: StackVersionRecord | null): DeployAttemptKind {
     return version?.contract?.features?.sharedImageTags === false ? 'fixed' : 'shared';
   }
 
@@ -330,7 +329,7 @@ export class DeploymentOrchestrator {
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
-    await this.assertAttemptAdmissible(profile, await this.attemptKindFor(profile));
+    await this.assertAttemptAdmissible(profile, this.attemptKindOf(await this.versionFor(profile)));
 
     const transitioned = await this.profiles.transitionStatus(
       profile.name,
@@ -530,7 +529,7 @@ export class DeploymentOrchestrator {
       paths,
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
-      guard: { kind: await this.attemptKindFor(profile), services },
+      guard: { kind: this.attemptKindOf(version), services },
       onSuccess: async () => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         await removeStaleEngineConfigs(

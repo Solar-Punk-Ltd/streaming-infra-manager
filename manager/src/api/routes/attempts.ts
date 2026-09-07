@@ -52,7 +52,7 @@ export function createAttemptsRouter(
   router.post(
     '/:id/release',
     asyncHandler(async (req: Request, res: Response) => {
-      const id = Number.parseInt(req.params.id as string, 10);
+      const id = Number(req.params.id);
       const attempt = Number.isInteger(id)
         ? (await orchestrator.unresolvedAttempts()).find((entry) => entry.id === id)
         : undefined;
