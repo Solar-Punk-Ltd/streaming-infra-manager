@@ -1,3 +1,5 @@
+import { readBuildManifest } from './buildManifest.js';
+
 /**
  * What keeps a build directory alive.
  *
@@ -36,6 +38,11 @@ export function buildIdOfRoot(versionsRoot: string, root: string): string {
   const [first, second] = relative.split('/');
   if (first?.endsWith('.builds') && second) return second;
   return 'legacy';
+}
+
+/** The commit a root was built from, off its manifest, or null for a root that is not a build. */
+export function commitOfRoot(root: string): string | null {
+  return readBuildManifest(root).manifest?.commit ?? null;
 }
 
 export interface NewBuildReference {

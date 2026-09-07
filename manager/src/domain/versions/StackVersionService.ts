@@ -667,6 +667,9 @@ function toApiVersion(
     lastError: version.lastError,
     contract: version.contract,
     deployments,
+    layout: version.layout,
+    buildId: version.buildId,
+    previousBuildId: version.previousBuildId,
   };
 }
 

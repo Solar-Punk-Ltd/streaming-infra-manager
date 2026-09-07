@@ -104,6 +104,12 @@ export interface StackVersion {
   contract: StackContract | null;
   /** How many deployments run this version. */
   deployments: number;
+  /** Where the version deploys from: its flat root, as before builds, or its current build. */
+  layout: 'legacy' | 'builds';
+  /** The current build of a builds row, the commit or `<commit>-r<n>`, or null. */
+  buildId: string | null;
+  /** The build the current one replaced, kept for recovery, or null. */
+  previousBuildId: string | null;
 }
 
 /** Slot ceiling for a version whose deploy script names no other. */

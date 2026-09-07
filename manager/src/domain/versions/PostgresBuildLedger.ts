@@ -10,10 +10,12 @@ import {
   BUNDLED_BUILD_ID,
   type ClaimedDeploy,
   type MountObserver,
+  type Observation,
 } from './buildLedger.js';
 import {
   type BuildReference,
   buildIdOfRoot,
+  commitOfRoot,
   coveredJobReferences,
 } from './buildReferences.js';
 import { stackRootOf } from './stackPaths.js';
@@ -137,7 +139,7 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     return { version, buildId, root, referenceId: inserted.rows[0]?.id ?? null };
   }
 
-  async observe(profileName: string, services: readonly string[]): Promise<void> {
+  async observe(profileName: string, services: readonly string[]): Promise<Observation[]> {
     // Every question to Docker first, so a daemon that does not answer
     // leaves nothing half written.
     const mounted: { service: string; root: string }[] = [];
@@ -145,6 +147,11 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
       const root = await this.observer.mountedRootOf(profileName, service);
       if (root) mounted.push({ service, root });
     }
+    const observations: Observation[] = mounted.map(({ service, root }) => ({
+      service,
+      buildId: buildIdOfRoot(this.versionsRoot, root),
+      commit: commitOfRoot(root),
+    }));
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -180,6 +187,7 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
         );
       }
       await client.query('COMMIT');
+      return observations;
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       throw err;

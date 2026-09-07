@@ -22,6 +22,14 @@ export interface BuildDescriptor {
   referenceId: number | null;
 }
 
+/** One service's container, and the build it was seen to be started from. */
+export interface Observation {
+  service: string;
+  buildId: string;
+  /** The build's commit from its manifest, or null for a root that is not a build. */
+  commit: string | null;
+}
+
 export interface ClaimedDeploy {
   profile: Profile;
   descriptor: BuildDescriptor;
@@ -62,10 +70,10 @@ export interface BuildLedger {
   /**
    * Asks Docker what each service mounts, writes one snapshot reference per
    * service observed, and resolves every job reference of the profile that
-   * newer observations cover. Throws when Docker cannot be asked, and then
-   * nothing was written.
+   * newer observations cover. Answers what was seen. Throws when Docker
+   * cannot be asked, and then nothing was written.
    */
-  observe(profileName: string, services: readonly string[]): Promise<void>;
+  observe(profileName: string, services: readonly string[]): Promise<Observation[]>;
   /** The same observation for every profile, at boot. */
   observeAll(): Promise<void>;
 }

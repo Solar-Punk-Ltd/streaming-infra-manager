@@ -43,7 +43,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
 import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
-import type { BuildDescriptor, BuildLedger } from './versions/buildLedger.js';
+import type { BuildDescriptor, BuildLedger, Observation } from './versions/buildLedger.js';
 import {
   deployRootProblem,
   stackPaths,
@@ -477,7 +477,7 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services, reservation.host),
       onSuccess: async () => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
-        await this.observeMounts(profile.name, services);
+        await this.observeMounts(profile, services);
         await removeStaleEngineConfigs(
           engineConfigDirFor(profile.name),
           engine,
@@ -720,13 +720,29 @@ export class DeploymentOrchestrator {
    * it touched has been seen. A daemon that does not answer keeps the
    * reference, which is the safe side: the build stays.
    */
-  private async observeMounts(profileName: string, services: string[]): Promise<void> {
+  private async observeMounts(profile: Profile, services: string[]): Promise<void> {
+    let observations: Observation[];
     try {
-      await this.ledger.observe(profileName, services);
+      observations = await this.ledger.observe(profile.name, services);
     } catch (err) {
       logger.warn(
-        `[Orchestrator] could not observe what ${profileName} mounts: ${getErrorMessage(err)}. Its build reference stays open.`,
+        `[Orchestrator] could not observe what ${profile.name} mounts: ${getErrorMessage(err)}. Its build reference stays open.`,
       );
+      return;
+    }
+    for (const seen of observations) {
+      await this.containers.setBuild(profile.name, seen.service, seen.buildId, seen.commit);
+    }
+    // One commit for the deployment only when this deploy touched every
+    // service it has and every one was seen on that commit. A partial deploy
+    // advances the services it touched and nothing else.
+    const every = defaultServicesFor(profile);
+    const agreed = observations[0]?.commit ?? null;
+    const full =
+      agreed !== null &&
+      every.every((service) => observations.some((seen) => seen.service === service && seen.commit === agreed));
+    if (full) {
+      await this.profiles.setLastFullDeployCommit(profile.name, agreed);
     }
   }
 

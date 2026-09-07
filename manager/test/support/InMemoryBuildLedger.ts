@@ -6,10 +6,12 @@ import {
   BUNDLED_BUILD_ID,
   type ClaimedDeploy,
   LEGACY_BUILD_ID,
+  type Observation,
 } from '../../src/domain/versions/buildLedger.js';
 import {
   type BuildReference,
   buildIdOfRoot,
+  commitOfRoot,
   coveredJobReferences,
 } from '../../src/domain/versions/buildReferences.js';
 import { stackRootOf } from '../../src/domain/versions/stackPaths.js';
@@ -74,14 +76,16 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     return { version, buildId, root, referenceId: reference.id };
   }
 
-  async observe(profileName: string, services: readonly string[]): Promise<void> {
+  async observe(profileName: string, services: readonly string[]): Promise<Observation[]> {
     if (this.observeFailures.has(profileName)) throw new Error('the daemon did not answer');
     this.observed.push(profileName);
+    const observations: Observation[] = [];
     const versionOf = (root: string): number | null =>
       this.references.find((reference) => reference.holderId === profileName && reference.holderKind === 'job')?.versionId ?? null;
     for (const service of services) {
       const root = this.mounted.get(`${profileName}/${service}`);
       if (!root) continue;
+      observations.push({ service, buildId: buildIdOfRoot(this.versionsRoot, root), commit: commitOfRoot(root) });
       const versionId = versionOf(root);
       if (versionId === null) continue;
       for (const older of this.references) {
@@ -104,6 +108,7 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     for (const reference of this.references) {
       if (covered.has(reference.id)) reference.resolvedAt = new Date(++this.clock);
     }
+    return observations;
   }
 
   async observeAll(): Promise<void> {

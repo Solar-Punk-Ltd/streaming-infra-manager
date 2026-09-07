@@ -41,3 +41,13 @@ CREATE TABLE build_references (
 
 CREATE INDEX build_references_open ON build_references (version_id, build_id) WHERE resolved_at IS NULL;
 CREATE INDEX build_references_holder ON build_references (holder_kind, holder_id);
+
+-- What runs, as observed: the build and the commit each service's container
+-- was started from, written from the container itself after a deploy and at
+-- boot, and the commit of the deployment's last deploy that touched every
+-- service and found them agreeing. A deploy that touched one service
+-- advances that service alone, so a page shows one commit only when every
+-- container agrees and says mixed otherwise.
+ALTER TABLE containers ADD COLUMN build_id TEXT;
+ALTER TABLE containers ADD COLUMN build_commit TEXT;
+ALTER TABLE profiles ADD COLUMN last_full_deploy_commit TEXT;
