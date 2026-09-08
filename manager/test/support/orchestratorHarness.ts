@@ -10,6 +10,7 @@ import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
+import { ALLOCATION_CONTRACT } from './allocationContract.js';
 import { InMemoryBuildLedger } from './InMemoryBuildLedger.js';
 import { FakeDaemon, InMemoryDeployAttempts } from './InMemoryDeployAttempts.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
@@ -64,7 +65,8 @@ export function orchestratorHarness(
   const events = new EventBus();
   // Every row names the bundled version, the one the seed inserts as id 1.
   const versions = new InMemoryStackVersionRepository();
-  versions.seedBundled();
+  versions.seedBundled().contract = structuredClone(ALLOCATION_CONTRACT);
+  profiles.reservations.seededAt = new Date(0);
   const containers = new FakeContainers();
   const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
   const attempts = new InMemoryDeployAttempts();
@@ -99,6 +101,7 @@ export function orchestratorHarness(
     daemon,
     uploaderGate,
     targets,
+    profiles.reservations,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon };
