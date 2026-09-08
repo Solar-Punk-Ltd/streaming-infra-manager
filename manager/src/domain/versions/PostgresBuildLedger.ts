@@ -1,6 +1,9 @@
 import type { Pool, PoolClient } from 'pg';
+import { isDeepStrictEqual } from 'node:util';
+import { parseStackContract } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../../types/index.js';
+import { ProfileConfigError } from '../errors/index.js';
 import { PROFILE_COLUMNS } from '../profileSql.js';
 
 import {
@@ -18,7 +21,8 @@ import {
   commitOfRoot,
   coveredJobReferences,
 } from './buildReferences.js';
-import { stackRootOf } from './stackPaths.js';
+import { readBuildManifest } from './buildManifest.js';
+import { deployRootProblem, stackRootOf } from './stackPaths.js';
 import type { StackVersionRecord } from './StackVersionRepository.js';
 
 const REFERENCE_COLUMNS = `
@@ -34,6 +38,28 @@ interface ReferenceRow {
   services: string[];
   created_at: Date;
   resolved_at: Date | null;
+}
+
+interface DeploySnapshotRow {
+  id: number;
+  name: string;
+  root_path: string | null;
+  layout: StackVersionRecord['layout'];
+  build_id: string | null;
+  commit_sha: string | null;
+  contract: unknown;
+}
+
+function deploySnapshotOf(version: StackVersionRecord) {
+  return {
+    id: version.id,
+    name: version.name,
+    rootPath: version.rootPath,
+    layout: version.layout,
+    buildId: version.buildId,
+    commitSha: version.commitSha,
+    contract: version.contract,
+  };
 }
 
 function toReference(row: ReferenceRow): BuildReference {
@@ -64,16 +90,6 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versionsRoot: string,
   ) {}
 
-  /**
-   * The version handed in is the caller's read from the tick before this
-   * transaction, and the job reference names that read's build without
-   * reading the row again under the share lock. That holds because a build
-   * stays protected while it is the row's current or previous build, and
-   * losing that takes two publications after the read, minutes of build
-   * each, and then a prune, all before an insert that follows the read
-   * within one tick of one process. A second manager on one database is the
-   * case this rests on not existing, and nothing in the manager allows one.
-   */
   async claim(
     profileName: string,
     from: readonly ProfileStatus[],
@@ -84,7 +100,7 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     try {
       await client.query('BEGIN');
       if (version) {
-        await client.query('SELECT id FROM stack_versions WHERE id = $1 FOR SHARE', [version.id]);
+        await this.validateSnapshot(client, profileName, version);
       }
       const claimed = await client.query<Profile>(
         `UPDATE profiles
@@ -118,7 +134,7 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     try {
       await client.query('BEGIN');
       if (version) {
-        await client.query('SELECT id FROM stack_versions WHERE id = $1 FOR SHARE', [version.id]);
+        await this.validateSnapshot(client, profileName, version);
       }
       const descriptor = await this.insertJobReference(client, profileName, version, services);
       await client.query('COMMIT');
@@ -128,6 +144,39 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
       throw err;
     } finally {
       client.release();
+    }
+  }
+
+  /** A publication or prune may finish while the caller waits for a connection. */
+  private async validateSnapshot(client: PoolClient, profileName: string, version: StackVersionRecord): Promise<void> {
+    const result = await client.query<DeploySnapshotRow>(
+      `SELECT id, name, root_path, layout, build_id, commit_sha, contract
+         FROM stack_versions WHERE id = $1 FOR SHARE`,
+      [version.id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new ProfileConfigError(profileName, `Stack version ${version.name} (${version.id}) no longer exists. No deployment was started.`);
+    }
+    const locked = {
+      id: row.id,
+      name: row.name,
+      rootPath: row.root_path,
+      layout: row.layout,
+      buildId: row.build_id,
+      commitSha: row.commit_sha,
+      contract: parseStackContract(row.contract),
+    };
+    if (!isDeepStrictEqual(deploySnapshotOf(version), locked)) {
+      throw new ProfileConfigError(profileName, `Stack version ${version.name} changed after build ${version.buildId ?? version.commitSha ?? 'unknown'} was selected. Review the current version before deploying.`);
+    }
+    const problem = deployRootProblem(version);
+    if (problem) throw new ProfileConfigError(profileName, problem);
+    if (version.layout === 'builds' && version.rootPath !== null) {
+      const { manifest } = readBuildManifest(stackRootOf(version));
+      if (manifest?.buildId !== version.buildId || manifest?.commit !== version.commitSha) {
+        throw new ProfileConfigError(profileName, `Build ${version.buildId} of ${version.name} has a manifest that does not match its selected identity. No deployment was started.`);
+      }
     }
   }
 
