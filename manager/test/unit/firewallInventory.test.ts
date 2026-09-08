@@ -68,7 +68,7 @@ describe('firewall evidence export', () => {
 
   it('refuses snapshots without explicit service ownership', async () => {
     const h = setup();
-    h.state.references.push({ versionId: 1, buildId: 'a'.repeat(40), holderKind: 'snapshot', holderId: 'a/unknown', services: null });
+    h.state.references.push({ versionId: 1, buildId: 'a'.repeat(40), holderKind: 'snapshot', holderId: 'a/unknown', services: [] });
     await assert.rejects(h.exporter.export('localhost'), /snapshot.*service|ownership/);
   });
 

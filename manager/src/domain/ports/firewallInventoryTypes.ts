@@ -15,7 +15,7 @@ export interface FirewallProfile {
 export type FirewallVersion = Pick<StackVersionRecord, 'id' | 'name' | 'layout' | 'rootPath' | 'buildId' | 'previousBuildId'>;
 export type FirewallReference = Pick<BuildReference, 'versionId' | 'buildId' | 'holderKind' | 'holderId' | 'services'>;
 export type FirewallReservation = Pick<PortReservation, 'daemonId' | 'profileName' | 'protocol' | 'port' | 'heldServices'>;
-export type FirewallContract = Pick<StackContract, 'ports' | 'maxSlot' | 'allocationProblem'>;
+export type FirewallContract = Pick<StackContract, 'ports' | 'portAliases' | 'maxSlot' | 'allocationProblem'>;
 
 /** Only structural facts. No profile keys, passwords, environment values or config contents. */
 export interface FirewallState {

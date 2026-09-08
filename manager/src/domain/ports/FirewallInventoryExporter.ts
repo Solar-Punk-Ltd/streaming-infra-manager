@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { PORT_POLICY_VERSION, portExposureProblem, publicPortRole } from '@streaming-infra-manager/common';
+import { PORT_POLICY_VERSION, engineForComponents, portExposureProblem, publicPortRole } from '@streaming-infra-manager/common';
 import { InvalidStackVersionError } from '../errors/index.js';
 import type { TargetIdentityProbe } from './VerifiedDeployTargets.js';
 import type { PublishedPortsProbe } from './PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './portReservations.js';
+import { portTableForEngine } from '../versions/enginePortTable.js';
 import type { FirewallClaim, FirewallContractReader, FirewallInventory, FirewallState, FirewallStateSource } from './firewallInventoryTypes.js';
 
 function refuse(reason: string): never { throw new InvalidStackVersionError(`Firewall inventory: ${reason}`); }
@@ -48,6 +49,7 @@ export class FirewallInventoryExporter {
         ...(current.previousBuildId ? [{ version: current, buildId: current.previousBuildId, services: null, mandatory: false }] : []),
       ];
       for (const ref of before.references.filter(ref => ref.holderKind === 'snapshot' && ref.holderId.startsWith(`${profile.name}/`))) {
+        if (!ref.services?.length) refuse(`${profile.name} has a snapshot without explicit service ownership.`);
         const version = before.versions.find(row => row.id === ref.versionId);
         if (!version || version.layout !== 'builds' || !version.rootPath) refuse(`${profile.name} has unprovable retained build history.`);
         required.push({ version, buildId: ref.buildId, services: ref.services, mandatory: true });
@@ -55,7 +57,11 @@ export class FirewallInventoryExporter {
       for (const { version, buildId, services, mandatory } of required) {
         const contract = await this.contracts.read(version, buildId);
         if (!contract.ports.length || contract.allocationProblem) refuse(`${profile.name} has no complete port contract for build ${buildId}.`);
-        const plan = portPlanFor(contract.ports, profile.slot)
+        const hasOmeOwner = reservations.some(row => row.profileName === profile.name && row.heldServices.includes('ome'));
+        const tables = mandatory
+          ? [portTableForEngine(contract, engineForComponents(services))]
+          : [contract.ports, ...(hasOmeOwner && contract.portAliases?.length ? [portTableForEngine(contract, 'ome')] : [])];
+        const plan = tables.flatMap(table => portPlanFor(table, profile.slot))
           .filter(entry => services === null || (entry.service !== null && services.includes(entry.service)))
           .filter(entry => mandatory || reservations.some(row => row.profileName === profile.name
             && row.heldServices.includes(entry.service) && portKeyOf(row) === portKeyOf(entry)));
