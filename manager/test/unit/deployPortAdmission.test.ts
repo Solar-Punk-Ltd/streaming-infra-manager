@@ -108,6 +108,7 @@ describe('captured contract port admission', () => {
     await h.ports.plan('daemon-1', 'b', portPlanFor(contract(20000).ports, 1), 'other');
     await assert.rejects(h.orchestrator.startInitialDeploy(h.row(), ['srs']), /b holds/);
     assert.equal(h.runner.runs.length, 0);
+    assert.deepEqual(h.ledger.openJobReferences('a'), []);
   });
 
   it('refuses a changed daemon between reservation and launch', async () => {
