@@ -148,8 +148,6 @@ export interface DockerEngine {
  * profile's status, and the generated config only exists inside the container.
  */
 export class ContainerControl {
-  private daemon: string | null = null;
-
   private readonly limits: ContainerControlLimits;
 
   /** Restarts under way, and when the last one of each stops refusing another. */
@@ -247,17 +245,14 @@ export class ContainerControl {
    * answers is whether a container the deploy just created is still up, and
    * one that died is exactly the answer wanted.
    */
-  /** The daemon's own id, read once: a lock keyed by it never crosses hosts. */
+  /** A fresh identity for target verification and for judging recorded attempts. */
   async daemonId(): Promise<string> {
-    if (this.daemon === null) {
-      const info = (await this.withinLimit(this.docker.info())) as { ID?: string };
-      if (!info.ID) {
-        logger.error('[ContainerControl] docker info answered no daemon id');
-        throw new DockerUnavailableError();
-      }
-      this.daemon = info.ID;
+    const info = (await this.withinLimit(this.docker.info())) as { ID?: string };
+    if (typeof info.ID !== 'string' || !info.ID.trim()) {
+      logger.error('[ContainerControl] docker info answered no daemon id');
+      throw new DockerUnavailableError();
     }
-    return this.daemon;
+    return info.ID;
   }
 
   /** Every container of the project, all states, by the service compose labels it. */
