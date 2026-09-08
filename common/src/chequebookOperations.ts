@@ -81,7 +81,8 @@ export type ChequebookRecoveryObservation = RecoveryEvidence & (
   | { readonly kind: 'searching'; readonly scan: ChequebookRecoveryScan }
   | { readonly kind: 'no_match'; readonly scan: ChequebookRecoveryScan }
   | { readonly kind: 'candidate' | 'ambiguous' }
-  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'chain_changed' | 'identity_mismatch' | 'evidence_limit' | 'attribution_conflict' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'chain_changed' | 'identity_mismatch' | 'evidence_limit'; readonly additionalEvidenceInResponseJournal?: never }
+  | { readonly kind: 'could_not_check'; readonly reason: 'attribution_conflict'; readonly additionalEvidenceInResponseJournal?: true }
 );
 
 export interface ChequebookAssertionInput {

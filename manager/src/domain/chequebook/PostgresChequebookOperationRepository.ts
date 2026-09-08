@@ -4,7 +4,7 @@ import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionO
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
 import type { ChainTransaction } from './chainEvidence.js';
 import { matchesChequebookTransfer } from './transactionIdentity.js';
-import { normalizeRecoveryObservation, preserveRecoveryEvidence } from './recoveryObservation.js';
+import { attributionConflictObservation, normalizeRecoveryObservation, preserveRecoveryEvidence } from './recoveryObservation.js';
 import { normalizeReceiptObservation } from './receiptObservation.js';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 
@@ -187,9 +187,8 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
   }
 
   private async flagAttributionConflict(client: PoolClient, operation: ChequebookOperation, hash: string): Promise<ChequebookOperation> {
-    const hashes = [...new Set([...(operation.recoveryObservation?.candidateHashes ?? []), ...(operation.transactionHash ? [operation.transactionHash] : []), hash])];
     const receiptObservation = { kind: 'could_not_check', reason: 'attribution_conflict' };
-    const recoveryObservation = { ...receiptObservation, candidateHashes: hashes };
+    const recoveryObservation = attributionConflictObservation(operation, hash);
     const conflicted = await client.query<OperationRow>(`UPDATE chequebook_operations
       SET failure_reason='hash_conflict', receipt_observation=$2::jsonb, receipt_checked_at=NOW(),
           recovery_observation=$3::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW()

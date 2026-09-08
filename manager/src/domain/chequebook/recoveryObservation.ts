@@ -38,6 +38,8 @@ export function normalizeRecoveryObservation(input: ChequebookRecoveryObservatio
   if (input.kind === 'ambiguous' && candidateHashes.length > 0) return Object.freeze({ ...evidence, kind: input.kind });
   if (input.kind === 'could_not_check' && ['rpc_unavailable', 'chain_changed', 'identity_mismatch', 'evidence_limit', 'attribution_conflict'].includes(input.reason)) {
     if (input.reason === 'chain_changed' && scan) throw new ChequebookOperationInputError('recovery history conflict');
+    if (input.additionalEvidenceInResponseJournal !== undefined && (input.reason !== 'attribution_conflict' || input.additionalEvidenceInResponseJournal !== true)) throw new ChequebookOperationInputError('recovery evidence marker');
+    if (input.reason === 'attribution_conflict') return Object.freeze({ ...evidence, kind: input.kind, reason: input.reason, ...(input.additionalEvidenceInResponseJournal ? { additionalEvidenceInResponseJournal: true as const } : {}) });
     return Object.freeze({ ...evidence, kind: input.kind, reason: input.reason });
   }
   throw new ChequebookOperationInputError('recovery observation');
@@ -60,4 +62,18 @@ export function preserveRecoveryEvidence(operation: ChequebookOperation, input: 
   if (input.kind === 'no_match' && candidateHashes.length > 0) return normalizeRecoveryObservation({ kind: 'could_not_check', reason: 'rpc_unavailable', ...evidence });
   if (input.kind === 'candidate' && candidateHashes.length > 1) return normalizeRecoveryObservation({ kind: 'ambiguous', ...evidence });
   return normalizeRecoveryObservation({ ...input, ...evidence });
+}
+
+/** Overflow direct hashes remain in the response journal, while existing scan evidence stays intact. */
+export function attributionConflictObservation(operation: ChequebookOperation, hash: string): Extract<ChequebookRecoveryObservation, { reason: 'attribution_conflict' }> {
+  const previous = operation.recoveryObservation;
+  const observed = recoveryHashes(previous?.candidateHashes ?? []);
+  const direct = recoveryHashes([...(operation.transactionHash ? [operation.transactionHash] : []), hash]);
+  const allHashes = [...new Set([...observed, ...direct])];
+  const hasAdditionalEvidence = allHashes.length > MAX_RECOVERY_CANDIDATES ||
+    (previous?.kind === 'could_not_check' && previous.reason === 'attribution_conflict' && previous.additionalEvidenceInResponseJournal === true);
+  return Object.freeze({ kind: 'could_not_check', reason: 'attribution_conflict',
+    candidateHashes: Object.freeze(allHashes.slice(0, MAX_RECOVERY_CANDIDATES)),
+    ...(hasAdditionalEvidence ? { additionalEvidenceInResponseJournal: true as const } : {}),
+  });
 }
