@@ -19,6 +19,10 @@ const makeVersion = (overrides = {}) => ({
 
 test('approval payload and explicit wizard version choice stay tied to the visible build', async (t) => {
   let versions = [makeVersion()];
+  let versionsGate = null;
+  let versionsRequests = 0;
+  let holdEvents = false;
+  let heldEvents = null;
   const writes = [];
   const server = await createServer({
     root: frontend, configFile: resolve(frontend, 'vite.config.ts'),
@@ -31,8 +35,17 @@ test('approval payload and explicit wizard version choice stay tied to the visib
         if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
         if (path === '/profiles' && req.method === 'GET') return json({ profiles: [] });
         if (path === '/groups' && req.method === 'GET') return json({ groups: [] });
-        if (path === '/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end('retry: 86400000\n\n'); return; }
-        if (path === '/versions' && req.method === 'GET') return json(versions);
+        if (path === '/events') {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          if (holdEvents) { heldEvents = res; res.write('retry: 86400000\n\n'); }
+          else res.end('retry: 86400000\n\n');
+          return;
+        }
+        if (path === '/versions' && req.method === 'GET') {
+          versionsRequests++;
+          await versionsGate;
+          return json(versions);
+        }
         if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^(\/versions|\/profiles|\/groups)/.test(path)) {
           const chunks = [];
           for await (const chunk of req) chunks.push(chunk);
@@ -66,10 +79,14 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   }
   const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
   let visitNumber = 0;
-  async function visit() {
+  async function visit(waitForVersions = true) {
     await evaluate('window.__t08OldPage = true');
     await call('Page.navigate', { url: `${origin}/?t08=${++visitNumber}#/versions` });
-    await waitFor(() => evaluate('window.__t08OldPage ? -1 : document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
+    if (waitForVersions) {
+      await waitFor(() => evaluate('window.__t08OldPage ? -1 : document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
+    } else {
+      await waitFor(() => evaluate(`!window.__t08OldPage && (${button('New deployment')})?.disabled === false`));
+    }
   }
   async function openBasics(goal = 'Custom') {
     await click(button('New deployment'));
@@ -167,6 +184,52 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await click('document.querySelector("input[type=checkbox]")');
     await waitFor(() => writes.length, n => n > 0, 'legacy approval request');
     assert.deepEqual(writes[0].body, { tested: true, commitSha: COMMIT, buildId: null });
+  });
+
+  await t.test('delayed defaults and disappearing choices leave a usable picker without replacing the draft', async () => {
+    versions = [makeVersion({ tested: true, testedInvalidatedAt: null })];
+    let releaseVersions;
+    versionsGate = new Promise(resolve => { releaseVersions = resolve; });
+    holdEvents = true;
+    heldEvents = null;
+    const requestsBefore = versionsRequests;
+    try {
+      await visit(false);
+      await waitFor(() => versionsRequests > requestsBefore);
+      await openBasics();
+      assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
+      releaseVersions();
+      versionsGate = null;
+      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 1);
+      assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'a late sole default must leave a way to choose it');
+      assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
+      await click('document.querySelector("#wizard-version")');
+      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+      await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
+      assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
+
+      await waitFor(() => heldEvents !== null);
+      versions = [makeVersion({ tested: true, testedInvalidatedAt: null, isDefault: false }), makeVersion({ id: 2, name: 'another-default', tested: true, testedInvalidatedAt: null })];
+      heldEvents.write('event: version.changed\ndata: {}\n\n');
+      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 2);
+      assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/, 'a new default never replaces an explicit choice');
+      versions = [versions[1]];
+      heldEvents.write('event: version.changed\ndata: {}\n\n');
+      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 1);
+      assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
+      assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'removing the chosen version must leave a way to select the remaining default');
+      await click('document.querySelector("#wizard-version")');
+      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+      await click('document.querySelector("[role=option][data-value=\\"2\\"]")');
+      assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
+      assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
+      await click('document.querySelector("button[aria-label=close]")');
+    } finally {
+      releaseVersions();
+      versionsGate = null;
+      heldEvents?.end();
+      holdEvents = false;
+    }
   });
 
   assert.deepEqual(browser.errors, []);
