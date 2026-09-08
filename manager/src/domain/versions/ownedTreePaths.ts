@@ -1,6 +1,19 @@
 import { constants } from 'node:fs';
-import { lstat, open, readdir, readlink } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { lstat, open, readdir, readlink, realpath } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+
+export async function assertSeparateOwnedTrees(source: string, destination: string): Promise<void> {
+  const sourcePath = await realpath(source);
+  let destinationPath: string;
+  try { destinationPath = await realpath(destination); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    destinationPath = join(await realpath(dirname(destination)), basename(destination));
+  }
+  const outside = (path: string) => path === '..' || path.startsWith(`..${sep}`);
+  if (!outside(relative(sourcePath, destinationPath)) || !outside(relative(destinationPath, sourcePath))) {
+    throw new Error('Bundled capture requires separate source and private trees.');
+  }
+}
 
 export function assertRelativeTreePath(path: string): void {
   if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) ||

@@ -1,27 +1,14 @@
 import { execFile } from 'node:child_process';
-import { chmod, lstat, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { chmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { captureHostConfig, CONFIG_LOCK_DIR, CONFIG_REVISION_FILE, envKeysIn } from './hostConfigCapture.js';
 import { isHostInputPath, ownedHostInputPaths } from './hostInputPaths.js';
-import { assertOwnedDirectory, assertOwnedLinkTarget, assertOwnedTreeLinks, assertRelativeTreePath, readOwnedFile } from './ownedTreePaths.js';
+import { assertOwnedDirectory, assertOwnedLinkTarget, assertOwnedTreeLinks, assertRelativeTreePath, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
 export type GitReadCommand = (root: string, args: readonly string[]) => Promise<Buffer>;
 export interface PinnedBundledSource { root: string; commit: string }
 export interface BundledInputIdentity { generation: number; hashes: Record<string, string> }
-
-async function assertSeparateTrees(source: string, destination: string): Promise<void> {
-  const sourcePath = await realpath(source);
-  let destinationPath: string;
-  try { destinationPath = await realpath(destination); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    destinationPath = join(await realpath(dirname(destination)), basename(destination));
-  }
-  const outside = (path: string) => path === '..' || path.startsWith(`..${sep}`);
-  if (!outside(relative(sourcePath, destinationPath)) || !outside(relative(destinationPath, sourcePath))) {
-    throw new Error('Bundled capture requires separate source and private trees.');
-  }
-}
 
 const gitRead: GitReadCommand = (root, args) => new Promise((resolve, reject) => {
   execFile('git', ['-C', root, ...args], { encoding: 'buffer', maxBuffer: 128 * 1024 * 1024 }, (error, stdout) => {
@@ -91,7 +78,7 @@ export async function exportPinnedBundledSource(
   destination: string,
   run: GitReadCommand = gitRead,
 ): Promise<PinnedBundledSource> {
-  await assertSeparateTrees(source, destination);
+  await assertSeparateOwnedTrees(source, destination);
   await assertOwnedDirectory(source);
   const commit = decode(await run(source, ['rev-parse', '--verify', 'HEAD^{commit}'])).trim();
   if (!isObjectId(commit)) throw new Error('Git did not return a complete commit id.');
@@ -113,7 +100,7 @@ export async function captureBundledInputs(
   destination: string,
   options: { lockWaitMs?: number } = {},
 ): Promise<BundledInputIdentity> {
-  await assertSeparateTrees(source, destination);
+  await assertSeparateOwnedTrees(source, destination);
   await assertOwnedDirectory(destination);
   const previous = await ownedHostInputPaths(destination);
   let hasRevision = false;
