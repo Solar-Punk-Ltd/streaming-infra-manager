@@ -78,9 +78,10 @@ test('version identity, states and actions fit verified narrow viewports', async
         const rows = [...document.querySelectorAll('input[type="checkbox"]')].map(input => {
           const row = input.closest('article, tr');
           const visible = [...row.querySelectorAll('button, input[type="checkbox"]')].map(element => {
-            const box = element.getBoundingClientRect();
+            const target = element.matches('input') ? element.closest('label') ?? element.closest('.MuiSwitch-root') : element;
+            const box = target.getBoundingClientRect();
             let left = 0, right = innerWidth;
-            for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            for (let parent = target.parentElement; parent; parent = parent.parentElement) {
               if (['hidden', 'auto', 'scroll', 'clip'].includes(getComputedStyle(parent).overflowX)) {
                 const bounds = parent.getBoundingClientRect();
                 left = Math.max(left, bounds.left); right = Math.min(right, bounds.right);
@@ -115,9 +116,9 @@ test('version identity, states and actions fit verified narrow viewports', async
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 960, deviceScaleFactor: 1, mobile: false });
     assert.equal(await evaluate('document.querySelectorAll("details > summary").length'), 6);
     await evaluate(`document.querySelector('details > summary').focus()`);
-    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-    assert.equal(await evaluate('document.querySelector("details").open'), true);
+    await waitFor(() => evaluate('document.querySelector("details").open'), Boolean, 'keyboard-expanded contract');
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
     assert.equal(await evaluate(`document.querySelector('input[aria-label=${JSON.stringify(`${LONG_VERSION_NAME} tested`)}]').checked`), true);
     if (evidence) {
