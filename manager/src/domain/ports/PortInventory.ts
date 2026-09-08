@@ -5,6 +5,8 @@ import { targetAlias, type DeployTargets } from './DeployTargets.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
 import type { PublishedPortBinding, PublishedPortsProbe } from './PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './portReservations.js';
+import { engineForComponents } from '@streaming-infra-manager/common';
+import { portTableForEngine } from '../versions/enginePortTable.js';
 
 /** Adds evidence before opening allocation. A failed pass retains its rows and leaves the gate closed. */
 export class PortInventory implements DeployTargets {
@@ -43,7 +45,7 @@ export class PortInventory implements DeployTargets {
       if (!contract?.ports.length || contract.allocationProblem) {
         throw new InvalidStackVersionError(`Cannot seed ${profile.name}: ${contract?.allocationProblem ?? 'its version has no readable port table'}`);
       }
-      await this.ports.plan(daemonId, profile.name, portPlanFor(contract.ports, profile.port_slot), 'existing deployment inventory');
+      await this.ports.plan(daemonId, profile.name, portPlanFor(portTableForEngine(contract, engineForComponents(profile.components)), profile.port_slot), 'existing deployment inventory');
     }
     await this.observeTarget(alias, daemonId, daemonByProfile);
   }
@@ -65,7 +67,7 @@ export class PortInventory implements DeployTargets {
       if (!contract?.ports.length || contract.allocationProblem) {
         throw new InvalidStackVersionError(`Cannot seed ${profile.name}: ${contract?.allocationProblem ?? 'its version has no readable port table'}`);
       }
-      await this.ports.plan(daemonId, profile.name, portPlanFor(contract.ports, profile.port_slot), 'existing deployment inventory');
+      await this.ports.plan(daemonId, profile.name, portPlanFor(portTableForEngine(contract, engineForComponents(profile.components)), profile.port_slot), 'existing deployment inventory');
     }
 
     for (const [daemonId, alias] of targetByDaemon) {

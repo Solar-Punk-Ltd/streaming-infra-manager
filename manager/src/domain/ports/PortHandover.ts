@@ -7,6 +7,8 @@ import { targetAlias } from './DeployTargets.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
 import type { PublishedPortsProbe } from './PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './portReservations.js';
+import { engineForComponents } from '@streaming-infra-manager/common';
+import { portTableForEngine } from '../versions/enginePortTable.js';
 
 /** Only replacement evidence can retire an old service's port plan. A script's exit code cannot. */
 export class PortHandover {
@@ -27,7 +29,7 @@ export class PortHandover {
       throw new TargetNotVerifiedError(target, 'Port handover observations came from a different Docker daemon. Reservations were retained.');
     }
     if (published.unverifiedProjects?.length) return;
-    const planned = portPlanFor(contract.ports, profile.port_slot);
+    const planned = portPlanFor(portTableForEngine(contract, engineForComponents(profile.components)), profile.port_slot);
     const before = new Set(attempt.preJobContainerIds);
     const services = attempt.services.filter(service => {
       const ids = containers.containers.get(service) ?? [];

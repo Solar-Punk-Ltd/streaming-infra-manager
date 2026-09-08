@@ -24,9 +24,9 @@ describe('OME port lifecycle', () => {
       const h = profileServiceHarness();
       (await h.versions.findDefault())!.contract = omeContract();
       if (action === 'deployment') {
-        await h.service.create({ name: 'stage', kind: 'publisher', components: ['ome'] });
+        await h.service.create({ name: 'stage', kind: 'custom', components: ['ome'] });
       } else {
-        const { group } = await h.service.createGroup({ group_name: 'pool', size: 1, kind: 'publisher', components: ['ome'] });
+        const { group } = await h.service.createGroup({ group_name: 'pool', size: 1, kind: 'custom', components: ['ome'] });
         if (action === 'member') {
           for (const profile of h.profiles.rows.values()) h.profiles.write(profile.name, { status: 'RUNNING' });
           await h.service.addGroupMembers(group.id, 1);

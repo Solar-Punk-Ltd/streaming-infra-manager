@@ -38,6 +38,7 @@ import type { PortReservationRepository } from './ports/PortReservationRepositor
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './ports/portReservations.js';
+import { portTableForEngine } from './versions/enginePortTable.js';
 import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import {
   type AttemptOutcome,
@@ -393,7 +394,7 @@ export class DeploymentOrchestrator {
     if (!contract?.ports.length || contract.allocationProblem) {
       throw new ProfileConfigError(profile.name, contract?.allocationProblem ?? 'The captured build has no readable port table. Rebuild the version before deploying.');
     }
-    const plan = portPlanFor(contract.ports, profile.port_slot);
+    const plan = portPlanFor(portTableForEngine(contract, engineForComponents(profile.components)), profile.port_slot);
     const exposureProblem = plan.map(portExposureProblem).find(problem => problem !== null);
     if (exposureProblem) throw new ProfileConfigError(profile.name, exposureProblem);
     if (profile.port_slot < 1 || profile.port_slot > slotCapFor(contract)) {

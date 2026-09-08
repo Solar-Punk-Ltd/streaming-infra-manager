@@ -40,8 +40,6 @@ function bundledServiceOf(name: string): string {
   return 'bee-gateway';
 }
 
-/** OvenMediaEngine listens where SRS would, so its ports follow the SRS entries. */
-
 export function portTableOf(
   contract: StackContract | null | undefined,
 ): readonly StackPortVar[] {

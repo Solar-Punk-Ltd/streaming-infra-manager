@@ -11,6 +11,7 @@ import {
   type EngineName,
   effectiveEngineDefaults,
   engineOfServices,
+  engineForComponents,
   type EngineSettings,
   type EngineSettingsOverview,
   engineSettingsFieldsFor,
@@ -47,6 +48,7 @@ import {
 } from '../types/index.js';
 
 import { parseBaseEnv } from '../utils/envUtils.js';
+import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { UPLOADER_ENGINE_SETTING_KEYS } from './containerKeysSpec.js';
@@ -178,6 +180,7 @@ export class ProfileService {
   private async placementFor(
     version: StackVersionRecord,
     host: string | null,
+    components?: readonly string[] | null,
   ): Promise<NewProfilePlacement> {
     if (version.contract?.allocationProblem) {
       throw new InvalidStackVersionError(`${version.name}: ${version.contract.allocationProblem}`);
@@ -192,7 +195,7 @@ export class ProfileService {
       stackVersionId: version.id,
       slotCap: slotCapFor(version.contract),
       daemonId: await this.targets.daemonIdFor(host),
-      table: version.contract.ports,
+      table: portTableForEngine(version.contract, engineForComponents(components)),
     };
   }
 
@@ -283,7 +286,7 @@ export class ProfileService {
           bee_url: input.bee_url,
           srt_passphrase: input.srt_passphrase,
         },
-        await this.placementFor(version, input.host ?? null),
+        await this.placementFor(version, input.host ?? null, input.components),
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -696,7 +699,7 @@ export class ProfileService {
       }
     }
 
-    const placement = await this.placementFor(version, input.host ?? null);
+    const placement = await this.placementFor(version, input.host ?? null, input.abr_ladder ? ABR_RUNG_COMPONENTS : input.components);
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
@@ -1024,7 +1027,7 @@ export class ProfileService {
     if (!version) {
       throw new InvalidStackVersionError(`Stack version ${canonical.stack_version_id} does not exist`);
     }
-    const placement = await this.placementFor(version, canonical.host);
+    const placement = await this.placementFor(version, canonical.host, canonical.components);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
