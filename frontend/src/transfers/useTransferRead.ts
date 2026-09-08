@@ -11,12 +11,16 @@ export function useTransferRead<T>(key: string, load: (signal: AbortSignal) => P
     const controller = new AbortController();
     let live = true;
     setSaved({ token, state: { status: 'loading' } });
-    void load(controller.signal).then(value => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => { controller.abort(); reject(new Error('Saved transfer read timed out')); }, 15_000);
+    });
+    void Promise.race([load(controller.signal), deadline]).then(value => {
       if (live) setSaved({ token, state: { status: 'ready', value } });
     }, error => {
       if (live) setSaved({ token, state: { status: 'failed', error } });
-    });
-    return () => { live = false; controller.abort(); };
+    }).finally(() => clearTimeout(timeout));
+    return () => { live = false; controller.abort(); clearTimeout(timeout); };
   }, [token, load]);
   return { state: saved?.token === token ? saved.state : { status: 'loading' } as ReadState<T>, refresh: () => setAttempt(value => value + 1) };
 }

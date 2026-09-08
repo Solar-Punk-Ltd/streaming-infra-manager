@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Button, Link, Paper, Stack, Typography } from '@mui/material';
 import type { ChequebookOperationDetail } from '@streaming-infra-manager/common';
 import { routes } from '../app/router';
@@ -10,6 +10,8 @@ import { isExactTransfer, type ProvenTransferLink, type StoredTransferIntent } f
 import { useBrowserTransferStore } from './useBrowserTransferStore';
 import { useTransferRead } from './useTransferRead';
 import { TransferRecordedEvidence } from './TransferRecordedEvidence';
+import { TransferRecoveryActions } from './TransferRecoveryActions';
+import type { RecoveryNotice } from './useTransferRecovery';
 
 export function TransferDetailPage({ detailKey }: { detailKey: TransferDetailKey }) {
   const { state } = useSession();
@@ -24,6 +26,7 @@ function agreesWithLink(link: ProvenTransferLink, detail: ChequebookOperationDet
 
 function Detail({ accountId, detailKey }: { accountId: number; detailKey: TransferDetailKey }) {
   const store = useBrowserTransferStore();
+  const [notice, setNotice] = useState<RecoveryNotice | null>(null);
   const identity = useRef<string | null>(null);
   const load = useCallback(async (signal: AbortSignal) => {
     const detail = await readTransferDetail(detailKey, signal);
@@ -55,6 +58,7 @@ function Detail({ accountId, detailKey }: { accountId: number; detailKey: Transf
     <Typography variant="h5">Saved transfer</Typography>
     <Typography color="text.secondary">Recorded identity and transaction evidence. Reading this page does not send a transfer or check the chain.</Typography>
     <TransferValue label={detailKey.kind === 'request' ? 'Request ID' : 'Operation ID'} value={detailKey.id} copy />
+    {notice && (state.status !== 'ready' || !state.value.detail) && <Alert severity={notice.severity}>{notice.message}</Alert>}
     {state.status === 'loading' && <Typography role="status">Reading saved evidence…</Typography>}
     {state.status === 'failed' && <Alert severity="warning">{state.error instanceof TransferHistoryError && state.error.reason === 'identity_conflict'
       ? 'Returned details do not match this saved transfer. Its outcome remains unresolved.'
@@ -62,7 +66,11 @@ function Detail({ accountId, detailKey }: { accountId: number; detailKey: Transf
     {state.status === 'ready' && <>
       {state.value.browserUnavailable && <Alert severity="info">Browser request information could not be read. The manager record is shown independently.</Alert>}
       {!state.value.detail && <Alert severity="warning">{detailKey.kind === 'request' ? 'No manager record was returned for this request.' : 'No manager record was returned for this operation.'} This does not prove that no transaction was sent.</Alert>}
-      {state.value.detail ? <RecordedTransfer detail={state.value.detail} /> : state.value.intent && <Paper variant="outlined" sx={{ p: 2 }}>
+      {state.value.detail ? <>
+        <RecordedTransfer detail={state.value.detail} />
+        <TransferRecoveryActions key={state.value.detail.operation.revision} detail={state.value.detail} accountId={accountId} notice={notice}
+          finished={value => { setNotice(value); refresh(); }} />
+      </> : state.value.intent && <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack spacing={1}>
           <Typography variant="h6">Saved browser request</Typography>
           <TransferValue label="Transfer" value={transferAmount(state.value.intent)} />

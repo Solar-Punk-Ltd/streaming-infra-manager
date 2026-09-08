@@ -37,6 +37,7 @@ async function app(t, fixture) {
 async function screenshot(browser, fixture, name, width) {
   await browser.call('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 1000, deviceScaleFactor: 1, mobile: width === 390 });
   await browser.evaluate("[...document.querySelectorAll('h6')].find(element => element.textContent === 'Recovery actions')?.scrollIntoView()");
+  await waitFor(() => browser.evaluate("[...document.querySelectorAll('.MuiDialog-container, .MuiBackdrop-root')].every(element => getComputedStyle(element).opacity === '1')"), Boolean, 'dialog transition completion');
   await browser.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   assert.equal(await browser.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
   const path = join(fixture.evidence, `${name}-${width}.png`);
@@ -79,6 +80,10 @@ test('partial, unavailable and ambiguous recovery require explicit checks and ne
   await click(browser, 'Refresh saved evidence');
   await visible(browser, 'Transaction evidence needs review');
   assert.equal(step, 3);
+  await click(browser, 'Continue transaction search');
+  await visible(browser, 'Transaction evidence needs review');
+  await waitFor(() => step === 4);
+  assert.equal(await exists(browser, 'Record operator assertion'), false);
   noMoneyPosts(fixture);
   assert.deepEqual(browser.errors, []);
 });
