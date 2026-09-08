@@ -7,6 +7,7 @@ export * from './engineConfigRollout.js';
 export * from './engineControl.js';
 export * from './engineDefaults.js';
 export * from './engineSettings.js';
+export * from './engineSettingObservation.js';
 export * from './engines.js';
 export * from './envSafeValue.js';
 export * from './errorUtils.js';
