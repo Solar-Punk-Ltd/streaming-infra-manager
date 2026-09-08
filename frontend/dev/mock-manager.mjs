@@ -47,6 +47,7 @@ import {
   seedAttempts,
 } from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
+import { createTargetRoutes } from './mock-targets.mjs';
 import { engineConfigRoutes } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
@@ -705,6 +706,7 @@ const ROUTES = [
     },
   ],
   ...attemptRoutes(readBody, publish),
+  ...createTargetRoutes(readBody),
   ...engineRoutes({ readBody, withProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
