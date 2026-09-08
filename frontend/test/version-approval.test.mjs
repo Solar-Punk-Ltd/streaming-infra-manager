@@ -83,7 +83,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await evaluate('window.__t08OldPage = true');
     await call('Page.navigate', { url: `${origin}/?t08=${++visitNumber}#/versions` });
     if (waitForVersions) {
-      await waitFor(() => evaluate('window.__t08OldPage ? -1 : document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
+      await waitFor(() => evaluate(`window.__t08OldPage ? -1 : document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === versions.length);
     } else {
       await waitFor(() => evaluate(`!window.__t08OldPage && (${button('New deployment')})?.disabled === false`));
     }
@@ -200,7 +200,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
       assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
       releaseVersions();
       versionsGate = null;
-      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 1);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1);
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'a late sole default must leave a way to choose it');
       assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
       await click('document.querySelector("#wizard-version")');
@@ -211,11 +211,11 @@ test('approval payload and explicit wizard version choice stay tied to the visib
       await waitFor(() => heldEvents !== null);
       versions = [makeVersion({ tested: true, testedInvalidatedAt: null, isDefault: false }), makeVersion({ id: 2, name: 'another-default', tested: true, testedInvalidatedAt: null })];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
-      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 2);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 2);
       assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/, 'a new default never replaces an explicit choice');
       versions = [versions[1]];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
-      await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === 1);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1);
       assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'removing the chosen version must leave a way to select the remaining default');
       await click('document.querySelector("#wizard-version")');
