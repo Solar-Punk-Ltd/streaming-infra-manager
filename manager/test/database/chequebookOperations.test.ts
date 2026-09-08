@@ -141,6 +141,25 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
   });
 
+  it('blocks both older and newly started receipt confirmations after contradictory direct evidence', async () => {
+    const unknown = await unknownOperation();
+    const recovered = await repository.resolveCandidate(unknown, recoveryTransaction());
+    const differentHash = `0x${'98'.repeat(32)}`;
+    const conflicted = await repository.recordSubmission(recovered.id, { state: 'submitted', transactionHash: differentHash, failureReason: null });
+    assert.equal(conflicted.transactionHash, transactionHash);
+    assert.equal(conflicted.failureReason, 'hash_conflict');
+    assert.equal(conflicted.revision, String(BigInt(recovered.revision) + 1n));
+    assert.equal(conflicted.receiptObservation?.kind, 'could_not_check');
+    if (conflicted.receiptObservation?.kind === 'could_not_check') assert.equal(conflicted.receiptObservation.reason, 'attribution_conflict');
+    assert.deepEqual(await repository.recordReceipt(recovered, confirmed), conflicted);
+    assert.deepEqual(await repository.recordReceipt(conflicted, confirmed), conflicted);
+    assert.deepEqual(await repository.resolveCandidate(conflicted, recoveryTransaction({ hash: differentHash })), conflicted);
+    const evidence = await repository.listSubmissionResponses(recovered.id);
+    assert.equal(evidence[0]?.transactionHash, differentHash);
+    assert.equal(evidence[0]?.ownership, 'conflict');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
