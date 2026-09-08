@@ -120,7 +120,7 @@ describe('GET /profiles/:name/engine on a version with its own defaults', () => 
 });
 
 describe('GET /profiles/:name/engine on a deployment with a config file of its own', () => {
-  it('keeps custom SRS readings unverified until its scalar reader can prove their source', async () => {
+  it('keeps custom SRS HLS readings unverified without the selected template metadata', async () => {
     const harness = profileServiceHarness([
       profileRow({ has_engine_config: true, engine_settings: { HLS_WINDOW: '20' } }),
     ]);

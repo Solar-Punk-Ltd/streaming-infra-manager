@@ -71,7 +71,7 @@ import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { engineTemplateIn } from './engineConfig/engineConfigTemplates.js';
 import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
-import { unverifiedSrsReadings } from './engineConfig/unverifiedSrsReadings.js';
+import { srsSettingReadings } from './engineConfig/srsSettingReadings.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
@@ -467,17 +467,15 @@ export class ProfileService {
     const fields = engineSettingsFieldsFor(engine, { abr });
     let readings = environmentSettingReadings(fields);
     if (profile.has_engine_config) {
-      if (engine === OME_SERVICE) {
-        let template: string | null = null;
-        try {
-          template = engineTemplateIn(await this.orchestrator.stackRootFor(profile), engine).text;
-        } catch {
-          // Missing or unreadable metadata is represented in each affected observation.
-        }
-        readings = omeSettingReadings(template, await this.repo.engineConfigOf(profile.name), fields);
-      } else {
-        readings = unverifiedSrsReadings(fields);
+      let template: string | null = null;
+      try {
+        template = engineTemplateIn(await this.orchestrator.stackRootFor(profile), engine).text;
+      } catch {
+        // Missing or unreadable metadata is represented in each affected observation.
       }
+      const storedConfig = await this.repo.engineConfigOf(profile.name);
+      readings = engine === OME_SERVICE ? omeSettingReadings(template, storedConfig, fields)
+        : srsSettingReadings(template, storedConfig, fields, { abr });
     }
     const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
