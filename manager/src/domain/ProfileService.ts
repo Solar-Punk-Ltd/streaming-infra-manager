@@ -1,4 +1,5 @@
 import {
+  slotCapFor,
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
   applicableEngineSettings,
@@ -10,6 +11,7 @@ import {
   type EngineName,
   effectiveEngineDefaults,
   engineOfServices,
+  engineForComponents,
   type EngineSettings,
   type EngineSettingsOverview,
   engineSettingsFieldsFor,
@@ -46,6 +48,7 @@ import {
 } from '../types/index.js';
 
 import { parseBaseEnv } from '../utils/envUtils.js';
+import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { UPLOADER_ENGINE_SETTING_KEYS } from './containerKeysSpec.js';
@@ -55,6 +58,8 @@ import {
 } from './DeploymentOrchestrator.js';
 import {
   AllSlotsUsedError,
+  TargetNotVerifiedError,
+  ReservationInventoryPendingError,
   GroupBusyError,
   GroupExistsError,
   GroupNotFoundError,
@@ -70,7 +75,10 @@ import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
-import { maxSlotOf } from './versions/portTable.js';
+import { portTableOf } from './versions/portTable.js';
+import type { NewProfilePlacement } from './ProfileRepository.js';
+import type { DeployTargets } from './ports/DeployTargets.js';
+import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -110,6 +118,13 @@ export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
 
 // The honest answers for a caller wired without probes: nothing asked, so nothing
 // is known. Readiness treats both as unverified, which is exactly what they are.
+/** A service built without a target reader can allocate nothing: a reservation needs a daemon. */
+const REFUSES_EVERY_TARGET: DeployTargets = {
+  daemonIdFor: async (host) => {
+    throw new TargetNotVerifiedError(host ?? 'localhost');
+  },
+};
+
 const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
@@ -150,9 +165,39 @@ export class ProfileService {
     private readonly events: EventBus,
     private readonly groupRepo: DeploymentGroupRepository,
     private readonly versions: StackVersionRepository,
+    /** Which daemon a deployment's host reaches, so its ports are reserved on that one. */
+    private readonly targets: DeployTargets = REFUSES_EVERY_TARGET,
     private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
     private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
+    private readonly reservations?: Pick<PortReservationRepository, 'inventorySeededAt'>,
   ) {}
+
+  /**
+   * Where a new deployment goes: the version it runs, the cap of the lower
+   * of its own maximum and the manager's, the daemon its host reaches, and
+   * the table every port of its slot is reserved from.
+   */
+  private async placementFor(
+    version: StackVersionRecord,
+    host: string | null,
+    components?: readonly string[] | null,
+  ): Promise<NewProfilePlacement> {
+    if (version.contract?.allocationProblem) {
+      throw new InvalidStackVersionError(`${version.name}: ${version.contract.allocationProblem}`);
+    }
+    if (!version.contract?.ports.length) {
+      throw new InvalidStackVersionError(`${version.name} has no readable port table. Rebuild the version before allocating a deployment.`);
+    }
+    if (!await this.reservations?.inventorySeededAt()) {
+      throw new ReservationInventoryPendingError();
+    }
+    return {
+      stackVersionId: version.id,
+      slotCap: slotCapFor(version.contract),
+      daemonId: await this.targets.daemonIdFor(host),
+      table: portTableForEngine(version.contract, engineForComponents(components)),
+    };
+  }
 
   private publishChanged(profile: ProfileWithContainers): void {
     this.events.publish({ type: 'profile.changed', profile });
@@ -241,7 +286,7 @@ export class ProfileService {
           bee_url: input.bee_url,
           srt_passphrase: input.srt_passphrase,
         },
-        { stackVersionId: version.id, maxSlot: maxSlotOf(version.contract) },
+        await this.placementFor(version, input.host ?? null, input.components),
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -254,7 +299,7 @@ export class ProfileService {
       throw err;
     }
     if (!row) {
-      throw new AllSlotsUsedError(maxSlotOf(version.contract));
+      throw new AllSlotsUsedError(slotCapFor(version.contract));
     }
 
     logger.info(
@@ -654,6 +699,7 @@ export class ProfileService {
       }
     }
 
+    const placement = await this.placementFor(version, input.host ?? null, input.abr_ladder ? ABR_RUNG_COMPONENTS : input.components);
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
@@ -670,7 +716,9 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
       stack_version_id: version.id,
-      max_slot: maxSlotOf(version.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -976,6 +1024,10 @@ export class ProfileService {
 
     const canonical = members[0]!;
     const version = await this.versions.findById(canonical.stack_version_id);
+    if (!version) {
+      throw new InvalidStackVersionError(`Stack version ${canonical.stack_version_id} does not exist`);
+    }
+    const placement = await this.placementFor(version, canonical.host, canonical.components);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
@@ -988,7 +1040,9 @@ export class ProfileService {
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
       stack_version_id: canonical.stack_version_id,
-      max_slot: maxSlotOf(version?.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.

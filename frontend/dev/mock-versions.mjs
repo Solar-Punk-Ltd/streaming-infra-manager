@@ -13,7 +13,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { send, sendEmpty } from './mock-http.mjs';
-import { state } from './mock-seed.mjs';
+import { containersFor, state } from './mock-seed.mjs';
 
 const BUILD_STEP_MS = 400;
 
@@ -54,6 +54,17 @@ const V3_PORTS = [
   'BEE_RUNG_1080P_P2P_PORT:11006:11006',
 ];
 
+/** The compose service that publishes a port variable, as both branches map them. */
+function serviceOf(name) {
+  if (name === 'API_PORT') return 'stream-uploader';
+  if (name === 'CLIENT_PORT') return 'client';
+  if (name.startsWith('SRS_')) return 'srs';
+  if (name.startsWith('BEE_UPLOADER_')) return 'bee-uploader';
+  if (name.startsWith('BEE_GATEWAY_')) return 'bee-gateway';
+  const rung = /^BEE_RUNG_(\d+P)_/.exec(name);
+  return rung ? `bee-uploader-${rung[1].toLowerCase()}` : null;
+}
+
 /** `NAME:default` or `NAME:default:slotbase`, the slot base being the last. */
 function portsFrom(entries) {
   return entries.map((entry) => {
@@ -62,6 +73,8 @@ function portsFrom(entries) {
       name: fields[0],
       defaultPort: Number(fields[1]),
       slotBase: Number(fields[fields.length - 1]),
+      protocol: fields[0] === 'SRS_SRT_PORT' ? 'udp' : 'tcp',
+      service: serviceOf(fields[0]),
     };
   });
 }
@@ -76,11 +89,12 @@ const BUNDLED_CONTRACT = {
     HLS_SEGMENT_DURATION: '2',
     HLS_SEGMENT_COUNT: '5',
   },
-  features: { srsApiPort: false, chequebookGate: false },
+  features: { srsApiPort: false, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const V3_CONTRACT = {
@@ -94,11 +108,12 @@ const V3_CONTRACT = {
     HLS_SEGMENT_DURATION: '2',
     HLS_SEGMENT_COUNT: '5',
   },
-  features: { srsApiPort: true, chequebookGate: true },
+  features: { srsApiPort: true, chequebookGate: true, sharedImageTags: true },
   chequebookMinBzz: '0.5',
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const BUILD_LOG = [
@@ -131,7 +146,17 @@ function makeVersion(input) {
     lastError: null,
     contract: input.contract ?? null,
     deployments: 0,
+    // Every row that existed before builds deploys from its flat root. An
+    // added version deploys from one immutable build per commit.
+    layout: input.layout ?? 'builds',
+    buildId: input.buildId ?? null,
+    previousBuildId: null,
   };
+}
+
+/** The commit of the version a deployment runs, which its containers are seen to run in this mock. */
+export function commitOfVersion(id) {
+  return findVersion(id)?.commitSha ?? null;
 }
 
 /** The deploy contract of the version a deployment runs, or null. */
@@ -171,6 +196,7 @@ export function seedVersions() {
       tested: true,
       builtAt: '2026-08-04T11:20:00Z',
       contract: BUNDLED_CONTRACT,
+      layout: 'legacy',
     }),
     makeVersion({
       name: 'main-v3',
@@ -178,6 +204,7 @@ export function seedVersions() {
       commitSha: 'be440d65e0e82bcf9000a8a0dde905dc215255d6',
       builtAt: '2026-09-05T21:05:00Z',
       contract: V3_CONTRACT,
+      buildId: 'be440d65e0e82bcf9000a8a0dde905dc215255d6',
     }),
   ];
 
@@ -189,6 +216,13 @@ export function seedVersions() {
   for (const profile of state.profiles) {
     profile.stack_version_id =
       profile.name === 'backup-stage' && v3 ? v3.id : defaultVersionId();
+    // The containers were built before the version was known: what they
+    // are seen to run is the version's commit, as this mock's deploys land.
+    if (profile.containers.length > 0) {
+      profile.containers = containersFor(profile, {
+        withUploader: profile.containers.some((container) => container.service === 'stream-uploader'),
+      });
+    }
   }
 }
 
@@ -251,7 +285,11 @@ function playBuild(res, version, publish) {
     version.gitRef,
   ]);
   const willFail = version.gitRef.includes('fail');
-  const commit = randomCommit();
+  // A ref that says `same` lands on the commit the version already has, so
+  // the rebuild gets a distinct identity beside it, as the manager gives a
+  // commit published again with other inputs.
+  const sameCommit = version.gitRef.includes('same') && version.commitSha;
+  const commit = sameCommit ? version.commitSha : randomCommit();
 
   version.status = 'building';
   version.lastError = null;
@@ -271,11 +309,21 @@ function playBuild(res, version, publish) {
       frame('stderr', {
         chunk: `fatal: couldn't find remote ref ${version.gitRef}\n`,
       });
-      version.status = 'failed';
-      version.lastError = `fatal: couldn't find remote ref ${version.gitRef}`;
+      const reason = `fatal: couldn't find remote ref ${version.gitRef}`;
+      // A version with a usable build keeps it, ready, with the reason. Only
+      // one with nothing to deploy from is failed, as the manager does.
+      version.status = version.buildId ? 'ready' : 'failed';
+      version.lastError = version.buildId ? `${reason}. Still on build ${version.buildId}.` : reason;
     } else {
-      // The approval belongs to the commit that was tested, as in the manager.
-      version.tested = version.tested && version.commitSha === commit;
+      // The approval belongs to the build that was tested, as in the manager,
+      // and the build the new one replaces is kept as the previous one. The
+      // same commit published again gets <commit>-r<n>.
+      const rebuilds = (version.buildId ?? '').startsWith(commit) ? (Number(/-r(\d+)$/.exec(version.buildId)?.[1] ?? 0) + 1) : 0;
+      const buildId = rebuilds > 0 ? `${commit}-r${rebuilds}` : commit;
+      version.tested = version.tested && version.buildId === buildId;
+      if (version.buildId && version.buildId !== buildId) version.previousBuildId = version.buildId;
+      version.layout = 'builds';
+      version.buildId = buildId;
       version.status = 'ready';
       version.commitSha = commit;
       version.builtAt = new Date().toISOString();

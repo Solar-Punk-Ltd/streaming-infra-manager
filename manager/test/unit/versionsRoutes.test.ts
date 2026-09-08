@@ -12,16 +12,26 @@
  * failed one.
  */
 import assert from 'node:assert/strict';
+import { cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { scratchVersionsRoot } from '../support/stackFixtures.js';
+import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 import {
   nextVersionChange,
   readSseFrames,
   startVersionsTestApp,
   type VersionsTestApp,
 } from '../support/versionsTestApp.js';
+
+const ROUTE_COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
+
+/** What the build script leaves in the attempt's staging directory, from the script's own arguments. */
+function builtInStaging(args: string[]): void {
+  const staging = args[1] ?? '';
+  cpSync(V3_FIXTURE, staging, { recursive: true });
+  writeFileSync(join(staging, '.stack-commit'), `${ROUTE_COMMIT}\n`);
+}
 
 let app: VersionsTestApp;
 let versionsRoot: string;
@@ -71,6 +81,7 @@ async function build(path: string, body?: unknown, code = 0) {
   // hide which assertion actually failed.
   const started = app.runner.spawned.length > 0;
   if (started) {
+    if (code === 0) builtInStaging(app.runner.last.args);
     app.runner.finish(code, 'cloning\ndone\n');
   }
 

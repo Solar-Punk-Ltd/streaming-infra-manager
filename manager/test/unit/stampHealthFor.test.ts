@@ -43,6 +43,7 @@ const PROFILE: Profile = {
   status: 'RUNNING',
   last_error: null,
   last_error_at: null,
+  last_full_deploy_commit: null,
   created_at: new Date(0),
   updated_at: new Date(0),
   group_id: 1,
