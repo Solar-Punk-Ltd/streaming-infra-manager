@@ -11,10 +11,10 @@ import type { Profile } from '../types';
 // cannot drift apart over what this route answers.
 export type { EngineOverview };
 
-export function fetchEngine(name: string): Promise<EngineOverview> {
-  return getJson<EngineOverview>(
-    `/profiles/${encodeURIComponent(name)}/engine`,
-  );
+export async function fetchEngine(name: string, signal?: AbortSignal): Promise<EngineOverview> {
+  const response = await apiFetch(`/profiles/${encodeURIComponent(name)}/engine`, { signal });
+  if (!response.ok) await failWith(response, `request failed (${response.status})`);
+  return await response.json() as EngineOverview;
 }
 
 /** Stores the settings and recreates the engine container with them. */

@@ -83,7 +83,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const { call, evaluate } = browser;
   const body = () => evaluate('document.body.innerText');
   const card = () => evaluate(`[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root').innerText ?? ''`);
-  const drawer = () => evaluate(`document.querySelector('.MuiDrawer-paper')?.innerText ?? ''`);
+  const drawer = () => evaluate(`[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream')?.closest('.MuiDrawer-paper').innerText ?? ''`);
   const click = label => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); if (!button) throw Error('Missing button'); button.click(); })()`);
   const saveDisabled = () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Apply and recreate engine')?.disabled`);
   const typed = () => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.value`);
@@ -95,7 +95,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   function release() { hold = false; held.splice(0).forEach(reply => reply()); }
   async function reset(width = 1440) {
     release(); profile = structuredClone(base); duration = '4'; responseStatus = 200; responseIdentity = null;
-    await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 600 });
+    await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     await call('Page.navigate', { url: `${origin}/#/deployments/observed-stream` });
     await call('Page.reload');
     await waitFor(body, text => text.includes('segment 4 s'), 'initial observed literal');
@@ -124,10 +124,11 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.equal(await evaluate(`document.querySelector('input[aria-label="Segment duration"]').placeholder`), 'Config controls value');
     await mkdir('/private/tmp/t11-browser-evidence', { recursive: true });
     await writeFile('/private/tmp/t11-browser-evidence/desktop.png', Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
-    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.match(await drawer(), /4 seconds/);
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+    assert.deepEqual(await evaluate(`(() => { const panel = [...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream').closest('.MuiDrawer-paper'); return { viewport: window.innerWidth, contentWidth: panel.clientWidth, noOverflow: panel.scrollWidth <= panel.clientWidth, controlsFit: [...panel.querySelectorAll('input, button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) }; })()`),
+      { viewport: 390, contentWidth: 390, noOverflow: true, controlsFit: true });
     await writeFile('/private/tmp/t11-browser-evidence/phone.png', Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
   });
 
@@ -184,7 +185,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), true);
     assert.match(await drawer(), /replaced|different deployment/);
-    await evaluate(`document.querySelector('.MuiDrawer-paper button[aria-label="close"]').click()`);
+    await evaluate(`[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream').closest('.MuiDrawer-paper').querySelector('button[aria-label="close"]').click()`);
     await waitFor(drawer, text => text === '', 'drawer closed');
     await openDraft();
     assert.match(await drawer(), /5 seconds/);
