@@ -31,7 +31,9 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import type { PortReservationRepository } from './ports/PortReservationRepository.js';
+import { portPlanFor } from './ports/portReservations.js';
 import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import {
   type AttemptOutcome,
@@ -104,6 +106,7 @@ function stripDockerWarnings(text: string): string {
 interface JobConfig {
   profileName: string;
   target: string;
+  reservedDaemonId?: string;
   paths: StackPaths;
   script: string;
   args: string[];
@@ -147,6 +150,7 @@ export interface DeployReservation {
   /** False for an initial deploy, whose row was inserted DEPLOYING already. */
   readonly transitioned: boolean;
   readonly host?: string;
+  readonly daemonId?: string;
   /**
    * The build the run will deploy from, captured with the claim. Null only
    * for a reservation made without one, which the run describes itself.
@@ -178,6 +182,7 @@ export class DeploymentOrchestrator {
     private readonly daemon: DaemonObserver,
     private readonly uploaderGate?: UploaderGate,
     private readonly targets?: DeployTargets,
+    private readonly ports?: PortReservationRepository,
   ) {}
 
   /**
@@ -371,9 +376,33 @@ export class DeploymentOrchestrator {
       const current = await this.profiles.findByName(profile.name);
       throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
     }
-    await this.publishChanged(claimed.profile);
+    const reservation = { ...planned, transitioned: true, build: claimed.descriptor };
+    try {
+      const daemonId = await this.reservePorts(profile, reservation);
+      await this.publishChanged(claimed.profile);
+      return { ...reservation, daemonId };
+    } catch (err) {
+      await this.cancelReservation(reservation);
+      throw err;
+    }
+  }
 
-    return { ...planned, transitioned: true, build: claimed.descriptor };
+  private async reservePorts(profile: Profile, reservation: DeployReservation): Promise<string> {
+    const contract = reservation.build?.version?.contract;
+    if (!contract?.ports.length || contract.allocationProblem) {
+      throw new ProfileConfigError(profile.name, contract?.allocationProblem ?? 'The captured build has no readable port table. Rebuild the version before deploying.');
+    }
+    if (!await this.ports?.inventorySeededAt()) throw new ReservationInventoryPendingError();
+    const target = targetAlias(reservation.host ?? profile.host);
+    const daemonId = await this.targetDaemon(target);
+    if (reservation.daemonId && reservation.daemonId !== daemonId) {
+      throw new TargetNotVerifiedError(target, 'The reserved ports belong to a different Docker daemon. No deploy was started.');
+    }
+    await this.ports!.plan(
+      daemonId, profile.name, portPlanFor(contract.ports, profile.port_slot),
+      `build ${reservation.build!.buildId}, job reference ${reservation.build!.referenceId}`,
+    );
+    return daemonId;
   }
 
   /** Gives the profile its status back, for a claim that will not be run. */
@@ -518,6 +547,7 @@ export class DeploymentOrchestrator {
     reservation: DeployReservation,
     profile: Profile,
   ): Promise<RunHandle> {
+    const daemonId = await this.reservePorts(profile, reservation);
     if (reservation.heldBackForStamp.length > 0) {
       logger.info(
         `[Orchestrator] ${profile.name}: holding back ${reservation.heldBackForStamp.join(', ')}, no usable stamp yet`,
@@ -570,6 +600,7 @@ export class DeploymentOrchestrator {
     return this.runJob({
       profileName: profile.name,
       target: targetAlias(reservation.host ?? profile.host),
+      reservedDaemonId: daemonId,
       paths,
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
@@ -708,6 +739,9 @@ export class DeploymentOrchestrator {
 
   private async runJob(cfg: JobConfig): Promise<RunHandle> {
     const daemonId = await this.targetDaemon(cfg.target);
+    if (cfg.reservedDaemonId && cfg.reservedDaemonId !== daemonId) {
+      throw new TargetNotVerifiedError(cfg.target, 'The reserved ports belong to a different Docker daemon. No deploy was started.');
+    }
     await this.ensureStackDefaults(cfg.paths);
 
     if (cfg.transitionTo && cfg.allowedFrom) {
