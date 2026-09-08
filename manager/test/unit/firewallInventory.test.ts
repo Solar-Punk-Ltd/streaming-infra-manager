@@ -70,7 +70,7 @@ describe('firewall evidence export', () => {
       if (missing === 'build') h.contracts.clear();
       if (missing === 'owner') h.state.reservations[0]!.heldServices = [null];
       if (missing === 'reference') h.state.reservations[0]!.port = 13010;
-      if (missing === 'binding') h.snapshot.bindings.push({ project: 'outside', service: 'web', protocol: 'tcp', port: 11012 });
+      if (missing === 'binding') h.snapshot.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 11012 }];
       if (missing === 'target') h.state.targets[0]!.verified = false;
       if (missing === 'host-network') h.snapshot.unverifiedProjects = ['outside'];
       await assert.rejects(h.exporter.export('localhost'));

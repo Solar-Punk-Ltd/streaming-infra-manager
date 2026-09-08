@@ -47,5 +47,5 @@ export interface FirewallInventory {
   profiles: FirewallProfile[];
   claims: FirewallClaim[];
   reservations: FirewallReservation[];
-  bindings: PublishedPortBinding[];
+  bindings: readonly PublishedPortBinding[];
 }
