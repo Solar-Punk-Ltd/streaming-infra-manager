@@ -30,6 +30,7 @@ import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
 import { ShapePill } from '../components/ShapePill';
 import { formatDateTime, shortCommit } from '../format';
+import { describeBuild, describePreviousBuild } from './versionText';
 import type { Tone } from '../components/tone';
 
 import { AddVersionForm } from './AddVersionForm';
@@ -372,6 +373,7 @@ function VersionRow({
   const cannotApprove = !version.tested && testBlocked !== '';
   const waiting = buildingElsewhere ? ANOTHER_BUILDING : '';
   const acting = busy || buildingElsewhere;
+  const previousBuild = describePreviousBuild(version);
 
   return (
     <TableRow hover>
@@ -425,6 +427,19 @@ function VersionRow({
         <Typography variant="body2" color="text.secondary">
           {builtLabel(version, isBundled)}
         </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: MONO_STACK }}>
+          {describeBuild(version)}
+          {previousBuild ? `, ${previousBuild}` : ''}
+        </Typography>
+        {version.status === 'ready' && version.lastError && (
+          <Typography
+            variant="caption"
+            color="warning.main"
+            sx={{ display: 'block', fontFamily: MONO_STACK }}
+          >
+            {version.lastError.split('\n').slice(-1)[0]}
+          </Typography>
+        )}
       </TableCell>
       <TableCell>
         <ReadinessPill

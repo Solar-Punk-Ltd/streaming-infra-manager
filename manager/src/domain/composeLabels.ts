@@ -9,3 +9,11 @@
  */
 export const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 export const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
+
+/**
+ * Where the compose project was started from: the directory of the compose
+ * file, which for a stack is `<root>/deploy`. It is how the manager learns
+ * which build a running container was created from, from the container
+ * itself rather than from what a deploy planned.
+ */
+export const COMPOSE_WORKING_DIR_LABEL = 'com.docker.compose.project.working_dir';
