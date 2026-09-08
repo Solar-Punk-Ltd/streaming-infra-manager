@@ -36,6 +36,46 @@ export class ChequebookRecoveryInspector {
         !Number.isInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > 2048) throw new ChainReadError();
   }
 
+  async inspectHash(input: ChequebookOperation, hash: string): Promise<ChequebookRecoveryInspection> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const previous = input.recoveryObservation ? normalizeRecoveryObservation(input.recoveryObservation) : null;
+    const evidence = { candidateHashes: previous?.candidateHashes ?? [], ...(previous?.scan ? { scan: previous.scan } : {}) };
+    const failed = (reason: FailureReason = 'rpc_unavailable'): ChequebookRecoveryInspection => ({ observation: { kind: 'could_not_check', reason, ...evidence }, candidates: [] });
+    try {
+      const operation = Object.freeze({ ...input, ...normalizeTransferContext(input) });
+      const requestedHash = recoveryHashes([hash])[0]!;
+      const checked = async <T>(promise: Promise<T>): Promise<T> => {
+        const value = await promise;
+        controller.signal.throwIfAborted();
+        return value;
+      };
+      const deadline = new Promise<ChequebookRecoveryInspection>(resolve => {
+        timer = setTimeout(() => { controller.abort(); resolve(failed()); }, this.timeoutMs);
+      });
+      const observe = async (): Promise<ChequebookRecoveryInspection> => {
+        const reader = await checked(this.createReader(operation, controller.signal));
+        if (await checked(reader.chainId(controller.signal)) !== operation.chainId) return failed('identity_mismatch');
+        const anchor = await checked(reader.blockHeader(BigInt(operation.startBlockNumber), controller.signal));
+        if (!anchor) return failed();
+        if (anchor.number !== operation.startBlockNumber || anchor.hash !== operation.startBlockHash) {
+          return { observation: { kind: 'could_not_check', reason: 'chain_changed', candidateHashes: evidence.candidateHashes }, candidates: [] };
+        }
+        const candidate = await checked(reader.transaction(requestedHash, controller.signal));
+        if (!candidate) return failed();
+        if (candidate.hash !== requestedHash || !matchesChequebookTransfer(operation, candidate)) return failed('identity_mismatch');
+        const candidateHashes = recoveryHashes([...evidence.candidateHashes, requestedHash]);
+        return { observation: normalizeRecoveryObservation({ kind: candidateHashes.length === 1 ? 'candidate' : 'ambiguous', ...evidence, candidateHashes }), candidates: [candidate] };
+      };
+      return await Promise.race([observe(), deadline]);
+    } catch {
+      return failed();
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+  }
+
   async inspect(input: ChequebookOperation, options: { forceScan?: boolean } = {}): Promise<ChequebookRecoveryInspection> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
