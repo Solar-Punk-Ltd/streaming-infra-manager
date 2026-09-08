@@ -111,6 +111,47 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.ok(!JSON.stringify(result).includes('synthetic-private-path'));
   });
 
+  it('retains whitelisted history checkpoints across repository restart and rejects stale cursor writes', async () => {
+    const submitted = await submittedOperation();
+    const history = {
+      transactionHash, receiptBlockNumber: '501', receiptBlockHash: confirmed.receiptBlockHash, receiptStatus: 'success' as const,
+      finalizedBlockNumber: '510', finalizedBlockHash: confirmed.finalizedBlockHash,
+      cursorBlockNumber: '508', cursorBlockHash: `0x${'11'.repeat(32)}`,
+    };
+    const partial = await repository.recordReceipt(submitted, {
+      kind: 'could_not_check', reason: 'history_incomplete', history: { ...history, endpoint: 'synthetic-private-path' } as typeof history,
+    });
+    const restarted = new PostgresChequebookOperationRepository(pool);
+    const saved = await restarted.findById(partial.id);
+    assert.deepEqual(saved?.receiptObservation, { kind: 'could_not_check', reason: 'history_incomplete', history });
+    assert.ok(!JSON.stringify(saved).includes('synthetic-private-path'));
+    assert.equal((await restarted.admit(operationCandidate())).kind, 'busy');
+    const next = await restarted.recordReceipt(partial, {
+      kind: 'could_not_check', reason: 'rpc_unavailable', history: { ...history, cursorBlockNumber: '506' },
+    });
+    assert.deepEqual(await repository.recordReceipt(partial, partial.receiptObservation!), next);
+    assert.deepEqual((await repository.findById(partial.id))?.receiptObservation, next.receiptObservation);
+  });
+
+  it('rejects contradictory checkpoint bounds and status without changing its journal', async () => {
+    const submitted = await submittedOperation();
+    const history = {
+      transactionHash, receiptBlockNumber: '501', receiptBlockHash: confirmed.receiptBlockHash, receiptStatus: 'success' as const,
+      finalizedBlockNumber: '510', finalizedBlockHash: confirmed.finalizedBlockHash,
+      cursorBlockNumber: '508', cursorBlockHash: `0x${'11'.repeat(32)}`,
+    };
+    for (const changes of [
+      { cursorBlockNumber: '511' }, { receiptBlockNumber: '511' }, { cursorBlockNumber: '501' },
+      { cursorBlockNumber: '510' }, { receiptStatus: 'invalid' }, { cursorBlockHash: 'synthetic-private-path' },
+    ]) {
+      await assert.rejects(repository.recordReceipt(submitted, {
+        kind: 'could_not_check', reason: 'history_incomplete', history: { ...history, ...changes } as typeof history,
+      }), /invalid/i);
+    }
+    await assert.rejects(repository.recordReceipt(submitted, { kind: 'could_not_check', reason: 'chain_changed', history }), /invalid/i);
+    assert.deepEqual(await repository.findById(submitted.id), submitted);
+  });
+
   it('persists the full identity without requiring a surviving profile row', async () => {
     const candidate = operationCandidate();
     const admitted = await repository.admit(candidate);
