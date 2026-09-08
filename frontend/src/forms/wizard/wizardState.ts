@@ -56,7 +56,7 @@ export interface WizardState {
   poolId: number | null;
   poolString: string;
   components: string[];
-  /** The stack version to deploy on. Null until the versions have arrived. */
+  /** The stack version to deploy on. Null until a default or an explicit choice supplies it. */
   versionId: number | null;
 }
 
@@ -93,11 +93,12 @@ export function choosableVersions(context: WizardContext): StackVersion[] {
 }
 
 /**
- * Whether the wizard asks for a version at all. With one version there is
- * nothing to choose, and the row would only name what every deployment runs.
+ * A sole tested default needs no choice. Other cases need either an explicit
+ * selection or a visible explanation of the default's approval state.
  */
 export function versionChoiceShown(context: WizardContext): boolean {
-  return choosableVersions(context).length > 1;
+  const versions = choosableVersions(context);
+  return versions.length !== 1 || !versions[0]?.isDefault || !versions[0]?.tested;
 }
 
 export function chosenVersion(
@@ -114,7 +115,7 @@ export function chosenVersion(
 function defaultVersionIn(context: WizardContext): number | null {
   const choosable = choosableVersions(context);
   return (
-    choosable.find((version) => version.isDefault)?.id ?? choosable[0]?.id ?? null
+    choosable.find((version) => version.isDefault)?.id ?? null
   );
 }
 

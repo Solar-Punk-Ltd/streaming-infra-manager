@@ -31,7 +31,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
         if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
         if (path === '/profiles' && req.method === 'GET') return json({ profiles: [] });
         if (path === '/groups' && req.method === 'GET') return json({ groups: [] });
-        if (path === '/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': offline\n\n'); return; }
+        if (path === '/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end('retry: 86400000\n\n'); return; }
         if (path === '/versions' && req.method === 'GET') return json(versions);
         if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^(\/versions|\/profiles|\/groups)/.test(path)) {
           const chunks = [];
@@ -58,6 +58,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   const browser = await launchChrome(t, origin);
   const { call, evaluate } = browser;
+  await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 960, deviceScaleFactor: 1, mobile: false });
   async function click(expression) {
     const point = await evaluate(`(() => { const el = ${expression}; if (!el || el.disabled) throw new Error('Missing enabled control'); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
@@ -66,13 +67,14 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
   let visitNumber = 0;
   async function visit() {
+    await evaluate('window.__t08OldPage = true');
     await call('Page.navigate', { url: `${origin}/?t08=${++visitNumber}#/versions` });
-    await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
+    await waitFor(() => evaluate('window.__t08OldPage ? -1 : document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
   }
-  async function openBasics() {
+  async function openBasics(goal = 'Custom') {
     await click(button('New deployment'));
     await waitFor(() => evaluate('document.querySelector("[role=dialog]") !== null'));
-    await click('[...document.querySelectorAll("[role=radio]")].find(el => el.textContent.startsWith("Custom"))');
+    await click(`[...document.querySelectorAll("[role=radio]")].find(el => el.querySelector('h6')?.textContent.trim() === ${JSON.stringify(goal)})`);
     await click(button('Continue'));
     await waitFor(() => evaluate('document.querySelector("input[placeholder=main-stage]") !== null'));
     await click('document.querySelector("input[placeholder=main-stage]")');
@@ -104,14 +106,14 @@ test('approval payload and explicit wizard version choice stay tied to the visib
 
   await t.test('the sole default stays selected with the actual invalidation date visible through review', async () => {
     await visit();
-    await openBasics();
+    await openBasics('Stream to Swarm');
     const text = await evaluate('document.querySelector("[role=dialog]").innerText');
     const date = await evaluate(`import('/src/format.ts').then(({formatDateTime}) => formatDateTime(${JSON.stringify(LOST_AT)}))`);
     assert.ok(text.includes(`Not tested since the update on ${date}`), text);
     assert.ok(text.includes('review-build'));
     await click(button('Continue'));
     await click(button('Continue'));
-    assert.match(await evaluate('document.querySelector("[role=dialog]").innerText'), /Not tested since the update on/);
+    await waitFor(() => evaluate('document.querySelector("[role=dialog] [role=alert]")?.innerText'), text => text?.includes('Not tested since the update on'));
     if (process.env.T08_EVIDENCE_DIR) {
       await mkdir(process.env.T08_EVIDENCE_DIR, { recursive: true });
       const { data } = await call('Page.captureScreenshot', { fromSurface: true });
@@ -133,7 +135,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), checked => !checked);
     await openBasics();
     const text = await evaluate('document.querySelector("[role=dialog]").innerText');
-    assert.ok(text.includes('Not yet marked as tested on this host.'));
+    assert.ok(text.includes('Not currently marked as tested on this host.'));
     assert.ok(!text.includes('Not tested since the update'));
     await click('document.querySelector("button[aria-label=close]")');
   });
@@ -152,6 +154,19 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await click(button('Back'));
     assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/);
     await click('document.querySelector("button[aria-label=close]")');
+  });
+
+  await t.test('unknown immutable identity is disabled and explicit legacy approval carries null build id', async () => {
+    versions = [makeVersion({ buildId: null, testedInvalidatedAt: null })];
+    await visit();
+    assert.equal(await evaluate('document.querySelector("input[type=checkbox]").disabled'), true);
+    versions = [makeVersion({ layout: 'legacy', buildId: null, testedInvalidatedAt: null })];
+    writes.length = 0;
+    await visit();
+    assert.equal(await evaluate('document.querySelector("input[type=checkbox]").disabled'), false);
+    await click('document.querySelector("input[type=checkbox]")');
+    await waitFor(() => writes.length, n => n > 0, 'legacy approval request');
+    assert.deepEqual(writes[0].body, { tested: true, commitSha: COMMIT, buildId: null });
   });
 
   assert.deepEqual(browser.errors, []);

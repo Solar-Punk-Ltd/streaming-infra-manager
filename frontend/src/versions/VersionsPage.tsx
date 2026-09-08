@@ -30,7 +30,7 @@ import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
 import { ShapePill } from '../components/ShapePill';
 import { formatDateTime, shortCommit } from '../format';
-import { describeBuild, describePreviousBuild } from './versionText';
+import { describeBuild, describePreviousBuild, lostApprovalWarning } from './versionText';
 import type { Tone } from '../components/tone';
 
 import { AddVersionForm } from './AddVersionForm';
@@ -100,7 +100,7 @@ const CANNOT_TEST_UNKNOWN_COMMIT =
   'The commit this version is at is not known on this host, so there is no build to mark as tested.';
 
 const TESTED_MEANS =
-  'Set by hand once one real deployment has run on this version. Reading the scripts proves the shape and not the behaviour. An update that lands on a new commit clears it again, because the approval was for the commit that was deployed.';
+  'Set by hand once one real deployment has run on this build. A different build clears approval, even at the same commit. Legacy versions without immutable builds keep approval only while their commit is unchanged.';
 
 /** Why Set as default is refused for this version, or the empty string. */
 function defaultBlockedBecause(version: StackVersion): string {
@@ -113,6 +113,7 @@ function defaultBlockedBecause(version: StackVersion): string {
 function testedBlockedBecause(version: StackVersion): string {
   if (version.status !== 'ready') return CANNOT_TEST_UNBUILT;
   if (!version.commitSha) return CANNOT_TEST_UNKNOWN_COMMIT;
+  if (version.layout === 'builds' && !version.buildId) return 'The immutable build identity is missing. Reload after a successful build before marking it as tested.';
   return '';
 }
 
@@ -301,7 +302,7 @@ export function VersionsPage() {
                       tested
                         ? `${version.name} is marked as tested`
                         : `${version.name} is no longer marked as tested`,
-                      (id) => setVersionTested(id, tested, version.commitSha),
+                      (id) => setVersionTested(id, tested, version.commitSha, version.buildId),
                     )
                   }
                   onRemove={() => askRemove(version)}
@@ -374,6 +375,7 @@ function VersionRow({
   const waiting = buildingElsewhere ? ANOTHER_BUILDING : '';
   const acting = busy || buildingElsewhere;
   const previousBuild = describePreviousBuild(version);
+  const approvalWarning = lostApprovalWarning(version);
 
   return (
     <TableRow hover>
@@ -384,6 +386,11 @@ function VersionRow({
           </Typography>
           {version.isDefault && <ShapePill label="Default" />}
         </Stack>
+        {approvalWarning && (
+          <Typography variant="caption" color="warning.main" component="p">
+            {approvalWarning}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary">
           {version.contract
             ? describeStackContract(version.contract)

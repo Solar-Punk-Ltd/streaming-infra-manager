@@ -14,7 +14,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../../../app/theme';
-import { describeVersion } from '../../../versions/versionText';
+import { approvalStatusText, describeVersion } from '../../../versions/versionText';
 import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField } from '../../FormField';
 import { NOTES_MAX } from '../../validation';
@@ -105,7 +105,7 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
             size="small"
             fullWidth
             value={state.versionId ?? ''}
-            onChange={(event) => update({ versionId: Number(event.target.value) })}
+            onChange={(event) => update({ versionId: event.target.value === '' ? null : Number(event.target.value) })}
             SelectProps={{
               'aria-label': 'Stack version',
               SelectDisplayProps: { id: 'wizard-version' },
@@ -182,9 +182,7 @@ function versionLabel(version: StackVersion): string {
  */
 function versionHint(version: StackVersion | null): string {
   if (!version) return 'Pick the version the containers are built from.';
-  const tested = version.tested
-    ? 'Tested on this host.'
-    : 'Not yet marked as tested on this host.';
+  const tested = approvalStatusText(version);
   const contract = version.contract
     ? ` ${describeStackContract(version.contract)}.`
     : '';
