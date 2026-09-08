@@ -209,6 +209,31 @@ describe('chequebook receipt confirmation', () => {
     assert.deepEqual(await inspect({ receipt: async () => ({ ...receipt, status: 'reverted' }) }, input), { kind: 'could_not_check', reason: 'chain_changed' });
   });
 
+  it('retains verified progress through a lagging observer returning null evidence', async () => {
+    const first = await new ChequebookReceiptInspector(async () => reader(), { maxAncestryBlocks: 2 }).inspect(operation);
+    assert.ok(first.kind === 'could_not_check' && first.history);
+    for (const method of ['transaction', 'receipt', 'blockHeader'] as const) {
+      const interrupted = await inspect({ [method]: async () => null }, { ...operation, receiptObservation: first });
+      assert.ok(interrupted.kind === 'could_not_check');
+      assert.deepEqual(interrupted.history, first.history);
+      const next = await new ChequebookReceiptInspector(async () => reader(), { maxAncestryBlocks: 2 }).inspect({ ...operation, receiptObservation: interrupted });
+      assert.ok(next.kind === 'could_not_check');
+      assert.equal(next.history?.cursorBlockNumber, '506');
+    }
+  });
+
+  it('checks the receipt hash before persisting a chunk boundary at that block', async () => {
+    const rpc = reader();
+    let receiptReads = 0;
+    const inspector = new ChequebookReceiptInspector(async () => reader({ blockHeader: async (block, signal) => {
+      const header = await rpc.blockHeader(block, signal);
+      if (block === 502n && header) return { ...header, parentHash: otherHash };
+      if (block === 501n && ++receiptReads > 1 && header) return { ...header, hash: otherHash };
+      return header;
+    } }), { maxAncestryBlocks: 9 });
+    assert.deepEqual(await inspector.inspect(operation), { kind: 'could_not_check', reason: 'chain_changed' });
+  });
+
   it('bounds the whole inspection even if a reader ignores cancellation', async () => {
     let observedSignal: AbortSignal | undefined;
     const never = new Promise<never>(() => {});
