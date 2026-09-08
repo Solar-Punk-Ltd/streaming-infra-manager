@@ -13,7 +13,7 @@ An absent chain mapping refuses new preparation and records unavailable evidence
 
 The configured locator uses exactly one saved `bee-uploader` service and its `BEE_UPLOADER_API_PORT`, together with the profile's host. SSH `user@host` loses its user portion. Hostnames and SSH aliases are preserved for DNS. Local hosts follow the existing `BEE_LOCAL_HOST` behavior. The external publishing destination `bee_url` does not select the transaction target. Known deploy, stop and remove transitions refuse preparation. Missing or duplicate Bee services, malformed ports and profiles without an owned Bee component refuse it too.
 
-The target revision includes the profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. These timestamps use the repository's existing Date precision. This is a configured snapshot check, not a durable generation lock. T06 current target and port-reservation integration is still required before aggregate acceptance. No second SSH or Docker ownership implementation was added here.
+The target revision includes the canonical T01 `profiles.instance_id`, profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. The instance UUID identifies one deployment lifetime independently of timestamp precision. A saved name that is removed and recreated receives a different instance UUID. T06 current target and port-reservation integration is still required before aggregate acceptance. No second SSH or Docker ownership implementation was added here.
 
 ## Single-connection submission
 
@@ -32,14 +32,16 @@ All routes remain behind the existing session gate. Writes retain the existing s
 | Method and path | Input | Result |
 | --- | --- | --- |
 | GET `/profiles/:name/chequebook` | Profile name | Existing balance summary |
-| POST `/profiles/:name/chequebook/deposit` | `{requestId, amount}` | `ChequebookAdmissionDetail` |
-| POST `/profiles/:name/chequebook/withdraw` | `{requestId, amount}` | `ChequebookAdmissionDetail` |
+| POST `/profiles/:name/chequebook/deposit` | `{requestId, profileInstanceId, amount}` | `ChequebookAdmissionDetail` |
+| POST `/profiles/:name/chequebook/withdraw` | `{requestId, profileInstanceId, amount}` | `ChequebookAdmissionDetail` |
 | GET `/chequebook/operations` | Optional `limit`, `cursor`, `profileName` | `ChequebookHistoryPage` |
 | GET `/chequebook/operations/by-request/:requestId` | Exact intent UUID | `ChequebookOperationDetail` |
 | GET `/chequebook/operations/:id` | Saved operation UUID | `ChequebookOperationDetail` |
 | POST `/chequebook/operations/:id/check` | Empty object | `ChequebookOperationDetail` |
 | POST `/chequebook/operations/:id/resolve` | `{transactionHash}` | `ChequebookOperationDetail` |
 | POST `/chequebook/operations/:id/assert` | `{amountPlur, confirmation}` | `ChequebookOperationDetail` |
+
+New submissions require the current profile UUID as `profileInstanceId`. It is part of the immutable intent and journal record. Preparation compares it before opening Bee, admission locks the profile row and checks it in the same transaction as journal insertion, and preflight compares it again. Exact request replay still precedes current-profile lookup. A mismatched instance refuses a new intent with a fixed `chequebook_profile_changed` response. An unavailable profile cannot open a Bee session. A profile removed before admission also receives the fixed refusal. Migration 023 adds only nullable `chequebook_operations.profile_instance_id`. It depends on T01 migration 014 and never infers a historical value from a current same-name profile. Historical NULL values remain readable and recoverable.
 
 Amounts are canonical positive integer PLUR strings, at most 30 digits. New transfer intent uses a UUID that the browser must persist before its POST. Repeated UUIDs replay the same intent and never prepare another transfer. A different payload under that key returns a conflict. The browser must use the read-only by-request route if it knows the UUID but lost the response containing the operation ID. No money POST is needed to discover that record, and no current profile is needed.
 
@@ -61,6 +63,6 @@ The pending-list adapter opens a separate read-only pinned session and verifies 
 
 The adapter and API tests use injected state or disposable loopback HTTP servers. They do not touch a deployment, wallet, live RPC or Bee. The production composition uses the reviewed private connection, runtime registry and journal repository. Frontend behavior is unchanged in this slice.
 
-Four added PostgreSQL regressions remain unexecuted while explicit permission for a new local disposable test container is pending. They cover unchanged 129-candidate progress, a full 256-candidate conflict with response evidence, sub-millisecond history pagination and atomic conflict detail. The earlier 35-test PostgreSQL run is historical evidence from commit `9cb03a2`, not execution of these additions. The source and tests are typechecked. No alternate worker database is used.
+Levi approved a dedicated disposable local PostgreSQL database on 2026-09-08. All 39 preexisting SQL regressions passed at `960c378`, including the four previously pending checks for unchanged 129-candidate progress, a full 256-candidate conflict with response evidence, sub-millisecond history pagination and atomic conflict detail. The database uses synthetic data in fresh per-test schemas, a random loopback port, the cached `postgres:16-alpine` image and no alternate worker database. The new profile-instance checks cover name reuse with identical timestamps, recreation before admission, exact replay after deletion and historical NULL identity. After the reviewed T01 dependency merge, all 43 SQL cases passed, including the four new instance checks. The full manager suite passed 666 tests, the common package passed 269 tests, and all workspace typechecks passed.
 
 The funded `review-20260907` deployment is preserved. The historical 0.5 BZZ fill remains unverified. This work provides no evidence that it was unsent, settled or safe to retry.

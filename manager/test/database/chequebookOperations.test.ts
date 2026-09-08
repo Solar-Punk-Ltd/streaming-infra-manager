@@ -8,7 +8,7 @@ import { ChequebookRecovery } from '../../src/domain/chequebook/ChequebookRecove
 import { ChequebookRecoveryInspector } from '../../src/domain/chequebook/ChequebookRecoveryInspector.js';
 import { ChequebookReceiptCheck } from '../../src/domain/chequebook/ChequebookReceiptCheck.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
-import { operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
+import { instanceForProfile, operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
 // Only a loopback port is configurable. This suite cannot select a deployment database.
@@ -27,6 +27,9 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     const migrations = new URL('../../src/migrations/', import.meta.url);
     for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(new URL(name, migrations), 'utf8'));
+    }
+    for (const [index, name] of ['test-deployment', 'removed-profile', ...Array.from({ length: 12 }, (_, i) => `alias-${i}`)].entries()) {
+      await pool.query('INSERT INTO profiles (name, port_slot, instance_id, stack_version_id) VALUES ($1, $2, $3, 1)', [name, index + 1, instanceForProfile(name)]);
     }
     repository = new PostgresChequebookOperationRepository(pool);
   });
@@ -417,7 +420,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.deepEqual(loaded?.receiptObservation, confirmed);
     assert.ok(loaded?.receiptCheckedAt);
     assert.equal((await repository.admit(operationCandidate())).kind, 'admitted');
-    assert.equal((await repository.admit(operationCandidate({ ...settled }))).kind, 'replayed');
+    assert.equal((await repository.admit(operationCandidate({ ...settled, profileInstanceId: settled.profileInstanceId! }))).kind, 'replayed');
   });
 
   it('rejects a stale success after another manager persisted a failed check', async () => {

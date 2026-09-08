@@ -115,7 +115,7 @@ describe('one-connection Bee transfer session', () => {
     assert.equal((await submission.submit(intent)).operation.id, first.operation.id);
     assert.equal(prepares, 1);
     assert.equal(bee.counts().posts, 1);
-    assert.equal((await repository.admit({ ...first.operation, id: crypto.randomUUID(), requestId: crypto.randomUUID() })).kind, 'busy');
+    assert.equal((await repository.admit({ ...first.operation, profileInstanceId: first.operation.profileInstanceId!, id: crypto.randomUUID(), requestId: crypto.randomUUID() })).kind, 'busy');
   });
 
   it('bounds the whole response and byte count and never follows a redirect', async () => {

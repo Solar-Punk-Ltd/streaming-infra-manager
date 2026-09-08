@@ -24,9 +24,9 @@ export class ConfiguredBeeTargetResolver {
       const url = new URL(beeApiUrlFor(profile));
       url.port = String(port);
       if (url.protocol !== 'http:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new ChequebookPreparationError();
-      const revision = createHash('sha256').update(JSON.stringify([profile.name, profile.created_at.toISOString(), profile.updated_at.toISOString(),
+      const revision = createHash('sha256').update(JSON.stringify([profile.name, profile.instance_id, profile.created_at.toISOString(), profile.updated_at.toISOString(),
         profile.host, profile.port_slot, profile.kind, profile.components, profile.status, profile.stack_version_id, port, url.href])).digest('hex');
-      return Object.freeze({ topology: 'operator_asserted_direct', url: url.href, revision });
+      return Object.freeze({ topology: 'operator_asserted_direct', profileInstanceId: profile.instance_id, url: url.href, revision });
     } catch { throw new ChequebookPreparationError(); }
   }
 }

@@ -4,6 +4,7 @@ import type { TransferDirection } from './chequebook.js';
 export interface ChequebookTransferIntent {
   readonly requestId: string;
   readonly profileName: string;
+  readonly profileInstanceId: string;
   readonly requestedBy: string;
   readonly direction: TransferDirection;
   readonly amountPlur: string;
@@ -46,7 +47,9 @@ export type ChequebookReceiptObservation =
     readonly finalizedBlockHash: string;
   };
 
-export interface ChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
+export interface ChequebookOperation extends Omit<ChequebookTransferIntent, 'profileInstanceId'>, ChequebookTransferContext {
+  /** NULL on historical records whose profile lifetime was not captured. */
+  readonly profileInstanceId: string | null;
   readonly id: string;
   readonly state: ChequebookOperationState;
   readonly transactionHash: string | null;

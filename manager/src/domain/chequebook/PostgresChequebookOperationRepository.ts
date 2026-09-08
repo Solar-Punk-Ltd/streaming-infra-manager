@@ -1,3 +1,4 @@
+import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { historyCursor, normalizeHistoryQuery } from './chequebookHistory.js';
 import type { Pool, PoolClient } from 'pg';
 import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookHistoryPage, type ChequebookOperationEvidence, type ChequebookAssertion, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookAdmissionResult, type ChequebookOperation, type ChequebookReceiptObservation } from '@streaming-infra-manager/common';
@@ -10,7 +11,7 @@ import { normalizeReceiptObservation } from './receiptObservation.js';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 
 type OperationRow = {
-  id: string; request_id: string; profile_name: string; requested_by: string;
+  id: string; request_id: string; profile_name: string; profile_instance_id: string | null; requested_by: string;
   direction: ChequebookOperation['direction']; amount_plur: string; chain_id: string;
   node_address: string; chequebook_address: string; token_address: string;
   start_block_number: string; start_block_hash: string; nonce_lower_bound: string; nonce_query_tag: string;
@@ -22,7 +23,7 @@ type OperationRow = {
 
 function operationFrom(row: OperationRow): ChequebookOperation {
   return Object.freeze({
-    id: row.id, requestId: row.request_id, profileName: row.profile_name, requestedBy: row.requested_by,
+    id: row.id, requestId: row.request_id, profileName: row.profile_name, profileInstanceId: row.profile_instance_id, requestedBy: row.requested_by,
     direction: row.direction, amountPlur: row.amount_plur, chainId: Number(row.chain_id),
     nodeAddress: row.node_address, chequebookAddress: row.chequebook_address, tokenAddress: row.token_address,
     startBlockNumber: row.start_block_number, startBlockHash: row.start_block_hash,
@@ -93,13 +94,15 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
         await client.query('COMMIT');
         return { kind: 'busy', operation: operationFrom(open.rows[0]) };
       }
+      const profile = await client.query<{ instance_id: string }>('SELECT instance_id FROM profiles WHERE name = $1 FOR KEY SHARE', [candidate.profileName]);
+      if (profile.rows[0]?.instance_id !== candidate.profileInstanceId) throw new ChequebookProfileChangedError();
       const inserted = await client.query<OperationRow>(`INSERT INTO chequebook_operations
         (id, request_id, profile_name, requested_by, direction, amount_plur, chain_id, node_address,
-         chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+         chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag, profile_instance_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [candidate.id, candidate.requestId, candidate.profileName, candidate.requestedBy, candidate.direction,
         candidate.amountPlur, candidate.chainId, candidate.nodeAddress, candidate.chequebookAddress, candidate.tokenAddress,
-        candidate.startBlockNumber, candidate.startBlockHash, candidate.nonceLowerBound, candidate.nonceQueryTag]);
+        candidate.startBlockNumber, candidate.startBlockHash, candidate.nonceLowerBound, candidate.nonceQueryTag, candidate.profileInstanceId]);
       await client.query('COMMIT');
       return { kind: 'admitted', operation: operationFrom(inserted.rows[0]!) };
     } catch (error) {

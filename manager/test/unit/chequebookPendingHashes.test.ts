@@ -9,7 +9,7 @@ function harness() {
   let pendingReads = 0;
   let result: unknown = { pendingTransactions: [{ transactionHash }] };
   let node = operation.nodeAddress;
-  const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: '1' }), () => ({
+  const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', profileInstanceId: '11111111-1111-4111-8111-111111111111', revision: '1' }), () => ({
     async getAddresses() { return { ethereum: node }; },
     async getWallet() { return { bzzBalance: '0', nativeTokenBalance: '0', walletAddress: node, chainID: 100, chequebookContractAddress: operation.chequebookAddress }; },
     async getChequebookAddress() { return { chequebookAddress: operation.chequebookAddress }; },
@@ -42,7 +42,7 @@ describe('identity-bound pending Bee hashes', () => {
   it('closes a stalled read when its owning recovery check is cancelled', async () => {
     const controller = new AbortController();
     let disposed = 0;
-    const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: '1' }), () => ({
+    const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', profileInstanceId: '11111111-1111-4111-8111-111111111111', revision: '1' }), () => ({
       getAddresses: async () => new Promise(() => {}), getWallet: async () => ({ bzzBalance: '0', nativeTokenBalance: '0' }), getChequebookAddress: async () => ({ chequebookAddress: '' }),
       getPendingTransactions: async () => ({}), dispose() { disposed++; },
     }));

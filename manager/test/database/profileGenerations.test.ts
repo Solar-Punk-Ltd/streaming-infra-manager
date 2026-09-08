@@ -48,45 +48,45 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
 
   it('generates a new UUID per profile lifetime and refuses editable replacement', async () => {
     const old = await createProfile();
-    assert.match(old.generation_id, /^[0-9a-f-]{36}$/);
-    const edited = await profiles.updateEditable(old.name, old.kind, { generation_id: '22222222-2222-4222-8222-222222222222' } as never);
-    assert.equal(edited?.generation_id, old.generation_id);
-    await profiles.remove(old.name);
+    assert.match(old.instance_id, /^[0-9a-f-]{36}$/);
+    const edited = await profiles.updateEditable(old.name, old.kind, { instance_id: '22222222-2222-4222-8222-222222222222' } as never);
+    assert.equal(edited?.instance_id, old.instance_id);
+    await profiles.deleteByName(old.name);
     const replacement = await createProfile();
     assert.equal(replacement.created_at.toISOString(), old.created_at.toISOString());
-    assert.notEqual(replacement.generation_id, old.generation_id);
+    assert.notEqual(replacement.instance_id, old.instance_id);
   });
 
   it('checks generation at admission after a prepared original was replaced under identical timestamp and name', async () => {
     const old = await createProfile();
-    const h = submission(async () => { await profiles.remove(old.name); await createProfile(); });
-    await assert.rejects(h.service.submit(transferIntent({ profileGeneration: old.generation_id })), /replaced/i);
+    const h = submission(async () => { await profiles.deleteByName(old.name); await createProfile(); });
+    await assert.rejects(h.service.submit(transferIntent({ profileInstanceId: old.instance_id })), /replaced/i);
     assert.deepEqual(h.counts(), { posts: 0, prepares: 1 });
     assert.equal((await pool.query('SELECT COUNT(*) AS count FROM chequebook_operations')).rows[0].count, '0');
   });
 
   it('replays recorded generation after deletion without preparing and conflicts with a replacement generation', async () => {
     const old = await createProfile();
-    const intent = transferIntent({ profileGeneration: old.generation_id });
+    const intent = transferIntent({ profileInstanceId: old.instance_id });
     const h = submission();
     const original = await h.service.submit(intent);
-    await profiles.remove(old.name);
+    await profiles.deleteByName(old.name);
     assert.equal((await h.service.submit(intent)).kind, 'replayed');
     const replacement = await createProfile();
-    assert.equal((await h.service.submit({ ...intent, profileGeneration: replacement.generation_id })).kind, 'conflict');
-    assert.equal((await operations.findById(original.operation.id))?.profileGeneration, old.generation_id);
+    assert.equal((await h.service.submit({ ...intent, profileInstanceId: replacement.instance_id })).kind, 'conflict');
+    assert.equal((await operations.findById(original.operation.id))?.profileInstanceId, old.instance_id);
     assert.deepEqual(h.counts(), { posts: 1, prepares: 1 });
   });
 
   it('keeps a historical NULL generation without inferring the current profile and preserves recovery reads', async () => {
     const profile = await createProfile();
-    const { operation } = await operations.admit(operationCandidate({ profileGeneration: profile.generation_id }));
-    await pool.query('UPDATE chequebook_operations SET profile_generation_id = NULL WHERE id = $1', [operation.id]);
+    const { operation } = await operations.admit(operationCandidate({ profileInstanceId: profile.instance_id }));
+    await pool.query('UPDATE chequebook_operations SET profile_instance_id = NULL WHERE id = $1', [operation.id]);
     const historical = await operations.findWithResponses(operation.id);
-    assert.equal(historical?.operation.profileGeneration, null);
+    assert.equal(historical?.operation.profileInstanceId, null);
     const recorded = await operations.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
-    assert.equal(recorded.profileGeneration, null);
+    assert.equal(recorded.profileInstanceId, null);
     assert.equal(recorded.state, 'unknown');
-    await assert.rejects(operations.admit(operationCandidate({ profileGeneration: null } as never)), /generation/i);
+    await assert.rejects(operations.admit(operationCandidate({ profileInstanceId: null } as never)), /generation/i);
   });
 });

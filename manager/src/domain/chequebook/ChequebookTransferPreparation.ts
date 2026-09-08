@@ -1,3 +1,4 @@
+import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { parsePlur, type ChequebookOperation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookPreparationError } from '../errors/ChequebookPreparationError.js';
 import type { ChequebookChainRegistry } from './ChequebookChainRegistry.js';
@@ -9,6 +10,7 @@ import { tokenAddressForChain } from './transactionIdentity.js';
 /** A saved locator, not proof of current Docker ownership. Topology is asserted by the operator. */
 export interface ConfiguredBeeTarget {
   readonly topology: 'operator_asserted_direct';
+  readonly profileInstanceId: string;
   readonly url: string;
   readonly revision: string;
 }
@@ -63,6 +65,7 @@ export class ChequebookTransferPreparation {
       return await this.bounded(async signal => {
         const target = Object.freeze({ ...await checked(this.resolveTarget(intent.profileName), signal) });
         if (target.topology !== 'operator_asserted_direct' || !target.revision) throw new ChequebookPreparationError();
+        if (target.profileInstanceId !== intent.profileInstanceId) throw new ChequebookProfileChangedError();
         session = this.createSession(target.url);
         const pinnedSession = session;
         const identity = await readBeeTransferIdentity(pinnedSession, signal);
@@ -88,7 +91,7 @@ export class ChequebookTransferPreparation {
               await this.bounded(async preflightSignal => {
                 requireOperation(operation);
                 const current = await checked(this.resolveTarget(intent.profileName), preflightSignal);
-                if (current.topology !== target.topology || current.revision !== target.revision || current.url !== target.url) throw new ChequebookPreparationError();
+                if (current.profileInstanceId !== intent.profileInstanceId || current.topology !== target.topology || current.revision !== target.revision || current.url !== target.url) throw new ChequebookPreparationError();
                 const fresh = await readBeeTransferIdentity(pinnedSession, preflightSignal);
                 if (!sameIdentity(context, fresh)) throw new ChequebookPreparationError();
                 const gas = parsePlur(fresh.wallet.nativeTokenBalance);
@@ -108,7 +111,7 @@ export class ChequebookTransferPreparation {
           },
         };
       });
-    } catch { dispose(); throw new ChequebookPreparationError(); }
+    } catch (error) { dispose(); throw error instanceof ChequebookProfileChangedError ? error : new ChequebookPreparationError(); }
   }
 
   private async bounded<T>(action: (signal: AbortSignal) => Promise<T>): Promise<T> {

@@ -3,12 +3,12 @@ import { object, string, type InferType } from 'yup';
 import { ChequebookOperationInputError } from '../domain/errors/ChequebookOperationInputError.js';
 import { normalizeHistoryQuery } from '../domain/chequebook/chequebookHistory.js';
 
-const uuid = string().typeError('requestId must be a UUID').required('requestId is required')
-  .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'requestId must be a UUID');
+const uuidField = (field: string) => string().typeError(`${field} must be a UUID`).required(`${field} is required`)
+  .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, `${field} must be a UUID`);
 const amount = string().typeError('amount must be a positive whole number of PLUR').required('amount is required')
   .matches(/^[1-9][0-9]{0,29}$/, 'amount must be a positive whole number of PLUR with at most 30 digits');
 const strictObject = object().typeError('A JSON object is required').noUnknown(true, 'Unexpected request fields').strict();
-export const submitChequebookSchema = strictObject.shape({ requestId: uuid, amount });
+export const submitChequebookSchema = strictObject.shape({ requestId: uuidField('requestId'), profileInstanceId: uuidField('profileInstanceId'), amount });
 export const checkChequebookSchema = strictObject;
 export const resolveChequebookSchema = strictObject.shape({ transactionHash: string().typeError('A transaction hash is required').required('A transaction hash is required')
   .matches(/^0x[0-9a-f]{64}$/i, 'A transaction hash must contain 64 hexadecimal digits') });

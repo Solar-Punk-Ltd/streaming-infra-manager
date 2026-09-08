@@ -1,3 +1,4 @@
+import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { randomUUID } from 'node:crypto';
 import type { BeeTransaction, ChequebookAdmissionResult, ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookJournalError } from '../errors/ChequebookJournalError.js';
@@ -32,7 +33,8 @@ export class ChequebookSubmission {
     let prepared: PreparedChequebookTransfer;
     try {
       prepared = await this.prepare(intent);
-    } catch {
+    } catch (error) {
+      if (error instanceof ChequebookProfileChangedError) throw error;
       throw new ChequebookPreparationError();
     }
     try {
@@ -77,7 +79,8 @@ export class ChequebookSubmission {
   private async journal<T>(action: () => Promise<T>): Promise<T> {
     try {
       return await action();
-    } catch {
+    } catch (error) {
+      if (error instanceof ChequebookProfileChangedError) throw error;
       // Driver messages may include connection details. The durable row is left intact.
       throw new ChequebookJournalError();
     }

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { ConfiguredBeeTargetResolver } from '../../src/domain/chequebook/ConfiguredBeeTargetResolver.js';
 import type { Profile } from '../../src/types/index.js';
 
-const profile = { name: 'deployment', port_slot: 1, host: 'bee-host', kind: 'streamer', components: null, status: 'RUNNING',
+const profile = { instance_id: '11111111-1111-4111-8111-111111111111', name: 'deployment', port_slot: 1, host: 'bee-host', kind: 'streamer', components: null, status: 'RUNNING',
   created_at: new Date(0), updated_at: new Date(0), stack_version_id: 1 } as Profile;
 const bee = { service: 'bee-uploader', ports: { BEE_UPLOADER_API_PORT: 12005 } };
 function resolver(options: { mode?: 'direct' | 'disabled'; current?: Profile | null; containers?: { service: string; ports: Record<string, number> }[] } = {}) {
@@ -25,6 +25,7 @@ describe('configured Bee target locator', () => {
     const result = await resolver({ mode: 'direct' }).resolve('deployment');
     assert.equal(result.url, 'http://bee-host:12005/');
     assert.equal(result.topology, 'operator_asserted_direct');
+    assert.equal(result.profileInstanceId, profile.instance_id);
     assert.ok(result.revision);
   });
 
@@ -39,6 +40,7 @@ describe('configured Bee target locator', () => {
   it('changes its revision for profile generation, host, port, status and stack changes', async () => {
     const baseline = await resolver({ mode: 'direct' }).resolve('deployment');
     for (const current of [{ ...profile, updated_at: new Date(1) }, { ...profile, created_at: new Date(1) },
+      { ...profile, instance_id: '22222222-2222-4222-8222-222222222222' },
       { ...profile, host: 'replacement' }, { ...profile, stack_version_id: 2 }, { ...profile, status: 'ERROR' as const }]) {
       assert.notEqual((await resolver({ mode: 'direct', current }).resolve('deployment')).revision, baseline.revision);
     }

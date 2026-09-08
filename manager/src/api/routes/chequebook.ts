@@ -17,7 +17,7 @@ export function createChequebookRouter(chequebookService: ChequebookService, ope
   for (const direction of ['deposit', 'withdraw'] as const) {
     router.post(`/profiles/:name/chequebook/${direction}`, validateParams(profileNameSchema), validateBody(submitChequebookSchema), asyncHandler(async (req, res) => {
       const body = req.body as SubmitChequebookBody;
-      const result = await operations.submit({ requestId: body.requestId, amountPlur: body.amount, direction,
+      const result = await operations.submit({ requestId: body.requestId, profileInstanceId: body.profileInstanceId, amountPlur: body.amount, direction,
         profileName: req.params.name as string, requestedBy: `user:${signedInUser(req).id}` });
       res.status(result.kind === 'busy' || result.kind === 'conflict' ? 409 : 202).json(result);
     }));

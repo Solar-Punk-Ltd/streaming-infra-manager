@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { ChequebookTransferPreparation } from '../../src/domain/chequebook/ChequebookTransferPreparation.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import { ChequebookChainRegistry } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
-import { InMemoryChequebookOperations, profileGeneration, transferContext, transferIntent } from '../support/chequebookOperations.js';
+import { InMemoryChequebookOperations, profileInstanceId, transferContext, transferIntent } from '../support/chequebookOperations.js';
 
 function harness() {
   let disposed = 0;
@@ -14,7 +14,7 @@ function harness() {
   let available = '10000000000000000';
   let address = transferContext.nodeAddress;
   let anchorHash = transferContext.startBlockHash;
-  let target = { url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct' as const, revision: 'revision-1', profileGeneration };
+  let target = { url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct' as const, revision: 'revision-1', profileInstanceId };
   const calls: string[] = [];
   const session = {
     async getAddresses() { calls.push('addresses'); return { ethereum: address }; },
@@ -41,7 +41,7 @@ function harness() {
 describe('fresh pinned transfer preparation', () => {
   it('refuses a replacement generation before opening a Bee session', async () => {
     const h = harness();
-    h.changeTarget({ profileGeneration: '22222222-2222-4222-8222-222222222222' });
+    h.changeTarget({ profileInstanceId: '22222222-2222-4222-8222-222222222222' });
     const submission = new ChequebookSubmission(new InMemoryChequebookOperations(), intent => h.preparation.prepare(intent));
     await assert.rejects(submission.submit(transferIntent()), /replaced/i);
     assert.deepEqual(h.counts(), { disposed: 0, posts: 0, sessions: 0 });
@@ -51,7 +51,7 @@ describe('fresh pinned transfer preparation', () => {
     const h = harness();
     const submission = new ChequebookSubmission(new InMemoryChequebookOperations(), async intent => {
       const prepared = await h.preparation.prepare(intent);
-      h.changeTarget({ profileGeneration: '22222222-2222-4222-8222-222222222222' });
+      h.changeTarget({ profileInstanceId: '22222222-2222-4222-8222-222222222222' });
       return prepared;
     });
     const result = await submission.submit(transferIntent());
@@ -65,7 +65,7 @@ describe('fresh pinned transfer preparation', () => {
     const repository = new InMemoryChequebookOperations();
     const submission = new ChequebookSubmission(repository, intent => h.preparation.prepare(intent));
     const result = await submission.submit(transferIntent());
-    assert.equal(result.operation.profileGeneration, profileGeneration);
+    assert.equal(result.operation.profileInstanceId, profileInstanceId);
     assert.equal(result.operation.chainId, 100);
     assert.equal(result.operation.nodeAddress, transferContext.nodeAddress);
     assert.equal(result.operation.chequebookAddress, transferContext.chequebookAddress);
@@ -143,7 +143,7 @@ describe('fresh pinned transfer preparation', () => {
   it('bounds a stalled identity adapter and disposes its session', async () => {
     const h = harness();
     h.session.getAddresses = async () => new Promise(() => {});
-    const preparation = new ChequebookTransferPreparation(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: 'revision-1', profileGeneration }), new ChequebookChainRegistry(undefined), () => h.session, { timeoutMs: 15 });
+    const preparation = new ChequebookTransferPreparation(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: 'revision-1', profileInstanceId }), new ChequebookChainRegistry(undefined), () => h.session, { timeoutMs: 15 });
     await assert.rejects(preparation.prepare(transferIntent()), /checked/i);
     assert.equal(h.counts().disposed, 1);
     assert.equal(h.counts().posts, 0);

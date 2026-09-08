@@ -69,21 +69,23 @@ describe('authenticated transaction-journal API', () => {
   it('requires a request UUID and rejects caller actor, endpoint, chain and malformed amounts', async t => {
     const api = await testApi(); t.after(() => api.close());
     const intent = transferIntent();
-    for (const body of [{ amount: intent.amountPlur }, { amount: 1, requestId: intent.requestId }, { amount: '01', requestId: intent.requestId },
-      ...['actor', 'requestedBy', 'endpoint', 'chainId', 'contract'].map(key => ({ amount: intent.amountPlur, requestId: intent.requestId, [key]: 'synthetic-private-value' }))]) {
+    for (const body of [{ amount: intent.amountPlur }, { amount: 1, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId }, { amount: '01', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId },
+      ...[undefined, null, '', 'old-deployment'].map(profileInstanceId => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId })),
+      ...['actor', 'requestedBy', 'endpoint', 'chainId', 'contract'].map(key => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, [key]: 'synthetic-private-value' }))]) {
       const response = await api.request('POST', path, body);
       assert.equal(response.status, 400);
       assert.ok(!(await response.text()).includes('synthetic-private-value'));
     }
     assert.equal(api.counts().posts, 0);
-    const response = await api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId });
+    const response = await api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId });
     assert.equal(response.status, 202);
     const result = await response.json();
     assert.equal(result.operation.requestedBy, 'user:7');
+    assert.equal(result.operation.profileInstanceId, intent.profileInstanceId);
     assert.equal(result.operation.state, 'submitted');
     assert.equal(result.assertionConfirmation, chequebookAssertionConfirmation(intent.amountPlur));
     assert.deepEqual(result.responseEvidence, []);
-    const conflict = await api.request('POST', path, { amount: '1', requestId: intent.requestId });
+    const conflict = await api.request('POST', path, { amount: '1', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId });
     assert.equal(conflict.status, 409);
     assert.equal((await conflict.json()).kind, 'conflict');
     assert.equal(api.counts().posts, 1);
@@ -92,7 +94,7 @@ describe('authenticated transaction-journal API', () => {
   it('recovers an exact request key after losing the HTTP response and removing the profile', async t => {
     const api = await testApi({ dropResponse: true }); t.after(() => api.close());
     const intent = transferIntent();
-    await assert.rejects(api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId }));
+    await assert.rejects(api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId }));
     api.removeProfile();
     const response = await api.request('GET', `${operationsPath}/by-request/${intent.requestId}`);
     assert.equal(response.status, 200);

@@ -29,6 +29,7 @@ export function normalizeTransferIntent(intent: ChequebookTransferIntent): Chequ
   return Object.freeze({
     requestId: text(intent.requestId, 'request id', UUID).toLowerCase(),
     profileName: text(intent.profileName, 'deployment'),
+    profileInstanceId: text(intent.profileInstanceId, 'profile generation', UUID).toLowerCase(),
     requestedBy: text(intent.requestedBy, 'operator'),
     direction: intent.direction,
     amountPlur: text(intent.amountPlur, 'amount', /^[1-9][0-9]{0,29}$/),
@@ -49,8 +50,10 @@ export function normalizeTransferContext(context: ChequebookTransferContext): Ch
   });
 }
 
-export function sameTransferIntent(a: ChequebookTransferIntent, b: ChequebookTransferIntent): boolean {
-  return a.requestId === b.requestId && a.profileName === b.profileName && a.requestedBy === b.requestedBy && a.direction === b.direction && a.amountPlur === b.amountPlur;
+type SavedIntentIdentity = Omit<ChequebookTransferIntent, 'profileInstanceId'> & { readonly profileInstanceId: string | null };
+
+export function sameTransferIntent(a: SavedIntentIdentity, b: SavedIntentIdentity): boolean {
+  return a.requestId === b.requestId && a.profileName === b.profileName && a.profileInstanceId === b.profileInstanceId && a.requestedBy === b.requestedBy && a.direction === b.direction && a.amountPlur === b.amountPlur;
 }
 
 export function isTransactionHash(value: unknown): value is string {
