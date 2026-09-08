@@ -28,6 +28,7 @@ export interface ChequebookOperation extends ChequebookTransferIntent, Chequeboo
   readonly state: ChequebookOperationState;
   readonly transactionHash: string | null;
   readonly failureReason: ChequebookSubmissionFailure | null;
+  readonly dispatchStartedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

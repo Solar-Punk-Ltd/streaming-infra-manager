@@ -9,7 +9,7 @@ type OperationRow = {
   node_address: string; chequebook_address: string; token_address: string;
   start_block_number: string; start_block_hash: string; nonce_lower_bound: string; nonce_query_tag: string;
   state: ChequebookOperation['state']; transaction_hash: string | null;
-  failure_reason: ChequebookOperation['failureReason']; created_at: Date; updated_at: Date;
+  failure_reason: ChequebookOperation['failureReason']; dispatch_started_at: Date | null; created_at: Date; updated_at: Date;
 };
 
 function operationFrom(row: OperationRow): ChequebookOperation {
@@ -20,6 +20,7 @@ function operationFrom(row: OperationRow): ChequebookOperation {
     startBlockNumber: row.start_block_number, startBlockHash: row.start_block_hash,
     nonceLowerBound: row.nonce_lower_bound, nonceQueryTag: row.nonce_query_tag,
     state: row.state, transactionHash: row.transaction_hash, failureReason: row.failure_reason,
+    dispatchStartedAt: row.dispatch_started_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   });
 }
@@ -71,6 +72,16 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     } finally {
       client.release();
     }
+  }
+
+  async claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }> {
+    const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
+      SET dispatch_started_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND state = 'submitting' AND dispatch_started_at IS NULL RETURNING *`, [operationId(id)]);
+    if (updated.rows[0]) return { claimed: true, operation: operationFrom(updated.rows[0]) };
+    const current = await this.findById(id);
+    if (!current) throw new Error('The chequebook operation no longer exists.');
+    return { claimed: false, operation: current };
   }
 
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {

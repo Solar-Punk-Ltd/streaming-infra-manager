@@ -16,6 +16,7 @@ CREATE TABLE chequebook_operations (
   state TEXT NOT NULL DEFAULT 'submitting' CHECK (state IN ('submitting', 'submitted', 'unknown', 'settled', 'reverted', 'asserted', 'rejected')),
   transaction_hash TEXT CHECK (transaction_hash ~ '^0x[0-9a-f]{64}$'),
   failure_reason TEXT CHECK (failure_reason IN ('preflight_failed', 'response_unavailable', 'invalid_response')),
+  dispatch_started_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (state NOT IN ('submitted', 'settled', 'reverted') OR transaction_hash IS NOT NULL),

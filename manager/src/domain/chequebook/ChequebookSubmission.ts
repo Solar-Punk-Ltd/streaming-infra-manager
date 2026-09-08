@@ -44,9 +44,12 @@ export class ChequebookSubmission {
       return this.finish(operation, { state: 'rejected', transactionHash: null, failureReason: 'preflight_failed' });
     }
 
+    const dispatch = await this.journal(() => this.operations.claimDispatch(operation.id));
+    if (!dispatch.claimed) return { kind: 'admitted', operation: dispatch.operation };
+
     let result: BeeTransaction;
     try {
-      result = await prepared.send(operation);
+      result = await prepared.send(Object.freeze({ ...dispatch.operation }));
     } catch {
       return this.finish(operation, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
     }
