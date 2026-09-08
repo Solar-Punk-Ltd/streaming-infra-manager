@@ -3,7 +3,8 @@ import { cleanupHttpAdapter, type CleanupRequest } from './cleanupHttpAdapter.js
 import { CreatedResourceInventory, type CreationAttempt, type CreateResponse } from './createdResources.js';
 
 function positiveCount(value: unknown): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 1;
+  const count = typeof value === 'string' ? Number(value) : value;
+  return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? count : 1;
 }
 
 function creationAttempt(method: string, path: string, value: unknown): CreationAttempt | null {
@@ -11,7 +12,7 @@ function creationAttempt(method: string, path: string, value: unknown): Creation
   const pathname = new URL(path, 'http://integration.invalid').pathname.replace(/\/+$/, '').toLowerCase();
   const body = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   if (pathname === '/profiles') return { kind: 'profile' };
-  if (pathname === '/groups') return { kind: 'group', expectedMembers: body.abr_ladder === true ? 4 : positiveCount(body.size) };
+  if (pathname === '/groups') return { kind: 'group', expectedMembers: /^(true|1)$/i.test(String(body.abr_ladder)) ? 4 : positiveCount(body.size) };
   const match = /^\/groups\/([1-9]\d*)\/members$/.exec(pathname);
   const groupId = Number(match?.[1]);
   return match && Number.isSafeInteger(groupId) ? { kind: 'members', groupId, expectedMembers: positiveCount(body.count) } : null;
