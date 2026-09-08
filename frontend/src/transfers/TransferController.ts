@@ -1,6 +1,7 @@
 import type { ChequebookAdmissionDetail, ChequebookOperationDetail, TransferDirection } from '@streaming-infra-manager/common';
 import { isExactTransfer, type StoredTransferIntent, type TransferIntentStore } from './transferIntentStore';
 import { isCompleteTransferDetail, permitsNewTransfer } from './transferEvidence';
+import { TransferApiError } from './TransferApiError';
 
 export interface TransferProfileIdentity { readonly name: string; readonly instanceId: string }
 export interface TransferDraft { readonly direction: TransferDirection; readonly amountPlur: string }
@@ -11,7 +12,7 @@ export interface TransferControllerApi {
   submit(intent: StoredTransferIntent, signal: AbortSignal): Promise<ChequebookAdmissionDetail>;
 }
 export type TransferControllerIssue = 'lookup_missing' | 'lookup_unavailable' | 'incomplete_response' | 'response_unknown' |
-  'target_changed' | 'target_unavailable' | 'storage_unavailable' | 'identity_conflict' | 'terminal_required' | 'busy' | 'link_unavailable';
+  'target_changed' | 'target_unavailable' | 'account_changed' | 'storage_unavailable' | 'identity_conflict' | 'terminal_required' | 'busy' | 'link_unavailable';
 export interface TransferControllerState {
   readonly phase: 'idle' | 'signed_out' | 'entry' | 'loading' | 'sending' | 'ready';
   readonly intent: StoredTransferIntent | null;
@@ -163,6 +164,9 @@ export class TransferController {
   private failedRequest(task: ActiveTask, error: unknown, issue: TransferControllerIssue): void {
     if (!this.live(task)) return;
     if (error instanceof Error && error.name === 'SessionEndedError') { this.setContext(null, null); return; }
+    if (error instanceof TransferApiError && (error.reason === 'account_changed' || error.reason === 'target_changed')) {
+      this.patch({ phase: 'ready', issue: error.reason }); return;
+    }
     this.patch({ phase: 'ready', issue });
   }
 

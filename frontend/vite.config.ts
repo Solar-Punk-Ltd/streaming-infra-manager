@@ -23,6 +23,7 @@ export default defineConfig({
     proxy: {
       '/auth': managerApi(),
       '/profiles': managerApi(),
+      '/chequebook': managerApi(),
       '/groups': managerApi(),
       '/health': managerApi(),
       '/config': managerApi(),

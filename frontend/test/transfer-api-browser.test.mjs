@@ -110,6 +110,24 @@ test('adapter preserves exact request bodies and separates busy records, account
     assert.equal(result.reason, reason);
     assert.ok(!JSON.stringify(result).includes('synthetic-private'));
   }
+  assert.equal(writes.length, 6, 'Each explicit submit attempts exactly one HTTP request, including the lost response');
+  for (const [next, issue] of [['account', 'account_changed'], ['lost', 'response_unknown']]) {
+    mode = next;
+    const state = await browser.evaluate(`(async () => {
+      const { IndexedDbTransferIntentStore } = await import('/src/transfers/transferIntentStore.ts');
+      const { TransferController } = await import('/src/transfers/TransferController.ts');
+      const store = new IndexedDbTransferIntentStore(indexedDB, crypto.randomUUID());
+      const controller = new TransferController(store, api, () => intent.requestId);
+      controller.setContext(7, { name: intent.profileName, instanceId: intent.profileInstanceId });
+      await controller.confirmNew({ direction: intent.direction, amountPlur: intent.amountPlur }, null);
+      const state = controller.state;
+      controller.cancel();
+      await store.close();
+      return state;
+    })()`);
+    assert.equal(state.issue, issue);
+    assert.equal(state.intent.requestId, intent.requestId);
+  }
   const writeCount = writes.length;
   mode = 'missing';
   assert.equal(await browser.evaluate('api.lookup(intent.requestId, signal)'), null);
