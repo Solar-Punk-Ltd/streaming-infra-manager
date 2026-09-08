@@ -66,17 +66,15 @@ describe('durable chequebook submission', () => {
     assert.equal(received, 1);
   });
 
-  it('never replays submitting records left by a crash before or after the POST', async () => {
-    for (const alreadySent of [false, true]) {
-      const h = harness();
-      const candidate = operationCandidate();
-      await h.repository.admit(candidate);
-      const result = await h.service().submit(candidate);
-      assert.equal(result.kind, 'replayed');
-      assert.equal(result.operation.state, 'submitting');
-      assert.equal(h.submissions(), 0, `already sent: ${alreadySent}`);
-      assert.equal((await h.service().submit(transferIntent())).kind, 'busy');
-    }
+  it('never sends a submitting record left by a crash before the POST', async () => {
+    const h = harness();
+    const candidate = operationCandidate();
+    await h.repository.admit(candidate);
+    const result = await h.service().submit(candidate);
+    assert.equal(result.kind, 'replayed');
+    assert.equal(result.operation.state, 'submitting');
+    assert.equal(h.submissions(), 0);
+    assert.equal((await h.service().submit(transferIntent())).kind, 'busy');
   });
 
   it('retains the durable guard when Bee returns a hash but saving it fails', async () => {

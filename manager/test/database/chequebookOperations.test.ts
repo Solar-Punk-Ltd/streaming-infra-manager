@@ -102,6 +102,45 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(submissions, 1);
   });
 
+  it('never sends after admission committed but its response was lost', async () => {
+    const intent = transferIntent();
+    let submissions = 0;
+    const prepare = async () => ({ context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } });
+    const admit = repository.admit.bind(repository);
+    repository.admit = async candidate => {
+      await admit(candidate);
+      throw new Error('commit response lost');
+    };
+    await assert.rejects(new ChequebookSubmission(repository, prepare).submit(intent), /journal/i);
+    const restarted = new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), prepare);
+    const retry = await restarted.submit(intent);
+    assert.equal(retry.kind, 'replayed');
+    assert.equal(retry.operation.state, 'submitting');
+    assert.equal((await restarted.submit(transferIntent())).kind, 'busy');
+    assert.equal(submissions, 0);
+  });
+
+  it('allows exactly one Bee POST from competing coordinators', async () => {
+    let submissions = 0;
+    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } }));
+    const replies = await Promise.all(Array.from({ length: 12 }, (_, index) => service().submit(transferIntent({ profileName: `alias-${index}` }))));
+    assert.equal(replies.filter(result => result.kind === 'admitted').length, 1);
+    assert.equal(replies.filter(result => result.kind === 'busy').length, 11);
+    assert.equal(submissions, 1);
+  });
+
+  it('preserves a recovered pending hash against late submission results', async () => {
+    const candidate = operationCandidate();
+    await repository.admit(candidate);
+    const recoveredHash = `0x${'de'.repeat(32)}`;
+    await pool.query("UPDATE chequebook_operations SET state = 'submitted', transaction_hash = $2 WHERE id = $1", [candidate.id, recoveredHash]);
+    const lateSuccess = await repository.recordSubmission(candidate.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(lateSuccess.transactionHash, recoveredHash);
+    const lateFailure = await repository.recordSubmission(candidate.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
+    assert.equal(lateFailure.state, 'submitted');
+    assert.equal(lateFailure.transactionHash, recoveredHash);
+  });
+
   it('enforces the same-node uniqueness in SQL even when admission code is bypassed', async () => {
     await repository.admit(operationCandidate());
     await assert.rejects(pool.query(`INSERT INTO chequebook_operations SELECT gen_random_uuid(), gen_random_uuid(), profile_name, requested_by, direction, amount_plur, chain_id, node_address, chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag, state, transaction_hash, failure_reason, created_at, updated_at FROM chequebook_operations`), (error: unknown) => (error as { code?: string }).code === '23505');
