@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>T09 local intent regression</title></head>
+  <body>
+    <h1>T09 local intent regression</h1>
+    <p>This page uses synthetic transfer intents and native IndexedDB. It sends no money requests.</p>
+    <button id="run">Run local tests</button>
+    <pre id="result" role="status">Ready</pre>
+    <script type="module">
+      document.querySelector('#run').onclick = async () => {
+        const output = document.querySelector('#result');
+        output.textContent = 'Running';
+        try {
+          const { runIntentTests } = await import('./t09-intent-tests.ts');
+          output.textContent = JSON.stringify(await runIntentTests(), null, 2);
+        } catch (error) {
+          output.textContent = `FAILED: ${error.message}`;
+        }
+      };
+    </script>
+  </body>
+</html>
