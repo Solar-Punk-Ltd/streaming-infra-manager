@@ -3,7 +3,7 @@ import { ChequebookAccountChangedError } from '../../domain/errors/ChequebookAcc
 import type { ChequebookService } from '../../domain/ChequebookService.js';
 import type { ChequebookOperationsService } from '../../domain/chequebook/ChequebookOperationsService.js';
 import { assertChequebookSchema, checkChequebookSchema, chequebookHistoryQuery, resolveChequebookSchema, submitChequebookSchema,
-  type AssertChequebookBody, type ResolveChequebookBody, type SubmitChequebookBody } from '../../schemas/chequebookOperations.js';
+  type AssertChequebookBody, type CheckChequebookBody, type ResolveChequebookBody, type SubmitChequebookBody } from '../../schemas/chequebookOperations.js';
 import { profileNameSchema } from '../../schemas/profile.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { signedInUser } from '../middleware/requireSession.js';
@@ -35,14 +35,19 @@ export function createChequebookRouter(chequebookService: ChequebookService, ope
     res.json(await operations.detail(req.params.id as string));
   }));
   router.post('/chequebook/operations/:id/check', validateBody(checkChequebookSchema), asyncHandler(async (req, res) => {
+    if ((req.body as CheckChequebookBody).expectedAccountId !== signedInUser(req).id) throw new ChequebookAccountChangedError('recovery');
     res.json(await operations.check(req.params.id as string));
   }));
   router.post('/chequebook/operations/:id/resolve', validateBody(resolveChequebookSchema), asyncHandler(async (req, res) => {
-    res.json(await operations.resolve(req.params.id as string, (req.body as ResolveChequebookBody).transactionHash));
+    const body = req.body as ResolveChequebookBody;
+    if (body.expectedAccountId !== signedInUser(req).id) throw new ChequebookAccountChangedError('recovery');
+    res.json(await operations.resolve(req.params.id as string, body.transactionHash));
   }));
   router.post('/chequebook/operations/:id/assert', validateBody(assertChequebookSchema), asyncHandler(async (req, res) => {
     const body = req.body as AssertChequebookBody;
-    res.json(await operations.assertNoSubmission(req.params.id as string, { ...body, actor: `user:${signedInUser(req).id}` }));
+    const user = signedInUser(req);
+    if (body.expectedAccountId !== user.id) throw new ChequebookAccountChangedError('recovery');
+    res.json(await operations.assertNoSubmission(req.params.id as string, { amountPlur: body.amountPlur, confirmation: body.confirmation, actor: `user:${user.id}` }));
   }));
   return router;
 }

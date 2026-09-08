@@ -208,11 +208,12 @@ describe('authenticated transaction-journal API', () => {
       nextBlockNumber: '500', nextBlockHash: transferContext.startBlockHash, complete: true, candidateHashes: [] } }, []);
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, { ...body, actor: 'forged' })).status, 400);
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, { ...body, confirmation: 'I agree' })).status, 400);
-    const response = await api.request('POST', `${operationsPath}/${operation.id}/assert`, body);
+    api.switchAccount(8);
+    const response = await api.request('POST', `${operationsPath}/${operation.id}/assert`, { ...body, expectedAccountId: 8 });
     assert.equal(response.status, 200);
     const detail = await response.json();
     assert.equal(detail.operation.state, 'asserted');
-    assert.equal(detail.operation.assertion.actor, 'user:7');
+    assert.equal(detail.operation.assertion.actor, 'user:8');
     assert.deepEqual(Object.keys(detail.operation.assertion).sort(), ['actor', 'amountPlur', 'assertedAt', 'confirmation']);
     assert.equal(api.counts().posts, 0);
   });

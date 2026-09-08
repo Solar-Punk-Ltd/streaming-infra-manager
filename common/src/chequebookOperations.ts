@@ -2,6 +2,18 @@ import { plurToBzzExact } from './chequebook.js';
 import type { TransferDirection } from './chequebook.js';
 
 export const CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Sign in with the account that confirmed this transfer.';
+export const CHEQUEBOOK_RECOVERY_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Review this action again with your current account.';
+
+export interface ChequebookRecoveryRequest {
+  readonly expectedAccountId: number;
+}
+export interface ChequebookResolveRequest extends ChequebookRecoveryRequest {
+  readonly transactionHash: string;
+}
+export interface ChequebookAssertRequest extends ChequebookRecoveryRequest {
+  readonly amountPlur: string;
+  readonly confirmation: string;
+}
 
 export interface ChequebookSubmitRequest {
   readonly requestId: string;

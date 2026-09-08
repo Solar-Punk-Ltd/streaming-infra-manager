@@ -39,11 +39,13 @@ All routes remain behind the existing session gate. Writes retain the existing s
 | GET `/chequebook/operations` | Optional `limit`, `cursor`, `profileName` | `ChequebookHistoryPage` |
 | GET `/chequebook/operations/by-request/:requestId` | Exact intent UUID | `ChequebookOperationDetail` |
 | GET `/chequebook/operations/:id` | Saved operation UUID | `ChequebookOperationDetail` |
-| POST `/chequebook/operations/:id/check` | Empty object | `ChequebookOperationDetail` |
-| POST `/chequebook/operations/:id/resolve` | `{transactionHash}` | `ChequebookOperationDetail` |
-| POST `/chequebook/operations/:id/assert` | `{amountPlur, confirmation}` | `ChequebookOperationDetail` |
+| POST `/chequebook/operations/:id/check` | `{expectedAccountId}` | `ChequebookOperationDetail` |
+| POST `/chequebook/operations/:id/resolve` | `{transactionHash, expectedAccountId}` | `ChequebookOperationDetail` |
+| POST `/chequebook/operations/:id/assert` | `{amountPlur, confirmation, expectedAccountId}` | `ChequebookOperationDetail` |
 
 Every submission includes the saved positive safe-integer account ID as `expectedAccountId`. The route compares it with the authenticated user before any preparation, journal access or Bee action. A different session account receives the fixed 409 `account_changed` refusal. This field cannot choose the actor. Returning to the original account permits exact request replay even after profile deletion.
+
+Recovery writes also require `expectedAccountId`, checked before service or journal access. This is the account that reviewed the recovery action. Any currently authenticated operator may recover another operator's saved operation under the existing authorization policy. A switched account returns fixed 409 `account_changed` and asks the operator to review the action again under the current account. These request preconditions are not stored as assertion evidence.
 
 New submissions require the current profile UUID as `profileInstanceId`. It is part of the immutable intent and journal record. Preparation compares it before opening Bee, admission locks the profile row and checks it in the same transaction as journal insertion, and preflight compares it again. Exact request replay still precedes current-profile lookup. A mismatched instance refuses a new intent with a fixed `chequebook_profile_changed` response. An unavailable profile cannot open a Bee session. A profile removed before admission also receives the fixed refusal. Migration 023 adds only nullable `chequebook_operations.profile_instance_id`. It depends on T01 migration 014 and never infers a historical value from a current same-name profile. Historical NULL values remain readable and recoverable.
 
