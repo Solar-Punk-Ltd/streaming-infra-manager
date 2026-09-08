@@ -31,17 +31,13 @@ import type { Profile } from '../types';
 import { fetchContainerLogs, fetchEngineConfig } from './engineApi';
 import { ENGINE_LABEL } from './engineText';
 import { SERVICE_DESCRIPTIONS } from './shape';
+import { initialLogService } from './logSelection';
 
 const LOG_LINES = 200;
 
 const VIEW_HEIGHT = 420;
 
 type PaneKind = 'logs' | 'config';
-
-/** The engine's own container when it is up, else whatever else is. */
-function firstAvailable(services: string[], engine: EngineName): string {
-  return services.includes(engine) ? engine : (services[0] ?? engine);
-}
 
 /** What to try next when there is nothing to show. */
 function emptyHint(error: string | null): string {
@@ -65,15 +61,17 @@ function emptyHint(error: string | null): string {
 export function LogsDialog({
   profile,
   engine,
+  initialService,
   onClose,
 }: {
   profile: Profile;
-  engine: EngineName;
+  engine: EngineName | null;
+  initialService?: string;
   onClose: () => void;
 }) {
   const services = profile.containers.map((container) => container.service);
   const [pane, setPane] = useState<PaneKind>('logs');
-  const [picked, setPicked] = useState(() => firstAvailable(services, engine));
+  const [picked, setPicked] = useState(() => initialLogService(services, engine, initialService));
   const [text, setText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,22 +79,29 @@ export function LogsDialog({
 
   // Derived rather than stored, so the select's value can never be a container
   // the deployment has stopped running. A pick that comes back is used again.
-  const service = services.includes(picked)
+  const service = picked !== null && services.includes(picked)
     ? picked
-    : firstAvailable(services, engine);
+    : initialLogService(services, engine, initialService);
 
   // The guard is what makes the last read the one on screen: a switch of pane
   // or container while a slow one is still out flips it, and that answer is
   // dropped instead of overwriting the newer one or landing after the close.
   useEffect(() => {
+    if (pane === 'logs' && service === null) {
+      setText(null);
+      setError('No container is currently reported for this deployment.');
+      setLoading(false);
+      return;
+    }
     let current = true;
+    setText(null);
     setLoading(true);
     setError(null);
 
     const reading =
       pane === 'config'
         ? fetchEngineConfig(profile.name)
-        : fetchContainerLogs(profile.name, service, LOG_LINES);
+        : fetchContainerLogs(profile.name, service!, LOG_LINES);
 
     reading
       .then((loaded) => {
@@ -138,7 +143,7 @@ export function LogsDialog({
         sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab value="logs" label="Logs" />
-        <Tab value="config" label="Effective config" />
+        {engine && <Tab value="config" label="Effective config" />}
       </Tabs>
 
       <DialogContent>
@@ -156,7 +161,7 @@ export function LogsDialog({
                   select
                   size="small"
                   label="Container"
-                  value={service}
+                  value={service ?? ''}
                   onChange={(event) => setPicked(event.target.value)}
                   sx={{ minWidth: 220 }}
                   disabled={services.length === 0}
@@ -173,7 +178,7 @@ export function LogsDialog({
               </>
             ) : (
               <Typography variant="caption" color="text.secondary">
-                The config {ENGINE_LABEL[engine]} generated when it started. This
+                The config {engine ? ENGINE_LABEL[engine] : 'engine'} generated when it started. This
                 is what actually applied.
               </Typography>
             )}
