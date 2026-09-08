@@ -18,6 +18,7 @@ export interface PortReservationRepository {
   setState(ids: readonly number[], state: ReservationState): Promise<void>;
   /** Apply an observed handover under the allocation lock, retaining unresolved jobs and rollback holds. */
   reconcile(observation: PortReconciliation): Promise<void>;
+  hasRemovalHold(profileName: string): Promise<boolean>;
   remove(ids: readonly number[]): Promise<void>;
   /** Every row of the deployment, for a removal. Answers how many went. */
   removeByProfile(profileName: string): Promise<number>;

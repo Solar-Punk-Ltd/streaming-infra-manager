@@ -23,6 +23,9 @@ export class InMemoryPortReservations implements PortReservationRepository {
   seededAt: Date | null = null;
   readonly seededDaemons = new Map<string, Date>();
   releaseBlocked: (profileName: string) => boolean = () => false;
+  removalBlocked: (profileName: string) => boolean = () => false;
+
+  async hasRemovalHold(profileName: string): Promise<boolean> { return this.removalBlocked(profileName); }
 
   private nextId = 1;
 

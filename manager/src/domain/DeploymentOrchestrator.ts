@@ -120,6 +120,8 @@ interface JobConfig {
   /** For a job that creates containers: the guard it holds while it runs. */
   guard?: { kind: DeployAttemptKind; services: readonly string[] };
 
+  beforeRun?: () => Promise<void>;
+
   onSuccess: (attempt: DeployAttempt | null) => Promise<void>;
 }
 
@@ -683,7 +685,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     input: { all?: boolean } = {},
   ): Promise<RunHandle> {
-    await this.assertNoCreatingAttempt(profile.name);
+    await this.assertRemovalReady(profile.name);
     const args: string[] = [
       `--profile=${profile.name}`,
       `--host=${targetAlias(profile.host)}`,
@@ -704,6 +706,7 @@ export class DeploymentOrchestrator {
       args,
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
+      beforeRun: () => this.assertRemovalReady(profile.name),
       onSuccess: async () => {
         await this.verifyPortRemoval(profile);
         await this.removeProfileDataDir(profile.name);
@@ -726,8 +729,16 @@ export class DeploymentOrchestrator {
     }
   }
 
+  private async assertRemovalReady(profileName: string): Promise<void> {
+    await this.assertNoCreatingAttempt(profileName);
+    if (!this.ports || !this.portObserver) throw new ProfileConfigError(profileName, 'Port removal observation is not configured. Reservations were retained.');
+    if (await this.ports.hasRemovalHold(profileName)) {
+      throw new ProfileConfigError(profileName, 'An unresolved rollback or creation hold must be resolved before cleanup.');
+    }
+  }
+
   private async verifyPortRemoval(profile: Profile): Promise<void> {
-    await this.assertNoCreatingAttempt(profile.name);
+    await this.assertRemovalReady(profile.name);
     if (!this.ports || !this.portObserver) throw new ProfileConfigError(profile.name, 'Port removal observation is not configured. Reservations were retained.');
     const target = targetAlias(profile.host);
     const daemonId = await this.targetDaemon(target);
@@ -801,6 +812,13 @@ export class DeploymentOrchestrator {
         );
       }
       await this.publishChanged(transitioned);
+    }
+
+    try {
+      await cfg.beforeRun?.();
+    } catch (err) {
+      if (cfg.transitionTo) await this.markFailed(cfg.profileName, getErrorMessage(err));
+      throw err;
     }
 
     // The guard, before anything is spawned: the project's containers as they

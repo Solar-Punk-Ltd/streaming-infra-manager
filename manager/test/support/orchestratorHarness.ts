@@ -81,6 +81,8 @@ export function orchestratorHarness(
   };
   const daemon = new FakeDaemon();
   const published: PublishedPortsSnapshot = { daemonId: daemon.id, bindings: [] };
+  profiles.reservations.removalBlocked = name => ledger.references.some(reference => reference.resolvedAt === null && reference.holderKind === 'operation')
+    || attempts.rows.some(attempt => attempt.project === name && attempt.state !== 'released');
   profiles.reservations.releaseBlocked = name => ledger.references.some(reference => reference.resolvedAt === null
     && ((reference.holderKind === 'job' && reference.holderId === name) || reference.holderKind === 'operation'))
     || attempts.rows.some(attempt => attempt.project === name && attempt.state !== 'released');

@@ -136,6 +136,14 @@ export class PostgresPortReservationRepository implements PortReservationReposit
     } finally { client.release(); }
   }
 
+  async hasRemovalHold(profileName: string): Promise<boolean> {
+    const result = await this.pool.query<{ held: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
+        OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS held`, [profileName],
+    );
+    return result.rows[0]?.held ?? true;
+  }
+
   async removeByProfile(profileName: string): Promise<number> {
     const result = await this.pool.query(`DELETE FROM port_reservations WHERE profile_name = $1`, [profileName]);
     return result.rowCount ?? 0;
