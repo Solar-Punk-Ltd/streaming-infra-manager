@@ -4,7 +4,7 @@ import { InvalidStackVersionError } from '../errors/index.js';
 import type { TargetIdentityProbe } from './VerifiedDeployTargets.js';
 import type { PublishedPortsProbe } from './PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './portReservations.js';
-import { portTableForEngine } from '../versions/enginePortTable.js';
+import { omePortTableProblem, portTableForEngine } from '../versions/enginePortTable.js';
 import type { FirewallClaim, FirewallContractReader, FirewallInventory, FirewallState, FirewallStateSource } from './firewallInventoryTypes.js';
 
 function refuse(reason: string): never { throw new InvalidStackVersionError(`Firewall inventory: ${reason}`); }
@@ -60,7 +60,7 @@ export class FirewallInventoryExporter {
         const hasOmeOwner = reservations.some(row => row.profileName === profile.name && row.heldServices.includes('ome'));
         const tables = mandatory
           ? [portTableForEngine(contract, engineForComponents(services))]
-          : [contract.ports, ...(hasOmeOwner && contract.portAliases?.length ? [portTableForEngine(contract, 'ome')] : [])];
+          : [contract.ports, ...(hasOmeOwner && !omePortTableProblem(contract) ? [portTableForEngine(contract, 'ome')] : [])];
         const plan = tables.flatMap(table => portPlanFor(table, profile.slot))
           .filter(entry => services === null || (entry.service !== null && services.includes(entry.service)))
           .filter(entry => mandatory || reservations.some(row => row.profileName === profile.name
