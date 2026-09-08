@@ -19,6 +19,7 @@ async function click(browser, text) {
   await browser.evaluate(`([...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)})).click()`);
 }
 async function input(browser, label, value) {
+  await waitFor(() => browser.evaluate(`!![...document.querySelectorAll('label')].find(label => label.textContent.includes(${JSON.stringify(label)}))`), Boolean, label);
   await browser.evaluate(`(() => { const label = [...document.querySelectorAll('label')].find(label => label.textContent.includes(${JSON.stringify(label)}));
     const field = document.getElementById(label.htmlFor); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
     field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
@@ -204,5 +205,84 @@ test('hung detail and action requests release the UI without an automatic retry'
   assert.equal(fixture.posts.length, 1);
   t.diagnostic(await screenshot(browser, fixture, 'transfer-recovery-unknown', 1280));
   t.diagnostic(await screenshot(browser, fixture, 'transfer-recovery-unknown', 390));
+  noMoneyPosts(fixture);
+});
+
+test('the actual action rereads fresh evidence despite an older held request and recovers from a hung refresh', async t => {
+  let inspections = 0;
+  const fixture = await launchHistoryFixture(t, 1, { seedState: 'unknown', recoveryFor: operation => { inspections++; return completeNoMatch(operation); } });
+  const browser = await app(t, fixture);
+  const held = fixture.holdOnce(fixture.records[0].id);
+  await browser.evaluate(`void (globalThis.olderRead = fetch('/chequebook/operations/${fixture.records[0].id}').then(response => response.json()).catch(() => null))`);
+  await held.entered;
+  await click(browser, 'Search transaction history');
+  await visible(browser, 'Record operator assertion');
+  assert.equal(inspections, 1, 'The action obtained a separate fresh read while the older read was held');
+  held.release();
+  await browser.evaluate('olderRead');
+  assert.equal(await exists(browser, 'Record operator assertion'), true);
+  await browser.evaluate('globalThis.realSetTimeout = setTimeout; globalThis.setTimeout = (callback, delay, ...args) => realSetTimeout(callback, delay === 15000 ? 100 : delay, ...args)');
+  const refresh = fixture.holdOnce(fixture.records[0].id);
+  await click(browser, 'Refresh saved evidence');
+  await refresh.entered;
+  await visible(browser, 'Saved transfer evidence could not be verified');
+  refresh.release();
+  await click(browser, 'Refresh saved evidence');
+  await visible(browser, 'Record operator assertion');
+  assert.equal(inspections, 1);
+  noMoneyPosts(fixture);
+});
+
+test('malformed no-match evidence cannot offer D10 and a changed frozen identity cannot dispatch', async t => {
+  const fixture = await launchHistoryFixture(t, 1, { seedState: 'unknown', recoveryFor: completeNoMatch });
+  const browser = await app(t, fixture);
+  await click(browser, 'Search transaction history');
+  await visible(browser, 'Record operator assertion');
+  const original = fixture.journal.detail(fixture.records[0].id);
+  for (const alter of [
+    value => { value.operation.recoveryObservation.scan.complete = false; },
+    value => { value.operation.recoveryObservation.scan.nextBlockHash = otherHash; },
+    value => { value.operation.recoveryObservation.candidateHashes = [hash]; },
+    value => { value.operation.recoveryCheckedAt = null; },
+  ]) {
+    const malformed = structuredClone(original); alter(malformed);
+    fixture.override(url => url.pathname.endsWith(original.operation.id) ? { status: 200, body: malformed } : null);
+    await click(browser, 'Refresh saved evidence');
+    await visible(browser, 'Recovery actions');
+    assert.equal(await exists(browser, 'Record operator assertion'), false);
+  }
+  fixture.override(null);
+  await click(browser, 'Refresh saved evidence');
+  await visible(browser, 'Record operator assertion');
+  const wrongIdentity = structuredClone(original);
+  wrongIdentity.operation.nodeAddress = `0x${'cc'.repeat(20)}`;
+  fixture.override(url => url.pathname.endsWith(original.operation.id) ? { status: 200, body: wrongIdentity } : null);
+  await click(browser, 'Record operator assertion');
+  await visible(browser, 'Returned evidence does not match this saved transfer');
+  await visible(browser, 'Returned details do not match this saved transfer');
+  assert.equal(fixture.posts.filter(path => path.endsWith('/assert')).length, 0);
+  assert.equal(await exists(browser, 'Type the exact statement'), false);
+});
+
+test('signing out clears a typed assertion and the next account must review it from the beginning', async t => {
+  const fixture = await launchHistoryFixture(t, 1, { seedState: 'unknown', recoveryFor: completeNoMatch });
+  const browser = await app(t, fixture);
+  await click(browser, 'Search transaction history');
+  await click(browser, 'Record operator assertion');
+  await input(browser, 'Type the exact statement', fixture.journal.detail(fixture.records[0].id).assertionConfirmation);
+  await click(browser, 'Sign out');
+  await visible(browser, 'Sign in to the manager');
+  await browser.evaluate(`for (const [name, value] of [['username', 'operator-8'], ['password', 'synthetic-test-password']]) {
+    const field = document.querySelector('input[name=' + name + ']'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value);
+    field.dispatchEvent(new Event('input', { bubbles: true })); }`);
+  await click(browser, 'Sign in');
+  await visible(browser, 'operator-8');
+  await visible(browser, 'Record operator assertion');
+  assert.equal(await exists(browser, 'Type the exact statement'), false);
+  await assertionReview(browser, fixture);
+  await click(browser, 'Record assertion');
+  await visible(browser, 'Operator assertion recorded');
+  assert.equal(fixture.journal.detail(fixture.records[0].id).operation.assertion.actor, 'user:8');
+  assert.equal(fixture.posts.filter(path => path.endsWith('/assert')).length, 1);
   noMoneyPosts(fixture);
 });
