@@ -8,6 +8,9 @@ import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { DeploymentGroupRepository, type SharedProfileParams } from '../../src/domain/DeploymentGroupRepository.js';
 import { AllSlotsUsedError, PortReservedError } from '../../src/domain/errors/index.js';
 import { PostgresPortReservationRepository } from '../../src/domain/ports/PostgresPortReservationRepository.js';
+import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
+import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
+import { stackRootOf } from '../../src/domain/versions/stackPaths.js';
 import type { StackPortVar } from '@streaming-infra-manager/common';
 
 // The caller supplies only a port. The database and host cannot point at a deployed manager.
@@ -69,6 +72,17 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     await ports.markInventorySeeded('remote');
     assert.ok(await ports.inventorySeededAt('remote'));
     assert.equal(await ports.inventorySeededAt('other'), null);
+  });
+
+  it('resolves bundled legacy job references from the observed bundled root', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'RUNNING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const version = (await new PostgresStackVersionRepository(pool).findById(1))!;
+    const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => stackRootOf(version) }, '/fake/versions');
+    await ledger.claim('a', ['RUNNING'], version, ['srs']);
+    await ledger.observe('a', ['srs']);
+    const open = await ledger.openReferences(1);
+    assert.equal(open.filter(reference => reference.holderKind === 'job').length, 0);
+    assert.ok(open.some(reference => reference.holderId === 'a/srs'));
   });
 
   it('retains unresolved job and rollback plans, then releases only observed superseded service ports', async () => {

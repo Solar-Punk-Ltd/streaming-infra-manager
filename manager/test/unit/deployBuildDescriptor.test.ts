@@ -138,6 +138,16 @@ describe('the build a deploy runs', () => {
 });
 
 describe('what the success hook records', () => {
+  it('resolves a bundled legacy job after observing its own checkout root', async () => {
+    const h = orchestratorHarness([makeProfile({ name: 'bundled-stage', components: ['srs'] })]);
+    h.ledger.mounted.set('bundled-stage/srs', process.env.SHLS_ROOT!);
+    await h.orchestrator.startDeploy(h.profiles.rows.get('bundled-stage')!, ['srs']);
+    h.runner.finish(0);
+    await untilRunning(h.profiles, 'bundled-stage');
+    assert.deepEqual(h.ledger.openJobReferences('bundled-stage'), []);
+    assert.ok(h.ledger.references.some(reference => reference.holderId === 'bundled-stage/srs' && reference.versionId === 1));
+  });
+
   it('hands over engine ports after the captured build is observed and preserves untouched uploader ports', async () => {
     const { harness, row, versionsRoot, v3 } = await setup();
     const old = portPlanFor(CONTRACT.ports, row().port_slot);
