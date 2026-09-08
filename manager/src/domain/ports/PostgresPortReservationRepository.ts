@@ -29,7 +29,7 @@ export class PostgresPortReservationRepository implements PortReservationReposit
   async holdersOf(daemonId: string, entries: readonly PortKey[], except: string | null): Promise<PortReservation[]> {
     if (entries.length === 0) return [];
     const result = await this.pool.query<ReservationRow>(
-      `SELECT ${RESERVATION_COLUMNS}
+      `SELECT r.*
          FROM port_reservations r
          JOIN unnest($2::text[], $3::int[]) AS t(protocol, port) ON r.protocol = t.protocol AND r.port = t.port
         WHERE r.daemon_id = $1 AND ($4::text IS NULL OR r.profile_name <> $4)`,
@@ -43,7 +43,7 @@ export class PostgresPortReservationRepository implements PortReservationReposit
     try {
       await client.query('BEGIN');
       const held = await client.query<ReservationRow>(
-        `SELECT ${RESERVATION_COLUMNS}
+        `SELECT r.*
            FROM port_reservations r
            JOIN unnest($2::text[], $3::int[]) AS t(protocol, port) ON r.protocol = t.protocol AND r.port = t.port
           WHERE r.daemon_id = $1
