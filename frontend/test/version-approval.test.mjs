@@ -1,0 +1,158 @@
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import test from 'node:test';
+import { createServer } from 'vite';
+import { launchChrome, waitFor } from './support/chrome.mjs';
+
+const frontend = fileURLToPath(new URL('../', import.meta.url));
+const COMMIT = 'a'.repeat(40);
+const LOST_AT = '2026-09-08T08:15:00.000Z';
+const makeVersion = (overrides = {}) => ({
+  id: 1, name: 'review-build', gitRef: 'main-v3', commitSha: COMMIT,
+  status: 'ready', isDefault: true, tested: false, testedInvalidatedAt: LOST_AT,
+  builtAt: '2026-09-08T09:00:00.000Z', lastError: null, contract: null,
+  deployments: 0, layout: 'builds', buildId: `${COMMIT}-r1`, previousBuildId: COMMIT,
+  ...overrides,
+});
+
+test('approval payload and explicit wizard version choice stay tied to the visible build', async (t) => {
+  let versions = [makeVersion()];
+  const writes = [];
+  const server = await createServer({
+    root: frontend, configFile: resolve(frontend, 'vite.config.ts'),
+    server: { host: '127.0.0.1', port: 0, strictPort: true },
+    plugins: [{ name: 'offline-t08', configureServer(vite) {
+      vite.middlewares.use(async (req, res, next) => {
+        const path = req.url?.split('?')[0];
+        const json = (value) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(value)); };
+        if (path === '/auth/session') return json({ username: 'offline-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' });
+        if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
+        if (path === '/profiles' && req.method === 'GET') return json({ profiles: [] });
+        if (path === '/groups' && req.method === 'GET') return json({ groups: [] });
+        if (path === '/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': offline\n\n'); return; }
+        if (path === '/versions' && req.method === 'GET') return json(versions);
+        if (['POST', 'PATCH', 'DELETE'].includes(req.method) && /^(\/versions|\/profiles|\/groups)/.test(path)) {
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+          writes.push({ path, method: req.method, body });
+          if (req.method === 'PATCH' && path === '/versions/1') {
+            versions[0] = { ...versions[0], tested: body.tested, testedInvalidatedAt: null };
+            return json(versions[0]);
+          }
+          res.statusCode = 400;
+          return json({ errors: ['Unexpected fixture mutation'] });
+        }
+        if (/^\/(auth|profiles|groups|config|events|versions|metrics|health)(\/|$)/.test(path)) {
+          res.statusCode = 404;
+          return json({ errors: ['Unsupported offline route'] });
+        }
+        next();
+      });
+    } }],
+  });
+  await server.listen();
+  t.after(async () => { server.httpServer.closeAllConnections(); await server.close(); });
+  const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
+  const browser = await launchChrome(t, origin);
+  const { call, evaluate } = browser;
+  async function click(expression) {
+    const point = await evaluate(`(() => { const el = ${expression}; if (!el || el.disabled) throw new Error('Missing enabled control'); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+  }
+  const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
+  async function visit() {
+    await call('Page.navigate', { url: `${origin}/#/versions` });
+    await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
+  }
+  async function openBasics() {
+    await click(button('New deployment'));
+    await waitFor(() => evaluate('document.querySelector("[role=dialog]") !== null'));
+    await click('[...document.querySelectorAll("[role=radio]")].find(el => el.textContent.startsWith("Custom"))');
+    await click(button('Continue'));
+    await waitFor(() => evaluate('document.querySelector("input[placeholder=main-stage]") !== null'));
+    await click('document.querySelector("input[placeholder=main-stage]")');
+    await call('Input.insertText', { text: 'offline-choice' });
+  }
+  await visit();
+
+  await t.test('state requires an explicit choice without any default and keeps a valid choice', async () => {
+    const result = await evaluate(`(async () => {
+      const { initialWizardState, withGoal, versionChoiceShown, chosenVersion } = await import('/src/forms/wizard/wizardState.ts');
+      const { wizardError } = await import('/src/forms/wizard/wizardError.ts');
+      const { submitWizard } = await import('/src/forms/wizard/wizardSubmit.ts');
+      const base = { profiles: [], groups: [], serverHost: 'offline', hostPassphrase: null, poolResults: new Map() };
+      const version = ${JSON.stringify(makeVersion({ isDefault: false }))};
+      const context = { ...base, versions: [version] };
+      const state = { ...initialWizardState({ goal: 'custom' }, context), name: 'offline-choice' };
+      let rejected = false;
+      try { await submitWizard(state, context); } catch { rejected = true; }
+      const explicit = { ...state, versionId: 1 };
+      const switched = withGoal(explicit, 'stream', context);
+      const unavailable = { ...context, versions: [{ ...version, status: 'building' }] };
+      return { initial: state.versionId, shown: versionChoiceShown(context), error: wizardError(state, context), rejected,
+        chosen: chosenVersion(switched, context)?.id, emptyError: wizardError(explicit, { ...base, versions: [] }),
+        unavailableError: wizardError(explicit, unavailable), explicitError: wizardError(explicit, context) };
+    })()`);
+    assert.deepEqual(result, { initial: null, shown: true, error: 'Pick a stack version', rejected: true, chosen: 1, emptyError: 'Pick a stack version', unavailableError: 'Pick a stack version', explicitError: null });
+    assert.equal(writes.length, 0, 'missing choice must never reach a deployment API');
+  });
+
+  await t.test('the sole default stays selected with the actual invalidation date visible through review', async () => {
+    await visit();
+    await openBasics();
+    const text = await evaluate('document.querySelector("[role=dialog]").innerText');
+    const date = await evaluate(`import('/src/format.ts').then(({formatDateTime}) => formatDateTime(${JSON.stringify(LOST_AT)}))`);
+    assert.ok(text.includes(`Not tested since the update on ${date}`), text);
+    assert.ok(text.includes('review-build'));
+    await click(button('Continue'));
+    await click(button('Continue'));
+    assert.match(await evaluate('document.querySelector("[role=dialog]").innerText'), /Not tested since the update on/);
+    if (process.env.T08_EVIDENCE_DIR) {
+      await mkdir(process.env.T08_EVIDENCE_DIR, { recursive: true });
+      const { data } = await call('Page.captureScreenshot', { fromSurface: true });
+      await writeFile(resolve(process.env.T08_EVIDENCE_DIR, 'default-warning-review.png'), Buffer.from(data, 'base64'));
+    }
+    await click('document.querySelector("button[aria-label=close]")');
+  });
+
+  await t.test('approval transmits the shown build id and withdrawal needs no identity', async () => {
+    writes.length = 0;
+    await visit();
+    await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
+    await waitFor(() => writes.length, n => n > 0);
+    assert.deepEqual(writes.at(-1), { path: '/versions/1', method: 'PATCH', body: { tested: true, commitSha: COMMIT, buildId: `${COMMIT}-r1` } });
+    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'));
+    await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
+    await waitFor(() => writes.length, n => n === 2);
+    assert.deepEqual(writes.at(-1).body, { tested: false });
+    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), checked => !checked);
+    await openBasics();
+    const text = await evaluate('document.querySelector("[role=dialog]").innerText');
+    assert.ok(text.includes('Not yet marked as tested on this host.'));
+    assert.ok(!text.includes('Not tested since the update'));
+    await click('document.querySelector("button[aria-label=close]")');
+  });
+
+  await t.test('with one non-default candidate the picker waits for a choice and preserves it on back', async () => {
+    versions = [makeVersion({ isDefault: false, testedInvalidatedAt: null })];
+    await visit();
+    await openBasics();
+    assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
+    assert.match(await evaluate('document.querySelector("[role=dialog]").innerText'), /Pick a stack version/);
+    await click('document.querySelector("#wizard-version")');
+    await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+    await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
+    assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
+    await click(button('Continue'));
+    await click(button('Back'));
+    assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/);
+    await click('document.querySelector("button[aria-label=close]")');
+  });
+
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(browser.blockedRequests, []);
+});
