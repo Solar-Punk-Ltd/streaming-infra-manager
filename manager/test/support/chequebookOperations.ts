@@ -72,7 +72,9 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
       (['submitting', 'submitted', 'unknown'].includes(row.state) || row.failureReason === 'hash_conflict'));
     if (open) return { kind: 'busy' as const, operation: structuredClone(open) };
     const now = new Date().toISOString();
-    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
+    const journalFields = { ...candidate };
+    delete journalFields.submissionTarget;
+    const row: ChequebookOperation = { ...journalFields, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
     this.rows.set(row.id, structuredClone(row));
     return { kind: 'admitted' as const, operation: structuredClone(row) };
   }

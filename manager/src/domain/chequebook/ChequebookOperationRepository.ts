@@ -1,8 +1,11 @@
 import type { ChainTransaction } from './chainEvidence.js';
+import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import type { ChequebookHistoryQuery, ChequebookHistoryPage, ChequebookOperationEvidence, ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 
 export interface NewChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
+  /** PostgreSQL admission refuses a missing proof. Optional only for transitional adapters and historical replay. */
+  readonly submissionTarget?: FrozenChequebookTarget;
 }
 
 export type SubmissionOutcome =

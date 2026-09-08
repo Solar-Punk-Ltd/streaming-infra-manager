@@ -7,6 +7,8 @@ import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { PostgresChequebookOperationRepository } from '../../src/domain/chequebook/PostgresChequebookOperationRepository.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import { operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
+import { PostgresChequebookTargetOwnership } from '../../src/domain/chequebook/PostgresChequebookTargetOwnership.js';
+import { seedSyntheticChequebookTarget } from '../support/syntheticChequebookTargets.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't09_test', connectionTimeoutMillis: 30000 };
@@ -34,6 +36,7 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
     const profile = await profiles.insertWithFreeSlot('test-deployment', 'custom', 'RUNNING', {}, { stackVersionId: 1, slotCap: 99, daemonId: 'synthetic-daemon', table: [] });
     assert.ok(profile);
     await pool.query("UPDATE profiles SET created_at = '2026-09-08T00:00:00.123456Z' WHERE name = $1", [profile.name]);
+    await seedSyntheticChequebookTarget(pool, profile.name);
     return (await profiles.findByName(profile.name))!;
   }
   async function removeProfile(name: string) {
@@ -43,9 +46,11 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
   function submission(prepareHook: () => Promise<void> = async () => {}) {
     let posts = 0;
     let prepares = 0;
-    const service = new ChequebookSubmission(operations, async () => {
-      prepares++; await prepareHook();
-      return { context: transferContext, dispose() {}, preflight: async () => {}, send: async () => { posts++; return { transactionHash }; } };
+    const service = new ChequebookSubmission(operations, async intent => {
+      prepares++;
+      const submissionTarget = await new PostgresChequebookTargetOwnership(pool).capture(intent.profileName, intent.profileInstanceId);
+      await prepareHook();
+      return { context: transferContext, submissionTarget, dispose() {}, preflight: async () => {}, send: async () => { posts++; return { transactionHash }; } };
     });
     return { service, counts: () => ({ posts, prepares }) };
   }
@@ -84,7 +89,8 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
 
   it('keeps a historical NULL generation without inferring the current profile and preserves recovery reads', async () => {
     const profile = await createProfile();
-    const { operation } = await operations.admit(operationCandidate({ profileInstanceId: profile.instance_id }));
+    const submissionTarget = await new PostgresChequebookTargetOwnership(pool).capture(profile.name, profile.instance_id);
+    const { operation } = await operations.admit(operationCandidate({ profileInstanceId: profile.instance_id, submissionTarget }));
     await pool.query('UPDATE chequebook_operations SET profile_instance_id = NULL WHERE id = $1', [operation.id]);
     const historical = await operations.findWithResponses(operation.id);
     assert.equal(historical?.operation.profileInstanceId, null);

@@ -1,4 +1,7 @@
 import { ChequebookOperationChangedError } from '../errors/ChequebookOperationChangedError.js';
+import { ChequebookTargetChangedError } from '../errors/ChequebookTargetChangedError.js';
+import { PostgresChequebookTargetOwnership } from './PostgresChequebookTargetOwnership.js';
+import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { historyCursor, normalizeHistoryQuery } from './chequebookHistory.js';
 import type { Pool, PoolClient } from 'pg';
@@ -12,6 +15,7 @@ import { normalizeReceiptObservation } from './receiptObservation.js';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 
 type OperationRow = {
+  submission_target: FrozenChequebookTarget | null;
   id: string; request_id: string; profile_name: string; profile_instance_id: string | null; requested_by: string;
   direction: ChequebookOperation['direction']; amount_plur: string; chain_id: string;
   node_address: string; chequebook_address: string; token_address: string;
@@ -78,6 +82,9 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
 
   async admit(input: NewChequebookOperation): Promise<ChequebookAdmissionResult> {
     const candidate = { id: operationId(input.id), ...normalizeTransferIntent(input), ...normalizeTransferContext(input) };
+    let targetSnapshot: unknown;
+    // Capture before any wait, but a malformed new proof must not prevent replay of an existing request.
+    try { targetSnapshot = structuredClone(input.submissionTarget); } catch { targetSnapshot = null; }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -89,6 +96,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
         await client.query('COMMIT');
         return { kind: sameTransferIntent(operation, candidate) ? 'replayed' : 'conflict', operation };
       }
+      await client.query('SELECT pg_advisory_xact_lock(29000, hashtext($1))', [String(candidate.chainId)]);
       await client.query('SELECT pg_advisory_xact_lock(29002, hashtext($1))', [`${candidate.chainId}:${candidate.nodeAddress}`]);
       const open = await client.query<OperationRow>(`SELECT * FROM chequebook_operations WHERE chain_id = $1 AND node_address = $2
         AND (state IN ('submitting', 'submitted', 'unknown') OR failure_reason = 'hash_conflict')`, [candidate.chainId, candidate.nodeAddress]);
@@ -96,15 +104,14 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
         await client.query('COMMIT');
         return { kind: 'busy', operation: operationFrom(open.rows[0]) };
       }
-      const profile = await client.query<{ instance_id: string }>('SELECT instance_id FROM profiles WHERE name = $1 FOR KEY SHARE', [candidate.profileName]);
-      if (profile.rows[0]?.instance_id !== candidate.profileInstanceId) throw new ChequebookProfileChangedError();
+      const target = await new PostgresChequebookTargetOwnership(this.pool).requireCurrent(client, candidate.profileName, candidate.profileInstanceId, targetSnapshot);
       const inserted = await client.query<OperationRow>(`INSERT INTO chequebook_operations
         (id, request_id, profile_name, requested_by, direction, amount_plur, chain_id, node_address,
-         chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag, profile_instance_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+         chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag, profile_instance_id, submission_target)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb) RETURNING *`,
       [candidate.id, candidate.requestId, candidate.profileName, candidate.requestedBy, candidate.direction,
         candidate.amountPlur, candidate.chainId, candidate.nodeAddress, candidate.chequebookAddress, candidate.tokenAddress,
-        candidate.startBlockNumber, candidate.startBlockHash, candidate.nonceLowerBound, candidate.nonceQueryTag, candidate.profileInstanceId]);
+        candidate.startBlockNumber, candidate.startBlockHash, candidate.nonceLowerBound, candidate.nonceQueryTag, candidate.profileInstanceId, JSON.stringify(target)]);
       await client.query('COMMIT');
       return { kind: 'admitted', operation: operationFrom(inserted.rows[0]!) };
     } catch (error) {
@@ -116,13 +123,28 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
   }
 
   async claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }> {
-    const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
-      SET dispatch_started_at = NOW(), updated_at = NOW(), revision = revision + 1
-      WHERE id = $1 AND state = 'submitting' AND dispatch_started_at IS NULL RETURNING *`, [operationId(id)]);
-    if (updated.rows[0]) return { claimed: true, operation: operationFrom(updated.rows[0]) };
-    const current = await this.findById(id);
-    if (!current) throw new Error('The chequebook operation no longer exists.');
-    return { claimed: false, operation: current };
+    const initial = await this.pool.query<OperationRow>('SELECT * FROM chequebook_operations WHERE id=$1', [operationId(id)]);
+    const row = initial.rows[0];
+    if (!row) throw new Error('The chequebook operation no longer exists.');
+    if (!row.submission_target || row.state !== 'submitting' || row.dispatch_started_at) return { claimed: false, operation: operationFrom(row) };
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(29000, hashtext($1))', [String(row.chain_id)]);
+      await client.query('SELECT pg_advisory_xact_lock(29002, hashtext($1))', [`${row.chain_id}:${row.node_address}`]);
+      await new PostgresChequebookTargetOwnership(this.pool).requireCurrent(client, row.profile_name, row.profile_instance_id, row.submission_target);
+      const updated = await client.query<OperationRow>(`UPDATE chequebook_operations
+        SET dispatch_started_at = NOW(), updated_at = NOW(), revision = revision + 1
+        WHERE id = $1 AND state = 'submitting' AND dispatch_started_at IS NULL
+          AND failure_reason IS DISTINCT FROM 'hash_conflict' AND submission_target=$2::jsonb RETURNING *`, [row.id, JSON.stringify(row.submission_target)]);
+      const current = updated.rows[0] ?? (await client.query<OperationRow>('SELECT * FROM chequebook_operations WHERE id=$1', [row.id])).rows[0]!;
+      await client.query('COMMIT');
+      return { claimed: updated.rows.length === 1, operation: operationFrom(current) };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      if (error instanceof ChequebookTargetChangedError || error instanceof ChequebookProfileChangedError) return { claimed: false, operation: await this.required(id) };
+      throw error;
+    } finally { client.release(); }
   }
 
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {

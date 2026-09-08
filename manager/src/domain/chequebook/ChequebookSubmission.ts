@@ -1,4 +1,5 @@
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
+import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { randomUUID } from 'node:crypto';
 import type { BeeTransaction, ChequebookAdmissionResult, ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookJournalError } from '../errors/ChequebookJournalError.js';
@@ -10,6 +11,7 @@ export interface PreparedChequebookTransfer {
   /** Close the private Bee session. Must be idempotent and must not throw. */
   dispose(): void;
   context: ChequebookTransferContext;
+  submissionTarget?: FrozenChequebookTarget;
   /** Read-only checks, performed under the durable node guard. */
   preflight(operation: ChequebookOperation): Promise<void>;
   /** Exactly one Bee POST. This adapter must not retry a failed request. */
@@ -46,7 +48,7 @@ export class ChequebookSubmission {
 
   private async submitPrepared(prepared: PreparedChequebookTransfer, intent: ChequebookTransferIntent): Promise<ChequebookAdmissionResult> {
     const context = normalizeTransferContext(prepared.context);
-    const admitted = await this.journal(() => this.operations.admit({ id: randomUUID(), ...intent, ...context }));
+    const admitted = await this.journal(() => this.operations.admit({ id: randomUUID(), ...intent, ...context, submissionTarget: prepared.submissionTarget }));
     if (admitted.kind !== 'admitted') return admitted;
     const operation = Object.freeze({ ...admitted.operation });
 

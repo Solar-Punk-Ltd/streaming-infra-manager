@@ -1,6 +1,18 @@
 # T09 transaction API integration contract
 
-This backend slice connects the durable transaction journal to authenticated routes. The frontend money flow still needs its corresponding request-ID, saved-history and recovery integration before aggregate acceptance. The existing frontend amount-only POST is intentionally rejected by the new contract. This local branch has not been deployed.
+The durable transaction journal is connected to authenticated routes and the reviewed saved-intent, history and recovery UI. Target ownership integration is in progress. This local branch has not been deployed.
+
+## Frozen target repository checkpoint
+
+Migration 026 adds nullable `chequebook_operations.submission_target`. Historical NULL values are never filled from a current same-name profile. History, exact request replay and chain recovery remain available after deletion. A row without target proof cannot claim dispatch.
+
+`PostgresChequebookTargetOwnership.capture` reads one coherent SQL ownership proof. It contains the canonical profile instance, operator and engine-config revisions, kind, components, host, slot, stack version and stable status. It also contains the alias, daemon, exact microsecond verification timestamp and one active TCP Bee API reservation with its persistent ID. The reservation must name `bee-uploader` as its only held service. The daemon inventory must be seeded and that project must have no unresolved deploy attempt. The proof contains no runtime endpoint or secret. Cached container ports are not consulted.
+
+Admission copies this proof before its first wait. Exact request replay precedes proof validation. New admission and dispatch both recheck ownership under the money chain and node locks, then allocation, daemon-attempt, profile, alias and reservation locks. The dispatch update happens while those locks remain held. Ownership refusal leaves the journal unclaimed. A lost claim acknowledgement never authorizes another POST.
+
+This checkpoint proves SQL ownership only. The existing direct locator does not yet supply the proof, so new production PostgreSQL admissions fail closed at this intermediate branch state. Container-bound preparation, fresh daemon and full-container inspection on its private connection, and the exact-image bridge qualification are still required. No Docker inspection or network call runs inside these SQL transactions. A later immutable transport must keep an already-claimed send on the original container even if ownership changes after commit.
+
+The merged dependency baseline passed all 47 prior T09 SQL cases. The target checkpoint adds 30 cases for stale identity and alias verification, exact reservation ownership, both sides of ownership locks, attempt admission, caller mutation, historical NULL and lost dispatch acknowledgement. All evidence uses a dedicated synthetic PostgreSQL database, never a Bee or deployment.
 
 ## Runtime trust and target selection
 

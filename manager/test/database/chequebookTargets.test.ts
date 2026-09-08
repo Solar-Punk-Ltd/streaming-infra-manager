@@ -9,6 +9,7 @@ import { PROFILE_SLOT_LOCK_KEY } from '../../src/domain/profileSql.js';
 import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
 import { PostgresChequebookTargetOwnership } from '../../src/domain/chequebook/PostgresChequebookTargetOwnership.js';
 import { operationCandidate, profileInstanceId } from '../support/chequebookOperations.js';
+import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't09_test', connectionTimeoutMillis: 30000 };
@@ -101,6 +102,27 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
     await pool.query('DELETE FROM profiles');
     await assertNoDispatch(operation.id);
     assert.equal((await repository.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' })).state, 'unknown');
+  });
+
+  it('never sends after a committed dispatch claim loses its acknowledgement', async () => {
+    const input = candidate();
+    let posts = 0;
+    let preparations = 0;
+    const claim = repository.claimDispatch.bind(repository);
+    repository.claimDispatch = async id => { await claim(id); throw new Error('synthetic lost acknowledgement'); };
+    const prepare = async () => {
+      preparations++;
+      return { context: input, submissionTarget: proof, dispose() {}, preflight: async () => {},
+        send: async () => { posts++; return { transactionHash: `0x${'cd'.repeat(32)}` }; } };
+    };
+    await assert.rejects(new ChequebookSubmission(repository, prepare).submit(input), /journal/i);
+    const restarted = new PostgresChequebookOperationRepository(pool);
+    const recovered = await new ChequebookSubmission(restarted, prepare).submit(input);
+    assert.equal(recovered.kind, 'replayed');
+    assert.ok(recovered.operation.dispatchStartedAt);
+    assert.equal((await restarted.claimDispatch(recovered.operation.id)).claimed, false);
+    assert.equal(posts, 0);
+    assert.equal(preparations, 1);
   });
 
   const changes = [

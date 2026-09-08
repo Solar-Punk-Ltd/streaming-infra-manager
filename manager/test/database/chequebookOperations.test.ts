@@ -19,6 +19,7 @@ import { ChequebookRecoveryInspector } from '../../src/domain/chequebook/Chequeb
 import { ChequebookReceiptCheck } from '../../src/domain/chequebook/ChequebookReceiptCheck.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import { instanceForProfile, operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
+import { seedSyntheticChequebookTarget, SyntheticTargetChequebookRepository } from '../support/syntheticChequebookTargets.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
 // Only a loopback port is configurable. This suite cannot select a deployment database.
@@ -38,10 +39,11 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(new URL(name, migrations), 'utf8'));
     }
-    for (const [index, name] of ['test-deployment', 'removed-profile', ...Array.from({ length: 12 }, (_, i) => `alias-${i}`)].entries()) {
+    for (const [index, name] of ['test-deployment', 'removed-profile', ...Array.from({ length: 20 }, (_, i) => `alias-${i}`)].entries()) {
       await pool.query('INSERT INTO profiles (name, port_slot, instance_id, stack_version_id) VALUES ($1, $2, $3, 1)', [name, index + 1, instanceForProfile(name)]);
+      await seedSyntheticChequebookTarget(pool, name);
     }
-    repository = new PostgresChequebookOperationRepository(pool);
+    repository = new SyntheticTargetChequebookRepository(pool);
   });
   afterEach(async () => {
     await pool?.end();
@@ -199,7 +201,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('admits one same-account assertion and refuses the competing reviewed revision', async () => {
     const checked = await repository.recordRecovery(await unknownOperation(), noMatch, []);
-    const second = new PostgresChequebookOperationRepository(pool);
+    const second = new SyntheticTargetChequebookRepository(pool);
     const results = await Promise.allSettled([repository.assertNoSubmission(checked, assertion), second.assertNoSubmission(checked, assertion)]);
     assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
     const refused = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
@@ -212,7 +214,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('refuses assertion when conflicting response evidence commits after its final load', async () => {
     const checked = await repository.recordRecovery(await unknownOperation(), noMatch, []);
-    const competing = new PostgresChequebookOperationRepository(pool);
+    const competing = new SyntheticTargetChequebookRepository(pool);
     const apply = repository.assertNoSubmission.bind(repository);
     repository.assertNoSubmission = async (expected, input) => {
       await competing.recordSubmission(expected.id, { state: 'submitted', transactionHash, failureReason: null });
@@ -359,7 +361,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
       },
     };
     const service = () => {
-      const restarted = new PostgresChequebookOperationRepository(pool);
+      const restarted = new SyntheticTargetChequebookRepository(pool);
       const inspector = new ChequebookRecoveryInspector(async () => reader, async () => [], { maxBlocks: 2 });
       const receipts = new ChequebookReceiptCheck(restarted, async () => { assert.fail('Ambiguous transfers must never reach receipt confirmation'); });
       return new ChequebookRecovery(restarted, inspector, receipts);
@@ -467,7 +469,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
       scan: { headBlockNumber: '505', headBlockHash: `0x${'a1'.repeat(32)}`, nextBlockNumber: '503', nextBlockHash: `0x${'a2'.repeat(32)}`, complete: false, candidateHashes } };
     const first = await repository.recordRecovery(unknown, firstObservation, []);
     const secondObservation = { ...firstObservation, scan: { ...firstObservation.scan, nextBlockNumber: '501', nextBlockHash: `0x${'a3'.repeat(32)}` } };
-    const second = await new PostgresChequebookOperationRepository(pool).recordRecovery(first, secondObservation, []);
+    const second = await new SyntheticTargetChequebookRepository(pool).recordRecovery(first, secondObservation, []);
     assert.equal(second.revision, String(BigInt(first.revision) + 1n));
     assert.deepEqual(second.recoveryObservation, secondObservation);
     assert.deepEqual((await repository.findById(second.id))?.recoveryObservation?.candidateHashes, candidateHashes);
@@ -525,10 +527,10 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(pending.state, 'submitted');
     assert.equal(pending.revision, '3');
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
-    const settled = await new PostgresChequebookOperationRepository(pool).recordReceipt(pending, confirmed);
+    const settled = await new SyntheticTargetChequebookRepository(pool).recordReceipt(pending, confirmed);
     assert.equal(settled.state, 'settled');
     assert.equal(settled.revision, '4');
-    const loaded = await new PostgresChequebookOperationRepository(pool).findById(settled.id);
+    const loaded = await new SyntheticTargetChequebookRepository(pool).findById(settled.id);
     assert.deepEqual(loaded?.receiptObservation, confirmed);
     assert.ok(loaded?.receiptCheckedAt);
     assert.equal((await repository.admit(operationCandidate())).kind, 'admitted');
@@ -537,7 +539,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('rejects a stale success after another manager persisted a failed check', async () => {
     const firstSnapshot = await submittedOperation();
-    const secondRepository = new PostgresChequebookOperationRepository(pool);
+    const secondRepository = new SyntheticTargetChequebookRepository(pool);
     const secondSnapshot = await secondRepository.findById(firstSnapshot.id);
     assert.ok(secondSnapshot);
     const newer = await secondRepository.recordReceipt(secondSnapshot, { kind: 'could_not_check', reason: 'chain_changed' });
@@ -551,7 +553,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('accepts only one observation from concurrent checks at the same revision', async () => {
     const submitted = await submittedOperation();
-    const results = await Promise.all(Array.from({ length: 12 }, () => new PostgresChequebookOperationRepository(pool)
+    const results = await Promise.all(Array.from({ length: 12 }, () => new SyntheticTargetChequebookRepository(pool)
       .recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_finality' })));
     assert.ok(results.every(row => row.revision === '3'));
     assert.equal((await repository.findById(submitted.id))?.revision, '3');
@@ -593,7 +595,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     const partial = await repository.recordReceipt(submitted, {
       kind: 'could_not_check', reason: 'history_incomplete', history: { ...history, endpoint: 'synthetic-private-path' } as typeof history,
     });
-    const restarted = new PostgresChequebookOperationRepository(pool);
+    const restarted = new SyntheticTargetChequebookRepository(pool);
     const saved = await restarted.findById(partial.id);
     assert.deepEqual(saved?.receiptObservation, { kind: 'could_not_check', reason: 'history_incomplete', history });
     assert.ok(!JSON.stringify(saved).includes('synthetic-private-path'));
@@ -628,7 +630,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     const candidate = operationCandidate();
     const admitted = await repository.admit(candidate);
     assert.equal(admitted.kind, 'admitted');
-    const restarted = new PostgresChequebookOperationRepository(pool);
+    const restarted = new SyntheticTargetChequebookRepository(pool);
     const row = await restarted.findById(candidate.id);
     for (const [key, value] of Object.entries(candidate)) assert.equal(row?.[key as keyof typeof row], value);
     assert.equal(row?.state, 'submitting');
@@ -638,7 +640,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('admits only one concurrent request across aliases and repository instances', async () => {
     const replies = await Promise.all(Array.from({ length: 20 }, (_, index) =>
-      new PostgresChequebookOperationRepository(pool).admit(operationCandidate({ profileName: `alias-${index}`, direction: index % 2 ? 'deposit' : 'withdraw', nodeAddress: index % 2 ? transferContext.nodeAddress : transferContext.nodeAddress.toUpperCase().replace('0X', '0x') })),
+      new SyntheticTargetChequebookRepository(pool).admit(operationCandidate({ profileName: `alias-${index}`, direction: index % 2 ? 'deposit' : 'withdraw', nodeAddress: index % 2 ? transferContext.nodeAddress : transferContext.nodeAddress.toUpperCase().replace('0X', '0x') })),
     ));
     assert.equal(replies.filter(reply => reply.kind === 'admitted').length, 1);
     assert.equal(replies.filter(reply => reply.kind === 'busy').length, 19);
@@ -682,7 +684,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
   it('persists a lost response and keeps concurrent restarted coordinators from replaying', async () => {
     let submissions = 0;
     const intent = transferIntent();
-    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; throw new Error('lost response'); } }));
+    const service = () => new ChequebookSubmission(new SyntheticTargetChequebookRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; throw new Error('lost response'); } }));
     const first = await service().submit(intent);
     assert.equal(first.operation.state, 'unknown');
     const retries = await Promise.all(Array.from({ length: 8 }, () => service().submit(intent)));
@@ -701,7 +703,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
       throw new Error('commit response lost');
     };
     await assert.rejects(new ChequebookSubmission(repository, prepare).submit(intent), /journal/i);
-    const restarted = new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), prepare);
+    const restarted = new ChequebookSubmission(new SyntheticTargetChequebookRepository(pool), prepare);
     const retry = await restarted.submit(intent);
     assert.equal(retry.kind, 'replayed');
     assert.equal(retry.operation.state, 'submitting');
@@ -711,7 +713,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('allows exactly one Bee POST from competing coordinators', async () => {
     let submissions = 0;
-    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } }));
+    const service = () => new ChequebookSubmission(new SyntheticTargetChequebookRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } }));
     const replies = await Promise.all(Array.from({ length: 12 }, (_, index) => service().submit(transferIntent({ profileName: `alias-${index}` }))));
     assert.equal(replies.filter(result => result.kind === 'admitted').length, 1);
     assert.equal(replies.filter(result => result.kind === 'busy').length, 11);
@@ -733,7 +735,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
   it('grants dispatch once across managers and refuses it after pre-dispatch closure', async () => {
     const candidate = operationCandidate();
     await repository.admit(candidate);
-    const claims = await Promise.all(Array.from({ length: 10 }, () => new PostgresChequebookOperationRepository(pool).claimDispatch(candidate.id)));
+    const claims = await Promise.all(Array.from({ length: 10 }, () => new SyntheticTargetChequebookRepository(pool).claimDispatch(candidate.id)));
     assert.equal(claims.filter(claim => claim.claimed).length, 1);
     assert.ok(claims.every(claim => claim.operation.dispatchStartedAt));
     await pool.query("UPDATE chequebook_operations SET state = 'asserted' WHERE id = $1", [candidate.id]);
