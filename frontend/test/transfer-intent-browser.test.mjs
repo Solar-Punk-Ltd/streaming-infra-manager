@@ -4,6 +4,19 @@ import { test } from 'node:test';
 import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
 
 const origin = 'http://127.0.0.1:54291';
+test('the transfer controller preserves intent through lost responses, auth and target changes', async t => {
+  const browser = await launchChrome(t, origin);
+  await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
+  await waitFor(() => browser.evaluate("typeof document.querySelector('#controller')?.onclick === 'function'"));
+  await browser.evaluate("document.querySelector('#controller').click()");
+  const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
+    value => value !== 'Ready' && value !== 'Running', 'controller test result');
+  assert.ok(!result.startsWith('FAILED:'), result);
+  assert.equal(JSON.parse(result).passed, 9);
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(browser.blockedRequests, []);
+});
+
 test('native IndexedDB keeps one immutable intent across concurrent browser connections', async t => {
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
