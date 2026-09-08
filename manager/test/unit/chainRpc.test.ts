@@ -73,27 +73,42 @@ describe('bounded read-only chain RPC', () => {
   });
 
   it('checks numbered blocks and every included transaction against their block identity', async () => {
-    const transaction = { hash: parentHash, chainId: '0x64', type: '0x2', from: address, to: address, input: '0x', nonce: '0x1', value: '0x0', blockNumber: '0x1f4', blockHash: hash };
-    const server = await rpcServer((body, response) => reply(response, body, { hash, parentHash, number: '0x1f4', transactions: body.params[1] ? [transaction] : [parentHash] }));
+    const transaction = { hash: parentHash, chainId: '0x64', type: '0x2', from: address, to: address, input: '0x', nonce: '0x1', value: '0x0', blockNumber: '0x1f4', blockHash: hash, transactionIndex: '0x0' };
+    const server = await rpcServer((body, response) => reply(response, body, body.method === 'eth_getBlockTransactionCountByHash' ? '0x1' : { hash, parentHash, number: '0x1f4', transactions: body.params[1] ? [transaction] : [parentHash] }));
     const rpc = new ChainRpc(server.url);
     assert.deepEqual(await rpc.blockHeader('latest'), { hash, parentHash, number: '500' });
     assert.equal((await rpc.blockTransactions(500n, address))?.transactions[0]?.hash, parentHash);
-    assert.deepEqual(server.calls.map(call => call.params), [['latest', false], ['0x1f4', true]]);
+    assert.deepEqual(server.calls.map(call => call.params), [['latest', false], ['0x1f4', true], [hash]]);
     await assert.rejects(rpc.blockHeader(501n), /could not be verified/i);
     transaction.blockHash = parentHash;
     await assert.rejects(rpc.blockTransactions(500n, address), /could not be verified/i);
   });
 
   it('scans past unrelated unprotected transactions but refuses unverifiable node-owned evidence', async () => {
-    const unrelated = { hash: parentHash, type: '0x0', v: '0x1b', from: `0x${'34'.repeat(20)}`, to: address, input: '0x', nonce: '0x1', value: '0x0', blockNumber: '0x1f4', blockHash: hash };
-    const intended = { ...unrelated, hash: `0x${'56'.repeat(32)}`, from: address, type: '0x2', chainId: '0x64' };
-    const server = await rpcServer((body, response) => reply(response, body, { hash, parentHash, number: '0x1f4', transactions: [unrelated, intended] }));
+    const unrelated = { hash: parentHash, type: '0x0', v: '0x1b', from: `0x${'34'.repeat(20)}`, to: address, input: '0x', nonce: '0x1', value: '0x0', blockNumber: '0x1f4', blockHash: hash, transactionIndex: '0x0' };
+    const intended = { ...unrelated, hash: `0x${'56'.repeat(32)}`, from: address, type: '0x2', chainId: '0x64', transactionIndex: '0x1' };
+    const server = await rpcServer((body, response) => reply(response, body, body.method === 'eth_getBlockTransactionCountByHash' ? '0x2' : { hash, parentHash, number: '0x1f4', transactions: [unrelated, intended] }));
     const rpc = new ChainRpc(server.url);
     assert.deepEqual((await rpc.blockTransactions(500n, address))?.transactions.map(transaction => transaction.hash), [intended.hash]);
     unrelated.from = address;
     await assert.rejects(rpc.blockTransactions(500n, address), /could not be verified/i);
     unrelated.from = '';
     await assert.rejects(rpc.blockTransactions(500n, address), /could not be verified/i);
+  });
+
+  it('refuses skipped positions, duplicate hashes and a tail missing from the reported block', async () => {
+    const first = { hash: parentHash, chainId: '0x64', type: '0x2', from: address, to: address, input: '0x', nonce: '0x1', value: '0x0', blockNumber: '0x1f4', blockHash: hash, transactionIndex: '0x0' };
+    const second = { ...first, hash: `0x${'56'.repeat(32)}`, nonce: '0x2', transactionIndex: '0x1' };
+    for (const [transactions, count] of [
+      [[first, { ...second, transactionIndex: '0x2' }], '0x2'],
+      [[{ ...first, transactionIndex: undefined }, second], '0x2'],
+      [[first, { ...second, hash: first.hash }], '0x2'],
+      [[first], '0x2'],
+      [[first, second], null],
+    ] as const) {
+      const server = await rpcServer((body, response) => reply(response, body, body.method === 'eth_getBlockTransactionCountByHash' ? count : { hash, parentHash, number: '0x1f4', transactions }));
+      await assert.rejects(new ChainRpc(server.url).blockTransactions(500n, address), /could not be verified/i);
+    }
   });
 
   it('refuses mismatched response ids, RPC errors, malformed envelopes and invalid JSON', async () => {
