@@ -247,8 +247,9 @@ async function main(): Promise<void> {
   } catch {
     logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
   }
+  const portInventory = new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker);
   try {
-    await new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker).seed();
+    await portInventory.seed();
   } catch (err) {
     logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
   }
@@ -263,7 +264,7 @@ async function main(): Promise<void> {
     deployAttempts,
     targetDocker,
     new UploaderStartGate(stampService, chequebookService),
-    deployTargets,
+    portInventory,
     portReservations,
   );
   try {
@@ -281,7 +282,7 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
-    deployTargets,
+    portInventory,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
     portReservations,

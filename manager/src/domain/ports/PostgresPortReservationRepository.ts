@@ -103,7 +103,13 @@ export class PostgresPortReservationRepository implements PortReservationReposit
     return result.rowCount ?? 0;
   }
 
-  async inventorySeededAt(): Promise<Date | null> {
+  async inventorySeededAt(daemonId?: string): Promise<Date | null> {
+    if (daemonId !== undefined) {
+      const result = await this.pool.query<{ seeded_at: Date }>(
+        'SELECT seeded_at FROM reservation_daemon_inventory WHERE daemon_id = $1', [daemonId],
+      );
+      return result.rows[0]?.seeded_at ?? null;
+    }
     const result = await this.pool.query<{ seeded_at: Date | null }>(
       `SELECT seeded_at FROM reservation_inventory WHERE id = $1`,
       [INVENTORY_ROW],
@@ -111,7 +117,13 @@ export class PostgresPortReservationRepository implements PortReservationReposit
     return result.rows[0]?.seeded_at ?? null;
   }
 
-  async markInventorySeeded(): Promise<void> {
+  async markInventorySeeded(daemonId?: string): Promise<void> {
+    if (daemonId !== undefined) {
+      await this.pool.query(
+        'INSERT INTO reservation_daemon_inventory (daemon_id) VALUES ($1) ON CONFLICT (daemon_id) DO NOTHING', [daemonId],
+      );
+      return;
+    }
     await this.pool.query(
       `UPDATE reservation_inventory SET seeded_at = COALESCE(seeded_at, NOW()) WHERE id = $1`,
       [INVENTORY_ROW],

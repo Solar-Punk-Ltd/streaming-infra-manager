@@ -20,6 +20,7 @@ export class InMemoryPortReservations implements PortReservationRepository {
   readonly rows: PortReservation[] = [];
 
   seededAt: Date | null = null;
+  readonly seededDaemons = new Map<string, Date>();
 
   private nextId = 1;
 
@@ -125,11 +126,12 @@ export class InMemoryPortReservations implements PortReservationRepository {
     return removed;
   }
 
-  async inventorySeededAt(): Promise<Date | null> {
-    return this.seededAt;
+  async inventorySeededAt(daemonId?: string): Promise<Date | null> {
+    return daemonId === undefined ? this.seededAt : this.seededDaemons.get(daemonId) ?? null;
   }
 
-  async markInventorySeeded(): Promise<void> {
-    this.seededAt ??= new Date(++this.clock);
+  async markInventorySeeded(daemonId?: string): Promise<void> {
+    if (daemonId === undefined) this.seededAt ??= new Date(++this.clock);
+    else if (!this.seededDaemons.has(daemonId)) this.seededDaemons.set(daemonId, new Date(++this.clock));
   }
 }

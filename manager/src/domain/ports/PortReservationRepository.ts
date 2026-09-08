@@ -20,6 +20,6 @@ export interface PortReservationRepository {
   /** Every row of the deployment, for a removal. Answers how many went. */
   removeByProfile(profileName: string): Promise<number>;
   /** When the one-time seeding of existing deployments' reservations completed, or null. */
-  inventorySeededAt(): Promise<Date | null>;
-  markInventorySeeded(): Promise<void>;
+  inventorySeededAt(daemonId?: string): Promise<Date | null>;
+  markInventorySeeded(daemonId?: string): Promise<void>;
 }
