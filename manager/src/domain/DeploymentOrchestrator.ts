@@ -730,7 +730,10 @@ export class DeploymentOrchestrator {
     // are, so what the attempt creates can be told from what was there.
     let attempt: DeployAttempt | null = null;
     if (cfg.guard) {
-      const before = await this.daemon.containerIdsOf(cfg.profileName, cfg.target);
+      const before = await this.daemon.snapshot(cfg.profileName, cfg.target);
+      if (before.daemonId !== daemonId) {
+        throw new TargetNotVerifiedError(cfg.target, 'The container snapshot came from a different Docker daemon. No deploy was started.');
+      }
       attempt = await this.attempts.open({
         daemonId,
         target: cfg.target,
@@ -738,7 +741,7 @@ export class DeploymentOrchestrator {
         jobId: `job-${randomBytes(6).toString('hex')}`,
         kind: cfg.guard.kind,
         services: cfg.guard.services,
-        preJobContainerIds: [...before.values()].flat(),
+        preJobContainerIds: [...before.containers.values()].flat(),
       });
       this.eventBus.publish({ type: 'attempt.changed' });
     }
@@ -790,10 +793,11 @@ export class DeploymentOrchestrator {
       const profile = attempt.target ? null : await this.profiles.findByName(attempt.project);
       if (!attempt.target && !profile) throw new Error('The legacy attempt has no recorded target or deployment');
       const target = targetAlias(attempt.target ?? profile!.host);
-      if (await this.daemon.daemonId(target) !== attempt.daemonId) {
+      const snapshot = await this.daemon.snapshot(attempt.project, target);
+      if (snapshot.daemonId !== attempt.daemonId) {
         throw new TargetNotVerifiedError(target, 'The attempt target now reaches a different Docker daemon');
       }
-      const judged: AttemptOutcome = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project, target));
+      const judged: AttemptOutcome = attemptOutcome(attempt, snapshot.containers);
       await this.attempts.resolve(attempt.id, judged);
       if (judged.state === 'blocked') {
         logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);

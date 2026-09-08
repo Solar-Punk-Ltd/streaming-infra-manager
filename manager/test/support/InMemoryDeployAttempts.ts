@@ -5,6 +5,7 @@ import {
 } from '../../src/domain/deployAttempts.js';
 import type {
   DaemonObserver,
+  DaemonSnapshot,
   DeployAttemptRepository,
   NewDeployAttempt,
 } from '../../src/domain/DeployAttemptRepository.js';
@@ -95,11 +96,15 @@ export class FakeDaemon implements DaemonObserver {
   readonly containers = new Map<string, Map<string, string[]>>();
 
 
-  async daemonId(): Promise<string> {
+  async daemonId(_target?: string): Promise<string> {
     return this.id;
   }
 
-  async containerIdsOf(project: string): Promise<Map<string, string[]>> {
+  async snapshot(project: string, target = 'localhost'): Promise<DaemonSnapshot> {
+    return { daemonId: await this.daemonId(target), containers: await this.containerIdsOf(project, target) };
+  }
+
+  async containerIdsOf(project: string, _target?: string): Promise<Map<string, string[]>> {
     return new Map([...(this.containers.get(project) ?? new Map())].map(([service, ids]) => [service, [...ids]]));
   }
 

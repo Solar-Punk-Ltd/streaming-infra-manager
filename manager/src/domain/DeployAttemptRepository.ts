@@ -38,7 +38,14 @@ export interface DeployAttemptRepository {
 }
 
 /** What Docker says about the project an attempt is about. */
+export interface DaemonSnapshot {
+  daemonId: string;
+  containers: Map<string, string[]>;
+}
+
 export interface DaemonObserver {
+  /** One target observation, including the identity of the daemon that supplied the containers. */
+  snapshot(project: string, target?: string): Promise<DaemonSnapshot>;
   /** The daemon's own id, from `docker info`, so a lock never crosses hosts. */
   daemonId(target?: string): Promise<string>;
   /** Every container of the project by service, all states. */
