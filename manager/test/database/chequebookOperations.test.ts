@@ -46,6 +46,119 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     return repository.recordSubmission(operation.id, { state: 'submitted', transactionHash, failureReason: null });
   }
 
+  const tokenAddress = '0xdbf3ea6f5bee45c02255b2c26a16f300502f68da';
+  const noMatch = {
+    kind: 'no_match' as const, candidateHashes: [],
+    scan: { headBlockNumber: '500', headBlockHash: transferContext.startBlockHash,
+      nextBlockNumber: '500', nextBlockHash: transferContext.startBlockHash, complete: true, candidateHashes: [] },
+  };
+  const assertion = { actor: 'authenticated-operator', amountPlur: '5000000000000000', confirmation: 'I accept that retrying 0.5 BZZ may pay twice.' };
+  function recoveryTransaction(overrides = {}) {
+    return { hash: transactionHash, chainId: 100, from: transferContext.nodeAddress, to: tokenAddress,
+      data: `0xa9059cbb${transferContext.chequebookAddress.slice(2).padStart(64, '0')}${BigInt(assertion.amountPlur).toString(16).padStart(64, '0')}`,
+      nonce: '9', value: '0', blockNumber: null, blockHash: null, ...overrides };
+  }
+  async function unknownOperation(dispatch = true) {
+    const { operation } = await repository.admit(operationCandidate({ tokenAddress }));
+    if (dispatch) await repository.claimDispatch(operation.id);
+    return repository.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
+  }
+  async function assertedOperation(dispatch = true) {
+    const unknown = await unknownOperation(dispatch);
+    const checked = await repository.recordRecovery(unknown, noMatch, []);
+    return repository.assertNoSubmission(checked, assertion);
+  }
+
+  it('requires current complete no-match evidence and exact typed risk before assertion', async () => {
+    const unknown = await unknownOperation();
+    await assert.rejects(repository.assertNoSubmission(unknown, assertion), /search/i);
+    const checked = await repository.recordRecovery(unknown, noMatch, []);
+    await assert.rejects(repository.assertNoSubmission(checked, { ...assertion, amountPlur: '1' }), /invalid/i);
+    await assert.rejects(repository.assertNoSubmission(checked, { ...assertion, confirmation: 'I agree' }), /invalid/i);
+    const newer = await repository.recordRecovery(checked, { kind: 'could_not_check', reason: 'rpc_unavailable', candidateHashes: [] }, []);
+    assert.deepEqual(await repository.assertNoSubmission(checked, assertion), newer);
+    await assert.rejects(repository.assertNoSubmission(newer, assertion), /search/i);
+    const rechecked = await repository.recordRecovery(newer, noMatch, []);
+    const asserted = await repository.assertNoSubmission(rechecked, assertion);
+    assert.equal(asserted.state, 'asserted');
+    assert.deepEqual(asserted.assertion, { ...assertion, assertedAt: asserted.assertion?.assertedAt });
+    assert.ok(asserted.assertion?.assertedAt);
+    assert.equal(asserted.transactionHash, null);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'admitted');
+  });
+
+  it('never automatically or manually attributes a late transfer shared by asserted A and open B', async () => {
+    const a = await assertedOperation();
+    const b = await unknownOperation();
+    const candidate = recoveryTransaction();
+    const observed = { kind: 'candidate' as const, candidateHashes: [transactionHash] };
+    const automatic = await repository.recordRecovery(b, observed, [candidate]);
+    assert.equal(automatic.transactionHash, null);
+    assert.equal(automatic.recoveryObservation?.kind, 'ambiguous');
+    const manual = await repository.resolveCandidate(automatic, candidate);
+    assert.equal(manual.transactionHash, null);
+    await assert.rejects(repository.assertNoSubmission(manual, assertion), /search/i);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+    assert.equal((await repository.findById(a.id))?.state, 'asserted');
+  });
+
+  it('excludes a never-dispatched predecessor while retaining a matching pending hash as protected', async () => {
+    await assertedOperation(false);
+    const b = await unknownOperation();
+    const adopted = await repository.resolveCandidate(b, recoveryTransaction());
+    assert.equal(adopted.state, 'submitted');
+    assert.equal(adopted.transactionHash, transactionHash);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('retains late direct-response evidence after assertion without settling it or releasing B', async () => {
+    const a = await assertedOperation();
+    const b = await unknownOperation();
+    const late = await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(late.state, 'asserted');
+    assert.equal(late.transactionHash, transactionHash);
+    assert.deepEqual(late.assertion, a.assertion);
+    const evidence = await repository.listSubmissionResponses(a.id);
+    assert.equal(evidence.length, 1);
+    assert.equal(evidence[0]?.transactionHash, transactionHash);
+    assert.equal(evidence[0]?.ownership, 'owned');
+    const blocked = await repository.resolveCandidate(b, recoveryTransaction());
+    assert.equal(blocked.transactionHash, null);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('serializes competing direct hash writers and retains the loser response as evidence', async () => {
+    const a = await assertedOperation();
+    const b = await unknownOperation();
+    const results = await Promise.all([a, b].map(operation => repository.recordSubmission(operation.id, { state: 'submitted', transactionHash, failureReason: null })));
+    assert.equal(results.filter(operation => operation.transactionHash === transactionHash).length, 1);
+    const rows = await Promise.all([a, b].map(operation => repository.findById(operation.id)));
+    assert.equal(rows.filter(operation => operation?.transactionHash === transactionHash).length, 1);
+    const evidence = (await Promise.all([a, b].map(operation => repository.listSubmissionResponses(operation.id)))).flat();
+    assert.equal(evidence.length, 2);
+    assert.deepEqual(evidence.map(item => item.ownership).sort(), ['conflict', 'owned']);
+    assert.equal((await repository.findById(a.id))?.state, 'asserted');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
+    const a = await submittedOperation();
+    await repository.recordReceipt(a, confirmed);
+    const b = (await repository.admit(operationCandidate())).operation;
+    await assert.rejects(pool.query("UPDATE chequebook_operations SET transaction_hash=$2, state='submitted' WHERE id=$1", [b.id, transactionHash]), { code: '23505' });
+    const c = (await repository.admit(operationCandidate({ chainId: 1 }))).operation;
+    assert.equal((await repository.recordSubmission(c.id, { state: 'submitted', transactionHash, failureReason: null })).transactionHash, transactionHash);
+  });
+
+  it('rejects unrelated manual evidence and prevents stale recovery from changing newer observations', async () => {
+    const unknown = await unknownOperation();
+    const mismatch = await repository.resolveCandidate(unknown, recoveryTransaction({ nonce: '7' }));
+    assert.equal(mismatch.transactionHash, null);
+    assert.equal(mismatch.recoveryObservation?.kind, 'could_not_check');
+    assert.deepEqual(await repository.recordRecovery(unknown, noMatch, []), mismatch);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('persists receipt checks across restart and releases the node only after confirmation', async () => {
     const submitted = await submittedOperation();
     assert.equal(submitted.revision, '2');
