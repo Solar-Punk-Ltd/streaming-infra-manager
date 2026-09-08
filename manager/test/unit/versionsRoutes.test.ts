@@ -207,6 +207,7 @@ describe('POST /versions/:id/default', () => {
     await callJson('PATCH', `/versions/${added?.id}`, {
       tested: true,
       commitSha: added?.commitSha,
+      buildId: added?.buildId,
     });
 
     const answer = await callJson('POST', `/versions/${added?.id}/default`);
@@ -376,6 +377,7 @@ describe('DELETE /versions/:id', () => {
     await callJson('PATCH', `/versions/${added?.id}`, {
       tested: true,
       commitSha: added?.commitSha,
+      buildId: added?.buildId,
     });
     await callJson('POST', `/versions/${added?.id}/default`);
 

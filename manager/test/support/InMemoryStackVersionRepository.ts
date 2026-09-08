@@ -186,10 +186,14 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     id: number,
     tested: boolean,
     forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
     const before = this.rows.find((row) => row.id === id);
     if (!before) return null;
-    if (forCommit !== null && (before.status !== 'ready' || before.commitSha !== forCommit)) {
+    const identityMatches = before.layout === 'builds'
+      ? before.buildId !== null && before.buildId === forBuild
+      : before.buildId === null && forBuild === null;
+    if (tested && (before.status !== 'ready' || forCommit === null || before.commitSha !== forCommit || !identityMatches)) {
       return null;
     }
     return this.patch(id, { tested });

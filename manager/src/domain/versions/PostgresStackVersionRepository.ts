@@ -249,14 +249,20 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     id: number,
     tested: boolean,
     forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
       `UPDATE stack_versions
           SET tested = $2
         WHERE id = $1
-          AND ($3::text IS NULL OR (status = 'ready' AND commit_sha = $3::text))
+          AND (NOT $2 OR (
+            status = 'ready' AND commit_sha = $3::text AND (
+              (layout = 'builds' AND build_id = $4::text)
+              OR (layout = 'legacy' AND build_id IS NULL AND $4::text IS NULL)
+            )
+          ))
         RETURNING ${VERSION_COLUMNS}`,
-      [id, tested, forCommit],
+      [id, tested, forCommit, forBuild],
     );
   }
 

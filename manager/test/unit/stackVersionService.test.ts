@@ -80,7 +80,7 @@ const readyAndTested = async (name: string): Promise<number> => {
   await settled();
 
   const added = await repository.findByName(name);
-  await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null);
+  await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null, added?.buildId ?? null);
   return added?.id ?? 0;
 };
 
@@ -311,7 +311,7 @@ describe('removing a version', () => {
     await settled();
 
     const added = await repository.findByName('v3');
-    await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null);
+    await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null, added?.buildId ?? null);
     await service.setDefault(added?.id ?? 0);
 
     await assert.rejects(
@@ -436,7 +436,7 @@ describe('the bundled version at boot', () => {
     // checkout is a new build nobody has run yet, the way an Update is.
     await service.refreshBundled(V3_FIXTURE, COMMIT);
     const bundled = await repository.findByName('bundled');
-    await repository.setTested(bundled?.id ?? 0, true);
+    await repository.setTested(bundled?.id ?? 0, true, COMMIT);
 
     await service.refreshBundled(V3_FIXTURE, COMMIT);
     assert.equal((await repository.findByName('bundled'))?.tested, true, 'the same commit');

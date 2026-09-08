@@ -107,13 +107,16 @@ export interface StackVersionRepository {
   /**
    * Turns approval on for the build the caller looked at, or off. Turning it
    * on is conditioned in the write itself on the row being ready at
-   * `forCommit`, and null comes back when it is not any more, or when the row
+   * the shown commit and build identity. Legacy rows retain commit approval
+   * only while they remain explicitly legacy with no build id. Null comes
+   * back when the identity changed, or when the row
    * is gone, which the caller tells apart with a read.
    */
   setTested(
     id: number,
     tested: boolean,
     forCommit?: string | null,
+    forBuild?: string | null,
   ): Promise<StackVersionRecord | null>;
   remove(id: number): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */
