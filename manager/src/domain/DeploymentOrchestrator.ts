@@ -988,20 +988,19 @@ export class DeploymentOrchestrator {
       stdoutTail = (stdoutTail + chunk).slice(-STDOUT_TAIL_BYTES);
     });
 
-    handle.emitter.on('done', ({ code }: { code: number }) => {
+    let finalizationStarted = false;
+    const finish = (code: number, errorText: string) => {
+      if (finalizationStarted) return;
+      finalizationStarted = true;
       void (async () => {
         if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, code, stderrTail, stdoutTail, attempt);
+        await this.finalizeJob(cfg, code, errorText, stdoutTail, attempt);
       })();
-    });
+    };
+    handle.emitter.on('done', ({ code }: { code: number }) => finish(code, stderrTail));
     // A script that never started ends the attempt the same way: nothing new
     // was created, so it blocks, and the host is not held open for nothing.
-    handle.emitter.on('error', (err: Error) => {
-      void (async () => {
-        if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, -1, err.message, stdoutTail, attempt);
-      })();
-    });
+    handle.emitter.on('error', (err: Error) => finish(-1, err.message));
 
     return handle;
   }
