@@ -7,8 +7,10 @@ import { isTransactionHash } from './operationIdentity.js';
 export const MAX_RECOVERY_CANDIDATES = 256;
 
 export function recoveryHashes(values: readonly string[]): readonly string[] {
-  if (!Array.isArray(values) || values.length > MAX_RECOVERY_CANDIDATES || values.some(value => !isTransactionHash(value))) throw new ChequebookOperationInputError('recovery hashes');
-  return Object.freeze([...new Set(values.map(value => value.toLowerCase()))]);
+  if (!Array.isArray(values) || values.some(value => !isTransactionHash(value))) throw new ChequebookOperationInputError('recovery hashes');
+  const hashes = [...new Set(values.map(value => value.toLowerCase()))];
+  if (hashes.length > MAX_RECOVERY_CANDIDATES) throw new ChequebookOperationInputError('recovery hashes');
+  return Object.freeze(hashes);
 }
 
 function blockNumber(value: string): string {
