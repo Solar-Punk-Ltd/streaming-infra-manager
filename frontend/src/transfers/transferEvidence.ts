@@ -58,14 +58,19 @@ export function permitsNewTransfer(detail: ChequebookOperationDetail): boolean {
 }
 
 export function transferHeadline(detail: ChequebookOperationEvidence): string {
+  if (!detail?.operation || !Array.isArray(detail.responseEvidence)) return 'Recorded outcome needs verification';
   if (hasAttributionConflict(detail)) return 'Transaction evidence needs review';
+  let supported = false;
+  try { supported = permitsNewTransfer({ ...detail, assertionConfirmation: chequebookAssertionConfirmation(detail.operation.amountPlur) }); }
+  catch { /* Malformed amounts cannot justify a terminal headline. */ }
   switch (detail.operation.state) {
-    case 'asserted': return 'Operator assertion recorded';
-    case 'rejected': return 'Transfer refused before submission';
-    case 'settled': return permitsNewTransfer({ ...detail, assertionConfirmation: chequebookAssertionConfirmation(detail.operation.amountPlur) }) ? 'Transfer verified on chain' : 'Recorded outcome needs verification';
-    case 'reverted': return permitsNewTransfer({ ...detail, assertionConfirmation: chequebookAssertionConfirmation(detail.operation.amountPlur) }) ? 'Transaction reverted' : 'Recorded outcome needs verification';
+    case 'asserted': return supported ? 'Operator assertion recorded' : 'Recorded outcome needs verification';
+    case 'rejected': return supported ? 'Transfer refused before submission' : 'Recorded outcome needs verification';
+    case 'settled': return supported ? 'Transfer verified on chain' : 'Recorded outcome needs verification';
+    case 'reverted': return supported ? 'Transaction reverted' : 'Recorded outcome needs verification';
     case 'submitted': return 'Waiting for transaction confirmation';
     case 'submitting': return 'Submission in progress';
     case 'unknown': return 'Submission outcome unknown';
+    default: return 'Recorded outcome needs verification';
   }
 }
