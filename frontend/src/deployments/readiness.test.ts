@@ -65,6 +65,24 @@ describe('one readiness blocker', () => {
     assert.equal(state.profile.status, 'RUNNING');
   });
 
+  it('does not blame passing funding and stamp checks when the earlier API or deployment checks block startup', () => {
+    for (const status of ['RUNNING', 'DEPLOYING'] as const) {
+      const state = input({
+        profile: { ...runningProfile, status, stamp_id: 'batch' },
+        stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 },
+        chequebook: { state: 'ok', availablePlur: 10000000000000000n, floorPlur: 5000000000000000n },
+        nodeReadiness: { state: 'stale', label: 'Bee observation stale', detail: 'Previous check is stale.' },
+      });
+      const steps = buildChecklist(state);
+      assert.equal(steps.find(step => step.title === 'Bee node funded')?.state, 'ok');
+      assert.equal(steps.find(step => step.title === 'Postage stamp set')?.state, 'ok');
+      const uploader = steps.find(step => step.title === 'Uploader running');
+      assert.equal(uploader?.action, undefined);
+      assert.match(uploader?.detail ?? '', /earlier readiness checks/i);
+      assert.doesNotMatch(uploader?.detail ?? '', /funding and the stamp can be verified/i);
+    }
+  });
+
   it('does not call a recorded stamp and running containers ready or playable', () => {
     const profile = { ...runningProfile, stamp_id: 'batch', containers: [...runningProfile.containers, { service: 'stream-uploader', ports: {} }] };
     assert.doesNotMatch(readinessOf(profile).label, /ready|watchable|playable/i);
