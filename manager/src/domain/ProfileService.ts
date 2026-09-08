@@ -182,6 +182,9 @@ export class ProfileService {
     if (version.contract?.allocationProblem) {
       throw new InvalidStackVersionError(`${version.name}: ${version.contract.allocationProblem}`);
     }
+    if (!version.contract?.ports.length) {
+      throw new InvalidStackVersionError(`${version.name} has no readable port table. Rebuild the version before allocating a deployment.`);
+    }
     if (!await this.reservations?.inventorySeededAt()) {
       throw new ReservationInventoryPendingError();
     }
@@ -189,7 +192,7 @@ export class ProfileService {
       stackVersionId: version.id,
       slotCap: slotCapFor(version.contract),
       daemonId: await this.targets.daemonIdFor(host),
-      table: portTableOf(version.contract),
+      table: version.contract.ports,
     };
   }
 
