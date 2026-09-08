@@ -51,7 +51,39 @@ describe('firewall evidence export', () => {
     const h = setup();
     h.state.versions[0]!.previousBuildId = 'b'.repeat(40);
     h.contracts.set('b'.repeat(40), [{ ...h.peer, name: 'SRS_RTMP_PORT', service: 'srs' }]);
+    h.state.reservations[0]!.heldServices = ['bee-uploader-480p', 'srs'];
     await assert.rejects(h.exporter.export('localhost'), /a.*11012.*public/);
+  });
+
+  it('uses snapshot X when version Y is published but has never been admitted', async () => {
+    const h = setup();
+    const oldId = 'a'.repeat(40);
+    const newId = 'b'.repeat(40);
+    h.state.references.push({ versionId: 1, buildId: oldId, holderKind: 'snapshot', holderId: 'a/bee-uploader-480p', services: ['bee-uploader-480p'] });
+    h.state.versions[0]!.buildId = newId;
+    h.state.versions[0]!.previousBuildId = oldId;
+    h.contracts.set(newId, [{ ...h.peer, slotBase: 14002 }]);
+    const result = await h.exporter.export('localhost');
+    assert.ok(result.claims.length > 0);
+    assert.ok(result.claims.every(claim => claim.port === 11012));
+  });
+
+  it('does not require released ports merely because their old build is still the previous version', async () => {
+    const h = setup();
+    h.state.versions[0]!.previousBuildId = 'b'.repeat(40);
+    h.contracts.set('b'.repeat(40), [{ ...h.peer, slotBase: 14002 }]);
+    const result = await h.exporter.export('localhost');
+    assert.ok(result.claims.every(claim => claim.port === 11012));
+  });
+
+  it('requires each snapshot service owner in the reservation, not merely a row on the same tuple', async () => {
+    const h = setup();
+    h.contracts.set('a'.repeat(40), [{ ...h.peer, name: 'API_PORT', service: 'new-service', slotBase: 13000 }]);
+    h.contracts.set('b'.repeat(40), [{ ...h.peer, name: 'API_PORT', service: 'old-service', slotBase: 13000 }]);
+    h.state.reservations[0]!.port = 13010;
+    h.state.reservations[0]!.heldServices = ['new-service'];
+    h.state.references.push({ versionId: 1, buildId: 'b'.repeat(40), holderKind: 'snapshot', holderId: 'a/old-service', services: ['old-service'] });
+    await assert.rejects(h.exporter.export('localhost'), /old-service|coverage|reservation/);
   });
 
   it('refuses existing bundled slot 101 without renumbering or deleting its record', async () => {
