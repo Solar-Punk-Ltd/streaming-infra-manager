@@ -139,6 +139,13 @@ it('refuses source bytes changing during copy and removes only its own partial d
   assert.equal(await readFile(join(unrelated, 'keep'), 'utf8'), 'keep');
 });
 
+it('captures descriptor values before copying so a caller mutation cannot change the selected source', async () => {
+  const item = await record();
+  const expected = structuredClone(item);
+  await copyExecutionRoot(item, executions, { onProgress: async () => { item.source.artifactDigest = 'e'.repeat(64); } });
+  assert.equal(await treeDigest(expected.root), expected.source.artifactDigest);
+});
+
 it('refuses a composed link escape without reading or modifying the sibling sentinel', async () => {
   const item = await record();
   await writeFile(join(dirname(source), 'outside.txt'), 'keep');
