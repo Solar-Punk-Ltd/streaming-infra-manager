@@ -48,7 +48,7 @@ import {
 } from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
-import { engineConfigRoutes } from './mock-engine-config.mjs';
+import { closeRollout, engineConfigRoutes } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -114,7 +114,8 @@ function membersOf(groupId) {
   return state.profiles.filter((profile) => profile.group_id === groupId);
 }
 
-function deploy(profile, { withUploader } = {}) {
+/** @param onRunning runs once the row is RUNNING again, before that change is published. */
+function deploy(profile, { withUploader, onRunning } = {}) {
   profile.status = 'DEPLOYING';
   profile.last_error = null;
   profile.last_error_at = null;
@@ -137,6 +138,7 @@ function deploy(profile, { withUploader } = {}) {
     profile.status = 'RUNNING';
     profile.containers = containers;
     resolveAttempt(attempt, publish);
+    onRunning?.();
     changed(profile);
   }, DEPLOY_MS);
 }
@@ -458,6 +460,7 @@ const ROUTES = [
       const refusal = attemptRefusal(profile);
       if (refusal) return send(res, 409, refusal);
       replaceEditable(profile, await readBody(req));
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, profile);
     }),
@@ -476,6 +479,7 @@ const ROUTES = [
     withProfile((_req, res, profile) => {
       const refusal = attemptRefusal(profile);
       if (refusal) return send(res, 409, refusal);
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, { status: 'accepted' });
     }),
@@ -484,6 +488,7 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/stop$/,
     withProfile((_req, res, profile) => {
+      closeRollout(profile, 'Stopped by the operator before the file was verified.');
       stop(profile);
       send(res, 202, { status: 'accepted' });
     }),

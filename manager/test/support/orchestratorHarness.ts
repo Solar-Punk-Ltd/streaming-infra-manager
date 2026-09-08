@@ -14,6 +14,7 @@ import { FakeScriptRunner } from './FakeScriptRunner.js';
 import { ALLOCATION_CONTRACT } from './allocationContract.js';
 import { InMemoryBuildLedger } from './InMemoryBuildLedger.js';
 import { FakeDaemon, InMemoryDeployAttempts } from './InMemoryDeployAttempts.js';
+import { InMemoryEngineConfigOperations } from './InMemoryEngineConfigOperations.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
@@ -47,6 +48,8 @@ export interface OrchestratorHarness {
   attempts: InMemoryDeployAttempts;
   daemon: FakeDaemon;
   published: PublishedPortsSnapshot;
+  /** The config file rollouts, which an operator's action closes. */
+  operations: InMemoryEngineConfigOperations;
 }
 
 /**
@@ -103,6 +106,7 @@ export function orchestratorHarness(
       daemon.set(project, service, [`${project}-${service}-${run.args.length}-${Date.now()}`]);
     }
   };
+  const operations = new InMemoryEngineConfigOperations(profiles);
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -114,6 +118,7 @@ export function orchestratorHarness(
     ledger,
     attempts,
     daemon,
+    operations,
     uploaderGate,
     targets,
     profiles.reservations,
@@ -121,5 +126,5 @@ export function orchestratorHarness(
     inventoryTargets,
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published };
+  return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published, operations };
 }
