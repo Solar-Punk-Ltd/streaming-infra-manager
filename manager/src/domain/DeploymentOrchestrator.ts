@@ -186,6 +186,7 @@ export class DeploymentOrchestrator {
     private readonly targets?: DeployTargets,
     private readonly ports?: PortReservationRepository,
     private readonly portObserver?: PublishedPortsProbe,
+    private readonly inventoryTargets?: DeployTargets,
   ) {}
 
   /**
@@ -389,6 +390,9 @@ export class DeploymentOrchestrator {
     if (!await this.ports?.inventorySeededAt()) throw new ReservationInventoryPendingError();
     const target = targetAlias(reservation.host ?? profile.host);
     const daemonId = await this.targetDaemon(target);
+    if (this.inventoryTargets && await this.inventoryTargets.daemonIdFor(target) !== daemonId) {
+      throw new TargetNotVerifiedError(target, 'The inventory belongs to a different Docker daemon. No deploy was started.');
+    }
     if (reservation.daemonId && reservation.daemonId !== daemonId) {
       throw new TargetNotVerifiedError(target, 'The reserved ports belong to a different Docker daemon. No deploy was started.');
     }

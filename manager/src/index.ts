@@ -264,9 +264,10 @@ async function main(): Promise<void> {
     deployAttempts,
     targetDocker,
     new UploaderStartGate(stampService, chequebookService),
-    portInventory,
+    deployTargets,
     portReservations,
     targetDocker,
+    portInventory,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();
