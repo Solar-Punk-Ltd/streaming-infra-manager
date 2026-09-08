@@ -27,6 +27,8 @@ Preparation and preflight each have a 30-second overall deadline. The pinned ses
 
 ## Authenticated routes and shared shapes
 
+The shared `SessionInfo` returned by `GET /auth/session` includes the existing numeric account `id`, username, admin flag and expiry. The browser uses that stable account ID to scope saved intents across sessions. It is not a session token or a new authorization rule.
+
 All routes remain behind the existing session gate. Writes retain the existing same-site request header requirement. The submitting and asserting identity is `user:<signed-in-user-id>`, derived by the server. The body cannot select an actor, chain, contract, RPC endpoint or Bee endpoint. Unknown body or query fields are rejected.
 
 | Method and path | Input | Result |

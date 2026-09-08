@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import type { SessionInfo } from '@streaming-infra-manager/common';
 
 import {
   probeSession,
@@ -12,12 +13,7 @@ import { SessionEndedError, setSessionEndedHandler } from '../http';
 export type SessionState =
   | { status: 'loading' }
   | { status: 'signedOut'; reason: SignedOutReason }
-  | {
-      status: 'signedIn';
-      username: string;
-      isAdmin: boolean;
-      expiresAt: string;
-    };
+  | ({ status: 'signedIn' } & SessionInfo);
 
 export interface SessionStore {
   state: SessionState;
