@@ -89,6 +89,28 @@ it('treats an ABR node pool as four confirmed members regardless of its size inp
   assert.equal(calls.filter(call => call.method === 'DELETE').length, 5);
 });
 
+for (const [path, body] of [['/groups', { size: '2' }], ['/groups/7/members', { count: '2' }]] as const) {
+  for (const count of [1, 2]) {
+    it(`uses coerced count for ${path}, with ${count} returned members`, async () => {
+      const { client } = setup();
+      await client.capture('POST', path, body, async () => ({ status: 202, body: {
+        group: { id: 7, name: 'itest-run-owned' }, profiles: Array.from({ length: count }, (_, index) => profile(`itest-run-owned-profile-${index + 1}`)),
+      } }));
+      if (count === 2) await client.cleanup();
+      else await assert.rejects(client.cleanup(), error => error instanceof IntegrationCleanupError && error.failures.some(item => item.reason === 'member-count-mismatch'));
+    });
+  }
+}
+
+it('recognizes the API boolean coercion for an ABR pool', async () => {
+  const { client, calls } = setup();
+  await client.capture('POST', '/groups', { abr_ladder: 'true', size: '1' }, async () => ({ status: 202, body: {
+    group: { id: 7, name: 'itest-run-pool' }, profiles: ['360p', '480p', '720p', '1080p'].map(rung => profile(`itest-run-pool-${rung}`)),
+  } }));
+  await client.cleanup();
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 5);
+});
+
 it('does not turn ordinary GET or config responses into cleanup authority', async () => {
   const { client, calls } = setup();
   for (const method of ['GET', 'PUT']) await client.capture(method, '/profiles/itest-run-owned', {}, async () => ({ status: 200, body: profile() }));
