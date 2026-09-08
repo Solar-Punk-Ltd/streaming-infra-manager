@@ -23,3 +23,9 @@ export const PROFILE_COLUMNS = `
 
 /** Advisory-lock key guarding port-slot allocation. ASCII "prof". */
 export const PROFILE_SLOT_LOCK_KEY = 0x70726f66;
+
+/** Evaluated in the status UPDATE, against the row that wins the transition. */
+export const DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL = `CASE
+  WHEN status = 'RUNNING' THEN 'restarting'
+  WHEN status = 'STOPPED' THEN 'starting'
+  ELSE NULL END`;

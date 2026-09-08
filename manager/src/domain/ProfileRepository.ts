@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
-import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 
@@ -304,8 +304,7 @@ export class ProfileRepository {
       `UPDATE profiles
          SET status = $2,
              deployment_phase = CASE
-               WHEN $2 = 'DEPLOYING' AND status = 'RUNNING' THEN 'restarting'
-               WHEN $2 = 'DEPLOYING' AND status = 'STOPPED' THEN 'starting'
+               WHEN $2 = 'DEPLOYING' THEN ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL}
                ELSE NULL END,
              last_error = NULL,
              last_error_at = NULL,
