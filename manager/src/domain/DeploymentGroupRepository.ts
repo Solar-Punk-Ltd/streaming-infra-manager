@@ -44,8 +44,14 @@ export interface MemberConfigWrite {
   srt_passphrase: string | null;
 }
 
+export type EmptyGroupRemoval = 'deleted' | 'absent' | 'changed' | 'not_empty';
+
 export class DeploymentGroupRepository {
   constructor(private readonly pool: Pool) {}
+
+  async removeEmptyGroup(groupId: number, _expectedName: string): Promise<EmptyGroupRemoval> {
+    return (await this.syncMembershipAfterRemoval(groupId)) === 'deleted' ? 'deleted' : 'not_empty';
+  }
 
   async findByName(name: string): Promise<DeploymentGroup | null> {
     const r = await this.pool.query<DeploymentGroup>(
