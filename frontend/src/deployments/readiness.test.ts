@@ -26,6 +26,13 @@ function input(overrides: Partial<ChecklistInput> = {}): ChecklistInput {
 }
 
 describe('one readiness blocker', () => {
+  it('keeps stopping and removing summaries distinct from stopped', () => {
+    for (const status of ['STOPPING', 'REMOVING'] as const) {
+      const state = input({ profile: { ...runningProfile, status } });
+      assert.doesNotMatch(readySummary(state).title, /stopped|start it/i);
+      assert.match(readySummary(state).title.toLowerCase(), new RegExp(status.toLowerCase()));
+    }
+  });
   it('puts funding before the missing stamp in the headline and primary action', () => {
     const state = input();
     const steps = buildChecklist(state);
