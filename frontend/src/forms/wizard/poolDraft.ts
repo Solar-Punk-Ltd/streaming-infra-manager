@@ -1,4 +1,3 @@
-import { isLadderKind } from '@streaming-infra-manager/common';
 import type { DeploymentGroup, Profile } from '../../types';
 import { initialWizardState, type WizardContext, type WizardState } from './wizardState';
 import { matchingPool, type CreatedPool } from './poolIdentity';
@@ -37,12 +36,18 @@ export function finishPoolSetup(
 
 /** Keep the accepted identity visible until the deployment store catches up. */
 export function overlayCreatedPool(groups: DeploymentGroup[], profiles: Profile[], created: CreatedPool | null) {
-  if (!created) return { groups, profiles };
+  const authoritative = { groups, profiles, created: null };
+  if (!created) return authoritative;
   const currentGroup = groups.find(group => group.id === created.group.id);
-  if (currentGroup && (currentGroup.name !== created.group.name || !isLadderKind(currentGroup.kind))) return { groups, profiles };
+  if (currentGroup && (currentGroup.name !== created.group.name || currentGroup.kind !== created.group.kind ||
+      currentGroup.size !== created.group.size)) return authoritative;
   const currentNames = new Set(profiles.map(profile => profile.name));
-  return {
+  const projected = {
     groups: currentGroup ? groups : [...groups, created.group],
     profiles: [...profiles, ...created.profiles.filter(profile => !currentNames.has(profile.name))],
   };
+  const projectedMembers = projected.profiles.filter(profile => profile.group_id === created.group.id);
+  if (!matchingPool({ group: currentGroup ?? created.group, profiles: projectedMembers }, created.group.name)) return authoritative;
+  if (currentGroup && matchingPool({ group: currentGroup, profiles: profiles.filter(profile => profile.group_id === created.group.id) }, created.group.name)) return authoritative;
+  return { ...projected, created };
 }
