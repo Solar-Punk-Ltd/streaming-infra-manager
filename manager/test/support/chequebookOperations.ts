@@ -1,3 +1,4 @@
+import { ChequebookOperationChangedError } from '../../src/domain/errors/ChequebookOperationChangedError.js';
 import { historyCursor, normalizeHistoryQuery } from '../../src/domain/chequebook/chequebookHistory.js';
 import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence.js';
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
@@ -135,7 +136,8 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
   async assertNoSubmission(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookAssertionInput): Promise<ChequebookOperation> {
     const row = this.rows.get(expected.id)!;
     if (input.amountPlur !== row.amountPlur || input.confirmation !== chequebookAssertionConfirmation(row.amountPlur)) throw new Error('Invalid assertion');
-    if (row.revision !== expected.revision || !['unknown', 'submitting'].includes(row.state)) return structuredClone(row);
+    if (row.revision !== expected.revision) throw new ChequebookOperationChangedError();
+    if (!['unknown', 'submitting'].includes(row.state) || row.failureReason === 'hash_conflict') return structuredClone(row);
     if (row.recoveryObservation?.kind !== 'no_match') throw new Error('A complete search is required');
     const result: ChequebookOperation = { ...row, state: 'asserted', assertion: { ...input, assertedAt: new Date().toISOString() }, revision: String(BigInt(row.revision) + 1n) };
     this.rows.set(row.id, result);

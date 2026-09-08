@@ -1,4 +1,5 @@
-import { chequebookAssertionConfirmation, type ChequebookAssertionInput, type ChequebookOperation } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, isChequebookRevision, type ChequebookAssertionInput, type ChequebookOperation } from '@streaming-infra-manager/common';
+import { ChequebookOperationChangedError } from '../errors/ChequebookOperationChangedError.js';
 import { ChequebookJournalError } from '../errors/ChequebookJournalError.js';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 import { ChequebookRecoveryRequiredError } from '../errors/ChequebookRecoveryRequiredError.js';
@@ -35,8 +36,10 @@ export class ChequebookRecovery {
     return resolved.state === 'submitted' ? this.receipts.check(resolved.id) : resolved;
   }
 
-  async assertNoSubmission(id: string, input: ChequebookAssertionInput): Promise<ChequebookOperation> {
+  async assertNoSubmission(id: string, input: ChequebookAssertionInput, expectedRevision: string): Promise<ChequebookOperation> {
+    if (!isChequebookRevision(expectedRevision)) throw new ChequebookOperationInputError('assertion revision');
     const operation = await this.load(id);
+    if (operation.revision !== expectedRevision) throw new ChequebookOperationChangedError();
     if (input.amountPlur !== operation.amountPlur || input.confirmation !== chequebookAssertionConfirmation(operation.amountPlur) ||
         typeof input.actor !== 'string' || !input.actor.trim() || input.actor.length > 200) throw new ChequebookOperationInputError('assertion');
     if (!this.canRecover(operation)) return operation;
@@ -58,7 +61,8 @@ export class ChequebookRecovery {
   private async journal<T>(action: () => Promise<T>): Promise<T> {
     try {
       return await action();
-    } catch {
+    } catch (error) {
+      if (error instanceof ChequebookOperationChangedError) throw error;
       throw new ChequebookJournalError();
     }
   }

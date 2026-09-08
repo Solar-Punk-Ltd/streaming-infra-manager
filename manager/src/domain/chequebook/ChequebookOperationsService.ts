@@ -51,9 +51,9 @@ export class ChequebookOperationsService {
     return this.detail(operation.id);
   }
 
-  async assertNoSubmission(id: string, input: ChequebookAssertionInput): Promise<ChequebookOperationDetail> {
+  async assertNoSubmission(id: string, input: ChequebookAssertionInput, expectedRevision: string): Promise<ChequebookOperationDetail> {
     const { operation } = await this.detail(id);
-    await this.recovery.assertNoSubmission(operation.id, input);
+    await this.recovery.assertNoSubmission(operation.id, input, expectedRevision);
     return this.detail(operation.id);
   }
 

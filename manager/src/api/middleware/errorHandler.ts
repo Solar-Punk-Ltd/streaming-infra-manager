@@ -1,4 +1,5 @@
 import { ChequebookAccountChangedError } from '../../domain/errors/ChequebookAccountChangedError.js';
+import { ChequebookOperationChangedError } from '../../domain/errors/ChequebookOperationChangedError.js';
 import { ChequebookProfileChangedError } from '../../domain/errors/ChequebookProfileChangedError.js';
 import { ChequebookOperationInputError } from '../../domain/errors/ChequebookOperationInputError.js';
 import { ChequebookOperationNotFoundError } from '../../domain/errors/ChequebookOperationNotFoundError.js';
@@ -68,6 +69,10 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
+  if (err instanceof ChequebookOperationChangedError) {
+    res.status(409).json({ error: 'operation_changed', message: err.message });
+    return;
+  }
   if (err instanceof ChequebookAccountChangedError) {
     res.status(409).json({ error: 'account_changed', message: err.message });
     return;

@@ -1,3 +1,4 @@
+import { ChequebookOperationChangedError } from '../errors/ChequebookOperationChangedError.js';
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { historyCursor, normalizeHistoryQuery } from './chequebookHistory.js';
 import type { Pool, PoolClient } from 'pg';
@@ -205,7 +206,8 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     return this.withOperation(expected.id, async (client, operation) => {
       if (input.amountPlur !== operation.amountPlur || input.confirmation !== chequebookAssertionConfirmation(operation.amountPlur) ||
           typeof input.actor !== 'string' || !input.actor.trim() || input.actor.length > 200) throw new ChequebookOperationInputError('assertion');
-      if (operation.revision !== expected.revision || !['submitting', 'unknown'].includes(operation.state) || operation.failureReason === 'hash_conflict') return operation;
+      if (operation.revision !== expected.revision) throw new ChequebookOperationChangedError();
+      if (!['submitting', 'unknown'].includes(operation.state) || operation.failureReason === 'hash_conflict') return operation;
       if (operation.recoveryObservation?.kind !== 'no_match') throw new Error('A complete search without a matching transaction is required.');
       const assertion = { actor: input.actor, amountPlur: operation.amountPlur, confirmation: input.confirmation };
       const updated = await client.query<OperationRow>(`UPDATE chequebook_operations

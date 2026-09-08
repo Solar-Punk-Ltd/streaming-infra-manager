@@ -41,7 +41,7 @@ All routes remain behind the existing session gate. Writes retain the existing s
 | GET `/chequebook/operations/:id` | Saved operation UUID | `ChequebookOperationDetail` |
 | POST `/chequebook/operations/:id/check` | `{expectedAccountId}` | `ChequebookOperationDetail` |
 | POST `/chequebook/operations/:id/resolve` | `{transactionHash, expectedAccountId}` | `ChequebookOperationDetail` |
-| POST `/chequebook/operations/:id/assert` | `{amountPlur, confirmation, expectedAccountId}` | `ChequebookOperationDetail` |
+| POST `/chequebook/operations/:id/assert` | `{amountPlur, confirmation, expectedAccountId, expectedRevision}` | `ChequebookOperationDetail` |
 
 Every submission includes the saved positive safe-integer account ID as `expectedAccountId`. The route compares it with the authenticated user before any preparation, journal access or Bee action. A different session account receives the fixed 409 `account_changed` refusal. This field cannot choose the actor. Returning to the original account permits exact request replay even after profile deletion.
 
@@ -55,7 +55,7 @@ Accepted or replayed admission returns 202. It can contain a rejected or unknown
 
 History defaults to 50 rows and permits at most 100. It orders by immutable creation timestamp and UUID. The opaque cursor retains PostgreSQL microseconds so rows inside the same millisecond are not skipped. Detail reads obtain the operation and all direct-response evidence in one SQL statement. No profile join can remove historical records.
 
-The shared detail shape contains `operation`, `responseEvidence` and `assertionConfirmation`. Admission also contains `kind`. The assertion text is produced by the one shared `chequebookAssertionConfirmation` helper. The exact amount and text must match the current operation. Only a current CAS-bound complete no-match observation can support an assertion. An assertion accepts the duplicate-payment risk. It does not prove absence or settlement.
+The shared detail shape contains `operation`, `responseEvidence` and `assertionConfirmation`. Admission also contains `kind`. The assertion text is produced by the one shared `chequebookAssertionConfirmation` helper. The assertion request also supplies the revision from the complete detail the operator reviewed. It is a canonical nonnegative decimal string within the PostgreSQL bigint range. `ChequebookRecovery` compares it with the final loaded operation, and assertion admission compares it again atomically. Either mismatch returns fixed 409 `operation_changed`. Only assertion CAS throws this typed error. Receipt and scan observation CAS behavior is unchanged. The reviewed revision and account precondition never become assertion evidence. The exact amount and text must match the current operation. Only a current CAS-bound complete no-match observation can support an assertion. An assertion accepts the duplicate-payment risk. It does not prove absence or settlement.
 
 ## Recovery and evidence presentation
 
@@ -80,3 +80,9 @@ A new intent is refused when the node has an active operation or any historical 
 A fresh GET alone cannot guarantee that its evidence stays current until the next POST. The authenticated SQL/API regression holds a terminal GET, commits conflicting direct-response evidence, releases the older response, then attempts a new intent. Admission returns 409 busy with the conflict detail and no new record or Bee dispatch. A separate SQL case covers exact replay and an unaffected node. The older attribution regression now admits B before the late conflict on A, preserving its intended historical-competitor case under the stronger admission rule.
 
 The new regression failed before the fix as `admitted` instead of `busy`, and the HTTP case returned 202 instead of 409. After the fix all 45 T09 PostgreSQL cases, 669 manager unit tests and workspace typechecks passed. The synthetic database was container `dbb1a1d59df09b3d2dd6fe095473437abc2fbab1f380c900e41691db27aa0941`, loopback port 49809. It was stopped after verification and exact-ID inspection confirmed removal. No host, live chain or funded node was used.
+
+## Reviewed recovery action preconditions
+
+Recovery check, manual resolution and assertion require the account that reviewed the action. A mismatch refuses the write before service access, while preserving the existing policy that any authenticated operator can recover saved operations. Assertion additionally requires the exact reviewed revision, checked at the final recovery load and again by the repository under its existing operation lock. A same-account competing assertion or newer conflict returns the fixed changed-operation response. Request-only account and revision values do not enter the assertion audit record.
+
+The focused coordinator and authenticated HTTP suite passes 21 tests. All 47 PostgreSQL tests pass, including same-account concurrent assertions and conflicting direct-response evidence between the final load and assertion CAS. The full manager suite passes 675 tests, the shared package passes 269 tests, and workspace typechecks pass. No checks use real funds or a deployment. The dedicated synthetic PostgreSQL container was `0519d196ae73b99e0aab3bfae1ba4e2774cd7978a992e95bcd025a581c448271` on loopback port 52292. It was stopped after the checks and exact-ID inspection confirmed removal. History and recovery UI integration remains the next reviewed slice.

@@ -47,7 +47,7 @@ export function createChequebookRouter(chequebookService: ChequebookService, ope
     const body = req.body as AssertChequebookBody;
     const user = signedInUser(req);
     if (body.expectedAccountId !== user.id) throw new ChequebookAccountChangedError('recovery');
-    res.json(await operations.assertNoSubmission(req.params.id as string, { amountPlur: body.amountPlur, confirmation: body.confirmation, actor: `user:${user.id}` }));
+    res.json(await operations.assertNoSubmission(req.params.id as string, { amountPlur: body.amountPlur, confirmation: body.confirmation, actor: `user:${user.id}` }, body.expectedRevision));
   }));
   return router;
 }

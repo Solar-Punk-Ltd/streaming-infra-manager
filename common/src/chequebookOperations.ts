@@ -3,6 +3,12 @@ import type { TransferDirection } from './chequebook.js';
 
 export const CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Sign in with the account that confirmed this transfer.';
 export const CHEQUEBOOK_RECOVERY_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Review this action again with your current account.';
+export const CHEQUEBOOK_OPERATION_CHANGED_MESSAGE = 'The saved transfer changed. Refresh its evidence and review the action again.';
+
+/** Journal revisions are nonnegative PostgreSQL bigint values, kept as exact decimal strings. */
+export function isChequebookRevision(value: unknown): value is string {
+  return typeof value === 'string' && /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
+}
 
 export interface ChequebookRecoveryRequest {
   readonly expectedAccountId: number;
@@ -11,6 +17,7 @@ export interface ChequebookResolveRequest extends ChequebookRecoveryRequest {
   readonly transactionHash: string;
 }
 export interface ChequebookAssertRequest extends ChequebookRecoveryRequest {
+  readonly expectedRevision: string;
   readonly amountPlur: string;
   readonly confirmation: string;
 }

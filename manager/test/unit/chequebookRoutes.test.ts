@@ -264,6 +264,11 @@ describe('authenticated transaction-journal API', () => {
       assert.equal(response.status, 400);
       assert.ok(!(await response.text()).includes('synthetic-private-revision'));
     }
+    for (const expectedRevision of ['0', '9223372036854775807']) {
+      const response = await api.request('POST', `${operationsPath}/${operation.id}/assert`, { expectedAccountId: 7,
+        expectedRevision, amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) });
+      assert.equal(response.status, 404, 'Valid boundary revision reaches operation lookup');
+    }
     assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });
   });
 

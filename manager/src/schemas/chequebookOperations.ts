@@ -1,4 +1,5 @@
 import type { ChequebookAssertRequest, ChequebookHistoryQuery, ChequebookRecoveryRequest, ChequebookResolveRequest, ChequebookSubmitRequest } from '@streaming-infra-manager/common';
+import { isChequebookRevision } from '@streaming-infra-manager/common';
 import { number, object, string, type InferType, type ObjectSchema } from 'yup';
 import { ChequebookOperationInputError } from '../domain/errors/ChequebookOperationInputError.js';
 import { normalizeHistoryQuery } from '../domain/chequebook/chequebookHistory.js';
@@ -18,6 +19,8 @@ export const checkChequebookSchema: ObjectSchema<ChequebookRecoveryRequest> = st
 export const resolveChequebookSchema: ObjectSchema<ChequebookResolveRequest> = strictObject.shape({ expectedAccountId, transactionHash: string().typeError('A transaction hash is required').required('A transaction hash is required')
   .matches(/^0x[0-9a-f]{64}$/i, 'A transaction hash must contain 64 hexadecimal digits') });
 export const assertChequebookSchema: ObjectSchema<ChequebookAssertRequest> = strictObject.shape({ expectedAccountId, amountPlur: amount,
+  expectedRevision: string().typeError('expectedRevision must be a journal revision string').required('expectedRevision is required')
+    .test('journal-revision', 'expectedRevision must be a journal revision string', isChequebookRevision),
   confirmation: string().typeError('The exact confirmation text is required').required('The exact confirmation text is required').max(200, 'The confirmation text is too long') });
 export type SubmitChequebookBody = InferType<typeof submitChequebookSchema>;
 export type CheckChequebookBody = InferType<typeof checkChequebookSchema>;
