@@ -13,6 +13,7 @@ export { ProfileNotFoundError } from './ProfileNotFoundError.js';
 export { GroupExistsError } from './GroupExistsError.js';
 export { GroupNotFoundError } from './GroupNotFoundError.js';
 export { GroupBusyError } from './GroupBusyError.js';
+export { GroupRemovalRefusedError } from './GroupRemovalRefusedError.js';
 export { StampRequiredError } from './StampRequiredError.js';
 export { StampNotUsableError } from './StampNotUsableError.js';
 export { ChequebookBusyError } from './ChequebookBusyError.js';

@@ -61,6 +61,7 @@ import {
   TargetNotVerifiedError,
   ReservationInventoryPendingError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   GroupExistsError,
   GroupNotFoundError,
   InvalidStackVersionError,
@@ -601,6 +602,11 @@ export class ProfileService {
 
   async listGroups(): Promise<DeploymentGroup[]> {
     return this.groupRepo.list();
+  }
+
+  async removeEmptyGroup(id: number, expectedName: string): Promise<void> {
+    const result = await this.groupRepo.removeEmptyGroup(id, expectedName);
+    if (result === 'changed' || result === 'not_empty') throw new GroupRemovalRefusedError(id, result);
   }
 
   /**

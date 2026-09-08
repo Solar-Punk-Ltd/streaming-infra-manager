@@ -27,6 +27,7 @@ import {
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
@@ -176,6 +177,10 @@ export function errorHandler(
       name: err.groupName,
       members: err.busyMembers,
     });
+    return;
+  }
+  if (err instanceof GroupRemovalRefusedError) {
+    res.status(409).json({ error: `group_${err.reason}`, id: err.groupId });
     return;
   }
   if (err instanceof StampRequiredError) {
