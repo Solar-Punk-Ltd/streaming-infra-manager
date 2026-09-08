@@ -1,4 +1,6 @@
-import type { ChequebookRecoveryObservation, ChequebookRecoveryScan } from '@streaming-infra-manager/common';
+import type { ChainTransaction } from './chainEvidence.js';
+import { matchesChequebookTransfer } from './transactionIdentity.js';
+import type { ChequebookOperation, ChequebookRecoveryObservation, ChequebookRecoveryScan } from '@streaming-infra-manager/common';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 import { isTransactionHash } from './operationIdentity.js';
 
@@ -37,4 +39,23 @@ export function normalizeRecoveryObservation(input: ChequebookRecoveryObservatio
     return Object.freeze({ ...evidence, kind: input.kind, reason: input.reason });
   }
   throw new ChequebookOperationInputError('recovery observation');
+}
+
+/** A new observation cannot erase a previously observed matching transaction. */
+export function preserveRecoveryEvidence(operation: ChequebookOperation, input: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): ChequebookRecoveryObservation {
+  const previous = operation.recoveryObservation;
+  if (input.kind === 'candidate') {
+    const candidate = candidates.find(candidate => candidate.hash === input.candidateHashes[0]);
+    if (!candidate || !matchesChequebookTransfer(operation, candidate)) {
+      return normalizeRecoveryObservation({ kind: 'could_not_check', reason: 'identity_mismatch',
+        candidateHashes: previous?.candidateHashes ?? [], ...(previous?.scan ? { scan: previous.scan } : {}) });
+    }
+  }
+  const candidateHashes = recoveryHashes([...(previous?.candidateHashes ?? []), ...input.candidateHashes]);
+  const savedScan = input.kind === 'could_not_check' && input.reason === 'chain_changed' ? undefined : input.scan ?? previous?.scan;
+  const scan = savedScan ? { ...savedScan, candidateHashes } : undefined;
+  const evidence = { candidateHashes, ...(scan ? { scan } : {}) };
+  if (input.kind === 'no_match' && candidateHashes.length > 0) return normalizeRecoveryObservation({ kind: 'could_not_check', reason: 'rpc_unavailable', ...evidence });
+  if (input.kind === 'candidate' && candidateHashes.length > 1) return normalizeRecoveryObservation({ kind: 'ambiguous', ...evidence });
+  return normalizeRecoveryObservation({ ...input, ...evidence });
 }

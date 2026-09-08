@@ -4,7 +4,7 @@ import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionO
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
 import type { ChainTransaction } from './chainEvidence.js';
 import { matchesChequebookTransfer } from './transactionIdentity.js';
-import { normalizeRecoveryObservation } from './recoveryObservation.js';
+import { normalizeRecoveryObservation, preserveRecoveryEvidence } from './recoveryObservation.js';
 import { normalizeReceiptObservation } from './receiptObservation.js';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 
@@ -144,10 +144,10 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
           (observation.scan.complete && (observation.scan.nextBlockNumber !== operation.startBlockNumber || observation.scan.nextBlockHash !== operation.startBlockHash)))) {
         throw new ChequebookOperationInputError('recovery anchor');
       }
-      let recorded = observation;
+      let recorded = preserveRecoveryEvidence(operation, observation, candidates);
       let hash: string | null = null;
-      if (observation.kind === 'candidate') {
-        const candidate = candidates.find(candidate => candidate.hash === observation.candidateHashes[0]);
+      if (recorded.kind === 'candidate') {
+        const candidate = candidates.find(candidate => candidate.hash === recorded.candidateHashes[0]);
         if (!candidate || !matchesChequebookTransfer(operation, candidate)) {
           recorded = { kind: 'could_not_check', reason: 'identity_mismatch', candidateHashes: observation.candidateHashes, ...(observation.scan ? { scan: observation.scan } : {}) };
         } else {
@@ -157,7 +157,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
             WHERE chain_id=$1 AND node_address=$2 AND id<>$3 AND dispatch_started_at IS NOT NULL
               AND (transaction_hash IS NULL OR transaction_hash=$4)`, [operation.chainId, operation.nodeAddress, operation.id, candidate.hash]);
           if ((owner && owner !== operation.id) || competitors.rows.some(row => matchesChequebookTransfer(operationFrom(row), candidate))) {
-            recorded = { ...observation, kind: 'ambiguous' };
+            recorded = { ...recorded, kind: 'ambiguous' };
           } else {
             hash = candidate.hash;
           }

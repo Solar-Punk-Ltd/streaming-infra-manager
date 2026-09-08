@@ -1,6 +1,6 @@
 import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence.js';
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
-import { normalizeRecoveryObservation } from '../../src/domain/chequebook/recoveryObservation.js';
+import { normalizeRecoveryObservation, preserveRecoveryEvidence } from '../../src/domain/chequebook/recoveryObservation.js';
 import { randomUUID } from 'node:crypto';
 import { chequebookAssertionConfirmation, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
@@ -86,7 +86,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
   async recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation> {
     const row = this.rows.get(expected.id)!;
     if (row.revision !== expected.revision || !['unknown', 'submitting'].includes(row.state)) return structuredClone(row);
-    let observation = normalizeRecoveryObservation(input);
+    let observation = preserveRecoveryEvidence(row, normalizeRecoveryObservation(input), candidates);
     let transactionHash = null;
     if (observation.kind === 'candidate') {
       const candidate = candidates.find(candidate => candidate.hash === observation.candidateHashes[0]);
