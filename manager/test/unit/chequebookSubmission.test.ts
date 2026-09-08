@@ -7,7 +7,9 @@ import { InMemoryChequebookOperations, operationCandidate, transactionHash, tran
 function harness() {
   const repository = new InMemoryChequebookOperations();
   let submissions = 0;
+  let disposals = 0;
   const prepared: PreparedChequebookTransfer = {
+    dispose: () => { disposals++; },
     context: { ...transferContext },
     preflight: async () => {},
     send: async operation => {
@@ -20,10 +22,38 @@ function harness() {
     },
   };
   const service = () => new ChequebookSubmission(repository, async () => prepared);
-  return { repository, prepared, service, submissions: () => submissions };
+  return { repository, prepared, service, submissions: () => submissions, disposals: () => disposals };
 }
 
 describe('durable chequebook submission', () => {
+  it('disposes prepared sessions after success, busy admission, and every failure after preparation', async () => {
+    for (const failure of ['none', 'context', 'admission', 'preflight', 'claim', 'send', 'record'] as const) {
+      const h = harness();
+      if (failure === 'context') h.prepared.context = { ...transferContext, chainId: 0 };
+      if (failure === 'admission') h.repository.admit = async () => { throw new Error('storage failed'); };
+      if (failure === 'preflight') h.prepared.preflight = async () => { throw new Error('failed check'); };
+      if (failure === 'claim') h.repository.claimDispatch = async () => { throw new Error('storage failed'); };
+      if (failure === 'send') h.prepared.send = async () => { throw new Error('response lost'); };
+      if (failure === 'record') h.repository.recordSubmission = async () => { throw new Error('storage failed'); };
+      if (['context', 'admission', 'claim', 'record'].includes(failure)) await assert.rejects(h.service().submit(transferIntent()));
+      else await h.service().submit(transferIntent());
+      assert.equal(h.disposals(), 1, failure);
+    }
+    const h = harness();
+    await h.repository.admit(operationCandidate());
+    assert.equal((await h.service().submit(transferIntent())).kind, 'busy');
+    assert.equal(h.disposals(), 1);
+  });
+
+  it('looks up request identity before preparation and does not dispose an uncreated session', async () => {
+    const h = harness();
+    const candidate = operationCandidate();
+    await h.repository.admit(candidate);
+    const replay = new ChequebookSubmission(h.repository, async () => { assert.fail('A replay must not look up the deleted profile or open a Bee connection'); });
+    assert.equal((await replay.submit(candidate)).kind, 'replayed');
+    assert.equal(h.disposals(), 0);
+  });
+
   it('persists all frozen identity fields before the single Bee POST', async () => {
     const h = harness();
     const intent = transferIntent();
