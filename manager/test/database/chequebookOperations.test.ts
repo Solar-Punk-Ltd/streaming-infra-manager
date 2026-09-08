@@ -160,6 +160,19 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
   });
 
+  it('does not clear a conflicting direct response when another submission callback arrives late', async () => {
+    const a = await assertedOperation();
+    await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    const b = (await repository.admit(operationCandidate({ tokenAddress }))).operation;
+    const conflicted = await repository.recordSubmission(b.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(conflicted.failureReason, 'hash_conflict');
+    for (const outcome of [
+      { state: 'unknown' as const, transactionHash: null, failureReason: 'response_unavailable' as const },
+      { state: 'rejected' as const, transactionHash: null, failureReason: 'preflight_failed' as const },
+    ]) assert.deepEqual(await repository.recordSubmission(b.id, outcome), conflicted);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
