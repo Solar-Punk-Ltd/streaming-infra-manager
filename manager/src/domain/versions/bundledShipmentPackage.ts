@@ -63,7 +63,7 @@ function inputIdentity(value: unknown): BundledInputIdentity {
   }
   return { generation: input.generation as number, hashes };
 }
-function identity(value: unknown): BundledShipmentIdentity {
+export function validateBundledShipmentIdentity(value: unknown): BundledShipmentIdentity {
   const item = record(value, ['shipmentId', 'commit', 'digest']);
   return { shipmentId: shipment(item.shipmentId), commit: commitId(item.commit), digest: hash(item.digest) };
 }
@@ -107,7 +107,7 @@ function manifestPayload(raw: unknown): Omit<BundledPackageManifest, 'digest'> {
 
 /** Reads the full owned tree before returning the verification token used by shipment activation. */
 export async function verifyBundledPackage(root: string, expectedIdentity: BundledShipmentIdentity): Promise<VerifiedBundledPackage> {
-  const expected = identity(expectedIdentity);
+  const expected = validateBundledShipmentIdentity(expectedIdentity);
   const bytes = await readOwnedFile(root, BUNDLED_PACKAGE_MANIFEST);
   if (((await lstat(join(root, BUNDLED_PACKAGE_MANIFEST))).mode & 0o7777) !== MANIFEST_MODE) throw new Error('Package manifest mode changed.');
   const raw = parseJson(bytes);
