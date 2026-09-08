@@ -60,6 +60,45 @@ export async function runIntentTests(): Promise<{ passed: number; tests: string[
     }
     tests.push('invalid intent cannot enter persistent storage');
 
+    const aborted = input({ profileInstanceId: '33333333-3333-4333-8333-333333333333' });
+    const originalAdd = IDBObjectStore.prototype.add;
+    let addSucceeded = false;
+    IDBObjectStore.prototype.add = function (...args: Parameters<IDBObjectStore['add']>) {
+      const request = originalAdd.apply(this, args);
+      if (this.transaction.db.name === name && this.name === 'intents') {
+        request.addEventListener('success', () => { addSucceeded = true; this.transaction.abort(); });
+      }
+      return request;
+    };
+    let abortRefused = false;
+    try { await first.confirm(aborted, null); } catch { abortRefused = true; }
+    finally { IDBObjectStore.prototype.add = originalAdd; }
+    assert(addSucceeded && abortRefused, 'A successful add followed by transaction abort must never grant the send permit');
+    assert(await second.current(aborted.accountId, aborted.profileInstanceId) === null, 'An aborted transaction cannot retain a pointer');
+    assert(await second.find(aborted.requestId) === null, 'An aborted transaction cannot retain an intent');
+    tests.push('request success is insufficient until the whole transaction completes');
+
+    const damaged = input({ profileInstanceId: '44444444-4444-4444-8444-444444444444' });
+    const missingId = crypto.randomUUID();
+    const raw = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(new Error('Synthetic corruption setup failed'));
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = raw.transaction(['pointers'], 'readwrite');
+        transaction.objectStore('pointers').put({ scope: JSON.stringify([damaged.accountId, damaged.profileInstanceId]), requestId: missingId });
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(new Error('Synthetic corruption setup aborted'));
+      });
+    } finally { raw.close(); }
+    let corruptRefused = false;
+    try { await first.confirm(damaged, missingId); } catch { corruptRefused = true; }
+    assert(corruptRefused, 'A pointer whose original intent is missing must not authorize replacement');
+    assert(await second.find(damaged.requestId) === null, 'Corruption must not create a replacement intent');
+    tests.push('corrupt saved pointer refuses replacement');
+
     return { passed: tests.length, tests };
   } finally {
     await Promise.all([first.close(), second.close()]);
