@@ -107,6 +107,32 @@ const omeLiteral = template => template.replace('SEGMENT_DURATION_PLACEHOLDER', 
 const srsScope = (name, fragment = '4') => `vhost ${name} { hls { hls_fragment ${fragment}; hls_window 30; } }`;
 
 describe('stored config observations over authenticated mock HTTP', { concurrency: false, timeout: 60_000 }, () => {
+  it('accepts a current instance guard without storing it as an engine setting', async () => {
+    const profile = await profileFor('ome');
+    const current = await profile.settled();
+    const saved = await request(`/profiles/${profile.name}/engine-settings`, 'PUT', {
+      HLS_SEGMENT_DURATION: '9', expectedInstanceId: current.instance_id,
+    });
+    assert.deepEqual(saved.engine_settings, { HLS_SEGMENT_DURATION: '9' });
+    assert.equal(saved.instance_id, current.instance_id);
+  });
+
+  it('refuses a removed drawer instance before altering the replacement', async () => {
+    const profile = await profileFor('ome');
+    const original = await profile.settled();
+    await request(`/profiles/${profile.name}`, 'DELETE');
+    await until('/profiles', result => result.profiles.every(row => row.name !== profile.name));
+    const replacement = await profileFor('ome', profile.name);
+    const before = await replacement.settled();
+    const result = await fetch(`${base}/profiles/${profile.name}/engine-settings`, {
+      method: 'PUT', headers: { cookie, [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE, 'content-type': 'application/json' },
+      body: JSON.stringify({ HLS_SEGMENT_DURATION: '9', expectedInstanceId: original.instance_id }), signal: AbortSignal.timeout(2000),
+    });
+    assert.equal(result.status, 409);
+    assert.equal((await result.json()).error, 'profile_instance_changed');
+    assert.deepEqual(await request(`/profiles/${profile.name}`), before);
+  });
+
   it('reads OME literal values from the same config returned by the editor', async () => {
     const profile = await profileFor('ome');
     const config = omeLiteral(profile.template);

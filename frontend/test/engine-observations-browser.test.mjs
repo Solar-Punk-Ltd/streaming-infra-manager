@@ -12,7 +12,7 @@ const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const base = {
   name: 'observed-stream', kind: 'custom', components: ['ome', 'stream-uploader'], status: 'RUNNING', port_slot: 1,
-  instance_id: 'initial-instance', engine_config_revision: 3, intent_revision: 4, stack_version_id: 1,
+  instance_id: '11111111-1111-4111-8111-111111111111', engine_config_revision: 3, intent_revision: 4, stack_version_id: 1,
   engine_config_state: null, engine_config_error: null, has_engine_config: true,
   notes: 'initial observation', last_error: null, last_error_at: null,
   created_at: '2026-09-09T00:00:00.000Z', updated_at: '2026-09-09T00:00:00.000Z',
@@ -42,6 +42,8 @@ async function freePort() {
 test('engine values, read freshness and editor drafts in the actual browser', { timeout: 150000 }, async t => {
   let profile = structuredClone(base), duration = '4', hold = false, responseStatus = 200, responseIdentity = null;
   const held = [], writes = [], events = new Set(), reads = [];
+  const heldSaves = [];
+  let holdSave = false;
   const server = await createServer({ root: frontend, configFile: false,
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
@@ -50,6 +52,24 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
         const path = req.url?.split('?')[0];
         const json = (body, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
         if (!/^\/(auth|profiles|groups|config|events|metrics|versions)(\/|$)/.test(path)) return next();
+        if (req.method === 'PUT' && path === '/profiles/observed-stream/engine-settings') {
+          let body = '';
+          req.on('data', chunk => { body += chunk; });
+          req.on('end', () => {
+            const settings = JSON.parse(body);
+            writes.push({ path, method: req.method, body: settings });
+            const apply = () => {
+              const { expectedInstanceId, ...values } = settings;
+              if (expectedInstanceId !== undefined && expectedInstanceId !== profile.instance_id) {
+                return json({ error: 'profile_instance_changed', message: 'This deployment instance changed. Refresh before changing it.' }, 409);
+              }
+              profile = { ...profile, engine_settings: values };
+              json(profile, 202);
+            };
+            if (holdSave) heldSaves.push(apply); else apply();
+          });
+          return;
+        }
         if (req.method !== 'GET') { writes.push({ path, method: req.method }); return json({}, 405); }
         if (path === '/auth/session') return json({ username: 'settings-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' });
         if (path === '/profiles') return json({ profiles: [profile] });
@@ -261,6 +281,31 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
 
   release();
   assert.deepEqual(writes, []);
+
+  await t.test('a save carries the draft instance even when the server replaces the name before handling it', async () => {
+    await reset(); await openDraft(); holdSave = true;
+    await click('Apply and recreate engine');
+    await waitFor(() => heldSaves.length, count => count === 1, 'save body held before admission');
+    const replacement = { ...profile, instance_id: '22222222-2222-4222-8222-222222222222', engine_settings: { HLS_SEGMENT_DURATION: '6' } };
+    profile = replacement;
+    heldSaves.shift()(); holdSave = false;
+    await waitFor(drawer, text => text.includes('This deployment instance changed.'), 'save ownership refusal');
+    assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
+    assert.deepEqual(profile, replacement);
+    assert.equal(await typed(), '9');
+    assert.doesNotMatch(await body(), /Saved\. Recreating/);
+  });
+
+  await t.test('a current instance can still apply its guarded draft', async () => {
+    await reset(); await openDraft();
+    await click('Apply and recreate engine');
+    await waitFor(body, text => text.includes('Saved. Recreating the engine'), 'current instance save');
+    assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
+    assert.equal(profile.engine_settings.HLS_SEGMENT_DURATION, '9');
+    assert.equal('expectedInstanceId' in profile.engine_settings, false);
+  });
+
+  assert.equal(writes.length, 2);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
   await mkdir('/private/tmp/t11-browser-evidence', { recursive: true });
