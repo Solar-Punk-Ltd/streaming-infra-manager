@@ -6,6 +6,7 @@ import {
   UploaderGate,
 } from '../../src/domain/DeploymentOrchestrator.js';
 import { EventBus } from '../../src/domain/EventBus.js';
+import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
@@ -56,6 +57,7 @@ export function orchestratorHarness(
   stored: readonly Profile[],
   uploaderGate?: UploaderGate,
   versionsRoot = '/srv/stack-versions',
+  targets?: DeployTargets,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -96,6 +98,7 @@ export function orchestratorHarness(
     attempts,
     daemon,
     uploaderGate,
+    targets,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon };

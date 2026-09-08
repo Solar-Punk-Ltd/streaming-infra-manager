@@ -11,13 +11,14 @@ writeFileSync(join(root, '.env'), 'ENGINE=srs\n');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
-function setup() {
+function setup(expectedId?: string) {
   const profiles = [
     makeProfile({ name: 'remote', host: 'edge', components: ['srs'] }),
     makeProfile({ name: 'alias', host: 'admin@edge', port_slot: 2, components: ['srs'] }),
     makeProfile({ name: 'local', host: 'localhost', port_slot: 3, components: ['srs'] }),
   ];
-  const h = orchestratorHarness(profiles);
+  const h = orchestratorHarness(profiles, undefined, undefined,
+    expectedId ? { daemonIdFor: async () => expectedId } : undefined);
   h.daemon.autoRecreate = false;
   let remoteId = 'remote-daemon';
   let remoteContainer = 'remote-old';
@@ -33,6 +34,20 @@ function setup() {
 }
 
 describe('deploy attempts on their target daemon', () => {
+  for (const action of ['stop', 'remove'] as const) {
+    it(`refuses ${action} before a claim or script when the alias has moved to another daemon`, async () => {
+      const h = setup('remote-daemon');
+      h.move();
+      await assert.rejects(
+        action === 'stop'
+          ? h.orchestrator.startStop(h.row('remote'), undefined)
+          : h.orchestrator.startRemove(h.row('remote')),
+        /different Docker daemon/,
+      );
+      assert.equal(h.runner.runs.length, 0);
+      assert.equal(h.profiles.statusOf('remote'), 'RUNNING');
+    });
+  }
   it('persists the alias, remote identity and remote pre-job container set', async () => {
     const h = setup();
     await h.orchestrator.startDeploy(h.row('remote'), ['srs']);
