@@ -21,10 +21,7 @@ import { SectionCard } from '../components/SectionCard';
 import { AddVersionForm } from './AddVersionForm';
 import { BuildLogPane } from './BuildLogPane';
 import { VersionCard } from './VersionCard';
-import {
-  BuildSlotProvider,
-  useBuildAbort,
-} from './buildSlot';
+import { BuildSlotProvider, useBuildAbort } from './buildSlot';
 import {
   removeVersion,
   setDefaultVersion,
@@ -137,47 +134,47 @@ export function VersionsPage() {
 
   return (
     <BuildSlotProvider value={buildSlot}>
-    <Stack spacing={2}>
-      <Typography variant="body2" color="text.secondary">
-        Each version is its own checkout of the streaming stack, built once on
-        this host. Deployments keep running the version they were deployed from
-        until they are deployed again. Adding a version runs that branch's
-        deploy scripts with the manager's Docker access, so only branches you
-        trust belong here.
-      </Typography>
+      <Stack spacing={2}>
+        <Typography variant="body2" color="text.secondary">
+          Each version is its own checkout of the streaming stack, built once on
+          this host. Deployments keep running the version they were deployed from
+          until they are deployed again. Adding a version runs that branch's
+          deploy scripts with the manager's Docker access, so only branches you
+          trust belong here.
+        </Typography>
 
-      <SectionCard
-        title="Versions"
-        sub="What this manager can deploy from"
-        flush
-        actions={
-          <Button size="small" onClick={reloadVersions}>
-            Refresh
-          </Button>
-        }
-      >
-        {versionsError && (
-          <Alert
-            severity="error"
-            sx={{ m: 2 }}
-            action={
-              <Button color="inherit" size="small" onClick={reloadVersions}>
-                Try again
-              </Button>
-            }
-          >
-            Could not read the versions from the manager. {versionsError}
-          </Alert>
-        )}
+        <SectionCard
+          title="Versions"
+          sub="What this manager can deploy from"
+          flush
+          actions={
+            <Button size="small" onClick={reloadVersions}>
+              Refresh
+            </Button>
+          }
+        >
+          {versionsError && (
+            <Alert
+              severity="error"
+              sx={{ m: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={reloadVersions}>
+                  Try again
+                </Button>
+              }
+            >
+              Could not read the versions from the manager. {versionsError}
+            </Alert>
+          )}
 
-        {!versions && !versionsError && (
-          <Stack alignItems="center" sx={{ py: 5 }}>
-            <CircularProgress size={24} />
-          </Stack>
-        )}
+          {!versions && !versionsError && (
+            <Stack alignItems="center" sx={{ py: 5 }}>
+              <CircularProgress size={24} />
+            </Stack>
+          )}
 
-        {versions && (
-          <Box>
+          {versions && (
+            <Box>
               {versions.map((version) => (
                 <VersionCard
                   key={version.id}
@@ -200,41 +197,41 @@ export function VersionsPage() {
                   onRemove={() => askRemove(version)}
                 />
               ))}
-          </Box>
-        )}
-      </SectionCard>
-
-      {log && (
-        // Kept after the build ends: the reason a build failed is in the last
-        // lines of its log, and a pane that vanished the moment the row turned
-        // Failed took them with it. Titled after the version whose log this is
-        // rather than after whatever is building, because the Add form starts
-        // builds of its own and this pane is not showing those.
-        <SectionCard
-          title={
-            buildingName === log.versionName
-              ? `Building ${log.versionName}`
-              : `Build log, ${log.versionName}`
-          }
-          actions={
-            buildingName === log.versionName ? null : (
-              <Button size="small" onClick={() => setLog(null)}>
-                Dismiss
-              </Button>
-            )
-          }
-        >
-          <BuildLogPane
-            lines={log.lines}
-            running={buildingName === log.versionName}
-          />
+            </Box>
+          )}
         </SectionCard>
-      )}
 
-      <AddVersionForm onBuilt={reloadVersions} />
+        {log && (
+          // Kept after the build ends: the reason a build failed is in the last
+          // lines of its log, and a pane that vanished the moment the row turned
+          // Failed took them with it. Titled after the version whose log this is
+          // rather than after whatever is building, because the Add form starts
+          // builds of its own and this pane is not showing those.
+          <SectionCard
+            title={
+              buildingName === log.versionName
+                ? `Building ${log.versionName}`
+                : `Build log, ${log.versionName}`
+            }
+            actions={
+              buildingName === log.versionName ? null : (
+                <Button size="small" onClick={() => setLog(null)}>
+                  Dismiss
+                </Button>
+              )
+            }
+          >
+            <BuildLogPane
+              lines={log.lines}
+              running={buildingName === log.versionName}
+            />
+          </SectionCard>
+        )}
 
-      <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
-    </Stack>
+        <AddVersionForm onBuilt={reloadVersions} />
+
+        <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
+      </Stack>
     </BuildSlotProvider>
   );
 }
