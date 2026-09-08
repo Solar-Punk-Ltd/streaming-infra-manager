@@ -32,6 +32,7 @@ export class FirewallInventoryExporter {
     }
     const profiles = before.profiles.filter(profile => daemonByAlias.get(profile.target) === daemonId);
     const names = new Set(profiles.map(profile => profile.name));
+    const reservations = before.reservations.filter(row => row.daemonId === daemonId);
     if (profiles.some(profile => ['DEPLOYING', 'REMOVING', 'STOPPING'].includes(profile.status))) refuse('A deployment operation is in progress.');
     if (before.references.some(ref => ref.holderKind === 'operation' || (ref.holderKind === 'job' && names.has(ref.holderId)))
       || before.attempts.some(attempt => attempt.daemonId === daemonId || names.has(attempt.project))) {
@@ -43,18 +44,21 @@ export class FirewallInventoryExporter {
       const current = before.versions.find(version => version.id === profile.versionId);
       if (!current?.buildId || current.layout !== 'builds' || !current.rootPath) refuse(`${profile.name} has mutable legacy or missing build history.`);
       const required = [
-        { version: current, buildId: current.buildId, services: null as readonly string[] | null },
-        ...(current.previousBuildId ? [{ version: current, buildId: current.previousBuildId, services: null }] : []),
+        { version: current, buildId: current.buildId, services: null as readonly string[] | null, mandatory: false },
+        ...(current.previousBuildId ? [{ version: current, buildId: current.previousBuildId, services: null, mandatory: false }] : []),
       ];
       for (const ref of before.references.filter(ref => ref.holderKind === 'snapshot' && ref.holderId.startsWith(`${profile.name}/`))) {
         const version = before.versions.find(row => row.id === ref.versionId);
         if (!version || version.layout !== 'builds' || !version.rootPath) refuse(`${profile.name} has unprovable retained build history.`);
-        required.push({ version, buildId: ref.buildId, services: ref.services });
+        required.push({ version, buildId: ref.buildId, services: ref.services, mandatory: true });
       }
-      for (const { version, buildId, services } of required) {
+      for (const { version, buildId, services, mandatory } of required) {
         const contract = await this.contracts.read(version, buildId);
         if (!contract.ports.length || contract.allocationProblem) refuse(`${profile.name} has no complete port contract for build ${buildId}.`);
-        const plan = portPlanFor(contract.ports, profile.slot).filter(entry => services === null || (entry.service !== null && services.includes(entry.service)));
+        const plan = portPlanFor(contract.ports, profile.slot)
+          .filter(entry => services === null || (entry.service !== null && services.includes(entry.service)))
+          .filter(entry => mandatory || reservations.some(row => row.profileName === profile.name
+            && row.heldServices.includes(entry.service) && portKeyOf(row) === portKeyOf(entry)));
         for (const entry of plan) {
           const problem = portExposureProblem(entry);
           if (problem) refuse(`${profile.name}: ${problem}`);
@@ -63,7 +67,6 @@ export class FirewallInventoryExporter {
       }
     }
 
-    const reservations = before.reservations.filter(row => row.daemonId === daemonId);
     if (before.reservations.some(row => names.has(row.profileName) && row.daemonId !== daemonId)) refuse('A deployment retains reservations on another daemon.');
     for (const row of reservations) {
       if (!names.has(row.profileName)) {
@@ -76,8 +79,8 @@ export class FirewallInventoryExporter {
       }
     }
     for (const claim of claims) {
-      if (!reservations.some(row => row.profileName === claim.profileName && portKeyOf(row) === portKeyOf(claim))) {
-        refuse(`${claim.profileName} has a retained contract port ${portKeyOf(claim)} without a reservation.`);
+      if (!reservations.some(row => row.profileName === claim.profileName && row.heldServices.includes(claim.service) && portKeyOf(row) === portKeyOf(claim))) {
+        refuse(`${claim.profileName}/${claim.service} has a retained contract port ${portKeyOf(claim)} without a reservation.`);
       }
     }
     const observed = await this.observer.publishedPorts(alias);

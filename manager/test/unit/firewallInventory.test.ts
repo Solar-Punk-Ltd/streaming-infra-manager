@@ -89,6 +89,7 @@ describe('firewall evidence export', () => {
   it('refuses existing bundled slot 101 without renumbering or deleting its record', async () => {
     const h = setup();
     h.state.profiles[0]!.slot = 101;
+    h.state.reservations[0]!.heldServices = ['srs'];
     h.contracts.set('a'.repeat(40), [{ ...h.peer, name: 'SRS_RTMP_PORT', service: 'srs', slotBase: 10002 }]);
     await assert.rejects(h.exporter.export('localhost'), /a.*11012.*public/);
     assert.equal(h.state.profiles[0]!.slot, 101);
