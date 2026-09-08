@@ -271,6 +271,17 @@ export class DeploymentOrchestrator {
     return version;
   }
 
+  private deployVersionOrThrow(profile: Profile, version: StackVersionRecord | null): StackVersionRecord {
+    if (!version) {
+      throw new ProfileConfigError(profile.name, `Stack version ${profile.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
+    }
+    return version;
+  }
+
+  private async versionForDeploy(profile: Profile): Promise<StackVersionRecord> {
+    return this.deployVersionOrThrow(profile, await this.versions.findById(profile.stack_version_id));
+  }
+
   /**
    * The checkout this deployment runs against. Every script, env file and
    * bootstrap copy comes from here, so moving a deployment to another version
@@ -364,8 +375,8 @@ export class DeploymentOrchestrator {
     // What the deploy will run is decided here, once. A version whose build
     // is missing is refused before anything is claimed, naming the build,
     // and never falls back to another root.
-    const version = await this.versionFor(profile);
-    const problem = version ? deployRootProblem(version) : null;
+    const version = await this.versionForDeploy(profile);
+    const problem = deployRootProblem(version);
     if (problem) throw new ProfileConfigError(profile.name, problem);
 
     const claimed = await this.ledger.claim(
@@ -475,12 +486,19 @@ export class DeploymentOrchestrator {
     // claim: nothing else can be deploying a profile that did not exist yet.
     // The build is still captured here, with its reference, for the same
     // reason a claim captures it.
-    const planned = this.planDeploy(profile, requested, opts.host);
-    const version = await this.versionFor(profile);
-    const problem = version ? deployRootProblem(version) : null;
-    if (problem) throw new ProfileConfigError(profile.name, problem);
-    const build = await this.ledger.describe(profile.name, version, planned.services);
-    return this.runReserved({ ...planned, build }, profile);
+    let reservation: DeployReservation;
+    try {
+      const planned = this.planDeploy(profile, requested, opts.host);
+      const version = await this.versionForDeploy(profile);
+      const problem = deployRootProblem(version);
+      if (problem) throw new ProfileConfigError(profile.name, problem);
+      const build = await this.ledger.describe(profile.name, version, planned.services);
+      reservation = { ...planned, build };
+    } catch (err) {
+      await this.markFailed(profile.name, getErrorMessage(err));
+      throw err;
+    }
+    return this.runReserved(reservation, profile);
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
@@ -584,19 +602,19 @@ export class DeploymentOrchestrator {
       );
     }
 
-    // An empty service filter would make deploy.sh deploy every configured service.
-    if (reservation.services.length === 0) {
-      return this.completeWithoutScript(profile);
-    }
-
     // From the descriptor the claim captured, never from the version row
     // again: a deploy that selected build A must not read version B.
     const build =
       reservation.build ??
-      (await this.ledger.describe(profile.name, await this.versionFor(profile), [
+      (await this.ledger.describe(profile.name, await this.versionForDeploy(profile), [
         ...reservation.services,
       ]));
-    const version = build.version;
+    const version = this.deployVersionOrThrow(profile, build.version);
+
+    // An empty service filter would make deploy.sh deploy every configured service.
+    if (reservation.services.length === 0) {
+      return this.completeWithoutScript(profile);
+    }
     const paths = stackPathsForRoot(build.root);
     await this.ensureStackDefaults(paths);
 
