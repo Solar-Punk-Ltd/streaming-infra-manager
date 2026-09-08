@@ -13,9 +13,13 @@ function creationAttempt(method: string, path: string, value: unknown): Creation
   const body = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   if (pathname === '/profiles') return { kind: 'profile' };
   if (pathname === '/groups') return { kind: 'group', expectedMembers: /^(true|1)$/i.test(String(body.abr_ladder)) ? 4 : positiveCount(body.size) };
-  const match = /^\/groups\/([1-9]\d*)\/members$/.exec(pathname);
-  const groupId = Number(match?.[1]);
-  return match && Number.isSafeInteger(groupId) ? { kind: 'members', groupId, expectedMembers: positiveCount(body.count) } : null;
+  const match = /^\/groups\/([^/]+)\/members$/.exec(pathname);
+  if (!match) return null;
+  let groupId: number;
+  try { groupId = Number(decodeURIComponent(match[1]!)); }
+  catch { return null; }
+  return Number.isSafeInteger(groupId) && groupId > 0 && groupId <= 2147483647
+    ? { kind: 'members', groupId, expectedMembers: positiveCount(body.count) } : null;
 }
 
 export class IntegrationResources {
