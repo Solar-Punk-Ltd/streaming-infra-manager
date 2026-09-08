@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import { ChequebookReceiptInspector, type ReceiptChainReader, type ReceiptOperation } from '../../src/domain/chequebook/ChequebookReceiptInspector.js';
 import type { ChainTransaction, ChainReceipt } from '../../src/domain/chequebook/chainEvidence.js';
 import { operationCandidate, transactionHash } from '../support/chequebookOperations.js';
+import { InMemoryChequebookOperations } from '../support/chequebookOperations.js';
+import { ChequebookReceiptCheck } from '../../src/domain/chequebook/ChequebookReceiptCheck.js';
 
 const minedHash = `0x${'77'.repeat(32)}`;
 const finalizedHash = `0x${'88'.repeat(32)}`;
@@ -137,7 +139,74 @@ describe('chequebook receipt confirmation', () => {
 
   it('refuses to confirm when its ancestry budget cannot prove the full history', async () => {
     const inspector = new ChequebookReceiptInspector(async () => reader(), { maxAncestryBlocks: 2 });
-    assert.deepEqual(await inspector.inspect(operation), { kind: 'could_not_check', reason: 'history_incomplete' });
+    const result = await inspector.inspect(operation);
+    assert.equal(result.kind, 'could_not_check');
+    assert.ok(result.kind === 'could_not_check');
+    assert.equal(result.reason, 'history_incomplete');
+  });
+
+  it('resumes a persisted history after restart without chasing an advancing finalized tip', async () => {
+    const repository = new InMemoryChequebookOperations();
+    const { operation: admitted } = await repository.admit(candidate);
+    await repository.recordSubmission(admitted.id, { state: 'submitted', transactionHash, failureReason: null });
+    let tip = 510n;
+    const requested: Array<bigint | 'finalized'> = [];
+    const rpc = reader();
+    const check = () => new ChequebookReceiptCheck(repository, input => new ChequebookReceiptInspector(async () => reader({
+      blockHeader: async (block, signal) => {
+        requested.push(block);
+        return rpc.blockHeader(block === 'finalized' ? tip : block, signal);
+      },
+    }), { maxAncestryBlocks: 2 }).inspect(input));
+    const first = await check().check(admitted.id);
+    assert.equal(first.state, 'submitted');
+    assert.ok(first.receiptObservation?.kind === 'could_not_check');
+    assert.equal(first.receiptObservation.history?.cursorBlockNumber, '508');
+    tip = 1000n;
+    requested.length = 0;
+    let result = first;
+    for (let round = 0; round < 4; round++) result = await check().check(admitted.id);
+    assert.equal(result.state, 'settled');
+    assert.equal(requested.includes('finalized'), false);
+    assert.equal(requested.includes(1000n), false);
+    assert.equal(result.revision, '6');
+  });
+
+  it('retains only fully checked progress when a whole-check timeout interrupts the next parent read', async () => {
+    const rpc = reader();
+    let resolveLate!: (value: Awaited<ReturnType<ReceiptChainReader['blockHeader']>>) => void;
+    const inspector = new ChequebookReceiptInspector(async () => reader({
+      blockHeader: async (block, signal) => block === 508n ? new Promise(resolve => { resolveLate = resolve; }) : rpc.blockHeader(block, signal),
+    }), { timeoutMs: 30 });
+    const result = await inspector.inspect(operation);
+    assert.ok(result.kind === 'could_not_check');
+    assert.equal(result.reason, 'rpc_unavailable');
+    assert.equal(result.history?.cursorBlockNumber, '509');
+    const saved = structuredClone(result);
+    resolveLate(await rpc.blockHeader(508n));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(result, saved);
+    const resumed = await new ChequebookReceiptInspector(async () => reader()).inspect({ ...operation, receiptObservation: result });
+    assert.equal(resumed.kind, 'settled');
+  });
+
+  it('retains a checkpoint through an RPC outage but discards it when the receipt or chain changes', async () => {
+    const first = await new ChequebookReceiptInspector(async () => reader(), { maxAncestryBlocks: 2 }).inspect(operation);
+    assert.ok(first.kind === 'could_not_check' && first.history);
+    const input = { ...operation, receiptObservation: first };
+    const outage = await new ChequebookReceiptInspector(async () => { throw new Error('synthetic-private-path'); }).inspect(input);
+    assert.ok(outage.kind === 'could_not_check');
+    assert.equal(outage.reason, 'rpc_unavailable');
+    assert.deepEqual(outage.history, first.history);
+    const rpc = reader();
+    for (const blockNumber of [510n, 508n]) {
+      const result = await inspect({ blockHeader: async (block, signal) => {
+        const header = await rpc.blockHeader(block, signal);
+        return block === blockNumber && header ? { ...header, hash: otherHash } : header;
+      } }, input);
+      assert.deepEqual(result, { kind: 'could_not_check', reason: 'chain_changed' });
+    }
+    assert.deepEqual(await inspect({ receipt: async () => ({ ...receipt, status: 'reverted' }) }, input), { kind: 'could_not_check', reason: 'chain_changed' });
   });
 
   it('bounds the whole inspection even if a reader ignores cancellation', async () => {
