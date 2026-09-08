@@ -20,6 +20,14 @@ export function createStampRouter(stampService: StampService): Router {
   const router = Router();
 
   router.get(
+    '/profiles/:name/stamp/readiness',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await stampService.getNodeObservation(req.params.name as string));
+    }),
+  );
+
+  router.get(
     '/profiles/:name/stamp/address',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {

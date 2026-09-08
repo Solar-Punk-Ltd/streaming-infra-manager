@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   type ChequebookSummary,
-  getErrorMessage,
+  type BeeNodeObservation,
   hasStampId,
   sameBatchId,
 } from '@streaming-infra-manager/common';
@@ -16,6 +16,7 @@ import {
   type BeeStamp,
   type BeeWallet,
   fetchChainState,
+  fetchBeeNodeObservation,
   fetchStampAddress,
   fetchStamps,
   fetchStampWallet,
@@ -27,18 +28,17 @@ const STAMP_POLL_MAX_ATTEMPTS = 120;
 /** The manager's code for a node that answered 503: up, still syncing. */
 const NODE_NOT_READY_CODE = 'bee_node_not_ready';
 
-/**
- * A node that is still starting is not one that cannot be reached: the first
- * sorts itself out in a minute, the second needs the operator to go and look.
- */
 function beeLoadError(reason: unknown): string {
   if (reason instanceof ApiError && reason.code === NODE_NOT_READY_CODE) {
-    return "This deployment's Bee node is still starting. Its balances and stamps appear once it has synced, usually within a minute. Press Refresh then.";
+    return "This deployment's Bee node has not finished initializing. No completion estimate is available. Check its API observation and container logs, then retry.";
   }
-  return `This deployment's Bee node could not be reached. ${getErrorMessage(reason)}`;
+  return "This deployment's Bee node did not answer all required checks. Retry the node checks. Existing streams are left running.";
 }
 
 export interface BeeUtils {
+  nodeObservation: BeeNodeObservation | null;
+  observationNow: number;
+  observationReceivedAt: number | null;
   address: BeeAddress | null;
   wallet: BeeWallet | null;
   /**
@@ -94,15 +94,22 @@ export interface BeeUtilsOptions {
  *
  * A failed fetch clears `stamps` and `chequebook`, the two whose absence
  * nothing downstream may read as an answer: an unanswered node is never a node
- * with no batches, nor one with an empty chequebook. `address`, `wallet` and
- * `chainState` keep their last value, which is a stale reading rather than a
- * false verdict.
+ * with no batches, nor one with an empty chequebook. `wallet` and `chainState` are also cleared before a new check. The prior
+ * node observation remains visible with its timestamp while the check runs.
  */
 export function useBeeUtils(
   profile: Profile,
   { withChequebook = true }: BeeUtilsOptions = {},
 ): BeeUtils {
   const profileName = profile.name;
+  const profileRevision = `${profile.instance_id}:${profile.status}:${profile.updated_at}`;
+  const [nodeObservation, setNodeObservation] = useState<BeeNodeObservation | null>(null);
+  const [observationReceivedAt, setObservationReceivedAt] = useState<number | null>(null);
+  const [observationNow, setObservationNow] = useState(() => performance.now());
+  useEffect(() => {
+    const timer = setInterval(() => setObservationNow(performance.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
@@ -121,14 +128,20 @@ export function useBeeUtils(
     const seq = ++latestReload.current;
     setLoading(true);
     setLoadError(null);
+    setWallet(null);
+    setStamps(null);
+    setChainState(null);
+    if (withChequebook) setChequebook(null);
 
     const [
+      observationResult,
       addressResult,
       walletResult,
       stampsResult,
       chainStateResult,
       chequebookResult,
     ] = await Promise.allSettled([
+      fetchBeeNodeObservation(profileName).then(value => ({ value, receivedAt: performance.now() })),
       fetchStampAddress(profileName),
       fetchStampWallet(profileName),
       fetchStamps(profileName),
@@ -138,6 +151,9 @@ export function useBeeUtils(
 
     if (seq !== latestReload.current) return;
 
+    setNodeObservation(observationResult.status === 'fulfilled' ? observationResult.value.value : null);
+    setObservationReceivedAt(observationResult.status === 'fulfilled' ? observationResult.value.receivedAt : null);
+    setObservationNow(performance.now());
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
     if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
     setStamps(
@@ -159,10 +175,11 @@ export function useBeeUtils(
     }
 
     setLoading(false);
-  }, [profileName, withChequebook]);
+  }, [profileName, profileRevision, withChequebook]);
 
   useEffect(() => {
     void reload();
+    return () => { latestReload.current += 1; };
   }, [reload]);
 
   useEffect(() => {
@@ -195,6 +212,9 @@ export function useBeeUtils(
   }, [stampSet]);
 
   return {
+    nodeObservation,
+    observationNow,
+    observationReceivedAt,
     address,
     wallet,
     stamps,

@@ -60,7 +60,7 @@ async function open(t, fixture, script) {
   const browser = await launchChrome(t, fixture.origin);
   if (script) await browser.call('Page.addScriptToEvaluateOnNewDocument', { source: script });
   await browser.call('Page.navigate', { url: `${fixture.origin}/dev/t09-dialog-tests.html` });
-  await waitFor(() => browser.evaluate("document.body.innerText.includes('Storage and funding')"));
+  await waitFor(() => browser.evaluate("document.body?.innerText.includes('Storage and funding')"));
   return browser;
 }
 async function click(browser, text) {
@@ -69,7 +69,7 @@ async function click(browser, text) {
     if (!button || button.disabled) throw new Error('Button is unavailable: ' + ${JSON.stringify(text)}); button.click(); })()`);
 }
 async function visible(browser, text) {
-  await waitFor(() => browser.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`), Boolean, text);
+  await waitFor(() => browser.evaluate(`document.body?.innerText.includes(${JSON.stringify(text)})`), Boolean, text);
 }
 async function amount(browser, value) {
   await waitFor(() => browser.evaluate("!!document.querySelector('[role=dialog] input') && !document.querySelector('[role=dialog] input').disabled"), Boolean, 'editable amount');
@@ -311,8 +311,8 @@ test('returned identity conflicts stay distinct through a missing lookup without
   await click(browser, 'Refresh saved status');
   await visible(browser, 'Conflicting returned evidence');
   await visible(browser, 'Returned node');
-  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
-  assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
+  assert.equal(await browser.evaluate("document.body?.innerText.includes('Another transfer blocks this node')"), false);
+  assert.equal(await browser.evaluate("document.body?.innerText.includes('Transfer verified on chain')"), false);
   assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'New transfer')"), false);
   await visible(browser, h.dispatched[0].requestId);
   t.diagnostic(await screenshot(browser, h, 'returned-identity-conflict', 1280));
@@ -328,7 +328,7 @@ test('returned identity conflicts stay distinct through a missing lookup without
   h.missing(false); h.view(null);
   await click(browser, 'Refresh saved status');
   await visible(browser, 'Transfer verified on chain');
-  assert.equal(await browser.evaluate("document.body.innerText.includes('Conflicting returned evidence')"), false);
+  assert.equal(await browser.evaluate("document.body?.innerText.includes('Conflicting returned evidence')"), false);
   assert.equal(h.posts.length, 1);
 });
 
@@ -347,7 +347,7 @@ test('a busy saved request can explicitly retry its same ID after the blocking t
   await click(browser, 'Refresh saved status');
   await visible(browser, 'No record was returned for this saved request');
   await visible(browser, 'Previously returned blocking operation');
-  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
+  assert.equal(await browser.evaluate("document.body?.innerText.includes('Another transfer blocks this node')"), false);
   assert.equal(h.dispatched.length, 1);
   await click(browser, 'Retry this saved request');
   await click(browser, 'Send the same request again');
@@ -356,7 +356,7 @@ test('a busy saved request can explicitly retry its same ID after the blocking t
   assert.equal(h.dispatched.length, 2);
   assert.equal(h.dispatched[1].requestId, saved.requestId);
   assert.equal(h.posts.length, 3);
-  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
+  assert.equal(await browser.evaluate("document.body?.innerText.includes('Another transfer blocks this node')"), false);
 });
 
 test('controller keeps the busy and identity-conflict retry boundaries distinct', async t => {

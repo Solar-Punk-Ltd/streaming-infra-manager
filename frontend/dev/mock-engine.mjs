@@ -190,6 +190,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
           settings: profile.engine_settings,
           defaults: defaults.values,
           defaultSources: defaults.sources,
+          effective: effectiveEngineSettings(engine, profile.engine_settings, defaults.values),
           fields: engineSettingsFieldsFor(engine, { abr }),
           live: null,
           liveUnavailableReason: liveUnavailableReason(
