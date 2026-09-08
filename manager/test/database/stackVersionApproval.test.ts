@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import pg, { type Pool } from 'pg';
+
+import { EventBus } from '../../src/domain/EventBus.js';
+import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
+import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
+import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
+import { scratchVersionsRoot } from '../support/stackFixtures.js';
+
+const port = Number(process.env.T08_TEST_PG_PORT);
+const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't08_test', connectionTimeoutMillis: 5000 };
+const COMMIT = 'a'.repeat(40);
+const BUILD = COMMIT;
+const REBUILD = `${COMMIT}-r1`;
+
+describe('build approval in isolated PostgreSQL schemas', { skip: !Number.isInteger(port) || port < 1 || port > 65535 }, () => {
+  let admin: Pool;
+  let pool: Pool;
+  let schema: string;
+  let repository: PostgresStackVersionRepository;
+  let id: number;
+
+  beforeEach(async () => {
+    schema = `t08_${randomBytes(8).toString('hex')}`;
+    admin = new pg.Pool(connection);
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    pool = new pg.Pool({ ...connection, options: `-c search_path=${schema}` });
+    const migrations = new URL('../../src/migrations/', import.meta.url);
+    for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
+      await pool.query(await readFile(new URL(name, migrations), 'utf8'));
+    }
+    repository = new PostgresStackVersionRepository(pool);
+    id = (await repository.findByName('bundled'))!.id;
+    await pool.query("UPDATE stack_versions SET commit_sha = $2, layout = 'builds', build_id = $2, tested = false WHERE id = $1", [id, COMMIT]);
+  });
+
+  afterEach(async () => {
+    await pool?.end();
+    if (admin) {
+      await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.end();
+    }
+  });
+
+  it('binds approval to the same immutable artifact, not only its commit', async () => {
+    assert.equal((await repository.setTested(id, true, COMMIT, BUILD))?.tested, true);
+    await pool.query('UPDATE stack_versions SET build_id = $2, tested = false WHERE id = $1', [id, REBUILD]);
+    assert.equal(await repository.setTested(id, true, COMMIT, BUILD), null);
+    assert.equal((await repository.findById(id))?.tested, false);
+    assert.equal((await repository.setTested(id, true, COMMIT, REBUILD))?.tested, true);
+  });
+
+  it('refuses unknown identity at the write boundary and permits withdrawal while building', async () => {
+    assert.equal(await repository.setTested(id, true), null);
+    assert.equal(await repository.setTested(id, true, COMMIT, null), null);
+    await pool.query('UPDATE stack_versions SET build_id = NULL WHERE id = $1', [id]);
+    assert.equal(await repository.setTested(id, true, COMMIT, null), null);
+    await pool.query("UPDATE stack_versions SET build_id = $2, status = 'building', tested = true WHERE id = $1", [id, BUILD]);
+    assert.equal(await repository.setTested(id, true, COMMIT, BUILD), null);
+    assert.equal((await repository.setTested(id, false))?.tested, false);
+  });
+
+  it('retains explicit legacy commit approval but refuses a legacy click after migration', async () => {
+    await pool.query("UPDATE stack_versions SET layout = 'legacy', build_id = NULL WHERE id = $1", [id]);
+    assert.equal((await repository.setTested(id, true, COMMIT, null))?.tested, true);
+    assert.equal(await repository.setTested(id, true, COMMIT, BUILD), null);
+    await pool.query("UPDATE stack_versions SET layout = 'builds', build_id = $2, tested = false WHERE id = $1", [id, BUILD]);
+    assert.equal(await repository.setTested(id, true, COMMIT, null), null);
+    assert.equal((await repository.findById(id))?.tested, false);
+  });
+
+  it('rejects a publish between the service read and the conditional write', async () => {
+    class PublishAfterRead extends PostgresStackVersionRepository {
+      once = true;
+      override async findById(versionId: number) {
+        const read = await super.findById(versionId);
+        if (this.once) {
+          this.once = false;
+          await pool.query('UPDATE stack_versions SET build_id = $2, tested = false WHERE id = $1', [versionId, REBUILD]);
+        }
+        return read;
+      }
+    }
+    const service = new StackVersionService(new PublishAfterRead(pool), new FakeScriptSpawner(), new EventBus(), scratchVersionsRoot());
+    await assert.rejects(service.setTested(id, true, COMMIT, BUILD), /changed since this page loaded/);
+    assert.equal((await repository.findById(id))?.tested, false);
+  });
+
+  it('rechecks a shown build after an already locked publisher commits', async () => {
+    const publisher = await pool.connect();
+    try {
+      await publisher.query('BEGIN');
+      await publisher.query('UPDATE stack_versions SET build_id = $2, tested = false WHERE id = $1', [id, REBUILD]);
+      const approval = repository.setTested(id, true, COMMIT, BUILD);
+      await publisher.query('COMMIT');
+      assert.equal(await approval, null);
+      assert.equal((await repository.findById(id))?.tested, false);
+    } finally {
+      await publisher.query('ROLLBACK');
+      publisher.release();
+    }
+  });
+});
