@@ -51,6 +51,20 @@ describe('durable chequebook submission', () => {
     assert.equal(h.submissions(), 0);
   });
 
+  it('does not expose raw preparation failures or admit an incomplete observation', async () => {
+    const h = harness();
+    const service = new ChequebookSubmission(h.repository, async () => { throw new Error('synthetic sensitive upstream diagnostic'); });
+    await assert.rejects(service.submit(transferIntent()), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.name, 'ChequebookPreparationError');
+      assert.equal(error.message, 'The node and chain could not be checked. Refresh the saved transfers before continuing.');
+      assert.ok(!JSON.stringify(error).includes('sensitive'));
+      return true;
+    });
+    assert.equal(h.repository.rows.size, 0);
+    assert.equal(h.submissions(), 0);
+  });
+
   it('keeps a lost response unresolved across a new service instance and repeated requests', async () => {
     const h = harness();
     const intent = transferIntent();
