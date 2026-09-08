@@ -121,6 +121,54 @@ describe('authenticated transaction-journal API', () => {
     assert.deepEqual(api.counts(), { prepares: 1, posts: 1, receipts: 0, recoveries: 0 });
   });
 
+  it('refuses recovery writes after an account switch before any service or journal work', async t => {
+    const api = await testApi(); t.after(() => api.close());
+    const operation = (await api.repository.admit(operationCandidate())).operation;
+    const inputs = [
+      ['check', {}], ['resolve', { transactionHash }],
+      ['assert', { amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
+    ] as const;
+    let calls = 0;
+    const read = api.repository.findWithResponses.bind(api.repository);
+    api.repository.findWithResponses = async id => { calls++; return read(id); };
+    api.switchAccount(8);
+    for (const [action, input] of inputs) {
+      const response = await api.request('POST', `${operationsPath}/${operation.id}/${action}`, { ...input, expectedAccountId: 7 });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), { error: 'account_changed', message: 'The signed-in account changed. Review this action again with your current account.' });
+    }
+    assert.equal(calls, 0);
+    assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });
+    assert.deepEqual(await api.repository.findById(operation.id), operation);
+
+    const checked = await api.request('POST', `${operationsPath}/${operation.id}/check`, { expectedAccountId: 8 });
+    assert.equal(checked.status, 200, 'Current authenticated account may recover another account’s operation');
+    assert.equal(api.counts().recoveries, 1);
+    assert.equal(api.counts().posts, 0);
+  });
+
+  it('strictly validates recovery account preconditions without returning private input', async t => {
+    const api = await testApi(); t.after(() => api.close());
+    const operation = operationCandidate();
+    const errors: unknown[][] = [];
+    t.mock.method(console, 'error', (...args: unknown[]) => errors.push(args));
+    for (const [action, input] of [
+      ['check', {}], ['resolve', { transactionHash }],
+      ['assert', { amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
+    ] as const) {
+      for (const expectedAccountId of [undefined, null, 0, -1, 1.5, 'synthetic-private-account', Number.MAX_SAFE_INTEGER + 1]) {
+        const response = await api.request('POST', `${operationsPath}/${operation.id}/${action}`, { ...input, expectedAccountId });
+        assert.equal(response.status, 400);
+        assert.ok(!(await response.text()).includes('synthetic-private-account'));
+      }
+      const extra = await api.request('POST', `${operationsPath}/${operation.id}/${action}`, { ...input, expectedAccountId: 7, actor: 'synthetic-private-actor' });
+      assert.equal(extra.status, 400);
+      assert.ok(!(await extra.text()).includes('synthetic-private-actor'));
+    }
+    assert.ok(!JSON.stringify(errors).includes('synthetic-private'));
+    assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });
+  });
+
   it('recovers an exact request key after losing the HTTP response and removing the profile', async t => {
     const api = await testApi({ dropResponse: true }); t.after(() => api.close());
     const intent = transferIntent();
@@ -139,14 +187,14 @@ describe('authenticated transaction-journal API', () => {
     const api = await testApi(); t.after(() => api.close());
     const submitted = await api.service.submit(transferIntent());
     api.removeProfile();
-    const checked = await api.request('POST', `${operationsPath}/${submitted.operation.id}/check`, {});
+    const checked = await api.request('POST', `${operationsPath}/${submitted.operation.id}/check`, { expectedAccountId: 7 });
     assert.equal(checked.status, 200);
     assert.equal((await checked.json()).operation.receiptObservation.kind, 'pending');
     const candidate = operationCandidate({ nodeAddress: `0x${'89'.repeat(20)}` });
     const unknown = (await api.repository.admit(candidate)).operation;
     await api.repository.recordSubmission(unknown.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
-    assert.equal((await api.request('POST', `${operationsPath}/${unknown.id}/check`, {})).status, 200);
-    assert.equal((await api.request('POST', `${operationsPath}/${unknown.id}/resolve`, { transactionHash })).status, 200);
+    assert.equal((await api.request('POST', `${operationsPath}/${unknown.id}/check`, { expectedAccountId: 7 })).status, 200);
+    assert.equal((await api.request('POST', `${operationsPath}/${unknown.id}/resolve`, { transactionHash, expectedAccountId: 7 })).status, 200);
     assert.deepEqual(api.counts(), { prepares: 1, posts: 1, receipts: 1, recoveries: 2 });
   });
 
@@ -154,7 +202,7 @@ describe('authenticated transaction-journal API', () => {
     const api = await testApi(); t.after(() => api.close());
     const operation = (await api.repository.admit(operationCandidate())).operation;
     const unknown = await api.repository.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
-    const body = { amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) };
+    const body = { expectedAccountId: 7, amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) };
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, body)).status, 409);
     await api.repository.recordRecovery(unknown, { kind: 'no_match', candidateHashes: [], scan: { headBlockNumber: '500', headBlockHash: transferContext.startBlockHash,
       nextBlockNumber: '500', nextBlockHash: transferContext.startBlockHash, complete: true, candidateHashes: [] } }, []);
@@ -165,6 +213,7 @@ describe('authenticated transaction-journal API', () => {
     const detail = await response.json();
     assert.equal(detail.operation.state, 'asserted');
     assert.equal(detail.operation.assertion.actor, 'user:7');
+    assert.deepEqual(Object.keys(detail.operation.assertion).sort(), ['actor', 'amountPlur', 'assertedAt', 'confirmation']);
     assert.equal(api.counts().posts, 0);
   });
 
