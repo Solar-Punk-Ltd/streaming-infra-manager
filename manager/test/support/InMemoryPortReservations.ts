@@ -5,6 +5,7 @@ import type { PortReservationRepository } from '../../src/domain/ports/PortReser
 import {
   type PortKey,
   type PortPlanEntry,
+  type PortReconciliation,
   type PortReservation,
   type ReservationState,
   portKeyOf,
@@ -21,6 +22,7 @@ export class InMemoryPortReservations implements PortReservationRepository {
 
   seededAt: Date | null = null;
   readonly seededDaemons = new Map<string, Date>();
+  releaseBlocked: (profileName: string) => boolean = () => false;
 
   private nextId = 1;
 
@@ -104,6 +106,18 @@ export class InMemoryPortReservations implements PortReservationRepository {
 
   async remove(ids: readonly number[]): Promise<void> {
     this.drop((row) => ids.includes(row.id));
+  }
+
+  async reconcile(observation: PortReconciliation): Promise<void> {
+    const rows = this.rows.filter(row => row.profileName === observation.profileName && row.daemonId === observation.daemonId);
+    const bound = new Set(observation.bound.map(portKeyOf));
+    const planned = new Set(observation.planned.map(portKeyOf));
+    await this.setState(rows.filter(row => bound.has(portKeyOf(row))).map(row => row.id), 'active');
+    if (this.releaseBlocked(observation.profileName)) return;
+    const releasing = rows.filter(row => row.service !== null && observation.services.includes(row.service)
+      && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
+    await this.setState(releasing, 'releasing');
+    await this.remove(releasing);
   }
 
   async removeByProfile(profileName: string): Promise<number> {

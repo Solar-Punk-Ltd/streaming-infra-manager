@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { PortReservedError } from '../errors/index.js';
 import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
-import { type PortKey, type PortPlanEntry, type PortReservation, type ReservationState, portKeyOf } from './portReservations.js';
+import { type PortKey, type PortPlanEntry, type PortReconciliation, type PortReservation, type ReservationState, portKeyOf } from './portReservations.js';
 import { RESERVATION_COLUMNS, type ReservationRow, toReservation } from './reservationSql.js';
 
 const INVENTORY_ROW = 1;
@@ -96,6 +96,44 @@ export class PostgresPortReservationRepository implements PortReservationReposit
   async remove(ids: readonly number[]): Promise<void> {
     if (ids.length === 0) return;
     await this.pool.query(`DELETE FROM port_reservations WHERE id = ANY($1::int[])`, [[...ids]]);
+  }
+
+  async reconcile(observation: PortReconciliation): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+      const profile = await client.query<{ status: string }>('SELECT status FROM profiles WHERE name = $1 FOR UPDATE', [observation.profileName]);
+      if (profile.rows[0]?.status !== 'DEPLOYING') {
+        await client.query('COMMIT');
+        return;
+      }
+      const rows = await client.query<ReservationRow>(
+        `SELECT ${RESERVATION_COLUMNS} FROM port_reservations WHERE profile_name = $1 AND daemon_id = $2`,
+        [observation.profileName, observation.daemonId],
+      );
+      const bound = new Set(observation.bound.map(portKeyOf));
+      const planned = new Set(observation.planned.map(portKeyOf));
+      const active = rows.rows.filter(row => bound.has(portKeyOf(row))).map(row => row.id);
+      await client.query("UPDATE port_reservations SET state = 'active', updated_at = NOW() WHERE id = ANY($1::int[])", [active]);
+      // Operation references do not yet carry a profile owner. Any open rollback hold conservatively blocks release.
+      const blocked = await client.query<{ held: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM build_references WHERE resolved_at IS NULL
+           AND ((holder_kind = 'job' AND holder_id = $1) OR holder_kind = 'operation'))
+         OR EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released') AS held`,
+        [observation.profileName],
+      );
+      if (!blocked.rows[0]?.held) {
+        const releasing = rows.rows.filter(row => row.service !== null && observation.services.includes(row.service)
+          && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
+        await client.query("UPDATE port_reservations SET state = 'releasing', updated_at = NOW() WHERE id = ANY($1::int[])", [releasing]);
+        await client.query("DELETE FROM port_reservations WHERE id = ANY($1::int[]) AND state = 'releasing'", [releasing]);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally { client.release(); }
   }
 
   async removeByProfile(profileName: string): Promise<number> {

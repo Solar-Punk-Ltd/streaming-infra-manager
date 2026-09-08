@@ -41,6 +41,14 @@ export interface PortReservation extends PortPlanEntry {
   updatedAt: Date;
 }
 
+export interface PortReconciliation {
+  profileName: string;
+  daemonId: string;
+  services: readonly string[];
+  planned: readonly PortKey[];
+  bound: readonly PortKey[];
+}
+
 /** The ports a deployment binds for a slot: the version's table shifted by ten per slot. */
 export function portPlanFor(table: readonly StackPortVar[], slot: number): PortPlanEntry[] {
   return table.map((port) => ({
