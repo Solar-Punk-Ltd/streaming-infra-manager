@@ -265,7 +265,7 @@ export class ContainerControl {
     const rows: unknown[] = [];
     for (const container of listed) {
       const info = await this.withinLimit(this.docker.getContainer(container.Id).inspect());
-      if (!['running', 'restarting'].includes(info.State.Status)) continue;
+      if (!['running', 'restarting', 'paused'].includes(info.State.Status)) continue;
       if (!info.NetworkSettings || !('Ports' in info.NetworkSettings)) {
         throw new Error('Docker did not report published ports');
       }
