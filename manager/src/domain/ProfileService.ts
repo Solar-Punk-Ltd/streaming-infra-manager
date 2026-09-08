@@ -6,28 +6,29 @@ import {
   type BeePublishersResult,
   beeTargetProblem,
   defaultServicesFor,
+  effectiveEngineDefaults,
   type EngineDefaults,
   type EngineName,
-  effectiveEngineDefaults,
   engineOfServices,
   type EngineSettings,
-  type EngineSettingsOverview,
   engineSettingsFieldsFor,
+  type EngineSettingsOverview,
   engineSettingsProblem,
-  type GroupKind,
   getErrorMessage,
+  type GroupKind,
   hasBeePublishers,
   isLadderKind,
   ladderMemberNames,
   liveUnavailableReason,
+  nullify,
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
   settingsNotInConfig,
   type StackContract,
-  STANDARD_GROUP_KIND,
   type StampHealth,
   stampHealthFrom,
+  STANDARD_GROUP_KIND,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
@@ -306,16 +307,32 @@ export class ProfileService {
       throw new ProfileBusyError(name, existing.status);
     }
 
-    // PUT replaces every editable field, so a body that omits bee_publishers
-    // clears it. For an abr-uploader that silently removes the only thing it
-    // publishes through, and neither yup test can catch it: `kind` and
-    // `components` are not in an update body. Checked here, against the state
-    // the write would actually leave behind.
+    // The row the edit proposes, built once. The gate is asked about it, the
+    // claim is taken for it, and it is what is written and deployed, so the
+    // state that is judged is the state that lands. PUT replaces every
+    // editable field, so a field the body leaves out becomes null here the
+    // way the write stores it.
+    const edits = nullify({
+      notes: input.notes,
+      feed_owner: input.feed_owner,
+      feed_topic: input.feed_topic,
+      private_key: input.private_key,
+      public_key: input.public_key,
+      stamp_id: input.stamp_id,
+      bee_publishers: input.bee_publishers,
+      bee_url: input.bee_url,
+      srt_passphrase: input.srt_passphrase,
+    });
+    const proposed: Profile = { ...existing, ...edits };
+
+    // A body that omits bee_publishers clears it. For an abr-uploader that
+    // silently removes the only thing it publishes through, and neither yup
+    // test can catch it: `kind` and `components` are not in an update body.
     const configProblem = beeTargetProblem({
-      kind: existing.kind,
-      components: existing.components,
-      bee_publishers: input.bee_publishers ?? null,
-      bee_url: input.bee_url ?? null,
+      kind: proposed.kind,
+      components: proposed.components,
+      bee_publishers: proposed.bee_publishers,
+      bee_url: proposed.bee_url,
     });
     if (configProblem) {
       throw new ProfileConfigError(name, configProblem);
@@ -326,30 +343,24 @@ export class ProfileService {
     // the pool string, in one statement, so no state exists in which the column
     // holds settings the deployment cannot act on.
     const laddersEnded =
-      hasBeePublishers(existing) && !input.bee_publishers?.trim();
+      hasBeePublishers(existing) && !proposed.bee_publishers?.trim();
 
     // Claimed before anything is written. Two concurrent PUTs both pass the
     // busy check above, so without the claim the loser would rewrite the row
     // and the env file under the winner's running deploy, then mark the profile
     // ERROR while that deploy was still going.
     const reservation = await this.orchestrator.reserveDeploy(
-      existing,
+      proposed,
       existing.components ?? undefined,
     );
 
     const row = await this.writeOrCancel([reservation], async () => {
-      const written = await this.repo.updateEditable(name, existing.kind, {
-        notes: input.notes,
-        components: existing.components,
-        feed_owner: input.feed_owner,
-        feed_topic: input.feed_topic,
-        private_key: input.private_key,
-        public_key: input.public_key,
-        stamp_id: input.stamp_id,
-        bee_publishers: input.bee_publishers,
-        bee_url: input.bee_url,
-        srt_passphrase: input.srt_passphrase,
-      }, laddersEnded ? withoutLadderSettings(existing) : undefined);
+      const written = await this.repo.updateEditable(
+        name,
+        existing.kind,
+        { ...edits, components: existing.components },
+        laddersEnded ? withoutLadderSettings(existing) : undefined,
+      );
       if (!written) {
         throw new ProfileNotFoundError(name);
       }
@@ -833,8 +844,14 @@ export class ProfileService {
     }));
 
     // Every member is claimed before the bulk write, so a group edit that
-    // cannot own all of its deployments changes none of them.
-    const reservations = await this.reserveMembers(group, members);
+    // cannot own all of its deployments changes none of them. Each claim is
+    // for the row that member is about to become, so the gate judges the
+    // stamp the edit proposes and not the one it replaces.
+    const proposedMembers = members.map((member, index) => ({
+      ...member,
+      ...writes[index],
+    }));
+    const reservations = await this.reserveMembers(group, proposedMembers);
 
     const updated = await this.writeOrCancel([...reservations.values()], () =>
       this.groupRepo.updateMembersConfig(writes),
