@@ -136,4 +136,34 @@ describe('bounded SRS config observations', () => {
     assert.equal(reason(result, 'HLS_FRAGMENT'), 'metadata-unavailable');
     assert.equal(result.effective.ABR_FPS, '25');
   });
+
+  it('does not observe literals on lines whose embedded generation marker can replace or delete their structure', () => {
+    for (const file of [
+      config(engine('low')).replace('hls_fragment 4;', 'hls_fragment 4; # TRANSCODE_PLACEHOLDER\n'),
+      `# ABR_VHOST_PLACEHOLDER\n${config(engine('low'))}`,
+      config(engine('low')).replace('hls_fragment 4;', 'label "TRANSCODE_PLACEHOLDER"; hls_fragment 4;'),
+      `${config(engine('low'))} TRANSCODE_PLACEHOLDER\n`,
+    ]) {
+      assert.deepEqual(observe(file).effective, {});
+    }
+  });
+
+  it('does not treat a second same-line scalar placeholder as substituted', () => {
+    const scope = (name: string) => `vhost ${name} { ${hls('HLS_FRAGMENT_PLACEHOLDER')} }`;
+    const result = observe(`${scope('one')} ${scope('two')}`, false);
+    assert.equal(reason(result, 'HLS_FRAGMENT'), 'unsupported-syntax');
+    assert.equal(result.effective.HLS_WINDOW, '30');
+    assert.equal(observe(`${scope('one')}\n${scope('two')}`, false).effective.HLS_FRAGMENT, '7');
+  });
+
+  it('notices when an unrelated earlier token consumes the scalar substitution on that line', () => {
+    const result = observe(`label "HLS_FRAGMENT_PLACEHOLDER"; ${config('', hls('HLS_FRAGMENT_PLACEHOLDER'))}`, false);
+    assert.equal(reason(result, 'HLS_FRAGMENT'), 'unsupported-syntax');
+    assert.equal(result.effective.HLS_WINDOW, '30');
+  });
+
+  it('keeps harmless scalar-placeholder comments and a first quoted mapped occurrence supported', () => {
+    const file = `# HLS_FRAGMENT_PLACEHOLDER\nvhost one { hls { hls_fragment "HLS_FRAGMENT_PLACEHOLDER"; # HLS_FRAGMENT_PLACEHOLDER\nhls_window 30; } }`;
+    assert.deepEqual(observe(file, false).effective, { HLS_FRAGMENT: '7', HLS_WINDOW: '30' });
+  });
 });

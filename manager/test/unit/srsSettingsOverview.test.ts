@@ -78,4 +78,18 @@ describe('SRS settings observations over the actual engine HTTP route', () => {
     assert.deepEqual(overview.effective, { HLS_FRAGMENT: '4', HLS_WINDOW: '30' });
     assert.equal(overview.observations.ABR_FPS, undefined);
   });
+
+  it('does not expose effective values from unmodeled generation-marker placement', async () => {
+    const overview = await overviewFor(`# ABR_VHOST_PLACEHOLDER\n${literal}`);
+    assert.deepEqual(overview.effective, {});
+  });
+
+  it('keeps a later same-line HLS placeholder unverified while preserving explicit encoder values', async () => {
+    const file = literal.replace('hls_fragment 4;', 'hls_fragment HLS_FRAGMENT_PLACEHOLDER;')
+      + ' vhost extra { hls { hls_fragment HLS_FRAGMENT_PLACEHOLDER; hls_window 30; } }';
+    const overview = await overviewFor(file);
+    assert.equal(overview.effective.HLS_FRAGMENT, undefined);
+    assert.equal(overview.effective.HLS_WINDOW, '30');
+    assert.equal(overview.effective.ABR_FPS, '25');
+  });
 });
