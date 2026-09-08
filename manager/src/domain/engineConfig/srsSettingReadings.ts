@@ -42,15 +42,21 @@ function validScope(entry: Entry): boolean {
       : node.name === 'transcode' ? node.args.length <= 1 : node.args.length === 0);
 }
 
-function scalarIn(scope: Entry, directive: string, placeholder?: string): EngineSettingReading {
+function scalarIn(scope: Entry, directive: string, placeholder?: string, source?: string): EngineSettingReading {
   if (!validScope(scope)) return unknown('ambiguous-path');
   const values = scope.node.children?.filter(node => node.name === directive) ?? [];
   if (values.length > 1) return unknown('ambiguous-path');
   if (!values.length) return { kind: 'omitted' };
   const value = values[0]!;
   if (value.children !== null || value.args.length !== 1) return unknown('invalid-scalar');
-  return placeholder !== undefined && value.args[0] === placeholder
-    ? { kind: 'environment' } : { kind: 'literal', value: value.args[0]! };
+  if (placeholder !== undefined && value.args[0] === placeholder) {
+    if (source === undefined) return unknown('metadata-unavailable');
+    const offset = value.argOffsets[0]!;
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    // The pinned entrypoint's HLS substitutions have no g flag.
+    return source.indexOf(placeholder, lineStart) === offset ? { kind: 'environment' } : unknown('unsupported-syntax');
+  }
+  return { kind: 'literal', value: value.args[0]! };
 }
 
 function hasIncludeFor(entries: readonly Entry[], patterns: readonly (readonly string[])[]): boolean {
@@ -61,7 +67,7 @@ function hasIncludeFor(entries: readonly Entry[], patterns: readonly (readonly s
   });
 }
 
-function hlsReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], opaqueVhost: boolean): EngineSettingReading[] {
+function hlsReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], opaqueVhost: boolean, source: string): EngineSettingReading[] {
   if (opaqueVhost) return [unknown('unsupported-syntax')];
   if (template === null || !field.placeholder) return [unknown('metadata-unavailable')];
   const required = template.filter(entry => entry.node.name === HLS_DIRECTIVES[field.key]
@@ -72,7 +78,7 @@ function hlsReadings(field: EngineSettingField, template: readonly Entry[] | nul
   if (hasIncludeFor(file, patterns)) return [unknown('unsupported-syntax')];
   const scopes = file.filter(entry => entry.node.children !== null && patterns.some(pattern => sameNames(scopeNames(entry), pattern)));
   if (!scopes.length) return [{ kind: 'omitted' }];
-  return scopes.map(scope => scalarIn(scope, HLS_DIRECTIVES[field.key]!, field.placeholder));
+  return scopes.map(scope => scalarIn(scope, HLS_DIRECTIVES[field.key]!, field.placeholder, source));
 }
 
 function bitrateReadings(scopes: readonly Entry[]): EngineSettingReading[] {
@@ -101,7 +107,7 @@ export function srsSettingReadings(
   const opaqueEncoder = activeMarker('TRANSCODE_PLACEHOLDER') || hasIncludeFor(file, [ENCODER_SCOPE]);
   const encoders = file.filter(entry => entry.node.children !== null && sameNames(scopeNames(entry), ENCODER_SCOPE));
   return Object.fromEntries(fields.map(field => {
-    if (field.key in HLS_DIRECTIVES) return [field.key, hlsReadings(field, template, file, opaqueVhost)];
+    if (field.key in HLS_DIRECTIVES) return [field.key, hlsReadings(field, template, file, opaqueVhost, fileText ?? '')];
     if (field.key === 'ABR_VBV_SECONDS' || opaqueEncoder) return [field.key, [unknown('unsupported-syntax')]];
     if (!encoders.length) return [field.key, [{ kind: 'omitted' }]];
     if (field.key === 'ABR_AUDIO_BITRATE') return [field.key, bitrateReadings(encoders)];

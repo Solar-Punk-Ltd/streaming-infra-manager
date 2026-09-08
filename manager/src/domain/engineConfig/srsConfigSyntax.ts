@@ -3,11 +3,13 @@ import { ENGINE_CONFIG_MAX_BYTES } from '@streaming-infra-manager/common';
 export interface SrsDirective {
   name: string;
   args: readonly string[];
+  /** UTF-16 positions in the source, used to verify the entrypoint's first replacement on each line. */
+  argOffsets: readonly number[];
   children: readonly SrsDirective[] | null;
   generated: boolean;
 }
 
-type Token = { kind: 'word'; value: string; quoted: boolean; lineStart: boolean }
+type Token = { kind: 'word'; value: string; quoted: boolean; lineStart: boolean; offset: number }
   | { kind: '{' | '}' | ';' | 'newline' };
 
 const GENERATED = new Set(['TRANSCODE_PLACEHOLDER', 'ABR_VHOST_PLACEHOLDER']);
@@ -31,6 +33,7 @@ function tokensIn(text: string): Token[] | null {
       tokens.push({ kind: char }); lineStart = false; index += 1; continue;
     }
     const quoted = char === '"' || char === "'";
+    const offset = index + (quoted ? 1 : 0);
     let value = '';
     if (quoted) {
       const quote = char;
@@ -55,7 +58,7 @@ function tokensIn(text: string): Token[] | null {
       }
     }
     if (!value && !quoted) return null;
-    tokens.push({ kind: 'word', value, quoted, lineStart });
+    tokens.push({ kind: 'word', value, quoted, lineStart, offset });
     lineStart = false;
   }
   return tokens;
@@ -64,6 +67,8 @@ function tokensIn(text: string): Token[] | null {
 /** A bounded observation subset. This is not SRS's config validator and never expands an include. */
 export function parseSrsConfig(text: string | null): readonly SrsDirective[] | null {
   if (text === null || Buffer.byteLength(text) > ENGINE_CONFIG_MAX_BYTES) return null;
+  // The entrypoint replaces entire marker lines, including occurrences inside comments and quotes.
+  if (text.split('\n').some(line => [...GENERATED].some(marker => line.includes(marker)) && !GENERATED.has(line.trim()))) return null;
   const tokens = tokensIn(text);
   if (tokens === null) return null;
   let index = 0;
@@ -77,17 +82,18 @@ export function parseSrsConfig(text: string | null): readonly SrsDirective[] | n
       if (first.kind !== 'word' || first.quoted || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(first.value)) throw new Error('directive');
       if (GENERATED.has(first.value)) {
         if (!first.lineStart || (tokens[index] && tokens[index]!.kind !== 'newline')) throw new Error('marker');
-        nodes.push({ name: first.value, args: [], children: null, generated: true });
+        nodes.push({ name: first.value, args: [], argOffsets: [], children: null, generated: true });
         continue;
       }
       const args: string[] = [];
+      const argOffsets: number[] = [];
       let ended = false;
       while (index < tokens.length) {
         const token = tokens[index++]!;
         if (token.kind === 'newline') continue;
-        if (token.kind === 'word') { args.push(token.value); continue; }
+        if (token.kind === 'word') { args.push(token.value); argOffsets.push(token.offset); continue; }
         if (token.kind !== ';' && token.kind !== '{') throw new Error('terminator');
-        nodes.push({ name: first.value, args, children: token.kind === '{' ? block(depth + 1) : null, generated: false });
+        nodes.push({ name: first.value, args, argOffsets, children: token.kind === '{' ? block(depth + 1) : null, generated: false });
         ended = true;
         break;
       }
