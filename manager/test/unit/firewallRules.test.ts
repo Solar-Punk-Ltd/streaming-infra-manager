@@ -71,6 +71,7 @@ function verdict(text: string, hook: 'input' | 'forward', packet: Packet): strin
     rest = rest.replace(/^ct status (!= )?dnat /, (_all, inverse: string | undefined) => {
       match &&= inverse ? !packet.dnat : !!packet.dnat; return '';
     });
+    rest = rest.replace(/^\(ct status & dnat\) != dnat /, () => { match &&= !packet.dnat; return ''; });
     rest = rest.replace(/^meta l4proto \{ ([^}]+) \} /, (_all, values: string) => {
       match &&= values.split(',').map(value => value.trim()).includes(packet.protocol); return '';
     });
@@ -109,6 +110,12 @@ function peerInventory(): FirewallInventory {
 }
 
 describe('firewall rules from shared policy and complete inventory', () => {
+  it('tests the DNAT flag rather than comparing the complete connection status bitmap', () => {
+    const text = rules();
+    assert.ok(text.includes('(ct status & dnat) != dnat drop'));
+    assert.ok(!text.includes('ct status != dnat'));
+  });
+
   it('keeps legitimate v3 rung P2P on 11012', () => {
     const result = run(peerInventory());
     assert.equal(result.status, 0, result.stderr);
@@ -132,6 +139,19 @@ describe('firewall rules from shared policy and complete inventory', () => {
     });
   }
   for (const family of ['ipv4', 'ipv6'] as const) {
+    it('leaves every supported RTMP and API endpoint closed on ' + family, () => {
+      const text = rules();
+      for (let slot = 1; slot <= 100; slot++) {
+        const bases = [10000, 10002, 10003, 10005, 10007, 10009, ...(slot <= 99 ? [11001, 11003, 11005] : [])];
+        for (const base of bases) {
+          const port = base + slot * 10;
+          for (const hook of ['input', 'forward'] as const) {
+            assert.equal(verdict(text, hook, { family, protocol: 'tcp', originalPort: port, destinationPort: port, dnat: true }), 'drop', hook + ' TCP/' + port);
+          }
+        }
+      }
+    });
+
     it('evaluates the complete ' + family + ' policy for TCP and UDP after DNAT', () => {
       const text = rules();
       for (const protocol of ['tcp', 'udp'] as const) {
