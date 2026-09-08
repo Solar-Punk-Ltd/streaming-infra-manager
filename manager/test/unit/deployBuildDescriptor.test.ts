@@ -24,7 +24,6 @@ import {
   BUILD_COMPLETE_MARKER,
   BUILD_MANIFEST_FILE,
 } from '../../src/domain/versions/buildManifest.js';
-import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 
 const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
@@ -33,6 +32,7 @@ process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'bundled'), { recursive: true });
 writeFileSync(join(root, 'bundled', '.env'), 'ENGINE=srs\n');
 
+const { buildDirFor } = await import('../../src/domain/versions/stackPaths.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 

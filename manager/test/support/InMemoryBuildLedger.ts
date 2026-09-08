@@ -1,3 +1,4 @@
+import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -137,6 +138,7 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
    * `<name>.repo` all belong to `<name>`, and a root elsewhere to no version.
    */
   private async versionOfRoot(root: string): Promise<number | null> {
+    if (root === stackRootOf({ rootPath: null })) return (await this.versions.findByName(BUNDLED_VERSION_NAME))?.id ?? null;
     if (!root.startsWith(`${this.versionsRoot}/`)) return null;
     const first = root.slice(this.versionsRoot.length + 1).split('/')[0] ?? '';
     const name = first.replace(/\.(builds|repo)$/, '');

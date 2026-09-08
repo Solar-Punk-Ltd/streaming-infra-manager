@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../../types/index.js';
 import { PROFILE_COLUMNS } from '../profileSql.js';
@@ -248,6 +249,10 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
 
   /** The version a root belongs to, by the version name in its path, or null for the bundled checkout and anything else. */
   private async versionOfRoot(client: PoolClient, root: string): Promise<number | null> {
+    if (root === stackRootOf({ rootPath: null })) {
+      const found = await client.query<{ id: number }>('SELECT id FROM stack_versions WHERE name = $1', [BUNDLED_VERSION_NAME]);
+      return found.rows[0]?.id ?? null;
+    }
     if (!root.startsWith(`${this.versionsRoot}/`)) return null;
     const first = root.slice(this.versionsRoot.length + 1).split('/')[0] ?? '';
     const name = first.replace(/\.(builds|repo)$/, '');
