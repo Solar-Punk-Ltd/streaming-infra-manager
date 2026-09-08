@@ -176,6 +176,19 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
     assert.equal((result as { claimed: boolean }).claimed, false);
   });
 
+  it('returns a stale-target refusal with a one-connection pool without reacquiring its own connection', async () => {
+    const operation = await admitted();
+    await pool.query('UPDATE deploy_targets SET verified_at=NULL');
+    const single = new pg.Pool({ ...connection, max: 1, connectionTimeoutMillis: 300, options: `-c search_path=${schema} -c statement_timeout=1000` });
+    try {
+      const claim = await new PostgresChequebookOperationRepository(single).claimDispatch(operation.id);
+      assert.equal(claim.claimed, false);
+      assert.equal(claim.operation.dispatchStartedAt, null);
+      assert.equal(single.waitingCount, 0);
+      assert.equal(single.idleCount, 1);
+    } finally { await single.end(); }
+  });
+
   for (const [name, sql] of [
     ['alias invalidation', 'UPDATE deploy_targets SET verified_at=NULL'],
     ['reservation release', "UPDATE port_reservations SET state='releasing'"],
