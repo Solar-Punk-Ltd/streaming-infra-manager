@@ -40,7 +40,7 @@ function hash(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error('Invalid package identity digest.');
   return value;
 }
-function shipment(value: unknown): string {
+export function validateBundledShipmentId(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value)) throw new Error('Invalid shipment identity.');
   return value;
 }
@@ -65,7 +65,7 @@ function inputIdentity(value: unknown): BundledInputIdentity {
 }
 export function validateBundledShipmentIdentity(value: unknown): BundledShipmentIdentity {
   const item = record(value, ['shipmentId', 'commit', 'digest']);
-  return { shipmentId: shipment(item.shipmentId), commit: commitId(item.commit), digest: hash(item.digest) };
+  return { shipmentId: validateBundledShipmentId(item.shipmentId), commit: commitId(item.commit), digest: hash(item.digest) };
 }
 function entry(value: unknown): OwnedTreeEntry {
   if (!value || typeof value !== 'object') throw new Error('Invalid package inventory entry.');
@@ -102,7 +102,7 @@ function manifestPayload(raw: unknown): Omit<BundledPackageManifest, 'digest'> {
   if (item.format !== 1 || !Array.isArray(item.entries)) throw new Error('Invalid package manifest format.');
   const entries = item.entries.map(entry).sort(byPath);
   if (new Set(entries.map(item => item.path)).size !== entries.length) throw new Error('Duplicate package inventory path.');
-  return { format: 1, shipmentId: shipment(item.shipmentId), commit: commitId(item.commit), inputs: inputIdentity(item.inputs), rootMode: mode(item.rootMode), entries };
+  return { format: 1, shipmentId: validateBundledShipmentId(item.shipmentId), commit: commitId(item.commit), inputs: inputIdentity(item.inputs), rootMode: mode(item.rootMode), entries };
 }
 
 /** Reads the full owned tree before returning the verification token used by shipment activation. */
@@ -129,7 +129,7 @@ export async function sealBundledPackage(
   capture: BundledPackageCapture,
   options: SealBundledPackageOptions = {},
 ): Promise<VerifiedBundledPackage> {
-  const selected = { shipmentId: shipment(capture.shipmentId), commit: commitId(capture.commit), inputs: inputIdentity(capture.inputs) };
+  const selected = { shipmentId: validateBundledShipmentId(capture.shipmentId), commit: commitId(capture.commit), inputs: inputIdentity(capture.inputs) };
   await assertSeparateOwnedTrees(source, destination);
   const baseline = await inventoryOwnedTree(source);
   if (baseline.entries.some(item => item.path === BUNDLED_PACKAGE_MANIFEST)) throw new Error('Source already contains a package manifest.');
