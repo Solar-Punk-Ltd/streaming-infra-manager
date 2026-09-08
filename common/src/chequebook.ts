@@ -208,18 +208,6 @@ export function drainedChequebooks(
   return names.filter((name) => healths.get(name)?.state === 'empty');
 }
 
-/**
- * What the operator is told when the uploader gate could not read a chequebook
- * and started anyway.
- *
- * The gate is deliberately permissive, because a node that cannot be asked is
- * no evidence of an empty chequebook. That leaves an uploader running with its
- * funding unverified, which was a line in the manager's log and nothing on
- * screen, so an upload that lands nothing looks like an upload that works.
- */
-export function uncheckedChequebookNotice(name: string): string {
-  return `Started without checking the chequebook of ${name}: its node did not answer.`;
-}
 
 /**
  * Why a deposit is more than the node's wallet can cover.

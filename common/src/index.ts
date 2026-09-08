@@ -18,3 +18,6 @@ export * from './stackVersions.js';
 export * from './stampCost.js';
 export * from './stampGating.js';
 export * from './stampHealth.js';
+
+export type { DeploymentPhase } from './deploymentPhase.js';
+export type { BeeNodeObservation, BeeNodeState } from './beeNodeObservation.js';

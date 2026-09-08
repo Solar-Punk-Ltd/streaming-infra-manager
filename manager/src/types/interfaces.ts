@@ -1,4 +1,4 @@
-import type { EngineSettings } from '@streaming-infra-manager/common';
+import type { DeploymentPhase, EngineSettings } from '@streaming-infra-manager/common';
 
 import { ProfileKind, ProfileStatus } from './types.js';
 
@@ -42,6 +42,7 @@ export interface Profile {
   /** Why the last config file apply was reverted, or null. */
   engine_config_error: string | null;
   status: ProfileStatus;
+  deployment_phase?: DeploymentPhase | null;
   last_error: string | null;
   last_error_at: Date | null;
   created_at: Date;

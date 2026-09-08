@@ -99,7 +99,7 @@ export function ConfigurationCard({
     entries.push({
       key: 'Bee node',
       value: hasService(profile, BEE_UPLOADER_SERVICE) ? (
-        <span>own node · <Mono>{api ?? 'not running'}</Mono></span>
+        <span>own node · <Mono>{api ?? 'address unavailable'}</Mono></span>
       ) : (
         <span>external · <Mono>{profile.bee_url || 'the deploy default'}</Mono></span>
       ),

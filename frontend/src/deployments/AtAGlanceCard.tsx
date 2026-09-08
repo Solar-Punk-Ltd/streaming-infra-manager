@@ -15,7 +15,8 @@ import { formatDate, formatTtl } from '../format';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
 import { describeVersion } from '../versions/versionText';
-import { engineSummary } from './engineText';
+import type { EngineOverview } from './engineApi';
+import { ENGINE_LABEL, engineSummary } from './engineText';
 import type { Readiness } from './readiness';
 import { engineOf } from './shape';
 
@@ -26,6 +27,8 @@ export function AtAGlanceCard({
   stampHealth,
   group,
   version,
+  engineOverview,
+  engineLoadError,
 }: {
   profile: Profile;
   serverHost: string;
@@ -34,6 +37,10 @@ export function AtAGlanceCard({
   group: DeploymentGroup | null;
   /** The stack version this deployment runs, or null until the list arrives. */
   version: StackVersion | null;
+  /** The manager's answer about the engine, null until it arrives or when there is no engine. */
+  engineOverview: EngineOverview | null;
+  /** Why it did not arrive, or null. */
+  engineLoadError: string | null;
 }) {
   const engine = engineOf(profile);
   const entries: KeyValueEntry[] = [
@@ -48,7 +55,11 @@ export function AtAGlanceCard({
   if (engine) {
     entries.push({
       key: 'Engine',
-      value: engineSummary(engine, profile.engine_settings),
+      value: engineOverview
+        ? engineSummary(engine, engineOverview.effective)
+        : engineLoadError
+          ? `${ENGINE_LABEL[engine]} · settings could not be loaded`
+          : ENGINE_LABEL[engine],
     });
   }
 

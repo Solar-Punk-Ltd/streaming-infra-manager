@@ -1,3 +1,4 @@
+import type { BeeNodeObservation } from '@streaming-infra-manager/common';
 import type { Profile } from '../types';
 import { getJson, sendJson } from '../http';
 
@@ -81,4 +82,8 @@ export function setStamp(name: string, stampId: string): Promise<Profile> {
     `/profiles/${encodeURIComponent(name)}/stamp/set`,
     { stamp_id: stampId },
   );
+}
+
+export function fetchBeeNodeObservation(name: string): Promise<BeeNodeObservation> {
+  return getJson<BeeNodeObservation>(`/profiles/${encodeURIComponent(name)}/stamp/readiness`);
 }
