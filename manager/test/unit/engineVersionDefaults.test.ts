@@ -120,7 +120,7 @@ describe('GET /profiles/:name/engine on a version with its own defaults', () => 
 });
 
 describe('GET /profiles/:name/engine on a deployment with a config file of its own', () => {
-  it('leaves out a key the file no longer reads, and lists it as not in the config', async () => {
+  it('keeps custom SRS readings unverified until its scalar reader can prove their source', async () => {
     const harness = profileServiceHarness([
       profileRow({ has_engine_config: true, engine_settings: { HLS_WINDOW: '20' } }),
     ]);
@@ -137,13 +137,15 @@ describe('GET /profiles/:name/engine on a deployment with a config file of its o
       const overview = (await callEngine(app, 'GET', '/profiles/stream1/engine'))
         .body as EngineOverview;
 
-      assert.equal(overview.effective.HLS_FRAGMENT, '0.5');
+      assert.equal(overview.effective.HLS_FRAGMENT, undefined);
       assert.equal(
         overview.effective.HLS_WINDOW,
         undefined,
         'stored as 20, but nothing in the file reads it',
       );
-      assert.ok(overview.notInConfig.includes('HLS_WINDOW'));
+      assert.equal(overview.observations.HLS_FRAGMENT.source, 'unverified');
+      assert.equal(overview.observations.HLS_WINDOW.source, 'unverified');
+      assert.deepEqual(overview.notInConfig, []);
     } finally {
       await app.close();
     }

@@ -2,6 +2,7 @@ import {
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
   applicableEngineSettings,
+  assembleEngineSettingObservations,
   assembleBeePublishers,
   type BeePublishersResult,
   beeTargetProblem,
@@ -12,7 +13,8 @@ import {
   engineOfServices,
   type EngineSettings,
   type EngineSettingsOverview,
-  effectiveEngineSettings,
+  environmentSettingReadings,
+  OME_SERVICE,
   engineSettingsFieldsFor,
   engineSettingsProblem,
   type GroupKind,
@@ -24,7 +26,6 @@ import {
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
-  settingsNotInConfig,
   type StackContract,
   STANDARD_GROUP_KIND,
   type StampHealth,
@@ -68,6 +69,9 @@ import {
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { engineTemplateIn } from './engineConfig/engineConfigTemplates.js';
+import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
+import { unverifiedSrsReadings } from './engineConfig/unverifiedSrsReadings.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
@@ -460,27 +464,31 @@ export class ProfileService {
     const { engine, abr } = this.engineFacts(profile);
     const defaults = await this.engineDefaults(profile, engine);
     const contract = await this.contractFor(profile);
-    const notInConfig = profile.has_engine_config
-      ? settingsNotInConfig(
-          engine,
-          (await this.repo.engineConfigOf(profile.name)) ?? '',
-        )
-      : [];
+    const fields = engineSettingsFieldsFor(engine, { abr });
+    let readings = environmentSettingReadings(fields);
+    if (profile.has_engine_config) {
+      if (engine === OME_SERVICE) {
+        let template: string | null = null;
+        try {
+          template = engineTemplateIn(await this.orchestrator.stackRootFor(profile), engine).text;
+        } catch {
+          // Missing or unreadable metadata is represented in each affected observation.
+        }
+        readings = omeSettingReadings(template, await this.repo.engineConfigOf(profile.name), fields);
+      } else {
+        readings = unverifiedSrsReadings(fields);
+      }
+    }
+    const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
       engine,
       abr,
       settings: profile.engine_settings,
       defaults: defaults.values,
       defaultSources: defaults.sources,
-      effective: effectiveEngineSettings(
-        engine,
-        profile.engine_settings,
-        defaults.values,
-        notInConfig,
-      ),
-      fields: engineSettingsFieldsFor(engine, { abr }),
+      ...observed,
+      fields,
       liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
-      notInConfig,
     };
   }
 

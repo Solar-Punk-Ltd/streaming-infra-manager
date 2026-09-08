@@ -20,6 +20,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { type OmeElement, parseOmeXml } from './omeXml.js';
+import { prefixesOf, valuesByPath } from './omeXmlPaths.js';
 
 /** An element the file must keep: its path, the template's value, and the drawer field that may set it. */
 interface RequiredElement {
@@ -39,39 +40,6 @@ const ADMISSION_ENABLES_RE = /\/AdmissionWebhooks\/Enables\/Providers$/;
 const APPLICATION_NAME_RE = /\/Application\[[^\]]*\]\/Name$/;
 const APPLICATION_MEDIA_RE = /\/Application\[[^\]]*\]\/(Providers|Publishers)\/[^/]+$/;
 const STREAM_NAME_RE = /\/Application\[[^\]]*\]\/OutputProfiles\/OutputProfile(\[[^\]]*\])?\/OutputStreamName$/;
-
-/**
- * An element that names itself with a Name child, an application, a virtual
- * host or an output profile, is keyed by that name, so two of them never
- * share a path and one with a new name is an addition rather than a copy.
- */
-function segmentOf(element: OmeElement): string {
-  const name = element.children.find((child) => child.name === NAME_CHILD);
-  if (!name || element.children.length < 2) return element.name;
-  return `${element.name}[${name.text}]`;
-}
-
-/** Every element under the root by path, with each path's values in document order. */
-function valuesByPath(root: OmeElement): Map<string, string[]> {
-  const found = new Map<string, string[]>();
-  const walk = (element: OmeElement, parentPath: string) => {
-    for (const child of element.children) {
-      const path = parentPath ? `${parentPath}/${segmentOf(child)}` : segmentOf(child);
-      const values = found.get(path) ?? [];
-      values.push(child.text);
-      found.set(path, values);
-      walk(child, path);
-    }
-  };
-  walk(root, '');
-  return found;
-}
-
-/** The path and every path above it, the root left out. */
-function prefixesOf(path: string): string[] {
-  const segments = path.split('/');
-  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
-}
 
 /**
  * Why a container the contract goes through is not in the file exactly as

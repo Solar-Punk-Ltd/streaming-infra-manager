@@ -9,6 +9,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './constants.js';
 import type { EngineDefaultSources } from './engineDefaults.js';
+import type { EngineSettingObservations } from './engineSettingObservation.js';
 import type {
   EngineSettingField,
   EngineSettings,
@@ -79,19 +80,15 @@ export interface EngineSettingsOverview {
    */
   defaults: EngineSettings;
   defaultSources: EngineDefaultSources;
-  /**
-   * What the engine runs with, by key: the stored value, else the host's
-   * default, else the stack's. Every card reads this one map. A key in
-   * `notInConfig` is left out: nothing in the deployment's own config file
-   * reads it, so what the engine runs with for it is not known from here.
-   */
+  observations: EngineSettingObservations;
+  /** Exactly the known values from observations. Unknown fields have no effective entry. */
   effective: EngineSettings;
   fields: readonly EngineSettingField[];
   /** Why live status is not shown, in words the card can show as it stands. */
   liveUnavailableReason: string;
   /**
-   * Settings the deployment's own config file no longer reads, by key: their
-   * placeholder is not in it. Empty while the template runs.
+   * Compatibility signal for settings proven independent of environment input.
+   * Unknown wiring alone does not establish that a setting is unused.
    */
   notInConfig: string[];
 }
