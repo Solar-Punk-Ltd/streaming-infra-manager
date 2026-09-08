@@ -1,4 +1,4 @@
-import type { ChequebookReceiptObservation } from '@streaming-infra-manager/common';
+import type { ChequebookReceiptHistory, ChequebookReceiptObservation } from '@streaming-infra-manager/common';
 import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 import { isTransactionHash } from './operationIdentity.js';
 
@@ -14,13 +14,32 @@ function blockHash(value: unknown): string {
   return value.toLowerCase();
 }
 
+export function normalizeReceiptHistory(history: ChequebookReceiptHistory): ChequebookReceiptHistory {
+  if (history.receiptStatus !== 'success' && history.receiptStatus !== 'reverted') throw new ChequebookOperationInputError('receipt history status');
+  const result = {
+    transactionHash: blockHash(history.transactionHash),
+    receiptBlockNumber: blockNumber(history.receiptBlockNumber), receiptBlockHash: blockHash(history.receiptBlockHash), receiptStatus: history.receiptStatus,
+    finalizedBlockNumber: blockNumber(history.finalizedBlockNumber), finalizedBlockHash: blockHash(history.finalizedBlockHash),
+    cursorBlockNumber: blockNumber(history.cursorBlockNumber), cursorBlockHash: blockHash(history.cursorBlockHash),
+  };
+  if (BigInt(result.cursorBlockNumber) > BigInt(result.finalizedBlockNumber) || BigInt(result.receiptBlockNumber) > BigInt(result.finalizedBlockNumber) ||
+      (result.cursorBlockNumber === result.finalizedBlockNumber && result.cursorBlockHash !== result.finalizedBlockHash) ||
+      (result.cursorBlockNumber === result.receiptBlockNumber && result.cursorBlockHash !== result.receiptBlockHash) ||
+      (result.receiptBlockNumber === result.finalizedBlockNumber && result.receiptBlockHash !== result.finalizedBlockHash)) {
+    throw new ChequebookOperationInputError('receipt history bounds');
+  }
+  return Object.freeze(result);
+}
+
 /** Only evidence fields, never endpoint diagnostics, enter the durable journal. */
 export function normalizeReceiptObservation(observation: ChequebookReceiptObservation): ChequebookReceiptObservation {
   if (observation.kind === 'pending' && ['awaiting_transaction', 'awaiting_receipt', 'awaiting_finality'].includes(observation.reason)) {
     return Object.freeze({ kind: observation.kind, reason: observation.reason });
   }
   if (observation.kind === 'could_not_check' && ['rpc_unavailable', 'identity_mismatch', 'chain_changed', 'history_incomplete'].includes(observation.reason)) {
-    return Object.freeze({ kind: observation.kind, reason: observation.reason });
+    const history = observation.history ? normalizeReceiptHistory(observation.history) : undefined;
+    if (history && (observation.reason === 'identity_mismatch' || observation.reason === 'chain_changed')) throw new ChequebookOperationInputError('receipt history conflict');
+    return Object.freeze({ kind: observation.kind, reason: observation.reason, ...(history ? { history } : {}) });
   }
   if (observation.kind !== 'settled' && observation.kind !== 'reverted') throw new ChequebookOperationInputError('receipt observation');
   const result = {

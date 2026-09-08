@@ -23,9 +23,20 @@ export interface ChequebookTransferContext {
 export type ChequebookOperationState = 'submitting' | 'submitted' | 'unknown' | 'settled' | 'reverted' | 'asserted' | 'rejected';
 export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavailable' | 'invalid_response';
 
+export interface ChequebookReceiptHistory {
+  readonly transactionHash: string;
+  readonly receiptBlockNumber: string;
+  readonly receiptBlockHash: string;
+  readonly receiptStatus: 'success' | 'reverted';
+  readonly finalizedBlockNumber: string;
+  readonly finalizedBlockHash: string;
+  readonly cursorBlockNumber: string;
+  readonly cursorBlockHash: string;
+}
+
 export type ChequebookReceiptObservation =
   | { readonly kind: 'pending'; readonly reason: 'awaiting_transaction' | 'awaiting_receipt' | 'awaiting_finality' }
-  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' | 'history_incomplete' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' | 'history_incomplete'; readonly history?: ChequebookReceiptHistory }
   | {
     readonly kind: 'settled' | 'reverted';
     readonly receiptBlockNumber: string;
