@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { PortReservedError } from '../errors/index.js';
 import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
-import { type PortKey, type PortPlanEntry, type PortReconciliation, type PortReservation, type ReservationState, portKeyOf } from './portReservations.js';
+import { type PortKey, type PortPlanEntry, type PortReconciliation, type PortReservation, type ReservationState, ownersAfterHandover, portKeyOf } from './portReservations.js';
 import { RESERVATION_COLUMNS, type ReservationRow, toReservation } from './reservationSql.js';
 
 const INVENTORY_ROW = 1;
@@ -59,10 +59,14 @@ export class PostgresPortReservationRepository implements PortReservationReposit
         throw new PortReservedError(profileName, toReservation(other));
       }
       const mine = new Set(held.rows.map((row) => portKeyOf({ protocol: row.protocol, port: row.port })));
+      for (const row of held.rows) {
+        const owners = [...new Set([...row.held_services, ...entries.filter(entry => portKeyOf(entry) === portKeyOf(row)).map(entry => entry.service)])];
+        await client.query('UPDATE port_reservations SET held_services = $2::text[], updated_at = NOW() WHERE id = $1', [row.id, owners]);
+      }
       const missing = entries.filter((entry) => !mine.has(portKeyOf(entry)));
       const inserted = await client.query<ReservationRow>(
-        `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, state, reason)
-         SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, 'planned', $7
+        `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, held_services, state, reason)
+         SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, ARRAY[t.service], 'planned', $7
            FROM unnest($3::text[], $4::int[], $5::text[], $6::text[]) AS t(protocol, port, port_var, service)
          RETURNING ${RESERVATION_COLUMNS}`,
         [
@@ -124,7 +128,15 @@ export class PostgresPortReservationRepository implements PortReservationReposit
         [observation.profileName],
       );
       if (!blocked.rows[0]?.held) {
-        const releasing = rows.rows.filter(row => row.service !== null && observation.services.includes(row.service)
+        for (const row of rows.rows) {
+          const current = observation.planned.filter(entry => portKeyOf(entry) === portKeyOf(row));
+          if (!current.length) continue;
+          const owners = ownersAfterHandover(row.held_services, current.map(entry => entry.service), observation.services);
+          const confirmed = current.find(entry => entry.service !== null && observation.services.includes(entry.service));
+          await client.query('UPDATE port_reservations SET held_services = $2::text[], service = $3, updated_at = NOW() WHERE id = $1',
+            [row.id, owners, confirmed?.service ?? row.service]);
+        }
+        const releasing = rows.rows.filter(row => row.held_services.length > 0 && row.held_services.every(service => service !== null && observation.services.includes(service))
           && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
         await client.query("UPDATE port_reservations SET state = 'releasing', updated_at = NOW() WHERE id = ANY($1::int[])", [releasing]);
         await client.query("DELETE FROM port_reservations WHERE id = ANY($1::int[]) AND state = 'releasing'", [releasing]);

@@ -32,6 +32,7 @@ export interface PortPlanEntry extends PortKey {
 }
 
 export interface PortReservation extends PortPlanEntry {
+  heldServices: readonly (string | null)[];
   id: number;
   daemonId: string;
   profileName: string;
@@ -45,8 +46,15 @@ export interface PortReconciliation {
   profileName: string;
   daemonId: string;
   services: readonly string[];
-  planned: readonly PortKey[];
+  planned: readonly PortPlanEntry[];
   bound: readonly PortKey[];
+}
+
+/** An untouched or unknown owner keeps its claim even when another service has moved onto the same port. */
+export function ownersAfterHandover(
+  previous: readonly (string | null)[], current: readonly (string | null)[], replaced: readonly string[],
+): (string | null)[] {
+  return [...new Set([...previous.filter(service => service === null || !replaced.includes(service)), ...current])];
 }
 
 /** The ports a deployment binds for a slot: the version's table shifted by ten per slot. */

@@ -10,6 +10,7 @@ import {
   type ReservationState,
   portKeyOf,
   portPlanFor,
+  ownersAfterHandover,
 } from '../../src/domain/ports/portReservations.js';
 
 /**
@@ -68,12 +69,17 @@ export class InMemoryPortReservations implements PortReservationRepository {
     }
     const planned: PortReservation[] = [];
     for (const entry of entries) {
-      if (this.holderOf(daemonId, entry)) continue;
+      const holder = this.holderOf(daemonId, entry);
+      if (holder) {
+        holder.heldServices = [...new Set([...holder.heldServices, entry.service])];
+        continue;
+      }
       const row: PortReservation = {
         id: this.nextId++,
         daemonId,
         profileName,
         ...entry,
+        heldServices: [entry.service],
         state: 'planned',
         reason,
         createdAt: new Date(++this.clock),
@@ -93,6 +99,7 @@ export class InMemoryPortReservations implements PortReservationRepository {
         daemonId,
         profileName,
         ...entry,
+        heldServices: [entry.service],
         state: 'planned',
         reason,
         createdAt: new Date(++this.clock),
@@ -117,7 +124,13 @@ export class InMemoryPortReservations implements PortReservationRepository {
     const planned = new Set(observation.planned.map(portKeyOf));
     await this.setState(rows.filter(row => bound.has(portKeyOf(row))).map(row => row.id), 'active');
     if (this.releaseBlocked(observation.profileName)) return;
-    const releasing = rows.filter(row => row.service !== null && observation.services.includes(row.service)
+    for (const row of rows) {
+      const current = observation.planned.filter(entry => portKeyOf(entry) === portKeyOf(row));
+      if (!current.length) continue;
+      row.heldServices = ownersAfterHandover(row.heldServices, current.map(entry => entry.service), observation.services);
+      row.service = current.find(entry => entry.service !== null && observation.services.includes(entry.service))?.service ?? row.service;
+    }
+    const releasing = rows.filter(row => row.heldServices.length > 0 && row.heldServices.every(service => service !== null && observation.services.includes(service))
       && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
     await this.setState(releasing, 'releasing');
     await this.remove(releasing);

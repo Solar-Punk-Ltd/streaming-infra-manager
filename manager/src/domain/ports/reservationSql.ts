@@ -4,7 +4,7 @@ import type { PoolClient } from 'pg';
 import { type PortPlanEntry, type PortReservation, type ReservationState, portPlanFor } from './portReservations.js';
 
 export const RESERVATION_COLUMNS = `
-  id, daemon_id, protocol, port, profile_name, service, port_var, state, reason, created_at, updated_at
+  id, daemon_id, protocol, port, profile_name, service, held_services, port_var, state, reason, created_at, updated_at
 `;
 
 export interface ReservationRow {
@@ -14,6 +14,7 @@ export interface ReservationRow {
   port: number;
   profile_name: string;
   service: string | null;
+  held_services: (string | null)[];
   port_var: string;
   state: ReservationState;
   reason: string | null;
@@ -29,6 +30,7 @@ export function toReservation(row: ReservationRow): PortReservation {
     port: row.port,
     profileName: row.profile_name,
     service: row.service,
+    heldServices: row.held_services,
     portVar: row.port_var,
     state: row.state,
     reason: row.reason,
@@ -84,8 +86,8 @@ export async function insertPlannedReservations(
 ): Promise<void> {
   if (entries.length === 0) return;
   await client.query(
-    `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, state, reason)
-     SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, 'planned', $7
+    `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, held_services, state, reason)
+     SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, ARRAY[t.service], 'planned', $7
        FROM unnest($3::text[], $4::int[], $5::text[], $6::text[]) AS t(protocol, port, port_var, service)`,
     [
       daemonId,
