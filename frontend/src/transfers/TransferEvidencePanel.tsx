@@ -31,6 +31,7 @@ export function TransferEvidencePanel({ detail, blocking = false }: { detail: Ch
     {hashes.map(hash => <TransferValue key={hash} label={blocking ? 'Blocking transaction hash' : 'Transaction hash'} value={hash} copy />)}
     {conflict && <Typography variant="body2">Additional transaction evidence needs review. Starting another transfer is blocked.</Typography>}
     {operation.state === 'asserted' && permitsNewTransfer(detail) && <Typography variant="body2">This records an operator's acceptance of duplicate-payment risk. It does not prove that no transaction was sent.</Typography>}
-    <TransferValue label="Last transaction check" value={operation.receiptCheckedAt ?? operation.recoveryCheckedAt ?? 'Not checked yet'} />
+    <TransferValue label="Last receipt check" value={operation.receiptCheckedAt ?? 'Not checked yet'} />
+    <TransferValue label="Last recovery check" value={operation.recoveryCheckedAt ?? 'Not checked yet'} />
   </Stack>;
 }
