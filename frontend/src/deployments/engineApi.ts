@@ -21,11 +21,12 @@ export async function fetchEngine(name: string, signal?: AbortSignal): Promise<E
 export function saveEngineSettings(
   name: string,
   settings: EngineSettings,
+  expectedInstanceId: string,
 ): Promise<Profile> {
   return sendJson<Profile>(
     'PUT',
     `/profiles/${encodeURIComponent(name)}/engine-settings`,
-    settings,
+    { ...settings, expectedInstanceId },
   );
 }
 

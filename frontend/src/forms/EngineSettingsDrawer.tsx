@@ -154,7 +154,7 @@ export function EngineSettingsDrawer({
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveEngineSettings(name, settings);
+      const saved = await saveEngineSettings(name, settings, instanceId);
       if (!mounted.current) return;
       if (latestProfile.current?.instance_id !== instanceId || saved.instance_id !== instanceId) {
         setError('The deployment changed while settings were saved. Close and reopen Settings to inspect the current deployment.');

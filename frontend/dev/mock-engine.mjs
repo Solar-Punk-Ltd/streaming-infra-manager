@@ -32,6 +32,7 @@ import {
 
 import { omeSettingReadings } from '../../manager/src/domain/engineConfig/omeSettingReadings.ts';
 import { srsSettingReadings } from '../../manager/src/domain/engineConfig/srsSettingReadings.ts';
+import { engineSettingsSchema } from '../../manager/src/schemas/engine.ts';
 import { engineConfigSource } from './mock-engine-config.mjs';
 import { send, sendText } from './mock-http.mjs';
 import { contractOfVersion } from './mock-versions.mjs';
@@ -181,7 +182,7 @@ function serverXml(settings) {
  * @param deps.deploy    the mock's own DEPLOYING then RUNNING transition
  * @param deps.publish   writes an event to every open SSE client
  */
-export function engineRoutes({ readBody, withProfile, deploy, publish }) {
+export function engineRoutes({ readBody, withProfile, findProfile, deploy, publish }) {
   return [
     [
       'GET',
@@ -221,7 +222,21 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
         const { engine, abr } = engineFacts(profile);
         if (!engine) return noEngine(res, profile);
 
-        const settings = await readBody(req);
+        let input;
+        try {
+          input = await engineSettingsSchema.validate(await readBody(req), { abortEarly: false, stripUnknown: true });
+        } catch (error) {
+          return send(res, 400, { error: 'validation_error', errors: error.errors ?? ['Invalid engine settings.'] });
+        }
+        const { expectedInstanceId, ...values } = input;
+        if (findProfile(profile.name) !== profile || (expectedInstanceId !== undefined && profile.instance_id !== expectedInstanceId)) {
+          return send(res, 409, { error: 'profile_instance_changed', name: profile.name,
+            message: 'This deployment instance changed. Refresh before changing it.' });
+        }
+        if (['DEPLOYING', 'STOPPING', 'REMOVING'].includes(profile.status)) {
+          return send(res, 409, { error: 'profile_busy', name: profile.name, status: profile.status });
+        }
+        const settings = Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === 'string'));
         const problem = engineSettingsProblem(engine, settings, {
           abr,
           defaults: hostDefaults(engine, profile).values,

@@ -690,7 +690,7 @@ const ROUTES = [
       send(res, 202, { group, profiles });
     },
   ],
-  ...engineRoutes({ readBody, withProfile, deploy, publish }),
+  ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
