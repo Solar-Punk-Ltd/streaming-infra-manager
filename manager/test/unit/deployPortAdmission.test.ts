@@ -31,6 +31,16 @@ async function setup() {
 }
 
 describe('captured contract port admission', () => {
+  it('cancels only the current unstarted build reference when port admission is refused', async () => {
+    const h = await setup();
+    const old = await h.ledger.describe('a', await h.versions.findById(1), ['srs', 'stream-uploader']);
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
+    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(20000).ports, 1), 'conflict');
+    await assert.rejects(h.orchestrator.reserveDeploy(h.row(), undefined), /b holds/);
+    assert.deepEqual(h.ledger.openJobReferences('a').map(reference => reference.id), [old.referenceId]);
+    assert.equal(h.row().status, 'RUNNING');
+  });
+
   it('adds the entire captured table while keeping old active ports until observed release', async () => {
     const h = await setup();
     await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });

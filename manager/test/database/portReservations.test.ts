@@ -85,6 +85,17 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.ok(open.some(reference => reference.holderId === 'a/srs'));
   });
 
+  it('cancels only the exact unstarted job reference belonging to the profile', async () => {
+    const version = (await new PostgresStackVersionRepository(pool).findById(1))!;
+    const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => null }, '/fake/versions');
+    const older = await ledger.describe('a', version, ['srs', 'stream-uploader']);
+    const current = await ledger.describe('a', version, ['srs']);
+    await ledger.cancelUnstarted('other', current.referenceId!);
+    assert.equal((await ledger.openReferences(1)).length, 2);
+    await ledger.cancelUnstarted('a', current.referenceId!);
+    assert.deepEqual((await ledger.openReferences(1)).map(reference => reference.id), [older.referenceId]);
+  });
+
   it('retains unresolved job and rollback plans, then releases only observed superseded service ports', async () => {
     await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
     const next = [{ ...entries[1]!, port: 20011 }];
