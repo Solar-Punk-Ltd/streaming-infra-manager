@@ -333,7 +333,7 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
     state: ready ? 'warn' : 'off',
     detail: ready
       ? 'Stamp is set. Start the uploader to complete the stack.'
-      : 'Start is held until funding and the stamp can be verified. Existing containers are left running.',
+      : 'Start is held until the earlier readiness checks pass. Existing containers are left running.',
     action: ready
       ? { label: 'Start uploader', kind: 'deploy-uploader', primary: true }
       : undefined,
