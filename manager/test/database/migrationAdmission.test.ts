@@ -37,12 +37,12 @@ describe('migration admission in isolated PostgreSQL', { skip: !Number.isInteger
     if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
     if (directory) await rm(directory, { recursive: true, force: true });
   });
-  function database() {
+  function database(useDefaultDirectory = false) {
     const name = `${schema}_${instances.length}`;
     const url = new URL(`postgresql://postgres@127.0.0.1:${port}/t04b_test`);
     url.searchParams.set('options', `-c search_path=${schema} -c statement_timeout=10000`);
     url.searchParams.set('application_name', name);
-    const database = new Database(url.toString(), directory);
+    const database = new Database(url.toString(), useDefaultDirectory ? undefined : directory);
     instances.push({ database, name });
     return { database, name };
   }
@@ -103,6 +103,15 @@ describe('migration admission in isolated PostgreSQL', { skip: !Number.isInteger
     await bounded(database().database.migrate());
     assert.deepEqual((await admin.query(`SELECT * FROM ${schema}._migrations`)).rows, before.rows);
     assert.deepEqual((await admin.query(`SELECT value FROM ${schema}.applied_once`)).rows, [{ value: 1 }]);
+    await assertReleased();
+  });
+
+  it('migrates the repository schema through the unchanged default directory', async () => {
+    const first = database(true);
+    await first.database.migrate();
+    assert.ok((await ledger()).includes('024_bundled_shipments.sql'));
+    assert.equal((await admin.query(`SELECT publication_revision FROM ${schema}.stack_versions WHERE name = 'bundled'`)).rows[0].publication_revision, '0');
+    await bounded(database(true).database.migrate());
     await assertReleased();
   });
 
