@@ -6,11 +6,13 @@ import pg, { type Pool, type PoolClient } from 'pg';
 import { PostgresChequebookOperationRepository } from '../../src/domain/chequebook/PostgresChequebookOperationRepository.js';
 import { PostgresDeployAttemptRepository } from '../../src/domain/PostgresDeployAttemptRepository.js';
 import { PROFILE_SLOT_LOCK_KEY } from '../../src/domain/profileSql.js';
+import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
+import { PostgresChequebookTargetOwnership } from '../../src/domain/chequebook/PostgresChequebookTargetOwnership.js';
 import { operationCandidate, profileInstanceId } from '../support/chequebookOperations.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't09_test', connectionTimeoutMillis: 30000 };
-const proof = {
+const proof: FrozenChequebookTarget = {
   version: 1,
   profile: { name: 'test-deployment', instanceId: profileInstanceId, intentRevision: 0, engineConfigRevision: 0,
     kind: 'custom', components: ['bee-uploader'], host: null, portSlot: 1, stackVersionId: 1, status: 'RUNNING' },
@@ -27,7 +29,7 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
     schema = `t09_target_${randomBytes(8).toString('hex')}`;
     admin = new pg.Pool(connection);
     await admin.query(`CREATE SCHEMA ${schema}`);
-    pool = new pg.Pool({ ...connection, max: 12, options: `-c search_path=${schema} -c statement_timeout=5000` });
+    pool = new pg.Pool({ ...connection, max: 12, application_name: schema, options: `-c search_path=${schema} -c statement_timeout=5000` });
     const migrations = new URL('../../src/migrations/', import.meta.url);
     for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) await pool.query(await readFile(new URL(name, migrations), 'utf8'));
     await pool.query(`INSERT INTO profiles (name, port_slot, instance_id, stack_version_id, status, components)
@@ -56,7 +58,7 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
   async function waitForLockWait() {
     for (let attempt = 0; attempt < 100; attempt++) {
       const blocked = await admin.query(`SELECT 1 FROM pg_stat_activity WHERE datname='t09_test'
-        AND wait_event_type='Lock' AND query LIKE '%chequebook%'`);
+        AND wait_event_type='Lock' AND application_name=$1`, [schema]);
       if (blocked.rows.length) return;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
@@ -68,7 +70,6 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
       await writer.query('BEGIN');
       await writer.query(sql);
       const result = action();
-      // The SQL-specific tests below use a profile lock. The claim query is observable by its comment.
       await waitForLockWait();
       await writer.query('COMMIT');
       return await result;
@@ -76,6 +77,7 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
   }
 
   it('retains an exact proof and gives only one concurrent dispatch permit without cached containers', async () => {
+    assert.deepEqual(await new PostgresChequebookTargetOwnership(pool).capture(proof.profile.name, profileInstanceId), proof);
     const operation = await admitted();
     const row = (await pool.query('SELECT submission_target FROM chequebook_operations WHERE id=$1', [operation.id])).rows[0];
     assert.deepEqual(row.submission_target, proof);
@@ -150,6 +152,60 @@ describe('frozen money target ownership in isolated PostgreSQL schemas', { skip:
     const operation = await admitted();
     const result = await holdChange('UPDATE profiles SET intent_revision=intent_revision+1', () => repository.claimDispatch(operation.id));
     assert.equal((result as { claimed: boolean }).claimed, false);
+  });
+
+  for (const [name, sql] of [
+    ['alias invalidation', 'UPDATE deploy_targets SET verified_at=NULL'],
+    ['reservation release', "UPDATE port_reservations SET state='releasing'"],
+  ]) {
+    it(`waits for in-flight ${name} before claiming`, async () => {
+      const operation = await admitted();
+      const result = await holdChange(sql!, () => repository.claimDispatch(operation.id));
+      assert.equal((result as { claimed: boolean }).claimed, false);
+    });
+  }
+
+  it('holds profile, alias, reservation and project locks until the dispatch claim commits', async () => {
+    const operation = await admitted();
+    const blocker = await pool.connect();
+    const writers: Promise<unknown>[] = [];
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT id FROM chequebook_operations WHERE id=$1 FOR UPDATE', [operation.id]);
+      const claim = repository.claimDispatch(operation.id);
+      await waitForLockWait();
+      let finished = 0;
+      for (const sql of ['UPDATE profiles SET intent_revision=intent_revision+1',
+        'UPDATE deploy_targets SET verified_at=NULL', "UPDATE port_reservations SET state='releasing'"]) {
+        writers.push(pool.query(sql).then(() => { finished++; }));
+      }
+      writers.push(new PostgresDeployAttemptRepository(pool).open({ daemonId: proof.daemonId, project: proof.profile.name,
+        jobId: randomUUID(), kind: 'fixed', services: ['bee-uploader'], preJobContainerIds: [] }).then(() => { finished++; }));
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(finished, 0);
+      await blocker.query('COMMIT');
+      assert.equal((await claim).claimed, true);
+      await Promise.all(writers);
+      assert.equal(finished, 4);
+      assert.equal((await repository.claimDispatch(operation.id)).claimed, false);
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); await Promise.allSettled(writers); }
+  });
+
+  it('freezes the supplied proof before awaiting the money node lock', async () => {
+    const blocker = await pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      const input = candidate();
+      await blocker.query('SELECT pg_advisory_xact_lock(29002, hashtext($1))', [`${input.chainId}:${input.nodeAddress}`]);
+      const admission = repository.admit(input);
+      await waitForLockWait();
+      const changed = input.submissionTarget as { reservation: { port: number } };
+      changed.reservation.port = 10025;
+      await blocker.query('UPDATE port_reservations SET port=10025');
+      await blocker.query('COMMIT');
+      await assert.rejects(admission, /target/i);
+      assert.equal(await repository.findByRequestId(input.requestId), null);
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); }
   });
 
   it('honors allocation and daemon attempt admission locks before the dispatch claim', async () => {
