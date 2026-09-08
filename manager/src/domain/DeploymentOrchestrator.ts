@@ -621,7 +621,7 @@ export class DeploymentOrchestrator {
 
     // An empty service filter would make deploy.sh deploy every configured service.
     if (reservation.services.length === 0) {
-      return this.completeWithoutScript(profile, paths);
+      return this.completeWithoutScript(profile, paths, build.referenceId);
     }
     await this.ensureStackDefaults(paths);
 
@@ -691,8 +691,11 @@ export class DeploymentOrchestrator {
     });
   }
 
-  private async completeWithoutScript(profile: Profile, paths: StackPaths): Promise<RunHandle> {
+  private async completeWithoutScript(profile: Profile, paths: StackPaths, referenceId: number | null): Promise<RunHandle> {
     await this.ensureStackDefaults(paths);
+    if (referenceId !== null) {
+      await this.ledger.cancelUnstarted(profile.name, referenceId);
+    }
 
     const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
     if (updated) {
