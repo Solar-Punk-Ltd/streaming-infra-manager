@@ -54,7 +54,7 @@ describe('deploy attempts on their target daemon', () => {
 
   it('refuses admission when the container snapshot came from a different daemon than the preflight', async () => {
     const h = setup('remote-daemon');
-    const older = await h.ledger.describe('remote', await h.versions.findById(1), ['srs', 'stream-uploader']);
+    const older = await h.ledger.seedJob('remote', await h.versions.findById(1), ['srs', 'stream-uploader']);
     h.daemon.snapshot = async () => ({
       daemonId: 'different-daemon',
       containers: new Map([['srs', ['other-new']]]),

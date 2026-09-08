@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
 import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
-import type { ProfileStatus } from '../../src/types/index.js';
+import type { Profile, ProfileStatus } from '../../src/types/index.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 const port = Number(process.env.T12_TEST_PG_PORT);
@@ -27,6 +28,7 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
   let versions: PostgresStackVersionRepository;
   let ledger: PostgresBuildLedger;
   let selected: StackVersionRecord;
+  let initial: Profile;
 
   beforeEach(async () => {
     schema = `t12_claim_${randomBytes(8).toString('hex')}`;
@@ -61,9 +63,9 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
   });
 
   async function insert(status: ProfileStatus) {
-    await profiles.insertWithFreeSlot('test-stream', 'streamer', status, {}, {
+    initial = (await profiles.insertWithFreeSlot('test-stream', 'streamer', status, {}, {
       stackVersionId: selected.id, slotCap: 10, daemonId: 'synthetic-daemon', table: ALLOCATION_CONTRACT.ports,
-    });
+    }))!;
   }
 
   async function references() {
@@ -79,8 +81,8 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
       await insert(status);
       await pool.query('UPDATE profiles SET deployment_phase = $1', [oldPhase]);
       const results = await Promise.all([
-        ledger.claim('test-stream', [status], selected, ['srs']),
-        ledger.claim('test-stream', [status], selected, ['srs']),
+        ledger.claim('test-stream', [status], selected, ['srs'], { ...deployOwnerOf(initial), intent: 'preserve' }),
+        ledger.claim('test-stream', [status], selected, ['srs'], { ...deployOwnerOf(initial), intent: 'preserve' }),
       ]);
       const winners = results.filter(result => result !== null);
       assert.equal(winners.length, 1);
@@ -97,7 +99,7 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
     const before = await profiles.findByName('test-stream');
     const beforeReferences = await references();
     await versions.publish(selected.id, { buildId: `${A}-r1`, commitSha: A, contract: ALLOCATION_CONTRACT });
-    await assert.rejects(ledger.claim('test-stream', ['RUNNING'], selected, ['srs']), /changed/);
+    await assert.rejects(ledger.claim('test-stream', ['RUNNING'], selected, ['srs'], { ...deployOwnerOf(initial), intent: 'preserve' }), /changed/);
     assert.deepEqual(await profiles.findByName('test-stream'), before);
     assert.deepEqual(await references(), beforeReferences);
   });
@@ -106,7 +108,7 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
     await insert('RUNNING');
     const before = await profiles.findByName('test-stream');
     await pool.query("ALTER TABLE build_references ADD CONSTRAINT reject_test_job CHECK (holder_id <> 'test-stream')");
-    await assert.rejects(ledger.claim('test-stream', ['RUNNING'], selected, ['srs']), /reject_test_job/);
+    await assert.rejects(ledger.claim('test-stream', ['RUNNING'], selected, ['srs'], { ...deployOwnerOf(initial), intent: 'preserve' }), /reject_test_job/);
     assert.deepEqual(await profiles.findByName('test-stream'), before);
     assert.deepEqual(await references(), []);
   });
@@ -114,7 +116,7 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
   for (const finish of ['terminal', 'failure', 'interrupted'] as const) {
     it(`clears the phase of an admitted build on ${finish}`, async () => {
       await insert('RUNNING');
-      const claim = await ledger.claim('test-stream', ['RUNNING'], selected, ['srs']);
+      const claim = await ledger.claim('test-stream', ['RUNNING'], selected, ['srs'], { ...deployOwnerOf(initial), intent: 'preserve' });
       assert.equal(claim?.profile.deployment_phase, 'restarting');
       if (finish === 'terminal') await profiles.markTerminal('test-stream', 'RUNNING');
       else if (finish === 'failure') await profiles.markError('test-stream', 'synthetic failure');

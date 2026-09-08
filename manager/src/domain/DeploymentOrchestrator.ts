@@ -61,7 +61,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
 import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
-import type { BuildDescriptor, BuildLedger, Observation } from './versions/buildLedger.js';
+import { deployOwnerOf, type BuildDescriptor, type BuildLedger, type DeployClaimOwnership, type Observation } from './versions/buildLedger.js';
 import {
   deployRootProblem,
   stackPaths,
@@ -175,6 +175,7 @@ const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
  */
 export interface DeployReservation {
   readonly profileName: string;
+  readonly claimedProfile?: Profile;
   /** What the run will start, after the stamp hold-back. */
   readonly services: readonly string[];
   readonly heldBackForStamp: readonly string[];
@@ -399,12 +400,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
-    const reservation = await this.claim(profile, requested);
-    await this.operatorActed(
-      profile,
-      'Redeployed by the operator before the file was verified.',
-    );
-    return reservation;
+    return this.claim(profile, requested, 'advance');
   }
 
   /**
@@ -416,7 +412,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     engine: EngineName,
   ): Promise<DeployReservation> {
-    return this.claim(profile, [engine]);
+    return this.claim(profile, [engine], 'preserve');
   }
 
   /**
@@ -433,6 +429,7 @@ export class DeploymentOrchestrator {
   private async claim(
     profile: Profile,
     requested: string[] | undefined,
+    intent: DeployClaimOwnership['intent'],
   ): Promise<DeployReservation> {
     const planned = this.planDeploy(profile, requested);
 
@@ -451,14 +448,16 @@ export class DeploymentOrchestrator {
       REDEPLOYABLE_FROM,
       version,
       planned.services,
+      { ...deployOwnerOf(profile), intent, supersedeReason: 'Redeployed by the operator before the file was verified.' },
     );
     if (!claimed) {
       const current = await this.profiles.findByName(profile.name);
       throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
     }
-    const reservation = { ...planned, transitioned: true, build: claimed.descriptor };
+    const reservation = { ...planned, previousStatus: claimed.previousStatus, transitioned: true,
+      claimedProfile: claimed.profile, build: claimed.descriptor };
     try {
-      const daemonId = await this.reservePorts(profile, reservation);
+      const daemonId = await this.reservePorts(claimed.profile, reservation);
       await this.publishChanged(claimed.profile);
       return { ...reservation, daemonId };
     } catch (err) {
@@ -497,13 +496,8 @@ export class DeploymentOrchestrator {
   /** Gives the profile its status back, for a claim that will not be run. */
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     if (!reservation.transitioned) return;
-    if (reservation.build?.referenceId != null) {
-      await this.ledger.cancelUnstarted(reservation.profileName, reservation.build.referenceId);
-    }
-    const restored = await this.profiles.markTerminal(
-      reservation.profileName,
-      reservation.previousStatus,
-    );
+    if (!reservation.claimedProfile || reservation.build?.referenceId == null) return;
+    const restored = await this.ledger.cancelClaim(reservation.claimedProfile, reservation.build.referenceId, reservation.previousStatus);
     if (restored) {
       await this.publishChanged(restored);
     }
@@ -523,10 +517,12 @@ export class DeploymentOrchestrator {
     let prepared = reservation;
     try {
       const build = reservation.build ?? await this.ledger.describe(
-        profile.name, await this.versionForDeploy(profile), [...reservation.services],
+        profile.name, await this.versionForDeploy(profile), [...reservation.services], deployOwnerOf(profile),
       );
       const version = this.deployVersionOrThrow(profile, build.version);
-      const captured: CapturedDeployReservation = { ...reservation, build: { ...build, version } };
+      const captured: CapturedDeployReservation = { ...reservation,
+        claimedProfile: reservation.claimedProfile ?? (reservation.build === null ? profile : undefined),
+        build: { ...build, version } };
       prepared = captured;
       return await this.startReservedJob(captured, profile, hooks);
     } catch (err) {
@@ -549,7 +545,7 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
   ): Promise<RunHandle> {
     const reservation = await this.reserveDeploy(profile, requested);
-    return this.runReserved(reservation, profile);
+    return this.runReserved(reservation, reservation.claimedProfile ?? profile);
   }
 
   async startInitialDeploy(
@@ -567,7 +563,7 @@ export class DeploymentOrchestrator {
       const version = await this.versionForDeploy(profile);
       const problem = deployRootProblem(version);
       if (problem) throw new ProfileConfigError(profile.name, problem);
-      const build = await this.ledger.describe(profile.name, version, planned.services);
+      const build = await this.ledger.describe(profile.name, version, planned.services, deployOwnerOf(profile));
       reservation = { ...planned, build };
     } catch (err) {
       await this.markFailed(profile.name, getErrorMessage(err));
@@ -584,7 +580,7 @@ export class DeploymentOrchestrator {
     const reservation = await this.reserveDeploy(profile, [
       STREAM_UPLOADER_SERVICE,
     ]);
-    return this.runReserved(reservation, profile);
+    return this.runReserved(reservation, reservation.claimedProfile ?? profile);
   }
 
   private servicesToDeploy(
@@ -659,7 +655,8 @@ export class DeploymentOrchestrator {
     try {
       return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; }, hooks);
     } catch (err) {
-      if (!launchPossible && reservation.build?.referenceId != null) {
+      if (!launchPossible && reservation.build?.referenceId != null &&
+          !(err instanceof DeployAttemptRefusedError && reservation.transitioned)) {
         await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
       }
       throw err;

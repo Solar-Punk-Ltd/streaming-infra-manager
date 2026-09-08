@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
+import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { BundledArtifactMaterializer, bundledMaterializationPath } from '../../src/domain/versions/BundledArtifactMaterializer.js';
 import { copyBundledArtifact, verifyBundledArtifact } from '../../src/domain/versions/bundledArtifactFiles.js';
@@ -221,7 +223,9 @@ describe('bundled artifact materialization with isolated PostgreSQL and files', 
     try {
       await bounded(entered.promise);
       const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => { throw new Error('no Docker'); } }, root);
-      assert.ok((await bounded(ledger.describe('synthetic-profile', selected, ['srs']))).referenceId);
+      await pool.query("INSERT INTO profiles (name, kind, port_slot, status, stack_version_id) VALUES ('synthetic-profile', 'streamer', 1, 'DEPLOYING', $1)", [selected.id]);
+      const owner = deployOwnerOf((await new ProfileRepository(pool).findByName('synthetic-profile'))!);
+      assert.ok((await bounded(ledger.describe('synthetic-profile', selected, ['srs'], owner))).referenceId);
       await bounded(publish(C));
     } finally { release.resolve(); }
     assert.equal((await bounded(operation)).status, 'superseded');

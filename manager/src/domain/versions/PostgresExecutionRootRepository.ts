@@ -136,13 +136,13 @@ export class PostgresExecutionRootRepository {
     )).rows[0];
     if (!version || version.layout !== 'builds' || !version.root_path ||
         buildDirFor(dirname(version.root_path), basename(version.root_path), input.source.buildId) !== input.source.root) throw new Error('Execution source version or artifact root changed.');
-    const profile = (await client.query<{ instance_id: string; intent_revision: number; status: string; host: string | null; stack_version_id: number }>(
-      'SELECT instance_id, intent_revision, status, host, stack_version_id FROM profiles WHERE name = $1 FOR UPDATE', [input.profile.name],
+    const profile = (await client.query<{ instance_id: string; intent_revision: number; status: string; host: string | null; stack_version_id: number; deploy_job_reference_id: number | null }>(
+      'SELECT instance_id, intent_revision, status, host, stack_version_id, deploy_job_reference_id FROM profiles WHERE name = $1 FOR UPDATE', [input.profile.name],
     )).rows[0];
     const actionStatus = { deploy: 'DEPLOYING', stop: 'STOPPING', remove: 'REMOVING', health: input.profile.status }[input.action];
     if (!profile || profile.instance_id !== input.profile.instanceId || profile.intent_revision !== input.profile.intentRevision ||
         profile.status !== input.profile.status || profile.status !== actionStatus || profile.stack_version_id !== input.source.versionId ||
-        targetAlias(profile.host) !== input.target.alias) throw new Error('Current deployment no longer owns this execution.');
+        profile.deploy_job_reference_id !== input.jobReferenceId || targetAlias(profile.host) !== input.target.alias) throw new Error('Current deployment no longer owns this execution.');
     const job = (await client.query<{ version_id: number; build_id: string; holder_kind: string; holder_id: string; services: string[]; profile_instance_id: string | null; intent_revision: number | null; resolved_at: Date | null }>(
       'SELECT * FROM build_references WHERE id = $1 FOR UPDATE', [input.jobReferenceId],
     )).rows[0];

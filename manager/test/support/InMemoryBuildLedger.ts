@@ -9,6 +9,8 @@ import {
   type BuildReferenceReader,
   BUNDLED_BUILD_ID,
   type ClaimedDeploy,
+  type DeployClaimOwnership,
+  type ExpectedDeployOwner,
   LEGACY_BUILD_ID,
   type Observation,
 } from '../../src/domain/versions/buildLedger.js';
@@ -19,9 +21,10 @@ import {
   coveredJobReferences,
 } from '../../src/domain/versions/buildReferences.js';
 import { stackRootOf } from '../../src/domain/versions/stackPaths.js';
-import type { ProfileStatus } from '../../src/types/index.js';
+import type { Profile, ProfileStatus } from '../../src/types/index.js';
 
 import type { InMemoryProfiles } from './profileFixtures.js';
+import type { InMemoryEngineConfigOperations } from './InMemoryEngineConfigOperations.js';
 
 /**
  * The build ledger over a Map, with what Docker would say scripted: `mounted`
@@ -38,6 +41,8 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
 
   readonly observed: string[] = [];
 
+  private readonly activeJobs = new Map<string, number>();
+
   private nextId = 1;
 
   private clock = 0;
@@ -46,6 +51,7 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly profiles: InMemoryProfiles,
     private readonly versions: Pick<StackVersionRepository, 'findByName'>,
     private readonly versionsRoot: string,
+    private readonly operations: InMemoryEngineConfigOperations,
   ) {}
 
   async cancelUnstarted(profileName: string, referenceId: number): Promise<void> {
@@ -53,37 +59,64 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     if (reference && reference.resolvedAt === null) reference.resolvedAt = new Date(++this.clock);
   }
 
+  async cancelClaim(owner: Pick<Profile, 'name' | 'instance_id' | 'intent_revision'>, referenceId: number, previousStatus: ProfileStatus): Promise<Profile | null> {
+    const profile = this.profiles.rows.get(owner.name);
+    const job = this.references.find(row => row.id === referenceId);
+    if (!profile || profile.instance_id !== owner.instance_id || profile.intent_revision !== owner.intent_revision ||
+        profile.status !== 'DEPLOYING' || this.activeJobs.get(owner.name) !== referenceId || !job || job.resolvedAt !== null) return null;
+    await this.cancelUnstarted(owner.name, referenceId);
+    this.activeJobs.delete(owner.name);
+    return this.profiles.markTerminal(owner.name, previousStatus);
+  }
+
   async claim(
     profileName: string,
     from: readonly ProfileStatus[],
     version: StackVersionRecord | null,
     services: readonly string[],
+    ownership: DeployClaimOwnership,
   ): Promise<ClaimedDeploy | null> {
-    const profile = await this.profiles.transitionStatus(profileName, 'DEPLOYING', from);
+    const before = this.profiles.rows.get(profileName);
+    if (!before || !this.owns(before, ownership)) return null;
+    const previousStatus = before.status;
+    let profile = await this.profiles.transitionStatus(profileName, 'DEPLOYING', from);
     if (!profile) return null;
-    return { profile, descriptor: await this.describe(profileName, version, services) };
+    if (ownership.intent === 'advance') {
+      profile = (await this.profiles.bumpIntent(profileName))!;
+      await this.operations.supersedeOpen(profile.instance_id, ownership.supersedeReason ?? 'Superseded by a new deployment action.');
+      profile = this.profiles.rows.get(profileName)!;
+    }
+    const descriptor = await this.seedJob(profileName, version, services);
+    if (descriptor.referenceId !== null) this.activeJobs.set(profileName, descriptor.referenceId);
+    return { profile, descriptor, previousStatus };
   }
 
-  async describe(
-    profileName: string,
-    version: StackVersionRecord | null,
-    services: readonly string[],
-  ): Promise<BuildDescriptor> {
+  async describe(profileName: string, version: StackVersionRecord | null, services: readonly string[], ownership: ExpectedDeployOwner): Promise<BuildDescriptor> {
+    const profile = this.profiles.rows.get(profileName);
+    if (!profile || profile.status !== 'DEPLOYING' || !this.owns(profile, ownership) || this.activeJobs.has(profileName)) {
+      throw new Error('The deployment no longer owns this initial build job.');
+    }
+    const descriptor = await this.seedJob(profileName, version, services);
+    if (descriptor.referenceId !== null) this.activeJobs.set(profileName, descriptor.referenceId);
+    return descriptor;
+  }
+
+  /** Fixture history, without granting the inserted reference active ownership. */
+  async seedJob(profileName: string, version: StackVersionRecord | null, services: readonly string[]): Promise<BuildDescriptor> {
     const root = stackRootOf(version ?? { rootPath: null });
     const buildId = version === null ? BUNDLED_BUILD_ID : buildIdOfRoot(this.versionsRoot, root);
     if (version === null) return { version, buildId, root, referenceId: null };
     const reference: BuildReference = {
-      id: this.nextId++,
-      versionId: version.id,
-      buildId,
-      holderKind: 'job',
-      holderId: profileName,
-      services: [...services],
-      createdAt: new Date(++this.clock),
-      resolvedAt: null,
+      id: this.nextId++, versionId: version.id, buildId, holderKind: 'job', holderId: profileName,
+      services: [...services], createdAt: new Date(++this.clock), resolvedAt: null,
     };
     this.references.push(reference);
     return { version, buildId, root, referenceId: reference.id };
+  }
+
+  private owns(profile: Profile, expected: ExpectedDeployOwner): boolean {
+    return profile.instance_id === expected.instanceId && profile.intent_revision === expected.intentRevision &&
+      profile.engine_config_revision === expected.configRevision && profile.stack_version_id === expected.stackVersionId;
   }
 
   async observe(profileName: string, services: readonly string[]): Promise<Observation[]> {

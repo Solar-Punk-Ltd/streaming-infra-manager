@@ -66,6 +66,7 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
       "INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision) VALUES ($1, $2, 'job', 'owned', ARRAY['srs'], $3, 3) RETURNING id",
       [versionId, A, instanceId],
     )).rows[0]!.id;
+    await pool.query("UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = 'owned'", [jobReferenceId]);
     repository = new PostgresExecutionRootRepository(pool, join(root, '.executions'));
     ledger = new PostgresBuildLedger(pool, observer, root);
     service = new StackVersionService(versions, runner, new EventBus(), root, ledger);

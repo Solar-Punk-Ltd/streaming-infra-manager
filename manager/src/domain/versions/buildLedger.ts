@@ -33,6 +33,24 @@ export interface Observation {
 export interface ClaimedDeploy {
   profile: Profile;
   descriptor: BuildDescriptor;
+  previousStatus: ProfileStatus;
+}
+
+export interface ExpectedDeployOwner {
+  instanceId: string;
+  intentRevision: number;
+  configRevision: number;
+  stackVersionId: number;
+}
+
+export interface DeployClaimOwnership extends ExpectedDeployOwner {
+  intent: 'advance' | 'preserve';
+  supersedeReason?: string;
+}
+
+export function deployOwnerOf(profile: Profile): ExpectedDeployOwner {
+  return { instanceId: profile.instance_id, intentRevision: profile.intent_revision,
+    configRevision: profile.engine_config_revision, stackVersionId: profile.stack_version_id };
 }
 
 /**
@@ -52,6 +70,8 @@ export interface MountObserver {
 export interface BuildLedger {
   /** Cancel only this job's reference when its caller knows no script was launched. Older jobs remain protected. */
   cancelUnstarted(profileName: string, referenceId: number): Promise<void>;
+  /** Restore only the current unstarted claim. Historical and successor holds are independent. */
+  cancelClaim(profile: Pick<Profile, 'name' | 'instance_id' | 'intent_revision'>, referenceId: number, previousStatus: ProfileStatus): Promise<Profile | null>;
   /**
    * Moves the profile to DEPLOYING from one of `from` and records the job
    * reference in the same write. Null when the status claim fails, and then
@@ -62,12 +82,14 @@ export interface BuildLedger {
     from: readonly ProfileStatus[],
     version: StackVersionRecord | null,
     services: readonly string[],
+    ownership: DeployClaimOwnership,
   ): Promise<ClaimedDeploy | null>;
   /** The descriptor and the job reference for a row inserted DEPLOYING already. */
   describe(
     profileName: string,
     version: StackVersionRecord | null,
     services: readonly string[],
+    ownership: ExpectedDeployOwner,
   ): Promise<BuildDescriptor>;
   /**
    * Asks Docker what each service mounts, writes one snapshot reference per

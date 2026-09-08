@@ -65,7 +65,7 @@ describe('a reserved deployment captures its build before port work', () => {
 
   it('uses an already captured reservation without describing it again', async () => {
     const h = await setup();
-    const build = await h.ledger.describe(h.profile.name, await h.versions.findById(1), ['srs']);
+    const build = await h.ledger.seedJob(h.profile.name, await h.versions.findById(1), ['srs']);
     h.ledger.describe = async () => { throw new Error('duplicate description'); };
     h.versions.findById = async () => { throw new Error('version reread after capture'); };
     await h.orchestrator.runReserved({ ...h.reservation, build }, h.profile);
@@ -77,8 +77,8 @@ describe('a reserved deployment captures its build before port work', () => {
     it(`resolves only the successful no-op's ${captured ? 'captured' : 'fallback'} reference and keeps its ports`, async () => {
       const h = await setup([]);
       const version = await h.versions.findById(1);
-      const older = await h.ledger.describe(h.profile.name, version, ['srs', 'stream-uploader']);
-      const build = captured ? await h.ledger.describe(h.profile.name, version, []) : null;
+      const older = await h.ledger.seedJob(h.profile.name, version, ['srs', 'stream-uploader']);
+      const build = captured ? await h.ledger.seedJob(h.profile.name, version, []) : null;
 
       await h.orchestrator.runReserved({ ...h.reservation, build }, h.profile);
 
@@ -94,7 +94,7 @@ describe('a reserved deployment captures its build before port work', () => {
 
   it('cancels only the new fallback reference when port admission fails', async () => {
     const h = await setup();
-    const older = await h.ledger.describe(h.profile.name, await h.versions.findById(1), ['srs', 'stream-uploader']);
+    const older = await h.ledger.seedJob(h.profile.name, await h.versions.findById(1), ['srs', 'stream-uploader']);
     await h.profiles.reservations.plan('edge-daemon', 'other', portPlanFor(contract(19000).ports, 1), 'existing holder');
     await assert.rejects(h.orchestrator.runReserved(h.reservation, h.profile), /other holds/);
     assert.deepEqual(h.ledger.openJobReferences(h.profile.name).map(reference => reference.id), [older.referenceId]);
@@ -106,7 +106,7 @@ describe('a reserved deployment captures its build before port work', () => {
 
   it('restores the prior status and cancels only this reference on a late creation-guard refusal', async () => {
     const h = await setup();
-    const older = await h.ledger.describe(h.profile.name, await h.versions.findById(1), ['srs', 'stream-uploader']);
+    const older = await h.ledger.seedJob(h.profile.name, await h.versions.findById(1), ['srs', 'stream-uploader']);
     h.attempts.open = async () => { throw new DeployAttemptRefusedError(h.profile.name, 'another attempt won'); };
     await assert.rejects(h.orchestrator.runReserved(h.reservation, h.profile), /another attempt won/);
     assert.deepEqual(h.ledger.openJobReferences(h.profile.name).map(reference => reference.id), [older.referenceId]);
