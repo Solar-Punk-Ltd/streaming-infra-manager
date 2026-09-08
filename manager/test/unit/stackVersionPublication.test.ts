@@ -186,7 +186,7 @@ describe('updating a version', () => {
     const id = await addBuilt('v3', COMMIT_A);
     const configRoot = configRootFor(versionsRoot, 'v3');
     await commitHostConfig(configRoot, { '.env': Buffer.from(`${readFileSync(join(configRoot, '.env'), 'utf8')}CHEQUEBOOK_MIN_BZZ=1\n`) });
-    await service.setTested(id, true);
+    await service.setTested(id, true, COMMIT_A);
 
     await service.update(id);
     builtInStaging('v3', COMMIT_A);
