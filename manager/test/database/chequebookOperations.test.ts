@@ -256,6 +256,55 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.ok(!JSON.stringify(checked).includes('synthetic-private-path'));
   });
 
+  it('keeps a historical conflicting owner in candidate attribution despite its different saved hash', async () => {
+    const a = await assertedOperation();
+    await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    const differentHash = `0x${'94'.repeat(32)}`;
+    await repository.recordSubmission(a.id, { state: 'submitted', transactionHash: differentHash, failureReason: null });
+    const b = await unknownOperation();
+    const recovered = await repository.resolveCandidate(b, recoveryTransaction({ hash: differentHash }));
+    assert.equal(recovered.transactionHash, null);
+    assert.equal(recovered.recoveryObservation?.kind, 'ambiguous');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('invalidates the existing owner receipt when a different operation returns that same hash', async () => {
+    const a = await assertedOperation();
+    const b = await unknownOperation();
+    const owned = await repository.recordSubmission(b.id, { state: 'submitted', transactionHash, failureReason: null });
+    const late = await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(late.state, 'asserted');
+    assert.equal(late.failureReason, 'hash_conflict');
+    const owner = await repository.findById(b.id);
+    assert.ok(owner);
+    assert.equal(owner.failureReason, 'hash_conflict');
+    assert.equal(owner.transactionHash, transactionHash);
+    assert.equal(owner.revision, String(BigInt(owned.revision) + 1n));
+    assert.deepEqual(await repository.recordReceipt(owned, confirmed), owner);
+    assert.deepEqual(await repository.recordReceipt(owner, confirmed), owner);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('serializes crossed response conflicts on different nodes without reassigning either owned hash', async () => {
+    const a = (await repository.admit(operationCandidate())).operation;
+    const b = (await repository.admit(operationCandidate({ nodeAddress: `0x${'98'.repeat(20)}` }))).operation;
+    const secondHash = `0x${'95'.repeat(32)}`;
+    await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    await repository.recordSubmission(b.id, { state: 'submitted', transactionHash: secondHash, failureReason: null });
+    await Promise.all([
+      repository.recordSubmission(a.id, { state: 'submitted', transactionHash: secondHash, failureReason: null }),
+      repository.recordSubmission(b.id, { state: 'submitted', transactionHash, failureReason: null }),
+    ]);
+    const first = await repository.findById(a.id);
+    const second = await repository.findById(b.id);
+    assert.equal(first?.transactionHash, transactionHash);
+    assert.equal(second?.transactionHash, secondHash);
+    assert.equal(first?.failureReason, 'hash_conflict');
+    assert.equal(second?.failureReason, 'hash_conflict');
+    assert.equal((await repository.listSubmissionResponses(a.id)).length, 2);
+    assert.equal((await repository.listSubmissionResponses(b.id)).length, 2);
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
