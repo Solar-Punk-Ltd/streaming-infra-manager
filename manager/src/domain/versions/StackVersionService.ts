@@ -391,7 +391,8 @@ export class StackVersionService {
       }
 
       const building = await this.versions.markBuilding(id);
-      return this.startBuild(building ?? version);
+      if (!building) throw new StackVersionNotFoundError(id);
+      return this.startBuild(building);
     } catch (err) {
       this.buildingName = null;
       throw err;
