@@ -43,9 +43,18 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     const open = [...this.rows.values()].find(row => row.chainId === candidate.chainId && row.nodeAddress.toLowerCase() === candidate.nodeAddress.toLowerCase() && ['submitting', 'submitted', 'unknown'].includes(row.state));
     if (open) return { kind: 'busy' as const, operation: structuredClone(open) };
     const now = new Date().toISOString();
-    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, createdAt: now, updatedAt: now };
+    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, createdAt: now, updatedAt: now };
     this.rows.set(row.id, structuredClone(row));
     return { kind: 'admitted' as const, operation: structuredClone(row) };
+  }
+
+  async claimDispatch(id: string) {
+    const row = this.rows.get(id);
+    if (!row) throw new Error('Missing operation');
+    if (row.state !== 'submitting' || row.dispatchStartedAt !== null) return { claimed: false, operation: structuredClone(row) };
+    const operation = { ...row, dispatchStartedAt: new Date().toISOString() };
+    this.rows.set(id, operation);
+    return { claimed: true, operation: structuredClone(operation) };
   }
 
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {

@@ -141,8 +141,25 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(lateFailure.transactionHash, recoveredHash);
   });
 
+  it('grants dispatch once across managers and refuses it after pre-dispatch closure', async () => {
+    const candidate = operationCandidate();
+    await repository.admit(candidate);
+    const claims = await Promise.all(Array.from({ length: 10 }, () => new PostgresChequebookOperationRepository(pool).claimDispatch(candidate.id)));
+    assert.equal(claims.filter(claim => claim.claimed).length, 1);
+    assert.ok(claims.every(claim => claim.operation.dispatchStartedAt));
+    await pool.query("UPDATE chequebook_operations SET state = 'asserted' WHERE id = $1", [candidate.id]);
+    const next = operationCandidate();
+    await repository.admit(next);
+    await pool.query("UPDATE chequebook_operations SET state = 'asserted' WHERE id = $1", [next.id]);
+    const closed = await repository.claimDispatch(next.id);
+    assert.equal(closed.claimed, false);
+    assert.equal(closed.operation.dispatchStartedAt, null);
+  });
+
   it('enforces the same-node uniqueness in SQL even when admission code is bypassed', async () => {
     await repository.admit(operationCandidate());
-    await assert.rejects(pool.query(`INSERT INTO chequebook_operations SELECT gen_random_uuid(), gen_random_uuid(), profile_name, requested_by, direction, amount_plur, chain_id, node_address, chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag, state, transaction_hash, failure_reason, created_at, updated_at FROM chequebook_operations`), (error: unknown) => (error as { code?: string }).code === '23505');
+    await assert.rejects(pool.query(`INSERT INTO chequebook_operations
+      (id, request_id, profile_name, requested_by, direction, amount_plur, chain_id, node_address, chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag)
+      SELECT gen_random_uuid(), gen_random_uuid(), profile_name, requested_by, direction, amount_plur, chain_id, node_address, chequebook_address, token_address, start_block_number, start_block_hash, nonce_lower_bound, nonce_query_tag FROM chequebook_operations`), (error: unknown) => (error as { code?: string }).code === '23505');
   });
 });

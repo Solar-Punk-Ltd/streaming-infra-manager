@@ -11,10 +11,11 @@ function harness() {
     context: { ...transferContext },
     preflight: async () => {},
     send: async operation => {
+      submissions++;
       const persisted = await repository.findById(operation.id);
       assert.equal(persisted?.state, 'submitting');
+      assert.ok(persisted?.dispatchStartedAt);
       assert.deepEqual(persisted, operation);
-      submissions++;
       return { transactionHash };
     },
   };
@@ -162,6 +163,33 @@ describe('durable chequebook submission', () => {
       throw new Error('late response failure');
     };
     assert.equal((await h.service().submit(transferIntent())).operation.state, 'settled');
+  });
+
+  it('does not dispatch after closure while preflight was paused', async () => {
+    const h = harness();
+    let oldId = '';
+    h.prepared.preflight = async operation => {
+      oldId = operation.id;
+      h.repository.rows.set(operation.id, { ...operation, state: 'asserted' });
+      const replacement = await h.repository.admit(operationCandidate());
+      assert.equal(replacement.kind, 'admitted');
+    };
+    const result = await h.service().submit(transferIntent());
+    assert.equal(result.operation.id, oldId);
+    assert.equal(result.operation.state, 'asserted');
+    assert.equal(h.submissions(), 0);
+  });
+
+  it('never sends when dispatch was claimed but the claim response was lost', async () => {
+    const h = harness();
+    const intent = transferIntent();
+    const claim = h.repository.claimDispatch.bind(h.repository);
+    h.repository.claimDispatch = async id => { await claim(id); throw new Error('lost dispatch acknowledgement'); };
+    await assert.rejects(h.service().submit(intent), /journal/i);
+    const retry = await h.service().submit(intent);
+    assert.equal(retry.operation.state, 'submitting');
+    assert.ok(retry.operation.dispatchStartedAt);
+    assert.equal(h.submissions(), 0);
   });
 
   it('rejects invalid request identities and amounts before prepare or admission', async () => {
