@@ -73,6 +73,25 @@ describe('a reserved deployment captures its build before port work', () => {
     assert.deepEqual((await h.profiles.reservations.listByProfile(h.profile.name)).map(port => port.port), [19010]);
   });
 
+  for (const captured of [false, true]) {
+    it(`resolves only the successful no-op's ${captured ? 'captured' : 'fallback'} reference and keeps its ports`, async () => {
+      const h = await setup([]);
+      const version = await h.versions.findById(1);
+      const older = await h.ledger.describe(h.profile.name, version, ['srs', 'stream-uploader']);
+      const build = captured ? await h.ledger.describe(h.profile.name, version, []) : null;
+
+      await h.orchestrator.runReserved({ ...h.reservation, build }, h.profile);
+
+      assert.deepEqual(h.ledger.openJobReferences(h.profile.name).map(reference => reference.id), [older.referenceId]);
+      const newer = h.ledger.references.find(reference => reference.id !== older.referenceId);
+      assert.ok(newer?.resolvedAt, 'the successful no-op releases its own unstarted reference');
+      assert.deepEqual((await h.profiles.reservations.listByProfile(h.profile.name)).map(port => [port.daemonId, port.port]), [['edge-daemon', 19010]]);
+      assert.equal(h.profiles.statusOf(h.profile.name), 'RUNNING');
+      assert.equal(h.runner.runs.length, 0);
+      assert.equal(h.attempts.rows.length, 0);
+    });
+  }
+
   it('cancels only the new fallback reference when port admission fails', async () => {
     const h = await setup();
     const older = await h.ledger.describe(h.profile.name, await h.versions.findById(1), ['srs', 'stream-uploader']);
