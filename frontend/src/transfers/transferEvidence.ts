@@ -54,13 +54,16 @@ export function permitsNewTransfer(detail: ChequebookOperationDetail): boolean {
       BigInt(receipt.receiptBlockNumber) >= BigInt(operation.startBlockNumber) && BigInt(receipt.finalizedBlockNumber) >= BigInt(receipt.receiptBlockNumber);
   }
   if (operation.state === 'rejected') return operation.failureReason === 'preflight_failed' && operation.dispatchStartedAt === null && operation.transactionHash === null && detail.responseEvidence.length === 0;
-  if (operation.state === 'asserted') {
-    const assertion = operation.assertion;
-    return assertion !== null && typeof assertion.actor === 'string' && assertion.actor.trim().length > 0 &&
-      assertion.amountPlur === operation.amountPlur && assertion.confirmation === detail.assertionConfirmation &&
-      typeof assertion.assertedAt === 'string' && Number.isFinite(Date.parse(assertion.assertedAt));
-  }
+  if (operation.state === 'asserted') return hasRecordedTransferAssertion(detail);
   return false;
+}
+
+/** Audit evidence remains visible even when a later conflict prevents another transfer. */
+export function hasRecordedTransferAssertion(detail: ChequebookOperationDetail): boolean {
+  const assertion = detail.operation.assertion;
+  return assertion !== null && typeof assertion.actor === 'string' && assertion.actor.trim().length > 0 &&
+    assertion.amountPlur === detail.operation.amountPlur && assertion.confirmation === detail.assertionConfirmation &&
+    typeof assertion.assertedAt === 'string' && Number.isFinite(Date.parse(assertion.assertedAt));
 }
 
 export function transferHeadline(detail: ChequebookOperationEvidence): string {

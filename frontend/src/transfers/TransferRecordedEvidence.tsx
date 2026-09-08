@@ -1,7 +1,7 @@
 import { Divider, Stack, Typography } from '@mui/material';
 import { type ChequebookOperationDetail } from '@streaming-infra-manager/common';
 import { TransferValue } from './TransferEvidencePanel';
-import { permitsNewTransfer } from './transferEvidence';
+import { hasRecordedTransferAssertion } from './transferEvidence';
 
 const reasons: Record<string, string> = {
   rpc_unavailable: 'The chain service could not be reached', identity_mismatch: 'The transaction did not match the saved identity',
@@ -59,8 +59,9 @@ export function TransferRecordedEvidence({ detail }: { detail: ChequebookOperati
       <TransferValue label="Response received at" value={evidence.receivedAt} />
       <TransferValue label="Recorded attribution" value={evidence.ownership === 'conflict' ? 'Conflicting transaction ownership' : 'Assigned to this operation'} />
     </Stack>)}
-    {operation.state === 'asserted' && permitsNewTransfer(detail) && operation.assertion && <>
+    {hasRecordedTransferAssertion(detail) && operation.assertion && <>
       <Typography variant="subtitle2">Operator assertion</Typography>
+      <Typography variant="body2">This records the operator’s acceptance of duplicate-payment risk. It does not prove that no transaction was sent.</Typography>
       <TransferValue label="Asserted by" value={operation.assertion.actor} />
       <TransferValue label="Asserted at" value={operation.assertion.assertedAt} />
       <TransferValue label="Recorded confirmation" value={operation.assertion.confirmation} />
