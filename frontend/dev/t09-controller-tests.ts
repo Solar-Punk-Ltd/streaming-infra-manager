@@ -97,9 +97,15 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     assert(h.controller.state.blocking !== null && h.controller.state.detail === null, 'Busy operation must be displayed separately');
     assert(h.controller.state.blocking!.operation.requestId !== intent.requestId, 'Busy identity must not replace the immutable local UUID');
     assert((await h.store.links(intent.requestId)).own === null, 'Busy response cannot populate the own link');
+    h.setRecord(null);
+    await h.controller.restore();
+    assert(h.controller.state.blockingReason === 'busy', 'Missing own record retains the busy context');
+    h.busy(false);
+    await h.controller.retryExact();
+    assert(h.requests.length === 2 && h.requests.every(request => request === intent.requestId), 'An explicit identical-ID retry may reach admission after the other transfer stops blocking');
     h.setRecord(detail(intent));
     await h.controller.restore();
-    assert(h.controller.state.detail?.operation.requestId === intent.requestId && h.requests.length === 1, 'Exact lookup recovers own record after busy without sending');
+    assert(h.controller.state.detail?.operation.requestId === intent.requestId && h.requests.length === 2, 'Exact lookup recovers own record after busy without sending');
     tests.push('busy response stays separate from exact intent recovery');
   } finally { await h.close(); }
 
@@ -128,6 +134,11 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
       await h.controller.confirmNew(draft, intent.requestId);
       assert(h.requests.length === 1 && h.generated() === 1 && h.controller.state.issue === 'identity_conflict', 'A terminal response contradicting a valid frozen operation or node link cannot authorize replacement');
     }
+    h.setRecord(null);
+    await h.controller.restore();
+    assert(h.controller.state.blockingReason === 'identity_conflict' && h.controller.state.blocking !== null, 'A missing lookup retains the contradictory returned identity and its reason together');
+    await h.controller.retryExact();
+    assert(h.requests.length === 1, 'An explicit retry cannot erase retained contradictory identity evidence');
     h.setRecord(settled);
     h.store.recordExact = async () => ({ kind: 'unavailable' });
     await h.controller.confirmNew(draft, intent.requestId);

@@ -300,3 +300,69 @@ test('receipt and recovery check times stay distinct', async t => {
   await visible(browser, 'Last recovery check'); await visible(browser, '2026-09-08T11:00:00.000Z');
   assert.equal(h.posts.length, 1);
 });
+
+test('returned identity conflicts stay distinct through a missing lookup without permitting another send', async t => {
+  const h = await fixture(t);
+  const browser = await open(t, h);
+  await click(browser, 'Fill chequebook'); await confirm(browser);
+  await visible(browser, 'Waiting for transaction confirmation');
+  h.journal.observeReceipt(h.dispatched[0].id, receipt);
+  h.view(detail => ({ ...detail, operation: { ...detail.operation, nodeAddress: `0x${'66'.repeat(20)}` } }));
+  await click(browser, 'Refresh saved status');
+  await visible(browser, 'Conflicting returned evidence');
+  await visible(browser, 'Returned node');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
+  assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'New transfer')"), false);
+  await visible(browser, h.dispatched[0].requestId);
+  t.diagnostic(await screenshot(browser, h, 'returned-identity-conflict', 1280));
+  t.diagnostic(await screenshot(browser, h, 'returned-identity-conflict', 390));
+
+  h.missing(true);
+  await click(browser, 'Refresh saved status');
+  await visible(browser, 'No record was returned for this saved request');
+  await visible(browser, 'Conflicting returned evidence');
+  assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Retry this saved request' || button.textContent.trim() === 'New transfer')"), false);
+  assert.equal(h.posts.length, 1);
+
+  h.missing(false); h.view(null);
+  await click(browser, 'Refresh saved status');
+  await visible(browser, 'Transfer verified on chain');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Conflicting returned evidence')"), false);
+  assert.equal(h.posts.length, 1);
+});
+
+test('a busy saved request can explicitly retry its same ID after the blocking transfer settles', async t => {
+  const h = await fixture(t);
+  const response = await fetch(`${h.origin}/profiles/synthetic-test/chequebook/deposit`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId: randomUUID(), profileInstanceId: instanceId, expectedAccountId: 7, amount: '1000000000000000' }) });
+  const a = await response.json();
+  const browser = await open(t, h);
+  await click(browser, 'Fill chequebook'); await confirm(browser);
+  await visible(browser, 'Another transfer blocks this node');
+  const saved = await browser.evaluate(`(async () => { const { IndexedDbTransferIntentStore } = await import('/src/transfers/transferIntentStore.ts');
+    const store = new IndexedDbTransferIntentStore(indexedDB); const intent = await store.current(7, ${JSON.stringify(instanceId)}); await store.close(); return intent; })()`);
+  assert.notEqual(saved.requestId, a.operation.requestId);
+  h.journal.observeReceipt(a.operation.id, receipt);
+  await click(browser, 'Refresh saved status');
+  await visible(browser, 'No record was returned for this saved request');
+  await visible(browser, 'Previously returned blocking operation');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
+  assert.equal(h.dispatched.length, 1);
+  await click(browser, 'Retry this saved request');
+  await click(browser, 'Send the same request again');
+  await visible(browser, 'Waiting for transaction confirmation');
+  assert.equal(h.dispatched.length, 2);
+  assert.equal(h.dispatched[1].requestId, saved.requestId);
+  assert.equal(h.posts.length, 3);
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Another transfer blocks this node')"), false);
+});
+
+test('controller keeps the busy and identity-conflict retry boundaries distinct', async t => {
+  const h = await fixture(t);
+  const browser = await open(t, h);
+  const result = await browser.evaluate("(async () => { const { runControllerTests } = await import('/dev/t09-controller-tests.ts'); return runControllerTests(); })()");
+  assert.equal(result.passed, 10);
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(browser.blockedRequests, []);
+});
