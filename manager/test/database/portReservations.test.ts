@@ -12,7 +12,8 @@ import type { StackPortVar } from '@streaming-infra-manager/common';
 
 // The caller supplies only a port. The database and host cannot point at a deployed manager.
 const port = Number(process.env.T06_TEST_PG_PORT);
-const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't06_test', connectionTimeoutMillis: 3000 };
+// Docker Desktop shares this machine. Connection setup is bounded separately from the contention assertions.
+const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't06_test', connectionTimeoutMillis: 30000 };
 const table: StackPortVar[] = [
   { name: 'API_PORT', defaultPort: 10000, slotBase: 10000, protocol: 'tcp', service: 'stream-uploader' },
   { name: 'SRS_SRT_PORT', defaultPort: 10001, slotBase: 10001, protocol: 'udp', service: 'srs' },
