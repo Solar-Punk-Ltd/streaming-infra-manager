@@ -1,17 +1,14 @@
-import { chequebookAssertionConfirmation, type ChequebookOperationDetail, type ChequebookOperationEvidence } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, type ChequebookOperation, type ChequebookOperationDetail, type ChequebookOperationEvidence } from '@streaming-infra-manager/common';
 
 const HASH = /^0x[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value);
 const hash = (value: unknown): value is string => typeof value === 'string' && HASH.test(value);
 
-/** A history summary omits response evidence and cannot authorize a new intent. */
-export function isCompleteTransferDetail(value: unknown): value is ChequebookOperationDetail {
+export function isTransferOperation(value: unknown): value is ChequebookOperation {
   if (!value || typeof value !== 'object') return false;
-  const detail = value as ChequebookOperationDetail;
-  const operation = detail.operation;
-  if (!operation || typeof operation !== 'object' || !Array.isArray(detail.responseEvidence) ||
-      typeof operation.id !== 'string' || !UUID.test(operation.id) || typeof operation.requestId !== 'string' || !UUID.test(operation.requestId) ||
+  const operation = value as ChequebookOperation;
+  if (typeof operation.id !== 'string' || !UUID.test(operation.id) || typeof operation.requestId !== 'string' || !UUID.test(operation.requestId) ||
       typeof operation.amountPlur !== 'string' || !/^[1-9][0-9]{0,29}$/.test(operation.amountPlur) ||
       !['submitting', 'submitted', 'unknown', 'settled', 'reverted', 'asserted', 'rejected'].includes(operation.state) ||
       !Number.isSafeInteger(operation.chainId) || operation.chainId < 1 ||
@@ -22,6 +19,15 @@ export function isCompleteTransferDetail(value: unknown): value is ChequebookOpe
       (operation.transactionHash !== null && !hash(operation.transactionHash)) ||
       ![null, 'preflight_failed', 'response_unavailable', 'invalid_response', 'hash_conflict'].includes(operation.failureReason) ||
       operation.receiptObservation === undefined || operation.recoveryObservation === undefined || operation.assertion === undefined || operation.dispatchStartedAt === undefined) return false;
+  return true;
+}
+
+/** A history summary omits response evidence and cannot authorize a new intent. */
+export function isCompleteTransferDetail(value: unknown): value is ChequebookOperationDetail {
+  if (!value || typeof value !== 'object') return false;
+  const detail = value as ChequebookOperationDetail;
+  const operation = detail.operation;
+  if (!isTransferOperation(operation) || !Array.isArray(detail.responseEvidence)) return false;
   return detail.assertionConfirmation === chequebookAssertionConfirmation(operation.amountPlur) && detail.responseEvidence.every(evidence =>
     evidence && typeof evidence.transactionHash === 'string' && HASH.test(evidence.transactionHash) &&
     typeof evidence.receivedAt === 'string' && Number.isFinite(Date.parse(evidence.receivedAt)) && ['owned', 'conflict'].includes(evidence.ownership));

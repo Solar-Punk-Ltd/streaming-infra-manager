@@ -8,6 +8,8 @@ import { DeploymentsPage } from '../deployments/DeploymentsPage';
 import { GroupPage } from '../groups/GroupPage';
 import { OverviewPage } from '../overview/OverviewPage';
 import { HostPage } from '../resources/HostPage';
+import { TransferHistoryPage } from '../transfers/TransferHistoryPage';
+import { TransferDetailPage } from '../transfers/TransferDetailPage';
 import { VersionsPage } from '../versions/VersionsPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -25,6 +27,9 @@ const PAGE_TITLES: Record<Route['page'], string> = {
   host: 'Host',
   versions: 'Versions',
   access: 'Access',
+  transfers: 'Transfers',
+  transfer: 'Transfers',
+  transferRequest: 'Transfers',
 };
 
 export function AppShell() {
@@ -125,6 +130,12 @@ function Page({ route, search }: { route: Route; search: string }) {
       return <VersionsPage />;
     case 'access':
       return <AccessPage />;
+    case 'transfers':
+      return <TransferHistoryPage />;
+    case 'transfer':
+      return <TransferDetailPage detailKey={{ kind: 'operation', id: route.id }} />;
+    case 'transferRequest':
+      return <TransferDetailPage detailKey={{ kind: 'request', id: route.requestId }} />;
     case 'overview':
       return <OverviewPage />;
   }
