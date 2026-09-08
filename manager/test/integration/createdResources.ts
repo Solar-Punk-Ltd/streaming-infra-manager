@@ -12,12 +12,12 @@ export interface CreatedGroupIdentity {
 
 export type CreationAttempt =
   | { readonly kind: 'profile' }
-  | { readonly kind: 'group'; readonly expectedMembers: number }
-  | { readonly kind: 'members'; readonly expectedMembers: number; readonly groupId: number };
+  | { readonly kind: 'group'; readonly expectedMembers: number | null }
+  | { readonly kind: 'members'; readonly expectedMembers: number | null; readonly groupId: number };
 
 export type UnresolvedCreationReason =
   | 'response-unavailable' | 'invalid-profile' | 'invalid-group' | 'missing-members'
-  | 'invalid-member' | 'member-count-mismatch' | 'identity-conflict';
+  | 'invalid-member' | 'member-count-mismatch' | 'identity-conflict' | 'request-coverage-unknown';
 
 export interface UnresolvedCreation {
   readonly kind: CreationAttempt['kind'];
@@ -58,7 +58,7 @@ export class CreatedResourceInventory {
 
   /** Record confirmed identities before the caller receives the response for assertions. */
   async capture<T extends CreateResponse>(attempt: CreationAttempt, request: () => Promise<T>): Promise<T> {
-    if (attempt.kind !== 'profile' && !positiveInteger(attempt.expectedMembers)) {
+    if (attempt.kind !== 'profile' && attempt.expectedMembers !== null && !positiveInteger(attempt.expectedMembers)) {
       throw new Error('Expected member count must be a positive integer');
     }
     if (attempt.kind === 'members' && !positiveInteger(attempt.groupId)) {
@@ -98,7 +98,8 @@ export class CreatedResourceInventory {
       const identity = this.captureProfile(member, attempt, 'invalid-member');
       if (identity) confirmedMembers.add(identity);
     }
-    if (confirmedMembers.size !== attempt.expectedMembers) this.note(attempt, 'member-count-mismatch');
+    if (attempt.expectedMembers === null) this.note(attempt, 'request-coverage-unknown');
+    else if (confirmedMembers.size !== attempt.expectedMembers) this.note(attempt, 'member-count-mismatch');
     return response;
   }
 
