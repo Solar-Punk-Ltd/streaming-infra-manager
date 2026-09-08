@@ -18,6 +18,10 @@ const receipt: ChainReceipt = {
   transactionHash, from: transaction.from, to: transaction.to, blockNumber: '501', blockHash: minedHash, status: 'success',
 };
 
+function hashAt(number: bigint): string {
+  return number === 500n ? operation.startBlockHash : number === 501n ? minedHash : number === 510n ? finalizedHash : `0x${number.toString(16).padStart(64, '0')}`;
+}
+
 function reader(overrides: Partial<ReceiptChainReader> = {}): ReceiptChainReader {
   return {
     chainId: async () => 100,
@@ -25,8 +29,7 @@ function reader(overrides: Partial<ReceiptChainReader> = {}): ReceiptChainReader
     receipt: async () => receipt,
     blockHeader: async block => {
       const number = block === 'finalized' ? '510' : String(block);
-      const hash = number === '500' ? operation.startBlockHash : number === '501' ? minedHash : finalizedHash;
-      return { number, hash, parentHash: otherHash };
+      return { number, hash: hashAt(BigInt(number)), parentHash: hashAt(BigInt(number) - 1n) };
     },
     ...overrides,
   };
@@ -114,6 +117,27 @@ describe('chequebook receipt confirmation', () => {
       return header;
     } }), { kind: 'could_not_check', reason: 'chain_changed' });
     assert.equal(anchorReads, 2);
+  });
+
+  it('refuses finalized evidence from a different receipt history even when the saved anchor agrees', async () => {
+    const rpc = reader();
+    assert.deepEqual(await inspect({ blockHeader: async (block, signal) => {
+      if (block === 'finalized' || block === 502n) return { number: '502', hash: hashAt(502n), parentHash: otherHash };
+      return rpc.blockHeader(block, signal);
+    } }), { kind: 'could_not_check', reason: 'chain_changed' });
+  });
+
+  it('refuses a finalized receipt that does not descend from the saved starting block', async () => {
+    const rpc = reader();
+    assert.deepEqual(await inspect({ blockHeader: async (block, signal) => {
+      const header = await rpc.blockHeader(block, signal);
+      return block === 501n && header ? { ...header, parentHash: otherHash } : header;
+    } }), { kind: 'could_not_check', reason: 'chain_changed' });
+  });
+
+  it('refuses to confirm when its ancestry budget cannot prove the full history', async () => {
+    const inspector = new ChequebookReceiptInspector(async () => reader(), { maxAncestryBlocks: 2 });
+    assert.deepEqual(await inspector.inspect(operation), { kind: 'could_not_check', reason: 'history_incomplete' });
   });
 
   it('bounds the whole inspection even if a reader ignores cancellation', async () => {
