@@ -16,6 +16,57 @@ export async function waitFor(read, accepts = Boolean, description = 'condition'
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+export function createProtocolClient(socket, timeoutMs = 10_000) {
+  let nextId = 0;
+  let ended = false;
+  const pending = new Map();
+  function finish(id, result, error) {
+    const request = pending.get(id);
+    if (!request) return;
+    pending.delete(id);
+    clearTimeout(request.timer);
+    if (error) request.reject(error);
+    else request.resolve(result);
+  }
+  function connectionEnded() {
+    ended = true;
+    for (const id of pending.keys()) finish(id, null, new Error('Chrome connection ended'));
+  }
+  socket.addEventListener('close', connectionEnded);
+  socket.addEventListener('error', connectionEnded);
+  socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(String(data));
+    if (message.id) finish(message.id, message.result, message.error ? new Error(message.error.message) : null);
+  });
+  return {
+    call(method, params = {}) {
+      if (ended) return Promise.reject(new Error('Chrome connection ended'));
+      const id = ++nextId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => finish(id, null, new Error(`Chrome request timed out: ${method}`)), timeoutMs);
+        pending.set(id, { resolve, reject, timer });
+        try { socket.send(JSON.stringify({ id, method, params })); }
+        catch { finish(id, null, new Error('Chrome request could not be sent')); }
+      });
+    },
+  };
+}
+
+function hasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function stopOwnedChild(child) {
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    if (hasExited(child)) return;
+    const wait = once(child, 'exit', { signal: AbortSignal.timeout(3000) });
+    child.kill(signal);
+    try { await wait; return; }
+    catch (error) { if (error.name !== 'AbortError') throw error; }
+  }
+  if (!hasExited(child)) throw new Error(`Owned Chrome process ${child.pid} did not exit`);
+}
+
 /** Runs an isolated Chrome profile. Only this process and its profile are cleaned up. */
 export async function launchChrome(t, origin) {
   const executable = process.env.CHROME_BIN ??
@@ -32,11 +83,7 @@ export async function launchChrome(t, origin) {
   let socket;
   t.after(async () => {
     socket?.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, 'exit');
-      child.kill('SIGTERM');
-      await exited;
-    }
+    await stopOwnedChild(child);
     await rm(profile, { recursive: true, force: true });
   });
   const portFile = join(profile, 'DevToolsActivePort');
@@ -44,37 +91,23 @@ export async function launchChrome(t, origin) {
     try { return Number((await readFile(portFile, 'utf8')).split('\n')[0]); }
     catch { return null; }
   }, Boolean, 'Chrome debugging port');
-  const tabs = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
+  const tabs = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json());
   socket = new WebSocket(tabs.find((tab) => tab.type === 'page').webSocketDebuggerUrl);
-  await once(socket, 'open');
-  let nextId = 0;
-  const pending = new Map();
+  await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
+  const { call } = createProtocolClient(socket);
   const errors = [];
   const blockedRequests = [];
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(String(data));
-    if (message.id) {
-      const request = pending.get(message.id);
-      pending.delete(message.id);
-      if (message.error) request?.reject(new Error(message.error.message));
-      else request?.resolve(message.result);
-    }
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
     if (message.method === 'Fetch.requestPaused') {
       const { request, requestId } = message.params;
       if (new URL(request.url).origin !== origin) {
         blockedRequests.push(request.url);
-        void call('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
-      } else void call('Fetch.continueRequest', { requestId });
+        void call('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => undefined);
+      } else void call('Fetch.continueRequest', { requestId }).catch(() => undefined);
     }
   });
-  function call(method, params = {}) {
-    const id = ++nextId;
-    return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
   async function evaluate(expression) {
     const response = await call('Runtime.evaluate', {
       expression, returnByValue: true, awaitPromise: true,
