@@ -126,11 +126,10 @@ export class InMemoryPortReservations implements PortReservationRepository {
     if (this.releaseBlocked(observation.profileName)) return;
     for (const row of rows) {
       const current = observation.planned.filter(entry => portKeyOf(entry) === portKeyOf(row));
-      if (!current.length) continue;
       row.heldServices = ownersAfterHandover(row.heldServices, current.map(entry => entry.service), observation.services);
       row.service = current.find(entry => entry.service !== null && observation.services.includes(entry.service))?.service ?? row.service;
     }
-    const releasing = rows.filter(row => row.heldServices.length > 0 && row.heldServices.every(service => service !== null && observation.services.includes(service))
+    const releasing = rows.filter(row => row.heldServices.length === 0
       && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
     await this.setState(releasing, 'releasing');
     await this.remove(releasing);

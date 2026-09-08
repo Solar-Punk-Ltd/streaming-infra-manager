@@ -130,13 +130,13 @@ export class PostgresPortReservationRepository implements PortReservationReposit
       if (!blocked.rows[0]?.held) {
         for (const row of rows.rows) {
           const current = observation.planned.filter(entry => portKeyOf(entry) === portKeyOf(row));
-          if (!current.length) continue;
           const owners = ownersAfterHandover(row.held_services, current.map(entry => entry.service), observation.services);
+          row.held_services = owners;
           const confirmed = current.find(entry => entry.service !== null && observation.services.includes(entry.service));
           await client.query('UPDATE port_reservations SET held_services = $2::text[], service = $3, updated_at = NOW() WHERE id = $1',
             [row.id, owners, confirmed?.service ?? row.service]);
         }
-        const releasing = rows.rows.filter(row => row.held_services.length > 0 && row.held_services.every(service => service !== null && observation.services.includes(service))
+        const releasing = rows.rows.filter(row => row.held_services.length === 0
           && !bound.has(portKeyOf(row)) && !planned.has(portKeyOf(row))).map(row => row.id);
         await client.query("UPDATE port_reservations SET state = 'releasing', updated_at = NOW() WHERE id = ANY($1::int[])", [releasing]);
         await client.query("DELETE FROM port_reservations WHERE id = ANY($1::int[]) AND state = 'releasing'", [releasing]);
