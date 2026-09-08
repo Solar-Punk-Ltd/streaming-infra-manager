@@ -93,8 +93,12 @@ export class CreatedResourceInventory {
       this.note(attempt, 'missing-members');
       return response;
     }
-    if (body.profiles.length !== attempt.expectedMembers) this.note(attempt, 'member-count-mismatch');
-    for (const member of body.profiles) this.captureProfile(member, attempt, 'invalid-member');
+    const confirmedMembers = new Set<string>();
+    for (const member of body.profiles) {
+      const identity = this.captureProfile(member, attempt, 'invalid-member');
+      if (identity) confirmedMembers.add(identity);
+    }
+    if (confirmedMembers.size !== attempt.expectedMembers) this.note(attempt, 'member-count-mismatch');
     return response;
   }
 
@@ -106,19 +110,20 @@ export class CreatedResourceInventory {
     });
   }
 
-  private captureProfile(value: unknown, attempt: CreationAttempt, invalid: UnresolvedCreationReason): void {
+  private captureProfile(value: unknown, attempt: CreationAttempt, invalid: UnresolvedCreationReason): string | null {
     const profile = record(value);
     if (!profile || !this.ownName(profile.name) || typeof profile.instance_id !== 'string' || !UUID.test(profile.instance_id)) {
       this.note(attempt, invalid);
-      return;
+      return null;
     }
     const instanceId = profile.instance_id.toLowerCase();
     const existing = this.profiles.get(instanceId);
     if (existing && existing.name !== profile.name) {
       this.note(attempt, 'identity-conflict');
-      return;
+      return null;
     }
     this.profiles.set(instanceId, Object.freeze({ name: profile.name, instanceId }));
+    return instanceId;
   }
 
   private parseGroup(value: unknown): CreatedGroupIdentity | null {
