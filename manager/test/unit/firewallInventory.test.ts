@@ -17,6 +17,7 @@ function setup() {
   };
   const snapshot: PublishedPortsSnapshot = { daemonId: 'daemon', bindings: [] };
   const contracts = new Map([['a'.repeat(40), [peer]]]);
+  const aliases = new Map<string, StackPortVar[]>();
   let reads = 0;
   let changeOnSecondRead = false;
   const exporter = new FirewallInventoryExporter({ read: async () => {
@@ -27,13 +28,50 @@ function setup() {
     read: async (_version, buildId) => {
       const ports = contracts.get(buildId);
       if (!ports) throw new Error('missing immutable build');
-      return { ports, maxSlot: 99, allocationProblem: null };
+      return { ports, portAliases: aliases.get(buildId), maxSlot: 99, allocationProblem: null };
     },
   });
-  return { state, snapshot, peer, contracts, exporter, change: () => { changeOnSecondRead = true; } };
+  return { state, snapshot, peer, contracts, aliases, exporter, change: () => { changeOnSecondRead = true; } };
 }
 
 describe('firewall evidence export', () => {
+  it('covers current OME owners and retains actual SRS ownership in historical snapshots', async () => {
+    const h = setup();
+    const current = 'a'.repeat(40);
+    const previous = 'b'.repeat(40);
+    const srs: StackPortVar[] = [
+      { name: 'SRS_SRT_PORT', slotBase: 10001, defaultPort: 10001, protocol: 'udp', service: 'srs' },
+      { name: 'SRS_HTTP_PORT', slotBase: 10003, defaultPort: 10003, protocol: 'tcp', service: 'srs' },
+    ];
+    h.contracts.set(current, srs);
+    h.aliases.set(current, srs.map((port, index) => ({ ...port, name: index === 0 ? 'OME_SRT_PORT' : 'OME_HLS_PORT', service: 'ome' })));
+    h.contracts.set(previous, srs.map(port => ({ ...port, slotBase: port.slotBase + 3000 })));
+    h.state.references = [
+      { versionId: 1, buildId: current, holderKind: 'snapshot', holderId: 'a/ome', services: ['ome'] },
+      { versionId: 1, buildId: previous, holderKind: 'snapshot', holderId: 'a/srs', services: ['srs'] },
+    ];
+    h.state.reservations = [
+      { daemonId: 'daemon', profileName: 'a', port: 10011, protocol: 'udp', heldServices: ['ome'] },
+      { daemonId: 'daemon', profileName: 'a', port: 10013, protocol: 'tcp', heldServices: ['ome'] },
+      { daemonId: 'daemon', profileName: 'a', port: 13011, protocol: 'udp', heldServices: ['srs'] },
+      { daemonId: 'daemon', profileName: 'a', port: 13013, protocol: 'tcp', heldServices: ['srs'] },
+    ];
+    h.snapshot.bindings = [
+      { project: 'a', service: 'ome', port: 10011, protocol: 'udp' },
+      { project: 'a', service: 'ome', port: 10013, protocol: 'tcp' },
+    ];
+    const result = await h.exporter.export('localhost');
+    assert.ok(result.claims.some(claim => claim.portVar === 'OME_SRT_PORT' && claim.service === 'ome'));
+    assert.ok(result.claims.some(claim => claim.port === 13011 && claim.service === 'srs' && claim.buildId === previous));
+    assert.ok(!result.claims.some(claim => claim.port === 13011 && claim.service === 'ome'));
+  });
+
+  it('refuses snapshots without explicit service ownership', async () => {
+    const h = setup();
+    h.state.references.push({ versionId: 1, buildId: 'a'.repeat(40), holderKind: 'snapshot', holderId: 'a/unknown', services: null });
+    await assert.rejects(h.exporter.export('localhost'), /snapshot.*service|ownership/);
+  });
+
   it('includes stopped profiles and retained snapshot builds with the verified daemon identity', async () => {
     const h = setup();
     const oldId = 'b'.repeat(40);
