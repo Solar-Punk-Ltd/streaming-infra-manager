@@ -15,6 +15,7 @@ import type { DeployAttempt } from '../../src/domain/deployAttempts.js';
 import { call, type RouterTestApp, startRouterTestApp } from '../support/routerTestApp.js';
 
 const BLOCKED: DeployAttempt = {
+  target: null,
   id: 7,
   daemonId: 'daemon-1',
   project: 'stage',

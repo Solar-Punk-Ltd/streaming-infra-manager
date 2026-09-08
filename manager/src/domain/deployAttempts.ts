@@ -32,6 +32,8 @@ export interface DeployAttempt {
   id: number;
   /** The Docker daemon, from `docker info`, so a lock never crosses hosts. */
   daemonId: string;
+  /** The route used to reach the daemon. Null for attempts recorded before target tracking. */
+  target: string | null;
   /** The Compose project, which is the profile name. */
   project: string;
   jobId: string;

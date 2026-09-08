@@ -31,7 +31,8 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, StampRequiredError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import {
   type AttemptOutcome,
   type DeployAttempt,
@@ -102,6 +103,7 @@ function stripDockerWarnings(text: string): string {
 
 interface JobConfig {
   profileName: string;
+  target: string;
   paths: StackPaths;
   script: string;
   args: string[];
@@ -175,6 +177,7 @@ export class DeploymentOrchestrator {
     private readonly attempts: DeployAttemptRepository,
     private readonly daemon: DaemonObserver,
     private readonly uploaderGate?: UploaderGate,
+    private readonly targets?: DeployTargets,
   ) {}
 
   /**
@@ -183,12 +186,20 @@ export class DeploymentOrchestrator {
    * starts, under the daemon's lock, which is what decides.
    */
   private async assertAttemptAdmissible(profile: Profile, kind: DeployAttemptKind): Promise<void> {
-    const daemonId = await this.daemon.daemonId();
+    const daemonId = await this.targetDaemon(targetAlias(profile.host));
     const refusal = whyAdmissionIsRefused(
       { daemonId, project: profile.name, kind },
       await this.attempts.listUnresolved(daemonId),
     );
     if (refusal) throw new DeployAttemptRefusedError(profile.name, refusal);
+  }
+
+  private async targetDaemon(target: string): Promise<string> {
+    const actual = await this.daemon.daemonId(target);
+    if (this.targets && actual !== await this.targets.daemonIdFor(target)) {
+      throw new TargetNotVerifiedError(target, 'This target reaches a different Docker daemon than its reservations. Verify it before deploying.');
+    }
+    return actual;
   }
 
   /** Shared tags, unless the version's contract says its built services name no image. Unknown is shared. */
@@ -198,12 +209,13 @@ export class DeploymentOrchestrator {
 
   /** Every attempt still holding a project or the daemon here, for the pages. */
   async unresolvedAttempts(): Promise<DeployAttempt[]> {
-    return this.attempts.listUnresolved(await this.daemon.daemonId());
+    return this.attempts.listUnresolved();
   }
 
   /** A removed deployment's attempts hold nothing: its containers are gone, and its name may be used again. */
-  private async releaseAttemptsOf(project: string, by: string): Promise<void> {
-    const released = await this.attempts.releaseProject(await this.daemon.daemonId(), project, by);
+  private async releaseAttemptsOf(profile: Profile, by: string): Promise<void> {
+    const project = profile.name;
+    const released = await this.attempts.releaseProject(await this.targetDaemon(targetAlias(profile.host)), project, by);
     if (released.length === 0) return;
     logger.info(`[Orchestrator] released ${released.map((attempt) => attempt.jobId).join(', ')} of ${project}: ${by}`);
     this.eventBus.publish({ type: 'attempt.changed' });
@@ -226,11 +238,10 @@ export class DeploymentOrchestrator {
    */
   async reconcileAttempts(): Promise<{ released: string[]; blocked: string[] }> {
     const outcome = { released: [] as string[], blocked: [] as string[] };
-    const daemonId = await this.daemon.daemonId();
-    for (const attempt of await this.attempts.listUnresolved(daemonId)) {
+    for (const attempt of await this.attempts.listUnresolved()) {
       if (attempt.state !== 'open') continue;
-      const judged = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project));
-      await this.attempts.resolve(attempt.id, judged);
+      const judged = await this.judgeAttempt(attempt);
+      if (!judged) continue;
       (judged.state === 'released' ? outcome.released : outcome.blocked).push(attempt.project);
     }
     if (outcome.blocked.length > 0) {
@@ -558,6 +569,7 @@ export class DeploymentOrchestrator {
     const services = [...reservation.services];
     return this.runJob({
       profileName: profile.name,
+      target: targetAlias(reservation.host ?? profile.host),
       paths,
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
@@ -601,6 +613,7 @@ export class DeploymentOrchestrator {
     const paths = await this.pathsFor(profile);
     return this.runJob({
       profileName: profile.name,
+      target: targetAlias(profile.host),
       paths,
       script: paths.stop,
       args: this.buildScriptArgs(profile, services ?? []),
@@ -624,6 +637,7 @@ export class DeploymentOrchestrator {
   ): Promise<RunHandle> {
     const args: string[] = [
       `--profile=${profile.name}`,
+      `--host=${targetAlias(profile.host)}`,
       `--portSlot=${profile.port_slot}`,
       '--yes',
       '--volumes',
@@ -635,6 +649,7 @@ export class DeploymentOrchestrator {
     const paths = await this.pathsFor(profile);
     return this.runJob({
       profileName: profile.name,
+      target: targetAlias(profile.host),
       paths,
       script: paths.clean,
       args,
@@ -643,7 +658,7 @@ export class DeploymentOrchestrator {
       onSuccess: async () => {
         // First, so a failure here keeps the deployment and its attempts
         // together for another try, and the name is free once the row goes.
-        await this.releaseAttemptsOf(profile.name, 'removed with the deployment');
+        await this.releaseAttemptsOf(profile, 'removed with the deployment');
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(paths.root, profile.name);
@@ -714,10 +729,11 @@ export class DeploymentOrchestrator {
     // are, so what the attempt creates can be told from what was there.
     let attempt: DeployAttempt | null = null;
     if (cfg.guard) {
-      const daemonId = await this.daemon.daemonId();
-      const before = await this.daemon.containerIdsOf(cfg.profileName);
+      const daemonId = await this.targetDaemon(cfg.target);
+      const before = await this.daemon.containerIdsOf(cfg.profileName, cfg.target);
       attempt = await this.attempts.open({
         daemonId,
+        target: cfg.target,
         project: cfg.profileName,
         jobId: `job-${randomBytes(6).toString('hex')}`,
         kind: cfg.guard.kind,
@@ -769,18 +785,26 @@ export class DeploymentOrchestrator {
    * a new container, blocked naming the rest. A daemon that does not answer
    * leaves it open for boot to judge.
    */
-  private async judgeAttempt(attempt: DeployAttempt): Promise<void> {
+  private async judgeAttempt(attempt: DeployAttempt): Promise<AttemptOutcome | null> {
     try {
-      const judged: AttemptOutcome = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project));
+      const profile = attempt.target ? null : await this.profiles.findByName(attempt.project);
+      if (!attempt.target && !profile) throw new Error('The legacy attempt has no recorded target or deployment');
+      const target = targetAlias(attempt.target ?? profile!.host);
+      if (await this.daemon.daemonId(target) !== attempt.daemonId) {
+        throw new TargetNotVerifiedError(target, 'The attempt target now reaches a different Docker daemon');
+      }
+      const judged: AttemptOutcome = attemptOutcome(attempt, await this.daemon.containerIdsOf(attempt.project, target));
       await this.attempts.resolve(attempt.id, judged);
       if (judged.state === 'blocked') {
         logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);
       }
       this.eventBus.publish({ type: 'attempt.changed' });
+      return judged;
     } catch (err) {
       logger.warn(
         `[Orchestrator] could not judge attempt ${attempt.jobId} on ${attempt.project}: ${getErrorMessage(err)}. It stays open until the next boot judges it.`,
       );
+      return null;
     }
   }
 

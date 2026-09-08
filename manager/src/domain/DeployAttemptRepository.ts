@@ -6,6 +6,7 @@ import type {
 
 export interface NewDeployAttempt {
   daemonId: string;
+  target?: string | null;
   project: string;
   jobId: string;
   kind: DeployAttemptKind;
@@ -22,7 +23,7 @@ export interface NewDeployAttempt {
 export interface DeployAttemptRepository {
   open(attempt: NewDeployAttempt): Promise<DeployAttempt>;
   findByJob(jobId: string): Promise<DeployAttempt | null>;
-  listUnresolved(daemonId: string): Promise<DeployAttempt[]>;
+  listUnresolved(daemonId?: string): Promise<DeployAttempt[]>;
   listBlocked(): Promise<DeployAttempt[]>;
   /** Open to released or blocked, by evidence. */
   resolve(id: number, outcome: AttemptOutcome): Promise<DeployAttempt | null>;
@@ -39,7 +40,7 @@ export interface DeployAttemptRepository {
 /** What Docker says about the project an attempt is about. */
 export interface DaemonObserver {
   /** The daemon's own id, from `docker info`, so a lock never crosses hosts. */
-  daemonId(): Promise<string>;
+  daemonId(target?: string): Promise<string>;
   /** Every container of the project by service, all states. */
-  containerIdsOf(project: string): Promise<Map<string, string[]>>;
+  containerIdsOf(project: string, target?: string): Promise<Map<string, string[]>>;
 }

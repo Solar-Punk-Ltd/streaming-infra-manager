@@ -22,6 +22,7 @@ import {
 } from '../../src/domain/deployAttempts.js';
 
 const OPEN: DeployAttempt = {
+  target: null,
   id: 7,
   daemonId: 'daemon-1',
   project: 'stage',

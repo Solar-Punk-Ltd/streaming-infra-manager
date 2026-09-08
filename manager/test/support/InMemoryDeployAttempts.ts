@@ -29,6 +29,7 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
     const row: DeployAttempt = {
       id: this.nextId++,
       ...attempt,
+      target: attempt.target ?? null,
       services: [...attempt.services],
       preJobContainerIds: [...attempt.preJobContainerIds],
       state: 'open',
@@ -45,9 +46,9 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
     return this.rows.find((row) => row.jobId === jobId) ?? null;
   }
 
-  async listUnresolved(daemonId: string): Promise<DeployAttempt[]> {
+  async listUnresolved(daemonId?: string): Promise<DeployAttempt[]> {
     if (this.precheckBlind) return [];
-    return this.rows.filter((row) => row.daemonId === daemonId && row.state !== 'released');
+    return this.rows.filter((row) => (daemonId === undefined || row.daemonId === daemonId) && row.state !== 'released');
   }
 
   async releaseProject(daemonId: string, project: string, by: string): Promise<DeployAttempt[]> {

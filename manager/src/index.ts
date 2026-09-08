@@ -236,9 +236,10 @@ async function main(): Promise<void> {
   // for each other on the daemon.
   const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
   const portReservations = new PostgresPortReservationRepository(database.pool);
+  const targetDocker = new TargetDocker(containerControl);
   const deployTargets = new VerifiedDeployTargets(
     new PostgresDeployTargetRepository(database.pool),
-    new TargetDocker(containerControl),
+    targetDocker,
   );
   try {
     await deployTargets.verify('localhost');
@@ -254,8 +255,9 @@ async function main(): Promise<void> {
     stackVersionRepository,
     buildLedger,
     deployAttempts,
-    containerControl,
+    targetDocker,
     new UploaderStartGate(stampService, chequebookService),
+    deployTargets,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();

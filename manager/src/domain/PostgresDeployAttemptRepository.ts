@@ -9,13 +9,14 @@ import type { DeployAttemptRepository, NewDeployAttempt } from './DeployAttemptR
 import { DeployAttemptRefusedError } from './errors/index.js';
 
 const COLUMNS = `
-  id, daemon_id, project, job_id, kind, services, pre_job_container_ids,
+  id, daemon_id, target, project, job_id, kind, services, pre_job_container_ids,
   state, reason, started_at, resolved_at, released_by
 `;
 
 interface AttemptRow {
   id: number;
   daemon_id: string;
+  target: string | null;
   project: string;
   job_id: string;
   kind: DeployAttempt['kind'];
@@ -32,6 +33,7 @@ function toAttempt(row: AttemptRow): DeployAttempt {
   return {
     id: row.id,
     daemonId: row.daemon_id,
+    target: row.target,
     project: row.project,
     jobId: row.job_id,
     kind: row.kind,
@@ -69,8 +71,8 @@ export class PostgresDeployAttemptRepository implements DeployAttemptRepository 
         throw new DeployAttemptRefusedError(attempt.project, refusal);
       }
       const inserted = await client.query<AttemptRow>(
-        `INSERT INTO deploy_attempts (daemon_id, project, job_id, kind, services, pre_job_container_ids)
-         VALUES ($1, $2, $3, $4, $5::text[], $6::text[])
+        `INSERT INTO deploy_attempts (daemon_id, project, job_id, kind, services, pre_job_container_ids, target)
+         VALUES ($1, $2, $3, $4, $5::text[], $6::text[], $7)
          RETURNING ${COLUMNS}`,
         [
           attempt.daemonId,
@@ -79,6 +81,7 @@ export class PostgresDeployAttemptRepository implements DeployAttemptRepository 
           attempt.kind,
           [...attempt.services],
           [...attempt.preJobContainerIds],
+          attempt.target ?? null,
         ],
       );
       await client.query('COMMIT');
@@ -99,10 +102,10 @@ export class PostgresDeployAttemptRepository implements DeployAttemptRepository 
     return result.rows[0] ? toAttempt(result.rows[0]) : null;
   }
 
-  async listUnresolved(daemonId: string): Promise<DeployAttempt[]> {
+  async listUnresolved(daemonId?: string): Promise<DeployAttempt[]> {
     const result = await this.pool.query<AttemptRow>(
-      `SELECT ${COLUMNS} FROM deploy_attempts WHERE daemon_id = $1 AND state <> 'released' ORDER BY id ASC`,
-      [daemonId],
+      `SELECT ${COLUMNS} FROM deploy_attempts WHERE ($1::text IS NULL OR daemon_id = $1) AND state <> 'released' ORDER BY id ASC`,
+      [daemonId ?? null],
     );
     return result.rows.map(toAttempt);
   }
