@@ -35,6 +35,22 @@ function setup() {
 }
 
 describe('firewall evidence export', () => {
+  it('refuses a known deployment whose reservation evidence disappeared', async () => {
+    const h = setup();
+    h.state.reservations = [];
+    h.snapshot.bindings = [];
+    await assert.rejects(h.exporter.export('localhost'), /a.*reservation|a.*coverage/);
+  });
+
+  it('allows a genuinely empty daemon', async () => {
+    const h = setup();
+    h.state.profiles = [];
+    h.state.reservations = [];
+    const value = await h.exporter.export('localhost');
+    assert.deepEqual(value.profiles, []);
+    assert.deepEqual(value.claims, []);
+  });
+
   for (const brokenBuild of ['unadmitted', 'retained'] as const) {
     it(`only refuses incomplete OME aliases when the build is ${brokenBuild}`, async () => {
       const h = setup();

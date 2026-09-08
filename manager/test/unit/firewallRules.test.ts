@@ -110,6 +110,17 @@ function peerInventory(): FirewallInventory {
 }
 
 describe('firewall rules from shared policy and complete inventory', () => {
+  it('refuses a listed deployment with no reservation or claim evidence', () => {
+    const value = peerInventory();
+    value.claims = [];
+    value.reservations = [];
+    value.bindings = [];
+    const result = run(value);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /a.*reservation|a.*coverage/);
+  });
+
   it('tests the DNAT flag rather than comparing the complete connection status bitmap', () => {
     const text = rules();
     assert.ok(text.includes('(ct status & dnat) != dnat drop'));
