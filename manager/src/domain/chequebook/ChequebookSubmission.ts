@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BeeTransaction, ChequebookAdmissionResult, ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookJournalError } from '../errors/ChequebookJournalError.js';
+import { ChequebookPreparationError } from '../errors/ChequebookPreparationError.js';
 import type { ChequebookOperationRepository, SubmissionOutcome } from './ChequebookOperationRepository.js';
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, sameTransferIntent } from './operationIdentity.js';
 
@@ -26,7 +27,12 @@ export class ChequebookSubmission {
     const existing = await this.journal(() => this.operations.findByRequestId(intent.requestId));
     if (existing) return { kind: sameTransferIntent(existing, intent) ? 'replayed' : 'conflict', operation: existing };
 
-    const prepared = await this.prepare(intent);
+    let prepared: PreparedChequebookTransfer;
+    try {
+      prepared = await this.prepare(intent);
+    } catch {
+      throw new ChequebookPreparationError();
+    }
     const context = normalizeTransferContext(prepared.context);
     const admitted = await this.journal(() => this.operations.admit({ id: randomUUID(), ...intent, ...context }));
     if (admitted.kind !== 'admitted') return admitted;
