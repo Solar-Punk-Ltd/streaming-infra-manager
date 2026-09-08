@@ -115,6 +115,7 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     return this.one(
       `UPDATE stack_versions
           SET status = 'ready',
+              publication_revision = publication_revision + 1,
               tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
               commit_sha = $2,
               contract = $3::jsonb,
@@ -138,6 +139,7 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       const result = await client.query<StackVersionDbRow>(
         `UPDATE stack_versions
             SET status = 'ready',
+                publication_revision = publication_revision + 1,
                 layout = 'builds',
                 previous_build_id = CASE
                   WHEN build_id IS NOT NULL AND build_id <> $2 THEN build_id
