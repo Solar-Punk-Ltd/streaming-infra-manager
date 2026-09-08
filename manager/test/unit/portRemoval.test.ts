@@ -18,6 +18,23 @@ async function setup() {
 }
 
 describe('verified port release on removal', () => {
+  for (const timing of ['before request', 'after claim'] as const) {
+    it(`checks rollback holds ${timing} before running destructive cleanup`, async () => {
+      const h = await setup();
+      const hold = () => h.ledger.references.push({ id: 99, versionId: 1, buildId: 'old', holderKind: 'operation',
+        holderId: 'rollback', services: ['srs'], createdAt: new Date(), resolvedAt: null });
+      if (timing === 'before request') hold();
+      else {
+        const transition = h.profiles.transitionStatus.bind(h.profiles);
+        h.profiles.transitionStatus = async (...args) => { const result = await transition(...args); hold(); return result; };
+      }
+      await assert.rejects(h.orchestrator.startRemove(h.row()), /rollback|hold/);
+      assert.equal(h.runner.runs.length, 0);
+      assert.equal(h.row().status, 'ERROR');
+      assert.equal((await h.profiles.reservations.listByProfile('a')).length, 1);
+    });
+  }
+
   it('refuses removal before cleanup while an orphaned attempt can still create containers', async () => {
     const h = await setup();
     await h.attempts.open({ daemonId: 'daemon-1', project: 'a', target: 'localhost', jobId: 'orphan', kind: 'fixed', services: ['srs'], preJobContainerIds: [] });
