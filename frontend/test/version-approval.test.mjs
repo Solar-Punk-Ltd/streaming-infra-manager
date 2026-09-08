@@ -64,8 +64,9 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
   }
   const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
+  let visitNumber = 0;
   async function visit() {
-    await call('Page.navigate', { url: `${origin}/#/versions` });
+    await call('Page.navigate', { url: `${origin}/?t08=${++visitNumber}#/versions` });
     await waitFor(() => evaluate('document.querySelectorAll("input[type=checkbox]").length'), n => n === versions.length);
   }
   async function openBasics() {
