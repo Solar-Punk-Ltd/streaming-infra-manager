@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { it } from 'node:test';
-import vite from '../../../frontend/vite.config.js';
+const { default: vite } = await import(new URL('../../../frontend/vite.config.ts', import.meta.url).href);
 
 it('routes Host target requests to the API in development and production', () => {
   const config = vite as { server: { proxy: Record<string, { target: string }> } };

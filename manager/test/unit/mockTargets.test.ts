@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { createTargetRoutes } from '../../../frontend/dev/mock-targets.mjs';
+const { createTargetRoutes } = await import(new URL('../../../frontend/dev/mock-targets.mjs', import.meta.url).href);
 
 it('lets the offline Host page recover inventory and display a failed target verification', async () => {
   const routes = createTargetRoutes(async (req: { body?: object }) => req.body ?? {});
