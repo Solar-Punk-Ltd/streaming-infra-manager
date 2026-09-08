@@ -61,6 +61,13 @@ function tables(stored: readonly ReturnType<typeof makeProfile>[] = []) {
 }
 
 describe('allocating a port slot', () => {
+  it('does not allocate a private service onto publicly allowed peer ports', async () => {
+    const { reservations, profiles } = tables();
+    const unsafe = [{ ...TABLE_X[0]!, slotBase: 11002 }];
+    assert.equal(await profiles.insertWithFreeSlot('a', 'custom', 'DEPLOYING', {}, placement(unsafe, 2)), null);
+    assert.equal(reservations.rows.length, 0);
+  });
+
   it('takes the lowest slot whose every port is free, and reserves each port of it planned in the deployment\'s name', async () => {
     const { reservations, profiles } = tables();
 

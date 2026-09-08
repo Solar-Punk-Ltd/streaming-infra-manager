@@ -31,6 +31,17 @@ async function setup() {
 }
 
 describe('captured contract port admission', () => {
+  for (const base of [11002, 20000]) {
+    it(`refuses private port mappings at ${base + 10} before reserving or launching`, async () => {
+      const h = await setup();
+      await h.versions.markBuilt(1, { commitSha: 'unsafe', contract: contract(base) });
+      await assert.rejects(h.orchestrator.startDeploy(h.row(), ['srs']), /public|protected/);
+      assert.equal(h.runner.runs.length, 0);
+      assert.deepEqual(h.ports.rows.map(row => row.port), [10010, 10011]);
+      assert.deepEqual(h.ledger.openJobReferences('a'), []);
+    });
+  }
+
   it('cancels only the current unstarted build reference when port admission is refused', async () => {
     const h = await setup();
     const old = await h.ledger.describe('a', await h.versions.findById(1), ['srs', 'stream-uploader']);

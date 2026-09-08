@@ -74,6 +74,12 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.equal(await ports.inventorySeededAt('other'), null);
   });
 
+  it('skips slots whose private endpoint would be opened by the shared firewall policy', async () => {
+    const unsafe = [{ ...table[0]!, slotBase: 11002 }];
+    assert.equal(await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 2, daemonId: 'daemon', table: unsafe }), null);
+    assert.deepEqual(await ports.listByDaemon('daemon'), []);
+  });
+
   it('resolves bundled legacy job references from the observed bundled root', async () => {
     await profiles.insertWithFreeSlot('a', 'viewer', 'RUNNING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
     const version = (await new PostgresStackVersionRepository(pool).findById(1))!;
