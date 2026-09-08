@@ -8,6 +8,8 @@ import {
 } from '../../data';
 import type { CreateProfileBody, Profile } from '../../types';
 import { addressForKey } from '../validation';
+import { matchingPool, type CreatedPool } from './poolIdentity';
+import { PoolResponseError } from './PoolResponseError';
 import {
   chosenComponents,
   chosenHost,
@@ -27,6 +29,7 @@ import {
 /** What the dialog does once the manager has accepted the deployment. */
 export interface WizardOutcome {
   profiles: Profile[];
+  createdPool?: CreatedPool;
   /** Hash route of the thing that was just created. */
   route: string;
   toast: string;
@@ -49,7 +52,9 @@ export async function submitWizard(
       notes: notesOf(state),
       stack_version_id: versionOf(state),
     });
-    return { profiles: result.profiles, route: routes.group(result.group.id), toast };
+    const createdPool = matchingPool(result, state.name);
+    if (!createdPool) throw new PoolResponseError();
+    return { profiles: createdPool.profiles, route: routes.group(createdPool.group.id), toast, createdPool };
   }
 
   if (state.group) {

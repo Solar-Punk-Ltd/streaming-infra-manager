@@ -2,6 +2,7 @@ import type { DeploymentGroup, Profile } from '../../types';
 import { initialWizardState, type WizardContext, type WizardState } from './wizardState';
 import { matchingPool, type CreatedPool } from './poolIdentity';
 export type { CreatedPool } from './poolIdentity';
+import { POOL_RESPONSE_NOTICE } from './PoolResponseError';
 
 export type PoolSetupOutcome = { kind: 'cancelled' } | { kind: 'accepted'; expectedName: string; value: unknown };
 
@@ -25,7 +26,7 @@ export function finishPoolSetup(
   if (result.kind === 'cancelled') return { state: uploader, created: null, notice: null };
   const created = matchingPool(result.value, result.expectedName);
   if (!created) {
-    return { state: uploader, created: null, notice: 'The manager accepted the request, but we could not select a matching storage pool from its response. Your uploader draft is unchanged. Check the pool before trying again.' };
+    return { state: uploader, created: null, notice: POOL_RESPONSE_NOTICE };
   }
   return {
     state: { ...uploader, step: 3, poolMode: 'pick', poolId: created.group.id },
