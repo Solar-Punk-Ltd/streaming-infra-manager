@@ -43,6 +43,34 @@ async function setup() {
 }
 
 describe('observed per-service port handover', () => {
+  for (const firstServices of [['srs', 'stream-uploader'], ['stream-uploader']]) {
+    it(`retains a port transferred to an untouched uploader after ${firstServices.join(' + ')} replacement`, async () => {
+      const h = await setup();
+      const b = [
+        { name: 'RTMP_PORT', protocol: 'tcp' as const, service: 'srs', defaultPort: 20000, slotBase: 20000 },
+        { name: 'HTTP_PORT', protocol: 'tcp' as const, service: 'stream-uploader', defaultPort: 10000, slotBase: 10000 },
+      ];
+      h.build.version!.contract!.ports = b;
+      await h.ports.plan('daemon-1', 'a', portPlanFor(b, 1), 'B');
+      h.daemon.set('a', 'srs', [firstServices.includes('srs') ? 'engine-B' : 'engine-old']);
+      h.daemon.set('a', 'stream-uploader', ['uploader-B']);
+      h.snapshot.bindings = portPlanFor(b, 1).filter(port => firstServices.includes(port.service!)).map(port => ({ ...port, project: 'a' }));
+      await h.handover.reconcile(h.profile, h.build, { ...h.attempt, services: firstServices });
+      const c = b.map(port => port.service === 'stream-uploader' ? { ...port, slotBase: 30001 } : port);
+      h.build.version!.contract!.ports = c;
+      await h.ports.plan('daemon-1', 'a', portPlanFor(c, 1), 'C');
+      h.daemon.set('a', 'srs', ['engine-C']);
+      h.snapshot.bindings = [{ project: 'a', service: 'srs', protocol: 'tcp', port: 20010 }];
+      const nextAttempt = { ...h.attempt, services: ['srs'], preJobContainerIds: ['engine-old', 'engine-B', 'uploader-B'] };
+      await h.handover.reconcile(h.profile, h.build, nextAttempt);
+      assert.ok((await h.held()).includes(10010), 'the untouched stopped B uploader still needs P');
+      h.daemon.set('a', 'stream-uploader', ['uploader-C']);
+      h.snapshot.bindings = portPlanFor(c, 1).map(port => ({ ...port, project: 'a' }));
+      await h.handover.reconcile(h.profile, h.build, { ...nextAttempt, services: ['srs', 'stream-uploader'] });
+      assert.ok(!(await h.held()).includes(10010), 'P can go once every former owner is replaced');
+    });
+  }
+
   it('releases only the replaced engine ports and retains both uploader plans', async () => {
     const h = await setup();
     await h.reconcile();

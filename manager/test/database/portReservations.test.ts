@@ -125,6 +125,20 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.equal((await ports.listByProfile('a')).length, 2);
   });
 
+  it('retains all service owners of a port across full and partial contract handovers', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const p = { protocol: 'tcp' as const, port: 10010, portVar: 'API_PORT', service: 'stream-uploader' };
+    const q = { ...p, port: 20010, service: 'stream-uploader' };
+    await ports.plan('daemon', 'a', [{ ...p, service: 'srs' }, q], 'B');
+    await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: ['srs', 'stream-uploader'], planned: [{ ...p, service: 'srs' }, q], bound: [p, q] });
+    const next = [{ ...p, port: 30010, service: 'srs' }, q];
+    await ports.plan('daemon', 'a', next, 'C');
+    await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: ['stream-uploader'], planned: next, bound: next });
+    assert.ok((await ports.listByProfile('a')).some(row => row.port === p.port), 'untouched engine ownership survives');
+    await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: ['srs', 'stream-uploader'], planned: next, bound: next });
+    assert.ok(!(await ports.listByProfile('a')).some(row => row.port === p.port));
+  });
+
   it('deletes the profile and its reservations together after removal and resolves its build references', async () => {
     await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
     await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES (1, 'old', 'job', 'a', '{srs}')");
