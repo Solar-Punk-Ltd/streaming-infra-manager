@@ -118,6 +118,17 @@ test('readiness and container diagnostics use current observations in the browse
   await waitFor(() => evaluate(`!![...document.querySelectorAll('#storage button')].find(button => button.textContent.trim() === 'Refresh' && !button.disabled)`));
   assert.equal(await hasUploader(), false);
   assert.match(await body(), /Bee observation stale/);
+  for (const phase of ['starting', 'restarting', null]) {
+    second.status = 'DEPLOYING'; second.deployment_phase = phase;
+    await call('Page.reload');
+    const label = phase === 'starting' ? 'Starting' : phase === 'restarting' ? 'Restarting' : 'Deploying';
+    await waitFor(body, text => text.includes(`${label}. Ingest and current container state are not yet verified.`), `${label} after page reload`);
+    assert.doesNotMatch(await body(), /deployment is stopped|Stopped\. Start it/);
+    assert.match(await body(), /Previous container records, current state not yet verified/);
+    const engineText = await evaluate(`[...document.querySelectorAll('h3')].find(heading => heading.textContent === 'SRS 6').closest('.MuiPaper-root').innerText`);
+    assert.match(engineText, /State not checked/);
+    assert.doesNotMatch(await body(), /own node · not running/);
+  }
   assert.deepEqual(writes, []);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
