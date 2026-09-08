@@ -31,3 +31,11 @@ Exact by-request reads and fresh profile reads use `cache: 'no-store'` through t
 Run `node --test frontend/test/transfer-api-browser.test.mjs` from the worktree root. These adapter tests own their synthetic API, Vite and Chrome processes. API and Vite bind dynamic loopback ports, and Vite uses a separate cache. `RUNNER_TEMP` selects the evidence parent directory, otherwise the operating system temporary directory is used. Each run reports its evidence path. The earlier intent-browser suite still requires its local Vite listener and remains scheduled for the final harness portability correction.
 
 This checkpoint does not wire the money dialog or global history. T06 current target ownership integration is still required. The historical 0.5 BZZ fill remains unverified.
+
+## Offline journal mock
+
+`frontend/dev/mock-chequebook.mjs` replaces the offline manager's amount-only money routes. Synthetic operation records retain their permanent request keys for the lifetime of that mock process. Exact replay precedes current profile lookup, and account or profile-instance changes refuse new submissions. Busy operations and historical hash conflicts remain protected. The mock returns the same admission, exact-request and operation-detail shapes as the real API.
+
+A receipt observation changes the recorded outcome. A balance change does not. The ordinary offline manager schedules a synthetic receipt and updates its sample balances separately. Tests can inject an unavailable submission response or later receipt/hash evidence through the JavaScript fixture only. There are no HTTP controls for forcing an outcome.
+
+Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
