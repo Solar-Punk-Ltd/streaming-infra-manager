@@ -108,6 +108,48 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     assert.deepEqual(await shipments.pendingBuildIds(versionId), [A]);
   });
 
+  it('refuses a new materializer when an earlier reservation owns the id as reuse', async () => {
+    const first = identity();
+    const second = identity();
+    await shipments.register(first);
+    await shipments.register(second);
+    await shipments.reserveCandidate(first.shipmentId, proposal(A, 'reuse'));
+    await assert.rejects(shipments.reserveCandidate(second.shipmentId, proposal()), /reserved|candidate/i);
+    assert.equal((await shipments.find(second.shipmentId))!.candidateBuildId, null);
+    assert.equal((await shipments.find(first.shipmentId))!.candidateKind, 'reuse');
+  });
+
+  it('supersedes already-stale A before asking for artifact verification', async () => {
+    const item = await prepare();
+    await versions.publish(versionId, { buildId: C, commitSha: C, rootPath: '/synthetic/bundled', contract: ALLOCATION_CONTRACT });
+    const before = await active();
+    let verifications = 0;
+    const result = await shipments.activate(item.shipmentId, async () => {
+      verifications += 1;
+      throw new Error('stale candidate need not be read');
+    });
+    assert.equal(result.status, 'superseded');
+    assert.equal(verifications, 0);
+    assert.deepEqual(await active(), before);
+    assert.deepEqual(await shipments.pendingBuildIds(versionId), []);
+  });
+
+  it('preserves its registered root and database identity against retries and direct reassignment', async () => {
+    const item = await prepare();
+    const original = (await shipments.find(item.shipmentId))!;
+    const alternate = new PostgresBundledShipmentRepository(pool, '/synthetic/alternate');
+    assert.deepEqual(await alternate.register(item), original);
+    for (const update of [
+      "expected_publication_revision = 7",
+      "root_path = '/synthetic/alternate'",
+      "artifact_digest = repeat('0', 64)",
+      "state = 'registered', artifact_digest = NULL, candidate_contract = NULL",
+    ]) {
+      await assert.rejects(pool.query(`UPDATE bundled_shipments SET ${update} WHERE shipment_id = $1`, [item.shipmentId]), /identity|prepared|candidate/i);
+      assert.deepEqual(await shipments.find(item.shipmentId), original);
+    }
+  });
+
   it('lets only one of two prepared shipments at one revision activate', async () => {
     const first = await prepare(identity());
     const second = await prepare(identity(C));
