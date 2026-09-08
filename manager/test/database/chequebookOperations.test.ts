@@ -4,6 +4,9 @@ import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 import { PostgresChequebookOperationRepository } from '../../src/domain/chequebook/PostgresChequebookOperationRepository.js';
+import { ChequebookRecovery } from '../../src/domain/chequebook/ChequebookRecovery.js';
+import { ChequebookRecoveryInspector } from '../../src/domain/chequebook/ChequebookRecoveryInspector.js';
+import { ChequebookReceiptCheck } from '../../src/domain/chequebook/ChequebookReceiptCheck.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import { operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
 
@@ -195,6 +198,62 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.deepEqual(empty.recoveryObservation?.candidateHashes, [transactionHash, other.hash]);
     await assert.rejects(repository.assertNoSubmission(empty, assertion), /search/i);
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
+  it('resumes the actual recovery service through PostgreSQL restart without skipping blocks or losing ambiguity', async () => {
+    const blockHash = (number: number) => number === 500 ? transferContext.startBlockHash : `0x${number.toString(16).padStart(64, '0')}`;
+    const first = recoveryTransaction({ blockNumber: '505', blockHash: blockHash(505) });
+    const second = recoveryTransaction({ hash: `0x${'93'.repeat(32)}`, nonce: '10', blockNumber: '501', blockHash: blockHash(501) });
+    const inspected: string[] = [];
+    const reader = {
+      async chainId() { return 100; },
+      async transaction(hash: string) { return [first, second].find(transaction => transaction.hash === hash) ?? null; },
+      async blockHeader(input: bigint | 'latest') {
+        const number = input === 'latest' ? 505 : Number(input);
+        return { number: String(number), hash: blockHash(number), parentHash: blockHash(number - 1) };
+      },
+      async blockTransactions(input: bigint) {
+        const number = Number(input);
+        inspected.push(String(number));
+        return { number: String(number), hash: blockHash(number), parentHash: blockHash(number - 1), transactions: [first, second].filter(transaction => transaction.blockNumber === String(number)) };
+      },
+    };
+    const service = () => {
+      const restarted = new PostgresChequebookOperationRepository(pool);
+      const inspector = new ChequebookRecoveryInspector(async () => reader, async () => [], { maxBlocks: 2 });
+      const receipts = new ChequebookReceiptCheck(restarted, async () => { assert.fail('Ambiguous transfers must never reach receipt confirmation'); });
+      return new ChequebookRecovery(restarted, inspector, receipts);
+    };
+    const unknown = await unknownOperation();
+    const chunk1 = await service().recover(unknown.id);
+    assert.equal(chunk1.recoveryObservation?.kind, 'searching');
+    assert.equal(chunk1.recoveryObservation?.scan?.nextBlockNumber, '503');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+    const chunk2 = await service().recover(unknown.id);
+    assert.equal(chunk2.recoveryObservation?.scan?.nextBlockNumber, '501');
+    const complete = await service().recover(unknown.id);
+    assert.equal(complete.state, 'unknown');
+    assert.equal(complete.recoveryObservation?.kind, 'ambiguous');
+    assert.deepEqual(complete.recoveryObservation?.candidateHashes, [first.hash, second.hash]);
+    assert.deepEqual(inspected, ['505', '504', '503', '502', '501', '500']);
+    assert.deepEqual(await repository.findById(unknown.id), complete);
+    assert.deepEqual(await repository.recordRecovery(chunk1, noMatch, []), complete);
+    await assert.rejects(service().assertNoSubmission(unknown.id, assertion), /search/i);
+  });
+
+  it('whitelists saved recovery evidence and rejects malformed bounds without changing a row', async () => {
+    const unknown = await unknownOperation();
+    for (const scan of [
+      { ...noMatch.scan, nextBlockNumber: '499' },
+      { ...noMatch.scan, nextBlockHash: `0x${'88'.repeat(32)}` },
+      { ...noMatch.scan, headBlockNumber: '499' },
+      { ...noMatch.scan, headBlockNumber: '0500' },
+    ]) await assert.rejects(repository.recordRecovery(unknown, { ...noMatch, scan }, []), /invalid/i);
+    assert.deepEqual(await repository.findById(unknown.id), unknown);
+    const input = { ...noMatch, endpoint: 'synthetic-private-path', scan: { ...noMatch.scan, endpoint: 'synthetic-private-path' } };
+    const checked = await repository.recordRecovery(unknown, input, []);
+    assert.deepEqual(checked.recoveryObservation, noMatch);
+    assert.ok(!JSON.stringify(checked).includes('synthetic-private-path'));
   });
 
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
