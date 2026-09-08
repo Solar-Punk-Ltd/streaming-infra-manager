@@ -14,6 +14,8 @@ import {
   BEE_UPLOADER_SERVICE,
   containerNotRunningMessage,
   defaultServicesFor,
+  assembleEngineSettingObservations,
+  environmentSettingReadings,
   effectiveEngineDefaults,
   effectiveEngineSettings,
   engineOfServices,
@@ -184,20 +186,25 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
         const { engine, abr } = engineFacts(profile);
         if (!engine) return noEngine(res, profile);
         const defaults = hostDefaults(engine, profile);
+        const fields = engineSettingsFieldsFor(engine, { abr });
+        const readings = profile.has_engine_config
+          ? Object.fromEntries(fields.map(field => [field.key, field.placeholder
+            ? [{ kind: 'unverified', reason: 'metadata-unavailable' }]
+            : [{ kind: 'environment' }]]))
+          : environmentSettingReadings(fields);
         send(res, 200, {
           engine,
           abr,
           settings: profile.engine_settings,
           defaults: defaults.values,
           defaultSources: defaults.sources,
-          effective: effectiveEngineSettings(engine, profile.engine_settings, defaults.values),
-          fields: engineSettingsFieldsFor(engine, { abr }),
+          ...assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings }),
+          fields,
           live: null,
           liveUnavailableReason: liveUnavailableReason(
             engine,
             contractOfVersion(profile.stack_version_id)?.features,
           ),
-          notInConfig: [],
         });
       }),
     ],
