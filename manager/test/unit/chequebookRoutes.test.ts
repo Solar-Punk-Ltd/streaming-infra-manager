@@ -60,7 +60,7 @@ describe('authenticated transaction-journal API', () => {
     const id = operationCandidate().id;
     for (const [method, route] of [['POST', path], ['GET', operationsPath], ['GET', `${operationsPath}/${id}`],
       ['GET', `${operationsPath}/by-request/${id}`], ['POST', `${operationsPath}/${id}/check`], ['POST', `${operationsPath}/${id}/resolve`], ['POST', `${operationsPath}/${id}/assert`]]) {
-      assert.equal((await api.request(method!, route!, {}, false)).status, 401);
+      assert.equal((await api.request(method!, route!, method === 'GET' ? undefined : {}, false)).status, 401);
     }
     assert.equal((await api.request('POST', path, {}, true, false)).status, 403);
     assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });

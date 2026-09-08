@@ -1,3 +1,8 @@
+import { ChequebookOperationInputError } from '../../domain/errors/ChequebookOperationInputError.js';
+import { ChequebookOperationNotFoundError } from '../../domain/errors/ChequebookOperationNotFoundError.js';
+import { ChequebookJournalError } from '../../domain/errors/ChequebookJournalError.js';
+import { ChequebookPreparationError } from '../../domain/errors/ChequebookPreparationError.js';
+import { ChequebookRecoveryRequiredError } from '../../domain/errors/ChequebookRecoveryRequiredError.js';
 import {
   getErrorMessage,
   getErrorStack,
@@ -61,6 +66,22 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
+  if (err instanceof ChequebookOperationInputError) {
+    res.status(400).json({ error: 'validation_error', errors: [err.message] });
+    return;
+  }
+  if (err instanceof ChequebookOperationNotFoundError) {
+    res.status(404).json({ error: 'chequebook_operation_not_found', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookJournalError || err instanceof ChequebookPreparationError) {
+    res.status(503).json({ error: err instanceof ChequebookJournalError ? 'chequebook_journal_unavailable' : 'chequebook_preparation_unavailable', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookRecoveryRequiredError) {
+    res.status(409).json({ error: 'chequebook_recovery_required', message: err.message });
+    return;
+  }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
     return;

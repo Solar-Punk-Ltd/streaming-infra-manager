@@ -1,3 +1,4 @@
+import { createChequebookOperationsService } from './domain/chequebook/createChequebookOperationsService.js';
 import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
@@ -199,6 +200,10 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  const chequebookOperations = createChequebookOperationsService(database.pool, profileRepository, containerRepository, {
+    rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
+    beeEndpointMode: process.env.CHEQUEBOOK_BEE_ENDPOINT_MODE,
+  });
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -245,6 +250,7 @@ async function main(): Promise<void> {
       deployService,
       stampService,
       chequebookService,
+      chequebookOperations,
       containerControl,
       engineConfigService,
       stackVersionService,
