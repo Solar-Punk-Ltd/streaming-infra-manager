@@ -34,21 +34,35 @@ CREATE TABLE bundled_shipments (
   candidate_build_id TEXT CHECK (candidate_build_id ~ '^[a-f0-9]{40}(-r[1-9][0-9]*)?$'),
   candidate_kind TEXT CHECK (candidate_kind IN ('new', 'reuse')),
   candidate_manifest JSONB,
+  candidate_metadata JSONB,
+  materialization_id UUID UNIQUE,
   artifact_digest TEXT CHECK (artifact_digest ~ '^[a-f0-9]{64}$'),
   candidate_contract JSONB,
   receipt_revision BIGINT,
   published_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (
-    (candidate_build_id IS NULL AND candidate_kind IS NULL AND candidate_manifest IS NULL) OR
-    (candidate_build_id IS NOT NULL AND candidate_kind IS NOT NULL AND candidate_manifest IS NOT NULL
+    (candidate_build_id IS NULL AND candidate_kind IS NULL AND candidate_manifest IS NULL AND candidate_metadata IS NULL) OR
+    (candidate_build_id IS NOT NULL AND candidate_kind IS NOT NULL AND candidate_manifest IS NOT NULL AND candidate_metadata IS NOT NULL
      AND jsonb_typeof(candidate_manifest) = 'object'
      AND candidate_manifest->>'buildId' IS NOT DISTINCT FROM candidate_build_id
      AND candidate_manifest->>'commit' IS NOT DISTINCT FROM commit_sha)
   ),
+  CHECK (candidate_metadata IS NULL OR (
+    jsonb_typeof(candidate_metadata) = 'object'
+    AND candidate_metadata ?& ARRAY['manifestBytes', 'manifestMode', 'completeBytes', 'completeMode']
+    AND jsonb_typeof(candidate_metadata->'manifestBytes') = 'string'
+    AND (candidate_metadata->>'manifestBytes')::jsonb IS NOT DISTINCT FROM candidate_manifest
+    AND candidate_metadata->'manifestMode' = '420'::jsonb
+    AND candidate_metadata->'completeBytes' = '""'::jsonb
+    AND candidate_metadata->'completeMode' = '420'::jsonb
+  )),
   CHECK ((artifact_digest IS NULL) = (candidate_contract IS NULL)),
   CHECK (candidate_contract IS NULL OR jsonb_typeof(candidate_contract) = 'object'),
   CHECK (artifact_digest IS NULL OR candidate_build_id IS NOT NULL),
+  CHECK ((artifact_digest IS NULL AND materialization_id IS NULL) OR
+         (artifact_digest IS NOT NULL AND ((candidate_kind = 'new' AND materialization_id IS NOT NULL) OR
+                                          (candidate_kind = 'reuse' AND materialization_id IS NULL)))),
   CHECK (state NOT IN ('prepared', 'published') OR artifact_digest IS NOT NULL),
   CHECK (state <> 'registered' OR artifact_digest IS NULL),
   CHECK (
@@ -73,13 +87,13 @@ BEGIN
     RAISE EXCEPTION 'registered shipment identity cannot change';
   END IF;
   IF OLD.candidate_build_id IS NOT NULL AND
-     ROW(NEW.candidate_build_id, NEW.candidate_kind, NEW.candidate_manifest)
-     IS DISTINCT FROM ROW(OLD.candidate_build_id, OLD.candidate_kind, OLD.candidate_manifest) THEN
+     ROW(NEW.candidate_build_id, NEW.candidate_kind, NEW.candidate_manifest, NEW.candidate_metadata)
+     IS DISTINCT FROM ROW(OLD.candidate_build_id, OLD.candidate_kind, OLD.candidate_manifest, OLD.candidate_metadata) THEN
     RAISE EXCEPTION 'reserved shipment candidate cannot change';
   END IF;
   IF OLD.artifact_digest IS NOT NULL AND
-     ROW(NEW.artifact_digest, NEW.candidate_contract)
-     IS DISTINCT FROM ROW(OLD.artifact_digest, OLD.candidate_contract) THEN
+     ROW(NEW.artifact_digest, NEW.candidate_contract, NEW.materialization_id)
+     IS DISTINCT FROM ROW(OLD.artifact_digest, OLD.candidate_contract, OLD.materialization_id) THEN
     RAISE EXCEPTION 'prepared shipment identity cannot change';
   END IF;
   IF OLD.state IN ('published', 'superseded') AND NEW IS DISTINCT FROM OLD THEN

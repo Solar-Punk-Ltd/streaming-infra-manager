@@ -61,7 +61,7 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
   async function prepare(item = identity()) {
     await shipments.register(item);
     await shipments.reserveCandidate(item.shipmentId, proposal(item.commit));
-    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: randomUUID() });
     return item;
   }
   async function active() {
@@ -89,10 +89,10 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     assert.deepEqual(await shipments.pendingBuildIds(versionId), [A]);
     assert.deepEqual(await shipments.reserveCandidate(item.shipmentId, proposal()), selected);
     await assert.rejects(shipments.reserveCandidate(item.shipmentId, { ...proposal(), buildId: `${A}-r1`, manifest: { ...proposal().manifest, buildId: `${A}-r1` } }), /candidate/i);
-    const prepared = await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+    const prepared = await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: randomUUID() });
     assert.equal(prepared.state, 'prepared');
-    assert.deepEqual(await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT }), prepared);
-    await assert.rejects(shipments.markPrepared(item.shipmentId, { artifactDigest: 'f'.repeat(64), contract: ALLOCATION_CONTRACT }), /prepared|digest/i);
+    assert.deepEqual(await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: randomUUID() }), prepared);
+    await assert.rejects(shipments.markPrepared(item.shipmentId, { artifactDigest: 'f'.repeat(64), contract: ALLOCATION_CONTRACT, materializationId: randomUUID() }), /prepared|digest/i);
   });
 
   it('persists exact generated metadata bytes before a candidate is materialized', async () => {
@@ -119,7 +119,7 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     const item = identity();
     await shipments.register(item);
     await shipments.reserveCandidate(item.shipmentId, proposal());
-    const copies = [randomUUID(), randomUUID()];
+    const copies: string[] = [randomUUID(), randomUUID()];
     const outcomes = await Promise.all(copies.map(materializationId => shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId })));
     assert.ok(copies.includes(outcomes[0]!.materializationId!));
     assert.equal(outcomes[1]!.materializationId, outcomes[0]!.materializationId);
@@ -268,7 +268,7 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
       const next = identity(C);
       await bounded(shipments.register(next));
       await shipments.reserveCandidate(next.shipmentId, proposal(C));
-      await shipments.markPrepared(next.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+      await shipments.markPrepared(next.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: randomUUID() });
       await shipments.activate(next.shipmentId, async () => {});
       assert.deepEqual(await shipments.pendingBuildIds(versionId), [A]);
     } finally { barrier.release(); }

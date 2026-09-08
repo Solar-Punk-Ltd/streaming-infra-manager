@@ -7,14 +7,16 @@ import { buildIdProblem } from './buildManifest.js';
 import type { BundledActivation, BundledCandidateProposal, BundledShipmentRecord, PreparedBundledCandidate } from './BundledShipment.js';
 import { validateBundledShipmentId, validateBundledShipmentIdentity, type BundledShipmentIdentity } from './bundledShipmentPackage.js';
 import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
+import { bundledArtifactMetadata } from './bundledArtifactMetadata.js';
 
 const SHIPMENT_COLUMNS = `shipment_id, version_id, package_digest, commit_sha, expected_publication_revision,
-  root_path, state, candidate_build_id, candidate_kind, candidate_manifest, artifact_digest,
+  root_path, state, candidate_build_id, candidate_kind, candidate_manifest, candidate_metadata, materialization_id, artifact_digest,
   candidate_contract, receipt_revision, published_at, created_at`;
 interface ShipmentRow {
   shipment_id: string; version_id: number; package_digest: string; commit_sha: string; expected_publication_revision: string;
   root_path: string; state: BundledShipmentRecord['state']; candidate_build_id: string | null;
   candidate_kind: BundledShipmentRecord['candidateKind']; candidate_manifest: BundledShipmentRecord['candidateManifest'];
+  candidate_metadata: BundledShipmentRecord['candidateMetadata']; materialization_id: string | null;
   artifact_digest: string | null; candidate_contract: BundledShipmentRecord['candidateContract'];
   receipt_revision: string | null; published_at: Date | null; created_at: Date;
 }
@@ -24,6 +26,7 @@ function toRecord(row: ShipmentRow): BundledShipmentRecord {
     shipmentId: row.shipment_id, versionId: row.version_id, packageDigest: row.package_digest, commitSha: row.commit_sha,
     expectedRevision: row.expected_publication_revision, rootPath: row.root_path, state: row.state,
     candidateBuildId: row.candidate_build_id, candidateKind: row.candidate_kind, candidateManifest: row.candidate_manifest,
+    candidateMetadata: row.candidate_metadata, materializationId: row.materialization_id,
     artifactDigest: row.artifact_digest, candidateContract: row.candidate_contract, createdAt: row.created_at,
     receipt: row.state === 'published' ? {
       shipmentId: row.shipment_id, versionId: row.version_id, buildId: row.candidate_build_id!,
@@ -37,7 +40,7 @@ function resolved(record: BundledShipmentRecord): BundledActivation | null {
   return null;
 }
 function candidateIdentity(record: BundledShipmentRecord) {
-  return [record.candidateBuildId, record.candidateKind, record.candidateManifest, record.artifactDigest, record.candidateContract];
+  return [record.candidateBuildId, record.candidateKind, record.candidateManifest, record.candidateMetadata, record.materializationId, record.artifactDigest, record.candidateContract];
 }
 
 export async function readPendingShipmentBuildIds(pool: Pool, versionId: number): Promise<string[]> {
@@ -86,11 +89,11 @@ export class PostgresBundledShipmentRepository {
         proposal.manifest.buildId !== proposal.buildId || !Number.isFinite(Date.parse(proposal.manifest.builtAt)) || !proposal.manifest.toolchain?.trim()) {
       throw new Error('Invalid shipment candidate.');
     }
-    const selected = structuredClone(proposal);
+    const selected = structuredClone({ ...proposal, metadata: bundledArtifactMetadata(proposal.manifest, proposal.metadata) });
     return this.transaction(async (client, version) => {
       const current = (await this.readLocked(client, shipmentId, version.id))!;
       if (current.candidateBuildId) {
-        if (!isDeepStrictEqual([current.candidateBuildId, current.candidateKind, current.candidateManifest], [selected.buildId, selected.kind, selected.manifest])) {
+        if (!isDeepStrictEqual([current.candidateBuildId, current.candidateKind, current.candidateManifest, current.candidateMetadata], [selected.buildId, selected.kind, selected.manifest, selected.metadata])) {
           throw new Error('Shipment candidate is already assigned.');
         }
         return current;
@@ -103,9 +106,9 @@ export class PostgresBundledShipmentRepository {
         if (owners.rowCount) throw new Error('Shipment candidate id is already reserved.');
       }
       const result = await client.query<ShipmentRow>(
-        `UPDATE bundled_shipments SET candidate_build_id = $2, candidate_kind = $3, candidate_manifest = $4::jsonb
+        `UPDATE bundled_shipments SET candidate_build_id = $2, candidate_kind = $3, candidate_manifest = $4::jsonb, candidate_metadata = $5::jsonb
          WHERE shipment_id = $1 RETURNING ${SHIPMENT_COLUMNS}`,
-        [shipmentId, selected.buildId, selected.kind, JSON.stringify(selected.manifest)],
+        [shipmentId, selected.buildId, selected.kind, JSON.stringify(selected.manifest), JSON.stringify(selected.metadata)],
       );
       return toRecord(result.rows[0]!);
     });
@@ -114,10 +117,14 @@ export class PostgresBundledShipmentRepository {
   async markPrepared(shipmentId: string, prepared: PreparedBundledCandidate): Promise<BundledShipmentRecord> {
     validateBundledShipmentId(shipmentId);
     if (!/^[a-f0-9]{64}$/.test(prepared.artifactDigest)) throw new Error('Invalid prepared artifact digest.');
-    const selected = { artifactDigest: prepared.artifactDigest, contract: parseStackContract(prepared.contract) };
+    if (prepared.materializationId !== null && (typeof prepared.materializationId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(prepared.materializationId))) {
+      throw new Error('Invalid private materialization copy identity.');
+    }
+    const selected = { artifactDigest: prepared.artifactDigest, contract: parseStackContract(prepared.contract), materializationId: prepared.materializationId };
     if (!selected.contract) throw new Error('Invalid prepared artifact contract.');
     return this.transaction(async (client, version) => {
       const current = (await this.readLocked(client, shipmentId, version.id))!;
+      if ((current.candidateKind === 'new') !== (selected.materializationId !== null)) throw new Error('Private copy identity must be present only for a new materialization.');
       if (current.artifactDigest) {
         if (!isDeepStrictEqual([current.artifactDigest, current.candidateContract], [selected.artifactDigest, selected.contract])) {
           throw new Error('Prepared shipment identity is already assigned.');
@@ -127,9 +134,9 @@ export class PostgresBundledShipmentRepository {
       if (current.state !== 'registered' || !current.candidateBuildId) throw new Error('Shipment has no candidate to prepare.');
       if (current.expectedRevision !== version.publication_revision) return this.supersede(client, current);
       const result = await client.query<ShipmentRow>(
-        `UPDATE bundled_shipments SET state = 'prepared', artifact_digest = $2, candidate_contract = $3::jsonb
+        `UPDATE bundled_shipments SET state = 'prepared', artifact_digest = $2, candidate_contract = $3::jsonb, materialization_id = $4
          WHERE shipment_id = $1 RETURNING ${SHIPMENT_COLUMNS}`,
-        [shipmentId, selected.artifactDigest, JSON.stringify(selected.contract)],
+        [shipmentId, selected.artifactDigest, JSON.stringify(selected.contract), selected.materializationId],
       );
       return toRecord(result.rows[0]!);
     });

@@ -116,7 +116,7 @@ describe('pending bundled shipments and real pruning in isolated PostgreSQL', { 
     it(`keeps a ${state} candidate with current, previous and mounted artifacts`, async () => {
       const item = await register();
       await shipments.reserveCandidate(item.shipmentId, candidate);
-      if (state === 'prepared') await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+      if (state === 'prepared') await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: null });
       assert.deepEqual(await service.pruneBuilds(versionId), { removed: [E], kept: [A, B, C, D] });
       await verifyArtifact();
     });
@@ -168,7 +168,7 @@ describe('pending bundled shipments and real pruning in isolated PostgreSQL', { 
     } finally { release.resolve(); }
     assert.deepEqual(await bounded(pruned), { removed: [A, E], kept: [B, C, D] });
     await bounded(reserved!);
-    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: null });
     const before = await active();
     await assert.rejects(shipments.activate(item.shipmentId, verifyArtifact), { code: 'ENOENT' });
     assert.deepEqual(await active(), before);
@@ -178,7 +178,7 @@ describe('pending bundled shipments and real pruning in isolated PostgreSQL', { 
   it('drops a superseded hold only after resolution and then permits ordinary pruning', async () => {
     const item = await register();
     await shipments.reserveCandidate(item.shipmentId, candidate);
-    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT });
+    await shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: null });
     await versions.publish(versionId, { buildId: C, commitSha: C, contract: ALLOCATION_CONTRACT });
     assert.ok((await service.pruneBuilds(versionId)).kept.includes(A));
     assert.equal((await shipments.activate(item.shipmentId, verifyArtifact)).status, 'superseded');
