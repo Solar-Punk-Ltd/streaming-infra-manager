@@ -118,5 +118,9 @@ export async function launchChrome(t, origin) {
   await call('Runtime.enable');
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-  return { call, evaluate, errors, blockedRequests, pid: child.pid, debuggingPort: port };
+  const version = await call('Browser.getVersion');
+  return {
+    call, evaluate, errors, blockedRequests,
+    pid: child.pid, profile, debuggingPort: port, version: version.product,
+  };
 }

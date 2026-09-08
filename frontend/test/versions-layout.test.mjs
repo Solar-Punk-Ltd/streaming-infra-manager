@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import { launchChrome, waitFor } from './support/chrome.mjs';
-import { LONG_VERSION_NAME, seedVersions } from './fixtures/versions.mjs';
+import { LONG_ERROR, LONG_VERSION_NAME, seedVersions } from './fixtures/versions.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const evidence = process.env.T18_EVIDENCE_DIR;
@@ -13,6 +13,7 @@ const evidence = process.env.T18_EVIDENCE_DIR;
 test('version identity, states and actions fit verified narrow viewports', async (t) => {
   let versions = seedVersions();
   const writes = [];
+  let activeBuild;
   const server = await createServer({
     root: frontend,
     configFile: resolve(frontend, 'vite.config.ts'),
@@ -48,7 +49,8 @@ test('version identity, states and actions fit verified narrow viewports', async
             if (req.method === 'DELETE') { versions = versions.filter((v) => v !== version); return json({}); }
             if (path.endsWith('/update')) {
               res.writeHead(200, { 'content-type': 'text/event-stream' });
-              res.end('event: stdout\ndata: {"chunk":"Offline build log"}\n\nevent: done\ndata: {"code":0}\n\n');
+              res.write('event: stdout\ndata: {"chunk":"Offline build log"}\n\n');
+              activeBuild = res;
               return;
             }
           }
@@ -66,6 +68,22 @@ test('version identity, states and actions fit verified narrow viewports', async
   const origin = `http://127.0.0.1:${address.port}`;
   const browser = await launchChrome(t, origin);
   const { call, evaluate } = browser;
+  async function pressKey(key, code, keyCode, text) {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, text });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
+  }
+  async function clickButton(name, scope = 'document') {
+    const point = await evaluate(`(() => {
+      const element = [...(${scope}).querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(name)});
+      if (!element || element.disabled) throw new Error('No enabled button: ' + ${JSON.stringify(name)});
+      element.scrollIntoView({ block: 'center' });
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    })()`);
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+  }
+  const card = (name) => `document.querySelector('input[aria-label="${name} tested"]').closest('article')`;
   await call('Page.navigate', { url: `${origin}/#/versions` });
   await waitFor(() => evaluate(`document.querySelectorAll('input[type="checkbox"]').length`), (count) => count === 6, 'version controls');
   const dimensions = [];
@@ -89,14 +107,24 @@ test('version identity, states and actions fit verified narrow viewports', async
             }
             return { name: element.textContent || element.getAttribute('aria-label'), left: box.left, right: box.right, within: box.left >= left - 1 && box.right <= right + 1 };
           });
-          return { name: input.getAttribute('aria-label'), checked: input.checked, controls: visible, text: row.innerText };
+          const labels = [...row.querySelectorAll('h4, span, dt, dd, p')]
+            .filter(element => element.childElementCount === 0 && element.textContent.trim() && element.checkVisibility())
+            .map(element => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              return {
+                text: element.textContent,
+                within: [...range.getClientRects()].every(rect => rect.left >= -1 && rect.right <= innerWidth + 1),
+              };
+            });
+          return { name: input.getAttribute('aria-label'), checked: input.checked, controls: visible, labels, text: row.innerText };
         });
         return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, rows };
       })()`);
       dimensions.push(measurement);
       if (evidence) {
         await mkdir(evidence, { recursive: true });
-        const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true, fromSurface: true });
+        const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false, fromSurface: true });
         await writeFile(resolve(evidence, `versions-${width}.png`), Buffer.from(data, 'base64'));
       }
       assert.equal(measurement.width, width, 'the requested viewport must actually apply');
@@ -104,6 +132,7 @@ test('version identity, states and actions fit verified narrow viewports', async
       for (const row of measurement.rows) {
         assert.equal(row.controls.length, 4, `${row.name} preserves Tested and three actions`);
         for (const control of row.controls) assert.ok(control.within, `${row.name}: ${control.name} lies outside the visible page (${control.left}..${control.right})`);
+        for (const label of row.labels) assert.ok(label.within, `${row.name}: ${label.text} extends beyond the viewport`);
       }
       assert.ok(measurement.rows[0].text.includes('Default'));
       assert.equal(measurement.rows[0].checked, true);
@@ -116,19 +145,80 @@ test('version identity, states and actions fit verified narrow viewports', async
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 960, deviceScaleFactor: 1, mobile: false });
     assert.equal(await evaluate('document.querySelectorAll("details > summary").length'), 6);
     await evaluate(`document.querySelector('details > summary').focus()`);
-    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await pressKey('Enter', 'Enter', 13, '\r');
     await waitFor(() => evaluate('document.querySelector("details").open'), Boolean, 'keyboard-expanded contract');
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
     assert.equal(await evaluate(`document.querySelector('input[aria-label=${JSON.stringify(`${LONG_VERSION_NAME} tested`)}]').checked`), true);
     if (evidence) {
-      const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true, fromSurface: true });
+      const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false, fromSurface: true });
       await writeFile(resolve(evidence, 'versions-390-expanded.png'), Buffer.from(data, 'base64'));
     }
   });
 
-  if (evidence) await writeFile(resolve(evidence, 'viewport-measurements.json'), JSON.stringify({ dimensions, chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: address.port }, null, 2));
+  await t.test('Tested retains the shown commit and default still requires confirmation', async () => {
+    assert.equal(await evaluate(`[...(${card('candidate')}).querySelectorAll('button')].find(button => button.textContent === 'Set as default').disabled`), true);
+    await evaluate(`document.querySelector('input[aria-label="candidate tested"]').focus()`);
+    await pressKey(' ', 'Space', 32, ' ');
+    await waitFor(() => writes.length, (count) => count === 1, 'tested request');
+    assert.deepEqual(writes[0], { method: 'PATCH', path: '/versions/3', body: { tested: true, commitSha: '3'.repeat(40) } });
+    await waitFor(() => evaluate(`document.querySelector('input[aria-label="candidate tested"]').checked`));
+    await clickButton('Set as default', card('candidate'));
+    assert.equal(writes.length, 1, 'opening confirmation does not mutate default');
+    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'));
+    await clickButton('Set as default', 'document.querySelector("[role=dialog]")');
+    await waitFor(() => writes.length, (count) => count === 2, 'default request');
+    assert.deepEqual(writes[1], { method: 'POST', path: '/versions/3/default', body: {} });
+    await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('Default')`));
+  });
+
+  await t.test('an active build keeps default and tested visible and leaves its log after failure', async () => {
+    await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+    await clickButton('Update', card(LONG_VERSION_NAME));
+    await waitFor(() => Boolean(activeBuild));
+    await waitFor(() => evaluate(`(${card(LONG_VERSION_NAME)}).querySelector('button').disabled`));
+    assert.equal(await evaluate(`document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`), true);
+    assert.equal(await evaluate(`(${card('candidate')}).innerText.includes('Default')`), true);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    assert.equal(await evaluate(`document.body.innerText.includes('Building ${LONG_VERSION_NAME}')`), true);
+    activeBuild.write(`event: stderr\ndata: ${JSON.stringify({ chunk: LONG_ERROR })}\n\n`);
+    activeBuild.end('event: done\ndata: {"code":1}\n\n');
+    activeBuild = undefined;
+    await waitFor(() => evaluate(`document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`));
+    assert.equal(await evaluate(`document.body.innerText.includes('Offline build log')`), true);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await clickButton('Dismiss');
+    await waitFor(() => evaluate(`!document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`));
+  });
+
+  await t.test('approval can be withdrawn and removal still confirms before sending', async () => {
+    await evaluate(`document.querySelector('input[aria-label="rebuilding-tested-version tested"]').focus()`);
+    await pressKey(' ', 'Space', 32, ' ');
+    await waitFor(() => writes.length, (count) => count === 4);
+    assert.deepEqual(writes[3], { method: 'PATCH', path: '/versions/6', body: { tested: false } });
+    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="rebuilding-tested-version tested"]').checked`));
+    assert.equal(await evaluate(`document.querySelector('input[aria-label="rebuilding-tested-version tested"]').disabled`), true);
+    assert.equal(await evaluate(`document.querySelector('input[aria-label="failed-first-build tested"]').disabled`), true);
+    assert.equal(await evaluate(`[...(${card('bundled')}).querySelectorAll('button')].find(button => button.textContent === 'Remove').disabled`), true);
+    await clickButton('Remove', card('failed-first-build'));
+    assert.equal(writes.length, 4, 'opening confirmation does not remove a version');
+    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'));
+    await clickButton('Remove', 'document.querySelector("[role=dialog]")');
+    await waitFor(() => writes.length, (count) => count === 5);
+    assert.deepEqual(writes[4], { method: 'DELETE', path: '/versions/4', body: null });
+    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="failed-first-build tested"]')`));
+  });
+
+  if (evidence) {
+    await writeFile(resolve(evidence, 'viewport-measurements.json'), JSON.stringify({
+      dimensions,
+      chrome: browser.version,
+      chromePid: browser.pid,
+      chromeProfile: browser.profile,
+      debuggingPort: browser.debuggingPort,
+      vitePort: address.port,
+    }, null, 2));
+  }
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
-  assert.deepEqual(writes, []);
+  assert.equal(writes.length, 5);
 });

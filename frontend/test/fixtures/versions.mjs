@@ -1,5 +1,5 @@
 export const LONG_VERSION_NAME = 'review-version-with-forty-characters-1234';
-export const LONG_ERROR = `The last build failed while reading ${'verylongdirectory'.repeat(16)}. The previous build is still active.`;
+export const LONG_ERROR = `The last build failed while reading ${'verylongdirectory'.repeat(16)}.`;
 
 const contract = {
   ports: [{ name: 'API_PORT', defaultPort: 3000, slotBase: 10000 }],
@@ -29,7 +29,8 @@ export function seedVersions() {
   return [
     version(1, {
       name: LONG_VERSION_NAME, gitRef: 'feature/' + 'verylongbranchname'.repeat(5),
-      tested: true, isDefault: true, deployments: 3, lastError: LONG_ERROR,
+      tested: true, isDefault: true, deployments: 3,
+      lastError: `${LONG_ERROR} The previous build is still active.`,
     }),
     version(2, { name: 'bundled', layout: 'legacy', buildId: null, previousBuildId: null, tested: true }),
     version(3, { name: 'candidate' }),
