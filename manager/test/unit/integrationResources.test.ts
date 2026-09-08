@@ -41,6 +41,18 @@ it('records a successful creation before later assertions and cleans its confirm
   assert.deepEqual(calls[0], { method: 'DELETE', path: `/profiles/${created.name}`, body: { expectedInstanceId: created.instance_id } });
 });
 
+for (const path of ['/groups/%37/members', '/groups/07/members', '/groups/7.0/members', '/groups/7e0/members']) {
+  it(`captures the numeric group parameter in ${path}`, async () => {
+    const { client, calls } = setup();
+    const member = profile();
+    await client.capture('POST', path, { count: 1 }, async () => ({ status: 202, body: {
+      group: { id: 7, name: 'itest-run-existing' }, profiles: [member],
+    } }));
+    await client.cleanup();
+    assert.deepEqual(calls.filter(call => call.method === 'DELETE').map(call => call.body), [{ expectedInstanceId: member.instance_id }]);
+  });
+}
+
 it('refuses explicit removal of a requested but unconfirmed name without a network call', async () => {
   const { client, calls } = setup();
   await client.capture('POST', '/profiles', { name: 'itest-run-guessed' }, async () => ({ status: 409, body: { error: 'profile_exists' } }));
