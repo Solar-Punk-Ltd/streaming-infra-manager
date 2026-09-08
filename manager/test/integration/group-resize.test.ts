@@ -33,17 +33,15 @@ import {
 
 const DEPLOY_TIMEOUT = 240_000;
 
-const created = new Set<string>();
 before(requireStack);
 after(async () => {
-  await cleanup(created);
+  await cleanup();
 });
 
 async function cleanupGroup(groupId: number) {
   for (const m of await listGroupMembers(groupId)) {
     await removeProfile(m.name);
     await waitForGone(m.name);
-    created.delete(m.name);
   }
   await waitForGroupGone(groupId);
   assert.equal(await getGroup(groupId), null);
@@ -58,7 +56,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
       kind: 'viewer',
       feed_owner: FEED_OWNER_A,
     });
-    profiles.forEach((p) => created.add(p.name));
     assert.equal(group.size, 2);
 
     // GROW: add one member; it inherits the group's shared config.
@@ -66,7 +63,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     assert.equal(grown.group.size, 3, 'size should sync up to 3');
     assert.equal(grown.profiles.length, 1);
     const added = grown.profiles[0]!;
-    created.add(added.name);
     assert.equal(added.status, 'DEPLOYING', 'a new member is deployed');
     assert.equal(added.kind, 'viewer');
     assert.equal(
@@ -93,7 +89,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     // SHRINK: remove one member — group survives, size syncs down to 2.
     await removeProfile(added.name);
     await waitForGone(added.name);
-    created.delete(added.name);
     await waitForGroupSize(group.id, 2);
     assert.equal((await listGroupMembers(group.id)).length, 2);
     assert.notEqual(await getGroup(group.id), null, 'group should still exist');
@@ -109,7 +104,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
       kind: 'viewer',
       feed_owner: FEED_OWNER_A,
     });
-    profiles.forEach((p) => created.add(p.name));
     assert.equal(group.size, 3);
 
     const p1 = `${group.name}-profile-1`;
@@ -130,7 +124,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     // Remove the SECOND member — only profile-1 and profile-3 should remain.
     await removeProfile(p2);
     await waitForGone(p2);
-    created.delete(p2);
     await waitForGroupSize(group.id, 2);
     assert.deepEqual(
       (await listGroupMembers(group.id)).map((m) => m.name).sort(),
@@ -142,7 +135,6 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     const grown = await addGroupMembers(group.id, 1);
     assert.equal(grown.profiles.length, 1);
     const readded = grown.profiles[0]!;
-    created.add(readded.name);
     assert.equal(
       readded.name,
       p2,

@@ -11,10 +11,10 @@
  */
 import assert from 'node:assert/strict';
 
+import { IntegrationResources } from './IntegrationResources.js';
 import { requestHeaders, sessionCookieFrom } from './session.js';
 import {
   baseUrlOf,
-  belongsToRun,
   PASSWORD_VAR,
   runIdFrom,
   runName,
@@ -28,6 +28,8 @@ export const BASE = baseUrlOf(process.env);
 
 /** Every name this run makes carries it, and cleanup removes nothing without it. */
 export const RUN_ID = runIdFrom(process.env);
+
+const resources = new IntegrationResources(RUN_ID, (method, path, body, signal) => requestWith(method, path, body, { signal }));
 
 // Service names — mirrors common/src/constants.ts (kept as literals so the
 // tests stay decoupled from the app package).
@@ -51,6 +53,7 @@ export interface Container {
 
 export interface Profile {
   name: string;
+  instance_id: string;
   kind: string;
   status: string;
   components: string[] | null;
@@ -91,6 +94,7 @@ export interface BeePublishersResult {
 let session: string | null = null;
 
 export interface RequestOptions {
+  signal?: AbortSignal;
   /** The cookie to send instead of the session's: null for none. */
   cookie?: string | null;
   /** Whether a write carries the request header. A test proves the refusal without it. */
@@ -110,6 +114,7 @@ async function rawRequest(
 ): Promise<{ status: number; text: string; setCookies: string[] }> {
   const res = await fetch(`${BASE}${path}`, {
     method,
+    signal: options.signal ?? AbortSignal.timeout(30_000),
     headers: requestHeaders({
       method,
       cookie: options.cookie === undefined ? session : options.cookie,
@@ -161,17 +166,17 @@ export async function signOut(): Promise<string | null> {
   return ended;
 }
 
-/** Request expecting a 2xx; throws with the server's body on any error. */
+/** Request expecting a 2xx. Creation evidence is saved before caller assertions. */
 export async function api<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const { status, text } = await rawRequest(method, path, body);
+  const { status, body: result } = await requestWith(method, path, body);
   if (status < 200 || status >= 300) {
-    throw new Error(`${method} ${path} -> ${status}: ${text}`);
+    throw new Error(`${method} ${path} -> ${status}`);
   }
-  return (text ? JSON.parse(text) : undefined) as T;
+  return result as T;
 }
 
 /** Request that returns status + parsed body without throwing on 4xx/5xx. */
@@ -190,14 +195,16 @@ export async function requestWith(
   body?: unknown,
   options: RequestOptions = {},
 ): Promise<{ status: number; body: unknown }> {
-  const { status, text } = await rawRequest(method, path, body, options);
-  let parsed: unknown = text;
-  try {
-    parsed = text ? JSON.parse(text) : undefined;
-  } catch {
-    /* keep raw text */
-  }
-  return { status, body: parsed };
+  return resources.capture(method, path, body, async () => {
+    const { status, text } = await rawRequest(method, path, body, options);
+    let parsed: unknown = text;
+    try {
+      parsed = text ? JSON.parse(text) : undefined;
+    } catch {
+      /* keep raw text */
+    }
+    return { status, body: parsed };
+  });
 }
 
 export async function healthy(): Promise<boolean> {
@@ -267,13 +274,7 @@ export const stopProfile = async (name: string) => {
   return r;
 };
 
-export const removeProfile = async (name: string) => {
-  const r = await apiRaw('DELETE', `/profiles/${encodeURIComponent(name)}`);
-  if (r.status < 200 || r.status >= 300) {
-    throw new Error(`DELETE /profiles/${name} -> ${r.status}`);
-  }
-  return r;
-};
+export const removeProfile = (name: string) => resources.remove(name);
 
 export const listGroups = () =>
   api<{ groups: Group[] }>('GET', '/groups').then((r) => r.groups);
@@ -482,35 +483,8 @@ export function uniqueName(base: string): string {
   return runName(RUN_ID, base);
 }
 
-/**
- * Teardown: removes what this run created and waits for each to disappear.
- *
- * A name without this run's prefix is never touched, whatever put it in the
- * set, because the manager these tests run against can carry deployments
- * that are nobody's to remove. Such a name fails the teardown after the
- * run's own names are gone, so it is seen.
- */
-export async function cleanup(names: Iterable<string>): Promise<void> {
-  const own: string[] = [];
-  const foreign: string[] = [];
-  for (const name of names) {
-    (belongsToRun(RUN_ID, name) ? own : foreign).push(name);
-  }
-  for (const name of own) {
-    try {
-      if ((await getProfileOrNull(name)) === null) continue;
-      await removeProfile(name);
-      await waitForGone(name, { timeoutMs: 60_000 });
-    } catch {
-      /* best-effort: a leftover is reported by the test, not fatal here */
-    }
-  }
-  assert.deepEqual(
-    foreign,
-    [],
-    `cleanup was handed names this run did not create, and left them alone: ${foreign.join(', ')}`,
-  );
-}
+/** Reports every unresolved creation or cleanup failure through the suite's after hook. */
+export const cleanup = () => resources.cleanup();
 
 /**
  * Preflight used by every suite's before() hook: the target is declared, the
