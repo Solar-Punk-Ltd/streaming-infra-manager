@@ -11,6 +11,7 @@
  * later version that does have one would pick up a file nobody applied.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +31,7 @@ const { orchestratorHarness, untilRunning } = await import(
 const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
 
 const WITH_HOOK: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},

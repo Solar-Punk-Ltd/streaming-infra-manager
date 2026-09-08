@@ -11,6 +11,7 @@
  * other such attempt. A manager that comes back finds the rows.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
 const contract = (sharedImageTags: boolean): StackContract => ({
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 999,
   requiredSecrets: [],
   engineDefaults: {},

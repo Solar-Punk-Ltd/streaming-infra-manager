@@ -10,6 +10,7 @@
  * cut the engine off from an uploader that was started with the old one.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,7 +32,7 @@ const { orchestratorHarness, untilRunning } = await import(
 const REQUIRED = ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'];
 
 const V3_CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: REQUIRED,
   engineDefaults: {},
