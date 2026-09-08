@@ -40,7 +40,7 @@ import {
   seedAuth,
 } from './mock-auth.mjs';
 import { engineRoutes } from './mock-engine.mjs';
-import { engineConfigRoutes } from './mock-engine-config.mjs';
+import { closeRollout, engineConfigRoutes } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -106,7 +106,8 @@ function membersOf(groupId) {
   return state.profiles.filter((profile) => profile.group_id === groupId);
 }
 
-function deploy(profile, { withUploader } = {}) {
+/** @param onRunning runs once the row is RUNNING again, before that change is published. */
+function deploy(profile, { withUploader, onRunning } = {}) {
   profile.status = 'DEPLOYING';
   profile.last_error = null;
   profile.last_error_at = null;
@@ -120,6 +121,7 @@ function deploy(profile, { withUploader } = {}) {
           Boolean(profile.stamp_id) ||
           Boolean(profile.bee_publishers)),
     });
+    onRunning?.();
     changed(profile);
   }, DEPLOY_MS);
 }
@@ -439,6 +441,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)$/,
     withProfile(async (req, res, profile) => {
       replaceEditable(profile, await readBody(req));
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, profile);
     }),
@@ -455,6 +458,7 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/deploy$/,
     withProfile((_req, res, profile) => {
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, { status: 'accepted' });
     }),
@@ -463,6 +467,7 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/stop$/,
     withProfile((_req, res, profile) => {
+      closeRollout(profile, 'Stopped by the operator before the file was verified.');
       stop(profile);
       send(res, 202, { status: 'accepted' });
     }),

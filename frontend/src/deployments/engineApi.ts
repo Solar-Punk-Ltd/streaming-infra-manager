@@ -86,3 +86,21 @@ export function resetEngineConfig(name: string): Promise<Profile> {
     {},
   );
 }
+
+/** Recreates the engine on what is stored, file or template, and verifies it again. */
+export function verifyEngineConfig(name: string): Promise<Profile> {
+  return sendJson<Profile>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/engine-config/verify`,
+    {},
+  );
+}
+
+/** Puts the file an interrupted rollout replaced back and recreates the engine on it. */
+export function restorePreviousEngineConfig(name: string): Promise<Profile> {
+  return sendJson<Profile>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/engine-config/restore-previous`,
+    {},
+  );
+}
