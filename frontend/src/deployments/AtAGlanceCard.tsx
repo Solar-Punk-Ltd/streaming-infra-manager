@@ -56,7 +56,7 @@ export function AtAGlanceCard({
     entries.push({
       key: 'Engine',
       value: engineOverview
-        ? engineSummary(engine, engineOverview.effective)
+        ? engineSummary(engine, engineOverview.observations)
         : engineLoadError
           ? `${ENGINE_LABEL[engine]} · settings could not be loaded`
           : ENGINE_LABEL[engine],
