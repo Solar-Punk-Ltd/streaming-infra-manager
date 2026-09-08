@@ -37,6 +37,7 @@ const NAME_PLACEHOLDERS: Record<string, string> = {
 
 export function BasicsStep({ state, context, update }: WizardStepProps) {
   const goal = GOALS.find((entry) => entry.id === state.goal);
+  const version = chosenVersion(state, context);
   const nameLabel =
     state.goal === 'abr-pool' ? 'Pool name' : state.group ? 'Group name' : 'Name';
 
@@ -93,11 +94,11 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
         />
       </FormField>
 
-      {versionChoiceShown(context) && (
+      {(versionChoiceShown(context) || !version) && (
         <FormField
           label="Stack version"
           aside="the swarm-hls-stream it runs"
-          hint={versionHint(chosenVersion(state, context))}
+          hint={versionHint(version)}
           htmlFor="wizard-version"
         >
           <TextField
