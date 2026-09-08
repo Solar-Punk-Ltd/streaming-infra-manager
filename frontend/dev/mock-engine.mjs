@@ -19,6 +19,7 @@ import {
   effectiveEngineDefaults,
   effectiveEngineSettings,
   engineOfServices,
+  engineOverviewIdentity,
   engineSettingsFieldsFor,
   engineSettingsProblem,
   hasBeePublishers,
@@ -197,6 +198,7 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
             : srsSettingReadings(template, config, fields, { abr })
           : environmentSettingReadings(fields);
         send(res, 200, {
+          identity: engineOverviewIdentity(profile),
           engine,
           abr,
           settings: profile.engine_settings,

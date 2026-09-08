@@ -7,6 +7,7 @@ import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
+  EngineOverviewSnapshot,
   NewProfilePlacement,
   ProfileRepository,
   ProfileWriteData,
@@ -101,6 +102,12 @@ export class InMemoryProfiles {
 
   async findByName(name: string): Promise<Profile | null> {
     return this.rows.get(name) ?? null;
+  }
+
+  async engineOverviewSnapshot(name: string): Promise<EngineOverviewSnapshot | null> {
+    const profile = this.rows.get(name);
+    if (!profile) return null;
+    return { profile: structuredClone(profile), engineConfig: this.engineConfigs.get(name) ?? null };
   }
 
   async list(): Promise<Profile[]> {

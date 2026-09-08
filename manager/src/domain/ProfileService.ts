@@ -11,6 +11,7 @@ import {
   type EngineName,
   effectiveEngineDefaults,
   engineOfServices,
+  engineOverviewIdentity,
   type EngineSettings,
   type EngineSettingsOverview,
   environmentSettingReadings,
@@ -66,6 +67,7 @@ import {
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
+  StackVersionNotFoundError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
@@ -76,6 +78,7 @@ import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { maxSlotOf } from './versions/portTable.js';
+import { stackRootOf } from './versions/stackPaths.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -439,6 +442,10 @@ export class ProfileService {
   ): Promise<EngineDefaults> {
     const root = await this.orchestrator.stackRootFor(profile);
     const contract = await this.contractFor(profile);
+    return this.engineDefaultsAt(root, engine, contract);
+  }
+
+  private engineDefaultsAt(root: string, engine: EngineName, contract: StackContract | null): EngineDefaults {
     const defaults = effectiveEngineDefaults(
       engine,
       parseBaseEnv(root),
@@ -460,25 +467,32 @@ export class ProfileService {
   }
 
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
-  async engineOverview(profile: Profile): Promise<EngineSettingsOverview> {
+  async engineOverview(name: string): Promise<EngineSettingsOverview> {
+    const snapshot = await this.repo.engineOverviewSnapshot(name);
+    if (!snapshot) throw new ProfileNotFoundError(name);
+    const { profile, engineConfig } = snapshot;
     const { engine, abr } = this.engineFacts(profile);
-    const defaults = await this.engineDefaults(profile, engine);
-    const contract = await this.contractFor(profile);
+    const identity = engineOverviewIdentity(profile);
+    const version = await this.versions.findById(profile.stack_version_id);
+    if (!version) throw new StackVersionNotFoundError(profile.stack_version_id);
+    const root = stackRootOf(version);
+    const contract = version.contract;
+    const defaults = this.engineDefaultsAt(root, engine, contract);
     const fields = engineSettingsFieldsFor(engine, { abr });
     let readings = environmentSettingReadings(fields);
     if (profile.has_engine_config) {
       let template: string | null = null;
       try {
-        template = engineTemplateIn(await this.orchestrator.stackRootFor(profile), engine).text;
+        template = engineTemplateIn(root, engine).text;
       } catch {
         // Missing or unreadable metadata is represented in each affected observation.
       }
-      const storedConfig = await this.repo.engineConfigOf(profile.name);
-      readings = engine === OME_SERVICE ? omeSettingReadings(template, storedConfig, fields)
-        : srsSettingReadings(template, storedConfig, fields, { abr });
+      readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
+        : srsSettingReadings(template, engineConfig, fields, { abr });
     }
     const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
+      identity,
       engine,
       abr,
       settings: profile.engine_settings,

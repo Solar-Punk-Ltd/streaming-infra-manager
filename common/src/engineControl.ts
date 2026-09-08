@@ -10,6 +10,7 @@ import {
 } from './constants.js';
 import type { EngineDefaultSources } from './engineDefaults.js';
 import type { EngineSettingObservations } from './engineSettingObservation.js';
+import type { EngineOverviewIdentity } from './engineOverviewIdentity.js';
 import type {
   EngineSettingField,
   EngineSettings,
@@ -69,6 +70,7 @@ export function liveUnavailableReason(
 
 /** What the manager knows about a deployment's engine without asking Docker. */
 export interface EngineSettingsOverview {
+  identity: EngineOverviewIdentity;
   engine: EngineName;
   /** This deployment encodes the ABR ladder, so the transcoding fields apply. */
   abr: boolean;
