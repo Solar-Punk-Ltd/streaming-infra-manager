@@ -158,22 +158,28 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
   globalsReady = false; await call('Page.reload');
   await waitFor(body, text => text.includes('New deployment'));
-  // A fresh absence wins over older positive list responses, even before the store caught up.
-  holdAfterWrite = writes.length; holdRefresh = true;
-  await startUploader(); await createPool();
-  await waitFor(body, text => text.includes('Storage pool created and selected'), 'second accepted pool');
-  await waitFor(() => freshMembership.length, count => count === 2, 'independent no-store membership pair');
-  assert.deepEqual(freshMembership.map(entry => entry.path).sort(), ['/groups', '/profiles']);
-  assert.ok(refreshes.length >= 2, 'older ordinary reads remain held independently');
-  freshMembership.splice(0).forEach(entry => entry.reply());
-  await waitFor(body, text => text.includes('no longer available as a compatible pool'), 'deleted before initial catch-up');
-  globalsReady = true; holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
-  await waitFor(body, text => text.includes('chosen-pool-360p'));
-  assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]')?.textContent.includes('chosen-pool') ?? false`), false);
-  await assertDraft();
-  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
-  globalsReady = false; await call('Page.reload');
-  await waitFor(body, text => text.includes('New deployment'));
+  // Fresh absence wins in both orders relative to older compatible global lists.
+  for (const oldFirst of [false, true]) {
+    holdAfterWrite = writes.length; holdRefresh = true;
+    await startUploader(); await createPool();
+    await waitFor(body, text => text.includes('Storage pool created and selected'), 'accepted pool for ordering check');
+    await waitFor(() => freshMembership.length, count => count === 2, 'independent no-store membership pair');
+    assert.deepEqual(freshMembership.map(entry => entry.path).sort(), ['/groups', '/profiles']);
+    assert.ok(refreshes.length >= 2, 'older ordinary reads remain held independently');
+    const releaseOld = async () => {
+      globalsReady = true; holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
+      await waitFor(body, text => text.includes('1 node pool'), 'older compatible global membership rendered');
+    };
+    if (oldFirst) await releaseOld();
+    globalsReady = false; freshMembership.splice(0).forEach(entry => entry.reply());
+    await waitFor(body, text => text.includes('no longer available as a compatible pool'), oldFirst ? 'fresh absence after older globals' : 'deleted before initial catch-up');
+    if (!oldFirst) await releaseOld();
+    assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]')?.textContent.includes('chosen-pool') ?? false`), false);
+    await assertDraft();
+    await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+    globalsReady = false; await call('Page.reload');
+    await waitFor(body, text => text.includes('New deployment'));
+  }
   // Incompatible and refused creation keep the original uploader choice and draft.
   for (const mode of ['incompatible', 'null', 'malformed-member', 'failed']) {
     resultMode = mode; await startUploader(); await createPool();
