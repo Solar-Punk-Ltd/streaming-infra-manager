@@ -65,6 +65,13 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versionsRoot: string,
   ) {}
 
+  async cancelUnstarted(profileName: string, referenceId: number): Promise<void> {
+    await this.pool.query(
+      "UPDATE build_references SET resolved_at = NOW() WHERE id = $1 AND holder_kind = 'job' AND holder_id = $2 AND resolved_at IS NULL",
+      [referenceId, profileName],
+    );
+  }
+
   /**
    * The version handed in is the caller's read from the tick before this
    * transaction, and the job reference names that read's build without

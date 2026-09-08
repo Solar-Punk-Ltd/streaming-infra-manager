@@ -48,6 +48,11 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versionsRoot: string,
   ) {}
 
+  async cancelUnstarted(profileName: string, referenceId: number): Promise<void> {
+    const reference = this.references.find(row => row.id === referenceId && row.holderKind === 'job' && row.holderId === profileName);
+    if (reference && reference.resolvedAt === null) reference.resolvedAt = new Date(++this.clock);
+  }
+
   async claim(
     profileName: string,
     from: readonly ProfileStatus[],

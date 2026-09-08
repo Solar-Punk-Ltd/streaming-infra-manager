@@ -406,6 +406,9 @@ export class DeploymentOrchestrator {
   /** Gives the profile its status back, for a claim that will not be run. */
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     if (!reservation.transitioned) return;
+    if (reservation.build?.referenceId != null) {
+      await this.ledger.cancelUnstarted(reservation.profileName, reservation.build.referenceId);
+    }
     const restored = await this.profiles.markTerminal(
       reservation.profileName,
       reservation.previousStatus,
@@ -545,7 +548,13 @@ export class DeploymentOrchestrator {
     reservation: DeployReservation,
     profile: Profile,
   ): Promise<RunHandle> {
-    const daemonId = await this.reservePorts(profile, reservation);
+    let daemonId: string;
+    try {
+      daemonId = await this.reservePorts(profile, reservation);
+    } catch (err) {
+      if (reservation.build?.referenceId != null) await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
+      throw err;
+    }
     if (reservation.heldBackForStamp.length > 0) {
       logger.info(
         `[Orchestrator] ${profile.name}: holding back ${reservation.heldBackForStamp.join(', ')}, no usable stamp yet`,
