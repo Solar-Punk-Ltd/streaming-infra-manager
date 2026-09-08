@@ -121,6 +121,12 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
       h.setRecord({ ...settled, operation: { ...settled.operation, ...patch } });
       await h.controller.confirmNew(draft, intent.requestId);
       assert(h.requests.length === 1 && h.generated() === 1, 'A terminal label with missing or inconsistent receipt evidence cannot authorize replacement');
+      assert(transferHeadline({ ...settled, operation: { ...settled.operation, ...patch } }) === 'Recorded outcome needs verification', 'Malformed terminal evidence needs an unresolved headline');
+    }
+    for (const patch of [{ id: crypto.randomUUID() }, { nodeAddress: `0x${'66'.repeat(20)}` }]) {
+      h.setRecord({ ...settled, operation: { ...settled.operation, ...patch } });
+      await h.controller.confirmNew(draft, intent.requestId);
+      assert(h.requests.length === 1 && h.generated() === 1 && h.controller.state.issue === 'identity_conflict', 'A terminal response contradicting a valid frozen operation or node link cannot authorize replacement');
     }
     h.setRecord(settled);
     await h.controller.confirmNew(draft, intent.requestId);
