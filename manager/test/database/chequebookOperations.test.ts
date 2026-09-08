@@ -320,6 +320,19 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal((await repository.listSubmissionResponses(b.id)).length, 2);
   });
 
+  it('persists the next scan cursor when all 129 candidate hashes are unchanged', async () => {
+    const unknown = await unknownOperation();
+    const candidateHashes = Array.from({ length: 129 }, (_, i) => `0x${(i + 1).toString(16).padStart(64, '0')}`);
+    const firstObservation = { kind: 'searching' as const, candidateHashes,
+      scan: { headBlockNumber: '505', headBlockHash: `0x${'a1'.repeat(32)}`, nextBlockNumber: '503', nextBlockHash: `0x${'a2'.repeat(32)}`, complete: false, candidateHashes } };
+    const first = await repository.recordRecovery(unknown, firstObservation, []);
+    const secondObservation = { ...firstObservation, scan: { ...firstObservation.scan, nextBlockNumber: '501', nextBlockHash: `0x${'a3'.repeat(32)}` } };
+    const second = await new PostgresChequebookOperationRepository(pool).recordRecovery(first, secondObservation, []);
+    assert.equal(second.revision, String(BigInt(first.revision) + 1n));
+    assert.deepEqual(second.recoveryObservation, secondObservation);
+    assert.deepEqual((await repository.findById(second.id))?.recoveryObservation?.candidateHashes, candidateHashes);
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
