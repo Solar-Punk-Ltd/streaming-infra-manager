@@ -1,5 +1,6 @@
+import { historyCursor, normalizeHistoryQuery } from './chequebookHistory.js';
 import type { Pool, PoolClient } from 'pg';
-import { chequebookAssertionConfirmation, type ChequebookAssertion, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookAdmissionResult, type ChequebookOperation, type ChequebookReceiptObservation } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookHistoryPage, type ChequebookOperationEvidence, type ChequebookAssertion, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookAdmissionResult, type ChequebookOperation, type ChequebookReceiptObservation } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from './ChequebookOperationRepository.js';
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
 import type { ChainTransaction } from './chainEvidence.js';
@@ -38,6 +39,30 @@ function operationFrom(row: OperationRow): ChequebookOperation {
 
 export class PostgresChequebookOperationRepository implements ChequebookOperationRepository {
   constructor(private readonly pool: Pool) {}
+
+  async listHistory(input: ChequebookHistoryQuery): Promise<ChequebookHistoryPage> {
+    const query = normalizeHistoryQuery(input);
+    const result = await this.pool.query<OperationRow & { cursor_time: string }>(`SELECT *,
+      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time
+      FROM chequebook_operations
+      WHERE ($1::text IS NULL OR profile_name = $1)
+        AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
+      ORDER BY created_at DESC, id DESC LIMIT $4`, [query.profileName ?? null, query.after?.createdAt ?? null, query.after?.id ?? null, query.limit + 1]);
+    const page = result.rows.slice(0, query.limit);
+    const last = page.at(-1);
+    return { operations: page.map(operationFrom), nextCursor: result.rows.length > query.limit && last ? historyCursor(last.cursor_time, last.id) : null };
+  }
+
+  async findWithResponses(id: string): Promise<ChequebookOperationEvidence | null> {
+    const result = await this.pool.query<OperationRow & { response_evidence: ChequebookSubmissionResponseEvidence[] }>(`SELECT operation.*,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('transactionHash', response.transaction_hash,
+        'receivedAt', to_char(response.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), 'ownership', response.ownership)
+        ORDER BY response.received_at, response.transaction_hash)
+        FROM chequebook_submission_responses response WHERE response.operation_id = operation.id), '[]'::jsonb) AS response_evidence
+      FROM chequebook_operations operation WHERE operation.id = $1`, [operationId(id)]);
+    const row = result.rows[0];
+    return row ? { operation: operationFrom(row), responseEvidence: row.response_evidence } : null;
+  }
 
   async findByRequestId(requestId: string): Promise<ChequebookOperation | null> {
     const result = await this.pool.query<OperationRow>('SELECT * FROM chequebook_operations WHERE request_id = $1', [operationId(requestId)]);

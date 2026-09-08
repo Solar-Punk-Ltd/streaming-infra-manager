@@ -105,3 +105,24 @@ export function chequebookAssertionConfirmation(amountPlur: string): string {
   if (!/^[1-9][0-9]{0,29}$/.test(amountPlur)) throw new Error('Invalid chequebook assertion amount.');
   return `I accept that retrying ${plurToBzzExact(BigInt(amountPlur))} BZZ may pay twice.`;
 }
+
+export interface ChequebookHistoryQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly profileName?: string;
+}
+export interface ChequebookHistoryPage {
+  readonly operations: readonly ChequebookOperation[];
+  readonly nextCursor: string | null;
+}
+export interface ChequebookOperationEvidence {
+  readonly operation: ChequebookOperation;
+  /** Complete direct-response evidence, including hashes beyond the bounded candidate list. */
+  readonly responseEvidence: readonly ChequebookSubmissionResponseEvidence[];
+}
+export interface ChequebookOperationDetail extends ChequebookOperationEvidence {
+  readonly assertionConfirmation: string;
+}
+export interface ChequebookAdmissionDetail extends ChequebookOperationDetail {
+  readonly kind: ChequebookAdmissionResult['kind'];
+}

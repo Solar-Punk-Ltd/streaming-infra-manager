@@ -1,8 +1,9 @@
+import { historyCursor, normalizeHistoryQuery } from '../../src/domain/chequebook/chequebookHistory.js';
 import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence.js';
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
 import { normalizeRecoveryObservation, preserveRecoveryEvidence } from '../../src/domain/chequebook/recoveryObservation.js';
 import { randomUUID } from 'node:crypto';
-import { chequebookAssertionConfirmation, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
 export const nodeAddress = `0x${'ab'.repeat(20)}`;
@@ -28,6 +29,22 @@ export function operationCandidate(overrides: Partial<NewChequebookOperation> = 
 
 export class InMemoryChequebookOperations implements ChequebookOperationRepository {
   readonly rows = new Map<string, ChequebookOperation>();
+
+  async listHistory(input: ChequebookHistoryQuery) {
+    const query = normalizeHistoryQuery(input);
+    const preciseTime = (value: string) => value.replace(/Z$/, '000Z');
+    const rows = [...this.rows.values()].filter(row => !query.profileName || row.profileName === query.profileName)
+      .filter(row => !query.after || preciseTime(row.createdAt) < query.after.createdAt || (preciseTime(row.createdAt) === query.after.createdAt && row.id < query.after.id))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    return { operations: structuredClone(page), nextCursor: rows.length > query.limit && last ? historyCursor(preciseTime(last.createdAt), last.id) : null };
+  }
+
+  async findWithResponses(id: string) {
+    const operation = await this.findById(id);
+    return operation ? { operation, responseEvidence: await this.listSubmissionResponses(id) } : null;
+  }
 
   async findByRequestId(requestId: string): Promise<ChequebookOperation | null> {
     return structuredClone([...this.rows.values()].find(row => row.requestId === requestId) ?? null);

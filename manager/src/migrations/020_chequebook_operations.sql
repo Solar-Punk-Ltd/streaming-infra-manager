@@ -32,7 +32,8 @@ CREATE TABLE chequebook_operations (
 );
 
 -- History outlives a deployment and remains available for late request retries.
-CREATE INDEX chequebook_operations_profile ON chequebook_operations (profile_name, created_at DESC);
+CREATE INDEX chequebook_operations_profile ON chequebook_operations (profile_name, created_at DESC, id DESC);
+CREATE INDEX chequebook_operations_history ON chequebook_operations (created_at DESC, id DESC);
 CREATE UNIQUE INDEX chequebook_operations_open_node ON chequebook_operations (chain_id, node_address)
   WHERE state IN ('submitting', 'submitted', 'unknown');
 

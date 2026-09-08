@@ -1,5 +1,5 @@
 import type { ChainTransaction } from './chainEvidence.js';
-import type { ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import type { ChequebookHistoryQuery, ChequebookHistoryPage, ChequebookOperationEvidence, ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 
 export interface NewChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
@@ -11,6 +11,8 @@ export type SubmissionOutcome =
   | { readonly state: 'rejected'; readonly transactionHash: null; readonly failureReason: 'preflight_failed' };
 
 export interface ChequebookOperationRepository {
+  listHistory(query: ChequebookHistoryQuery): Promise<ChequebookHistoryPage>;
+  findWithResponses(id: string): Promise<ChequebookOperationEvidence | null>;
   findByRequestId(requestId: string): Promise<ChequebookOperation | null>;
   findById(id: string): Promise<ChequebookOperation | null>;
   /** Atomically deduplicate the request and claim its chain and node. */
