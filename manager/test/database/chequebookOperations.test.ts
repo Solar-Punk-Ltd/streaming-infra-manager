@@ -542,7 +542,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
   it('persists a lost response and keeps concurrent restarted coordinators from replaying', async () => {
     let submissions = 0;
     const intent = transferIntent();
-    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ context: transferContext, preflight: async () => {}, send: async () => { submissions++; throw new Error('lost response'); } }));
+    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; throw new Error('lost response'); } }));
     const first = await service().submit(intent);
     assert.equal(first.operation.state, 'unknown');
     const retries = await Promise.all(Array.from({ length: 8 }, () => service().submit(intent)));
@@ -554,7 +554,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
   it('never sends after admission committed but its response was lost', async () => {
     const intent = transferIntent();
     let submissions = 0;
-    const prepare = async () => ({ context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } });
+    const prepare = async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } });
     const admit = repository.admit.bind(repository);
     repository.admit = async candidate => {
       await admit(candidate);
@@ -571,7 +571,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
 
   it('allows exactly one Bee POST from competing coordinators', async () => {
     let submissions = 0;
-    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } }));
+    const service = () => new ChequebookSubmission(new PostgresChequebookOperationRepository(pool), async () => ({ dispose: () => {}, context: transferContext, preflight: async () => {}, send: async () => { submissions++; return { transactionHash }; } }));
     const replies = await Promise.all(Array.from({ length: 12 }, (_, index) => service().submit(transferIntent({ profileName: `alias-${index}` }))));
     assert.equal(replies.filter(result => result.kind === 'admitted').length, 1);
     assert.equal(replies.filter(result => result.kind === 'busy').length, 11);

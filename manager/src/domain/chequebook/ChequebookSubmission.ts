@@ -6,6 +6,8 @@ import type { ChequebookOperationRepository, SubmissionOutcome } from './Chequeb
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, sameTransferIntent } from './operationIdentity.js';
 
 export interface PreparedChequebookTransfer {
+  /** Close the private Bee session. Must be idempotent and must not throw. */
+  dispose(): void;
   context: ChequebookTransferContext;
   /** Read-only checks, performed under the durable node guard. */
   preflight(operation: ChequebookOperation): Promise<void>;
@@ -33,6 +35,14 @@ export class ChequebookSubmission {
     } catch {
       throw new ChequebookPreparationError();
     }
+    try {
+      return await this.submitPrepared(prepared, intent);
+    } finally {
+      prepared.dispose();
+    }
+  }
+
+  private async submitPrepared(prepared: PreparedChequebookTransfer, intent: ChequebookTransferIntent): Promise<ChequebookAdmissionResult> {
     const context = normalizeTransferContext(prepared.context);
     const admitted = await this.journal(() => this.operations.admit({ id: randomUUID(), ...intent, ...context }));
     if (admitted.kind !== 'admitted') return admitted;
