@@ -173,16 +173,24 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
 
   const asserted = detail({ requestId: crypto.randomUUID(), accountId: 7, profileName: profile.name,
     profileInstanceId: profile.instanceId, ...draft }, 'asserted');
-  assert(transferHeadline(asserted) === 'Operator assertion recorded', 'Assertion label remains prominent when older observations are unavailable');
+  assert(transferHeadline(asserted) === 'Recorded outcome needs verification', 'A missing assertion cannot be labeled as a recorded operator action');
   assert(!permitsNewTransfer(asserted), 'A state string without the saved assertion cannot authorize replacement');
   const confirmedAssertion = { ...asserted, operation: { ...asserted.operation, transactionHash: null,
     assertion: { actor: 'user:7', amountPlur: draft.amountPlur, confirmation: asserted.assertionConfirmation, assertedAt: '2026-09-08T00:00:00.000Z' } } };
   assert(permitsNewTransfer(confirmedAssertion), 'Exact recorded assertion may support the explicitly accepted duplicate-payment risk');
+  assert(transferHeadline(confirmedAssertion) === 'Operator assertion recorded', 'A valid assertion stays prominent when unrelated receipt and recovery observations are unavailable');
+  for (const patch of [{ amountPlur: '1' }, { confirmation: 'I agree' }]) {
+    const wrongAssertion = { ...confirmedAssertion, operation: { ...confirmedAssertion.operation, assertion: { ...confirmedAssertion.operation.assertion, ...patch } } };
+    assert(!permitsNewTransfer(wrongAssertion) && transferHeadline(wrongAssertion) === 'Recorded outcome needs verification', 'Wrong assertion amount or confirmation cannot justify a terminal label');
+  }
   const conflictingAssertion = { ...confirmedAssertion, responseEvidence: [{ transactionHash: `0x${'99'.repeat(32)}`, receivedAt: '2026-09-08T00:00:00.000Z', ownership: 'conflict' as const }] };
   assert(transferHeadline(conflictingAssertion) === 'Transaction evidence needs review' && !permitsNewTransfer(conflictingAssertion), 'Conflict evidence takes precedence over a terminal assertion');
   const rejected = { ...asserted, operation: { ...asserted.operation, state: 'rejected' as const, transactionHash: null,
     dispatchStartedAt: null, failureReason: 'preflight_failed' as const } };
   assert(permitsNewTransfer(rejected), 'A recorded preflight refusal with no dispatch may support replacement');
+  assert(transferHeadline(rejected) === 'Transfer refused before submission', 'A verified preflight refusal has an explicit refusal label');
+  const unprovenRefusal = { ...rejected, operation: { ...rejected.operation, failureReason: null } };
+  assert(!permitsNewTransfer(unprovenRefusal) && transferHeadline(unprovenRefusal) === 'Recorded outcome needs verification', 'A missing refusal reason cannot justify a refusal label');
   assert(!permitsNewTransfer({ ...rejected, operation: { ...rejected.operation, dispatchStartedAt: '2026-09-08T00:00:00.000Z' } }), 'A dispatched operation cannot be treated as a preflight refusal');
   tests.push('terminal actions and labels depend on consistent receipt, refusal or assertion evidence');
   return { passed: tests.length, tests };
