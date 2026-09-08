@@ -50,6 +50,27 @@ describe('bounded lost-response chain scanning', () => {
     assert.deepEqual(f.scanned, ['503', '502', '501', '500']);
   });
 
+  it('finishes an outstanding scan before selecting an earlier single candidate', async () => {
+    const f = await fixture(505);
+    const first = transaction({ blockNumber: '505', blockHash: hash(505) });
+    const second = transaction({ hash: hash(92), nonce: '10', blockNumber: '501', blockHash: hash(501) });
+    f.transactions.set(first.hash, first);
+    f.transactions.set(second.hash, second);
+    f.blocks.set('505', { ...f.blocks.get('505')!, transactions: [first] });
+    f.blocks.set('501', { ...f.blocks.get('501')!, transactions: [second] });
+    const inspector = new ChequebookRecoveryInspector(async () => f.reader, async () => [], { maxBlocks: 2 });
+    const chunk1 = await inspector.inspect(f.operation);
+    assert.equal(chunk1.observation.kind, 'searching');
+    assert.deepEqual(chunk1.observation.candidateHashes, [first.hash]);
+    const chunk2 = await inspector.inspect(resumed(f.operation, chunk1.observation));
+    assert.equal(chunk2.observation.kind, 'searching');
+    assert.equal(chunk2.observation.scan?.nextBlockNumber, '501');
+    const chunk3 = await inspector.inspect(resumed(f.operation, chunk2.observation));
+    assert.equal(chunk3.observation.kind, 'ambiguous');
+    assert.deepEqual(chunk3.observation.candidateHashes, [first.hash, second.hash]);
+    assert.equal(chunk3.observation.scan?.complete, true);
+  });
+
   it('checks pending hashes first and can force the scan when attribution is ambiguous', async () => {
     const f = await fixture();
     const pending = transaction();
