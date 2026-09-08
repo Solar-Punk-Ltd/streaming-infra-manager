@@ -50,7 +50,7 @@ beforeEach(() => {
   events = [];
   landed = 0;
   bus.subscribe((event) => events.push(event.type));
-  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] });
+  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
 });
 
 /** Waits until no version is building any more, which is when the outcome is recorded. */
@@ -460,7 +460,7 @@ describe('a build the manager was restarted during', () => {
       new FakeScriptSpawner(),
       bus,
       versionsRoot,
-      { openReferences: async () => [] },
+      { openReferences: async () => [], pendingShipmentBuildIds: async () => [] },
     );
 
     assert.deepEqual(await rebooted.failInterruptedBuilds(), ['v3']);

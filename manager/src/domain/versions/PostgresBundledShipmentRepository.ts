@@ -40,6 +40,15 @@ function candidateIdentity(record: BundledShipmentRecord) {
   return [record.candidateBuildId, record.candidateKind, record.candidateManifest, record.artifactDigest, record.candidateContract];
 }
 
+export async function readPendingShipmentBuildIds(pool: Pool, versionId: number): Promise<string[]> {
+  const result = await pool.query<{ candidate_build_id: string }>(
+    `SELECT DISTINCT candidate_build_id FROM bundled_shipments
+     WHERE version_id = $1 AND state IN ('registered', 'prepared') AND candidate_build_id IS NOT NULL
+     ORDER BY candidate_build_id`, [versionId],
+  );
+  return result.rows.map(row => row.candidate_build_id);
+}
+
 export class PostgresBundledShipmentRepository {
   constructor(private readonly pool: Pool, private readonly bundledRootPath: string) {
     if (!isAbsolute(bundledRootPath)) throw new Error('Bundled artifact root anchor must be absolute.');
@@ -181,12 +190,7 @@ export class PostgresBundledShipmentRepository {
   }
 
   async pendingBuildIds(versionId: number): Promise<string[]> {
-    const result = await this.pool.query<{ candidate_build_id: string }>(
-      `SELECT DISTINCT candidate_build_id FROM bundled_shipments
-       WHERE version_id = $1 AND state IN ('registered', 'prepared') AND candidate_build_id IS NOT NULL
-       ORDER BY candidate_build_id`, [versionId],
-    );
-    return result.rows.map(row => row.candidate_build_id);
+    return readPendingShipmentBuildIds(this.pool, versionId);
   }
 
   private async supersede(client: PoolClient, record: BundledShipmentRecord): Promise<BundledShipmentRecord> {

@@ -24,6 +24,7 @@ import {
 import { readBuildManifest } from './buildManifest.js';
 import { deployRootProblem, stackRootOf } from './stackPaths.js';
 import type { StackVersionRecord } from './StackVersionRepository.js';
+import { readPendingShipmentBuildIds } from './PostgresBundledShipmentRepository.js';
 
 const REFERENCE_COLUMNS = `
   id, version_id, build_id, holder_kind, holder_id, services, created_at, resolved_at
@@ -300,6 +301,10 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     } finally {
       client.release();
     }
+  }
+
+  async pendingShipmentBuildIds(versionId: number): Promise<string[]> {
+    return readPendingShipmentBuildIds(this.pool, versionId);
   }
 
   /** The version a root belongs to, by the version name in its path, or null for the bundled checkout and anything else. */

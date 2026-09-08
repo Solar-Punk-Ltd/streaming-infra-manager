@@ -74,7 +74,7 @@ beforeEach(() => {
     new FakeScriptSpawner(),
     new EventBus(),
     versionsRoot,
-    { openReferences: async () => references.map((reference) => ({ buildId: reference.buildId })) as never },
+    { openReferences: async () => references.map((reference) => ({ buildId: reference.buildId })) as never, pendingShipmentBuildIds: async () => [] },
     legacyRoot,
   );
 });

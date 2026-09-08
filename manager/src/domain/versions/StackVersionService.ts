@@ -697,7 +697,8 @@ export class StackVersionService {
   /**
    * Deletes every build directory of the version that nothing protects: not
    * the current build, not the previous one, and not one an open reference
-   * names. Under the version row's lock, so a claim taking its reference
+   * names, and not a registered or prepared shipment's candidate. Under the
+   * version row's lock, so a claim taking its reference
    * either committed before this read or waits and reads the row as prune
    * left it. An attempt's staging directory is boot's, and the flat root,
    * which keeps the host-owned inputs, is never a build.
@@ -710,6 +711,7 @@ export class StackVersionService {
       const buildsRoot = buildsRootFor(this.versionsRoot, version.name);
       if (!existsSync(buildsRoot)) return outcome;
       const keep = protectedBuildIds(version, await this.references.openReferences(versionId));
+      for (const id of await this.references.pendingShipmentBuildIds(versionId)) keep.add(id);
       for (const entry of (await readdir(buildsRoot)).sort()) {
         if (buildIdProblem(entry) !== null) continue;
         if (keep.has(entry)) {
