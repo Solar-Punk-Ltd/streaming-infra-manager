@@ -31,6 +31,18 @@ async function setup() {
 }
 
 describe('captured contract port admission', () => {
+  it('reserves the actual OME service from the captured alias contract', async () => {
+    const h = orchestratorHarness([makeProfile({ name: 'a', port_slot: 1, components: ['ome'] })]);
+    const table = structuredClone(ALLOCATION_CONTRACT);
+    table.portAliases = ['SRS_SRT_PORT', 'SRS_HTTP_PORT'].map((source, index) => ({
+      ...table.ports.find(port => port.name === source)!, name: index === 0 ? 'OME_SRT_PORT' : 'OME_HLS_PORT', service: 'ome',
+    }));
+    await h.versions.markBuilt(1, { commitSha: 'OME', contract: table });
+    await h.orchestrator.reserveDeploy(h.profiles.rows.get('a')!, ['ome']);
+    assert.deepEqual(h.profiles.reservations.rows.find(row => row.port === 10011)?.heldServices, ['ome']);
+    assert.deepEqual(h.profiles.reservations.rows.find(row => row.port === 10013)?.heldServices, ['ome']);
+  });
+
   for (const base of [11002, 20000]) {
     it(`refuses private port mappings at ${base + 10} before reserving or launching`, async () => {
       const h = await setup();
