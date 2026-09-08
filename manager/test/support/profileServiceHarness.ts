@@ -305,6 +305,7 @@ export function profileServiceHarness(
   rows: readonly Profile[] = [],
 ): ProfileServiceHarness {
   const profiles = new InMemoryProfiles(rows);
+  profiles.reservations.seededAt = new Date(0);
   const containers = new FakeContainers();
   const groups = new InMemoryGroups(profiles);
   const orchestrator = new FakeOrchestrator(profiles);
@@ -320,6 +321,9 @@ export function profileServiceHarness(
     groups.asRepository(),
     versions,
     ONE_DAEMON,
+    undefined,
+    undefined,
+    profiles.reservations,
   );
 
   return { service, profiles, containers, groups, orchestrator, events, versions };
