@@ -12,7 +12,15 @@ export interface DeployTargets {
 }
 
 /** The names a deployment uses for the daemon the manager itself runs against. */
-export const LOCAL_TARGET_ALIASES: readonly string[] = ['localhost', '127.0.0.1'];
+export const LOCAL_TARGET_ALIASES: readonly string[] = ['localhost'];
+
+export function targetAlias(host: string | null): string {
+  const alias = host || 'localhost';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/.test(alias)) {
+    throw new TargetNotVerifiedError(alias);
+  }
+  return alias;
+}
 
 export function isLocalTarget(host: string | null): boolean {
   return host === null || host === '' || LOCAL_TARGET_ALIASES.includes(host);
