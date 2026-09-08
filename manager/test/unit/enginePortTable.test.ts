@@ -28,11 +28,12 @@ describe('effective OME port ownership', () => {
     assert.deepEqual(portTableForEngine(contract, 'srs'), contract.ports);
   });
 
-  for (const broken of ['missing', 'service', 'protocol'] as const) {
+  for (const broken of ['missing', 'service', 'protocol', 'source-owner'] as const) {
     it(`refuses ${broken} alias evidence for OME`, () => {
       const value = structuredClone(contract);
       if (broken === 'missing') value.portAliases = [];
       if (broken === 'service') value.portAliases![0]!.service = 'other';
+      if (broken === 'source-owner') value.ports.find(port => port.name === 'SRS_HTTP_PORT')!.service = 'stream-uploader';
       if (broken === 'protocol') value.portAliases![0]!.protocol = value.portAliases![0]!.protocol === 'tcp' ? 'udp' : 'tcp';
       assert.throws(() => portTableForEngine(value, 'ome'), /OME|alias/);
     });
