@@ -207,6 +207,7 @@ describe('POST /versions/:id/default', () => {
     await callJson('PATCH', `/versions/${added?.id}`, {
       tested: true,
       commitSha: added?.commitSha,
+      buildId: added?.buildId,
     });
 
     const answer = await callJson('POST', `/versions/${added?.id}/default`);
@@ -223,6 +224,40 @@ describe('POST /versions/:id/default', () => {
 });
 
 describe('PATCH /versions/:id', () => {
+  it('approves only the immutable build the page showed, including same-commit rebuilds', async () => {
+    await build('/versions', { name: 'v3', ref: 'main-v3' });
+    const shown = (await app.repository.findByName('v3'))!;
+    const rebuilt = `${shown.buildId}-r1`;
+    await app.repository.publish(shown.id, { buildId: rebuilt, commitSha: shown.commitSha!, contract: shown.contract! });
+    const stale = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: shown.buildId });
+    assert.equal(stale.status, 409, JSON.stringify(stale.body));
+    assert.equal((await app.repository.findById(shown.id))?.tested, false);
+    const current = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: rebuilt });
+    assert.equal(current.status, 200, JSON.stringify(current.body));
+    assert.equal((current.body as { tested: boolean }).tested, true);
+  });
+
+  it('refuses a builds row without its shown build id and a stale click while building', async () => {
+    await build('/versions', { name: 'v3', ref: 'main-v3' });
+    const shown = (await app.repository.findByName('v3'))!;
+    for (const buildId of [undefined, null]) {
+      const answer = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId });
+      assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    }
+    await app.repository.markBuilding(shown.id);
+    const answer = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: shown.buildId });
+    assert.equal(answer.status, 400);
+    assert.equal((await app.repository.findById(shown.id))?.tested, false);
+  });
+
+  it('does not treat a legacy row as an immutable build named by a caller', async () => {
+    const bundled = (await app.repository.findByName('bundled'))!;
+    await app.repository.setCommitSha(bundled.id, SHOWN_COMMIT);
+    const answer = await callJson('PATCH', `/versions/${bundled.id}`, { tested: true, commitSha: SHOWN_COMMIT, buildId: SHOWN_COMMIT });
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal((await app.repository.findById(bundled.id))?.tested, false);
+  });
+
   it('approves the commit the page showed, and answers the row', async () => {
     const bundled = await app.repository.findByName('bundled');
     await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
@@ -342,6 +377,7 @@ describe('DELETE /versions/:id', () => {
     await callJson('PATCH', `/versions/${added?.id}`, {
       tested: true,
       commitSha: added?.commitSha,
+      buildId: added?.buildId,
     });
     await callJson('POST', `/versions/${added?.id}/default`);
 

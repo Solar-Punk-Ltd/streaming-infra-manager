@@ -18,18 +18,19 @@ export function setDefaultVersion(id: number): Promise<void> {
 }
 
 /**
- * Turns Tested on for the commit the page showed, or off. The manager refuses
- * a click made for a commit the version has moved past.
+ * Turns Tested on for the shown build, or off. Legacy rows carry a null build
+ * identity and retain their commit-bound approval until migration.
  */
 export function setVersionTested(
   id: number,
   tested: boolean,
   shownCommit: string | null,
+  shownBuild: string | null,
 ): Promise<StackVersion> {
   return sendJson<StackVersion>(
     'PATCH',
     `/versions/${id}`,
-    tested ? { tested, commitSha: shownCommit } : { tested },
+    tested ? { tested, commitSha: shownCommit, buildId: shownBuild } : { tested },
   );
 }
 

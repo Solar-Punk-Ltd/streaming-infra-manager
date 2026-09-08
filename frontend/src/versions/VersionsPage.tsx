@@ -191,7 +191,7 @@ export function VersionsPage() {
                       tested
                         ? `${version.name} is marked as tested`
                         : `${version.name} is no longer marked as tested`,
-                      (id) => setVersionTested(id, tested, version.commitSha),
+                      (id) => setVersionTested(id, tested, version.commitSha, version.buildId),
                     )
                   }
                   onRemove={() => askRemove(version)}

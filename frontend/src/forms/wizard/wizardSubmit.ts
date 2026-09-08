@@ -13,6 +13,7 @@ import {
   chosenHost,
   chosenKey,
   chosenPassphrase,
+  chosenVersion,
   needsExternalBeeUrl,
   needsFeedOwner,
   needsPassphrase,
@@ -35,6 +36,7 @@ export async function submitWizard(
   state: WizardState,
   context: WizardContext,
 ): Promise<WizardOutcome> {
+  if (!chosenVersion(state, context)) throw new Error('Pick a stack version');
   const toast = `Deploying ${state.name}…`;
 
   if (state.goal === 'abr-pool') {
@@ -72,9 +74,9 @@ function notesOf(state: WizardState): string | null {
   return state.notes.trim() || null;
 }
 
-/** Left out while the versions have not arrived, so the manager's default applies. */
-function versionOf(state: WizardState): number | undefined {
-  return state.versionId ?? undefined;
+function versionOf(state: WizardState): number {
+  if (state.versionId === null) throw new Error('Pick a stack version');
+  return state.versionId;
 }
 
 /** The address of the feed a viewer or a client follows. */
