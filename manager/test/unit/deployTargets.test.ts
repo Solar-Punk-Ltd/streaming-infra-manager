@@ -66,6 +66,28 @@ describe('deploy target verification', () => {
 });
 
 describe('the read-only target probe', () => {
+  it('reads remote containers and their daemon identity in one SSH session', async () => {
+    const calls: string[] = [];
+    const id = 'a'.repeat(64);
+    const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async (file) => {
+      calls.push(file);
+      return `"remote-id"\n${id} srs\n"remote-id"\n`;
+    });
+    const snapshot = await docker.snapshot('stage', 'edge');
+    assert.deepEqual(calls, ['ssh']);
+    assert.equal(snapshot.daemonId, 'remote-id');
+    assert.deepEqual(snapshot.containers, new Map([['srs', [id]]]));
+  });
+
+  it('refuses a snapshot if the daemon changed during the observation', async () => {
+    const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async () => '"before"\n"after"\n');
+    await assert.rejects(docker.snapshot('stage', 'edge'));
+  });
+
+  it('rejects malformed remote container rows instead of treating them as absent', async () => {
+    const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async () => '"id"\nunreadable\n"id"\n');
+    await assert.rejects(docker.snapshot('stage', 'edge'));
+  });
   it('uses the local socket only for localhost, and ssh for every other alias including 127.0.0.1', async () => {
     const commands: { file: string; args: readonly string[] }[] = [];
     const run: ReadOnlyCommand = async (file, args) => {

@@ -34,6 +34,28 @@ function setup(expectedId?: string) {
 }
 
 describe('deploy attempts on their target daemon', () => {
+  it('refuses admission when the container snapshot came from a different daemon than the preflight', async () => {
+    const h = setup('remote-daemon');
+    h.daemon.snapshot = async () => ({
+      daemonId: 'different-daemon',
+      containers: new Map([['srs', ['other-new']]]),
+    });
+    await assert.rejects(h.orchestrator.startDeploy(h.row('remote'), ['srs']), /different Docker daemon/);
+    assert.equal(h.runner.runs.length, 0);
+    assert.equal(h.attempts.rows.length, 0);
+  });
+
+  it('keeps recovery held when a different daemon supplies the container snapshot after preflight', async () => {
+    const h = setup();
+    await h.orchestrator.startDeploy(h.row('remote'), ['srs']);
+    h.recreate();
+    h.daemon.snapshot = async () => ({
+      daemonId: 'different-daemon',
+      containers: new Map([['srs', ['other-new']]]),
+    });
+    await h.orchestrator.reconcileAttempts();
+    assert.equal(h.attempts.rows[0]!.state, 'open');
+  });
   for (const action of ['stop', 'remove'] as const) {
     it(`refuses ${action} before a claim or script when the alias has moved to another daemon`, async () => {
       const h = setup('remote-daemon');
