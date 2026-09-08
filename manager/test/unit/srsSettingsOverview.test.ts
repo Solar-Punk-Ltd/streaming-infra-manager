@@ -84,6 +84,16 @@ describe('SRS settings observations over the actual engine HTTP route', () => {
     assert.deepEqual(overview.effective, {});
   });
 
+  it('does not expose literals when generated blocks would be inserted in an unsupported scope', async () => {
+    for (const file of [
+      literal.replace('hls_window 30;', 'hls_window 30;\nTRANSCODE_PLACEHOLDER\n'),
+      literal.replace('transcode {', '\nABR_VHOST_PLACEHOLDER\ntranscode {'),
+    ]) {
+      assert.deepEqual((await overviewFor(file)).effective, {});
+      assert.deepEqual((await overviewFor(file, false)).effective, { HLS_FRAGMENT: '4', HLS_WINDOW: '30' });
+    }
+  });
+
   it('keeps a later same-line HLS placeholder unverified while preserving explicit encoder values', async () => {
     const file = literal.replace('hls_fragment 4;', 'hls_fragment HLS_FRAGMENT_PLACEHOLDER;')
       + ' vhost extra { hls { hls_fragment HLS_FRAGMENT_PLACEHOLDER; hls_window 30; } }';

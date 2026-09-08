@@ -115,6 +115,24 @@ describe('bounded SRS config observations', () => {
     assert.equal(result.effective.ABR_AUDIO_BITRATE, '128');
   });
 
+  for (const [placement, file] of [
+    ['transcode inside HLS', config(engine('low'), 'hls { hls_fragment 4; hls_window 30;\nTRANSCODE_PLACEHOLDER\n}')],
+    ['transcode at root', `${config(engine('low'))}\nTRANSCODE_PLACEHOLDER\n`],
+    ['vhost inside a vhost', config(engine('low')).replace('transcode {', '\nABR_VHOST_PLACEHOLDER\ntranscode {')],
+    ['transcode inside a nested vhost', `${config(engine('low'))}\nvhost outer { vhost inner {\nTRANSCODE_PLACEHOLDER\n} }`],
+  ]) {
+    it(`keeps ${placement} unverified when generation is enabled`, () => {
+      const result = observe(file!);
+      assert.deepEqual(result.effective, {});
+      assert.equal(reason(result, 'HLS_FRAGMENT'), 'unsupported-syntax');
+      assert.equal(reason(result, 'ABR_FPS'), 'unsupported-syntax');
+    });
+
+    it(`reads independent HLS when ${placement} is deleted with generation disabled`, () => {
+      assert.deepEqual(observe(file!, false).effective, { HLS_FRAGMENT: '4', HLS_WINDOW: '30' });
+    });
+  }
+
   it('scopes include uncertainty and never follows include paths', () => {
     const hlsInclude = observe(config(engine('low'), 'hls { hls_fragment 4; hls_window 30; include unavailable.conf; }'));
     assert.equal(hlsInclude.effective.HLS_FRAGMENT, undefined);
