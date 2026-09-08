@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, CssBaseline, ThemeProvider, Typography } from '@mui/material';
 import { theme } from '../src/app/theme';
@@ -40,4 +40,4 @@ function Fixture() {
   </DeploymentsProvider></SessionProvider>;
 }
 
-createRoot(document.querySelector('#root')!).render(<ThemeProvider theme={theme}><CssBaseline /><Fixture /></ThemeProvider>);
+createRoot(document.querySelector('#root')!).render(<StrictMode><ThemeProvider theme={theme}><CssBaseline /><Fixture /></ThemeProvider></StrictMode>);

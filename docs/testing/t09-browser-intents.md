@@ -39,3 +39,13 @@ This checkpoint does not wire the money dialog or global history. T06 current ta
 A receipt observation changes the recorded outcome. A balance change does not. The ordinary offline manager schedules a synthetic receipt and updates its sample balances separately. Tests can inject an unavailable submission response or later receipt/hash evidence through the JavaScript fixture only. There are no HTTP controls for forcing an outcome.
 
 Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
+
+## Money dialog wiring
+
+The actual StorageCard opens the reviewed durable transfer controller with the current session account and canonical profile instance. Saved transfer remains available when balances fail. Reopening, including through the opposite direction button, restores the original saved amount, direction and request ID. A harmless balance or profile refresh does not erase unfinished amount edits. Account or instance changes invalidate the active confirmation immediately.
+
+An initial transfer has separate amount review and confirmation. A later New transfer action captures the current request ID before amount review. Confirmation compares that captured pointer. The two-dialog regression holds A's reviewed replacement while B creates and settles another intent. A then restores B and sends no third request. Identical-request retry is a separate, explicit two-step action after exact lookup returns no record. Closing or navigating away does not discard the saved UUID.
+
+The dialog displays complete transaction response evidence and retains terminal outcomes on screen. It neither closes automatically nor infers completion from balances. The unused amount-only API functions and balance-settlement polling helpers were removed from this frontend flow. Refresh saved status and focus restoration only read existing journal evidence. Receipt checks, manual recovery, global history and T06 ownership integration remain later slices.
+
+The browser regression mounts actual StorageCard and MoveBzzDialog under React StrictMode. It uses the journal mock, native IndexedDB, isolated Chrome profiles and owned random loopback API/Vite listeners. It captures desktop and phone screenshots and checks horizontal overflow. These synthetic fixtures do not access any live Bee node or RPC endpoint.

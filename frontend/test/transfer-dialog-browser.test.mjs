@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 const instanceId = '11111111-1111-4111-8111-111111111111';
@@ -57,6 +58,7 @@ async function open(t, fixture, script) {
   return browser;
 }
 async function click(browser, text) {
+  await waitFor(() => browser.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); return !!button && !button.disabled; })()`), Boolean, `enabled ${text} button`);
   await browser.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)});
     if (!button || button.disabled) throw new Error('Button is unavailable: ' + ${JSON.stringify(text)}); button.click(); })()`);
 }
@@ -64,9 +66,39 @@ async function visible(browser, text) {
   await waitFor(() => browser.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`), Boolean, text);
 }
 async function amount(browser, value) {
+  await waitFor(() => browser.evaluate("!!document.querySelector('[role=dialog] input') && !document.querySelector('[role=dialog] input').disabled"), Boolean, 'editable amount');
   await browser.evaluate(`(() => { const input = document.querySelector('[role="dialog"] input');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
     input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+}
+
+async function anotherDialog(t, first, origin) {
+  const { targetId } = await first.call('Target.createTarget', { url: 'about:blank', background: true });
+  const tabs = await fetch(`http://127.0.0.1:${first.debuggingPort}/json/list`, { signal: AbortSignal.timeout(5000) }).then(response => response.json());
+  const socket = new WebSocket(tabs.find(tab => tab.id === targetId).webSocketDebuggerUrl);
+  t.after(() => socket.close());
+  await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
+  const { call } = createProtocolClient(socket);
+  const blocked = [];
+  socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(String(data));
+    if (message.method !== 'Fetch.requestPaused') return;
+    const { requestId, request } = message.params;
+    const allowed = new URL(request.url).origin === origin;
+    if (!allowed) blocked.push(request.url);
+    void call(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', allowed ? { requestId } : { requestId, errorReason: 'BlockedByClient' }).catch(() => undefined);
+  });
+  await call('Runtime.enable'); await call('Page.enable');
+  await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  const browser = { call, async evaluate(expression) {
+    const response = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    assert.equal(response.exceptionDetails, undefined, JSON.stringify(response.exceptionDetails));
+    return response.result.value;
+  } };
+  t.after(() => assert.deepEqual(blocked, []));
+  await call('Page.navigate', { url: `${origin}/dev/t09-dialog-tests.html` });
+  await visible(browser, 'Storage and funding');
+  return browser;
 }
 async function review(browser, value = '0.5') {
   await visible(browser, 'Amount (BZZ)');
@@ -80,6 +112,9 @@ async function confirm(browser, value = '0.5') {
 }
 async function screenshot(browser, fixture, name, width) {
   await browser.call('Emulation.setDeviceMetricsOverride', { width, height: width < 500 ? 844 : 1000, deviceScaleFactor: 1, mobile: width < 500 });
+  await waitFor(() => browser.evaluate("getComputedStyle(document.querySelector('.MuiDialog-container')).opacity === '1'"), Boolean, 'completed dialog transition');
+  await browser.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  assert.equal(await browser.evaluate("document.querySelector('[role=dialog]').scrollWidth <= document.querySelector('[role=dialog]').clientWidth"), true, 'Dialog must not overflow horizontally');
   const { data } = await browser.call('Page.captureScreenshot', { format: 'png' });
   const path = join(fixture.evidence, `${name}-${width}.png`);
   await writeFile(path, Buffer.from(data, 'base64'));
@@ -182,6 +217,8 @@ test('busy conflict evidence is shown separately from the immutable saved intent
   assert.equal(h.dispatched.length, 1);
   t.diagnostic(await screenshot(browser, h, 'blocking-conflict', 1280));
   t.diagnostic(await screenshot(browser, h, 'blocking-conflict', 390));
+  await browser.evaluate("const content = document.querySelector('.MuiDialogContent-root'); content.scrollTop = content.scrollHeight;");
+  t.diagnostic(await screenshot(browser, h, 'blocking-conflict-details', 390));
 });
 
 test('storage refusal and account or profile changes prevent stale confirmation', async t => {
@@ -213,4 +250,33 @@ test('storage refusal and account or profile changes prevent stale confirmation'
   await click(browser, 'Confirm transfer');
   await visible(browser, 'The deployment was removed or replaced');
   assert.equal(h.dispatched.length, 0);
+});
+
+test('a stale reviewed confirmation restores the other tab’s new terminal request without submitting C', async t => {
+  const h = await fixture(t);
+  const first = await open(t, h);
+  await click(first, 'Fill chequebook'); await confirm(first);
+  await visible(first, 'Waiting for transaction confirmation');
+  h.journal.observeReceipt(h.dispatched[0].id, receipt);
+  await click(first, 'Refresh saved status');
+  await visible(first, 'Transfer verified on chain');
+  await click(first, 'New transfer');
+  await review(first, '0.4');
+
+  const second = await anotherDialog(t, first, h.origin);
+  await click(second, 'Saved transfer');
+  await visible(second, 'Transfer verified on chain');
+  await click(second, 'New transfer'); await confirm(second, '0.3');
+  await visible(second, 'Waiting for transaction confirmation');
+  assert.equal(h.dispatched.length, 2);
+  const b = h.dispatched[1];
+  h.journal.observeReceipt(b.id, receipt);
+  await click(second, 'Refresh saved status');
+  await visible(second, 'Transfer verified on chain');
+
+  await click(first, 'Confirm transfer');
+  await visible(first, b.requestId);
+  await visible(first, 'Transfer verified on chain');
+  assert.equal(h.dispatched.length, 2);
+  assert.equal(h.posts.length, 2);
 });

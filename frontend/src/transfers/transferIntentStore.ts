@@ -105,7 +105,7 @@ function provenLink(value: unknown): ProvenTransferLink | null {
 export class IndexedDbTransferIntentStore implements TransferIntentStore {
   private database: Promise<IDBDatabase> | null = null;
 
-  constructor(private readonly factory: IDBFactory, private readonly name = DATABASE_NAME) {}
+  constructor(private readonly factory: Pick<IDBFactory, 'open'>, private readonly name = DATABASE_NAME) {}
 
   async confirm(input: ConfirmedTransferInput, expectedCurrentRequestId: string | null): Promise<ConfirmedTransferResult> {
     const intent = savedIntent(input);
