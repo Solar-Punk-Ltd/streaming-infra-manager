@@ -37,6 +37,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       contract: null,
       isDefault: true,
       tested: true,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(0),
@@ -92,6 +93,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       contract: null,
       isDefault: false,
       tested: false,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(),
@@ -121,6 +123,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.commitSha === outcome.commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== outcome.commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
       builtAt: new Date(),
       lastError: null,
     });
@@ -138,6 +142,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.buildId === outcome.buildId,
+      testedInvalidatedAt: before.tested && before.buildId !== outcome.buildId
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
       builtAt: new Date(),
       lastError: null,
     });
@@ -171,6 +177,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     await this.patch(id, {
       commitSha,
       tested: before.tested && before.commitSha === commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
     });
   }
 
@@ -196,7 +204,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     if (tested && (before.status !== 'ready' || forCommit === null || before.commitSha !== forCommit || !identityMatches)) {
       return null;
     }
-    return this.patch(id, { tested });
+    return this.patch(id, { tested, testedInvalidatedAt: null });
   }
 
   async remove(id: number): Promise<boolean> {

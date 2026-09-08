@@ -28,6 +28,7 @@ export interface StackVersionRecord {
   contract: StackContract | null;
   isDefault: boolean;
   tested: boolean;
+  testedInvalidatedAt: Date | null;
   builtAt: Date | null;
   lastError: string | null;
   createdAt: Date;

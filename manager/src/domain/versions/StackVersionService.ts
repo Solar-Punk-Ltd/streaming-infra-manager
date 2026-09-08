@@ -701,6 +701,7 @@ function toApiVersion(
     status: version.status,
     isDefault: version.isDefault,
     tested: version.tested,
+    testedInvalidatedAt: version.testedInvalidatedAt?.toISOString() ?? null,
     builtAt: version.builtAt ? version.builtAt.toISOString() : null,
     lastError: version.lastError,
     contract: version.contract,
