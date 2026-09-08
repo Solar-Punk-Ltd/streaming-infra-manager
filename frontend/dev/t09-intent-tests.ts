@@ -99,6 +99,27 @@ export async function runIntentTests(): Promise<{ passed: number; tests: string[
     assert(await second.find(damaged.requestId) === null, 'Corruption must not create a replacement intent');
     tests.push('corrupt saved pointer refuses replacement');
 
+    const operation = { id: crypto.randomUUID(), requestId: current.requestId, profileName: current.profileName,
+      profileInstanceId: current.profileInstanceId, requestedBy: `user:${current.accountId}`, direction: current.direction,
+      amountPlur: current.amountPlur, chainId: 100, nodeAddress: `0x${'11'.repeat(20)}`,
+      chequebookAddress: `0x${'22'.repeat(20)}`, tokenAddress: `0x${'33'.repeat(20)}` };
+    const blocker = crypto.randomUUID();
+    await first.recordBlocking(current.requestId, blocker);
+    assert((await second.links(current.requestId)).own === null, 'A busy operation cannot create an own operation link');
+    assert(await first.recordExact(current.requestId, operation), 'Exact immutable identity may record a navigation link');
+    assert((await second.links(current.requestId)).own?.operationId === operation.id, 'Exact operation link must survive another connection');
+    const originalLink = (await second.links(current.requestId)).own;
+    for (const changed of [{ requestedBy: 'user:8' }, { amountPlur: '1' }, { profileInstanceId: replacementProfile.profileInstanceId },
+      { requestId: crypto.randomUUID() }, { id: crypto.randomUUID() }, { nodeAddress: `0x${'44'.repeat(20)}` }]) {
+      assert(!await first.recordExact(current.requestId, { ...operation, ...changed }), 'Contradictory identity cannot create or overwrite a link');
+      assert(JSON.stringify((await second.links(current.requestId)).own) === JSON.stringify(originalLink), 'Conflicting evidence must retain the original navigation link');
+    }
+    await first.recordBlocking(current.requestId, crypto.randomUUID());
+    assert((await second.links(current.requestId)).own?.operationId === operation.id, 'Busy evidence cannot replace a proven own link');
+    assert((await second.related(current.accountId, operation.chainId, operation.nodeAddress)).some(link => link.requestId === current.requestId), 'Proven node identity can link related local intents');
+    assert((await second.related(8, operation.chainId, operation.nodeAddress)).length === 0, 'Related links are scoped to the signed-in account');
+    tests.push('exact observation links cannot be populated or replaced by busy or conflicting records');
+
     return { passed: tests.length, tests };
   } finally {
     await Promise.all([first.close(), second.close()]);

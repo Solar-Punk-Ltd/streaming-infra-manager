@@ -12,7 +12,7 @@ test('native IndexedDB keeps one immutable intent across concurrent browser conn
   const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
     value => value !== 'Ready' && value !== 'Running', 'native intent test result');
   assert.ok(!result.startsWith('FAILED:'), result);
-  assert.equal(JSON.parse(result).passed, 8);
+  assert.equal(JSON.parse(result).passed, 9);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
   t.diagnostic(`Verified ${browser.version} with an isolated temporary profile`);
