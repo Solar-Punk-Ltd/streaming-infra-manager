@@ -3,7 +3,8 @@ import { engineSettingFieldProblem, type EngineSettingField, type EngineSettings
 
 export type EngineSettingEnvironment = 'all' | 'none' | 'partial' | 'unknown';
 export type EngineSettingUnknownReason = 'missing-directive' | 'conflicting-values' | 'mixed-sources'
-  | 'ambiguous-path' | 'unsupported-syntax' | 'invalid-scalar' | 'metadata-unavailable';
+  | 'ambiguous-path' | 'unsupported-syntax' | 'invalid-scalar' | 'metadata-unavailable'
+  | 'not-applicable' | 'mixed-applicability' | 'codec-unverified';
 
 export type EngineSettingObservation =
   | { status: 'known'; source: 'deployment' | 'host' | 'stack' | 'config-file'; value: string; environment: EngineSettingEnvironment }
