@@ -165,6 +165,39 @@ describe('canonical build job ownership in isolated PostgreSQL', { skip: !Number
     assert.equal((await state()).deploy_job_reference_id, build.referenceId);
   });
 
+  it('lets only one concurrent initial describe install the active job', async () => {
+    const inserted = (await profiles.transitionStatus(initial.name, 'DEPLOYING', ['RUNNING']))!;
+    const results = await Promise.allSettled([
+      ledger.describe(inserted.name, selected, ['srs'], expectation(inserted)),
+      ledger.describe(inserted.name, selected, ['srs'], expectation(inserted)),
+    ]);
+    const fulfilled = results.filter(result => result.status === 'fulfilled');
+    assert.equal(fulfilled.length, 1);
+    assert.equal(results.filter(result => result.status === 'rejected').length, 1);
+    assert.equal((await rows()).length, 1);
+    assert.equal((await state()).deploy_job_reference_id, fulfilled[0]!.value.referenceId);
+  });
+
+  it('refuses duplicate initial describe after the first job reaches launch uncertainty', async () => {
+    const inserted = (await profiles.transitionStatus(initial.name, 'DEPLOYING', ['RUNNING']))!;
+    const build = await ledger.describe(inserted.name, selected, ['srs'], expectation(inserted));
+    const executions = new PostgresExecutionRootRepository(pool, join(root, '.executions'));
+    const input = {
+      executionId: randomUUID(), source: { versionId: selected.id, buildId: A, commit: A, root: build.root, artifactDigest: 'd'.repeat(64) },
+      profile: { name: inserted.name, instanceId: inserted.instance_id, intentRevision: inserted.intent_revision, status: 'DEPLOYING' as const },
+      jobReferenceId: build.referenceId!, target: { alias: 'localhost', daemonId: 'synthetic-daemon' }, action: 'deploy' as const, services: ['srs'],
+    };
+    await executions.register(input);
+    const copying = (await executions.beginCopy(input.executionId))!;
+    await executions.markReady(input.executionId, copying.copyToken!, input.source.artifactDigest);
+    assert.ok(await executions.claimLaunch(input.executionId));
+    const before = await state();
+    const references = await rows();
+    await assert.rejects(ledger.describe(inserted.name, selected, ['srs'], expectation(inserted)));
+    assert.deepEqual(await state(), before);
+    assert.deepEqual(await rows(), references);
+  });
+
   for (const changed of ['instance', 'intent', 'status', 'missing-version'] as const) {
     it(`refuses initial describe after ${changed} changes without a partial reference`, async () => {
       const inserted = (await profiles.transitionStatus(initial.name, 'DEPLOYING', ['RUNNING']))!;
