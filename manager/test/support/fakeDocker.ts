@@ -137,6 +137,10 @@ export function fakeDocker(
     restarted,
     logOptions,
     execCommands,
+    /** One daemon, one id: the guard keys its rows by it. */
+    async info() {
+      return { ID: 'fake-daemon' };
+    },
     async listContainers(options) {
       listCalls.push(options);
       if (stalls) return neverAnswered<ListedContainer[]>();

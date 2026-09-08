@@ -18,7 +18,7 @@ export const PROFILE_COLUMNS = `
   bee_publishers, bee_url, srt_passphrase, engine_settings,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error, engine_config_state,
   instance_id, engine_config_revision, intent_revision,
-  status, last_error, last_error_at,
+  status, last_error, last_error_at, last_full_deploy_commit,
   created_at, updated_at, group_id, stack_version_id
 `;
 

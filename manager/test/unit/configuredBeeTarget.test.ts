@@ -8,7 +8,7 @@ const profile = { instance_id: '11111111-1111-4111-8111-111111111111', name: 'de
 const bee = { service: 'bee-uploader', ports: { BEE_UPLOADER_API_PORT: 12005 } };
 function resolver(options: { mode?: 'direct' | 'disabled'; current?: Profile | null; containers?: { service: string; ports: Record<string, number> }[] } = {}) {
   return new ConfiguredBeeTargetResolver({ findByName: async () => options.current === undefined ? profile : options.current },
-    { listApiContainers: async () => options.containers ?? [bee] }, options.mode);
+    { listApiContainers: async () => (options.containers ?? [bee]).map(container => ({ ...container, buildId: null, buildCommit: null })) }, options.mode);
 }
 
 describe('configured Bee target locator', () => {

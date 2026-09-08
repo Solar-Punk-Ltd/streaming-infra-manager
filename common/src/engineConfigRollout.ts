@@ -90,7 +90,7 @@ export function rolloutNotice(
     case 'interrupted':
       return {
         severity: 'warning',
-        title: 'The rollout was interrupted by a manager restart.',
+        title: 'The config rollout was interrupted.',
         showsReason: true,
         offers: ['verify', 'previous'],
       };

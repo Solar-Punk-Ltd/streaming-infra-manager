@@ -31,10 +31,14 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
     if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
   async function createProfile() {
-    const profile = await profiles.insertWithFreeSlot('test-deployment', 'custom', 'RUNNING', {}, { stackVersionId: 1, maxSlot: 99 });
+    const profile = await profiles.insertWithFreeSlot('test-deployment', 'custom', 'RUNNING', {}, { stackVersionId: 1, slotCap: 99, daemonId: 'synthetic-daemon', table: [] });
     assert.ok(profile);
     await pool.query("UPDATE profiles SET created_at = '2026-09-08T00:00:00.123456Z' WHERE name = $1", [profile.name]);
     return (await profiles.findByName(profile.name))!;
+  }
+  async function removeProfile(name: string) {
+    await pool.query("UPDATE profiles SET status = 'REMOVING' WHERE name = $1", [name]);
+    await profiles.deleteByName(name);
   }
   function submission(prepareHook: () => Promise<void> = async () => {}) {
     let posts = 0;
@@ -51,7 +55,7 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
     assert.match(old.instance_id, /^[0-9a-f-]{36}$/);
     const edited = await profiles.updateEditable(old.name, old.kind, { instance_id: '22222222-2222-4222-8222-222222222222' } as never);
     assert.equal(edited?.instance_id, old.instance_id);
-    await profiles.deleteByName(old.name);
+    await removeProfile(old.name);
     const replacement = await createProfile();
     assert.equal(replacement.created_at.toISOString(), old.created_at.toISOString());
     assert.notEqual(replacement.instance_id, old.instance_id);
@@ -59,7 +63,7 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
 
   it('checks generation at admission after a prepared original was replaced under identical timestamp and name', async () => {
     const old = await createProfile();
-    const h = submission(async () => { await profiles.deleteByName(old.name); await createProfile(); });
+    const h = submission(async () => { await removeProfile(old.name); await createProfile(); });
     await assert.rejects(h.service.submit(transferIntent({ profileInstanceId: old.instance_id })), /replaced/i);
     assert.deepEqual(h.counts(), { posts: 0, prepares: 1 });
     assert.equal((await pool.query('SELECT COUNT(*) AS count FROM chequebook_operations')).rows[0].count, '0');
@@ -70,7 +74,7 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
     const intent = transferIntent({ profileInstanceId: old.instance_id });
     const h = submission();
     const original = await h.service.submit(intent);
-    await profiles.deleteByName(old.name);
+    await removeProfile(old.name);
     assert.equal((await h.service.submit(intent)).kind, 'replayed');
     const replacement = await createProfile();
     assert.equal((await h.service.submit({ ...intent, profileInstanceId: replacement.instance_id })).kind, 'conflict');

@@ -8,6 +8,7 @@ import { ContainerTable } from './ContainerTable';
 import { HostBars, HostLegend } from './HostBars';
 import { StaleReadings } from './StaleReadings';
 import { StatCard } from './StatCard';
+import { DeployTargetsCard } from './DeployTargetsCard';
 
 /**
  * The whole machine, then what this manager put on it.
@@ -16,6 +17,10 @@ import { StatCard } from './StatCard';
  * Docker at all, so it only runs while this page is open.
  */
 export function HostPage() {
+  return <Stack spacing={2}><DeployTargetsCard /><HostMetrics /></Stack>;
+}
+
+function HostMetrics() {
   const { snapshot, history, connected, stale, staleSeconds, fetchProfileDiskBytes } =
     useMetrics();
   const [diskByProject, setDiskByProject] = useState<Map<string, number | null>>(

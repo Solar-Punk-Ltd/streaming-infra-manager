@@ -4,6 +4,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
+import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
@@ -18,6 +19,8 @@ import {
   ProfileStatus,
   ProfileWithContainers,
 } from '../../src/types/index.js';
+
+import { InMemoryPortReservations } from './InMemoryPortReservations.js';
 
 export function makeProfile(over: Partial<Profile> = {}): Profile {
   return {
@@ -46,6 +49,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,
+    last_full_deploy_commit: null,
     created_at: new Date(0),
     updated_at: new Date(0),
     group_id: null,
@@ -86,9 +90,19 @@ export class InMemoryProfiles {
 
   /** The `engine_config` column, kept apart from the rows for the same reason. */
   readonly engineConfigs = new Map<string, string>();
+  onDeleted?: (name: string) => void;
 
-  constructor(profiles: readonly Profile[] = []) {
+  constructor(
+    profiles: readonly Profile[] = [],
+    /** The reservation table the allocator writes, when a test gave it one. */
+    readonly reservations: InMemoryPortReservations = new InMemoryPortReservations(),
+  ) {
     for (const profile of profiles) this.rows.set(profile.name, profile);
+  }
+
+  /** The slots every stored record holds, stopped ones included. */
+  takenSlots(): Set<number> {
+    return new Set([...this.rows.values()].map((row) => row.port_slot));
   }
 
   asRepository(): ProfileRepository {
@@ -107,7 +121,11 @@ export class InMemoryProfiles {
     return [...this.rows.values()];
   }
 
-  /** The next slot is the next number: no gaps, the way a fresh host fills up. */
+  /**
+   * The lowest slot no record holds and no port of which anyone holds on the
+   * daemon, with every port of it reserved planned in one step, as the SQL
+   * does it in one transaction.
+   */
   async insertWithFreeSlot(
     name: string,
     kind: ProfileKind,
@@ -116,8 +134,8 @@ export class InMemoryProfiles {
     placement: NewProfilePlacement,
   ): Promise<Profile | null> {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
-    const slot = this.rows.size + 1;
-    if (slot > placement.maxSlot) return null;
+    const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
+    if (slot === null) return null;
     const row = makeProfile({
       name,
       kind,
@@ -127,6 +145,7 @@ export class InMemoryProfiles {
       stack_version_id: placement.stackVersionId,
     });
     this.rows.set(name, row);
+    this.reservations.planNow(placement.daemonId, name, portPlanFor(placement.table, slot), `allocated with ${name}`);
     return row;
   }
 
@@ -154,6 +173,16 @@ export class InMemoryProfiles {
       last_error: null,
       last_error_at: null,
     });
+  }
+
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    if (row.status !== 'REMOVING') throw new Error('The deployment has not completed removal');
+    this.rows.delete(name);
+    this.reservations.dropProfile(name);
+    this.onDeleted?.(name);
+    return { port_slot: row.port_slot };
   }
 
   async markError(name: string, message: string): Promise<Profile | null> {
@@ -214,11 +243,8 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
-  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
-    const row = this.rows.get(name);
-    if (!row) return null;
-    this.rows.delete(name);
-    return { port_slot: row.port_slot };
+  async setLastFullDeployCommit(name: string, commit: string): Promise<void> {
+    this.write(name, { last_full_deploy_commit: commit });
   }
 
   /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
@@ -254,6 +280,17 @@ export class FakeContainers {
       service: snapshot.service,
       ports: snapshot.ports,
     });
+  }
+
+  /** `<profile>/<service>` to what the container was seen to run, as `setBuild` recorded it. */
+  readonly builds = new Map<string, { buildId: string; commit: string | null }>();
+
+  /** When set, `setBuild` throws, the way a database that went away would. */
+  failSetBuild = false;
+
+  async setBuild(profileName: string, service: string, buildId: string, commit: string | null): Promise<void> {
+    if (this.failSetBuild) throw new Error('the database went away');
+    this.builds.set(`${profileName}/${service}`, { buildId, commit });
   }
 
   async listApiContainers(): Promise<ApiContainer[]> {
