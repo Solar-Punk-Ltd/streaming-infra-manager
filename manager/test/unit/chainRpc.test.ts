@@ -36,6 +36,12 @@ function reply(response: ServerResponse, request: RequestBody, result: unknown) 
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
 describe('bounded read-only chain RPC', () => {
+  it('requests finalized explicitly without falling back to latest', async () => {
+    const server = await rpcServer((body, response) => reply(response, body, { hash, parentHash, number: '0x1f4' }));
+    assert.deepEqual(await new ChainRpc(server.url).blockHeader('finalized'), { hash, parentHash, number: '500' });
+    assert.deepEqual(server.calls.map(call => call.params), [['finalized', false]]);
+  });
+
   it('uses exact JSON-RPC methods, correlates ids and keeps the endpoint private', async () => {
     const server = await rpcServer((body, response) => reply(response, body, '0x64'));
     const rpc = new ChainRpc(server.url);
