@@ -26,7 +26,7 @@ it('an update whose version disappears during markBuilding refuses before filesy
     await arrived;
     release();
     await assert.rejects(pending, { name: 'StackVersionNotFoundError' });
-    assert.equal(runner.runs.length, 0);
+    assert.equal(runner.spawned.length, 0);
     assert.deepEqual(await readdir(root), []);
   } finally { release(); await pending.catch(() => {}); await rm(root, { recursive: true, force: true }); }
 });
