@@ -6,6 +6,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
+import { isHostInputPath, ownedHostInputPaths } from './hostInputPaths.js';
+import { assertOwnedDirectory, readOwnedFile } from './ownedTreePaths.js';
+
 /**
  * The host-owned inputs of a version root, captured for a build as one
  * committed revision.
@@ -68,6 +71,8 @@ export interface CaptureOptions {
   /** The keys the version's .env.sample holds, which the base env must all carry. */
   sampleEnvKeys?: readonly string[];
   lockWaitMs?: number;
+  /** Package capture refuses links and paths outside the complete host-input set. */
+  strictPaths?: boolean;
 }
 
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -167,10 +172,14 @@ export async function readHostConfigRevision(root: string): Promise<ConfigRevisi
   return readRevision(root);
 }
 
-async function readRevision(root: string): Promise<ConfigRevision | null> {
+async function readRevision(root: string, strictPaths = false): Promise<ConfigRevision | null> {
   const path = join(root, CONFIG_REVISION_FILE);
   if (!existsSync(path)) return null;
-  const raw = JSON.parse((await readFile(path)).toString('utf8')) as unknown;
+  const bytes = strictPaths ? await readOwnedFile(root, CONFIG_REVISION_FILE) : await readFile(path);
+  let raw: unknown;
+  try { raw = JSON.parse(bytes.toString('utf8')); } catch {
+    throw new Error(`${CONFIG_REVISION_FILE} does not parse as a revision.`);
+  }
   if (typeof raw !== 'object' || raw === null) throw new Error(`${CONFIG_REVISION_FILE} does not parse as a revision.`);
   const record = raw as { generation?: unknown; files?: unknown };
   if (!Number.isInteger(record.generation) || typeof record.files !== 'object' || record.files === null) {
@@ -205,19 +214,25 @@ export async function captureHostConfig(
 ): Promise<HostConfigCapture> {
   let release: () => Promise<void>;
   try {
+    if (options.strictPaths) await assertOwnedDirectory(root);
     release = await holdHostConfigLock(root, options.lockWaitMs);
   } catch (err) {
     return { captured: null, problem: getErrorMessage(err) };
   }
   try {
-    const revision = await readRevision(root);
+    const revision = await readRevision(root, options.strictPaths);
     if (!revision) {
       return {
         captured: null,
         problem: `${root} has no committed revision of its host configuration. Commit one with ${CONFIG_EDIT_SCRIPT}.`,
       };
     }
-    for (const relative of hostConfigFilesOf(root)) {
+    if (options.strictPaths && (revision.generation < 1 || Object.entries(revision.files).some(([path, hash]) =>
+      !isHostInputPath(path) || typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)))) {
+      throw new Error('The committed revision contains an invalid host input path or hash.');
+    }
+    const presentFiles = options.strictPaths ? await ownedHostInputPaths(root) : hostConfigFilesOf(root);
+    for (const relative of presentFiles) {
       if (!(relative in revision.files)) {
         return {
           captured: null,
@@ -232,7 +247,7 @@ export async function captureHostConfig(
       if (!existsSync(path)) {
         return { captured: null, problem: `${relative} is in the committed revision but missing from ${root}.` };
       }
-      const bytes = await readSteady(path, relative);
+      const bytes = options.strictPaths ? await readOwnedFile(root, relative) : await readSteady(path, relative);
       const actual = sha256(bytes);
       if (actual !== committed) {
         return {
