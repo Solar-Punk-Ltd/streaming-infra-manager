@@ -90,8 +90,8 @@ export function EngineCard({
       actions={
         <Stack direction="row" spacing={1} alignItems="center">
           <ReadinessPill
-            label={engineRunning ? 'Running' : 'Not running'}
-            tone={engineRunning ? 'ok' : 'gray'}
+            label={profile.status !== 'RUNNING' ? 'State not checked' : engineRunning ? 'Reported running' : 'No container reported'}
+            tone={profile.status !== 'RUNNING' ? 'info' : engineRunning ? 'ok' : 'gray'}
           />
           <Button
             size="small"
