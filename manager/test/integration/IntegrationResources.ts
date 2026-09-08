@@ -1,10 +1,15 @@
+import { number } from 'yup';
 import { cleanupCreatedResources, type CleanupOptions } from './cleanupCreatedResources.js';
 import { cleanupHttpAdapter, type CleanupRequest } from './cleanupHttpAdapter.js';
 import { CreatedResourceInventory, type CreationAttempt, type CreateResponse } from './createdResources.js';
 
-function positiveCount(value: unknown): number {
-  const count = typeof value === 'string' ? Number(value) : value;
-  return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? count : 1;
+const memberCountSchema = number().required().integer().min(1);
+
+function positiveCount(value: unknown): number | null {
+  try {
+    const count = memberCountSchema.validateSync(value);
+    return Number.isSafeInteger(count) ? count : null;
+  } catch { return null; }
 }
 
 function creationAttempt(method: string, path: string, value: unknown): CreationAttempt | null {
