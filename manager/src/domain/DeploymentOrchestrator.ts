@@ -335,12 +335,19 @@ export class DeploymentOrchestrator {
     // claim: nothing else can be deploying a profile that did not exist yet.
     // The build is still captured here, with its reference, for the same
     // reason a claim captures it.
-    const planned = this.planDeploy(profile, requested, opts.host);
-    const version = await this.versionFor(profile);
-    const problem = version ? deployRootProblem(version) : null;
-    if (problem) throw new ProfileConfigError(profile.name, problem);
-    const build = await this.ledger.describe(profile.name, version, planned.services);
-    return this.runReserved({ ...planned, build }, profile);
+    let reservation: DeployReservation;
+    try {
+      const planned = this.planDeploy(profile, requested, opts.host);
+      const version = await this.versionFor(profile);
+      const problem = version ? deployRootProblem(version) : null;
+      if (problem) throw new ProfileConfigError(profile.name, problem);
+      const build = await this.ledger.describe(profile.name, version, planned.services);
+      reservation = { ...planned, build };
+    } catch (err) {
+      await this.markFailed(profile.name, getErrorMessage(err));
+      throw err;
+    }
+    return this.runReserved(reservation, profile);
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
