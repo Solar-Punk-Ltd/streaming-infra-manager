@@ -8,3 +8,4 @@ manager/dist
 
 node_modules
 *.tsbuildinfo
+manager/test/integration/env.itest
