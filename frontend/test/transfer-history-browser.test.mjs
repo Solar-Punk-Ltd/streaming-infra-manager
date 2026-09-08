@@ -205,3 +205,23 @@ test('an exact request read respects a previously proven local operation link on
   assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
   assert.deepEqual(h.posts, []);
 });
+
+test('later attribution conflict keeps the recorded assertion visible without a settlement label', async t => {
+  const h = await launchHistoryFixture(t, 1);
+  const detail = h.journal.detail(h.records[0].id);
+  detail.operation.state = 'asserted';
+  detail.operation.failureReason = 'hash_conflict';
+  detail.operation.assertion = { actor: 'user:19', amountPlur: detail.operation.amountPlur,
+    confirmation: detail.assertionConfirmation, assertedAt: '2026-09-08T01:02:03.000Z' };
+  detail.operation.receiptObservation = { kind: 'could_not_check', reason: 'attribution_conflict' };
+  detail.responseEvidence.push({ transactionHash: `0x${'99'.repeat(32)}`, ownership: 'conflict', receivedAt: '2026-09-08T01:03:03.000Z' });
+  h.override(url => url.pathname.endsWith(detail.operation.id) ? { status: 200, body: detail } : null);
+  const browser = await app(t, h, `#/transfers/${detail.operation.id}`);
+  await visible(browser, 'Transaction evidence needs review');
+  await visible(browser, 'Asserted by');
+  await visible(browser, 'user:19');
+  await visible(browser, detail.operation.assertion.confirmation);
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
+  assert.deepEqual(h.posts, []);
+  assert.deepEqual(browser.errors, []);
+});
