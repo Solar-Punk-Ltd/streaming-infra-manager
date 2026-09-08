@@ -117,6 +117,15 @@ test('a late operation detail cannot replace a different route or contradict its
   await click(browser, 'Refresh saved evidence');
   await visible(browser, 'Returned details do not match this saved transfer');
   assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
+  h.override(null);
+  await click(browser, 'Refresh saved evidence');
+  await visible(browser, 'Transfer verified on chain');
+  const changedNode = structuredClone(h.journal.detail(b.id));
+  changedNode.operation.nodeAddress = `0x${'aa'.repeat(20)}`;
+  h.override(url => url.pathname.endsWith(b.id) ? { status: 200, body: changedNode } : null);
+  await click(browser, 'Refresh saved evidence');
+  await visible(browser, 'Returned details do not match this saved transfer');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
   assert.deepEqual(h.posts, []);
 });
 
@@ -158,5 +167,41 @@ test('the browser list offers continuation after a page containing only another 
   assert.equal(await browser.evaluate("document.body.innerText.includes('No requests are saved on this browser for this account')"), false);
   await click(browser, 'More saved requests');
   await visible(browser, requestId);
+  assert.deepEqual(h.posts, []);
+});
+
+test('unavailable optional browser storage does not hide manager detail or leak cleanup errors', async t => {
+  const h = await launchHistoryFixture(t, 1);
+  const browser = await launchChrome(t, h.origin);
+  await browser.call('Page.addScriptToEvaluateOnNewDocument', { source: "IDBFactory.prototype.open = function () { throw new Error('synthetic-private-storage-diagnostic'); };" });
+  await browser.call('Page.navigate', { url: `${h.origin}/#/transfers` });
+  await visible(browser, 'Saved status: settled');
+  await visible(browser, 'Saved browser requests could not be read');
+  await route(browser, `#/transfers/${h.records[0].id}`);
+  await visible(browser, 'Transfer verified on chain');
+  await visible(browser, 'Browser request information could not be read');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('synthetic-private-storage-diagnostic')"), false);
+  await route(browser, '#/transfers');
+  await visible(browser, 'Saved browser requests could not be read');
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(h.posts, []);
+});
+
+test('an exact request read respects a previously proven local operation link on first load', async t => {
+  const h = await launchHistoryFixture(t, 1);
+  const operation = h.journal.detail(h.records[0].id).operation;
+  const browser = await launchChrome(t, h.origin);
+  await browser.call('Page.navigate', { url: `${h.origin}/dev/t09-intent-tests.html` });
+  await browser.evaluate(`(async () => { const { IndexedDbTransferIntentStore } = await import('/src/transfers/transferIntentStore.ts');
+    const store = new IndexedDbTransferIntentStore(indexedDB); const operation = ${JSON.stringify(operation)};
+    await store.confirm({ requestId: operation.requestId, accountId: 7, profileName: operation.profileName,
+      profileInstanceId: operation.profileInstanceId, direction: operation.direction, amountPlur: operation.amountPlur, createdAt: operation.createdAt }, null);
+    await store.recordExact(operation.requestId, operation); await store.close(); })()`);
+  const changed = h.journal.detail(operation.id);
+  changed.operation.nodeAddress = `0x${'aa'.repeat(20)}`;
+  h.override(url => url.pathname.includes('/by-request/') ? { status: 200, body: changed } : null);
+  await browser.call('Page.navigate', { url: `${h.origin}/#/transfers/request/${operation.requestId}` });
+  await visible(browser, 'Returned details do not match this saved transfer');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Transfer verified on chain')"), false);
   assert.deepEqual(h.posts, []);
 });

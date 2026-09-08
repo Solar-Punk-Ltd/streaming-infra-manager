@@ -25,7 +25,10 @@ export async function launchHistoryFixture(t, count = 0) {
     }
     if (url.pathname === '/auth/logout' && req.method === 'POST') { account = null; res.writeHead(204); return res.end(); }
     if (account === null) return json(res, 401, { error: 'not_signed_in' });
-    if (url.pathname === '/auth/session') return json(res, 200, { id: account, username: `operator-${account}`, isAdmin: false, expiresAt: '2099-01-01T00:00:00.000Z' });
+    if (url.pathname === '/auth/session') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ id: account, username: `operator-${account}`, isAdmin: false, expiresAt: '2099-01-01T00:00:00.000Z' }));
+    }
     if (url.pathname === '/profiles') return json(res, 503, { error: 'synthetic_unavailable' });
     if (url.pathname === '/config') return json(res, 200, { host: 'offline-fixture', srtPassphrase: null, chequebookFloorBzz: '0.5' });
     if (url.pathname === '/groups') return json(res, 200, { groups: [] });
