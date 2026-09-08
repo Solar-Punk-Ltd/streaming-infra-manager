@@ -8,6 +8,8 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AdminRequiredError,
   AllSlotsUsedError,
+  PortReservedError,
+  TargetNotVerifiedError,
   BeeNodeError,
   BeeNotReadyError,
   BundledVersionError,
@@ -303,6 +305,14 @@ export function errorHandler(
   }
   if (err instanceof AllSlotsUsedError) {
     res.status(503).json({ error: 'all_slots_used', message: err.message });
+    return;
+  }
+  if (err instanceof TargetNotVerifiedError) {
+    res.status(409).json({ error: 'target_not_verified', alias: err.alias, message: err.message });
+    return;
+  }
+  if (err instanceof PortReservedError) {
+    res.status(409).json({ error: 'port_reserved', name: err.profileName, message: err.message });
     return;
   }
 

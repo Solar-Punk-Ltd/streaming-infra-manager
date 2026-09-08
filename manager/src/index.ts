@@ -34,6 +34,7 @@ import { EngineConfigService } from './domain/engineConfig/EngineConfigService.j
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
+import { LocalOnlyTargets } from './domain/ports/DeployTargets.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
@@ -258,6 +259,7 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    new LocalOnlyTargets(containerControl),
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
   );

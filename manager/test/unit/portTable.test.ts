@@ -151,7 +151,7 @@ describe('the slot ceiling on creation', () => {
         kind: 'viewer',
         stack_version_id: capped.id,
       }),
-      (err: unknown) => err instanceof AllSlotsUsedError && /1-2 /.test(err.message),
+      (err: unknown) => err instanceof AllSlotsUsedError && /from 1 to 2 is taken/.test(err.message),
     );
     assert.equal(harness.profiles.rows.has('three'), false);
   });

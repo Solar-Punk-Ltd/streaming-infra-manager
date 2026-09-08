@@ -22,6 +22,7 @@ import {
   type StampState,
 } from '@streaming-infra-manager/common';
 
+import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import { DeploymentGroupRepository } from '../../src/domain/DeploymentGroupRepository.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import { DeploymentOrchestrator } from '../../src/domain/DeploymentOrchestrator.js';
@@ -34,6 +35,12 @@ import {
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import type { StackVersionRepository } from '../../src/domain/versions/StackVersionRepository.js';
 import { DeploymentGroup, Profile } from '../../src/types/index.js';
+
+/** These tests never allocate: a reader that answers one daemon is enough to build the service. */
+function localTargets(): DeployTargets {
+  return { daemonIdFor: async () => 'daemon-1' };
+}
+
 
 const GROUP: DeploymentGroup = {
   id: 7,
@@ -145,6 +152,7 @@ function serviceFor(
     {} as EventBus,
     groupRepo,
     {} as StackVersionRepository,
+    localTargets(),
     stampProbe,
     urlProbe,
   );
@@ -247,6 +255,7 @@ describe('beePublishersForGroup — live batch state', () => {
       {} as EventBus,
       groupRepo,
       {} as StackVersionRepository,
+      localTargets(),
       async () => {
         throw new Error('bee node on fire');
       },
@@ -349,6 +358,7 @@ describe('beePublishersForGroup — rung address and status', () => {
       {} as EventBus,
       groupRepo,
       {} as StackVersionRepository,
+      localTargets(),
       async () => healthOf('active'),
       async () => {
         throw new Error('dns exploded');

@@ -1,4 +1,6 @@
 export { AllSlotsUsedError } from './AllSlotsUsedError.js';
+export { PortReservedError } from './PortReservedError.js';
+export { TargetNotVerifiedError } from './TargetNotVerifiedError.js';
 export { ContainerNotRunningError } from './ContainerNotRunningError.js';
 export { DockerUnavailableError } from './DockerUnavailableError.js';
 export { RestartInProgressError } from './RestartInProgressError.js';

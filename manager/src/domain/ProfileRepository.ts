@@ -1,10 +1,12 @@
 import {
   type EngineSettings,
   nullify,
+  type StackPortVar,
 } from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
+import { reserveSlotFor } from './ports/reservationSql.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 
@@ -26,8 +28,12 @@ export interface ProfileWriteData {
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
-  /** The highest slot that version's deploy script accepts. */
-  maxSlot: number;
+  /** The highest slot a deployment of the version may get: its own maximum, never above the manager's. */
+  slotCap: number;
+  /** The daemon the deployment's ports belong to, from `docker info`. */
+  daemonId: string;
+  /** The version's port table, every port of which the slot reserves. */
+  table: readonly StackPortVar[];
 }
 
 export class ProfileRepository {
@@ -62,21 +68,24 @@ export class ProfileRepository {
       await client.query('SELECT pg_advisory_xact_lock($1)', [
         PROFILE_SLOT_LOCK_KEY,
       ]);
+      // The slot and its reservations, in this transaction, so a deployment
+      // record and the ports it will bind appear together or not at all.
+      const slot = await reserveSlotFor(client, name, placement);
+      if (slot === null) {
+        await client.query('ROLLBACK');
+        return null;
+      }
       const result = await client.query<Profile>(
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
            srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-         FROM generate_series(1, $17::int) AS s(n)
-         LEFT JOIN profiles p ON p.port_slot = s.n
-         WHERE p.port_slot IS NULL
-         ORDER BY s.n
-         LIMIT 1
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          RETURNING ${PROFILE_COLUMNS}`,
         [
           name,
+          slot,
           kind,
           dataWithNullFields.notes,
           status,
@@ -92,7 +101,6 @@ export class ProfileRepository {
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
           placement.stackVersionId,
-          placement.maxSlot,
         ],
       );
       await client.query('COMMIT');

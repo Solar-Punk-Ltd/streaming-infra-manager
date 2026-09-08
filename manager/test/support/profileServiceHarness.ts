@@ -20,7 +20,12 @@ import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 import { DeploymentGroup, Profile, ProfileStatus } from '../../src/types/index.js';
 
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
+import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
+import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
+
+/** One host, one daemon: what every deployment of these tests reserves its ports on. */
+export const ONE_DAEMON: DeployTargets = { daemonIdFor: async () => 'daemon-1' };
 
 const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
   'RUNNING',
@@ -186,10 +191,16 @@ export class InMemoryGroups {
       created_at: new Date(0),
     };
     this.groups.push(group);
-    return {
-      group,
-      profiles: members.map((member) => this.insert(member.name, shared, group.id)),
-    };
+    const placed: Profile[] = [];
+    try {
+      for (const member of members) placed.push(this.insert(member.name, shared, group.id));
+    } catch (err) {
+      // One transaction: a group is reserved whole or not at all.
+      this.undo(placed.map((profile) => profile.name));
+      this.groups.pop();
+      throw err;
+    }
+    return { group, profiles: placed };
   }
 
   async addMembers(
@@ -198,8 +209,15 @@ export class InMemoryGroups {
     shared: SharedProfileParams,
   ): Promise<Profile[]> {
     const group = this.groups.find((candidate) => candidate.id === groupId);
-    if (group) group.size += members.length;
-    return members.map((member) => this.insert(member.name, shared, groupId));
+    const placed: Profile[] = [];
+    try {
+      for (const member of members) placed.push(this.insert(member.name, shared, groupId));
+    } catch (err) {
+      this.undo(placed.map((profile) => profile.name));
+      throw err;
+    }
+    if (group) group.size += placed.length;
+    return placed;
   }
 
   async updateMembersConfig(writes: MemberConfigWrite[]): Promise<Profile[]> {
@@ -227,8 +245,14 @@ export class InMemoryGroups {
     shared: SharedProfileParams,
     groupId: number,
   ): Profile {
-    if (this.profiles.rows.size + 1 > shared.max_slot) {
-      throw new AllSlotsUsedError(shared.max_slot);
+    const slot = this.profiles.reservations.freeSlot(
+      shared.daemon_id,
+      shared.table,
+      shared.slot_cap,
+      this.profiles.takenSlots(),
+    );
+    if (slot === null) {
+      throw new AllSlotsUsedError(shared.slot_cap);
     }
     const row = makeProfile({
       name,
@@ -244,11 +268,25 @@ export class InMemoryGroups {
       srt_passphrase: shared.srt_passphrase,
       stack_version_id: shared.stack_version_id,
       status: 'STOPPED',
-      port_slot: this.profiles.rows.size + 1,
+      port_slot: slot,
       group_id: groupId,
     });
     this.profiles.rows.set(name, row);
+    this.profiles.reservations.planNow(
+      shared.daemon_id,
+      name,
+      portPlanFor(shared.table, slot),
+      `allocated with ${name}`,
+    );
     return row;
+  }
+
+  /** What the transaction undoes when one member of a group cannot be placed. */
+  private undo(names: readonly string[]): void {
+    for (const name of names) {
+      this.profiles.rows.delete(name);
+      this.profiles.reservations.dropProfile(name);
+    }
   }
 }
 
@@ -281,6 +319,7 @@ export function profileServiceHarness(
     events,
     groups.asRepository(),
     versions,
+    ONE_DAEMON,
   );
 
   return { service, profiles, containers, groups, orchestrator, events, versions };
