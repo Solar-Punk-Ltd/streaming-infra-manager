@@ -106,12 +106,12 @@ export async function runIntentTests(): Promise<{ passed: number; tests: string[
     const blocker = crypto.randomUUID();
     await first.recordBlocking(current.requestId, blocker);
     assert((await second.links(current.requestId)).own === null, 'A busy operation cannot create an own operation link');
-    assert(await first.recordExact(current.requestId, operation), 'Exact immutable identity may record a navigation link');
+    assert((await first.recordExact(current.requestId, operation)).kind === 'recorded', 'Exact immutable identity may record a navigation link');
     assert((await second.links(current.requestId)).own?.operationId === operation.id, 'Exact operation link must survive another connection');
     const originalLink = (await second.links(current.requestId)).own;
     for (const changed of [{ requestedBy: 'user:8' }, { amountPlur: '1' }, { profileInstanceId: replacementProfile.profileInstanceId },
       { requestId: crypto.randomUUID() }, { id: crypto.randomUUID() }, { nodeAddress: `0x${'44'.repeat(20)}` }]) {
-      assert(!await first.recordExact(current.requestId, { ...operation, ...changed }), 'Contradictory identity cannot create or overwrite a link');
+      assert((await first.recordExact(current.requestId, { ...operation, ...changed })).kind === 'conflict', 'Contradictory identity cannot create or overwrite a link');
       assert(JSON.stringify((await second.links(current.requestId)).own) === JSON.stringify(originalLink), 'Conflicting evidence must retain the original navigation link');
     }
     await first.recordBlocking(current.requestId, crypto.randomUUID());

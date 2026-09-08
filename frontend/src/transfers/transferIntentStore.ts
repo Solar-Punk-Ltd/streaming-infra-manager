@@ -26,6 +26,7 @@ export interface TransferObservationLinks {
   readonly own: ProvenTransferLink | null;
   readonly blockingOperationId: string | null;
 }
+export type TransferLinkWriteResult = { readonly kind: 'recorded' | 'conflict' | 'unavailable' };
 export type ConfirmedTransferResult = {
   readonly kind: 'created' | 'existing';
   readonly intent: StoredTransferIntent;
@@ -35,7 +36,7 @@ export interface TransferIntentStore {
   confirm(input: ConfirmedTransferInput, expectedCurrentRequestId: string | null): Promise<ConfirmedTransferResult>;
   current(accountId: number, profileInstanceId: string): Promise<StoredTransferIntent | null>;
   find(requestId: string): Promise<StoredTransferIntent | null>;
-  recordExact(requestId: string, operation: LinkedOperation): Promise<boolean>;
+  recordExact(requestId: string, operation: LinkedOperation): Promise<TransferLinkWriteResult>;
   recordBlocking(requestId: string, operationId: string): Promise<void>;
   links(requestId: string): Promise<TransferObservationLinks>;
   related(accountId: number, chainId: number, nodeAddress: string): Promise<readonly ProvenTransferLink[]>;
@@ -168,7 +169,7 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
     });
   }
 
-  async recordExact(requestId: string, operation: LinkedOperation): Promise<boolean> {
+  async recordExact(requestId: string, operation: LinkedOperation): Promise<TransferLinkWriteResult> {
     uuid(requestId);
     return this.transaction('readwrite', (transaction, complete) => {
       const saved = transaction.objectStore(INTENTS).get(requestId);
@@ -176,16 +177,18 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
         const intent = savedIntent(saved.result);
         const link = provenLink({ requestId, accountId: intent.accountId, operationId: operation.id, chainId: operation.chainId,
           nodeAddress: operation.nodeAddress, chequebookAddress: operation.chequebookAddress, tokenAddress: operation.tokenAddress });
-        if (!link || !isExactTransfer(intent, operation)) { complete(false); return; }
+        if (!isExactTransfer(intent, operation)) { complete({ kind: 'conflict' }); return; }
+        if (!link) { complete({ kind: 'unavailable' }); return; }
         const existing = transaction.objectStore(LINKS).get(requestId);
         existing.onsuccess = () => this.inside(transaction, () => {
           const record = existing.result as LinkRecord | undefined;
           const previous = provenLink(record?.own);
-          if (record?.own && (!previous || JSON.stringify(previous) !== JSON.stringify(link))) { complete(false); return; }
+          if (record?.own && !previous) { complete({ kind: 'unavailable' }); return; }
+          if (previous && JSON.stringify(previous) !== JSON.stringify(link)) { complete({ kind: 'conflict' }); return; }
           transaction.objectStore(LINKS).put({ requestId, own: link,
             blockingOperationId: typeof record?.blockingOperationId === 'string' && UUID.test(record.blockingOperationId) ? record.blockingOperationId : null,
             nodeKey: [link.accountId, link.chainId, link.nodeAddress] } satisfies LinkRecord);
-          complete(true);
+          complete({ kind: 'recorded' });
         });
       });
     });

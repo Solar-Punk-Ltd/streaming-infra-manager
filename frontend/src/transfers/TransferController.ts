@@ -114,8 +114,7 @@ export class TransferController {
     if (!detail) { this.patch({ phase: 'ready', issue: 'lookup_missing' }); return null; }
     if (!isCompleteTransferDetail(detail)) { this.patch({ phase: 'ready', issue: 'incomplete_response' }); return null; }
     if (!isExactTransfer(intent, detail.operation)) { await this.blocked(task, intent, detail, 'identity_conflict'); return null; }
-    await this.exact(task, intent, detail);
-    return detail;
+    return await this.exact(task, intent, detail) ? detail : null;
   }
 
   private async send(task: ActiveTask, intent: StoredTransferIntent): Promise<void> {
@@ -140,13 +139,18 @@ export class TransferController {
     } else await this.exact(task, intent, result);
   }
 
-  private async exact(task: ActiveTask, intent: StoredTransferIntent, detail: ChequebookOperationDetail): Promise<void> {
-    if (!this.live(task)) return;
-    this.update({ phase: 'ready', intent, detail, blocking: null, issue: null });
+  private async exact(task: ActiveTask, intent: StoredTransferIntent, detail: ChequebookOperationDetail): Promise<boolean> {
+    if (!this.live(task)) return false;
+    let issue: 'link_unavailable' | null = null;
     try {
       const saved = await this.store.recordExact(intent.requestId, detail.operation);
-      if (this.live(task) && !saved) this.patch({ issue: 'link_unavailable' });
-    } catch { if (this.live(task)) this.patch({ issue: 'link_unavailable' }); }
+      if (!this.live(task)) return false;
+      if (saved.kind === 'conflict') { await this.blocked(task, intent, detail, 'identity_conflict'); return false; }
+      if (saved.kind === 'unavailable') issue = 'link_unavailable';
+    } catch { issue = 'link_unavailable'; }
+    if (!this.live(task)) return false;
+    this.update({ phase: 'ready', intent, detail, blocking: null, issue });
+    return true;
   }
 
   private async blocked(task: ActiveTask, intent: StoredTransferIntent, detail: ChequebookOperationDetail, issue: 'busy' | 'identity_conflict'): Promise<void> {

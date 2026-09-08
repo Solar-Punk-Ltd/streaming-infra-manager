@@ -129,8 +129,9 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
       assert(h.requests.length === 1 && h.generated() === 1 && h.controller.state.issue === 'identity_conflict', 'A terminal response contradicting a valid frozen operation or node link cannot authorize replacement');
     }
     h.setRecord(settled);
+    h.store.recordExact = async () => ({ kind: 'unavailable' });
     await h.controller.confirmNew(draft, intent.requestId);
-    assert(h.requests.length === 2 && h.requests[1] !== intent.requestId, 'Explicit confirmation may replace a fresh exact terminal record');
+    assert(h.requests.length === 2 && h.requests[1] !== intent.requestId, 'Unavailable optional links cannot prevent exact terminal recovery and explicit confirmation');
     tests.push('replacement requires fresh complete conflict-free exact terminal evidence');
   } finally { await h.close(); }
 
