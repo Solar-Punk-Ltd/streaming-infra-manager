@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
@@ -169,4 +169,85 @@ test('refuses source and destination symlinks without following them outside own
   await symlink(outside, join(output, 'engines'));
   await assert.rejects(captureBundledInputs(source, output), /symbolic|symlink/i);
   assert.equal(await readFile(join(outside, '.env'), 'utf8'), 'OUTSIDE=untouched\n');
+});
+
+test('refuses a symlink at the private revision manifest before replacing inputs', async () => {
+  const { root, source, output } = await fixture();
+  await mkdir(output);
+  const outside = join(root, 'outside');
+  await writeFile(outside, 'untouched');
+  await symlink(outside, join(output, CONFIG_REVISION_FILE));
+  await commitHostConfig(source, { '.env': Buffer.from('ENGINE=A\n') });
+  await assert.rejects(captureBundledInputs(source, output), /symbolic|symlink/i);
+  assert.equal(await readFile(outside, 'utf8'), 'untouched');
+  await assert.rejects(readFile(join(output, '.env')));
+});
+
+test('never captures inputs back over the source tree', async () => {
+  const { source } = await fixture();
+  await commitHostConfig(source, { '.env': Buffer.from('ENGINE=A\n') });
+  await assert.rejects(captureBundledInputs(source, source), /separate/);
+  assert.equal(await readFile(join(source, '.env'), 'utf8'), 'ENGINE=A\n');
+});
+
+test('rejects source/destination aliasing through an ancestor symlink', async () => {
+  const { root, source } = await fixture();
+  await commitHostConfig(source, { '.env': Buffer.from('ENGINE=A\n') });
+  await symlink(root, join(root, 'alias'));
+  await assert.rejects(captureBundledInputs(source, join(root, 'alias', 'source')), /separate/);
+  assert.equal(await readFile(join(source, '.env'), 'utf8'), 'ENGINE=A\n');
+});
+
+test('preserves executable files and internal links without reading a working-tree target', async () => {
+  const { source, output } = await fixture();
+  const run: GitReadCommand = async (_root, args) => {
+    if (args[0] === 'rev-parse') return Buffer.from(COMMIT + '\n');
+    if (args[0] === 'status') return Buffer.alloc(0);
+    if (args[0] === 'ls-tree') return Buffer.from(`100755 blob ${COMMIT}\trun.sh\0` + `120000 blob ${OTHER}\tbin/run\0`);
+    if (args[0] === 'cat-file') return Buffer.from(args[2] === COMMIT ? '#!/bin/sh\n' : '../run.sh');
+    throw new Error('Unexpected command');
+  };
+  await exportPinnedBundledSource(source, output, run);
+  assert.equal((await lstat(join(output, 'run.sh'))).mode & 0o777, 0o755);
+  assert.equal(await readlink(join(output, 'bin/run')), '../run.sh');
+});
+
+test('refuses an escaping Git symlink and removes only its failed private export', async () => {
+  const { source, output } = await fixture();
+  const run: GitReadCommand = async (_root, args) => {
+    if (args[0] === 'rev-parse') return Buffer.from(COMMIT + '\n');
+    if (args[0] === 'status') return Buffer.alloc(0);
+    if (args[0] === 'ls-tree') return Buffer.from(`120000 blob ${OTHER}\tescape\0`);
+    return Buffer.from('../../outside');
+  };
+  await assert.rejects(exportPinnedBundledSource(source, output, run), /escapes/);
+  await assert.rejects(lstat(output));
+  assert.equal((await lstat(source)).isDirectory(), true);
+});
+
+test('rejects a composed link escape whose individual targets are lexically inside', async () => {
+  const { root, source, output } = await fixture();
+  await writeFile(join(root, 'outside.txt'), 'sibling sentinel');
+  const run: GitReadCommand = async (_root, args) => {
+    if (args[0] === 'rev-parse') return Buffer.from(COMMIT + '\n');
+    if (args[0] === 'status') return Buffer.alloc(0);
+    if (args[0] === 'ls-tree') return Buffer.from(`120000 blob ${COMMIT}\ta\0` + `120000 blob ${OTHER}\tb\0`);
+    return Buffer.from(args[2] === COMMIT ? '.' : 'a/../outside.txt');
+  };
+  await assert.rejects(exportPinnedBundledSource(source, output, run), /escapes/);
+  await assert.rejects(lstat(output));
+  assert.equal(await readFile(join(root, 'outside.txt'), 'utf8'), 'sibling sentinel');
+});
+
+test('allows an internal composed link after expanding its intermediate target', async () => {
+  const { source, output } = await fixture();
+  const fileId = 'c'.repeat(40);
+  const run: GitReadCommand = async (_root, args) => {
+    if (args[0] === 'rev-parse') return Buffer.from(COMMIT + '\n');
+    if (args[0] === 'status') return Buffer.alloc(0);
+    if (args[0] === 'ls-tree') return Buffer.from(`120000 blob ${COMMIT}\ta\0` + `120000 blob ${OTHER}\tb\0` + `100644 blob ${fileId}\tinside.txt\0`);
+    return Buffer.from(args[2] === COMMIT ? '.' : args[2] === OTHER ? 'a/inside.txt' : 'internal sentinel');
+  };
+  await exportPinnedBundledSource(source, output, run);
+  assert.equal(await readFile(join(output, 'b'), 'utf8'), 'internal sentinel');
 });
