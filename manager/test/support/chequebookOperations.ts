@@ -1,5 +1,8 @@
+import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence.js';
+import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
+import { normalizeRecoveryObservation } from '../../src/domain/chequebook/recoveryObservation.js';
 import { randomUUID } from 'node:crypto';
-import type { ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
 export const nodeAddress = `0x${'ab'.repeat(20)}`;
@@ -43,7 +46,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     const open = [...this.rows.values()].find(row => row.chainId === candidate.chainId && row.nodeAddress.toLowerCase() === candidate.nodeAddress.toLowerCase() && ['submitting', 'submitted', 'unknown'].includes(row.state));
     if (open) return { kind: 'busy' as const, operation: structuredClone(open) };
     const now = new Date().toISOString();
-    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, createdAt: now, updatedAt: now };
+    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
     this.rows.set(row.id, structuredClone(row));
     return { kind: 'admitted' as const, operation: structuredClone(row) };
   }
@@ -76,4 +79,42 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     this.rows.set(row.id, operation);
     return structuredClone(operation);
   }
+  async listSubmissionResponses(_id: string): Promise<readonly ChequebookSubmissionResponseEvidence[]> {
+    return [];
+  }
+
+  async recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation> {
+    const row = this.rows.get(expected.id)!;
+    if (row.revision !== expected.revision || !['unknown', 'submitting'].includes(row.state)) return structuredClone(row);
+    let observation = normalizeRecoveryObservation(input);
+    let transactionHash = null;
+    if (observation.kind === 'candidate') {
+      const candidate = candidates.find(candidate => candidate.hash === observation.candidateHashes[0]);
+      if (!candidate || !matchesChequebookTransfer(row, candidate)) observation = { kind: 'could_not_check', reason: 'identity_mismatch', candidateHashes: observation.candidateHashes };
+      else if ([...this.rows.values()].some(other => other.id !== row.id &&
+          ((other.chainId === row.chainId && other.transactionHash === candidate.hash) ||
+           (other.dispatchStartedAt && !other.transactionHash && matchesChequebookTransfer(other, candidate))))) observation = { ...observation, kind: 'ambiguous' };
+      else transactionHash = candidate.hash;
+    }
+    const now = new Date().toISOString();
+    const result: ChequebookOperation = { ...row, transactionHash, state: transactionHash ? 'submitted' : row.state,
+      recoveryObservation: observation, recoveryCheckedAt: now, updatedAt: now, revision: String(BigInt(row.revision) + 1n) };
+    this.rows.set(row.id, result);
+    return structuredClone(result);
+  }
+
+  async resolveCandidate(expected: Pick<ChequebookOperation, 'id' | 'revision'>, candidate: ChainTransaction): Promise<ChequebookOperation> {
+    return this.recordRecovery(expected, { kind: 'candidate', candidateHashes: [candidate.hash] }, [candidate]);
+  }
+
+  async assertNoSubmission(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookAssertionInput): Promise<ChequebookOperation> {
+    const row = this.rows.get(expected.id)!;
+    if (input.amountPlur !== row.amountPlur || input.confirmation !== chequebookAssertionConfirmation(row.amountPlur)) throw new Error('Invalid assertion');
+    if (row.revision !== expected.revision || !['unknown', 'submitting'].includes(row.state)) return structuredClone(row);
+    if (row.recoveryObservation?.kind !== 'no_match') throw new Error('A complete search is required');
+    const result: ChequebookOperation = { ...row, state: 'asserted', assertion: { ...input, assertedAt: new Date().toISOString() }, revision: String(BigInt(row.revision) + 1n) };
+    this.rows.set(row.id, result);
+    return structuredClone(result);
+  }
+
 }

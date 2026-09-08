@@ -15,11 +15,14 @@ CREATE TABLE chequebook_operations (
   nonce_query_tag TEXT NOT NULL CHECK (nonce_query_tag ~ '^(latest|pending|safe|finalized|0x(0|[1-9a-f][0-9a-f]*))$'),
   state TEXT NOT NULL DEFAULT 'submitting' CHECK (state IN ('submitting', 'submitted', 'unknown', 'settled', 'reverted', 'asserted', 'rejected')),
   transaction_hash TEXT CHECK (transaction_hash ~ '^0x[0-9a-f]{64}$'),
-  failure_reason TEXT CHECK (failure_reason IN ('preflight_failed', 'response_unavailable', 'invalid_response')),
+  failure_reason TEXT CHECK (failure_reason IN ('preflight_failed', 'response_unavailable', 'invalid_response', 'hash_conflict')),
   dispatch_started_at TIMESTAMPTZ,
   revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
   receipt_observation JSONB,
   receipt_checked_at TIMESTAMPTZ,
+  recovery_observation JSONB,
+  recovery_checked_at TIMESTAMPTZ,
+  assertion JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (state NOT IN ('submitted', 'settled', 'reverted') OR transaction_hash IS NOT NULL),
@@ -32,3 +35,14 @@ CREATE TABLE chequebook_operations (
 CREATE INDEX chequebook_operations_profile ON chequebook_operations (profile_name, created_at DESC);
 CREATE UNIQUE INDEX chequebook_operations_open_node ON chequebook_operations (chain_id, node_address)
   WHERE state IN ('submitting', 'submitted', 'unknown');
+
+CREATE UNIQUE INDEX chequebook_operations_transaction_owner ON chequebook_operations (chain_id, transaction_hash)
+  WHERE transaction_hash IS NOT NULL;
+
+CREATE TABLE chequebook_submission_responses (
+  operation_id UUID NOT NULL REFERENCES chequebook_operations(id),
+  transaction_hash TEXT NOT NULL CHECK (transaction_hash ~ '^0x[0-9a-f]{64}$'),
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ownership TEXT NOT NULL CHECK (ownership IN ('owned', 'conflict')),
+  PRIMARY KEY (operation_id, transaction_hash)
+);

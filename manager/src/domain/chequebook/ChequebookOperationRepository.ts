@@ -1,4 +1,5 @@
-import type { ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import type { ChainTransaction } from './chainEvidence.js';
+import type { ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 
 export interface NewChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
@@ -16,8 +17,13 @@ export interface ChequebookOperationRepository {
   admit(candidate: NewChequebookOperation): Promise<ChequebookAdmissionResult>;
   /** Only the invocation receiving claimed=true may send. Lost acknowledgements never replay. */
   claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }>;
-  /** Change only a still-submitting row. A concurrent resolution wins. */
+  /** Direct hash evidence survives concurrent closure without changing an asserted outcome. */
   recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation>;
   /** Every check advances the observed revision. Stale observations return the current row. */
   recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, observation: ChequebookReceiptObservation): Promise<ChequebookOperation>;
+  recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, observation: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation>;
+  resolveCandidate(expected: Pick<ChequebookOperation, 'id' | 'revision'>, candidate: ChainTransaction): Promise<ChequebookOperation>;
+  assertNoSubmission(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookAssertionInput): Promise<ChequebookOperation>;
+  listSubmissionResponses(id: string): Promise<readonly ChequebookSubmissionResponseEvidence[]>;
+
 }

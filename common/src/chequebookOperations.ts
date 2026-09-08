@@ -1,3 +1,4 @@
+import { plurToBzzExact } from './chequebook.js';
 import type { TransferDirection } from './chequebook.js';
 
 export interface ChequebookTransferIntent {
@@ -21,7 +22,7 @@ export interface ChequebookTransferContext {
 }
 
 export type ChequebookOperationState = 'submitting' | 'submitted' | 'unknown' | 'settled' | 'reverted' | 'asserted' | 'rejected';
-export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavailable' | 'invalid_response';
+export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavailable' | 'invalid_response' | 'hash_conflict';
 
 export interface ChequebookReceiptHistory {
   readonly transactionHash: string;
@@ -54,6 +55,9 @@ export interface ChequebookOperation extends ChequebookTransferIntent, Chequeboo
   readonly revision: string;
   readonly receiptObservation: ChequebookReceiptObservation | null;
   readonly receiptCheckedAt: string | null;
+  readonly recoveryObservation: ChequebookRecoveryObservation | null;
+  readonly recoveryCheckedAt: string | null;
+  readonly assertion: ChequebookAssertion | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -61,4 +65,42 @@ export interface ChequebookOperation extends ChequebookTransferIntent, Chequeboo
 export interface ChequebookAdmissionResult {
   readonly kind: 'admitted' | 'replayed' | 'busy' | 'conflict';
   readonly operation: ChequebookOperation;
+}
+
+export interface ChequebookRecoveryScan {
+  readonly headBlockNumber: string;
+  readonly headBlockHash: string;
+  readonly nextBlockNumber: string;
+  readonly nextBlockHash: string;
+  readonly complete: boolean;
+  readonly candidateHashes: readonly string[];
+}
+
+type RecoveryEvidence = { readonly candidateHashes: readonly string[]; readonly scan?: ChequebookRecoveryScan };
+export type ChequebookRecoveryObservation = RecoveryEvidence & (
+  | { readonly kind: 'searching'; readonly scan: ChequebookRecoveryScan }
+  | { readonly kind: 'no_match'; readonly scan: ChequebookRecoveryScan }
+  | { readonly kind: 'candidate' | 'ambiguous' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'chain_changed' | 'identity_mismatch' | 'evidence_limit' }
+);
+
+export interface ChequebookAssertionInput {
+  /** Supplied by authenticated server context, never by the request body. */
+  readonly actor: string;
+  readonly amountPlur: string;
+  readonly confirmation: string;
+}
+export interface ChequebookAssertion extends ChequebookAssertionInput {
+  readonly assertedAt: string;
+}
+export interface ChequebookSubmissionResponseEvidence {
+  readonly transactionHash: string;
+  readonly receivedAt: string;
+  readonly ownership: 'owned' | 'conflict';
+}
+
+/** Shared exact copy for the typed operator assertion and its server validation. */
+export function chequebookAssertionConfirmation(amountPlur: string): string {
+  if (!/^[1-9][0-9]{0,29}$/.test(amountPlur)) throw new Error('Invalid chequebook assertion amount.');
+  return `I accept that retrying ${plurToBzzExact(BigInt(amountPlur))} BZZ may pay twice.`;
 }
