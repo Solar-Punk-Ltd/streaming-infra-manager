@@ -56,7 +56,6 @@ const V3_CONTRACT: StackContract = {
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
-  allocationProblem: null,
 };
 
 const RUNNING: ContainerState = {
