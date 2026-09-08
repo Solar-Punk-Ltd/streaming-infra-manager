@@ -159,7 +159,7 @@ describe('what the success hook records', () => {
     harness.runner.finish(0);
     await untilRunning(harness.profiles, 'stage');
     const next = { ...CONTRACT, ports: CONTRACT.ports.map(port => port.service === 'srs'
-      ? { ...port, slotBase: port.slotBase + 20000 } : port) };
+      ? { ...port, slotBase: port.slotBase + 3000 } : port) };
     buildOnDisk(versionsRoot, COMMIT_B);
     await harness.versions.publish(v3.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: next });
     harness.ledger.mounted.set('stage/srs', buildDirFor(versionsRoot, 'v3', COMMIT_B));
