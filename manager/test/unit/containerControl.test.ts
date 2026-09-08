@@ -33,6 +33,21 @@ import {
 /** Docker's per-write header: the stream, three zero bytes, and the length. */
 const FRAME_HEADER_BYTES = 8;
 
+describe('published port inventory', () => {
+  it('retains ports owned by paused containers', async () => {
+    const docker = fakeDocker([{ id: 'paused', labels: labels('outside', 'web') }]);
+    const handle = docker.getContainer('paused');
+    docker.getContainer = () => ({ ...handle, inspect: async () => ({
+      Id: 'paused', State: { Status: 'paused' },
+      Config: { Labels: labels('outside', 'web') },
+      HostConfig: { NetworkMode: 'bridge' },
+      NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '10012' }] } },
+    }) });
+    const snapshot = await new ContainerControl(new EventBus(), docker).publishedPorts();
+    assert.deepEqual(snapshot.bindings.map(binding => [binding.project, binding.protocol, binding.port]), [['outside', 'tcp', 10012]]);
+  });
+});
+
 describe('daemon identity verification', () => {
   it('reads the current local identity again after the socket is replaced', async () => {
     const docker = fakeDocker([]);
