@@ -195,8 +195,12 @@ export async function requestWith(
   body?: unknown,
   options: RequestOptions = {},
 ): Promise<{ status: number; body: unknown }> {
-  return resources.capture(method, path, body, async () => {
-    const { status, text } = await rawRequest(method, path, body, options);
+  const rawBody = options.rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined);
+  let sentBody: unknown;
+  try { sentBody = rawBody === undefined ? undefined : JSON.parse(rawBody); }
+  catch { sentBody = undefined; }
+  return resources.capture(method, path, sentBody, async () => {
+    const { status, text } = await rawRequest(method, path, undefined, { ...options, rawBody });
     let parsed: unknown = text;
     try {
       parsed = text ? JSON.parse(text) : undefined;
