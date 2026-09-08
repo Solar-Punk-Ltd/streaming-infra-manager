@@ -7,6 +7,13 @@ const observation: BeeNodeObservation = { state: 'ready', observedAt: '2026-09-0
 const observedAt = Date.parse(observation.observedAt);
 
 describe('fresh Bee evidence on screen', () => {
+  it('measures freshness from local receipt despite server clock skew', () => {
+    for (const skew of [-60000, 60000]) {
+      const shifted = { ...observation, observedAt: new Date(observedAt + skew).toISOString() };
+      assert.equal(beeReadinessView(shifted, observedAt + 1000, false, observedAt).state, 'ready');
+      assert.equal(beeReadinessView(shifted, observedAt + 30001, false, observedAt).state, 'stale');
+    }
+  });
   it('labels API readiness separately from publishing and timestamps the observation', () => {
     const view = beeReadinessView(observation, observedAt + 1000, false);
     assert.equal(view.state, 'ready');
