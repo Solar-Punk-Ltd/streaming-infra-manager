@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ChequebookAccountChangedError } from '../../domain/errors/ChequebookAccountChangedError.js';
 import type { ChequebookService } from '../../domain/ChequebookService.js';
 import type { ChequebookOperationsService } from '../../domain/chequebook/ChequebookOperationsService.js';
 import { assertChequebookSchema, checkChequebookSchema, chequebookHistoryQuery, resolveChequebookSchema, submitChequebookSchema,
@@ -17,8 +18,10 @@ export function createChequebookRouter(chequebookService: ChequebookService, ope
   for (const direction of ['deposit', 'withdraw'] as const) {
     router.post(`/profiles/:name/chequebook/${direction}`, validateParams(profileNameSchema), validateBody(submitChequebookSchema), asyncHandler(async (req, res) => {
       const body = req.body as SubmitChequebookBody;
+      const user = signedInUser(req);
+      if (body.expectedAccountId !== user.id) throw new ChequebookAccountChangedError();
       const result = await operations.submit({ requestId: body.requestId, profileInstanceId: body.profileInstanceId, amountPlur: body.amount, direction,
-        profileName: req.params.name as string, requestedBy: `user:${signedInUser(req).id}` });
+        profileName: req.params.name as string, requestedBy: `user:${user.id}` });
       res.status(result.kind === 'busy' || result.kind === 'conflict' ? 409 : 202).json(result);
     }));
   }

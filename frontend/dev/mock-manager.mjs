@@ -21,6 +21,7 @@ import { randomInt } from 'node:crypto';
 
 import {
   bzzToPlur,
+  CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE,
   chequebookHealthFrom,
   chequebookHealthPayload,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
@@ -38,6 +39,7 @@ import {
   DEV_USERNAME,
   refuseRequest,
   seedAuth,
+  userFor,
 } from './mock-auth.mjs';
 import { engineRoutes } from './mock-engine.mjs';
 import { closeRollout, engineConfigRoutes } from './mock-engine-config.mjs';
@@ -492,6 +494,12 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/chequebook\/deposit$/,
     withProfile(async (req, res, profile) => {
       const body = await readBody(req);
+      if (!Number.isSafeInteger(body.expectedAccountId) || body.expectedAccountId < 1) {
+        return send(res, 400, { error: 'validation_error', errors: ['expectedAccountId must be a positive safe integer'] });
+      }
+      if (body.expectedAccountId !== userFor(req)?.id) {
+        return send(res, 409, { error: 'account_changed', message: CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE });
+      }
       if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
         return chequebookFundsError(
           res,
@@ -520,6 +528,12 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/chequebook\/withdraw$/,
     withProfile(async (req, res, profile) => {
       const body = await readBody(req);
+      if (!Number.isSafeInteger(body.expectedAccountId) || body.expectedAccountId < 1) {
+        return send(res, 400, { error: 'validation_error', errors: ['expectedAccountId must be a positive safe integer'] });
+      }
+      if (body.expectedAccountId !== userFor(req)?.id) {
+        return send(res, 409, { error: 'account_changed', message: CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE });
+      }
       if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
         return chequebookFundsError(
           res,

@@ -1,6 +1,16 @@
 import { plurToBzzExact } from './chequebook.js';
 import type { TransferDirection } from './chequebook.js';
 
+export const CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Sign in with the account that confirmed this transfer.';
+
+export interface ChequebookSubmitRequest {
+  readonly requestId: string;
+  readonly profileInstanceId: string;
+  /** A concurrency precondition. The authenticated session still determines the actor. */
+  readonly expectedAccountId: number;
+  readonly amount: string;
+}
+
 export interface ChequebookTransferIntent {
   readonly requestId: string;
   readonly profileName: string;
