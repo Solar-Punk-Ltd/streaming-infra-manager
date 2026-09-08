@@ -111,14 +111,11 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
       await client.query(`INSERT INTO chequebook_submission_responses (operation_id, transaction_hash, ownership)
         VALUES ($1,$2,$3) ON CONFLICT (operation_id, transaction_hash) DO NOTHING`, [operation.id, hash, owned ? 'owned' : 'conflict']);
       if (!owned || operation.failureReason === 'hash_conflict') {
-        const hashes = [...new Set([...(operation.recoveryObservation?.candidateHashes ?? []), ...(operation.transactionHash ? [operation.transactionHash] : []), hash])];
-        const receiptObservation = { kind: 'could_not_check', reason: 'attribution_conflict' };
-        const recoveryObservation = { ...receiptObservation, candidateHashes: hashes };
-        const conflicted = await client.query<OperationRow>(`UPDATE chequebook_operations
-          SET failure_reason='hash_conflict', receipt_observation=$2::jsonb, receipt_checked_at=NOW(),
-              recovery_observation=$3::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW()
-          WHERE id=$1 RETURNING *`, [operation.id, JSON.stringify(receiptObservation), JSON.stringify(recoveryObservation)]);
-        return operationFrom(conflicted.rows[0]!);
+        if (owner && owner !== operation.id) {
+          const other = await client.query<OperationRow>('SELECT * FROM chequebook_operations WHERE id=$1 FOR UPDATE', [owner]);
+          if (other.rows[0]) await this.flagAttributionConflict(client, operationFrom(other.rows[0]), hash);
+        }
+        return this.flagAttributionConflict(client, operation, hash);
       }
       if (operation.state === 'rejected') return operation;
       const state = operation.state === 'asserted' || operation.state === 'settled' || operation.state === 'reverted'
@@ -155,7 +152,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
           const owner = await this.hashOwner(client, operation.chainId, candidate.hash);
           const competitors = await client.query<OperationRow>(`SELECT * FROM chequebook_operations
             WHERE chain_id=$1 AND node_address=$2 AND id<>$3 AND dispatch_started_at IS NOT NULL
-              AND (transaction_hash IS NULL OR transaction_hash=$4)`, [operation.chainId, operation.nodeAddress, operation.id, candidate.hash]);
+              AND (transaction_hash IS NULL OR transaction_hash=$4 OR failure_reason='hash_conflict')`, [operation.chainId, operation.nodeAddress, operation.id, candidate.hash]);
           if ((owner && owner !== operation.id) || competitors.rows.some(row => matchesChequebookTransfer(operationFrom(row), candidate))) {
             recorded = { ...recorded, kind: 'ambiguous' };
           } else {
@@ -189,6 +186,17 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     });
   }
 
+  private async flagAttributionConflict(client: PoolClient, operation: ChequebookOperation, hash: string): Promise<ChequebookOperation> {
+    const hashes = [...new Set([...(operation.recoveryObservation?.candidateHashes ?? []), ...(operation.transactionHash ? [operation.transactionHash] : []), hash])];
+    const receiptObservation = { kind: 'could_not_check', reason: 'attribution_conflict' };
+    const recoveryObservation = { ...receiptObservation, candidateHashes: hashes };
+    const conflicted = await client.query<OperationRow>(`UPDATE chequebook_operations
+      SET failure_reason='hash_conflict', receipt_observation=$2::jsonb, receipt_checked_at=NOW(),
+          recovery_observation=$3::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW()
+      WHERE id=$1 RETURNING *`, [operation.id, JSON.stringify(receiptObservation), JSON.stringify(recoveryObservation)]);
+    return operationFrom(conflicted.rows[0]!);
+  }
+
   private async required(id: string): Promise<ChequebookOperation> {
     const current = await this.findById(id);
     if (!current) throw new Error('The chequebook operation no longer exists.');
@@ -209,6 +217,8 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      // A conflict can touch two nodes. All hash writers take this lock before either row.
+      await client.query('SELECT pg_advisory_xact_lock(29000, hashtext($1))', [String(identity.chainId)]);
       await client.query('SELECT pg_advisory_xact_lock(29002, hashtext($1))', [`${identity.chainId}:${identity.nodeAddress}`]);
       const result = await client.query<OperationRow>('SELECT * FROM chequebook_operations WHERE id=$1 FOR UPDATE', [identity.id]);
       if (!result.rows[0]) throw new Error('The chequebook operation no longer exists.');
