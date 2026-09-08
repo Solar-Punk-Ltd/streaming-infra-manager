@@ -20,6 +20,7 @@ const { EventBus } = await import('../../src/domain/EventBus.js');
 const { callEngine, startEngineTestApp } = await import('../support/engineTestApp.js');
 const { fakeDocker } = await import('../support/fakeDocker.js');
 const { profileRow, profileServiceHarness } = await import('../support/profileServiceHarness.js');
+const { omeContractProblem } = await import('../../src/domain/engineConfig/omeContract.js');
 
 after(() => {
   if (previousRoot === undefined) delete process.env.SHLS_ROOT;
@@ -47,6 +48,13 @@ async function overviewFor(config: string | null, template = OME_TEMPLATE): Prom
 
 const literal = () => OME_TEMPLATE.replaceAll('SEGMENT_DURATION_PLACEHOLDER', '4').replaceAll('SEGMENT_COUNT_PLACEHOLDER', '8');
 const duration = '<SegmentDuration>SEGMENT_DURATION_PLACEHOLDER</SegmentDuration>';
+
+function withExtraApplication(publishers: string): string {
+  const file = literal().replace('</Applications>',
+    `<Application><Name>extra</Name><Type>live</Type><Publishers>${publishers}</Publishers></Application></Applications>`);
+  assert.equal(omeContractProblem(OME_TEMPLATE, file), null, 'T03 admits the additional application');
+  return file;
+}
 
 describe('OME overview observations through the real HTTP route', () => {
   it('reads matching literals at both template-derived HLS paths over conflicting stored and host values', async () => {
@@ -111,5 +119,34 @@ describe('OME overview observations through the real HTTP route', () => {
       assert.equal(overview.observations.HLS_SEGMENT_DURATION.status, 'unknown');
       assert.equal(overview.effective.OME_HLS_POLL_INTERVAL_MS, '750');
     }
+  });
+
+  it('includes conflicting values in an additional admitted HLS application', async () => {
+    const overview = await overviewFor(withExtraApplication('<HLS><SegmentDuration>5</SegmentDuration><SegmentCount>8</SegmentCount></HLS>'));
+    assert.equal(overview.effective.HLS_SEGMENT_DURATION, undefined);
+    assert.equal(overview.observations.HLS_SEGMENT_DURATION.status === 'unknown' && overview.observations.HLS_SEGMENT_DURATION.reason, 'conflicting-values');
+    assert.equal(overview.effective.HLS_SEGMENT_COUNT, '8');
+    assert.equal(overview.effective.OME_HLS_POLL_INTERVAL_MS, '750');
+  });
+
+  it('does not guess an omitted duration in an additional admitted HLS publisher', async () => {
+    const overview = await overviewFor(withExtraApplication('<HLS><SegmentCount>8</SegmentCount></HLS>'));
+    assert.equal(overview.effective.HLS_SEGMENT_DURATION, undefined);
+    assert.equal(overview.observations.HLS_SEGMENT_DURATION.source, 'omitted');
+    assert.equal(overview.effective.HLS_SEGMENT_COUNT, '8');
+    assert.equal(overview.effective.OME_HLS_POLL_INTERVAL_MS, '750');
+  });
+
+  it('keeps a scalar known when an additional admitted HLS application has the same values', async () => {
+    const overview = await overviewFor(withExtraApplication('<HLS><SegmentDuration>4</SegmentDuration><SegmentCount>8</SegmentCount></HLS>'));
+    assert.equal(overview.effective.HLS_SEGMENT_DURATION, '4');
+    assert.equal(overview.observations.HLS_SEGMENT_DURATION.source, 'config-file');
+    assert.equal(overview.effective.HLS_SEGMENT_COUNT, '8');
+  });
+
+  it('does not invalidate HLS observations for an additional unrelated RTMP publisher', async () => {
+    const overview = await overviewFor(withExtraApplication('<RTMP/>'));
+    assert.equal(overview.effective.HLS_SEGMENT_DURATION, '4');
+    assert.equal(overview.effective.HLS_SEGMENT_COUNT, '8');
   });
 });
