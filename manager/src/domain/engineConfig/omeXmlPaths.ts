@@ -7,6 +7,26 @@ function segmentOf(element: OmeElement): string {
   return `${element.name}[${name.text}]`;
 }
 
+export interface OmePathEntry {
+  path: string;
+  element: OmeElement;
+  /** Ancestors under Server, followed by the element itself. */
+  ancestry: readonly OmeElement[];
+}
+
+/** Parsed ancestry avoids interpreting punctuation inside application names as path syntax. */
+export function* elementsWithPaths(root: OmeElement): Generator<OmePathEntry> {
+  function* walk(element: OmeElement, parentPath: string, ancestors: readonly OmeElement[]): Generator<OmePathEntry> {
+    for (const child of element.children) {
+      const path = parentPath ? `${parentPath}/${segmentOf(child)}` : segmentOf(child);
+      const ancestry = [...ancestors, child];
+      yield { path, element: child, ancestry };
+      yield* walk(child, path, ancestry);
+    }
+  }
+  yield* walk(root, '', []);
+}
+
 /** Every element under the root by path, with each path's values in document order. */
 export function valuesByPath(root: OmeElement): Map<string, string[]> {
   const found = new Map<string, string[]>();
