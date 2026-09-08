@@ -170,6 +170,15 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
     });
   }
 
+  it('requires the registered alias to match the profile host even when both aliases reach one daemon', async () => {
+    const input = proposal();
+    await pool.query("INSERT INTO deploy_targets (alias, daemon_id, verified_at) VALUES ('second-alias', 'synthetic-daemon', NOW())");
+    await pool.query("UPDATE profiles SET host = 'second-alias' WHERE name = 'owned'");
+    await assert.rejects(repository.register(input));
+    assert.deepEqual(await counts(), { roots: 0, holds: 0 });
+    assert.equal((await repository.register({ ...input, target: { ...input.target, alias: 'second-alias' } })).target.alias, 'second-alias');
+  });
+
   it('lets only one duplicate copier start and refuses another token or digest at readiness', async () => {
     const input = proposal();
     await repository.register(input);
@@ -219,13 +228,40 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
     assert.ok((await ledger.openReferences(versionId)).some(row => row.holderKind === 'execution'));
   });
 
-  it('refuses launch after a replacement instance even if the copy was ready', async () => {
+  it('deterministically permits launch before cleanup and never clears the uncertain hold', async () => {
     const record = await ready();
-    await pool.query("UPDATE profiles SET instance_id = $1 WHERE name = 'owned'", [randomUUID()]);
-    await assert.rejects(repository.claimLaunch(record.executionId));
-    assert.equal((await repository.find(record.executionId))!.state, 'ready');
-    assert.ok(await repository.claimUnstartedCleanup(record.executionId));
+    assert.equal((await repository.claimLaunch(record.executionId))!.state, 'launch-uncertain');
+    assert.equal(await repository.claimUnstartedCleanup(record.executionId), null);
+    await assert.rejects(repository.completeCleanup(record.executionId, async () => { assert.fail('launched root must stay'); }));
+    assert.ok((await ledger.openReferences(versionId)).some(row => row.holderKind === 'execution'));
   });
+
+  it('deterministically permits cleanup before launch and retains its exact hold through failure and retry', async () => {
+    const record = await ready();
+    assert.equal((await repository.claimUnstartedCleanup(record.executionId))!.state, 'deleting');
+    assert.equal(await repository.claimLaunch(record.executionId), null);
+    await assert.rejects(repository.completeCleanup(record.executionId, async () => { throw new Error('synthetic deletion failure'); }), /synthetic deletion failure/);
+    assert.equal((await repository.find(record.executionId))!.state, 'deleting');
+    assert.ok((await ledger.openReferences(versionId)).some(row => row.holderKind === 'execution'));
+    await repository.completeCleanup(record.executionId, async current => { assert.equal(current.executionId, record.executionId); });
+    assert.equal((await repository.find(record.executionId))!.state, 'released');
+    assert.equal((await ledger.openReferences(versionId)).some(row => row.holderKind === 'execution'), false);
+    assert.ok((await ledger.openReferences(versionId)).some(row => row.id === jobReferenceId));
+  });
+
+  for (const change of ['instance', 'intent', 'status', 'daemon', 'job-resolution'] as const) {
+    it(`refuses launch after changed ${change} even if the copy was ready`, async () => {
+      const record = await ready();
+      if (change === 'instance') await pool.query("UPDATE profiles SET instance_id = $1 WHERE name = 'owned'", [randomUUID()]);
+      if (change === 'intent') await pool.query("UPDATE profiles SET intent_revision = 4 WHERE name = 'owned'");
+      if (change === 'status') await pool.query("UPDATE profiles SET status = 'REMOVING' WHERE name = 'owned'");
+      if (change === 'daemon') await pool.query("UPDATE deploy_targets SET daemon_id = 'replacement-daemon' WHERE alias = 'localhost'");
+      if (change === 'job-resolution') await ledger.cancelUnstarted('owned', jobReferenceId);
+      await assert.rejects(repository.claimLaunch(record.executionId));
+      assert.equal((await repository.find(record.executionId))!.state, 'ready');
+      assert.ok(await repository.claimUnstartedCleanup(record.executionId));
+    });
+  }
 
   it('registers captured A after B/C publication and protects it after the job hold resolves', async () => {
     const input = proposal();
