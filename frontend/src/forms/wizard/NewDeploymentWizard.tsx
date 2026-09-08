@@ -65,6 +65,7 @@ export function NewDeploymentWizard({
     reload,
   } = useDeployments();
   const [createdPool, setCreatedPool] = useState<CreatedPool | null>(null);
+  const [poolToVerify, setPoolToVerify] = useState<CreatedPool | null>(null);
   const [unavailablePoolIds, setUnavailablePoolIds] = useState<ReadonlySet<number>>(() => new Set());
   const projected = useMemo(() => overlayCreatedPool(groups.filter(group => !unavailablePoolIds.has(group.id)),
     (profiles ?? []).filter(profile => profile.group_id == null || !unavailablePoolIds.has(profile.group_id)), createdPool), [groups, profiles, createdPool, unavailablePoolIds]);
@@ -110,24 +111,28 @@ export function NewDeploymentWizard({
   }, [createdPool, projected.created]);
 
   useEffect(() => {
-    if (!createdPool) return;
+    if (!poolToVerify) return;
     let cancelled = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     // These reads start after acceptance, so an older global refresh cannot erase the accepted identity.
     void readPoolMembership(controller.signal).then(({ groups: freshGroups, profiles: freshProfiles }) => {
       if (cancelled || !mounted.current) return;
-      const group = freshGroups.find(group => group.id === createdPool.group.id);
-      if (!matchingPool({ group, profiles: freshProfiles.filter(profile => profile.group_id === createdPool.group.id) }, createdPool.group.name)) {
-        setUnavailablePoolIds(previous => new Set([...previous, createdPool.group.id]));
+      const group = freshGroups.find(group => group.id === poolToVerify.group.id);
+      if (!matchingPool({ group, profiles: freshProfiles.filter(profile => profile.group_id === poolToVerify.group.id) }, poolToVerify.group.name)) {
+        setUnavailablePoolIds(previous => new Set([...previous, poolToVerify.group.id]));
         setCreatedPool(null);
         setNotice('The newly created pool is no longer available as a compatible pool. Your uploader draft is unchanged. Check the deployment list.');
       }
     }).catch(() => {
       if (!cancelled && mounted.current) setNotice('The pool was accepted, but its current membership could not be checked. The displayed identity comes from the creation response. Your uploader is still a draft.');
-    }).finally(() => clearTimeout(timeout));
+    }).finally(() => {
+      clearTimeout(timeout);
+      controller.abort();
+      if (!cancelled && mounted.current) setPoolToVerify(previous => previous === poolToVerify ? null : previous);
+    });
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
-  }, [createdPool]);
+  }, [poolToVerify]);
 
   const update = useCallback((patch: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -156,7 +161,10 @@ export function NewDeploymentWizard({
     setSubmitting(false);
     setPoolSetup(false);
     setState(restored.state);
-    if (restored.created) setCreatedPool(restored.created);
+    if (restored.created) {
+      setCreatedPool(restored.created);
+      setPoolToVerify(restored.created);
+    }
     setNotice(restored.notice);
     setSubmitError(null);
     setUncertainSubmission(false);
