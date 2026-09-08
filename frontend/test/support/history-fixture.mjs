@@ -6,18 +6,20 @@ export const historyInstanceId = '11111111-1111-4111-8111-111111111111';
 export const historyReceipt = { kind: 'settled', receiptBlockNumber: '501', receiptBlockHash: `0x${'77'.repeat(32)}`,
   finalizedBlockNumber: '510', finalizedBlockHash: `0x${'88'.repeat(32)}` };
 
-export async function launchHistoryFixture(t, count = 0) {
+export async function launchHistoryFixture(t, count = 0, options = {}) {
   let account = 7;
   let present = true;
   let override = null;
   let held = null;
+  let loseActionResponse = false;
   const records = [];
   const posts = [];
   const reads = [];
   const journal = createMockChequebookJournal({ profileFor: name => present ? { name, instance_id: historyInstanceId } : null,
     nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
       chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } }),
-    userFor: () => account === null ? null : { id: account }, onSubmitted: operation => records.push(operation) });
+    userFor: () => account === null ? null : { id: account }, onSubmitted: operation => records.push(operation),
+    responseFor: options.seedState === 'unknown' ? () => null : undefined, receiptFor: options.receiptFor, recoveryFor: options.recoveryFor });
   const fixture = await launchTransferFixture(t, async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/auth/login' && req.method === 'POST') {
@@ -34,7 +36,14 @@ export async function launchHistoryFixture(t, count = 0) {
     if (url.pathname === '/groups') return json(res, 200, { groups: [] });
     if (url.pathname === '/versions') return json(res, 200, []);
     if (url.pathname === '/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.write(': synthetic connected\n\n'); }
-    if (req.method === 'POST') posts.push(url.pathname);
+    if (req.method === 'POST') {
+      posts.push(url.pathname);
+      if (loseActionResponse && /\/(check|resolve|assert)$/.test(url.pathname)) {
+        loseActionResponse = false;
+        res.writeHead = () => res;
+        res.end = () => { req.socket.destroy(); return res; };
+      }
+    }
     if (req.method === 'GET' && url.pathname.startsWith('/chequebook/')) {
       reads.push(req.url);
       if (held && url.pathname === held.path) {
@@ -56,12 +65,14 @@ export async function launchHistoryFixture(t, count = 0) {
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId: randomUUID(), profileInstanceId: historyInstanceId, expectedAccountId: 7, amount: '5000000000000000' }) });
     const admitted = await response.json();
     if (response.status !== 202) throw new Error('Synthetic history seed admission failed');
-    journal.observeReceipt(admitted.operation.id, historyReceipt);
+    if (options.seedState !== 'unknown') journal.observeReceipt(admitted.operation.id, historyReceipt);
   }
   posts.length = 0;
   present = false;
   return { ...fixture, journal, records, posts, reads,
     override(value) { override = value; },
+    setAccount(value) { account = value; },
+    loseNextActionResponse() { loseActionResponse = true; },
     holdOnce(id) {
       let enter, release;
       const entered = new Promise(resolve => { enter = resolve; });
