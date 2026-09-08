@@ -30,6 +30,10 @@ export function validateInventory(value) {
   }
   const covered = (row, service) => value.claims.some(claim =>
     claim.profileName === row.profileName && claim.service === service && key(claim) === key(row));
+  for (const name of profiles) {
+    requireEvidence(value.reservations.some(row => row.profileName === name)
+      && value.claims.some(claim => claim.profileName === name), name + ' has no retained reservation coverage.');
+  }
   for (const reservation of value.reservations) {
     requireEvidence(tuple(reservation) && text(reservation.profileName) && reservation.daemonId === value.daemonId
       && Array.isArray(reservation.heldServices), 'invalid reservation or daemon.');

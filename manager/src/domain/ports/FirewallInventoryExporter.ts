@@ -73,6 +73,11 @@ export class FirewallInventoryExporter {
       }
     }
 
+    for (const profile of profiles) {
+      if (!reservations.some(row => row.profileName === profile.name) || !claims.some(claim => claim.profileName === profile.name)) {
+        refuse(`${profile.name} has no retained reservation coverage.`);
+      }
+    }
     if (before.reservations.some(row => names.has(row.profileName) && row.daemonId !== daemonId)) refuse('A deployment retains reservations on another daemon.');
     for (const row of reservations) {
       if (!names.has(row.profileName)) {
