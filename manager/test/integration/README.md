@@ -2,7 +2,7 @@
 
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
-These are **not** unit tests. They start real containers through the deploy scripts, they take minutes, and they remove what they created. They run only against a manager that was declared a test target, and they never touch a deployment they did not create.
+They start real containers through the deploy scripts and take minutes. They run only against a manager declared as a test target. Cleanup requires confirmed creation identities.
 
 ## What the suite needs
 
@@ -45,9 +45,13 @@ op run --env-file test/integration/env.itest -- pnpm test:integration
 
 A suite that cannot start fails in its first hook, in words, and creates nothing. Missing declaration, unreachable manager and a refused sign-in are three different messages. No message ever contains the password.
 
-## What the suite never touches
+## How cleanup proves ownership
 
-Every resource it creates is named `itest-<run>-<what>-<random>`. The teardown removes names carrying this run's prefix and nothing else: a name without it in a teardown set fails the teardown after the run's own names are gone, so it is seen rather than acted on. Deployments that were there before, on any manager, are never listed, changed or removed by the suite.
+Every requested resource name contains `itest-<run>-<what>-<random>`. A matching prefix is only a filter. The helper records successful response identities before the calling test can fail an assertion. It never adopts a requested name, a later GET result or a group's current members as cleanup authority.
+
+Profile cleanup sends the recorded `instance_id` as `expectedInstanceId`. The manager claims that instance atomically and keeps its name occupied until file cleanup completes. If another instance now has the name, cleanup leaves it alone. Group cleanup requires the recorded group ID and name and an atomic empty-membership check. A newly added member blocks group deletion and is reported, not adopted.
+
+Each cleanup request has a 5-second deadline. Accepted removal has a 60-second disappearance deadline. Cleanup attempts independent confirmed resources and reports all failures together. Lost or malformed creation responses and unknown member coverage remain unresolved. They grant no guessed deletion authority. The Node test runner reports cleanup failure separately from the original test failure.
 
 ## What it covers
 
@@ -63,6 +67,7 @@ Every resource it creates is named `itest-<run>-<what>-<random>`. The teardown r
 
 ## Notes and limitations
 
-- Group size is capped at 2 on purpose. This is meant to run on a laptop.
-- The waits are generous (`waitForStatus` gives up after about 4 minutes per deploy) so a genuinely stuck deploy fails loudly instead of hanging.
-- A leftover after a failed teardown is reported by the test that created it. It carries the run id in its name.
+- Viewer group fixtures use 2 members. ABR pool fixtures create 4 rungs.
+- `waitForStatus` gives up after about 4 minutes per deploy. Cleanup has the shorter deadlines above.
+- A lost creation response can leave a resource whose identity was never confirmed. The suite reports the unresolved creation and requires operator inspection. It does not search by prefix and delete candidates.
+- Synthetic unit HTTP tests exercise the real helper and failure reporting. Passing them is not evidence that this live integration suite ran.
