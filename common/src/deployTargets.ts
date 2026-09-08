@@ -3,6 +3,7 @@ export interface DeployTargetView {
   daemonId: string | null;
   verifiedAt: string | null;
   lastError: string | null;
+  inventorySeededAt?: string | null;
 }
 
 export interface DeployTargetsView {

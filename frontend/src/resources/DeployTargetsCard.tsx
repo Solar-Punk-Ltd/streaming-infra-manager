@@ -29,13 +29,17 @@ export function DeployTargetsCard() {
     return () => request.current?.abort();
   }, []);
 
-  async function refresh(verify?: string) {
+  async function refresh(verify?: string, retryInventory = false) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
     setError(null);
     try {
+      if (retryInventory) {
+        const response = await apiFetch('/targets/inventory', { method: 'POST', body: {}, signal: controller.signal });
+        if (!response.ok) await failWith(response, 'Could not complete the reservation inventory.');
+      }
       if (verify) {
         const response = await apiFetch('/targets/verify', {
           method: 'POST', body: { alias: verify }, signal: controller.signal,
@@ -62,7 +66,9 @@ export function DeployTargetsCard() {
       <Stack spacing={2}>
         {error && <Alert severity="error">{error}</Alert>}
         {data && !data.inventorySeededAt && (
-          <Alert severity="warning">The reservation inventory is still being built. New deployments wait until existing deployments have been accounted for.</Alert>
+          <Alert severity="warning" action={<Button disabled={busy} onClick={() => void refresh(undefined, true)}>Retry inventory</Button>}>
+            The initial reservation inventory is incomplete. Verify any unreachable targets, then retry. New deployments wait until this check completes.
+          </Alert>
         )}
         {!data && !error && <Typography color="text.secondary">Loading targets…</Typography>}
         {data?.targets.map((target) => (
@@ -76,6 +82,9 @@ export function DeployTargetsCard() {
                 {target.verifiedAt ? `Verified ${formatDateTime(target.verifiedAt)}` : 'Not verified'}
               </Typography>
               {target.lastError && <Typography variant="body2" color="error.main">{target.lastError}</Typography>}
+              <Typography variant="caption" color={target.inventorySeededAt ? 'text.secondary' : 'warning.main'}>
+                {target.inventorySeededAt ? `Ports inventoried ${formatDateTime(target.inventorySeededAt)}` : 'Port inventory incomplete. Verify this target to scan it.'}
+              </Typography>
             </Stack>
             <Button disabled={busy} onClick={() => void refresh(target.alias)} aria-label={`Verify ${target.alias}`}>Verify</Button>
           </Stack>

@@ -39,6 +39,7 @@ import { createStampRouter } from './routes/stamp.js';
 import { createAttemptsRouter } from './routes/attempts.js';
 import { createVersionsRouter } from './routes/versions.js';
 import { createTargetsRouter } from './routes/targets.js';
+import type { PortInventory } from '../domain/ports/PortInventory.js';
 
 const logger = Logger.getInstance();
 
@@ -60,6 +61,7 @@ export interface ApiDeps {
   orchestrator: DeploymentOrchestrator;
   deployTargets: VerifiedDeployTargets;
   portReservations: PortReservationRepository;
+  portInventory?: PortInventory;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -100,7 +102,7 @@ export function startApiServer(
     createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
   );
   app.use('/profiles', createProfilesRouter(deps.profileService));
-  app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations));
+  app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));
   app.use('/', createActionsRouter(deps.deployService));

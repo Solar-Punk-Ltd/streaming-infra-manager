@@ -318,6 +318,7 @@ async function main(): Promise<void> {
       stackVersionService,
       orchestrator,
       deployTargets,
+      portInventory,
       portReservations,
       eventBus,
       metricsCollector,
