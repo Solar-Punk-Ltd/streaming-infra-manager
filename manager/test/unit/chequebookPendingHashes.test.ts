@@ -11,7 +11,7 @@ function harness() {
   let node = operation.nodeAddress;
   const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: '1' }), () => ({
     async getAddresses() { return { ethereum: node }; },
-    async getWallet() { return { walletAddress: node, chainID: 100, chequebookContractAddress: operation.chequebookAddress }; },
+    async getWallet() { return { bzzBalance: '0', nativeTokenBalance: '0', walletAddress: node, chainID: 100, chequebookContractAddress: operation.chequebookAddress }; },
     async getChequebookAddress() { return { chequebookAddress: operation.chequebookAddress }; },
     async getPendingTransactions() { pendingReads++; return result; },
     dispose() { disposed++; },
@@ -43,7 +43,7 @@ describe('identity-bound pending Bee hashes', () => {
     const controller = new AbortController();
     let disposed = 0;
     const reader = new ChequebookPendingHashes(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: '1' }), () => ({
-      getAddresses: async () => new Promise(() => {}), getWallet: async () => ({}), getChequebookAddress: async () => ({ chequebookAddress: '' }),
+      getAddresses: async () => new Promise(() => {}), getWallet: async () => ({ bzzBalance: '0', nativeTokenBalance: '0' }), getChequebookAddress: async () => ({ chequebookAddress: '' }),
       getPendingTransactions: async () => ({}), dispose() { disposed++; },
     }));
     const promise = reader.read(operationCandidate(), controller.signal);

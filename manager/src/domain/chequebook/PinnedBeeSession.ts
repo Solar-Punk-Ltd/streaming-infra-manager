@@ -73,6 +73,7 @@ export class PinnedBeeSession implements BeeTransferSession {
   getWallet(): Promise<BeeWallet> { return this.#request('GET', '/wallet', this.#readTimeoutMs); }
   getChequebookAddress(): Promise<BeeChequebookAddress> { return this.#request('GET', '/chequebook/address', this.#readTimeoutMs); }
   getChequebookBalance(): Promise<ChequebookBalance> { return this.#request('GET', '/chequebook/balance', this.#readTimeoutMs); }
+  getPendingTransactions(): Promise<unknown> { return this.#request('GET', '/transactions', this.#readTimeoutMs); }
   depositChequebook(amountPlur: bigint): Promise<BeeTransaction> { return this.#send('deposit', amountPlur); }
   withdrawChequebook(amountPlur: bigint): Promise<BeeTransaction> { return this.#send('withdraw', amountPlur); }
 

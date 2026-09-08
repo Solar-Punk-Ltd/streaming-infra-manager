@@ -26,7 +26,7 @@ async function checked<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 }
 
 /** Fresh identity is read on the same connection that may later carry the single POST. */
-export async function readBeeTransferIdentity(session: BeeTransferSession, signal: AbortSignal) {
+export async function readBeeTransferIdentity(session: Pick<BeeTransferSession, 'getAddresses' | 'getWallet' | 'getChequebookAddress'>, signal: AbortSignal) {
   const addresses = await checked(session.getAddresses(), signal);
   const wallet = await checked(session.getWallet(), signal);
   const chequebook = await checked(session.getChequebookAddress(), signal);
