@@ -11,6 +11,8 @@ export interface ConfirmedTransferInput {
 }
 
 export type StoredTransferIntent = ConfirmedTransferInput;
+export interface SavedTransferQuery { readonly limit?: number; readonly cursor?: string }
+export interface SavedTransferPage { readonly intents: readonly StoredTransferIntent[]; readonly nextCursor: string | null }
 export type LinkedOperation = Pick<ChequebookOperation, 'id' | 'requestId' | 'profileName' | 'profileInstanceId' | 'requestedBy' |
   'direction' | 'amountPlur' | 'chainId' | 'nodeAddress' | 'chequebookAddress' | 'tokenAddress'>;
 export interface ProvenTransferLink {
@@ -36,6 +38,7 @@ export interface TransferIntentStore {
   confirm(input: ConfirmedTransferInput, expectedCurrentRequestId: string | null): Promise<ConfirmedTransferResult>;
   current(accountId: number, profileInstanceId: string): Promise<StoredTransferIntent | null>;
   find(requestId: string): Promise<StoredTransferIntent | null>;
+  list(accountId: number, query?: SavedTransferQuery): Promise<SavedTransferPage>;
   recordExact(requestId: string, operation: LinkedOperation): Promise<TransferLinkWriteResult>;
   recordBlocking(requestId: string, operationId: string): Promise<void>;
   links(requestId: string): Promise<TransferObservationLinks>;
@@ -62,6 +65,21 @@ type LinkRecord = { readonly requestId: string; readonly own: ProvenTransferLink
 function uuid(value: unknown): string {
   if (typeof value !== 'string' || !UUID.test(value)) throw new TransferPersistenceError();
   return value;
+}
+
+function savedHistoryCursor(accountId: number, requestId: string): string {
+  return btoa(JSON.stringify({ accountId, requestId }));
+}
+
+function savedHistoryAfter(accountId: number, cursor: string | undefined): string | null {
+  if (cursor === undefined) return null;
+  try {
+    if (typeof cursor !== 'string' || cursor.length > 256) throw new TransferPersistenceError();
+    const value = JSON.parse(atob(cursor));
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).sort().join(',') !== 'accountId,requestId' || value.accountId !== accountId) throw new TransferPersistenceError();
+    return uuid(value.requestId);
+  } catch { throw new TransferPersistenceError(); }
 }
 
 function scopeOf(accountId: number, profileInstanceId: string): string {
@@ -166,6 +184,30 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
     return this.transaction('readonly', (transaction, complete) => {
       const request = transaction.objectStore(INTENTS).get(requestId);
       request.onsuccess = () => this.inside(transaction, () => complete(request.result === undefined ? null : savedIntent(request.result)));
+    });
+  }
+
+  /** Request-ID order, with bounded scanning across accounts and no pointer or link writes. */
+  async list(accountId: number, query: SavedTransferQuery = {}): Promise<SavedTransferPage> {
+    const limit = query.limit ?? 25;
+    if (!Number.isSafeInteger(accountId) || accountId < 1 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new TransferPersistenceError();
+    const after = savedHistoryAfter(accountId, query.cursor);
+    return this.transaction('readonly', (transaction, complete) => {
+      const intents: StoredTransferIntent[] = [];
+      let visited = 0;
+      let last: string | null = null;
+      const request = transaction.objectStore(INTENTS).openCursor(after === null ? undefined : IDBKeyRange.lowerBound(after, true));
+      request.onsuccess = () => this.inside(transaction, () => {
+        const cursor = request.result;
+        if (!cursor) { complete({ intents, nextCursor: null }); return; }
+        if (visited === 500 || intents.length === limit) {
+          complete({ intents, nextCursor: savedHistoryCursor(accountId, last!) }); return;
+        }
+        last = uuid(cursor.key);
+        visited++;
+        if (cursor.value?.accountId === accountId) intents.push(savedIntent(cursor.value));
+        cursor.continue();
+      });
     });
   }
 
