@@ -37,7 +37,7 @@ export interface ChequebookReceiptHistory {
 
 export type ChequebookReceiptObservation =
   | { readonly kind: 'pending'; readonly reason: 'awaiting_transaction' | 'awaiting_receipt' | 'awaiting_finality' }
-  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' | 'history_incomplete'; readonly history?: ChequebookReceiptHistory }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' | 'history_incomplete' | 'attribution_conflict'; readonly history?: ChequebookReceiptHistory }
   | {
     readonly kind: 'settled' | 'reverted';
     readonly receiptBlockNumber: string;
@@ -81,7 +81,7 @@ export type ChequebookRecoveryObservation = RecoveryEvidence & (
   | { readonly kind: 'searching'; readonly scan: ChequebookRecoveryScan }
   | { readonly kind: 'no_match'; readonly scan: ChequebookRecoveryScan }
   | { readonly kind: 'candidate' | 'ambiguous' }
-  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'chain_changed' | 'identity_mismatch' | 'evidence_limit' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'chain_changed' | 'identity_mismatch' | 'evidence_limit' | 'attribution_conflict' }
 );
 
 export interface ChequebookAssertionInput {

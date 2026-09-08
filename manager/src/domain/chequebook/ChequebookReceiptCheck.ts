@@ -18,7 +18,7 @@ export class ChequebookReceiptCheck {
       throw new ChequebookJournalError();
     }
     if (!operation) throw new ChequebookJournalError();
-    if (operation.state !== 'submitted' || !operation.transactionHash) return operation;
+    if (operation.state !== 'submitted' || !operation.transactionHash || operation.failureReason === 'hash_conflict') return operation;
     const snapshot = Object.freeze({ ...operation, transactionHash: operation.transactionHash });
     let observation: ChequebookReceiptObservation;
     try {

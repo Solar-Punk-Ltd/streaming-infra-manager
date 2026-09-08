@@ -70,7 +70,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
   async recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, observation: ChequebookReceiptObservation): Promise<ChequebookOperation> {
     const row = this.rows.get(expected.id);
     if (!row) throw new Error('Missing operation');
-    if (row.state !== 'submitted' || row.revision !== expected.revision || row.transactionHash !== expected.transactionHash) return structuredClone(row);
+    if (row.failureReason === 'hash_conflict' || row.state !== 'submitted' || row.revision !== expected.revision || row.transactionHash !== expected.transactionHash) return structuredClone(row);
     const now = new Date().toISOString();
     const operation: ChequebookOperation = {
       ...row, state: observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : row.state,

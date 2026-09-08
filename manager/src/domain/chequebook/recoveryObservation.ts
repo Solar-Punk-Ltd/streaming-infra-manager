@@ -32,7 +32,7 @@ export function normalizeRecoveryObservation(input: ChequebookRecoveryObservatio
   if (input.kind === 'no_match' && scan?.complete && candidateHashes.length === 0) return Object.freeze({ ...evidence, kind: input.kind, scan });
   if (input.kind === 'candidate' && candidateHashes.length === 1) return Object.freeze({ ...evidence, kind: input.kind });
   if (input.kind === 'ambiguous' && candidateHashes.length > 0) return Object.freeze({ ...evidence, kind: input.kind });
-  if (input.kind === 'could_not_check' && ['rpc_unavailable', 'chain_changed', 'identity_mismatch', 'evidence_limit'].includes(input.reason)) {
+  if (input.kind === 'could_not_check' && ['rpc_unavailable', 'chain_changed', 'identity_mismatch', 'evidence_limit', 'attribution_conflict'].includes(input.reason)) {
     if (input.reason === 'chain_changed' && scan) throw new ChequebookOperationInputError('recovery history conflict');
     return Object.freeze({ ...evidence, kind: input.kind, reason: input.reason });
   }

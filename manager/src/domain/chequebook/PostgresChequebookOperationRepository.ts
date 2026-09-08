@@ -110,7 +110,17 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
       const owned = (!owner || owner === operation.id) && (!operation.transactionHash || operation.transactionHash === hash);
       await client.query(`INSERT INTO chequebook_submission_responses (operation_id, transaction_hash, ownership)
         VALUES ($1,$2,$3) ON CONFLICT (operation_id, transaction_hash) DO NOTHING`, [operation.id, hash, owned ? 'owned' : 'conflict']);
-      if (operation.state === 'rejected' || (operation.transactionHash && operation.transactionHash !== hash)) return operation;
+      if (!owned || operation.failureReason === 'hash_conflict') {
+        const hashes = [...new Set([...(operation.recoveryObservation?.candidateHashes ?? []), ...(operation.transactionHash ? [operation.transactionHash] : []), hash])];
+        const receiptObservation = { kind: 'could_not_check', reason: 'attribution_conflict' };
+        const recoveryObservation = { ...receiptObservation, candidateHashes: hashes };
+        const conflicted = await client.query<OperationRow>(`UPDATE chequebook_operations
+          SET failure_reason='hash_conflict', receipt_observation=$2::jsonb, receipt_checked_at=NOW(),
+              recovery_observation=$3::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW()
+          WHERE id=$1 RETURNING *`, [operation.id, JSON.stringify(receiptObservation), JSON.stringify(recoveryObservation)]);
+        return operationFrom(conflicted.rows[0]!);
+      }
+      if (operation.state === 'rejected') return operation;
       const state = operation.state === 'asserted' || operation.state === 'settled' || operation.state === 'reverted'
         ? operation.state : owned ? 'submitted' : 'unknown';
       const updated = await client.query<OperationRow>(`UPDATE chequebook_operations
@@ -129,7 +139,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
   async recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation> {
     const observation = normalizeRecoveryObservation(input);
     return this.withOperation(expected.id, async (client, operation) => {
-      if (operation.revision !== expected.revision || !['submitting', 'unknown'].includes(operation.state)) return operation;
+      if (operation.revision !== expected.revision || !['submitting', 'unknown'].includes(operation.state) || operation.failureReason === 'hash_conflict') return operation;
       if (observation.scan && (BigInt(observation.scan.nextBlockNumber) < BigInt(operation.startBlockNumber) ||
           (observation.scan.complete && (observation.scan.nextBlockNumber !== operation.startBlockNumber || observation.scan.nextBlockHash !== operation.startBlockHash)))) {
         throw new ChequebookOperationInputError('recovery anchor');
@@ -169,7 +179,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     return this.withOperation(expected.id, async (client, operation) => {
       if (input.amountPlur !== operation.amountPlur || input.confirmation !== chequebookAssertionConfirmation(operation.amountPlur) ||
           typeof input.actor !== 'string' || !input.actor.trim() || input.actor.length > 200) throw new ChequebookOperationInputError('assertion');
-      if (operation.revision !== expected.revision || !['submitting', 'unknown'].includes(operation.state)) return operation;
+      if (operation.revision !== expected.revision || !['submitting', 'unknown'].includes(operation.state) || operation.failureReason === 'hash_conflict') return operation;
       if (operation.recoveryObservation?.kind !== 'no_match') throw new Error('A complete search without a matching transaction is required.');
       const assertion = { actor: input.actor, amountPlur: operation.amountPlur, confirmation: input.confirmation };
       const updated = await client.query<OperationRow>(`UPDATE chequebook_operations
@@ -222,7 +232,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     const nextState = observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : 'submitted';
     const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
       SET state = $4, receipt_observation = $5::jsonb, receipt_checked_at = NOW(), updated_at = NOW(), revision = revision + 1
-      WHERE id = $1 AND revision = $2 AND transaction_hash = $3 AND state = 'submitted' RETURNING *`,
+      WHERE id = $1 AND revision = $2 AND transaction_hash = $3 AND state = 'submitted' AND failure_reason IS DISTINCT FROM 'hash_conflict' RETURNING *`,
     [id, expected.revision, expected.transactionHash.toLowerCase(), nextState, JSON.stringify(observation)]);
     if (updated.rows[0]) return operationFrom(updated.rows[0]);
     const current = await this.findById(id);

@@ -36,9 +36,9 @@ export function normalizeReceiptObservation(observation: ChequebookReceiptObserv
   if (observation.kind === 'pending' && ['awaiting_transaction', 'awaiting_receipt', 'awaiting_finality'].includes(observation.reason)) {
     return Object.freeze({ kind: observation.kind, reason: observation.reason });
   }
-  if (observation.kind === 'could_not_check' && ['rpc_unavailable', 'identity_mismatch', 'chain_changed', 'history_incomplete'].includes(observation.reason)) {
+  if (observation.kind === 'could_not_check' && ['rpc_unavailable', 'identity_mismatch', 'chain_changed', 'history_incomplete', 'attribution_conflict'].includes(observation.reason)) {
     const history = observation.history ? normalizeReceiptHistory(observation.history) : undefined;
-    if (history && (observation.reason === 'identity_mismatch' || observation.reason === 'chain_changed')) throw new ChequebookOperationInputError('receipt history conflict');
+    if (history && (observation.reason === 'identity_mismatch' || observation.reason === 'chain_changed' || observation.reason === 'attribution_conflict')) throw new ChequebookOperationInputError('receipt history conflict');
     return Object.freeze({ kind: observation.kind, reason: observation.reason, ...(history ? { history } : {}) });
   }
   if (observation.kind !== 'settled' && observation.kind !== 'reverted') throw new ChequebookOperationInputError('receipt observation');
