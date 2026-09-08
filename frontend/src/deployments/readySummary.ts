@@ -22,20 +22,17 @@ export function readySummary(
   const shape = shapeOf(profile);
 
   if (isStreamLike(profile, shape) || shape === 'abr-uploader') {
-    if ((readiness.tone === 'ok' || readiness.working) && publishUrl) {
+    if (readiness.tone === 'ok' && publishUrl) {
       return {
         tone: readiness.tone,
-        title:
-          readiness.tone === 'ok'
-            ? 'Prerequisites checked. Receiving and uploading are not verified. Publish to test:'
-            : `Ready, but ${readiness.label.toLowerCase()}. Point OBS or FFmpeg at this URL:`,
+        title: 'Prerequisites checked. Receiving and uploading are not verified. Publish to test:',
         url: publishUrl,
       };
     }
     return {
       tone: readiness.tone,
       title:
-        readiness.tone === 'gray'
+        profile.status === 'STOPPED'
           ? 'Stopped. Start it to get a publish URL.'
           : `Not ready yet: ${readiness.label.toLowerCase()}.`,
       url: null,
@@ -54,7 +51,7 @@ export function readySummary(
     return {
       tone: readiness.tone,
       title:
-        readiness.tone === 'gray'
+        profile.status === 'STOPPED'
           ? 'Stopped. Start it to serve the player.'
           : `Player unavailable: ${readiness.label.toLowerCase()}.`,
       url: null,
@@ -62,13 +59,10 @@ export function readySummary(
   }
 
   if (shape === 'bee-node') {
-    return readiness.tone === 'ok' || readiness.working
+    return readiness.tone === 'ok'
       ? {
           tone: readiness.tone,
-          title:
-            readiness.tone === 'ok'
-              ? 'Node prerequisites checked. Receiving uploads has not been verified.'
-              : `Node prerequisites need attention: ${readiness.label.toLowerCase()}.`,
+          title: 'Node prerequisites checked. Receiving uploads has not been verified.',
           url: null,
         }
       : {

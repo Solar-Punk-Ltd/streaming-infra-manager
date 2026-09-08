@@ -11,7 +11,6 @@ export { isStreamLike } from './shape';
 export interface Readiness {
   label: string;
   tone: Tone;
-  working?: boolean;
 }
 
 export const NEEDS_A_STAMP = 'Needs a stamp';
