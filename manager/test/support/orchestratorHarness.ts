@@ -7,6 +7,7 @@ import { EventBus } from '../../src/domain/EventBus.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
+import { InMemoryBuildLedger } from './InMemoryBuildLedger.js';
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import { FakeContainers, InMemoryProfiles } from './profileFixtures.js';
 
@@ -34,6 +35,8 @@ export interface OrchestratorHarness {
   /** Seeded with the bundled version as id 1. A test adds what else it needs. */
   versions: InMemoryStackVersionRepository;
   containers: FakeContainers;
+  /** Which build each deployment runs on, and what its containers were seen to mount. */
+  ledger: InMemoryBuildLedger;
 }
 
 /**
@@ -46,6 +49,7 @@ export interface OrchestratorHarness {
 export function orchestratorHarness(
   stored: readonly Profile[],
   uploaderGate?: UploaderGate,
+  versionsRoot = '/srv/stack-versions',
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -54,6 +58,7 @@ export function orchestratorHarness(
   const versions = new InMemoryStackVersionRepository();
   versions.seedBundled();
   const containers = new FakeContainers();
+  const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
 
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
@@ -62,8 +67,9 @@ export function orchestratorHarness(
     events,
     {} as DeploymentGroupRepository,
     versions,
+    ledger,
     uploaderGate,
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers };
+  return { orchestrator, profiles, runner, events, versions, containers, ledger };
 }

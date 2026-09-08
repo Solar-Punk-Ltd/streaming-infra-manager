@@ -13,6 +13,7 @@ export * from './metrics.js';
 export * from './nullify.js';
 export * from './profileReconcile.js';
 export * from './publishUrl.js';
+export * from './runningCommit.js';
 export * from './srtPassphrase.js';
 export * from './stackVersions.js';
 export * from './stampCost.js';

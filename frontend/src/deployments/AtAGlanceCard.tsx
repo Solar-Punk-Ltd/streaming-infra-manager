@@ -14,7 +14,7 @@ import { SectionCard } from '../components/SectionCard';
 import { formatDate, formatTtl } from '../format';
 import type { DeploymentGroup, Profile } from '../types';
 import { hostFor } from '../urls';
-import { describeVersion } from '../versions/versionText';
+import { describeRunning, describeVersion } from '../versions/versionText';
 import { engineSummary } from './engineText';
 import type { Readiness } from './readiness';
 import { engineOf } from './shape';
@@ -56,6 +56,12 @@ export function AtAGlanceCard({
     entries.push({
       key: 'Version',
       value: <Mono>{describeVersion(version)}</Mono>,
+    });
+    // What the containers were seen to run, which is not always what the
+    // version says: an update moves the version, a deploy moves containers.
+    entries.push({
+      key: 'Running',
+      value: <Mono>{describeRunning(profile.containers)}</Mono>,
     });
   }
 
