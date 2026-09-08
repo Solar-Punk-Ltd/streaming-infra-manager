@@ -107,11 +107,17 @@ describe('adding a version', () => {
     ]);
   });
 
-  it('lands ready with the commit the build exported and the contract it read', async () => {
+  it('lands ready with the commit the build exported and the contract it read', { timeout: 5000 }, async (context) => {
     await service.add('v3', 'main-v3');
     built('v3');
+    const changed = new Promise<void>((resolve) => {
+      const unsubscribe = bus.subscribe((event) => {
+        if (event.type === 'version.changed') resolve();
+      });
+      context.after(unsubscribe);
+    });
     runner.finish(0, 'cloning\nbuilt\n');
-    await settled();
+    await changed;
 
     const version = await repository.findByName('v3');
     assert.equal(version?.status, 'ready');
