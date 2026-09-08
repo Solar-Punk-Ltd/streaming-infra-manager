@@ -23,6 +23,11 @@ export interface ProfileWriteData {
   group_id?: number | null;
 }
 
+export interface EngineOverviewSnapshot {
+  profile: Profile;
+  engineConfig: string | null;
+}
+
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
@@ -32,6 +37,17 @@ export interface NewProfilePlacement {
 
 export class ProfileRepository {
   constructor(private readonly pool: Pool) {}
+
+  /** One statement keeps revision identity, settings and the config in the same database snapshot. */
+  async engineOverviewSnapshot(name: string): Promise<EngineOverviewSnapshot | null> {
+    const result = await this.pool.query<Profile & { engine_config: string | null }>(
+      `SELECT ${PROFILE_COLUMNS}, engine_config FROM profiles WHERE name = $1`, [name],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const { engine_config, ...profile } = row;
+    return { profile, engineConfig: engine_config };
+  }
 
   async findByName(name: string): Promise<Profile | null> {
     const r = await this.pool.query<Profile>(
