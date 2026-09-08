@@ -42,6 +42,12 @@ function validScope(entry: Entry): boolean {
       : node.name === 'transcode' ? node.args.length <= 1 : node.args.length === 0);
 }
 
+function supportedGenerationScope(entry: Entry): boolean {
+  return validScope(entry) && (entry.node.name === 'ABR_VHOST_PLACEHOLDER'
+    ? entry.ancestry.length === 1
+    : sameNames(scopeNames(entry), ['vhost', 'TRANSCODE_PLACEHOLDER']));
+}
+
 function scalarIn(scope: Entry, directive: string, placeholder?: string, source?: string): EngineSettingReading {
   if (!validScope(scope)) return unknown('ambiguous-path');
   const values = scope.node.children?.filter(node => node.name === directive) ?? [];
@@ -102,6 +108,9 @@ export function srsSettingReadings(
   const parsedTemplate = parseSrsConfig(templateText);
   const template = parsedTemplate === null ? null : entriesIn(parsedTemplate);
   const file = entriesIn(parsedFile);
+  if (options.abr && file.some(entry => entry.node.generated && !supportedGenerationScope(entry))) {
+    return Object.fromEntries(fields.map(field => [field.key, [unknown('unsupported-syntax')]]));
+  }
   const activeMarker = (name: string) => options.abr && file.some(entry => entry.node.generated && entry.node.name === name);
   const opaqueVhost = activeMarker('ABR_VHOST_PLACEHOLDER');
   const opaqueEncoder = activeMarker('TRANSCODE_PLACEHOLDER') || hasIncludeFor(file, [ENCODER_SCOPE]);
