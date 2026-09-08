@@ -41,7 +41,7 @@ it('records a successful creation before later assertions and cleans its confirm
   assert.deepEqual(calls[0], { method: 'DELETE', path: `/profiles/${created.name}`, body: { expectedInstanceId: created.instance_id } });
 });
 
-for (const path of ['/groups/%37/members', '/groups/07/members', '/groups/7.0/members', '/groups/7e0/members']) {
+for (const path of ['/groups/%37/members', '/groups/%37/members/', '/groups/%37/members?source=test', '/GROUPS/%37/MEMBERS']) {
   it(`captures the numeric group parameter in ${path}`, async () => {
     const { client, calls } = setup();
     const member = profile();

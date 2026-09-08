@@ -15,9 +15,11 @@ function creationAttempt(method: string, path: string, value: unknown): Creation
   if (pathname === '/groups') return { kind: 'group', expectedMembers: body === null ? null : /^(true|1)$/i.test(String(body.abr_ladder)) ? 4 : positiveCount(body.size) };
   const match = /^\/groups\/([^/]+)\/members$/.exec(pathname);
   if (!match) return null;
-  let groupId: number;
-  try { groupId = Number(decodeURIComponent(match[1]!)); }
+  let decodedId: string;
+  try { decodedId = decodeURIComponent(match[1]!); }
   catch { return null; }
+  if (!/^[1-9]\d*$/.test(decodedId)) return null;
+  const groupId = Number(decodedId);
   return Number.isSafeInteger(groupId) && groupId > 0 && groupId <= 2147483647
     ? { kind: 'members', groupId, expectedMembers: body === null ? null : positiveCount(body.count) } : null;
 }
