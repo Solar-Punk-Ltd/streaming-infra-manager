@@ -139,6 +139,24 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.ok(!(await ports.listByProfile('a')).some(row => row.port === p.port));
   });
 
+  for (const temporarilyBound of [false, true]) {
+    it(`retires owners across separate service replacements with a ${temporarilyBound ? 'bound' : 'free'} old port`, async () => {
+      await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+      const p = entries[0]!;
+      await ports.plan('daemon', 'a', [{ ...p, service: 'srs' }], 'second owner');
+      const next = [{ ...p, port: 20010, service: 'srs' }, { ...p, port: 30010 }];
+      await ports.plan('daemon', 'a', next, 'new table');
+      await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: ['srs'], planned: next, bound: [] });
+      assert.deepEqual((await ports.listByProfile('a')).find(row => row.port === p.port)?.heldServices, ['stream-uploader']);
+      await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: ['stream-uploader'], planned: next, bound: temporarilyBound ? [p] : [] });
+      if (temporarilyBound) {
+        assert.deepEqual((await ports.listByProfile('a')).find(row => row.port === p.port)?.heldServices, []);
+        await ports.reconcile({ profileName: 'a', daemonId: 'daemon', services: [], planned: next, bound: [] });
+      }
+      assert.ok(!(await ports.listByProfile('a')).some(row => row.port === p.port));
+    });
+  }
+
   it('deletes the profile and its reservations together after removal and resolves its build references', async () => {
     await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
     await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES (1, 'old', 'job', 'a', '{srs}')");
