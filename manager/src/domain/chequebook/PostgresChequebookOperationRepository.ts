@@ -89,7 +89,8 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
         return { kind: sameTransferIntent(operation, candidate) ? 'replayed' : 'conflict', operation };
       }
       await client.query('SELECT pg_advisory_xact_lock(29002, hashtext($1))', [`${candidate.chainId}:${candidate.nodeAddress}`]);
-      const open = await client.query<OperationRow>("SELECT * FROM chequebook_operations WHERE chain_id = $1 AND node_address = $2 AND state IN ('submitting', 'submitted', 'unknown')", [candidate.chainId, candidate.nodeAddress]);
+      const open = await client.query<OperationRow>(`SELECT * FROM chequebook_operations WHERE chain_id = $1 AND node_address = $2
+        AND (state IN ('submitting', 'submitted', 'unknown') OR failure_reason = 'hash_conflict')`, [candidate.chainId, candidate.nodeAddress]);
       if (open.rows[0]) {
         await client.query('COMMIT');
         return { kind: 'busy', operation: operationFrom(open.rows[0]) };

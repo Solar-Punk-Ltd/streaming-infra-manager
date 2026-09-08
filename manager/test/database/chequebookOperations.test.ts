@@ -366,9 +366,9 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
   it('keeps a historical conflicting owner in candidate attribution despite its different saved hash', async () => {
     const a = await assertedOperation();
     await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    const b = await unknownOperation();
     const differentHash = `0x${'94'.repeat(32)}`;
     await repository.recordSubmission(a.id, { state: 'submitted', transactionHash: differentHash, failureReason: null });
-    const b = await unknownOperation();
     const recovered = await repository.resolveCandidate(b, recoveryTransaction({ hash: differentHash }));
     assert.equal(recovered.transactionHash, null);
     assert.equal(recovered.recoveryObservation?.kind, 'ambiguous');

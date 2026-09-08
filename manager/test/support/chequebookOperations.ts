@@ -67,7 +67,8 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
       const same = original.profileName === candidate.profileName && original.profileInstanceId === candidate.profileInstanceId && original.requestedBy === candidate.requestedBy && original.amountPlur === candidate.amountPlur && original.direction === candidate.direction;
       return { kind: same ? 'replayed' as const : 'conflict' as const, operation: structuredClone(original) };
     }
-    const open = [...this.rows.values()].find(row => row.chainId === candidate.chainId && row.nodeAddress.toLowerCase() === candidate.nodeAddress.toLowerCase() && ['submitting', 'submitted', 'unknown'].includes(row.state));
+    const open = [...this.rows.values()].find(row => row.chainId === candidate.chainId && row.nodeAddress.toLowerCase() === candidate.nodeAddress.toLowerCase() &&
+      (['submitting', 'submitted', 'unknown'].includes(row.state) || row.failureReason === 'hash_conflict'));
     if (open) return { kind: 'busy' as const, operation: structuredClone(open) };
     const now = new Date().toISOString();
     const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
