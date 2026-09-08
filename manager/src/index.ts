@@ -33,6 +33,15 @@ import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js'
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
+import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
+import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
+import { FirewallInventoryExporter } from './domain/ports/FirewallInventoryExporter.js';
+import { PostgresFirewallStateSource } from './domain/ports/PostgresFirewallStateSource.js';
+import { ImmutableFirewallContractReader } from './domain/ports/ImmutableFirewallContractReader.js';
+import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
+import { TargetDocker } from './domain/ports/TargetDocker.js';
+import { PortInventory } from './domain/ports/PortInventory.js';
+import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
@@ -232,6 +241,28 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  // The project guard and the daemon lock: every deploy attempt holds its
+  // project until its containers prove it over, and shared-tag builds wait
+  // for each other on the daemon.
+  const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
+  const portReservations = new PostgresPortReservationRepository(database.pool);
+  const targetDocker = new TargetDocker(containerControl);
+  const deployTargets = new VerifiedDeployTargets(
+    new PostgresDeployTargetRepository(database.pool),
+    targetDocker,
+  );
+  try {
+    await deployTargets.verify('localhost');
+  } catch {
+    logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
+  }
+  const portInventory = new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker);
+  const firewallInventory = new FirewallInventoryExporter(new PostgresFirewallStateSource(database.pool), targetDocker, new ImmutableFirewallContractReader());
+  try {
+    await portInventory.seed();
+  } catch (err) {
+    logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
+  }
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -240,8 +271,22 @@ async function main(): Promise<void> {
     deploymentGroupRepository,
     stackVersionRepository,
     buildLedger,
+    deployAttempts,
+    targetDocker,
     new UploaderStartGate(stampService, chequebookService),
+    deployTargets,
+    portReservations,
+    targetDocker,
+    portInventory,
   );
+  try {
+    const judged = await orchestrator.reconcileAttempts();
+    if (judged.released.length > 0 || judged.blocked.length > 0) {
+      logger.info(`[Boot] deploy attempts judged: released ${judged.released.join(', ') || 'none'}, blocked ${judged.blocked.join(', ') || 'none'}`);
+    }
+  } catch (err) {
+    logger.warn(`[Boot] the deploy attempts were not judged: ${getErrorMessage(err)}. They stay as they are.`);
+  }
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -249,8 +294,10 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    portInventory,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
+    portReservations,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
@@ -281,6 +328,11 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       stackVersionService,
+      orchestrator,
+      deployTargets,
+      portInventory,
+      firewallInventory,
+      portReservations,
       eventBus,
       metricsCollector,
     },

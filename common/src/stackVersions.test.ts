@@ -11,7 +11,9 @@ import { describe, it } from 'node:test';
 
 import {
   describeStackContract,
+  MANAGER_SLOT_CAP,
   parseStackContract,
+  slotCapFor,
   stackRefProblem,
   stackVersionNameProblem,
   versionNameFromRef,
@@ -23,15 +25,18 @@ const V3_CONTRACT: StackContract = {
     name: `PORT_${index}`,
     defaultPort: 3000 + index,
     slotBase: 10000 + index,
+    protocol: index === 1 ? ('udp' as const) : ('tcp' as const),
+    service: index === 1 ? 'srs' : null,
   })),
   maxSlot: 99,
   requiredSecrets: ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'],
   engineDefaults: { HLS_FRAGMENT: '0.5' },
-  features: { srsApiPort: true, chequebookGate: true },
+  features: { srsApiPort: true, chequebookGate: true, sharedImageTags: true },
   chequebookMinBzz: '0.5',
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 const V2_CONTRACT: StackContract = {
@@ -39,15 +44,18 @@ const V2_CONTRACT: StackContract = {
     name: `PORT_${index}`,
     defaultPort: 10000 + index,
     slotBase: 10000 + index,
+    protocol: 'tcp' as const,
+    service: null,
   })),
   maxSlot: 999,
   requiredSecrets: [],
   engineDefaults: { HLS_FRAGMENT: '1.5' },
-  features: { srsApiPort: false, chequebookGate: false },
+  features: { srsApiPort: false, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
   warnings: [],
+  allocationProblem: null,
 };
 
 describe('stackRefProblem', () => {
@@ -146,7 +154,7 @@ describe('describeStackContract', () => {
         ...V2_CONTRACT,
         warnings: ['_lib.sh line 12 is not a port entry: SRS_SRT_PORT'],
       }),
-      '9 ports, slots 1 to 999, no generated secrets, 1 port line not understood',
+      '9 ports, slots 1 to 999, no generated secrets, 1 line not understood',
     );
   });
 
@@ -177,5 +185,37 @@ describe('parseStackContract', () => {
       }),
       null,
     );
+  });
+
+  it('reads a port stored without a protocol as tcp, and a contract stored without an allocation problem as having none', () => {
+    const stored = JSON.parse(JSON.stringify(V3_CONTRACT)) as Record<string, unknown>;
+    stored.ports = (stored.ports as Record<string, unknown>[]).map(({ protocol: _protocol, service: _service, ...rest }) => rest);
+    delete stored.allocationProblem;
+
+    const parsed = parseStackContract(stored);
+
+    assert.ok(parsed);
+    assert.ok(parsed.ports.every((port) => port.protocol === 'tcp'));
+    assert.ok(parsed.ports.every((port) => port.service === null), 'a port stored without a service is unmapped');
+    assert.equal(parsed.allocationProblem, null);
+  });
+
+  it('keeps udp, and reads any other protocol word as tcp', () => {
+    const stored = JSON.parse(JSON.stringify(V3_CONTRACT)) as { ports: Record<string, unknown>[] };
+    stored.ports[0]!.protocol = 'sctp';
+
+    const parsed = parseStackContract(stored);
+
+    assert.equal(parsed?.ports[0]?.protocol, 'tcp');
+    assert.equal(parsed?.ports[1]?.protocol, 'udp');
+  });
+});
+
+describe('slotCapFor', () => {
+  it('is the lower of the version maximum and the manager cap of 100, counting every stored record', () => {
+    assert.equal(MANAGER_SLOT_CAP, 100);
+    assert.equal(slotCapFor({ ...V2_CONTRACT, maxSlot: 999 }), 100);
+    assert.equal(slotCapFor({ ...V3_CONTRACT, maxSlot: 99 }), 99);
+    assert.equal(slotCapFor(null), 100);
   });
 });

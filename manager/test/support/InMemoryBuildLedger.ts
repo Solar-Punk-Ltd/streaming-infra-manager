@@ -1,3 +1,4 @@
+import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -46,6 +47,11 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versions: Pick<StackVersionRepository, 'findByName'>,
     private readonly versionsRoot: string,
   ) {}
+
+  async cancelUnstarted(profileName: string, referenceId: number): Promise<void> {
+    const reference = this.references.find(row => row.id === referenceId && row.holderKind === 'job' && row.holderId === profileName);
+    if (reference && reference.resolvedAt === null) reference.resolvedAt = new Date(++this.clock);
+  }
 
   async claim(
     profileName: string,
@@ -137,6 +143,7 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
    * `<name>.repo` all belong to `<name>`, and a root elsewhere to no version.
    */
   private async versionOfRoot(root: string): Promise<number | null> {
+    if (root === stackRootOf({ rootPath: null })) return (await this.versions.findByName(BUNDLED_VERSION_NAME))?.id ?? null;
     if (!root.startsWith(`${this.versionsRoot}/`)) return null;
     const first = root.slice(this.versionsRoot.length + 1).split('/')[0] ?? '';
     const name = first.replace(/\.(builds|repo)$/, '');

@@ -11,6 +11,7 @@
  * mount, which is what resolves the job's reference.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,8 +24,7 @@ import {
   BUILD_COMPLETE_MARKER,
   BUILD_MANIFEST_FILE,
 } from '../../src/domain/versions/buildManifest.js';
-import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
-import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
+import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 
 const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
 process.env.SHLS_ROOT = join(root, 'bundled');
@@ -32,19 +32,22 @@ process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'bundled'), { recursive: true });
 writeFileSync(join(root, 'bundled', '.env'), 'ENGINE=srs\n');
 
+const { buildDirFor } = await import('../../src/domain/versions/stackPaths.js');
+const { BUNDLED_STACK_ROOT } = await import('../../src/utils/envUtils.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
 const CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const COMMIT_A = 'a'.repeat(40);
@@ -166,21 +169,54 @@ describe('a deployment on the bundled version', () => {
     assert.deepEqual(job.map((r) => [r.versionId, r.buildId]), [[1, 'bundled'], [1, COMMIT_B]]);
   });
 
-  it('falls back to the bundled version, with a reference on it, when the deployment names a version that is gone', async () => {
+  it('refuses a missing version without taking a bundled reference or starting a script', async () => {
     const { harness } = await setup(null);
     harness.profiles.write('stage', { stack_version_id: 99 });
     const row = () => harness.profiles.rows.get('stage')!;
 
-    await harness.orchestrator.startDeploy(row(), undefined);
-    harness.runner.finish(0);
-    await untilRunning(harness.profiles, 'stage');
-
-    assert.equal(harness.runner.runs[0]?.options.cwd, BUNDLED_STACK_ROOT);
-    assert.deepEqual(harness.ledger.references.filter((r) => r.holderKind === 'job').map((r) => r.versionId), [1]);
+    await assert.rejects(harness.orchestrator.startDeploy(row(), undefined), /Stack version 99 no longer exists/);
+    assert.equal(harness.runner.runs.length, 0);
+    assert.deepEqual(harness.ledger.references, []);
   });
 });
 
 describe('what the success hook records', () => {
+  it('resolves a bundled legacy job after observing its own checkout root', async () => {
+    const h = orchestratorHarness([makeProfile({ name: 'bundled-stage', components: ['srs'] })]);
+    h.ledger.mounted.set('bundled-stage/srs', process.env.SHLS_ROOT!);
+    await h.orchestrator.startDeploy(h.profiles.rows.get('bundled-stage')!, ['srs']);
+    h.runner.finish(0);
+    await untilRunning(h.profiles, 'bundled-stage');
+    assert.deepEqual(h.ledger.openJobReferences('bundled-stage'), []);
+    assert.ok(h.ledger.references.some(reference => reference.holderId === 'bundled-stage/srs' && reference.versionId === 1));
+  });
+
+  it('hands over engine ports after the captured build is observed and preserves untouched uploader ports', async () => {
+    const { harness, row, versionsRoot, v3 } = await setup();
+    const old = portPlanFor(CONTRACT.ports, row().port_slot);
+    await harness.profiles.reservations.plan(harness.daemon.id, 'stage', old, 'original');
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) {
+      harness.ledger.mounted.set(`stage/${service}`, buildDirFor(versionsRoot, 'v3', COMMIT_A));
+    }
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    const next = { ...CONTRACT, ports: CONTRACT.ports.map(port => port.service === 'srs'
+      ? { ...port, slotBase: port.slotBase + 3000 } : port) };
+    buildOnDisk(versionsRoot, COMMIT_B);
+    await harness.versions.publish(v3.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: next });
+    harness.ledger.mounted.set('stage/srs', buildDirFor(versionsRoot, 'v3', COMMIT_B));
+    harness.published.bindings = portPlanFor(next.ports, row().port_slot).map(port => ({ ...port, project: 'stage' }));
+    await harness.orchestrator.startDeploy(row(), ['srs']);
+    harness.runner.finish(1);
+    await untilRunning(harness.profiles, 'stage');
+    const held = await harness.profiles.reservations.listByProfile('stage');
+    for (const port of old) {
+      assert.equal(held.some(row => row.port === port.port && row.protocol === port.protocol), port.service !== 'srs');
+    }
+    assert.ok(held.some(port => port.service === 'srs' && port.state === 'active'));
+  });
+
   it('observes what each service mounts, and resolves the job reference the observation covers', async () => {
     const { harness, row, versionsRoot } = await setup();
     const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);

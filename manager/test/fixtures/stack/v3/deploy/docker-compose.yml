@@ -1,18 +1,80 @@
-# Cut from deploy/docker-compose.yml: the two engine services and the image each
-# runs, which the contract reader takes for the config check. Everything else
-# the real file carries is left out.
+# Cut from deploy/docker-compose.yml on main-v3: the image each service runs,
+# which the contract reader takes for the config check, and every port
+# mapping the branch publishes, which the reader takes for each port's
+# protocol. Everything else the real file carries is left out.
 
 services:
+  bee-uploader:
+    image: ethersphere/bee:2.8.2
+    profiles: ['bee-uploader']
+    ports:
+      # The API is an unauthenticated write surface — postage spend, chunk upload, feed writes —
+      # so on any host with a public address it must be bound to one interface and firewalled.
+      - '${BEE_UPLOADER_API_BIND:-0.0.0.0}:${BEE_UPLOADER_API_PORT:-1633}:${BEE_UPLOADER_API_PORT:-1633}'
+      - '${BEE_UPLOADER_P2P_PORT:-1634}:${BEE_UPLOADER_P2P_PORT:-1634}'
+
+  bee-uploader-480p:
+    image: ethersphere/bee:2.8.2
+    profiles: ['bee-uploader-480p']
+    ports:
+      - '${BEE_RUNG_480P_API_BIND:-0.0.0.0}:${BEE_RUNG_480P_API_PORT:-11001}:${BEE_RUNG_480P_API_PORT:-11001}'
+      - '${BEE_RUNG_480P_P2P_PORT:-11002}:${BEE_RUNG_480P_P2P_PORT:-11002}'
+
+  bee-uploader-720p:
+    image: ethersphere/bee:2.8.2
+    profiles: ['bee-uploader-720p']
+    ports:
+      - '${BEE_RUNG_720P_API_BIND:-0.0.0.0}:${BEE_RUNG_720P_API_PORT:-11003}:${BEE_RUNG_720P_API_PORT:-11003}'
+      - '${BEE_RUNG_720P_P2P_PORT:-11004}:${BEE_RUNG_720P_P2P_PORT:-11004}'
+
+  bee-uploader-1080p:
+    image: ethersphere/bee:2.8.2
+    profiles: ['bee-uploader-1080p']
+    ports:
+      - '${BEE_RUNG_1080P_API_BIND:-0.0.0.0}:${BEE_RUNG_1080P_API_PORT:-11005}:${BEE_RUNG_1080P_API_PORT:-11005}'
+      - '${BEE_RUNG_1080P_P2P_PORT:-11006}:${BEE_RUNG_1080P_P2P_PORT:-11006}'
+
+  bee-gateway:
+    image: ethersphere/bee:2.8.2
+    profiles: ['bee-gateway']
+    ports:
+      # Read-only in practice, but it can still spend nothing and serve anything: bind it to the
+      # interface the client proxies from rather than to every address the host answers on.
+      - '${BEE_GATEWAY_API_BIND:-0.0.0.0}:${BEE_GATEWAY_API_PORT:-1733}:${BEE_GATEWAY_API_PORT:-1733}'
+      - '${BEE_GATEWAY_P2P_PORT:-1734}:${BEE_GATEWAY_P2P_PORT:-1734}'
+
   stream-uploader:
     image: stream-uploader
     build:
       context: ..
       dockerfile: deploy/Dockerfile.uploader
+    profiles: ['stream-uploader']
+    ports:
+      - '${API_PORT:-3000}:${API_PORT:-3000}'
+
+  client:
+    image: stream-client
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.client
+    profiles: ['client']
+    ports:
+      - '${CLIENT_PORT:-5173}:80'
 
   srs:
     image: ossrs/srs:6
     profiles: ['srs']
+    # Same port on both sides, because the entrypoint now binds SRS to these values rather than to
+    # the fixed ones its config used to carry.
+    ports:
+      - '${SRS_SRT_PORT:-10080}:${SRS_SRT_PORT:-10080}/udp'
+      - '${SRS_RTMP_PORT:-1935}:${SRS_RTMP_PORT:-1935}'
+      - '${SRS_HTTP_PORT:-8080}:${SRS_HTTP_PORT:-8080}'
+      - '${SRS_HTTP_API_PORT:-1985}:${SRS_HTTP_API_PORT:-1985}'
 
   ome:
     image: airensoft/ovenmediaengine:latest
     profiles: ['ome']
+    ports:
+      - '${OME_SRT_PORT:-10080}:${OME_SRT_PORT:-10080}/udp'
+      - '${OME_HLS_PORT:-8081}:${OME_HLS_PORT:-8081}'
