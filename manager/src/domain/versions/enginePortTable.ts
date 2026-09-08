@@ -8,7 +8,7 @@ export function portTableForEngine(contract: Pick<StackContract, 'ports' | 'port
   for (const [name, sourceName] of Object.entries(OME_PORT_SOURCES)) {
     const source = contract.ports.find(port => port.name === sourceName);
     const alias = contract.portAliases?.find(port => port.name === name);
-    if (!source || !alias || alias.service !== 'ome' || alias.protocol !== source.protocol
+    if (!source || source.service !== 'srs' || !alias || alias.service !== 'ome' || alias.protocol !== source.protocol
       || alias.slotBase !== source.slotBase || alias.defaultPort !== source.defaultPort) {
       throw new InvalidStackVersionError(`OME alias ${name} has no compatible Compose port mapping. Rebuild the version to refresh its contract.`);
     }
