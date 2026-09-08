@@ -333,6 +333,33 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.deepEqual((await repository.findById(second.id))?.recoveryObservation?.candidateHashes, candidateHashes);
   });
 
+  it('retains an overflowing direct response and invalidates both conflicting owners at the candidate cap', async () => {
+    const a = await unknownOperation();
+    const candidateHashes = Array.from({ length: 256 }, (_, i) => `0x${(i + 1).toString(16).padStart(64, '0')}`);
+    const observed = await repository.recordRecovery(a, { kind: 'searching', candidateHashes,
+      scan: { headBlockNumber: '505', headBlockHash: `0x${'a1'.repeat(32)}`, nextBlockNumber: '503', nextBlockHash: `0x${'a2'.repeat(32)}`, complete: false, candidateHashes } }, []);
+    const b = (await repository.admit(operationCandidate({ nodeAddress: `0x${'99'.repeat(20)}` }))).operation;
+    const owned = await repository.recordSubmission(b.id, { state: 'submitted', transactionHash, failureReason: null });
+    const conflicted = await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(conflicted.failureReason, 'hash_conflict');
+    assert.equal(conflicted.revision, String(BigInt(observed.revision) + 1n));
+    assert.deepEqual(conflicted.recoveryObservation?.candidateHashes, candidateHashes);
+    assert.equal(conflicted.recoveryObservation?.kind, 'could_not_check');
+    if (conflicted.recoveryObservation?.kind === 'could_not_check') assert.equal(conflicted.recoveryObservation.additionalEvidenceInResponseJournal, true);
+    assert.deepEqual((await repository.findById(a.id))?.recoveryObservation, conflicted.recoveryObservation);
+    const evidence = await repository.listSubmissionResponses(a.id);
+    assert.equal(evidence.length, 1);
+    assert.equal(evidence[0]?.transactionHash, transactionHash);
+    assert.equal(evidence[0]?.ownership, 'conflict');
+    const owner = await repository.findById(b.id);
+    assert.ok(owner);
+    assert.equal(owner.failureReason, 'hash_conflict');
+    assert.equal(owner.revision, String(BigInt(owned.revision) + 1n));
+    assert.deepEqual(await repository.recordReceipt(owned, confirmed), owner);
+    assert.deepEqual(await repository.recordReceipt(owner, confirmed), owner);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
