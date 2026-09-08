@@ -255,6 +255,22 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
+  /**
+   * An operator acted on the deployment: stop, start, edit, remove. Every
+   * conditional write of a config rollout names the intent it started under,
+   * so this ends an older rollout durably, a manager restart included.
+   */
+  async bumpIntent(name: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET intent_revision = intent_revision + 1, updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
   async transitionStatus(
     name: string,
     next: ProfileStatus,

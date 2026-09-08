@@ -28,10 +28,16 @@ const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
   'ERROR',
 ];
 
-function finishedHandle(): RunHandle {
+function finishedHandle(code = 0): RunHandle {
   const emitter = new EventEmitter();
-  setImmediate(() => emitter.emit('done', { code: 0 }));
+  setImmediate(() => emitter.emit('done', { code }));
   return { emitter, kill: () => undefined };
+}
+
+/** What a caller asks to run once the deploy it started has settled. */
+export interface DeployHooks {
+  afterRunning?: () => Promise<void>;
+  afterFailure?: (message: string) => Promise<void>;
 }
 
 export interface RecordedDeploy {
@@ -54,6 +60,9 @@ export class FakeOrchestrator {
 
   /** Profiles whose deploy fails once the claim is held. */
   readonly failingDeploys = new Set<string>();
+
+  /** The exit code the next deploy script of a profile ends with. Zero when absent. */
+  readonly exitCodes = new Map<string, number>();
 
   constructor(private readonly profiles: InMemoryProfiles) {}
 
@@ -89,6 +98,11 @@ export class FakeOrchestrator {
     };
   }
 
+  /** The rollout's claim, which the fake does not tell from the operator's. */
+  async reserveForRollout(profile: Profile, engine: string): Promise<DeployReservation> {
+    return this.reserveDeploy(profile, [engine]);
+  }
+
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     this.cancelled.push(reservation.profileName);
     if (reservation.transitioned) {
@@ -102,6 +116,7 @@ export class FakeOrchestrator {
   async runReserved(
     reservation: DeployReservation,
     profile: Profile,
+    hooks: DeployHooks = {},
   ): Promise<RunHandle> {
     this.deploys.push({
       profileName: profile.name,
@@ -112,7 +127,24 @@ export class FakeOrchestrator {
       await this.profiles.markError(profile.name, message);
       throw new Error(message);
     }
-    return finishedHandle();
+    const code = this.exitCodes.get(profile.name) ?? 0;
+    this.exitCodes.delete(profile.name);
+    const handle = finishedHandle(code);
+    // The real success hook marks RUNNING and only then runs what was asked
+    // to run after it, and a failed script marks ERROR with its reason.
+    handle.emitter.once('done', () => {
+      void (async () => {
+        if (code === 0) {
+          await this.profiles.markTerminal(profile.name, 'RUNNING');
+          await hooks.afterRunning?.();
+        } else {
+          const message = `deploy.sh exited with code ${code}`;
+          await this.profiles.markError(profile.name, message);
+          await hooks.afterFailure?.(message);
+        }
+      })();
+    });
+    return handle;
   }
 
   async startDeploy(

@@ -6,7 +6,7 @@
  * and so no file here outgrows what is comfortable to read. Every key, address
  * and batch id is generated at startup: nothing 64-hex is committed here.
  */
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
 
@@ -143,6 +143,10 @@ export function makeProfile(input) {
     engine_settings: input.engine_settings ?? {},
     has_engine_config: false,
     engine_config_error: null,
+    engine_config_state: null,
+    instance_id: randomUUID(),
+    engine_config_revision: 0,
+    intent_revision: 0,
     status: input.status ?? 'RUNNING',
     last_error: input.last_error ?? null,
     last_error_at: input.last_error_at ?? null,

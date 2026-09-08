@@ -18,7 +18,11 @@ import CloseIcon from '@mui/icons-material/Close';
 
 import {
   type EngineConfigView,
+  type EngineName,
   getErrorMessage,
+  OME_SERVICE,
+  rolloutNotice,
+  SRS_SERVICE,
   unknownPlaceholders,
 } from '@streaming-infra-manager/common';
 
@@ -39,8 +43,18 @@ const RESET_LABEL = 'Back to the template';
 const WHAT_THIS_IS =
   'Everything the engine can do is in this file. Keep the placeholder tokens where you want the stack to fill them in at start: the passphrase, the ports, the webhook token and the values from the Settings drawer all arrive that way and never have to be written here.';
 
-const WHAT_APPLYING_DOES =
-  'Applying runs the file through the engine\'s own parser first, then recreates the engine container on it and watches it for twenty seconds. If it will not stay up, the previous file comes back on its own. A live publisher is disconnected for a few seconds either way.';
+/**
+ * What applying does, per engine, because the two are checked differently:
+ * SRS reads the file with its own parser before anything changes, and
+ * OvenMediaEngine has no parser to ask, so it gets the manager's check first
+ * and the checks after the recreate second.
+ */
+const WHAT_APPLYING_DOES: Record<EngineName, string> = {
+  [SRS_SERVICE]:
+    'Applying runs the file through SRS\'s own parser first, in a throwaway container, so a file it refuses changes nothing. Then the engine is recreated on it and watched for twenty seconds, and if it will not stay up the previous file comes back on its own, which is a recovery attempt and not a promise. A publisher, if one is live, is disconnected for a few seconds either way.',
+  [OME_SERVICE]:
+    'OvenMediaEngine has no parser to ask, so applying checks the file here first: it must be well formed XML and keep what the stack\'s uploader depends on from this version\'s template. Then the engine is recreated on it, watched for twenty seconds, and its HLS port is tried once the watch is over. If the engine will not stay up the previous file comes back on its own, which is a recovery attempt and not a promise, and a port that does not answer is reported as a note, not a failure. A publisher, if one is live, is disconnected for a few seconds either way.',
+};
 
 function resetConfirm(name: string, onConfirm: () => void): ConfirmRequest {
   return {
@@ -74,7 +88,12 @@ export function EngineConfigDialog({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { mergeProfiles } = useDeployments();
+  const { mergeProfiles, profiles } = useDeployments();
+  // The view is read once, when the dialog opens, and holds the file. The
+  // rollout moves while the dialog is open, so its state and reason come from
+  // the live row the event stream keeps current, the view only until the row
+  // is known.
+  const live = profiles?.find((profile) => profile.name === name) ?? null;
   const [view, setView] = useState<EngineConfigView | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -135,6 +154,14 @@ export function EngineConfigDialog({
   };
 
   const engineName = view ? ENGINE_LABEL[view.engine] : 'engine';
+  const rollout = live
+    ? { state: live.engine_config_state, hasConfig: live.has_engine_config, reason: live.engine_config_error }
+    : view
+      ? { state: view.state, hasConfig: view.config !== null, reason: view.error }
+      : null;
+  const notice = rollout && view
+    ? rolloutNotice(rollout.state, { engine: engineName, hasConfig: rollout.hasConfig }, rollout.reason)
+    : null;
 
   return (
     <Dialog open maxWidth="lg" fullWidth onClose={close}>
@@ -160,14 +187,16 @@ export function EngineConfigDialog({
             {!view.supported && (
               <Alert severity="info">{view.unsupportedReason}</Alert>
             )}
-            {view.error && (
-              <Alert severity="warning">
+            {notice && (
+              <Alert severity={notice.severity}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  The last file was reverted.
+                  {notice.title}
                 </Typography>
-                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                  {view.error}
-                </Box>
+                {notice.showsReason && rollout?.reason && (
+                  <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                    {rollout.reason}
+                  </Box>
+                )}
               </Alert>
             )}
             <Typography variant="body2" color="text.secondary">
@@ -202,7 +231,7 @@ export function EngineConfigDialog({
             )}
             {error && <Alert severity="error">{error}</Alert>}
             <Typography variant="caption" color="text.secondary">
-              {WHAT_APPLYING_DOES}{' '}
+              {WHAT_APPLYING_DOES[view.engine]}{' '}
               {view.references.map((reference) => (
                 <Link key={reference.url} href={reference.url} target="_blank" rel="noreferrer">
                   {reference.label}

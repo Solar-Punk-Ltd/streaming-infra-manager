@@ -5,6 +5,7 @@ import {
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
 import Docker from 'dockerode';
+import { connect } from 'node:net';
 
 import {
   COMPOSE_PROJECT_LABEL,
@@ -23,12 +24,33 @@ import {
   type StreamBounds,
 } from './dockerStream.js';
 import { EventBus } from './EventBus.js';
+import { LOCAL_PUBLISHED_HOST } from './localHost.js';
 import { Logger } from './Logger.js';
 
 const logger = Logger.getInstance();
 
 /** Seconds docker waits for the process to exit before it kills it. */
 const RESTART_TIMEOUT_SECONDS = 10;
+
+/** One attempt to open a TCP connection, and the pause before the next. */
+const PORT_ATTEMPT_MS = 2_000;
+const PORT_RETRY_MS = 500;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+function connects(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const done = (outcome: boolean) => {
+      socket.destroy();
+      resolve(outcome);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
 
 /**
  * How long after a restart the same container refuses another one.
@@ -202,6 +224,25 @@ export class ContainerControl {
    * answers is whether a container the deploy just created is still up, and
    * one that died is exactly the answer wanted.
    */
+  /**
+   * Whether a TCP connection to a port the deployment publishes opens within
+   * the budget, trying again until it does or the budget is spent. Liveness
+   * only: a port that answers says a process listens, nothing about what it
+   * will serve.
+   */
+  async reachable(port: number, budgetMs: number): Promise<boolean> {
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      if (await connects(LOCAL_PUBLISHED_HOST, port, Math.min(PORT_ATTEMPT_MS, left))) {
+        return true;
+      }
+      if (deadline - Date.now() <= PORT_RETRY_MS) return false;
+      await sleep(PORT_RETRY_MS);
+    }
+  }
+
   async inspect(profile: string, service: string): Promise<ContainerState | null> {
     const containers = await this.withinLimit(
       this.docker.listContainers({

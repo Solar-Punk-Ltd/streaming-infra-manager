@@ -29,6 +29,7 @@ import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
+import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
@@ -199,6 +200,11 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  // The rollouts of config files, which the orchestrator closes when an
+  // operator acts on the deployment and the config service acts through.
+  const engineConfigOperations = new PostgresEngineConfigOperationRepository(
+    database.pool,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -206,6 +212,7 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    engineConfigOperations,
     new UploaderStartGate(stampService, chequebookService),
   );
   const profileService = new ProfileService(
@@ -229,7 +236,12 @@ async function main(): Promise<void> {
     containerControl,
     new EngineConfigChecker(),
     eventBus,
+    engineConfigOperations,
   );
+  // After the orphan reset above, which is what an interrupted apply's row
+  // looks like by now, and before the API answers, so no card sees a rollout
+  // a gone manager left open as though it were still under way.
+  await engineConfigService.reconcileAtBoot();
 
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(

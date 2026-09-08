@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useState } from 'react';
 
 import {
   BEE_UPLOADER_SERVICE,
+  type EngineName,
   getErrorMessage,
   OME_SERVICE,
   SRS_SERVICE,
@@ -16,7 +17,12 @@ import {
   deployUploader,
   stopProfile,
 } from '../data';
-import { restartContainer as postRestart } from '../deployments/engineApi';
+import {
+  restartContainer as postRestart,
+  restorePreviousEngineConfig as postRestorePrevious,
+  verifyEngineConfig as postVerify,
+} from '../deployments/engineApi';
+import { ENGINE_LABEL } from '../deployments/engineText';
 import {
   isRunning,
   isTransitional,
@@ -34,6 +40,10 @@ export interface DeploymentActions {
   startUploader: (name: string) => void;
   /** Asks first, then bounces one container. Leaves the deployment's status alone. */
   restartContainer: (name: string, service: string) => void;
+  /** Asks first, then recreates the engine on the stored config file and watches it again. */
+  verifyEngineConfig: (name: string, engine: EngineName) => void;
+  /** Asks first, then puts the file an interrupted rollout replaced back. */
+  restorePreviousEngineConfig: (name: string, engine: EngineName) => void;
   requestRemove: (profile: Profile) => void;
   startGroup: (group: DeploymentGroup, members: Profile[]) => void;
   stopGroup: (group: DeploymentGroup, members: Profile[]) => void;
@@ -79,7 +89,7 @@ export function useActions(): DeploymentActions {
  * directory on the host, and the manager offers no way back.
  */
 export function useDeploymentActions(): DeploymentActions {
-  const { serverHost, reload } = useDeployments();
+  const { serverHost, reload, mergeProfiles } = useDeployments();
   const toast = useToast();
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
@@ -166,6 +176,41 @@ export function useDeploymentActions(): DeploymentActions {
     [runOne],
   );
 
+  const verifyEngineConfig = useCallback(
+    (name: string, engine: EngineName) => {
+      const label = ENGINE_LABEL[engine];
+      setConfirm({
+        title: `Verify the config file of ${name}?`,
+        body: `${label} is recreated on the stored config file and watched for twenty seconds. If it will not stay up, the previous file comes back on its own. A publisher, if one is live, is disconnected for a few seconds.`,
+        confirmLabel: 'Verify now',
+        // The answer is the row already applying, merged so the card says so
+        // before the event stream repeats it.
+        onConfirm: () =>
+          runOne(name, 'Verifying the config file of', async (profileName) => {
+            mergeProfiles([await postVerify(profileName)]);
+          }),
+      });
+    },
+    [mergeProfiles, runOne],
+  );
+
+  const restorePreviousEngineConfig = useCallback(
+    (name: string, engine: EngineName) => {
+      const label = ENGINE_LABEL[engine];
+      setConfirm({
+        title: `Back to the previous config file for ${name}?`,
+        body: `The file the interrupted rollout replaced is stored again and ${label} is recreated on it. The file that was being applied is no longer stored, so copy it first if you want to keep it. A publisher, if one is live, is disconnected for a few seconds.`,
+        confirmLabel: 'Back to the previous file',
+        danger: true,
+        onConfirm: () =>
+          runOne(name, 'Going back to the previous config file of', async (profileName) => {
+            mergeProfiles([await postRestorePrevious(profileName)]);
+          }),
+      });
+    },
+    [mergeProfiles, runOne],
+  );
+
   const requestRemove = useCallback(
     (profile: Profile) => {
       setConfirm({
@@ -239,6 +284,8 @@ export function useDeploymentActions(): DeploymentActions {
     stop,
     startUploader,
     restartContainer,
+    verifyEngineConfig,
+    restorePreviousEngineConfig,
     requestRemove,
     startGroup,
     stopGroup,

@@ -26,6 +26,10 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     kind: 'streamer',
     notes: null,
     components: null,
+    instance_id: 'instance-1',
+    engine_config_revision: 0,
+    intent_revision: 0,
+    engine_config_state: null,
     host: null,
     feed_owner: null,
     feed_topic: null,
@@ -210,7 +214,21 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
-  private write(name: string, patch: Partial<Profile>): Profile | null {
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    this.rows.delete(name);
+    return { port_slot: row.port_slot };
+  }
+
+  /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
+  async bumpIntent(name: string): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    return this.write(name, { intent_revision: row.intent_revision + 1 });
+  }
+
+  write(name: string, patch: Partial<Profile>): Profile | null {
     const row = this.rows.get(name);
     if (!row) return null;
     const next: Profile = { ...row, ...patch, updated_at: new Date() };

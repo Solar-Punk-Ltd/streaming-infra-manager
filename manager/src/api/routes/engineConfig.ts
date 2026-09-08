@@ -53,5 +53,25 @@ export function createEngineConfigRouter(
     }),
   );
 
+  // The two ways out of a rollout that did not finish. Both recreate the
+  // engine, as a rollout of their own, so they answer like an apply does.
+  router.post(
+    '/profiles/:name/engine-config/verify',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const profile = await engineConfig.verifyNow(req.params.name as string);
+      res.status(202).json(profile);
+    }),
+  );
+
+  router.post(
+    '/profiles/:name/engine-config/restore-previous',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const profile = await engineConfig.recreateOnPrevious(req.params.name as string);
+      res.status(202).json(profile);
+    }),
+  );
+
   return router;
 }
