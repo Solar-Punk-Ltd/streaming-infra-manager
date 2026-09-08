@@ -7,7 +7,7 @@ import { bundledArtifactMetadata } from '../../src/domain/versions/bundledArtifa
 import { sealBundledPackage } from '../../src/domain/versions/bundledShipmentPackage.js';
 import { commitHostConfig } from '../../src/domain/versions/hostConfigCapture.js';
 
-export async function bundledArtifactFixture(root: string, options: { commit?: string; shipmentId?: string; reservedFile?: string; input?: string } = {}) {
+export async function bundledArtifactFixture(root: string, options: { commit?: string; shipmentId?: string; reservedFile?: string; input?: string; advanceGeneration?: boolean } = {}) {
   const commit = options.commit ?? 'a'.repeat(40);
   const shipmentId = options.shipmentId ?? randomUUID();
   const source = join(root, `source-${shipmentId}`);
@@ -19,7 +19,12 @@ export async function bundledArtifactFixture(root: string, options: { commit?: s
   await writeFile(join(source, '.stack-commit'), commit + '\n');
   await mkdir(join(source, 'empty'));
   await symlink('deploy/scripts/deploy.sh', join(source, 'entry'));
-  const revision = await commitHostConfig(source, { '.env': Buffer.from(`ENGINE=${options.input ?? 'synthetic'}\n`), 'deploy/config.json': Buffer.from('{}\n') });
+  const inputs = { '.env': Buffer.from(`ENGINE=${options.input ?? 'synthetic'}\n`), 'deploy/config.json': Buffer.from('{}\n') };
+  let revision = await commitHostConfig(source, inputs);
+  if (options.advanceGeneration) {
+    await commitHostConfig(source, { '.env': Buffer.from('ENGINE=temporary\n') });
+    revision = await commitHostConfig(source, inputs);
+  }
   if (options.reservedFile) await writeFile(join(source, options.reservedFile), 'unexpected');
   const sealed = await sealBundledPackage(source, join(root, `sealed-${shipmentId}`), { shipmentId, commit, inputs: { generation: revision.generation, hashes: revision.files } });
   const manifest = { commit, buildId: commit, builtAt: '2026-09-09T00:00:00.000Z', toolchain: 'synthetic', inputGeneration: revision.generation, inputHashes: revision.files };
