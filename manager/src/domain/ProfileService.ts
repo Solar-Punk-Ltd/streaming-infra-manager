@@ -589,14 +589,14 @@ export class ProfileService {
 
   async remove(
     name: string,
-    input: { all?: boolean } = {},
+    input: { all?: boolean; expectedInstanceId?: string } = {},
   ): Promise<ProfileWithContainers> {
     const profile = await this.getByName(name);
     if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {
       throw new ProfileBusyError(name, profile.status);
     }
-    await this.orchestrator.startRemove(profile, input);
-    return { ...profile, status: 'REMOVING' };
+    const removal = await this.orchestrator.startRemove(profile, input);
+    return { ...removal.profile, containers: profile.containers, pendingStamp: profile.pendingStamp };
   }
 
   async listGroups(): Promise<DeploymentGroup[]> {

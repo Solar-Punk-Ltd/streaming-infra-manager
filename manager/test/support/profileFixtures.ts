@@ -10,6 +10,7 @@ import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
   NewProfilePlacement,
   ProfileRepository,
+  type ProfileRemovalClaim,
   ProfileWriteData,
 } from '../../src/domain/ProfileRepository.js';
 import {
@@ -183,6 +184,30 @@ export class InMemoryProfiles {
     this.reservations.dropProfile(name);
     this.onDeleted?.(name);
     return { port_slot: row.port_slot };
+  }
+
+  async claimRemoval(name: string, expectedInstanceId: string): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || row.instance_id !== expectedInstanceId || this.claimsRefused.has(name)
+      || !['RUNNING', 'STOPPED', 'ERROR'].includes(row.status)) return null;
+    return this.write(name, { status: 'REMOVING', intent_revision: row.intent_revision + 1, last_error: null, last_error_at: null });
+  }
+
+  private ownsRemoval(claim: ProfileRemovalClaim): boolean {
+    const row = this.rows.get(claim.name);
+    return !!row && row.instance_id === claim.instance_id && row.intent_revision === claim.intent_revision && row.status === 'REMOVING';
+  }
+
+  async failRemoval(claim: ProfileRemovalClaim, message: string): Promise<Profile | null> {
+    if (!this.ownsRemoval(claim)) return null;
+    return this.markError(claim.name, message);
+  }
+
+  async completeRemoval(claim: ProfileRemovalClaim, cleanFiles: () => Promise<void>): Promise<{ port_slot: number } | null> {
+    if (!this.ownsRemoval(claim)) return null;
+    if (await this.reservations.hasRemovalHold(claim.name)) throw new Error('An unresolved removal hold remains');
+    await cleanFiles();
+    return this.deleteByName(claim.name);
   }
 
   async markError(name: string, message: string): Promise<Profile | null> {

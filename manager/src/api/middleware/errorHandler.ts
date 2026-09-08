@@ -23,6 +23,7 @@ import {
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
@@ -155,6 +156,10 @@ export function errorHandler(
       name: err.profileName,
       status: err.currentStatus,
     });
+    return;
+  }
+  if (err instanceof ProfileInstanceChangedError) {
+    res.status(409).json({ error: 'profile_instance_changed', name: err.profileName, message: err.message });
     return;
   }
   if (err instanceof GroupExistsError) {

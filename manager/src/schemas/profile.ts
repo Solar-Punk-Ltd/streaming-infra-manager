@@ -242,6 +242,12 @@ export const updateProfileSchema = object({
 
 export type UpdateProfileInput = InferType<typeof updateProfileSchema>;
 
+export const removeProfileSchema = object({
+  expectedInstanceId: string().optional().uuid('expectedInstanceId must be a deployment instance UUID'),
+}).noUnknown(true).strict();
+
+export type RemoveProfileInput = InferType<typeof removeProfileSchema>;
+
 export const createGroupSchema = object({
   group_name: string()
     .required()

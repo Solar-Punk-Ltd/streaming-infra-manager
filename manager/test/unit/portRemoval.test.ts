@@ -25,8 +25,8 @@ describe('verified port release on removal', () => {
         holderId: 'rollback', services: ['srs'], createdAt: new Date(), resolvedAt: null });
       if (timing === 'before request') hold();
       else {
-        const transition = h.profiles.transitionStatus.bind(h.profiles);
-        h.profiles.transitionStatus = async (...args) => { const result = await transition(...args); hold(); return result; };
+        const claim = h.profiles.claimRemoval.bind(h.profiles);
+        h.profiles.claimRemoval = async (...args) => { const result = await claim(...args); hold(); return result; };
       }
       await assert.rejects(h.orchestrator.startRemove(h.row()), /rollback|hold/);
       assert.equal(h.runner.runs.length, 0);
