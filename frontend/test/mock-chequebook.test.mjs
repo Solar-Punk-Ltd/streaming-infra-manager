@@ -155,3 +155,85 @@ test('mock history rejects malformed pagination instead of silently returning an
   assert.deepEqual(empty, { operations: [], nextCursor: null });
   assert.equal(h.dispatched.length, 0);
 });
+
+const completeNoMatch = operation => ({ kind: 'no_match', candidateHashes: [], scan: { headBlockNumber: '510', headBlockHash: `0x${'88'.repeat(32)}`,
+  nextBlockNumber: operation.startBlockNumber, nextBlockHash: operation.startBlockHash, complete: true, candidateHashes: [] } });
+const action = (id, kind) => `/chequebook/operations/${id}/${kind}`;
+
+test('mock receipt checks are explicit and work after profile deletion without another transfer', async t => {
+  let inspected = 0;
+  const h = await fixture(t, { receiptFor: async () => { inspected++; return receipt; } });
+  const input = h.input();
+  const saved = await (await h.request(depositPath, input)).json();
+  h.remove();
+  assert.equal((await (await h.request(exact(input.requestId))).json()).operation.state, 'submitted');
+  assert.equal(inspected, 0);
+  const response = await h.request(action(saved.operation.id, 'check'), { expectedAccountId: 7 });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).operation.state, 'settled');
+  assert.equal(inspected, 1);
+  assert.equal(h.dispatched.length, 1);
+});
+
+test('mock recovery guards the current account and exact assertion revision with a server-derived actor', async t => {
+  let inspections = 0;
+  const h = await fixture(t, { responseFor: () => null, recoveryFor: async operation => { inspections++; return completeNoMatch(operation); } });
+  const saved = await (await h.request(depositPath, h.input())).json();
+  h.remove(); h.account(8);
+  const assertion = { expectedAccountId: 7, expectedRevision: saved.operation.revision, amountPlur: saved.operation.amountPlur, confirmation: saved.assertionConfirmation };
+  for (const [kind, input] of [['check', { expectedAccountId: 7 }], ['resolve', { expectedAccountId: 7, transactionHash: `0x${'aa'.repeat(32)}` }], ['assert', assertion]]) {
+    const response = await h.request(action(saved.operation.id, kind), input);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, 'account_changed');
+  }
+  assert.equal(inspections, 0);
+  assert.equal((await h.request(action(saved.operation.id, 'check'), { expectedAccountId: '8' })).status, 400);
+  assert.equal((await h.request(action(saved.operation.id, 'assert'), { ...assertion, expectedAccountId: 8, actor: 'user:99' })).status, 400);
+  assert.equal((await h.request(action(saved.operation.id, 'assert'), { ...assertion, expectedAccountId: 8 })).status, 409);
+  const checked = await (await h.request(action(saved.operation.id, 'check'), { expectedAccountId: 8 })).json();
+  assert.equal(checked.operation.recoveryObservation.kind, 'no_match');
+  assert.equal((await h.request(action(saved.operation.id, 'assert'), { ...assertion, expectedAccountId: 8 })).status, 409);
+  const accepted = await h.request(action(saved.operation.id, 'assert'), { ...assertion, expectedAccountId: 8, expectedRevision: checked.operation.revision });
+  assert.equal(accepted.status, 200);
+  const asserted = await accepted.json();
+  assert.equal(asserted.operation.state, 'asserted');
+  assert.equal(asserted.operation.assertion.actor, 'user:8');
+  assert.deepEqual(Object.keys(asserted.operation.assertion).sort(), ['actor', 'amountPlur', 'assertedAt', 'confirmation']);
+  assert.equal(h.dispatched.length, 1);
+});
+
+test('mock ambiguous retained candidates cannot become assertion eligibility when the next observation has no match', async t => {
+  const candidates = [`0x${'aa'.repeat(32)}`, `0x${'bb'.repeat(32)}`];
+  let next = () => ({ kind: 'ambiguous', candidateHashes: candidates });
+  const h = await fixture(t, { responseFor: () => null, recoveryFor: async operation => next(operation) });
+  const saved = await (await h.request(depositPath, h.input())).json();
+  const first = await (await h.request(action(saved.operation.id, 'resolve'), { expectedAccountId: 7, transactionHash: candidates[0] })).json();
+  assert.equal(first.operation.recoveryObservation.kind, 'ambiguous');
+  next = completeNoMatch;
+  const second = await (await h.request(action(saved.operation.id, 'check'), { expectedAccountId: 7 })).json();
+  assert.equal(second.operation.recoveryObservation.kind, 'could_not_check');
+  assert.equal(second.operation.recoveryObservation.reason, 'rpc_unavailable');
+  assert.deepEqual(second.operation.recoveryObservation.candidateHashes, candidates);
+  assert.equal((await h.request(action(saved.operation.id, 'assert'), { expectedAccountId: 7, expectedRevision: second.operation.revision,
+    amountPlur: second.operation.amountPlur, confirmation: second.assertionConfirmation })).status, 409);
+  assert.equal(h.dispatched.length, 1);
+});
+
+test('mock delayed recovery cannot replace evidence that arrived while its observation was pending', async t => {
+  let enter, release;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const held = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  const h = await fixture(t, { responseFor: () => null, recoveryFor: async operation => { enter(); await held; return completeNoMatch(operation); } });
+  const saved = await (await h.request(depositPath, h.input())).json();
+  const checking = h.request(action(saved.operation.id, 'check'), { expectedAccountId: 7 });
+  const early = await Promise.race([entered.then(() => 'entered'), checking.then(() => 'response')]);
+  assert.equal(early, 'entered', 'The authenticated check must invoke the synthetic recovery inspector');
+  h.journal.observeResponse(saved.operation.id, `0x${'aa'.repeat(32)}`);
+  release();
+  const result = await (await checking).json();
+  assert.equal(result.operation.state, 'submitted');
+  assert.equal(result.operation.transactionHash, `0x${'aa'.repeat(32)}`);
+  assert.equal(result.operation.recoveryObservation, null);
+  assert.equal(h.dispatched.length, 1);
+});
