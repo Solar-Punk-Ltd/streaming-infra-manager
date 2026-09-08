@@ -99,7 +99,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     if (outcome.state !== 'submitted') {
       const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
         SET state = $2, failure_reason = $3, updated_at = NOW(), revision = revision + 1
-        WHERE id = $1 AND state = 'submitting' RETURNING *`, [operationId(id), outcome.state, outcome.failureReason]);
+        WHERE id = $1 AND state = 'submitting' AND failure_reason IS DISTINCT FROM 'hash_conflict' RETURNING *`, [operationId(id), outcome.state, outcome.failureReason]);
       return updated.rows[0] ? operationFrom(updated.rows[0]) : this.required(id);
     }
     if (!isTransactionHash(outcome.transactionHash)) throw new ChequebookOperationInputError('response hash');
