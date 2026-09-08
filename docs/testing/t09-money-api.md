@@ -12,7 +12,7 @@ Admission copies this proof before its first wait. Exact request replay precedes
 
 This checkpoint proves SQL ownership only. The existing direct locator does not yet supply the proof, so new production PostgreSQL admissions fail closed at this intermediate branch state. Container-bound preparation, fresh daemon and full-container inspection on its private connection, and the exact-image bridge qualification are still required. No Docker inspection or network call runs inside these SQL transactions. A later immutable transport must keep an already-claimed send on the original container even if ownership changes after commit.
 
-The merged dependency baseline passed all 47 prior T09 SQL cases. The target checkpoint adds 30 cases for stale identity and alias verification, exact reservation ownership, both sides of ownership locks, attempt admission, caller mutation, historical NULL and lost dispatch acknowledgement. All evidence uses a dedicated synthetic PostgreSQL database, never a Bee or deployment.
+The merged dependency baseline passed all 47 prior T09 SQL cases. The target checkpoint adds 31 cases for stale identity and alias verification, exact reservation ownership, both sides of ownership locks, attempt admission, caller mutation, historical NULL, lost dispatch acknowledgement and a one-connection pool. Refusal reads use the same checked-out client after rollback so they cannot wait for their own connection to be released. All evidence uses a dedicated synthetic PostgreSQL database, never a Bee or deployment.
 
 ## Runtime trust and target selection
 

@@ -142,7 +142,11 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
       return { claimed: updated.rows.length === 1, operation: operationFrom(current) };
     } catch (error) {
       await client.query('ROLLBACK');
-      if (error instanceof ChequebookTargetChangedError || error instanceof ChequebookProfileChangedError) return { claimed: false, operation: await this.required(id) };
+      if (error instanceof ChequebookTargetChangedError || error instanceof ChequebookProfileChangedError) {
+        const current = await client.query<OperationRow>('SELECT * FROM chequebook_operations WHERE id=$1', [row.id]);
+        if (!current.rows[0]) throw new Error('The chequebook operation no longer exists.');
+        return { claimed: false, operation: operationFrom(current.rows[0]) };
+      }
       throw error;
     } finally { client.release(); }
   }
