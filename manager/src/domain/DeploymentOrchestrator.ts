@@ -122,6 +122,8 @@ interface JobConfig {
 
   beforeRun?: () => Promise<void>;
 
+  onLaunch?: () => void;
+
   onSuccess: (attempt: DeployAttempt | null) => Promise<void>;
 }
 
@@ -550,13 +552,23 @@ export class DeploymentOrchestrator {
     reservation: DeployReservation,
     profile: Profile,
   ): Promise<RunHandle> {
-    let daemonId: string;
+    let launchPossible = false;
     try {
-      daemonId = await this.reservePorts(profile, reservation);
+      return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; });
     } catch (err) {
-      if (reservation.build?.referenceId != null) await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
+      if (!launchPossible && reservation.build?.referenceId != null) {
+        await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
+      }
       throw err;
     }
+  }
+
+  private async prepareReservedJob(
+    reservation: DeployReservation,
+    profile: Profile,
+    onLaunch: () => void,
+  ): Promise<RunHandle> {
+    const daemonId = await this.reservePorts(profile, reservation);
     if (reservation.heldBackForStamp.length > 0) {
       logger.info(
         `[Orchestrator] ${profile.name}: holding back ${reservation.heldBackForStamp.join(', ')}, no usable stamp yet`,
@@ -610,6 +622,7 @@ export class DeploymentOrchestrator {
       profileName: profile.name,
       target: targetAlias(reservation.host ?? profile.host),
       reservedDaemonId: daemonId,
+      onLaunch,
       paths,
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
@@ -845,6 +858,7 @@ export class DeploymentOrchestrator {
       `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${describeArgsForLog(cfg.args)}`,
     );
 
+    cfg.onLaunch?.();
     const handle = this.runner.run(cfg.script, cfg.args, {
       cwd: cfg.paths.root,
       env: beeDataDirsFor(cfg.profileName),
