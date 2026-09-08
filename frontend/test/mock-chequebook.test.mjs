@@ -4,14 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   let profile = { name: 'synthetic-test', instance_id: randomUUID() };
   let account = { id: 7 };
   const node = { ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
     chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } };
   const dispatched = [];
   const journal = createMockChequebookJournal({ profileFor: () => profile, nodeFor: () => node, userFor: () => account,
-    onSubmitted(operation) { dispatched.push(operation); } });
+    onSubmitted(operation) { dispatched.push(operation); }, ...options });
   const server = createServer((req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     for (const [method, pattern, handler] of journal.routes) {
@@ -102,5 +102,18 @@ test('mock preflight refusal is recorded without a dispatch and a later explicit
   h.node.xdai = '1';
   assert.equal((await (await h.request(depositPath, input)).json()).operation.state, 'rejected');
   assert.equal((await (await h.request(depositPath, h.input())).json()).operation.state, 'submitted');
+  assert.equal(h.dispatched.length, 1);
+});
+
+test('mock lost Bee response stays unknown and exact replay never dispatches again', async t => {
+  const h = await fixture(t, { responseFor: () => null });
+  const input = h.input();
+  const unknown = await (await h.request(depositPath, input)).json();
+  assert.equal(unknown.operation.state, 'unknown');
+  assert.equal(unknown.operation.transactionHash, null);
+  assert.equal(unknown.operation.failureReason, 'response_unavailable');
+  assert.deepEqual(unknown.responseEvidence, []);
+  assert.equal((await (await h.request(exact(input.requestId))).json()).operation.id, unknown.operation.id);
+  assert.equal((await (await h.request(depositPath, input)).json()).kind, 'replayed');
   assert.equal(h.dispatched.length, 1);
 });
