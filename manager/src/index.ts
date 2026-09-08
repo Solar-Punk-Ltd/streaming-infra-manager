@@ -34,7 +34,9 @@ import { EngineConfigService } from './domain/engineConfig/EngineConfigService.j
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
-import { LocalOnlyTargets } from './domain/ports/DeployTargets.js';
+import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
+import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
+import { TargetDocker } from './domain/ports/TargetDocker.js';
 import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
@@ -233,6 +235,16 @@ async function main(): Promise<void> {
   // project until its containers prove it over, and shared-tag builds wait
   // for each other on the daemon.
   const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
+  const portReservations = new PostgresPortReservationRepository(database.pool);
+  const deployTargets = new VerifiedDeployTargets(
+    new PostgresDeployTargetRepository(database.pool),
+    new TargetDocker(containerControl),
+  );
+  try {
+    await deployTargets.verify('localhost');
+  } catch {
+    logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
+  }
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -260,10 +272,10 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
-    new LocalOnlyTargets(containerControl),
+    deployTargets,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
-    new PostgresPortReservationRepository(database.pool),
+    portReservations,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
@@ -295,6 +307,8 @@ async function main(): Promise<void> {
       engineConfigService,
       stackVersionService,
       orchestrator,
+      deployTargets,
+      portReservations,
       eventBus,
       metricsCollector,
     },
