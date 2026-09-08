@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 import type { StackContract } from '@streaming-infra-manager/common';
@@ -28,7 +29,7 @@ describe('build approval in isolated PostgreSQL schemas', { skip: !Number.isInte
     schema = `t08_${randomBytes(8).toString('hex')}`;
     admin = new pg.Pool(connection);
     await admin.query(`CREATE SCHEMA ${schema}`);
-    pool = new pg.Pool({ ...connection, options: `-c search_path=${schema}` });
+    pool = new pg.Pool({ ...connection, application_name: schema, options: `-c search_path=${schema}` });
     const migrations = new URL('../../src/migrations/', import.meta.url);
     for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(new URL(name, migrations), 'utf8'));
@@ -107,34 +108,47 @@ describe('build approval in isolated PostgreSQL schemas', { skip: !Number.isInte
     assert.equal((await repository.findById(id))?.tested, false);
   });
 
-  it('rejects a publish between the service read and the conditional write', async () => {
-    class PublishAfterRead extends PostgresStackVersionRepository {
-      once = true;
-      override async findById(versionId: number) {
-        const read = await super.findById(versionId);
-        if (this.once) {
-          this.once = false;
-          await pool.query('UPDATE stack_versions SET build_id = $2, tested = false WHERE id = $1', [versionId, REBUILD]);
+  for (const legacy of [false, true]) {
+    it(`rejects a ${legacy ? 'legacy migration' : 'same-commit publish'} between the service read and the conditional write`, async () => {
+      if (legacy) await pool.query("UPDATE stack_versions SET layout = 'legacy', build_id = NULL WHERE id = $1", [id]);
+      class PublishAfterRead extends PostgresStackVersionRepository {
+        once = true;
+        override async findById(versionId: number) {
+          const read = await super.findById(versionId);
+          if (this.once) {
+            this.once = false;
+            await repository.publish(versionId, { commitSha: COMMIT, buildId: REBUILD, contract: {} as StackContract });
+          }
+          return read;
         }
-        return read;
       }
-    }
-    const service = new StackVersionService(new PublishAfterRead(pool), new FakeScriptSpawner(), new EventBus(), scratchVersionsRoot(), { openReferences: async () => [] });
-    await assert.rejects(service.setTested(id, true, COMMIT, BUILD), /changed since this page loaded/);
-    assert.equal((await repository.findById(id))?.tested, false);
-  });
+      const service = new StackVersionService(new PublishAfterRead(pool), new FakeScriptSpawner(), new EventBus(), scratchVersionsRoot(), { openReferences: async () => [] });
+      await assert.rejects(service.setTested(id, true, COMMIT, legacy ? null : BUILD), /changed since this page loaded/);
+      assert.equal((await repository.findById(id))?.tested, false);
+    });
+  }
 
   it('rechecks a shown build after an already locked publisher commits', async () => {
     const publisher = await pool.connect();
+    let approval: ReturnType<PostgresStackVersionRepository['setTested']> | undefined;
     try {
       await publisher.query('BEGIN');
       await publisher.query('UPDATE stack_versions SET build_id = $2, tested = false WHERE id = $1', [id, REBUILD]);
-      const approval = repository.setTested(id, true, COMMIT, BUILD);
+      approval = repository.setTested(id, true, COMMIT, BUILD);
+      const until = Date.now() + 5000;
+      let waiting = false;
+      while (Date.now() < until && !waiting) {
+        const result = await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock' AND query LIKE '%SET tested = $2%'", [schema]);
+        waiting = result.rows.length > 0;
+        if (!waiting) await delay(10);
+      }
+      assert.equal(waiting, true, 'the approval actually waits behind the publisher row lock');
       await publisher.query('COMMIT');
       assert.equal(await approval, null);
       assert.equal((await repository.findById(id))?.tested, false);
     } finally {
       await publisher.query('ROLLBACK');
+      await approval;
       publisher.release();
     }
   });
