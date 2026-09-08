@@ -21,6 +21,7 @@ import { DeploymentGroup, Profile, ProfileStatus } from '../../src/types/index.j
 
 import { InMemoryStackVersionRepository } from './InMemoryStackVersionRepository.js';
 import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
+import { ALLOCATION_CONTRACT } from './allocationContract.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
 
@@ -311,7 +312,7 @@ export function profileServiceHarness(
   const orchestrator = new FakeOrchestrator(profiles);
   const events = new EventBus();
   const versions = new InMemoryStackVersionRepository();
-  versions.seedBundled();
+  versions.seedBundled().contract = ALLOCATION_CONTRACT;
 
   const service = new ProfileService(
     profiles.asRepository(),

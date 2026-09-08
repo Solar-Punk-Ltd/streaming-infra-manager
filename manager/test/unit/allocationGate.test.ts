@@ -20,15 +20,16 @@ const BAD_CONTRACT: StackContract = {
 
 describe('allocation admission', () => {
   for (const action of ['deployment', 'group', 'member'] as const) {
-    for (const obstacle of ['contract', 'inventory'] as const) {
+    for (const obstacle of ['contract', 'missing', 'empty', 'inventory'] as const) {
       it(`refuses a new ${action} before any write or deploy when the ${obstacle} is not ready`, async () => {
         const harness = profileServiceHarness();
         const group = action === 'member'
           ? (await harness.service.createGroup({ group_name: 'pool', size: 1, kind: 'viewer' })).group
           : null;
-        if (obstacle === 'contract') {
+        if (obstacle !== 'inventory') {
           const bundled = await harness.versions.findDefault();
-          await harness.versions.setContract(bundled!.id, BAD_CONTRACT);
+          bundled!.contract = obstacle === 'missing' ? null
+            : { ...BAD_CONTRACT, allocationProblem: obstacle === 'empty' ? null : BAD_CONTRACT.allocationProblem };
         } else {
           harness.profiles.reservations.seededAt = null;
         }
@@ -46,7 +47,9 @@ describe('allocation admission', () => {
 
         await assert.rejects(create, obstacle === 'contract'
           ? /deploy\/docker-compose\.yml line 6: cannot read the published port/
-          : /reservation inventory is still being built/);
+          : obstacle === 'inventory'
+            ? /reservation inventory is still being built/
+            : /no readable port table/);
         assert.deepEqual([...harness.profiles.rows.values()], before.profiles);
         assert.deepEqual(harness.groups.groups, before.groups);
         assert.deepEqual(harness.profiles.reservations.rows, before.ports);
