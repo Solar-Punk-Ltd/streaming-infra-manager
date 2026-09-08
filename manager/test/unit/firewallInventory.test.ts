@@ -35,6 +35,32 @@ function setup() {
 }
 
 describe('firewall evidence export', () => {
+  for (const brokenBuild of ['unadmitted', 'retained'] as const) {
+    it(`only refuses incomplete OME aliases when the build is ${brokenBuild}`, async () => {
+      const h = setup();
+      const oldId = 'a'.repeat(40);
+      const newId = 'b'.repeat(40);
+      const srs: StackPortVar[] = [
+        { name: 'SRS_SRT_PORT', slotBase: 10001, defaultPort: 10001, protocol: 'udp', service: 'srs' },
+        { name: 'SRS_HTTP_PORT', slotBase: 10003, defaultPort: 10003, protocol: 'tcp', service: 'srs' },
+      ];
+      const aliases = srs.map((port, index) => ({ ...port, name: index === 0 ? 'OME_SRT_PORT' : 'OME_HLS_PORT', service: 'ome' }));
+      h.contracts.set(oldId, srs);
+      h.contracts.set(newId, srs);
+      h.aliases.set(oldId, brokenBuild === 'retained' ? aliases.slice(0, 1) : aliases);
+      h.aliases.set(newId, aliases.slice(0, 1));
+      h.state.versions[0]!.buildId = newId;
+      h.state.versions[0]!.previousBuildId = oldId;
+      h.state.references.push({ versionId: 1, buildId: oldId, holderKind: 'snapshot', holderId: 'a/ome', services: ['ome'] });
+      h.state.reservations = [
+        { daemonId: 'daemon', profileName: 'a', port: 10011, protocol: 'udp', heldServices: ['ome'] },
+        { daemonId: 'daemon', profileName: 'a', port: 10013, protocol: 'tcp', heldServices: ['ome'] },
+      ];
+      if (brokenBuild === 'retained') await assert.rejects(h.exporter.export('localhost'), /OME|alias/);
+      else assert.ok((await h.exporter.export('localhost')).claims.every(claim => claim.buildId === oldId));
+    });
+  }
+
   it('covers current OME owners and retains actual SRS ownership in historical snapshots', async () => {
     const h = setup();
     const current = 'a'.repeat(40);
