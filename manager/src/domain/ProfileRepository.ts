@@ -37,8 +37,23 @@ export interface NewProfilePlacement {
   table: readonly StackPortVar[];
 }
 
+export type ProfileRemovalClaim = Pick<Profile, 'name' | 'instance_id' | 'intent_revision'>;
+
 export class ProfileRepository {
   constructor(private readonly pool: Pool) {}
+
+  async claimRemoval(name: string, _expectedInstanceId: string): Promise<Profile | null> {
+    return this.transitionStatus(name, 'REMOVING', ['RUNNING', 'STOPPED', 'ERROR']);
+  }
+
+  async failRemoval(claim: ProfileRemovalClaim, message: string): Promise<Profile | null> {
+    return this.markError(claim.name, message);
+  }
+
+  async completeRemoval(claim: ProfileRemovalClaim, cleanFiles: () => Promise<void>): Promise<{ port_slot: number } | null> {
+    await cleanFiles();
+    return this.deleteByName(claim.name);
+  }
 
   async findByName(name: string): Promise<Profile | null> {
     const r = await this.pool.query<Profile>(
