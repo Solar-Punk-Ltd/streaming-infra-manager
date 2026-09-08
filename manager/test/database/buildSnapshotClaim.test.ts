@@ -230,5 +230,16 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
       assert.equal(descriptor.version?.commitSha, A);
       assert.equal((await pool.query('SELECT id FROM build_references')).rowCount, 1);
     });
+
+    for (const buildId of [A, null]) {
+      it(`${method} refuses a schema-permitted builds row with no root and build ${buildId ?? 'unset'}`, async () => {
+        await pool.query('UPDATE stack_versions SET root_path = NULL, build_id = $2 WHERE id = $1', [selected.id, buildId]);
+        selected = (await versions.findById(selected.id))!;
+        const before = await profiles.findByName('test-profile');
+        await assert.rejects(capture(), (err: unknown) => err instanceof ProfileConfigError && /artifact root/.test(err.reason));
+        assert.equal((await pool.query('SELECT id FROM build_references')).rowCount, 0);
+        assert.deepEqual(await profiles.findByName('test-profile'), before);
+      });
+    }
   }
 });
