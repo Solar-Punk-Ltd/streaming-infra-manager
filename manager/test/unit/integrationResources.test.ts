@@ -131,13 +131,15 @@ it('does not turn ordinary GET or config responses into cleanup authority', asyn
   assert.deepEqual(calls, []);
 });
 
-it('keeps unknown request coverage unresolved while cleaning returned confirmed members', async () => {
+for (const body of [undefined, {}, { size: null }, { size: 'invalid' }, { size: -1 }, { size: 1.5 }]) {
+it(`keeps unknown request coverage ${JSON.stringify(body)} unresolved while cleaning returned confirmed members`, async () => {
   const { client, calls } = setup();
   const member = profile();
-  await client.capture('POST', '/groups', undefined, async () => ({ status: 202, body: {
+  await client.capture('POST', '/groups', body, async () => ({ status: 202, body: {
     group: { id: 7, name: 'itest-run-owned' }, profiles: [member],
   } }));
   await assert.rejects(client.cleanup(), error => error instanceof IntegrationCleanupError
     && error.failures.some(item => item.kind === 'creation' && item.reason === 'request-coverage-unknown'));
   assert.deepEqual(calls.filter(call => call.path.startsWith('/profiles/') && call.method === 'DELETE').map(call => call.body), [{ expectedInstanceId: member.instance_id }]);
 });
+}
