@@ -707,6 +707,7 @@ export class DeploymentOrchestrator {
   }
 
   private async runJob(cfg: JobConfig): Promise<RunHandle> {
+    const daemonId = await this.targetDaemon(cfg.target);
     await this.ensureStackDefaults(cfg.paths);
 
     if (cfg.transitionTo && cfg.allowedFrom) {
@@ -729,7 +730,6 @@ export class DeploymentOrchestrator {
     // are, so what the attempt creates can be told from what was there.
     let attempt: DeployAttempt | null = null;
     if (cfg.guard) {
-      const daemonId = await this.targetDaemon(cfg.target);
       const before = await this.daemon.containerIdsOf(cfg.profileName, cfg.target);
       attempt = await this.attempts.open({
         daemonId,
