@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 
 import { PortReservedError } from '../errors/index.js';
+import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
 import { type PortKey, type PortPlanEntry, type PortReservation, type ReservationState, portKeyOf } from './portReservations.js';
 import { RESERVATION_COLUMNS, type ReservationRow, toReservation } from './reservationSql.js';
@@ -42,6 +43,8 @@ export class PostgresPortReservationRepository implements PortReservationReposit
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      // The allocator takes this lock too. Row locks alone cannot protect a port with no row yet.
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
       const held = await client.query<ReservationRow>(
         `SELECT r.*
            FROM port_reservations r
