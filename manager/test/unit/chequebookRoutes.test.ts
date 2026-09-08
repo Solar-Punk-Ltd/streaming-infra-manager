@@ -126,7 +126,7 @@ describe('authenticated transaction-journal API', () => {
     const operation = (await api.repository.admit(operationCandidate())).operation;
     const inputs = [
       ['check', {}], ['resolve', { transactionHash }],
-      ['assert', { amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
+      ['assert', { expectedRevision: '0', amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
     ] as const;
     let calls = 0;
     const read = api.repository.findWithResponses.bind(api.repository);
@@ -154,7 +154,7 @@ describe('authenticated transaction-journal API', () => {
     t.mock.method(console, 'error', (...args: unknown[]) => errors.push(args));
     for (const [action, input] of [
       ['check', {}], ['resolve', { transactionHash }],
-      ['assert', { amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
+      ['assert', { expectedRevision: '0', amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) }],
     ] as const) {
       for (const expectedAccountId of [undefined, null, 0, -1, 1.5, 'synthetic-private-account', Number.MAX_SAFE_INTEGER + 1]) {
         const response = await api.request('POST', `${operationsPath}/${operation.id}/${action}`, { ...input, expectedAccountId });
@@ -202,10 +202,11 @@ describe('authenticated transaction-journal API', () => {
     const api = await testApi(); t.after(() => api.close());
     const operation = (await api.repository.admit(operationCandidate())).operation;
     const unknown = await api.repository.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
-    const body = { expectedAccountId: 7, amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) };
+    const body = { expectedAccountId: 7, expectedRevision: unknown.revision, amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) };
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, body)).status, 409);
-    await api.repository.recordRecovery(unknown, { kind: 'no_match', candidateHashes: [], scan: { headBlockNumber: '500', headBlockHash: transferContext.startBlockHash,
+    const checked = await api.repository.recordRecovery(unknown, { kind: 'no_match', candidateHashes: [], scan: { headBlockNumber: '500', headBlockHash: transferContext.startBlockHash,
       nextBlockNumber: '500', nextBlockHash: transferContext.startBlockHash, complete: true, candidateHashes: [] } }, []);
+    body.expectedRevision = checked.revision;
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, { ...body, actor: 'forged' })).status, 400);
     assert.equal((await api.request('POST', `${operationsPath}/${operation.id}/assert`, { ...body, confirmation: 'I agree' })).status, 400);
     api.switchAccount(8);
@@ -216,6 +217,54 @@ describe('authenticated transaction-journal API', () => {
     assert.equal(detail.operation.assertion.actor, 'user:8');
     assert.deepEqual(Object.keys(detail.operation.assertion).sort(), ['actor', 'amountPlur', 'assertedAt', 'confirmation']);
     assert.equal(api.counts().posts, 0);
+  });
+
+  it('rejects a reviewed assertion revision before the final load and at atomic assertion admission', async t => {
+    for (const race of ['before-service', 'between-detail-and-load', 'same-account-winner', 'newer-conflict'] as const) {
+      const api = await testApi(); t.after(() => api.close());
+      const operation = (await api.repository.admit(operationCandidate())).operation;
+      const noMatch = { kind: 'no_match' as const, candidateHashes: [], scan: { headBlockNumber: '500', headBlockHash: transferContext.startBlockHash,
+        nextBlockNumber: '500', nextBlockHash: transferContext.startBlockHash, complete: true, candidateHashes: [] } };
+      const checked = await api.repository.recordRecovery(operation, noMatch, []);
+      if (race === 'before-service') await api.repository.recordRecovery(checked, noMatch, []);
+      if (race === 'between-detail-and-load') {
+        const read = api.repository.findWithResponses.bind(api.repository);
+        api.repository.findWithResponses = async id => {
+          const previous = await read(id);
+          await api.repository.recordRecovery(checked, noMatch, []);
+          return previous;
+        };
+      }
+      if (race === 'same-account-winner' || race === 'newer-conflict') {
+        const apply = api.repository.assertNoSubmission.bind(api.repository);
+        api.repository.assertNoSubmission = async (expected, input) => {
+          if (race === 'same-account-winner') await apply(expected, input);
+          else api.repository.rows.set(checked.id, { ...checked, revision: String(BigInt(checked.revision) + 1n), failureReason: 'hash_conflict',
+            recoveryObservation: { kind: 'could_not_check', reason: 'attribution_conflict', candidateHashes: [transactionHash] } });
+          return apply(expected, input);
+        };
+      }
+      const response = await api.request('POST', `${operationsPath}/${checked.id}/assert`, { expectedAccountId: 7,
+        expectedRevision: checked.revision, amountPlur: checked.amountPlur, confirmation: chequebookAssertionConfirmation(checked.amountPlur) });
+      assert.equal(response.status, 409, race);
+      assert.deepEqual(await response.json(), { error: 'operation_changed', message: 'The saved transfer changed. Refresh its evidence and review the action again.' });
+      const current = await api.repository.findById(checked.id);
+      assert.equal(current?.assertion === null, race !== 'same-account-winner');
+      assert.equal(current?.revision, String(BigInt(checked.revision) + 1n));
+      assert.equal(api.counts().posts, 0);
+    }
+  });
+
+  it('strictly validates decimal assertion revisions without exposing submitted values', async t => {
+    const api = await testApi(); t.after(() => api.close());
+    const operation = operationCandidate();
+    for (const expectedRevision of [undefined, null, 0, -1, '01', '-1', '1.0', '1e3', '', '9'.repeat(20), '9223372036854775808', 'synthetic-private-revision']) {
+      const response = await api.request('POST', `${operationsPath}/${operation.id}/assert`, { expectedAccountId: 7,
+        expectedRevision, amountPlur: operation.amountPlur, confirmation: chequebookAssertionConfirmation(operation.amountPlur) });
+      assert.equal(response.status, 400);
+      assert.ok(!(await response.text()).includes('synthetic-private-revision'));
+    }
+    assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });
   });
 
   it('bounds history inputs and exposes conflict evidence without masking the conflict', async t => {

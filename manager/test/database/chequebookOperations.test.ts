@@ -186,7 +186,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     await assert.rejects(repository.assertNoSubmission(checked, { ...assertion, amountPlur: '1' }), /invalid/i);
     await assert.rejects(repository.assertNoSubmission(checked, { ...assertion, confirmation: 'I agree' }), /invalid/i);
     const newer = await repository.recordRecovery(checked, { kind: 'could_not_check', reason: 'rpc_unavailable', candidateHashes: [] }, []);
-    assert.deepEqual(await repository.assertNoSubmission(checked, assertion), newer);
+    await assert.rejects(repository.assertNoSubmission(checked, assertion), error => error instanceof Error && error.name === 'ChequebookOperationChangedError');
     await assert.rejects(repository.assertNoSubmission(newer, assertion), /search/i);
     const rechecked = await repository.recordRecovery(newer, noMatch, []);
     const asserted = await repository.assertNoSubmission(rechecked, assertion);
@@ -195,6 +195,39 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.ok(asserted.assertion?.assertedAt);
     assert.equal(asserted.transactionHash, null);
     assert.equal((await repository.admit(operationCandidate())).kind, 'admitted');
+  });
+
+  it('admits one same-account assertion and refuses the competing reviewed revision', async () => {
+    const checked = await repository.recordRecovery(await unknownOperation(), noMatch, []);
+    const second = new PostgresChequebookOperationRepository(pool);
+    const results = await Promise.allSettled([repository.assertNoSubmission(checked, assertion), second.assertNoSubmission(checked, assertion)]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    const refused = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+    assert.equal(refused.reason.name, 'ChequebookOperationChangedError');
+    assert.equal(refused.reason.cause, undefined);
+    const current = await repository.findById(checked.id);
+    assert.equal(current?.revision, String(BigInt(checked.revision) + 1n));
+    assert.equal(current?.assertion?.actor, assertion.actor);
+  });
+
+  it('refuses assertion when conflicting response evidence commits after its final load', async () => {
+    const checked = await repository.recordRecovery(await unknownOperation(), noMatch, []);
+    const competing = new PostgresChequebookOperationRepository(pool);
+    const apply = repository.assertNoSubmission.bind(repository);
+    repository.assertNoSubmission = async (expected, input) => {
+      await competing.recordSubmission(expected.id, { state: 'submitted', transactionHash, failureReason: null });
+      await competing.recordSubmission(expected.id, { state: 'submitted', transactionHash: `0x${'99'.repeat(32)}`, failureReason: null });
+      return apply(expected, input);
+    };
+    const unavailable = async () => { throw new Error('Recovery observation must not run for an assertion'); };
+    const receipts = new ChequebookReceiptCheck(repository, unavailable);
+    const service = new ChequebookRecovery(repository, new ChequebookRecoveryInspector(unavailable, unavailable), receipts);
+    await assert.rejects(service.assertNoSubmission(checked.id, assertion, checked.revision), error => error instanceof Error && error.name === 'ChequebookOperationChangedError');
+    const current = await repository.findWithResponses(checked.id);
+    assert.equal(current?.operation.assertion, null);
+    assert.equal(current?.operation.failureReason, 'hash_conflict');
+    assert.equal(current?.responseEvidence.length, 2);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
   });
 
   it('never automatically or manually attributes a late transfer shared by asserted A and open B', async () => {
@@ -345,7 +378,7 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.deepEqual(inspected, ['505', '504', '503', '502', '501', '500']);
     assert.deepEqual(await repository.findById(unknown.id), complete);
     assert.deepEqual(await repository.recordRecovery(chunk1, noMatch, []), complete);
-    await assert.rejects(service().assertNoSubmission(unknown.id, assertion), /search/i);
+    await assert.rejects(service().assertNoSubmission(unknown.id, assertion, complete.revision), /search/i);
   });
 
   it('whitelists saved recovery evidence and rejects malformed bounds without changing a row', async () => {

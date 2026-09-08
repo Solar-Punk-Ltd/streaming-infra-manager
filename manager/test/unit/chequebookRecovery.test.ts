@@ -59,7 +59,7 @@ describe('durable transfer recovery coordination', () => {
     const f = await setup();
     const searched = await f.service.recover(f.operation.id);
     const audit = { actor: 'authenticated-operator', amountPlur: f.operation.amountPlur, confirmation: chequebookAssertionConfirmation(f.operation.amountPlur) };
-    await f.service.assertNoSubmission(searched.id, audit);
+    await f.service.assertNoSubmission(searched.id, audit, searched.revision);
     const b = (await f.repository.admit(operationCandidate({ tokenAddress }))).operation;
     await f.repository.claimDispatch(b.id);
     await f.repository.recordSubmission(b.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
@@ -69,7 +69,7 @@ describe('durable transfer recovery coordination', () => {
     assert.equal(recovered.recoveryObservation?.kind, 'ambiguous');
     assert.equal(recovered.recoveryObservation?.scan?.complete, true);
     assert.equal(f.counts().scans, 2);
-    await assert.rejects(f.service.assertNoSubmission(b.id, audit), /search/i);
+    await assert.rejects(f.service.assertNoSubmission(b.id, audit, recovered.revision), /search/i);
     assert.equal((await f.repository.admit(operationCandidate())).kind, 'busy');
   });
 
@@ -83,10 +83,39 @@ describe('durable transfer recovery coordination', () => {
     const old = f.service.resolve(f.operation.id, transactionHash);
     await pending;
     const checked = await f.service.recover(f.operation.id);
-    const asserted = await f.service.assertNoSubmission(checked.id, { actor: 'operator', amountPlur: f.operation.amountPlur, confirmation: chequebookAssertionConfirmation(f.operation.amountPlur) });
+    const asserted = await f.service.assertNoSubmission(checked.id, { actor: 'operator', amountPlur: f.operation.amountPlur, confirmation: chequebookAssertionConfirmation(f.operation.amountPlur) }, checked.revision);
     release();
     assert.deepEqual(await old, asserted);
     assert.equal((await f.repository.findById(asserted.id))?.state, 'asserted');
+  });
+
+  it('binds assertion to the reviewed revision at the final recovery load', async () => {
+    const f = await setup();
+    const checked = await f.service.recover(f.operation.id);
+    const newer = await f.service.recover(f.operation.id);
+    const input = { actor: 'operator', amountPlur: checked.amountPlur, confirmation: chequebookAssertionConfirmation(checked.amountPlur) };
+    await assert.rejects(f.service.assertNoSubmission(checked.id, input, checked.revision),
+      error => error instanceof Error && error.name === 'ChequebookOperationChangedError' && error.cause === undefined);
+    assert.deepEqual(await f.repository.findById(checked.id), newer);
+    const asserted = await f.service.assertNoSubmission(checked.id, input, newer.revision);
+    assert.equal(asserted.state, 'asserted');
+    assert.deepEqual(Object.keys(asserted.assertion!).sort(), ['actor', 'amountPlur', 'assertedAt', 'confirmation']);
+  });
+
+  it('preserves the fixed changed-operation error when a same-account assertion wins after load', async () => {
+    const f = await setup();
+    const checked = await f.service.recover(f.operation.id);
+    const input = { actor: 'operator', amountPlur: checked.amountPlur, confirmation: chequebookAssertionConfirmation(checked.amountPlur) };
+    const apply = f.repository.assertNoSubmission.bind(f.repository);
+    f.repository.assertNoSubmission = async (expected, audit) => {
+      await apply(expected, audit);
+      return apply(expected, audit);
+    };
+    await assert.rejects(f.service.assertNoSubmission(checked.id, input, checked.revision),
+      error => error instanceof Error && error.name === 'ChequebookOperationChangedError' && error.cause === undefined);
+    const current = await f.repository.findById(checked.id);
+    assert.equal(current?.state, 'asserted');
+    assert.equal(current?.revision, String(BigInt(checked.revision) + 1n));
   });
 
   it('returns fixed errors for storage failures and never logs endpoint diagnostics', async () => {
