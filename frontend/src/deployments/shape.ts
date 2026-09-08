@@ -10,6 +10,7 @@ import {
   OME_SERVICE,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
+  usesNodePool,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
@@ -124,4 +125,8 @@ const STATUS_LABELS: Record<string, StatusLabel> = {
 
 export function statusLabelOf(profile: Profile): StatusLabel {
   return STATUS_LABELS[profile.status] ?? { label: profile.status, tone: 'gray' };
+}
+
+export function isStreamLike(profile: Profile, shape = shapeOf(profile)): boolean {
+  return shape === 'stream' || (shape === 'custom' && hasService(profile, STREAM_UPLOADER_SERVICE) && !usesNodePool(profile));
 }

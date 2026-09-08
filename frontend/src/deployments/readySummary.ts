@@ -2,7 +2,7 @@ import type { StampHealth } from '@streaming-infra-manager/common';
 
 import type { Tone } from '../components/tone';
 import type { ChecklistInput } from './checklist';
-import { isStreamLike, readinessOf } from './readiness';
+import { isStreamLike, readinessFor } from './readiness';
 import { hasService, isRunning, shapeOf } from './shape';
 
 export interface ReadySummary {
@@ -17,8 +17,8 @@ export function readySummary(
   input: ChecklistInput,
   health?: StampHealth,
 ): ReadySummary {
-  const { profile, publishUrl, clientUrl, chequebook } = input;
-  const readiness = readinessOf(profile, health, chequebook);
+  const { profile, publishUrl, clientUrl } = input;
+  const readiness = readinessFor(health ? { ...input, stampHealth: health } : input);
   const shape = shapeOf(profile);
 
   if (isStreamLike(profile, shape) || shape === 'abr-uploader') {
@@ -27,7 +27,7 @@ export function readySummary(
         tone: readiness.tone,
         title:
           readiness.tone === 'ok'
-            ? 'Ready. Point OBS or FFmpeg at this URL:'
+            ? 'Prerequisites checked. Receiving and uploading are not verified. Publish to test:'
             : `Ready, but ${readiness.label.toLowerCase()}. Point OBS or FFmpeg at this URL:`,
         url: publishUrl,
       };
@@ -46,7 +46,7 @@ export function readySummary(
     if (isRunning(profile) && clientUrl) {
       return {
         tone: 'ok',
-        title: 'Watchable. Open the player:',
+        title: 'Player container running. Playback is not verified. Open the player:',
         url: clientUrl,
         isLink: true,
       };
@@ -56,7 +56,7 @@ export function readySummary(
       title:
         readiness.tone === 'gray'
           ? 'Stopped. Start it to serve the player.'
-          : 'Not watchable right now.',
+          : `Player unavailable: ${readiness.label.toLowerCase()}.`,
       url: null,
     };
   }
@@ -67,8 +67,8 @@ export function readySummary(
           tone: readiness.tone,
           title:
             readiness.tone === 'ok'
-              ? 'This node is ready to receive uploads for its rung.'
-              : `This node receives uploads for its rung, but ${readiness.label.toLowerCase()}.`,
+              ? 'Node prerequisites checked. Receiving uploads has not been verified.'
+              : `Node prerequisites need attention: ${readiness.label.toLowerCase()}.`,
           url: null,
         }
       : {

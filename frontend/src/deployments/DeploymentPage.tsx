@@ -40,7 +40,7 @@ import { PoolTargetCard } from './PoolTargetCard';
 import { PublishCard } from './PublishCard';
 import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
-import { ownsBeeNode, readinessOf } from './readiness';
+import { ownsBeeNode, readinessFor } from './readiness';
 import { StorageCard } from './StorageCard';
 import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
@@ -159,11 +159,14 @@ function DeploymentBody({
 
   const steps = buildChecklist(checklistInput);
   const summary = readySummary(checklistInput, stampHealth);
-  const readiness = readinessOf(profile, stampHealth, chequebookHealth);
+  const readiness = readinessFor(checklistInput);
   const uploaderPending = Boolean(profile.pendingStamp);
 
   const runStepAction = (action: StepAction) => {
     switch (action.kind) {
+      case 'refresh-node':
+        void bee?.reload();
+        return;
       case 'start':
         actions.start(profile.name);
         return;
