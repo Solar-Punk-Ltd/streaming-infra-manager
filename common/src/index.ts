@@ -5,6 +5,7 @@ export * from './constants.js';
 export * from './deployAttempts.js';
 export * from './deployTargets.js';
 export * from './engineConfig.js';
+export * from './engineConfigRollout.js';
 export * from './engineControl.js';
 export * from './engineDefaults.js';
 export * from './engineSettings.js';

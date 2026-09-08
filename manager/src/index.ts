@@ -31,6 +31,7 @@ import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
+import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
@@ -257,6 +258,11 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
   }
+  // The rollouts of config files, which the orchestrator closes when an
+  // operator acts on the deployment and the config service acts through.
+  const engineConfigOperations = new PostgresEngineConfigOperationRepository(
+    database.pool,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -267,6 +273,7 @@ async function main(): Promise<void> {
     buildLedger,
     deployAttempts,
     targetDocker,
+    engineConfigOperations,
     new UploaderStartGate(stampService, chequebookService),
     deployTargets,
     portReservations,
@@ -303,7 +310,12 @@ async function main(): Promise<void> {
     containerControl,
     new EngineConfigChecker(),
     eventBus,
+    engineConfigOperations,
   );
+  // After the orphan reset above, which is what an interrupted apply's row
+  // looks like by now, and before the API answers, so no card sees a rollout
+  // a gone manager left open as though it were still under way.
+  await engineConfigService.reconcileAtBoot();
 
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(

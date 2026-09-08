@@ -48,6 +48,7 @@ import {
   whyAdmissionIsRefused,
 } from './deployAttempts.js';
 import type { DaemonObserver, DeployAttemptRepository } from './DeployAttemptRepository.js';
+import type { EngineConfigOperationRepository } from './engineConfig/EngineConfigOperationRepository.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -108,6 +109,28 @@ function stripDockerWarnings(text: string): string {
     .join('\n');
 }
 
+/**
+ * Runs what a caller asked to run once its deploy settled, and keeps the
+ * hook's failure to itself. The deploy's own outcome is committed by then, so
+ * a hook that throws must not turn a RUNNING row into an ERROR one or replace
+ * the script's own reason with its own.
+ */
+async function runHook(when: string, hook: () => Promise<void> | undefined): Promise<void> {
+  try {
+    await hook();
+  } catch (err) {
+    logger.error(`[Orchestrator] the hook ${when} failed: ${getErrorMessage(err)}`);
+  }
+}
+
+/** What a caller asks to run once the deploy it started has settled. */
+export interface DeployHooks {
+  /** After RUNNING is committed, which is when a watch on the result may begin. */
+  afterRunning?: () => Promise<void>;
+  /** After the script failed and the deployment was marked ERROR with the message. */
+  afterFailure?: (message: string) => Promise<void>;
+}
+
 interface JobConfig {
   profileName: string;
   target: string;
@@ -128,6 +151,10 @@ interface JobConfig {
   onLaunch?: () => void;
 
   onSuccess: (attempt: DeployAttempt | null) => Promise<void>;
+  /** Runs once the status claim is committed, before the script starts. */
+  afterClaim?: () => Promise<void>;
+
+  onFailure?: (message: string) => Promise<void>;
 }
 
 const REDEPLOY_STATUS: ProfileStatus = 'DEPLOYING';
@@ -193,6 +220,7 @@ export class DeploymentOrchestrator {
     private readonly ledger: BuildLedger,
     private readonly attempts: DeployAttemptRepository,
     private readonly daemon: DaemonObserver,
+    private readonly operations: EngineConfigOperationRepository,
     private readonly uploaderGate?: UploaderGate,
     private readonly targets?: DeployTargets,
     private readonly ports?: PortReservationRepository,
@@ -371,6 +399,41 @@ export class DeploymentOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
+    const reservation = await this.claim(profile, requested);
+    await this.operatorActed(
+      profile,
+      'Redeployed by the operator before the file was verified.',
+    );
+    return reservation;
+  }
+
+  /**
+   * The claim a config file rollout takes: the same claim, without moving the
+   * intent. A rollout is not the operator acting on the deployment, and its
+   * own writes are conditional on the intent it started under.
+   */
+  async reserveForRollout(
+    profile: Profile,
+    engine: EngineName,
+  ): Promise<DeployReservation> {
+    return this.claim(profile, [engine]);
+  }
+
+  /**
+   * An operator acted on the deployment, so a config file rollout under way
+   * is over, durably: the intent it started under moves, and its open
+   * operation closes with the reason. After the claim, never before it, so a
+   * refused action moves nothing.
+   */
+  private async operatorActed(profile: Profile, reason: string): Promise<void> {
+    await this.profiles.bumpIntent(profile.name);
+    await this.operations.supersedeOpen(profile.instance_id, reason);
+  }
+
+  private async claim(
+    profile: Profile,
+    requested: string[] | undefined,
+  ): Promise<DeployReservation> {
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
@@ -455,6 +518,7 @@ export class DeploymentOrchestrator {
   async runReserved(
     reservation: DeployReservation,
     profile: Profile,
+    hooks: DeployHooks = {},
   ): Promise<RunHandle> {
     let prepared = reservation;
     try {
@@ -464,7 +528,7 @@ export class DeploymentOrchestrator {
       const version = this.deployVersionOrThrow(profile, build.version);
       const captured: CapturedDeployReservation = { ...reservation, build: { ...build, version } };
       prepared = captured;
-      return await this.startReservedJob(captured, profile);
+      return await this.startReservedJob(captured, profile, hooks);
     } catch (err) {
       // The guard is taken under the daemon's lock when the job starts, and
       // a deploy that passed the check a moment earlier can lose it there.
@@ -589,10 +653,11 @@ export class DeploymentOrchestrator {
   private async startReservedJob(
     reservation: CapturedDeployReservation,
     profile: Profile,
+    hooks: DeployHooks,
   ): Promise<RunHandle> {
     let launchPossible = false;
     try {
-      return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; });
+      return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; }, hooks);
     } catch (err) {
       if (!launchPossible && reservation.build?.referenceId != null) {
         await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
@@ -605,6 +670,7 @@ export class DeploymentOrchestrator {
     reservation: CapturedDeployReservation,
     profile: Profile,
     onLaunch: () => void,
+    hooks: DeployHooks,
   ): Promise<RunHandle> {
     const daemonId = await this.reservePorts(profile, reservation);
     if (reservation.heldBackForStamp.length > 0) {
@@ -687,7 +753,11 @@ export class DeploymentOrchestrator {
         if (updated) {
           await this.publishChanged(updated);
         }
+        await runHook('after it came up', () => hooks.afterRunning?.());
       },
+      onFailure: hooks.afterFailure
+        ? (message) => runHook('after it failed', () => hooks.afterFailure?.(message))
+        : undefined,
     });
   }
 
@@ -719,6 +789,11 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
+      afterClaim: () =>
+        this.operatorActed(
+          profile,
+          'Stopped by the operator before the file was verified.',
+        ),
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
@@ -757,6 +832,8 @@ export class DeploymentOrchestrator {
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       beforeRun: () => this.assertRemovalReady(profile.name),
+      afterClaim: () =>
+        this.operatorActed(profile, 'The deployment was removed.'),
       onSuccess: async () => {
         await this.verifyPortRemoval(profile);
         await this.removeProfileDataDir(profile.name);
@@ -862,6 +939,7 @@ export class DeploymentOrchestrator {
         );
       }
       await this.publishChanged(transitioned);
+      await cfg.afterClaim?.();
     }
 
     try {
@@ -980,6 +1058,7 @@ export class DeploymentOrchestrator {
       if (errored) {
         await this.publishChanged(errored);
       }
+      await cfg.onFailure?.(message);
       logger.warn(
         `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
       );

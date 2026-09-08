@@ -6,9 +6,15 @@
  * a refusal in the manager's own words for a version without the hook or a
  * file the engine would refuse, and a recreate that moves the deployment
  * through DEPLOYING and back. The engine's own parser is stood in for by a
- * brace count for SRS and a tag count for OME, and a file containing the
- * word `crash` plays the revert: a few seconds after the recreate the
- * previous file is back and the row says why.
+ * brace count for SRS and a tag count for OME.
+ *
+ * The rollout's states are played on the row the way the manager records
+ * them: applying while the engine is recreated, watching for a few seconds
+ * after, then applied. A file containing the word `crash` is reverted from
+ * the watch, one containing `fail` cannot be recreated on and ends failed
+ * with the previous file back, and one containing `interrupt` is left
+ * interrupted, the way a manager restart leaves one, with the two ways out
+ * the card offers.
  */
 import {
   defaultServicesFor,
@@ -25,8 +31,27 @@ import { send } from './mock-http.mjs';
 import { refreshDerived } from './mock-seed.mjs';
 import { contractOfVersion } from './mock-versions.mjs';
 
-/** How long after the recreate a `crash` file is reverted. */
-const CRASH_AFTER_MS = 4000;
+/** How long the engine is watched after the recreate before the file counts as applied. */
+const VERIFY_MS = 3000;
+
+const OPEN_STATES = ['applying', 'watching', 'reverting', 'interrupted'];
+
+const INTERRUPTED_REASON =
+  'Apply interrupted by a manager restart. The file is stored, the engine was not verified.';
+
+const NO_INTERRUPTED_ROLLOUT = 'There is no interrupted rollout to go back from.';
+
+function failReason(engine) {
+  return `${ENGINE_DISPLAY_NAMES[engine]} could not be recreated on the new config file (deploy.sh exited with code 1), so the previous one is back.`;
+}
+
+function crashReason(engine) {
+  return (
+    `${ENGINE_DISPLAY_NAMES[engine]} keeps restarting on the new config file, so the previous one is back. The engine's last lines:\n` +
+    'srs.conf generated from the custom config file\n' +
+    'invalid config, exiting'
+  );
+}
 
 const SRS_TEMPLATE = `listen              RTMP_PORT_PLACEHOLDER;
 max_connections     1000;
@@ -120,6 +145,24 @@ const TEMPLATES = { srs: SRS_TEMPLATE, [OME_SERVICE]: OME_TEMPLATE };
 /** The stored files, by deployment name. The profile only knows whether it has one. */
 const configs = new Map();
 
+/** The file the latest rollout replaced, by deployment name, for back to the previous file. */
+const previousOf = new Map();
+
+function setRolloutState(profile, state, error = null) {
+  profile.engine_config_state = state;
+  profile.engine_config_error = error;
+}
+
+/**
+ * An operator's own action, stop or redeploy, ends a rollout under way the
+ * way the manager's intent revision does: the open operation is superseded
+ * with the reason, and the file is not verified.
+ */
+export function closeRollout(profile, reason) {
+  if (!OPEN_STATES.includes(profile.engine_config_state)) return;
+  setRolloutState(profile, 'superseded', reason);
+}
+
 function engineOf(profile) {
   return engineOfServices(defaultServicesFor(profile));
 }
@@ -161,6 +204,7 @@ function view(profile, engine) {
     config: configs.get(profile.name) ?? null,
     template: TEMPLATES[engine],
     placeholders: placeholdersIn(TEMPLATES[engine]),
+    state: profile.engine_config_state,
     error: profile.engine_config_error,
     references: ENGINE_CONFIG_REFERENCES[engine],
   };
@@ -185,20 +229,59 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
     profile.engine_config_error = error;
   };
 
-  /** The watch, played: a file that says `crash` takes the engine down and is reverted. */
-  const watchAfter = (profile, engine, previous, config) => {
-    if (!/crash/.test(config)) return;
+  /** The watch, played: `crash` takes the engine down and is reverted, anything else applies. */
+  const watch = (profile, engine, previous, config) => {
     setTimeout(() => {
-      store(
-        profile,
-        previous,
-        `${ENGINE_DISPLAY_NAMES[engine]} keeps restarting on the new config file, so the previous one is back. The engine's last lines:\n` +
-          'srs.conf generated from the custom config file\n' +
-          'invalid config, exiting',
-      );
-      deploy(profile);
+      if (profile.engine_config_state !== 'watching') return;
+      if (!/crash/.test(config)) {
+        setRolloutState(profile, 'applied');
+        changed(profile);
+        return;
+      }
+      const reason = crashReason(engine);
+      store(profile, previous, reason);
+      setRolloutState(profile, 'reverting', reason);
+      deploy(profile, { onRunning: () => setRolloutState(profile, 'reverted', reason) });
       changed(profile);
-    }, CRASH_AFTER_MS);
+    }, VERIFY_MS);
+  };
+
+  /** One rollout: store the file or the template, recreate the engine, then play the watch. */
+  const rollOut = (profile, engine, config) => {
+    const previous = configs.get(profile.name) ?? null;
+    previousOf.set(profile.name, previous);
+    store(profile, config, null);
+    setRolloutState(profile, 'applying');
+    deploy(profile, {
+      onRunning: () => {
+        if (config === null) {
+          setRolloutState(profile, 'applied');
+        } else if (/fail/.test(config)) {
+          const reason = failReason(engine);
+          store(profile, previous, reason);
+          setRolloutState(profile, 'failed', reason);
+        } else if (/interrupt/.test(config)) {
+          setRolloutState(profile, 'interrupted', INTERRUPTED_REASON);
+        } else {
+          setRolloutState(profile, 'watching');
+          watch(profile, engine, previous, config);
+        }
+      },
+    });
+  };
+
+  /** What every route that recreates the engine refuses first. */
+  const refusal = (res, profile) => {
+    const engine = engineOf(profile);
+    if (!engine) {
+      validationError(res, `${profile.name} runs no media server, so it has no engine config.`);
+      return null;
+    }
+    if (profile.status === 'DEPLOYING' || profile.status === 'STOPPING') {
+      send(res, 409, { error: 'profile_busy', message: `${profile.name} is ${profile.status}` });
+      return null;
+    }
+    return engine;
   };
 
   return [
@@ -236,10 +319,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
         const problem = parserProblem(engine, config);
         if (problem) return validationError(res, problem);
 
-        const previous = configs.get(profile.name) ?? null;
-        store(profile, config, null);
-        deploy(profile);
-        watchAfter(profile, engine, previous, config);
+        rollOut(profile, engine, config);
         send(res, 202, profile);
       }),
     ],
@@ -247,12 +327,34 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
       'DELETE',
       /^\/profiles\/([^/]+)\/engine-config$/,
       withProfile((_req, res, profile) => {
-        const engine = engineOf(profile);
-        if (!engine) return validationError(res, `${profile.name} runs no media server, so it has no engine config.`);
-        if (profile.has_engine_config) {
-          store(profile, null, null);
-          deploy(profile);
+        const engine = refusal(res, profile);
+        if (!engine) return;
+        if (profile.has_engine_config || profile.engine_config_state !== null) {
+          rollOut(profile, engine, null);
         }
+        send(res, 202, profile);
+      }),
+    ],
+    [
+      'POST',
+      /^\/profiles\/([^/]+)\/engine-config\/verify$/,
+      withProfile((_req, res, profile) => {
+        const engine = refusal(res, profile);
+        if (!engine) return;
+        rollOut(profile, engine, configs.get(profile.name) ?? null);
+        send(res, 202, profile);
+      }),
+    ],
+    [
+      'POST',
+      /^\/profiles\/([^/]+)\/engine-config\/restore-previous$/,
+      withProfile((_req, res, profile) => {
+        const engine = refusal(res, profile);
+        if (!engine) return;
+        if (profile.engine_config_state !== 'interrupted') {
+          return validationError(res, NO_INTERRUPTED_ROLLOUT);
+        }
+        rollOut(profile, engine, previousOf.get(profile.name) ?? null);
         send(res, 202, profile);
       }),
     ],
