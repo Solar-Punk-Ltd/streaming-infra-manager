@@ -61,6 +61,25 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.ok(held.every((row) => row.profileName === 'a'));
   });
 
+  it('captures a sanitized firewall snapshot including stopped legacy profiles and open holds', async () => {
+    const { PostgresFirewallStateSource } = await import('../../src/domain/ports/PostgresFirewallStateSource.js');
+    await profiles.insertWithFreeSlot('a', 'viewer', 'STOPPED', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    await pool.query("UPDATE profiles SET port_slot = 101 WHERE name = 'a'");
+    await pool.query("INSERT INTO deploy_targets (alias, daemon_id, verified_at) VALUES ('localhost', 'daemon', NOW())");
+    await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id) VALUES (1, 'legacy', 'operation', 'rollback')");
+    await pool.query("INSERT INTO deploy_attempts (daemon_id, project, job_id, kind) VALUES ('daemon', 'a', 'open', 'fixed')");
+    const snapshot = await new PostgresFirewallStateSource(pool).read();
+    assert.equal(snapshot.profiles[0]?.slot, 101);
+    assert.equal(snapshot.profiles[0]?.status, 'STOPPED');
+    assert.equal(snapshot.profiles[0]?.target, 'localhost');
+    assert.equal(snapshot.versions[0]?.layout, 'legacy');
+    assert.equal(snapshot.references[0]?.holderKind, 'operation');
+    assert.equal(snapshot.attempts[0]?.project, 'a');
+    assert.equal(snapshot.reservations.length, 2);
+    assert.equal(snapshot.inventoryReady, false);
+    assert.ok(!/private_key|srt_passphrase|engine_settings|stack_secrets/.test(JSON.stringify(snapshot)));
+  });
+
   it('makes concurrent seeding of the same profile idempotent', async () => {
     await Promise.all(Array.from({ length: 20 }, () => ports.plan('daemon', 'a', entries, 'seed')));
     assert.equal((await ports.listByProfile('a')).length, 2);
