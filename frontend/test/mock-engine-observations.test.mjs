@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { it } from 'node:test';
+
+import { engineRoutes } from '../dev/mock-engine.mjs';
+
+function overview(has_engine_config) {
+  const profile = {
+    name: 'synthetic-ome', kind: 'custom', components: ['ome', 'stream-uploader'],
+    has_engine_config, engine_settings: { HLS_SEGMENT_DURATION: '7', OME_HLS_POLL_INTERVAL_MS: '750' },
+  };
+  let body;
+  const routes = engineRoutes({ withProfile: handler => handler, deploy() {}, publish() {}, readBody() {} });
+  const get = routes.find(([method, pattern]) => method === 'GET' && pattern.test('/profiles/synthetic-ome/engine'));
+  get[2]({}, { writeHead: status => assert.equal(status, 200), end: payload => { body = JSON.parse(payload); } }, profile);
+  return body;
+}
+
+it('the mock emits the mandatory observation map and exact known projection', () => {
+  const result = overview(false);
+  assert.equal(result.observations.HLS_SEGMENT_DURATION.source, 'deployment');
+  assert.deepEqual(result.effective, Object.fromEntries(Object.entries(result.observations)
+    .filter(([, observation]) => observation.status === 'known').map(([key, observation]) => [key, observation.value])));
+});
+
+it('the mock does not claim stored settings control an unobserved custom file', () => {
+  const result = overview(true);
+  assert.equal(result.observations.HLS_SEGMENT_DURATION.source, 'unverified');
+  assert.equal(result.effective.HLS_SEGMENT_DURATION, undefined);
+  assert.equal(result.effective.OME_HLS_POLL_INTERVAL_MS, '750');
+});
