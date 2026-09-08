@@ -22,6 +22,16 @@ function setup() {
   return { calls, client: new IntegrationResources('run', request, options) };
 }
 
+for (const path of ['/profiles/', '/profiles?view=test', '/PROFILES', '/profiles/?view=test']) {
+  it(`captures the creation route as Express resolves ${path}`, async () => {
+    const { client, calls } = setup();
+    const created = profile();
+    await client.capture('POST', path, { name: created.name }, async () => ({ status: 202, body: created }));
+    await client.cleanup();
+    assert.deepEqual(calls.filter(call => call.method === 'DELETE').map(call => call.body), [{ expectedInstanceId: created.instance_id }]);
+  });
+}
+
 it('records a successful creation before later assertions and cleans its confirmed instance', async () => {
   const { client, calls } = setup();
   const created = profile();
