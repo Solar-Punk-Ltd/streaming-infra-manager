@@ -39,7 +39,7 @@ export function PublishCard({
   profile: Profile;
   url: string;
   hostPassphrase: string | null;
-  /** False while the checklist is unfinished, so ingest works but Swarm does not. */
+  /** Whether all currently observed prerequisites pass the checklist. */
   ready: boolean;
 }) {
   return (

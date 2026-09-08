@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 
 import {
   classifyPublishUrl,
+  type BeeNodeObservation,
   getErrorMessage,
   type PublishUrlState,
   type StampHealth,
@@ -125,6 +126,10 @@ export class StampService {
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
       new BeeClient(url, timeoutMs),
   ) {}
+
+  async getNodeObservation(name: string): Promise<BeeNodeObservation> {
+    return this.call(name, (client) => client.getNodeObservation());
+  }
 
   async getAddress(name: string): Promise<BeeAddresses> {
     return this.call(name, (client) => client.getAddresses());

@@ -20,3 +20,4 @@ export * from './stampGating.js';
 export * from './stampHealth.js';
 
 export type { DeploymentPhase } from './deploymentPhase.js';
+export type { BeeNodeObservation, BeeNodeState } from './beeNodeObservation.js';
