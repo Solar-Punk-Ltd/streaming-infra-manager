@@ -35,6 +35,82 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     }
   });
 
+  const confirmed = {
+    kind: 'settled' as const, receiptBlockNumber: '501', receiptBlockHash: `0x${'77'.repeat(32)}`,
+    finalizedBlockNumber: '510', finalizedBlockHash: `0x${'88'.repeat(32)}`,
+  };
+
+  async function submittedOperation() {
+    const { operation } = await repository.admit(operationCandidate());
+    await repository.claimDispatch(operation.id);
+    return repository.recordSubmission(operation.id, { state: 'submitted', transactionHash, failureReason: null });
+  }
+
+  it('persists receipt checks across restart and releases the node only after confirmation', async () => {
+    const submitted = await submittedOperation();
+    assert.equal(submitted.revision, '2');
+    const pending = await repository.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_finality' });
+    assert.equal(pending.state, 'submitted');
+    assert.equal(pending.revision, '3');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+    const settled = await new PostgresChequebookOperationRepository(pool).recordReceipt(pending, confirmed);
+    assert.equal(settled.state, 'settled');
+    assert.equal(settled.revision, '4');
+    const loaded = await new PostgresChequebookOperationRepository(pool).findById(settled.id);
+    assert.deepEqual(loaded?.receiptObservation, confirmed);
+    assert.ok(loaded?.receiptCheckedAt);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'admitted');
+    assert.equal((await repository.admit(operationCandidate({ ...settled }))).kind, 'replayed');
+  });
+
+  it('rejects a stale success after another manager persisted a failed check', async () => {
+    const firstSnapshot = await submittedOperation();
+    const secondRepository = new PostgresChequebookOperationRepository(pool);
+    const secondSnapshot = await secondRepository.findById(firstSnapshot.id);
+    assert.ok(secondSnapshot);
+    const newer = await secondRepository.recordReceipt(secondSnapshot, { kind: 'could_not_check', reason: 'chain_changed' });
+    const stale = await repository.recordReceipt(firstSnapshot, confirmed);
+    assert.deepEqual(stale, newer);
+    assert.equal(stale.state, 'submitted');
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+    const retry = await repository.recordReceipt(await repository.findById(stale.id).then(row => row!), confirmed);
+    assert.equal(retry.state, 'settled');
+  });
+
+  it('accepts only one observation from concurrent checks at the same revision', async () => {
+    const submitted = await submittedOperation();
+    const results = await Promise.all(Array.from({ length: 12 }, () => new PostgresChequebookOperationRepository(pool)
+      .recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_finality' })));
+    assert.ok(results.every(row => row.revision === '3'));
+    assert.equal((await repository.findById(submitted.id))?.revision, '3');
+  });
+
+  it('binds observations to the known hash and an unresolved submitted row', async () => {
+    const submitted = await submittedOperation();
+    const otherHash = `0x${'99'.repeat(32)}`;
+    assert.deepEqual(await repository.recordReceipt({ ...submitted, transactionHash: otherHash }, confirmed), submitted);
+    const reverted = await repository.recordReceipt(submitted, { ...confirmed, kind: 'reverted' });
+    assert.equal(reverted.state, 'reverted');
+    assert.deepEqual(await repository.recordReceipt(reverted, { kind: 'could_not_check', reason: 'rpc_unavailable' }), reverted);
+    const unknown = await repository.admit(operationCandidate());
+    const unresolved = await repository.recordSubmission(unknown.operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
+    assert.deepEqual(await repository.recordReceipt({ ...unresolved, transactionHash }, confirmed), unresolved);
+  });
+
+  it('refuses malformed confirmation and whitelists persisted observation fields', async () => {
+    const submitted = await submittedOperation();
+    for (const evidence of [
+      { ...confirmed, receiptBlockHash: 'synthetic-private-path' },
+      { ...confirmed, finalizedBlockNumber: '500' },
+      { ...confirmed, finalizedBlockNumber: '501' },
+      { ...confirmed, receiptBlockNumber: '01' },
+    ]) await assert.rejects(repository.recordReceipt(submitted, evidence), /invalid/i);
+    assert.deepEqual(await repository.findById(submitted.id), submitted);
+    const result = await repository.recordReceipt(submitted, { ...confirmed, endpoint: 'synthetic-private-path' } as typeof confirmed);
+    assert.deepEqual(result.receiptObservation, confirmed);
+    assert.ok(!JSON.stringify(result).includes('synthetic-private-path'));
+  });
+
   it('persists the full identity without requiring a surviving profile row', async () => {
     const candidate = operationCandidate();
     const admitted = await repository.admit(candidate);
