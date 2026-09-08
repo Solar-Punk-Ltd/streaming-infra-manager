@@ -124,6 +124,9 @@ const STATUS_LABELS: Record<string, StatusLabel> = {
 };
 
 export function statusLabelOf(profile: Profile): StatusLabel {
+  if (profile.status === 'DEPLOYING' && profile.deployment_phase) {
+    return { label: profile.deployment_phase === 'starting' ? 'Starting' : 'Restarting', tone: 'info' };
+  }
   return STATUS_LABELS[profile.status] ?? { label: profile.status, tone: 'gray' };
 }
 

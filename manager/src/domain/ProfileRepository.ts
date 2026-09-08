@@ -66,9 +66,9 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
+           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id, deployment_phase
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CASE WHEN $4 = 'DEPLOYING' THEN 'starting' ELSE NULL END
          FROM generate_series(1, $17::int) AS s(n)
          LEFT JOIN profiles p ON p.port_slot = s.n
          WHERE p.port_slot IS NULL
@@ -263,6 +263,10 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = CASE
+               WHEN $2 = 'DEPLOYING' AND status = 'RUNNING' THEN 'restarting'
+               WHEN $2 = 'DEPLOYING' AND status = 'STOPPED' THEN 'starting'
+               ELSE NULL END,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -277,6 +281,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = $2,
              last_error_at = NOW(),
              updated_at = NOW()
@@ -294,6 +299,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = NULL,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -308,6 +314,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = 'manager restarted while ' || status,
              last_error_at = NOW(),
              updated_at = NOW()

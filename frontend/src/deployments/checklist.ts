@@ -20,7 +20,8 @@ import {
 } from '../format';
 import type { Profile } from '../types';
 import type { BeeStamp, BeeWallet } from '../uploaders/stampApi';
-import { isStreamLike } from './shape';
+import { isStreamLike, statusLabelOf } from './shape';
+import { deploymentProgressText } from './deploymentPhase';
 import { hasService, isRunning, isTransitional, shapeOf } from './shape';
 
 export type StepState = 'ok' | 'warn' | 'err' | 'busy' | 'off';
@@ -107,14 +108,12 @@ function containersStep(profile: Profile): ChecklistStep {
     ? services.join(', ') || 'Running with no containers reported.'
     : profile.status === 'ERROR'
       ? 'Last deploy failed, see the error above.'
-      : profile.status === 'DEPLOYING'
-        ? 'Starting containers…'
-        : 'Stopped.';
+      : deploymentProgressText(profile);
 
   const canAct = !isRunning(profile) && !isTransitional(profile);
   return {
     title: 'Containers running',
-    problem: profile.status === 'ERROR' ? 'Last deployment failed' : profile.status === 'DEPLOYING' ? 'Deploying' : profile.status === 'STOPPING' ? 'Stopping' : profile.status === 'REMOVING' ? 'Removing' : 'Stopped',
+    problem: profile.status === 'ERROR' ? 'Last deployment failed' : profile.status === 'DEPLOYING' ? statusLabelOf(profile).label : profile.status === 'STOPPING' ? 'Stopping' : profile.status === 'REMOVING' ? 'Removing' : 'Stopped',
     state,
     detail,
     action: canAct

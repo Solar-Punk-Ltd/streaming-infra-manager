@@ -17,7 +17,7 @@ import { ServiceChip } from '../components/ServiceChip';
 import { formatBytes, formatCores, formatSharePercent } from '../format';
 import type { ContainerMetrics, MetricsSnapshot, Profile } from '../types';
 import { componentUrl, hostFor } from '../urls';
-import { isRunning, SERVICE_DESCRIPTIONS } from './shape';
+import { isRunning, isTransitional, SERVICE_DESCRIPTIONS } from './shape';
 
 export function ContainersCard({
   profile,
@@ -41,13 +41,13 @@ export function ContainersCard({
   return (
     <SectionCard
       title="Containers"
-      sub={containers.length ? `${containers.length} running` : 'none running'}
+      sub={isTransitional(profile) ? 'Previous container records, current state not yet verified' : containers.length ? `${containers.length} container records` : 'no container records'}
       flush
     >
       {containers.length === 0 ? (
         <EmptyState
-          title="Start the deployment to see its containers."
-          hint="Nothing is running for it right now."
+          title={isTransitional(profile) ? "Waiting for container observations." : "No containers reported."}
+          hint="Open logs or refresh the deployment to check its current state."
         />
       ) : (
         <Table>
