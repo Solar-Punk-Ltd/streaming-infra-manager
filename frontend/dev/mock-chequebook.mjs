@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation } from '@streaming-infra-manager/common';
 import { readBody, send } from './mock-http.mjs';
+import { mockChequebookRecoveryRoutes } from './mock-chequebook-recovery.mjs';
 import { mockChequebookHistory } from './mock-chequebook-history.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -12,7 +13,7 @@ const validInput = value => value && typeof value === 'object' && !Array.isArray
   Number.isSafeInteger(value.expectedAccountId) && value.expectedAccountId > 0 && typeof value.amount === 'string' && /^[1-9][0-9]{0,29}$/.test(value.amount);
 
 /** Synthetic records survive browser navigation. They are not a replacement for the production PostgreSQL journal. */
-export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSubmitted = () => {}, responseFor = hash }) {
+export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSubmitted = () => {}, responseFor = hash, receiptFor, recoveryFor }) {
   const records = new Map();
   const byRequest = new Map();
   function detail(id) {
@@ -106,6 +107,7 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     send(res, value ? 200 : 404, value ?? { error: 'chequebook_operation_not_found' });
   }
   const routes = [
+    ...mockChequebookRecoveryRoutes({ records, userFor, detail, changed, observeReceipt, receiptFor, recoveryFor }),
     ['POST', /^\/profiles\/([^/]+)\/chequebook\/deposit$/, (req, res, [name]) => submit(req, res, decodeURIComponent(name), 'deposit')],
     ['POST', /^\/profiles\/([^/]+)\/chequebook\/withdraw$/, (req, res, [name]) => submit(req, res, decodeURIComponent(name), 'withdraw')],
     ['GET', /^\/chequebook\/operations$/, (req, res) => {
