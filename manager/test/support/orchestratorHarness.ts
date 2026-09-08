@@ -7,6 +7,7 @@ import {
 } from '../../src/domain/DeploymentOrchestrator.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
+import type { PublishedPortsSnapshot } from '../../src/domain/ports/PublishedPortsProbe.js';
 import { Profile } from '../../src/types/index.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
@@ -45,6 +46,7 @@ export interface OrchestratorHarness {
   /** The project guard and the daemon lock, and what Docker says about the projects. */
   attempts: InMemoryDeployAttempts;
   daemon: FakeDaemon;
+  published: PublishedPortsSnapshot;
 }
 
 /**
@@ -71,6 +73,10 @@ export function orchestratorHarness(
   const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
   const attempts = new InMemoryDeployAttempts();
   const daemon = new FakeDaemon();
+  const published: PublishedPortsSnapshot = { daemonId: daemon.id, bindings: [] };
+  profiles.reservations.releaseBlocked = name => ledger.references.some(reference => reference.resolvedAt === null
+    && ((reference.holderKind === 'job' && reference.holderId === name) || reference.holderKind === 'operation'))
+    || attempts.rows.some(attempt => attempt.project === name && attempt.state !== 'released');
   // Every stored deployment starts with a container per service, and a
   // finished deploy script leaves new ones, the way compose does.
   for (const profile of stored) {
@@ -102,7 +108,8 @@ export function orchestratorHarness(
     uploaderGate,
     targets,
     profiles.reservations,
+    { publishedPorts: async () => published },
   );
 
-  return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon };
+  return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published };
 }

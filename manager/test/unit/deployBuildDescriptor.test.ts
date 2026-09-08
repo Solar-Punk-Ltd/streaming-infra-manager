@@ -25,6 +25,7 @@ import {
   BUILD_MANIFEST_FILE,
 } from '../../src/domain/versions/buildManifest.js';
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
+import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 
 const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
 process.env.SHLS_ROOT = join(root, 'bundled');
@@ -137,6 +138,32 @@ describe('the build a deploy runs', () => {
 });
 
 describe('what the success hook records', () => {
+  it('hands over engine ports after the captured build is observed and preserves untouched uploader ports', async () => {
+    const { harness, row, versionsRoot, v3 } = await setup();
+    const old = portPlanFor(CONTRACT.ports, row().port_slot);
+    await harness.profiles.reservations.plan(harness.daemon.id, 'stage', old, 'original');
+    for (const service of ['srs', 'stream-uploader', 'bee-uploader']) {
+      harness.ledger.mounted.set(`stage/${service}`, buildDirFor(versionsRoot, 'v3', COMMIT_A));
+    }
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    const next = { ...CONTRACT, ports: CONTRACT.ports.map(port => port.service === 'srs'
+      ? { ...port, slotBase: port.slotBase + 20000 } : port) };
+    buildOnDisk(versionsRoot, COMMIT_B);
+    await harness.versions.publish(v3.id, { buildId: COMMIT_B, commitSha: COMMIT_B, contract: next });
+    harness.ledger.mounted.set('stage/srs', buildDirFor(versionsRoot, 'v3', COMMIT_B));
+    harness.published.bindings = portPlanFor(next.ports, row().port_slot).map(port => ({ ...port, project: 'stage' }));
+    await harness.orchestrator.startDeploy(row(), ['srs']);
+    harness.runner.finish(1);
+    await untilRunning(harness.profiles, 'stage');
+    const held = await harness.profiles.reservations.listByProfile('stage');
+    for (const port of old) {
+      assert.equal(held.some(row => row.port === port.port && row.protocol === port.protocol), port.service !== 'srs');
+    }
+    assert.ok(held.some(port => port.service === 'srs' && port.state === 'active'));
+  });
+
   it('observes what each service mounts, and resolves the job reference the observation covers', async () => {
     const { harness, row, versionsRoot } = await setup();
     const buildA = buildDirFor(versionsRoot, 'v3', COMMIT_A);
