@@ -17,6 +17,7 @@ import { StampService } from '../domain/StampService.js';
 import { StackVersionService } from '../domain/versions/StackVersionService.js';
 import type { DeploymentOrchestrator } from '../domain/DeploymentOrchestrator.js';
 import type { VerifiedDeployTargets } from '../domain/ports/VerifiedDeployTargets.js';
+import type { FirewallInventoryExporter } from '../domain/ports/FirewallInventoryExporter.js';
 import type { PortReservationRepository } from '../domain/ports/PortReservationRepository.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
@@ -62,6 +63,7 @@ export interface ApiDeps {
   deployTargets: VerifiedDeployTargets;
   portReservations: PortReservationRepository;
   portInventory?: PortInventory;
+  firewallInventory?: FirewallInventoryExporter;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -102,7 +104,7 @@ export function startApiServer(
     createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
   );
   app.use('/profiles', createProfilesRouter(deps.profileService));
-  app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory));
+  app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));
   app.use('/', createActionsRouter(deps.deployService));

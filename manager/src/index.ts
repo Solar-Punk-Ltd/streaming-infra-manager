@@ -35,6 +35,9 @@ import { PostgresStackVersionRepository } from './domain/versions/PostgresStackV
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
 import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
+import { FirewallInventoryExporter } from './domain/ports/FirewallInventoryExporter.js';
+import { PostgresFirewallStateSource } from './domain/ports/PostgresFirewallStateSource.js';
+import { ImmutableFirewallContractReader } from './domain/ports/ImmutableFirewallContractReader.js';
 import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
 import { TargetDocker } from './domain/ports/TargetDocker.js';
 import { PortInventory } from './domain/ports/PortInventory.js';
@@ -248,6 +251,7 @@ async function main(): Promise<void> {
     logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
   }
   const portInventory = new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker);
+  const firewallInventory = new FirewallInventoryExporter(new PostgresFirewallStateSource(database.pool), targetDocker, new ImmutableFirewallContractReader());
   try {
     await portInventory.seed();
   } catch (err) {
@@ -321,6 +325,7 @@ async function main(): Promise<void> {
       orchestrator,
       deployTargets,
       portInventory,
+      firewallInventory,
       portReservations,
       eventBus,
       metricsCollector,
