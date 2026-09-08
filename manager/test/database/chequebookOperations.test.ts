@@ -173,6 +173,30 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
   });
 
+  it('preserves candidate evidence against unrelated or competing manual hashes and later empty observations', async () => {
+    const unknown = await unknownOperation();
+    const first = recoveryTransaction();
+    const partial = await repository.recordRecovery(unknown, {
+      kind: 'searching', candidateHashes: [transactionHash],
+      scan: { ...noMatch.scan, complete: false, candidateHashes: [transactionHash] },
+    }, [first]);
+    const wrong = await repository.resolveCandidate(partial, recoveryTransaction({ hash: `0x${'91'.repeat(32)}`, data: '0x' }));
+    assert.deepEqual(wrong.recoveryObservation?.candidateHashes, [transactionHash]);
+    assert.equal(wrong.transactionHash, null);
+    const other = recoveryTransaction({ hash: `0x${'92'.repeat(32)}`, nonce: '10' });
+    const ambiguous = await repository.resolveCandidate(wrong, other);
+    assert.equal(ambiguous.transactionHash, null);
+    assert.equal(ambiguous.recoveryObservation?.kind, 'ambiguous');
+    assert.deepEqual(ambiguous.recoveryObservation?.candidateHashes, [transactionHash, other.hash]);
+    const vanished = await repository.recordRecovery(ambiguous, { kind: 'could_not_check', reason: 'rpc_unavailable', candidateHashes: [] }, []);
+    assert.deepEqual(vanished.recoveryObservation?.candidateHashes, [transactionHash, other.hash]);
+    const empty = await repository.recordRecovery(vanished, noMatch, []);
+    assert.notEqual(empty.recoveryObservation?.kind, 'no_match');
+    assert.deepEqual(empty.recoveryObservation?.candidateHashes, [transactionHash, other.hash]);
+    await assert.rejects(repository.assertNoSubmission(empty, assertion), /search/i);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('enforces hash uniqueness at the database boundary and permits the same hash on a different chain', async () => {
     const a = await submittedOperation();
     await repository.recordReceipt(a, confirmed);
