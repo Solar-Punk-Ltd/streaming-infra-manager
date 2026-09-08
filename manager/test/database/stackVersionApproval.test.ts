@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
+import type { StackContract } from '@streaming-infra-manager/common';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
@@ -51,6 +52,40 @@ describe('build approval in isolated PostgreSQL schemas', { skip: !Number.isInte
     assert.equal(await repository.setTested(id, true, COMMIT, BUILD), null);
     assert.equal((await repository.findById(id))?.tested, false);
     assert.equal((await repository.setTested(id, true, COMMIT, REBUILD))?.tested, true);
+  });
+
+  it('persists actual invalidation dates and retains the default across publication', async () => {
+    const contract = {} as StackContract;
+    assert.equal((await repository.findById(id))?.testedInvalidatedAt, null);
+    await repository.setTested(id, true, COMMIT, BUILD);
+    await repository.publish(id, { commitSha: COMMIT, buildId: BUILD, contract });
+    assert.equal((await repository.findById(id))?.tested, true);
+    assert.equal((await repository.findById(id))?.testedInvalidatedAt, null);
+    await repository.publish(id, { commitSha: COMMIT, buildId: REBUILD, contract });
+    const invalidated = (await repository.findById(id))!;
+    assert.ok(invalidated.testedInvalidatedAt instanceof Date);
+    assert.equal(invalidated.isDefault, true);
+    assert.equal(invalidated.tested, false);
+    await repository.publish(id, { commitSha: COMMIT, buildId: `${COMMIT}-r2`, contract });
+    assert.deepEqual((await repository.findById(id))?.testedInvalidatedAt, invalidated.testedInvalidatedAt);
+    await repository.setTested(id, true, COMMIT, `${COMMIT}-r2`);
+    assert.equal((await repository.findById(id))?.testedInvalidatedAt, null);
+    await repository.setTested(id, false);
+    assert.equal((await repository.findById(id))?.testedInvalidatedAt, null);
+  });
+
+  it('dates bundled and legacy invalidations but never backfills an old unknown approval', async () => {
+    const contract = {} as StackContract;
+    await pool.query("UPDATE stack_versions SET layout = 'legacy', build_id = NULL WHERE id = $1", [id]);
+    await repository.setTested(id, true, COMMIT);
+    await repository.setCommitSha(id, 'b'.repeat(40));
+    assert.ok((await repository.findById(id))?.testedInvalidatedAt instanceof Date);
+    await repository.setTested(id, true, 'b'.repeat(40));
+    await repository.markBuilt(id, { commitSha: COMMIT, contract });
+    assert.ok((await repository.findById(id))?.testedInvalidatedAt instanceof Date);
+    await repository.setTested(id, false);
+    await repository.setCommitSha(id, 'b'.repeat(40));
+    assert.equal((await repository.findById(id))?.testedInvalidatedAt, null);
   });
 
   it('refuses unknown identity at the write boundary and permits withdrawal while building', async () => {
