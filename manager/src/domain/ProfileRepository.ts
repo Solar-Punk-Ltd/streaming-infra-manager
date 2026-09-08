@@ -281,14 +281,10 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
-    return this.deleteProfile(name);
-  }
-
   private async deleteProfile(
     name: string,
-    claim?: ProfileRemovalClaim,
-    cleanFiles?: () => Promise<void>,
+    claim: ProfileRemovalClaim,
+    cleanFiles: () => Promise<void>,
   ): Promise<{ port_slot: number } | null> {
     const client = await this.pool.connect();
     try {
@@ -298,7 +294,7 @@ export class ProfileRepository {
         'SELECT status, instance_id, intent_revision FROM profiles WHERE name = $1 FOR UPDATE', [name],
       );
       const row = selected.rows[0];
-      if (!row || (claim && (row.instance_id !== claim.instance_id || row.intent_revision !== claim.intent_revision || row.status !== 'REMOVING'))) {
+      if (!row || row.instance_id !== claim.instance_id || row.intent_revision !== claim.intent_revision || row.status !== 'REMOVING') {
         await client.query('COMMIT');
         return null;
       }
@@ -309,7 +305,7 @@ export class ProfileRepository {
       );
       if (held.rows[0]?.blocked) throw new ProfileConfigError(name, 'An unresolved deploy attempt or rollback operation still holds this deployment.');
       // Keep the row locked and its name occupied until all name-owned files are gone.
-      await cleanFiles?.();
+      await cleanFiles();
       await client.query('DELETE FROM port_reservations WHERE profile_name = $1', [name]);
       await client.query(
         `UPDATE build_references SET resolved_at = NOW() WHERE resolved_at IS NULL

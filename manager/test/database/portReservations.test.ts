@@ -183,18 +183,20 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
   }
 
   it('deletes the profile and its reservations together after removal and resolves its build references', async () => {
-    await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const claimed = await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    assert.ok(claimed);
     await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES (1, 'old', 'job', 'a', '{srs}')");
-    await profiles.deleteByName('a');
+    await profiles.completeRemoval(claimed, async () => {});
     assert.equal(await profiles.findByName('a'), null);
     assert.deepEqual(await ports.listByProfile('a'), []);
     assert.equal((await pool.query("SELECT * FROM build_references WHERE holder_id = 'a' AND resolved_at IS NULL")).rowCount, 0);
   });
 
   it('refuses database removal while an attempt can still create containers, retaining the entire profile', async () => {
-    await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const claimed = await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    assert.ok(claimed);
     await pool.query("INSERT INTO deploy_attempts (daemon_id, project, job_id, kind) VALUES ('daemon', 'a', 'orphan', 'fixed')");
-    await assert.rejects(profiles.deleteByName('a'), /unresolved|attempt/);
+    await assert.rejects(profiles.completeRemoval(claimed, async () => {}), /unresolved|attempt/);
     assert.ok(await profiles.findByName('a'));
     assert.equal((await ports.listByProfile('a')).length, 2);
   });
