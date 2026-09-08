@@ -87,8 +87,7 @@ after(async () => {
   try { await exited; } finally { clearTimeout(timeout); }
 });
 
-async function profileFor(engine) {
-  const name = `mock-observation-${nextProfile++}`;
+async function profileFor(engine, name = `mock-observation-${nextProfile++}`) {
   await request('/profiles', 'POST', {
     name, kind: 'custom', components: [engine, 'stream-uploader'], stack_version_id: 2,
     engine_settings: { HLS_FRAGMENT: '7', HLS_WINDOW: '45', HLS_SEGMENT_DURATION: '7', OME_HLS_POLL_INTERVAL_MS: '750' },
@@ -175,5 +174,52 @@ describe('stored config observations over authenticated mock HTTP', { concurrenc
     const reset = await profile.overview();
     assert.equal(reset.effective.HLS_SEGMENT_DURATION, '7');
     assert.equal(reset.observations.HLS_SEGMENT_DURATION.source, 'deployment');
+  });
+
+  it('forgets a removed deployment config before the name is reused', async () => {
+    const profile = await profileFor('ome');
+    await profile.put(omeLiteral(profile.template));
+    await profile.settled();
+    await request(`/profiles/${profile.name}`, 'DELETE');
+    await until('/profiles', result => result.profiles.every(row => row.name !== profile.name));
+    const replacement = await profileFor('ome', profile.name);
+    assert.equal((await request(replacement.path)).config, null);
+    assert.equal((await replacement.overview()).observations.HLS_SEGMENT_DURATION.source, 'deployment');
+  });
+
+  it('a delayed apply completion cannot restore the removed instance config over its replacement', async () => {
+    const profile = await profileFor('ome');
+    const original = omeLiteral(profile.template);
+    await profile.put(original);
+    await profile.settled();
+    await profile.put(original.replace('<SegmentDuration>4', '<SegmentDuration>5') + '\n<!-- fail -->');
+    const removed = await request(`/profiles/${profile.name}`, 'DELETE');
+    await until('/profiles', result => result.profiles.every(row => row.name !== profile.name));
+    const replacement = await profileFor('ome', profile.name);
+    const current = await replacement.settled();
+    assert.notEqual(current.instance_id, removed.instance_id);
+    assert.equal(current.engine_config_state, null);
+    assert.equal((await request(replacement.path)).config, null);
+    assert.equal((await replacement.overview()).effective.HLS_SEGMENT_DURATION, '7');
+  });
+
+  it('a removed instance watch cannot overwrite replacement config or its previous-file recovery', async () => {
+    const profile = await profileFor('ome');
+    const original = omeLiteral(profile.template);
+    await profile.put(original.replace('<SegmentDuration>4', '<SegmentDuration>5') + '\n<!-- crash -->');
+    await until(`/profiles/${profile.name}`, row => row.engine_config_state === 'watching');
+    await request(`/profiles/${profile.name}`, 'DELETE');
+    await until('/profiles', result => result.profiles.every(row => row.name !== profile.name));
+    const replacement = await profileFor('ome', profile.name);
+    const replacementConfig = omeLiteral(replacement.template).replace('<SegmentDuration>4', '<SegmentDuration>6');
+    await replacement.put(replacementConfig);
+    await replacement.settled();
+    assert.equal((await request(replacement.path)).config, replacementConfig);
+    await replacement.put(replacementConfig.replace('<SegmentDuration>6', '<SegmentDuration>7') + '\n<!-- interrupt -->');
+    await until(`/profiles/${profile.name}`, row => row.engine_config_state === 'interrupted');
+    await request(`${replacement.path}/restore-previous`, 'POST');
+    await replacement.settled();
+    assert.equal((await request(replacement.path)).config, replacementConfig);
+    assert.equal((await replacement.overview()).effective.HLS_SEGMENT_DURATION, '6');
   });
 });
