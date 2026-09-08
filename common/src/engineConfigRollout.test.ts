@@ -54,10 +54,10 @@ describe('rolloutNotice', () => {
     assert.deepEqual(notice?.offers, ['verify']);
   });
 
-  it('offers both ways out of an interruption', () => {
+  it('offers both ways out of an interruption without assuming a restart', () => {
     const notice = rolloutNotice('interrupted', ON_FILE);
     assert.equal(notice?.severity, 'warning');
-    assert.equal(notice?.title, 'The rollout was interrupted by a manager restart.');
+    assert.equal(notice?.title, 'The config rollout was interrupted.');
     assert.deepEqual(notice?.offers, ['verify', 'previous']);
   });
 
