@@ -75,6 +75,7 @@ export interface WizardStepProps {
   state: WizardState;
   context: WizardContext;
   update: (patch: Partial<WizardState>) => void;
+  onCreatePool?: () => void;
 }
 
 /** Everything the wizard reads about what already exists on this manager. */

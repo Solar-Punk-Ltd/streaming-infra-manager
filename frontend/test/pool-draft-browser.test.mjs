@@ -34,7 +34,8 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   let globalsReady = false;
   let nodeMode = 'unfunded';
   let holdRefresh = true;
-  const writes = [], held = [], refreshes = [];
+  let holdAfterWrite = 0;
+  const writes = [], held = [], refreshes = [], freshMembership = [];
   const server = await createServer({ root: frontend, configFile: false,
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
@@ -59,7 +60,10 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
         if (path === '/auth/session') return signedIn ? json({ username: 'pool-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' }) : json({}, 401);
         if (path === '/profiles' || path === '/groups') {
           const reply = () => json(path === '/profiles' ? { profiles: globalsReady ? profiles : [] } : { groups: globalsReady ? [group] : [] });
-          if (writes.length && holdRefresh) refreshes.push(reply); else reply();
+          if (writes.length > holdAfterWrite && holdRefresh) {
+            const uncached = /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
+            (uncached ? freshMembership : refreshes).push({ path, reply });
+          } else reply();
           return;
         }
         if (path === '/versions') return json([version]);
@@ -82,9 +86,20 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);
   const { call, evaluate } = browser;
+  await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
   const body = () => evaluate('document.body.innerText');
-  const click = text => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw Error('Missing button: ' + ${JSON.stringify(text)}); button.click(); })()`);
-  const choose = text => evaluate(`(() => { const choice = [...document.querySelectorAll('[role=radio], label')].find(node => node.innerText.split('\\n')[0].trim() === ${JSON.stringify(text)}); if (!choice) throw Error('Missing choice'); choice.click(); })()`);
+  const click = async text => {
+    const selector = `([...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)} && !button.disabled))`;
+    await waitFor(() => evaluate(`!!${selector}`), Boolean, `enabled button ${text}`);
+    await evaluate(`${selector}.click()`);
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  };
+  const choose = async text => {
+    const selector = `([...document.querySelectorAll('input[type=radio], [role=radio], label')].find(node => node.getAttribute('aria-label') === ${JSON.stringify(text)} || node.textContent.trim().startsWith(${JSON.stringify(text)})))`;
+    await waitFor(() => evaluate(`!!${selector}`), Boolean, `choice ${text}`);
+    await evaluate(`${selector}.click()`);
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  };
   const fill = (selector, value) => evaluate(`(() => { const input = document.querySelector(${JSON.stringify(selector)}); if (!input) throw Error('Missing input'); Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   const close = () => evaluate(`document.querySelector('[role=dialog] button[aria-label="close"]').click()`);
   const next = async () => { await click('Continue'); await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'); };
@@ -108,6 +123,10 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     assert.equal(await evaluate(`document.querySelector('input[placeholder="0x plus 64 hex characters"]')?.value === ${JSON.stringify(key)}`), true);
     assert.equal(await evaluate(`localStorage.length === 0 && sessionStorage.length === 0`), true);
     assert.equal(await evaluate(`location.href.includes('retained-uploader') || location.href.includes(${JSON.stringify(passphrase)})`), false);
+    await click('Back');
+    assert.equal(await evaluate(`document.querySelector('input[placeholder="main-stage"]').value`), 'retained-uploader');
+    assert.equal(await evaluate(`document.querySelector('textarea[placeholder="What is this for?"]').value`), 'retained note');
+    await next();
   };
   await call('Page.navigate', { url: `${origin}/#/` });
   await waitFor(body, text => text.includes('New deployment'));
@@ -117,6 +136,8 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await click('Return to uploader'); await assertDraft();
   await createPool();
   await waitFor(body, text => text.includes('Storage pool created and selected'), 'successful return');
+  await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership');
+  globalsReady = true; freshMembership.splice(0).forEach(entry => entry.reply());
   await assertDraft();
   assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]').textContent.includes('chosen-pool')`), true);
   await waitFor(body, text => text.includes('Node needs funding') && text.includes('Needs a stamp'), 'funding and stamp blockers');
@@ -126,16 +147,33 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   assert.equal(writes[0].body.notes, null);
   assert.equal(writes[0].body.stack_version_id, 7);
   await mkdir('/private/tmp/t15-browser-evidence', { recursive: true });
+  await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('[role=dialog] .MuiCollapse-entered')`), Boolean, 'expanded node details');
+  await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').scrollIntoView({ block: 'start' })`);
   const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
   await writeFile('/private/tmp/t15-browser-evidence/pool-prerequisites.png', Buffer.from(data, 'base64'));
   nodeMode = 'unknown'; await click('Refresh pool checks');
   await waitFor(body, text => text.includes('Bee API not checked') && text.includes('Funding not checked'), 'unknown observations');
-  await waitFor(() => refreshes.length, count => count >= 2, 'post-acceptance authoritative refresh');
-  holdRefresh = false; refreshes.splice(0).forEach(reply => reply());
+  holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
+  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+  globalsReady = false; await call('Page.reload');
+  await waitFor(body, text => text.includes('New deployment'));
+  // A fresh absence wins over older positive list responses, even before the store caught up.
+  holdAfterWrite = writes.length; holdRefresh = true;
+  await startUploader(); await createPool();
+  await waitFor(body, text => text.includes('Storage pool created and selected'), 'second accepted pool');
+  await waitFor(() => freshMembership.length, count => count === 2, 'independent no-store membership pair');
+  assert.deepEqual(freshMembership.map(entry => entry.path).sort(), ['/groups', '/profiles']);
+  assert.ok(refreshes.length >= 2, 'older ordinary reads remain held independently');
+  freshMembership.splice(0).forEach(entry => entry.reply());
   await waitFor(body, text => text.includes('no longer available as a compatible pool'), 'deleted before initial catch-up');
+  globalsReady = true; holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
+  await waitFor(body, text => text.includes('chosen-pool-360p'));
   assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]')?.textContent.includes('chosen-pool') ?? false`), false);
   await assertDraft();
   await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+  globalsReady = false; await call('Page.reload');
+  await waitFor(body, text => text.includes('New deployment'));
   // Incompatible and refused creation keep the original uploader choice and draft.
   for (const mode of ['incompatible', 'null', 'malformed-member', 'failed']) {
     resultMode = mode; await startUploader(); await createPool();
