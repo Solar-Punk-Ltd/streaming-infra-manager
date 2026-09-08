@@ -993,6 +993,7 @@ export class ProfileService {
    * a group is too: leaving its members STOPPED under a "Deploying" toast said
    * one thing and did another. Each member is read back after its start, so the
    * response carries the status and reason for the ones that did not take.
+   * A replacement with the same name is not part of this creation response.
    */
   private async deployNewMembers(
     created: readonly Profile[],
@@ -1001,8 +1002,9 @@ export class ProfileService {
     for (const member of created) {
       this.publishChanged(await this.containers.withContainers(member));
       await this.startMember(member);
-      const latest = (await this.repo.findByName(member.name)) ?? member;
-      profiles.push(await this.containers.withContainers(latest));
+      const latest = await this.repo.findByName(member.name);
+      const owned = latest?.instance_id === member.instance_id ? latest : member;
+      profiles.push(await this.containers.withContainers(owned));
     }
     return profiles;
   }
