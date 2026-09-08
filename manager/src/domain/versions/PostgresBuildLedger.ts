@@ -1,10 +1,10 @@
 import type { Pool, PoolClient } from 'pg';
 import { isDeepStrictEqual } from 'node:util';
-import { parseStackContract } from '@streaming-infra-manager/common';
+import { BUNDLED_VERSION_NAME, parseStackContract } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../../types/index.js';
 import { ProfileConfigError } from '../errors/index.js';
-import { PROFILE_COLUMNS } from '../profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS } from '../profileSql.js';
 
 import {
   type BuildDescriptor,
@@ -24,6 +24,7 @@ import {
 import { readBuildManifest } from './buildManifest.js';
 import { deployRootProblem, stackRootOf } from './stackPaths.js';
 import type { StackVersionRecord } from './StackVersionRepository.js';
+import { readPendingShipmentBuildIds } from './PostgresBundledShipmentRepository.js';
 
 const REFERENCE_COLUMNS = `
   id, version_id, build_id, holder_kind, holder_id, services, created_at, resolved_at
@@ -90,6 +91,13 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     private readonly versionsRoot: string,
   ) {}
 
+  async cancelUnstarted(profileName: string, referenceId: number): Promise<void> {
+    await this.pool.query(
+      "UPDATE build_references SET resolved_at = NOW() WHERE id = $1 AND holder_kind = 'job' AND holder_id = $2 AND resolved_at IS NULL",
+      [referenceId, profileName],
+    );
+  }
+
   async claim(
     profileName: string,
     from: readonly ProfileStatus[],
@@ -104,7 +112,9 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
       }
       const claimed = await client.query<Profile>(
         `UPDATE profiles
-            SET status = 'DEPLOYING', last_error = NULL, last_error_at = NULL, updated_at = NOW()
+            SET status = 'DEPLOYING',
+                deployment_phase = ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL},
+                last_error = NULL, last_error_at = NULL, updated_at = NOW()
           WHERE name = $1 AND status = ANY($2::text[])
           RETURNING ${PROFILE_COLUMNS}`,
         [profileName, from],
@@ -295,8 +305,16 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     }
   }
 
+  async pendingShipmentBuildIds(versionId: number): Promise<string[]> {
+    return readPendingShipmentBuildIds(this.pool, versionId);
+  }
+
   /** The version a root belongs to, by the version name in its path, or null for the bundled checkout and anything else. */
   private async versionOfRoot(client: PoolClient, root: string): Promise<number | null> {
+    if (root === stackRootOf({ rootPath: null })) {
+      const found = await client.query<{ id: number }>('SELECT id FROM stack_versions WHERE name = $1', [BUNDLED_VERSION_NAME]);
+      return found.rows[0]?.id ?? null;
+    }
     if (!root.startsWith(`${this.versionsRoot}/`)) return null;
     const first = root.slice(this.versionsRoot.length + 1).split('/')[0] ?? '';
     const name = first.replace(/\.(builds|repo)$/, '');

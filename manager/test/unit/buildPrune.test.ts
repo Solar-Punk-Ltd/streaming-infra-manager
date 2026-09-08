@@ -30,11 +30,12 @@ const CONTRACT: StackContract = {
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const A = 'a'.repeat(40);
@@ -75,7 +76,7 @@ beforeEach(async () => {
     new FakeScriptSpawner(),
     new EventBus(),
     versionsRoot,
-    { openReferences: async (id) => references.filter((r) => r.versionId === id && r.resolvedAt === null) },
+    { openReferences: async (id) => references.filter((r) => r.versionId === id && r.resolvedAt === null), pendingShipmentBuildIds: async () => [] },
   );
   const v3 = await repository.insert({ name: 'v3', gitRef: 'main-v3', rootPath: join(versionsRoot, 'v3') });
   versionId = v3.id;

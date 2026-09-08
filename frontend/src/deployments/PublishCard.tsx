@@ -5,7 +5,8 @@ import { OME_SERVICE } from '@streaming-infra-manager/common';
 import { CopyBox } from '../components/CopyBox';
 import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
-import { engineOf, isRunning } from './shape';
+import { engineOf } from './shape';
+import { deploymentProgressText } from './deploymentPhase';
 
 /**
  * Which passphrase is already baked into the URL on screen.
@@ -38,25 +39,15 @@ export function PublishCard({
   profile: Profile;
   url: string;
   hostPassphrase: string | null;
-  /** False while the checklist is unfinished, so ingest works but Swarm does not. */
+  /** Whether all currently observed prerequisites pass the checklist. */
   ready: boolean;
 }) {
   return (
     <SectionCard title="Publish" sub="OBS, FFmpeg or any SRT sender">
       <Stack spacing={1.25}>
-        {!isRunning(profile) ? (
-          <Alert severity="info">
-            Ingest is down while the deployment is stopped. Start it, then
-            publish to this URL.
-          </Alert>
-        ) : (
-          !ready && (
-            <Alert severity="warning">
-              Ingest is up, but nothing reaches Swarm until the checklist above
-              is complete.
-            </Alert>
-          )
-        )}
+        <Alert severity={ready ? 'info' : 'warning'}>
+          {deploymentProgressText(profile)}
+        </Alert>
         <CopyBox value={url} />
         <Typography variant="caption" color="text.secondary">
           {passphraseNote(profile, hostPassphrase)} Change{' '}

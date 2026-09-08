@@ -1,4 +1,8 @@
-import type { EngineSettings } from '@streaming-infra-manager/common';
+import type {
+  DeploymentPhase,
+  EngineConfigState,
+  EngineSettings,
+} from '@streaming-infra-manager/common';
 
 import type { ProfileKind, ProfileStatus } from './types';
 
@@ -35,9 +39,18 @@ export interface Profile {
   engine_settings: EngineSettings;
   /** The engine runs on a config file of this deployment's own, not the stack's template. */
   has_engine_config: boolean;
-  /** Why the last config file apply was reverted, or null. */
+  /** Why the latest config file rollout did not end applied, or null. */
   engine_config_error: string | null;
+  /** Where the latest config file rollout stands, or null before the first. */
+  engine_config_state: EngineConfigState | null;
+  /** The deployment as it exists now. A removed and recreated name is another instance. */
+  instance_id: string;
+  /** Moves with every config file write. */
+  engine_config_revision: number;
+  /** Moves whenever an operator acts on the deployment. */
+  intent_revision: number;
   status: ProfileStatus;
+  deployment_phase?: DeploymentPhase | null;
   last_error: string | null;
   last_error_at: string | null;
   /** The commit of the last deploy that touched every service and found them agreeing, or null. */

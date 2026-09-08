@@ -12,7 +12,7 @@ import { readBuildManifest } from './buildManifest.js';
  * leave it unresolved and the build stays. A later claim adds its own
  * reference and never touches an older one.
  */
-export type BuildReferenceHolder = 'job' | 'snapshot' | 'operation';
+export type BuildReferenceHolder = 'job' | 'snapshot' | 'operation' | 'execution';
 
 export interface BuildReference {
   id: number;

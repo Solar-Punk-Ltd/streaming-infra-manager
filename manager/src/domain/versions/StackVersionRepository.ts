@@ -55,6 +55,12 @@ export interface PublishOutcome {
   buildId: string;
   commitSha: string;
   contract: StackContract;
+  /**
+   * The row's root from this publication on, for a row that had none: the
+   * bundled version gets its config root when its first shipped build is
+   * published, and deploys from its builds from then on.
+   */
+  rootPath?: string;
 }
 
 /**

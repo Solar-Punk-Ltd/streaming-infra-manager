@@ -48,18 +48,31 @@ beforeEach(() => {
   runner = new FakeScriptSpawner();
   bus = new EventBus();
   events = [];
+  landed = 0;
   bus.subscribe((event) => events.push(event.type));
-  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] });
+  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
 });
 
 /** Waits until no version is building any more, which is when the outcome is recorded. */
+/** How many builds the test has waited out, so the wait below knows how many announcements to expect. */
+let landed = 0;
+
+/**
+ * Waits for a build to land: no row building, and the service's own
+ * announcement of it seen. The row leaves `building` before the service
+ * prunes and announces, so a wait on the row alone let a test read the
+ * events a moment too early on a loaded laptop, and the suite runs its
+ * files in parallel.
+ */
 const settled = async (): Promise<void> => {
-  for (let tick = 0; tick < 600; tick += 1) {
+  landed += 1;
+  for (let tick = 0; tick < 2000; tick += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
     const rows = await repository.list();
-    if (!rows.some((row) => row.status === 'building')) return;
+    const announced = events.filter((event) => event === 'version.changed').length;
+    if (!rows.some((row) => row.status === 'building') && announced >= landed) return;
   }
-  throw new Error('a version is still building');
+  throw new Error('a version is still building, or was never announced');
 };
 
 /**
@@ -107,11 +120,17 @@ describe('adding a version', () => {
     ]);
   });
 
-  it('lands ready with the commit the build exported and the contract it read', async () => {
+  it('lands ready with the commit the build exported and the contract it read', { timeout: 5000 }, async (context) => {
     await service.add('v3', 'main-v3');
     built('v3');
+    const changed = new Promise<void>((resolve) => {
+      const unsubscribe = bus.subscribe((event) => {
+        if (event.type === 'version.changed') resolve();
+      });
+      context.after(unsubscribe);
+    });
     runner.finish(0, 'cloning\nbuilt\n');
-    await settled();
+    await changed;
 
     const version = await repository.findByName('v3');
     assert.equal(version?.status, 'ready');
@@ -415,7 +434,7 @@ describe('the tested flag', () => {
 
 describe('the bundled version at boot', () => {
   it('records the commit and reads the contract from its own checkout', async () => {
-    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    await service.syncBundled(V3_FIXTURE, COMMIT);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, COMMIT);
@@ -423,7 +442,7 @@ describe('the bundled version at boot', () => {
   });
 
   it('keeps the row when the checkout cannot be read, with no commit', async () => {
-    await service.refreshBundled(join(versionsRoot, 'nowhere'), null);
+    await service.syncBundled(join(versionsRoot, 'nowhere'), null);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, null);
@@ -441,7 +460,7 @@ describe('a build the manager was restarted during', () => {
       new FakeScriptSpawner(),
       bus,
       versionsRoot,
-      { openReferences: async () => [] },
+      { openReferences: async () => [], pendingShipmentBuildIds: async () => [] },
     );
 
     assert.deepEqual(await rebooted.failInterruptedBuilds(), ['v3']);

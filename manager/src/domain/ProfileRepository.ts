@@ -1,11 +1,14 @@
 import {
   type EngineSettings,
   nullify,
+  type StackPortVar,
 } from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
-import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { reserveSlotFor } from './ports/reservationSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 
 export interface ProfileWriteData {
@@ -26,8 +29,12 @@ export interface ProfileWriteData {
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
-  /** The highest slot that version's deploy script accepts. */
-  maxSlot: number;
+  /** The highest slot a deployment of the version may get: its own maximum, never above the manager's. */
+  slotCap: number;
+  /** The daemon the deployment's ports belong to, from `docker info`. */
+  daemonId: string;
+  /** The version's port table, every port of which the slot reserves. */
+  table: readonly StackPortVar[];
 }
 
 export class ProfileRepository {
@@ -62,21 +69,25 @@ export class ProfileRepository {
       await client.query('SELECT pg_advisory_xact_lock($1)', [
         PROFILE_SLOT_LOCK_KEY,
       ]);
+      // The slot and its reservations, in this transaction, so a deployment
+      // record and the ports it will bind appear together or not at all.
+      const slot = await reserveSlotFor(client, name, placement);
+      if (slot === null) {
+        await client.query('ROLLBACK');
+        return null;
+      }
       const result = await client.query<Profile>(
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
+           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id, deployment_phase
          )
-         SELECT $1, s.n, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-         FROM generate_series(1, $17::int) AS s(n)
-         LEFT JOIN profiles p ON p.port_slot = s.n
-         WHERE p.port_slot IS NULL
-         ORDER BY s.n
-         LIMIT 1
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
           name,
+          slot,
           kind,
           dataWithNullFields.notes,
           status,
@@ -92,7 +103,6 @@ export class ProfileRepository {
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
           placement.stackVersionId,
-          placement.maxSlot,
         ],
       );
       await client.query('COMMIT');
@@ -248,11 +258,33 @@ export class ProfileRepository {
   }
 
   async deleteByName(name: string): Promise<{ port_slot: number } | null> {
-    const result = await this.pool.query<{ port_slot: number }>(
-      'DELETE FROM profiles WHERE name = $1 RETURNING port_slot',
-      [name],
-    );
-    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+      const selected = await client.query<{ status: string }>('SELECT status FROM profiles WHERE name = $1 FOR UPDATE', [name]);
+      if (!selected.rows.length) {
+        await client.query('COMMIT');
+        return null;
+      }
+      if (selected.rows[0]!.status !== 'REMOVING') throw new ProfileConfigError(name, 'The deployment has not completed removal.');
+      const held = await client.query<{ blocked: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
+          OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS blocked`, [name],
+      );
+      if (held.rows[0]?.blocked) throw new ProfileConfigError(name, 'An unresolved deploy attempt or rollback operation still holds this deployment.');
+      await client.query('DELETE FROM port_reservations WHERE profile_name = $1', [name]);
+      await client.query(
+        `UPDATE build_references SET resolved_at = NOW() WHERE resolved_at IS NULL
+         AND ((holder_kind = 'job' AND holder_id = $1) OR (holder_kind = 'snapshot' AND split_part(holder_id, '/', 1) = $1))`, [name],
+      );
+      const result = await client.query<{ port_slot: number }>('DELETE FROM profiles WHERE name = $1 RETURNING port_slot', [name]);
+      await client.query('COMMIT');
+      return result.rows[0] ?? null;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally { client.release(); }
   }
 
   /** The commit of a deploy that touched every service and found them all on it. */
@@ -263,6 +295,22 @@ export class ProfileRepository {
     );
   }
 
+  /**
+   * An operator acted on the deployment: stop, start, edit, remove. Every
+   * conditional write of a config rollout names the intent it started under,
+   * so this ends an older rollout durably, a manager restart included.
+   */
+  async bumpIntent(name: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET intent_revision = intent_revision + 1, updated_at = NOW()
+       WHERE name = $1
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
   async transitionStatus(
     name: string,
     next: ProfileStatus,
@@ -271,6 +319,9 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = CASE
+               WHEN $2 = 'DEPLOYING' THEN ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL}
+               ELSE NULL END,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -285,6 +336,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = $2,
              last_error_at = NOW(),
              updated_at = NOW()
@@ -302,6 +354,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = NULL,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -316,6 +369,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = 'manager restarted while ' || status,
              last_error_at = NOW(),
              updated_at = NOW()

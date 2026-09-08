@@ -11,6 +11,7 @@
  * down over a typo would be the worst thing this feature could do.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,17 +53,21 @@ const { ProfileBusyError, ProfileConfigError } = await import(
 const { profileRow, profileServiceHarness } = await import(
   '../support/profileServiceHarness.js'
 );
+const { InMemoryEngineConfigOperations } = await import(
+  '../support/InMemoryEngineConfigOperations.js'
+);
 
 const V3_CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const OK: CommandResult = { code: 0, stdout: 'test is successful', stderr: '' };
@@ -116,19 +121,6 @@ async function setup(options: {
   if (options.supported ?? true) {
     await harness.versions.setContract(1, V3_CONTRACT);
   }
-  // The fake orchestrator finishes a run without marking the row RUNNING,
-  // which the real one does in the job's success hook. The revert takes a
-  // fresh claim, and a claim on a row still DEPLOYING is refused, so the
-  // fake is given that hook here.
-  const orchestrator = harness.orchestrator;
-  const runReserved = orchestrator.runReserved.bind(orchestrator);
-  orchestrator.runReserved = async (reservation, profile) => {
-    const handle = await runReserved(reservation, profile);
-    handle.emitter.once('done', () => {
-      void harness.profiles.markTerminal(profile.name, 'RUNNING');
-    });
-    return handle;
-  };
   const watcher = new ScriptedWatcher(options.states ?? [RUNNING]);
   const state = { checkerCalls: 0 };
   const checker = new EngineConfigChecker(async () => {
@@ -143,6 +135,7 @@ async function setup(options: {
     watcher,
     checker,
     harness.events,
+    new InMemoryEngineConfigOperations(harness.profiles),
     { intervalMs: 5, durationMs: 20 },
   );
   return {

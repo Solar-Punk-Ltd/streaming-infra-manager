@@ -41,16 +41,17 @@ const V3_CONTRACT: StackContract = {
       ...port,
       defaultPort: [3000, 10080, 1935, 8080, 5173, 1633, 1634, 1733, 1734][index]!,
     })),
-    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009 },
+    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009, protocol: 'tcp', service: 'srs' },
   ],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 async function v3On(harness: { versions: OrchestratorHarness['versions'] }): Promise<number> {
@@ -150,7 +151,7 @@ describe('the slot ceiling on creation', () => {
         kind: 'viewer',
         stack_version_id: capped.id,
       }),
-      (err: unknown) => err instanceof AllSlotsUsedError && /1-2 /.test(err.message),
+      (err: unknown) => err instanceof AllSlotsUsedError && /from 1 to 2 is taken/.test(err.message),
     );
     assert.equal(harness.profiles.rows.has('three'), false);
   });

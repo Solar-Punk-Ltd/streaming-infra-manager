@@ -50,6 +50,8 @@ export interface MountObserver {
  * observation, so a build stays until nothing may still mount it.
  */
 export interface BuildLedger {
+  /** Cancel only this job's reference when its caller knows no script was launched. Older jobs remain protected. */
+  cancelUnstarted(profileName: string, referenceId: number): Promise<void>;
   /**
    * Moves the profile to DEPLOYING from one of `from` and records the job
    * reference in the same write. Null when the status claim fails, and then
@@ -86,6 +88,7 @@ export interface BuildLedger {
  */
 export interface BuildReferenceReader {
   openReferences(versionId: number): Promise<BuildReference[]>;
+  pendingShipmentBuildIds(versionId: number): Promise<string[]>;
   /** Runs `work` while the version row is locked for update. */
   lockVersion?<T>(versionId: number, work: () => Promise<T>): Promise<T>;
 }

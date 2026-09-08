@@ -25,15 +25,16 @@ const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 const CONTRACT: StackContract = {
-  ports: [{ name: 'RTMP_PORT', defaultPort: 1935, slotBase: 19000 }],
+  ports: [{ name: 'RTMP_PORT', defaultPort: 1935, slotBase: 19000, protocol: 'tcp', service: 'srs' }],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: false },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'test/srs', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 function signal() {
@@ -85,7 +86,9 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
     const version = await versions.insert({ name: 'test-stack', gitRef: 'test', rootPath: join(root, 'test-stack') });
     await artifact(A);
     selected = (await versions.publish(version.id, { buildId: A, commitSha: A, contract: CONTRACT }))!;
-    await profiles.insertWithFreeSlot('test-profile', 'streamer', 'RUNNING', {}, { stackVersionId: selected.id, maxSlot: 99 });
+    await profiles.insertWithFreeSlot('test-profile', 'streamer', 'RUNNING', {}, {
+      stackVersionId: selected.id, slotCap: 99, daemonId: 'synthetic-daemon', table: CONTRACT.ports,
+    });
     await pool.query("UPDATE profiles SET last_error = 'previous failure', last_error_at = '2026-01-01' WHERE name = 'test-profile'");
   });
 

@@ -11,6 +11,7 @@
  * later version that does have one would pick up a file nobody applied.
  */
 import assert from 'node:assert/strict';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,15 +31,16 @@ const { orchestratorHarness, untilRunning } = await import(
 const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
 
 const WITH_HOOK: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const CONFIG = 'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n';

@@ -23,14 +23,14 @@ export function describeVersion(version: StackVersion): string {
 
 /**
  * Where the version deploys from: `build ee99c36` for a builds row, with
- * `-r2` and the like kept, `flat root` for a legacy one, `with the manager`
- * for the bundled checkout.
+ * `-r2` and the like kept, `flat root` for a legacy one, and for a bundled
+ * row never published, the tree that came with the manager.
  */
 export function describeBuild(version: StackVersion): string {
   if (version.layout === 'builds') {
     return version.buildId ? `build ${shortBuildId(version.buildId)}` : 'no build yet';
   }
-  return version.name === 'bundled' ? 'with the manager' : 'flat root';
+  return version.name === 'bundled' ? 'with the manager, legacy tree' : 'flat root';
 }
 
 /** The build the current one replaced, or an empty string. */
