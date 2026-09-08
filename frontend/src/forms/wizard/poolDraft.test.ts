@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { ABR_LADDER_SIZE, ABR_NODE_POOL_GROUP_KIND, ladderMemberNames } from '@streaming-infra-manager/common';
 import type { DeploymentGroup, Profile } from '../../types';
 import { beginPoolSetup, finishPoolSetup, overlayCreatedPool } from './poolDraft';
-import { initialWizardState, type WizardContext } from './wizardState';
+import { initialWizardState, poolValueIn, type WizardContext } from './wizardState';
 
 const context: WizardContext = { profiles: [], groups: [], serverHost: 'fixture.test', hostPassphrase: null, poolResults: new Map(), versions: [] };
 const uploader = {
@@ -84,5 +84,39 @@ describe('uploader draft round trip through pool creation', () => {
     assert.equal(overlayCreatedPool([group], [fresh], created).profiles.find(profile => profile.name === fresh.name)?.status, 'RUNNING');
     const unrelated = { ...group, id: 88, name: 'other-pool' };
     assert.deepEqual(overlayCreatedPool([unrelated], [], created).groups.map(pool => pool.id), [88, 79]);
+  });
+
+  it('retires the overlay after compatible store catch-up so later deletion stays deleted', () => {
+    const created = { group, profiles };
+    const waiting = overlayCreatedPool([group], profiles.slice(1), created);
+    assert.equal(waiting.profiles.length, ABR_LADDER_SIZE);
+    assert.equal(waiting.created, created);
+    const caughtUp = overlayCreatedPool([group], profiles, waiting.created);
+    assert.equal(caughtUp.created, null);
+    const removed = overlayCreatedPool([], [], caughtUp.created);
+    assert.deepEqual(removed.groups, []);
+    assert.deepEqual(removed.profiles, []);
+  });
+
+  it('does not repair conflicting authoritative membership with a stale accepted result', () => {
+    for (const changed of [
+      { groups: [{ ...group, size: 2 }], profiles: [] },
+      { groups: [group], profiles: [{ ...profiles[0], group_id: 987 }] },
+      { groups: [group], profiles: [{ ...profiles[0], components: ['client'] }] },
+    ]) {
+      const projected = overlayCreatedPool(changed.groups, changed.profiles, { group, profiles });
+      assert.equal(projected.created, null);
+      assert.deepEqual(projected.groups, changed.groups);
+      assert.deepEqual(projected.profiles, changed.profiles);
+    }
+  });
+
+  it('ignores an old pool string when the selected group or compatible members disappear', () => {
+    const poolResults = new Map([[group.id, { ready: true, value: 'fixture-pool', rungs: [], missing: [], warnings: [] }]]);
+    const current = { ...context, groups: [group], profiles, poolResults };
+    assert.equal(poolValueIn(current, group.id), 'fixture-pool');
+    assert.equal(poolValueIn({ ...current, groups: [] }, group.id), null);
+    assert.equal(poolValueIn({ ...current, profiles: profiles.slice(1) }, group.id), null);
+    assert.equal(poolValueIn({ ...current, groups: [{ ...group, kind: 'standard' }] }, group.id), null);
   });
 });
