@@ -49,8 +49,8 @@ export type EmptyGroupRemoval = 'deleted' | 'absent' | 'changed' | 'not_empty';
 export class DeploymentGroupRepository {
   constructor(private readonly pool: Pool) {}
 
-  async removeEmptyGroup(groupId: number, _expectedName: string): Promise<EmptyGroupRemoval> {
-    return (await this.syncMembershipAfterRemoval(groupId)) === 'deleted' ? 'deleted' : 'not_empty';
+  async removeEmptyGroup(groupId: number, expectedName: string): Promise<EmptyGroupRemoval> {
+    return this.updateAfterRemoval(groupId, expectedName);
   }
 
   async findByName(name: string): Promise<DeploymentGroup | null> {
@@ -79,29 +79,41 @@ export class DeploymentGroupRepository {
   async syncMembershipAfterRemoval(
     groupId: number,
   ): Promise<'deleted' | 'resized'> {
+    const result = await this.updateAfterRemoval(groupId);
+    return result === 'deleted' || result === 'absent' ? 'deleted' : 'resized';
+  }
+
+  private async updateAfterRemoval(groupId: number, expectedName?: string): Promise<EmptyGroupRemoval> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-
-      const deleted = await client.query(
-        `DELETE FROM deployment_groups g
-          WHERE g.id = $1
-            AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.group_id = $1)`,
-        [groupId],
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+      const group = await client.query<{ name: string }>(
+        'SELECT name FROM deployment_groups WHERE id = $1 FOR UPDATE', [groupId],
       );
-      if ((deleted.rowCount ?? 0) > 0) {
+      if (!group.rows[0]) {
+        await client.query('COMMIT');
+        return 'absent';
+      }
+      if (expectedName !== undefined && group.rows[0].name !== expectedName) {
+        await client.query('COMMIT');
+        return 'changed';
+      }
+      // Take a fresh statement snapshot after the parent lock waits for any FK insert.
+      const count = await client.query<{ count: number }>(
+        'SELECT COUNT(*)::integer AS count FROM profiles WHERE group_id = $1', [groupId],
+      );
+      const size = count.rows[0]!.count;
+      if (size === 0) {
+        await client.query('DELETE FROM deployment_groups WHERE id = $1', [groupId]);
         await client.query('COMMIT');
         return 'deleted';
       }
-
-      await client.query(
-        `UPDATE deployment_groups
-            SET size = (SELECT COUNT(*) FROM profiles WHERE group_id = $1)
-          WHERE id = $1`,
-        [groupId],
-      );
+      if (expectedName === undefined) {
+        await client.query('UPDATE deployment_groups SET size = $2 WHERE id = $1', [groupId, size]);
+      }
       await client.query('COMMIT');
-      return 'resized';
+      return 'not_empty';
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
