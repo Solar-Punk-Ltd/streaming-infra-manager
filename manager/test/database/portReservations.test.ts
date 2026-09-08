@@ -62,6 +62,60 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     assert.equal((await ports.listByProfile('a')).length, 2);
   });
 
+  it('persists per-daemon inventory without treating an unscanned daemon as ready', async () => {
+    await ports.markInventorySeeded();
+    assert.equal(await ports.inventorySeededAt('remote'), null);
+    await ports.markInventorySeeded('remote');
+    assert.ok(await ports.inventorySeededAt('remote'));
+    assert.equal(await ports.inventorySeededAt('other'), null);
+  });
+
+  it('retains unresolved job and rollback plans, then releases only observed superseded service ports', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const next = [{ ...entries[1]!, port: 20011 }];
+    await ports.plan('daemon', 'a', next, 'new build');
+    const observation = { profileName: 'a', daemonId: 'daemon', services: ['srs'], planned: next, bound: next };
+    for (const kind of ['job', 'operation']) {
+      const reference = await pool.query<{ id: number }>(
+        "INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES (1, 'old', $1, $2, '{srs}') RETURNING id",
+        [kind, kind === 'job' ? 'a' : 'rollback-operation'],
+      );
+      await ports.reconcile(observation);
+      assert.ok((await ports.listByProfile('a')).some(port => port.port === 10011));
+      await pool.query('UPDATE build_references SET resolved_at = NOW() WHERE id = $1', [reference.rows[0]!.id]);
+    }
+    await ports.reconcile(observation);
+    assert.deepEqual((await ports.listByProfile('a')).map(port => [port.port, port.state]), [[10010, 'planned'], [20011, 'active']]);
+  });
+
+  it('does not release stopped profiles or profiles with an unresolved creation attempt', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'STOPPED', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    const observation = { profileName: 'a', daemonId: 'daemon', services: ['srs'], planned: [], bound: [] };
+    await ports.reconcile(observation);
+    assert.equal((await ports.listByProfile('a')).length, 2);
+    await profiles.transitionStatus('a', 'DEPLOYING', ['STOPPED']);
+    await pool.query("INSERT INTO deploy_attempts (daemon_id, project, job_id, kind) VALUES ('daemon', 'a', 'orphan', 'fixed')");
+    await ports.reconcile(observation);
+    assert.equal((await ports.listByProfile('a')).length, 2);
+  });
+
+  it('deletes the profile and its reservations together after removal and resolves its build references', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES (1, 'old', 'job', 'a', '{srs}')");
+    await profiles.deleteByName('a');
+    assert.equal(await profiles.findByName('a'), null);
+    assert.deepEqual(await ports.listByProfile('a'), []);
+    assert.equal((await pool.query("SELECT * FROM build_references WHERE holder_id = 'a' AND resolved_at IS NULL")).rowCount, 0);
+  });
+
+  it('refuses database removal while an attempt can still create containers, retaining the entire profile', async () => {
+    await profiles.insertWithFreeSlot('a', 'viewer', 'REMOVING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
+    await pool.query("INSERT INTO deploy_attempts (daemon_id, project, job_id, kind) VALUES ('daemon', 'a', 'orphan', 'fixed')");
+    await assert.rejects(profiles.deleteByName('a'), /unresolved|attempt/);
+    assert.ok(await profiles.findByName('a'));
+    assert.equal((await ports.listByProfile('a')).length, 2);
+  });
+
   it('lets exactly one competing profile hold a port and names that owner to the others', async () => {
     const outcomes = await Promise.allSettled(Array.from({ length: 20 }, (_, n) => ports.plan('daemon', `p${n}`, entries, 'admission')));
     assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
