@@ -1,9 +1,12 @@
 import { TransferController } from '../src/transfers/TransferController';
 import { IndexedDbTransferIntentStore } from '../src/transfers/transferIntentStore';
+import { permitsNewTransfer, transferHeadline } from '../src/transfers/transferEvidence';
 import { chequebookAssertionConfirmation, type ChequebookAdmissionDetail, type ChequebookOperationDetail } from '@streaming-infra-manager/common';
 
 const profile = { name: 'synthetic-test', instanceId: '11111111-1111-4111-8111-111111111111' };
 const draft = { direction: 'deposit' as const, amountPlur: '5000000000000000' };
+const finalized = { kind: 'settled' as const, receiptBlockNumber: '501', receiptBlockHash: `0x${'77'.repeat(32)}`,
+  finalizedBlockNumber: '510', finalizedBlockHash: `0x${'88'.repeat(32)}` };
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -104,7 +107,7 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
   try {
     await h.controller.confirmNew(draft, null);
     const intent = h.controller.state.intent!;
-    const settled = { ...h.controller.state.detail!, operation: { ...h.controller.state.detail!.operation, state: 'settled' as const } };
+    const settled = { ...h.controller.state.detail!, operation: { ...h.controller.state.detail!.operation, state: 'settled' as const, receiptObservation: finalized } };
     h.setRecord(settled);
     await h.controller.restore();
     h.setRecord({ ...settled, responseEvidence: [{ transactionHash: `0x${'66'.repeat(32)}`, receivedAt: '2026-09-08T00:00:00.000Z', ownership: 'conflict' }] });
@@ -113,6 +116,12 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     h.setRecord({ operation: settled.operation } as ChequebookOperationDetail);
     await h.controller.confirmNew(draft, intent.requestId);
     assert(h.requests.length === 1 && h.generated() === 1, 'History summaries without complete response evidence cannot authorize replacement');
+    for (const patch of [{ receiptObservation: null }, { transactionHash: null },
+      { receiptObservation: { ...finalized, kind: 'reverted' as const } }, { receiptObservation: { ...finalized, finalizedBlockNumber: '499' } }]) {
+      h.setRecord({ ...settled, operation: { ...settled.operation, ...patch } });
+      await h.controller.confirmNew(draft, intent.requestId);
+      assert(h.requests.length === 1 && h.generated() === 1, 'A terminal label with missing or inconsistent receipt evidence cannot authorize replacement');
+    }
     h.setRecord(settled);
     await h.controller.confirmNew(draft, intent.requestId);
     assert(h.requests.length === 2 && h.requests[1] !== intent.requestId, 'Explicit confirmation may replace a fresh exact terminal record');
@@ -154,5 +163,20 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     assert(h.requests.length === 0 && h.controller.state.issue === 'storage_unavailable', 'Persistence failure refuses sending');
     tests.push('persistence failure refuses dispatch');
   } finally { await h.close(); }
+
+  const asserted = detail({ requestId: crypto.randomUUID(), accountId: 7, profileName: profile.name,
+    profileInstanceId: profile.instanceId, ...draft }, 'asserted');
+  assert(transferHeadline(asserted) === 'Operator assertion recorded', 'Assertion label remains prominent when older observations are unavailable');
+  assert(!permitsNewTransfer(asserted), 'A state string without the saved assertion cannot authorize replacement');
+  const confirmedAssertion = { ...asserted, operation: { ...asserted.operation, transactionHash: null,
+    assertion: { actor: 'user:7', amountPlur: draft.amountPlur, confirmation: asserted.assertionConfirmation, assertedAt: '2026-09-08T00:00:00.000Z' } } };
+  assert(permitsNewTransfer(confirmedAssertion), 'Exact recorded assertion may support the explicitly accepted duplicate-payment risk');
+  const conflictingAssertion = { ...confirmedAssertion, responseEvidence: [{ transactionHash: `0x${'99'.repeat(32)}`, receivedAt: '2026-09-08T00:00:00.000Z', ownership: 'conflict' as const }] };
+  assert(transferHeadline(conflictingAssertion) === 'Transaction evidence needs review' && !permitsNewTransfer(conflictingAssertion), 'Conflict evidence takes precedence over a terminal assertion');
+  const rejected = { ...asserted, operation: { ...asserted.operation, state: 'rejected' as const, transactionHash: null,
+    dispatchStartedAt: null, failureReason: 'preflight_failed' as const } };
+  assert(permitsNewTransfer(rejected), 'A recorded preflight refusal with no dispatch may support replacement');
+  assert(!permitsNewTransfer({ ...rejected, operation: { ...rejected.operation, dispatchStartedAt: '2026-09-08T00:00:00.000Z' } }), 'A dispatched operation cannot be treated as a preflight refusal');
+  tests.push('terminal actions and labels depend on consistent receipt, refusal or assertion evidence');
   return { passed: tests.length, tests };
 }
