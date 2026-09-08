@@ -1,4 +1,4 @@
-import type { TransferDirection } from '@streaming-infra-manager/common';
+import type { ChequebookOperation, TransferDirection } from '@streaming-infra-manager/common';
 
 export interface ConfirmedTransferInput {
   readonly requestId: string;
@@ -11,6 +11,21 @@ export interface ConfirmedTransferInput {
 }
 
 export type StoredTransferIntent = ConfirmedTransferInput;
+export type LinkedOperation = Pick<ChequebookOperation, 'id' | 'requestId' | 'profileName' | 'profileInstanceId' | 'requestedBy' |
+  'direction' | 'amountPlur' | 'chainId' | 'nodeAddress' | 'chequebookAddress' | 'tokenAddress'>;
+export interface ProvenTransferLink {
+  readonly requestId: string;
+  readonly accountId: number;
+  readonly operationId: string;
+  readonly chainId: number;
+  readonly nodeAddress: string;
+  readonly chequebookAddress: string;
+  readonly tokenAddress: string;
+}
+export interface TransferObservationLinks {
+  readonly own: ProvenTransferLink | null;
+  readonly blockingOperationId: string | null;
+}
 export type ConfirmedTransferResult = {
   readonly kind: 'created' | 'existing';
   readonly intent: StoredTransferIntent;
@@ -20,6 +35,10 @@ export interface TransferIntentStore {
   confirm(input: ConfirmedTransferInput, expectedCurrentRequestId: string | null): Promise<ConfirmedTransferResult>;
   current(accountId: number, profileInstanceId: string): Promise<StoredTransferIntent | null>;
   find(requestId: string): Promise<StoredTransferIntent | null>;
+  recordExact(requestId: string, operation: LinkedOperation): Promise<boolean>;
+  recordBlocking(requestId: string, operationId: string): Promise<void>;
+  links(requestId: string): Promise<TransferObservationLinks>;
+  related(accountId: number, chainId: number, nodeAddress: string): Promise<readonly ProvenTransferLink[]>;
 }
 
 export class TransferPersistenceError extends Error {
@@ -32,8 +51,12 @@ export class TransferPersistenceError extends Error {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const INTENTS = 'intents';
 const POINTERS = 'pointers';
+const LINKS = 'links';
+const BY_NODE = 'byNode';
 const DATABASE_NAME = 'streaming-infra-transfer-intents';
 type IntentPointer = { readonly scope: string; readonly requestId: string };
+type LinkRecord = { readonly requestId: string; readonly own: ProvenTransferLink | null; readonly blockingOperationId: string | null;
+  readonly nodeKey?: [number, number, string] };
 
 function uuid(value: unknown): string {
   if (typeof value !== 'string' || !UUID.test(value)) throw new TransferPersistenceError();
@@ -59,6 +82,22 @@ function savedIntent(value: unknown): StoredTransferIntent {
 function sameIntent(a: StoredTransferIntent, b: StoredTransferIntent): boolean {
   return a.requestId === b.requestId && a.accountId === b.accountId && a.profileName === b.profileName &&
     a.profileInstanceId === b.profileInstanceId && a.direction === b.direction && a.amountPlur === b.amountPlur && a.createdAt === b.createdAt;
+}
+
+export function isExactTransfer(intent: StoredTransferIntent, operation: LinkedOperation): boolean {
+  return operation.requestId === intent.requestId && operation.requestedBy === `user:${intent.accountId}` &&
+    operation.profileName === intent.profileName && operation.profileInstanceId === intent.profileInstanceId &&
+    operation.direction === intent.direction && operation.amountPlur === intent.amountPlur;
+}
+
+function provenLink(value: unknown): ProvenTransferLink | null {
+  if (!value || typeof value !== 'object') return null;
+  const link = value as ProvenTransferLink;
+  if (!Number.isSafeInteger(link.accountId) || link.accountId < 1 || !Number.isSafeInteger(link.chainId) || link.chainId < 1 ||
+      ![link.requestId, link.operationId].every(value => typeof value === 'string' && UUID.test(value)) ||
+      ![link.nodeAddress, link.chequebookAddress, link.tokenAddress].every(value => typeof value === 'string' && /^0x[0-9a-f]{40}$/.test(value))) return null;
+  return Object.freeze({ requestId: link.requestId, accountId: link.accountId, operationId: link.operationId,
+    chainId: link.chainId, nodeAddress: link.nodeAddress, chequebookAddress: link.chequebookAddress, tokenAddress: link.tokenAddress });
 }
 
 /** Read/CAS/write stays inside native request callbacks. Only transaction completion grants the caller a send permit. */
@@ -129,6 +168,72 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
     });
   }
 
+  async recordExact(requestId: string, operation: LinkedOperation): Promise<boolean> {
+    uuid(requestId);
+    return this.transaction('readwrite', (transaction, complete) => {
+      const saved = transaction.objectStore(INTENTS).get(requestId);
+      saved.onsuccess = () => this.inside(transaction, () => {
+        const intent = savedIntent(saved.result);
+        const link = provenLink({ requestId, accountId: intent.accountId, operationId: operation.id, chainId: operation.chainId,
+          nodeAddress: operation.nodeAddress, chequebookAddress: operation.chequebookAddress, tokenAddress: operation.tokenAddress });
+        if (!link || !isExactTransfer(intent, operation)) { complete(false); return; }
+        const existing = transaction.objectStore(LINKS).get(requestId);
+        existing.onsuccess = () => this.inside(transaction, () => {
+          const record = existing.result as LinkRecord | undefined;
+          const previous = provenLink(record?.own);
+          if (record?.own && (!previous || JSON.stringify(previous) !== JSON.stringify(link))) { complete(false); return; }
+          transaction.objectStore(LINKS).put({ requestId, own: link,
+            blockingOperationId: typeof record?.blockingOperationId === 'string' && UUID.test(record.blockingOperationId) ? record.blockingOperationId : null,
+            nodeKey: [link.accountId, link.chainId, link.nodeAddress] } satisfies LinkRecord);
+          complete(true);
+        });
+      });
+    });
+  }
+
+  async recordBlocking(requestId: string, operationId: string): Promise<void> {
+    uuid(requestId); uuid(operationId);
+    return this.transaction('readwrite', (transaction, complete) => {
+      const saved = transaction.objectStore(INTENTS).get(requestId);
+      saved.onsuccess = () => this.inside(transaction, () => {
+        savedIntent(saved.result);
+        const request = transaction.objectStore(LINKS).get(requestId);
+        request.onsuccess = () => this.inside(transaction, () => {
+          const previous = request.result as LinkRecord | undefined;
+          const own = provenLink(previous?.own);
+          if (previous?.own && (!own || own.requestId !== requestId)) { complete(); return; }
+          transaction.objectStore(LINKS).put({ requestId, own, blockingOperationId: operationId,
+            ...(own ? { nodeKey: [own.accountId, own.chainId, own.nodeAddress] } : {}) } satisfies LinkRecord);
+          complete();
+        });
+      });
+    });
+  }
+
+  async links(requestId: string): Promise<TransferObservationLinks> {
+    uuid(requestId);
+    return this.transaction('readonly', (transaction, complete) => {
+      const request = transaction.objectStore(LINKS).get(requestId);
+      request.onsuccess = () => this.inside(transaction, () => {
+        const value = request.result as LinkRecord | undefined;
+        const own = provenLink(value?.own);
+        complete({ own: own?.requestId === requestId ? own : null,
+          blockingOperationId: typeof value?.blockingOperationId === 'string' && UUID.test(value.blockingOperationId) ? value.blockingOperationId : null });
+      });
+    });
+  }
+
+  async related(accountId: number, chainId: number, nodeAddress: string): Promise<readonly ProvenTransferLink[]> {
+    if (!Number.isSafeInteger(accountId) || accountId < 1 || !Number.isSafeInteger(chainId) || chainId < 1 || !/^0x[0-9a-f]{40}$/.test(nodeAddress)) throw new TransferPersistenceError();
+    return this.transaction('readonly', (transaction, complete) => {
+      const request = transaction.objectStore(LINKS).index(BY_NODE).getAll([accountId, chainId, nodeAddress]);
+      request.onsuccess = () => this.inside(transaction, () => complete((request.result as LinkRecord[]).flatMap(record => {
+        const link = provenLink(record.own);
+        return link?.requestId === record.requestId && link.accountId === accountId && link.chainId === chainId && link.nodeAddress === nodeAddress ? [link] : [];
+      })));
+    });
+  }
+
   async close(): Promise<void> {
     const database = this.database;
     this.database = null;
@@ -156,11 +261,12 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
       let refused = false;
       const refuse = () => { refused = true; reject(new TransferPersistenceError()); };
       let request: IDBOpenDBRequest;
-      try { request = this.factory.open(this.name, 1); } catch { refuse(); return; }
+      try { request = this.factory.open(this.name, 2); } catch { refuse(); return; }
       request.onupgradeneeded = () => {
         try {
-          request.result.createObjectStore(INTENTS, { keyPath: 'requestId' });
-          request.result.createObjectStore(POINTERS, { keyPath: 'scope' });
+          if (!request.result.objectStoreNames.contains(INTENTS)) request.result.createObjectStore(INTENTS, { keyPath: 'requestId' });
+          if (!request.result.objectStoreNames.contains(POINTERS)) request.result.createObjectStore(POINTERS, { keyPath: 'scope' });
+          if (!request.result.objectStoreNames.contains(LINKS)) request.result.createObjectStore(LINKS, { keyPath: 'requestId' }).createIndex(BY_NODE, 'nodeKey');
         } catch { request.transaction?.abort(); }
       };
       request.onerror = refuse;
@@ -178,7 +284,7 @@ export class IndexedDbTransferIntentStore implements TransferIntentStore {
     const database = await this.open();
     return new Promise<T>((resolve, reject) => {
       let transaction: IDBTransaction;
-      try { transaction = database.transaction([INTENTS, POINTERS], mode, { durability: 'strict' }); }
+      try { transaction = database.transaction([INTENTS, POINTERS, LINKS], mode, { durability: 'strict' }); }
       catch { reject(new TransferPersistenceError()); return; }
       let hasResult = false;
       let result: T;

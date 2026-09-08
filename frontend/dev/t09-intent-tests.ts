@@ -81,7 +81,7 @@ export async function runIntentTests(): Promise<{ passed: number; tests: string[
     const damaged = input({ profileInstanceId: '44444444-4444-4444-8444-444444444444' });
     const missingId = crypto.randomUUID();
     const raw = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
+      const request = indexedDB.open(name);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(new Error('Synthetic corruption setup failed'));
     });
