@@ -33,6 +33,26 @@ import {
 /** Docker's per-write header: the stream, three zero bytes, and the length. */
 const FRAME_HEADER_BYTES = 8;
 
+describe('daemon identity verification', () => {
+  it('reads the current local identity again after the socket is replaced', async () => {
+    const docker = fakeDocker([]);
+    let id = 'first-daemon';
+    docker.info = async () => ({ ID: id });
+    const control = new ContainerControl(new EventBus(), docker);
+    assert.equal(await control.daemonId(), 'first-daemon');
+    id = 'replacement-daemon';
+    assert.equal(await control.daemonId(), 'replacement-daemon');
+  });
+
+  it('does not report an old verification when Docker stops answering', async () => {
+    const docker = fakeDocker([]);
+    const control = new ContainerControl(new EventBus(), docker);
+    await control.daemonId();
+    docker.info = async () => { throw new Error('offline'); };
+    await assert.rejects(control.daemonId());
+  });
+});
+
 function labels(project: string, service: string): Record<string, string> {
   return {
     [COMPOSE_PROJECT_LABEL]: project,
