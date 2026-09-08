@@ -50,7 +50,7 @@ describe('confirmed integration resource inventory', () => {
     }));
     assert.deepEqual(inventory.snapshot().groups, [group]);
     assert.deepEqual(inventory.snapshot().profiles.map(item => item.instanceId), [FIRST, SECOND]);
-    assert.deepEqual(inventory.snapshot().unresolved.map(issue => issue.reason), ['invalid-member']);
+    assert.deepEqual(inventory.snapshot().unresolved.map(issue => issue.reason), ['invalid-member', 'member-count-mismatch']);
   });
 
   it('retains a valid group with a missing member list and valid members with an invalid group', async () => {
@@ -100,5 +100,24 @@ describe('confirmed integration resource inventory', () => {
     assert.throws(() => { (snapshot.profiles[0] as { name: string }).name = 'changed'; });
     assert.equal(inventory.snapshot().profiles[0]?.name, 'itest-run-viewer-a');
     assert.deepEqual(inventory.snapshot().unresolved.map(issue => issue.reason), ['identity-conflict']);
+  });
+
+  it('reports distinct-member coverage when a group or added-members response repeats an identity', async () => {
+    for (const attempt of [{ kind: 'group', expectedMembers: 2 }, { kind: 'members', groupId: 17, expectedMembers: 2 }] as const) {
+      const inventory = new CreatedResourceInventory('run');
+      await inventory.capture(attempt, accepted({ group, profiles: [profile(), profile()] }));
+      assert.deepEqual(inventory.snapshot().profiles, [{ name: profile().name, instanceId: FIRST }]);
+      assert.deepEqual(inventory.snapshot().unresolved.map(issue => issue.reason), ['member-count-mismatch']);
+    }
+  });
+
+  it('permits repeated complete group responses across separate captures', async () => {
+    const inventory = new CreatedResourceInventory('run');
+    for (let i = 0; i < 2; i += 1) {
+      await inventory.capture({ kind: 'group', expectedMembers: 1 }, accepted({ group, profiles: [profile()] }));
+    }
+    assert.equal(inventory.snapshot().profiles.length, 1);
+    assert.equal(inventory.snapshot().groups.length, 1);
+    assert.deepEqual(inventory.snapshot().unresolved, []);
   });
 });
