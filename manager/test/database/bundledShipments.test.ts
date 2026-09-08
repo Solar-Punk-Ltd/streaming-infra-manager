@@ -95,6 +95,49 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     await assert.rejects(shipments.markPrepared(item.shipmentId, { artifactDigest: 'f'.repeat(64), contract: ALLOCATION_CONTRACT }), /prepared|digest/i);
   });
 
+  it('persists exact generated metadata bytes before a candidate is materialized', async () => {
+    const item = identity();
+    await shipments.register(item);
+    const selected = proposal();
+    const metadata = { manifestBytes: JSON.stringify(selected.manifest) + '\n', manifestMode: 0o644, completeBytes: '', completeMode: 0o644 };
+    const reserved = await shipments.reserveCandidate(item.shipmentId, { ...selected, metadata });
+    assert.deepEqual(reserved.candidateMetadata, metadata);
+    assert.deepEqual((await shipments.find(item.shipmentId))!.candidateMetadata, metadata);
+    await assert.rejects(shipments.reserveCandidate(item.shipmentId, { ...selected, metadata: { ...metadata, manifestBytes: JSON.stringify(selected.manifest, null, 2) + '\n' } }), /candidate/i);
+    await assert.rejects(pool.query("UPDATE bundled_shipments SET candidate_metadata = jsonb_set(candidate_metadata, '{completeBytes}', '\"changed\"') WHERE shipment_id = $1", [item.shipmentId]), /candidate|check/i);
+  });
+
+  it('refuses metadata whose parsed identity differs from the reserved manifest', async () => {
+    const item = identity();
+    await shipments.register(item);
+    const metadata = { manifestBytes: JSON.stringify(proposal(C).manifest), manifestMode: 0o644, completeBytes: '', completeMode: 0o644 };
+    await assert.rejects(shipments.reserveCandidate(item.shipmentId, { ...proposal(), metadata }), /metadata|manifest/i);
+    assert.equal((await shipments.find(item.shipmentId))!.candidateBuildId, null);
+  });
+
+  it('selects one completed private copy and preserves it across duplicate preparation and restart', async () => {
+    const item = identity();
+    await shipments.register(item);
+    await shipments.reserveCandidate(item.shipmentId, proposal());
+    const copies = [randomUUID(), randomUUID()];
+    const outcomes = await Promise.all(copies.map(materializationId => shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId })));
+    assert.ok(copies.includes(outcomes[0]!.materializationId!));
+    assert.equal(outcomes[1]!.materializationId, outcomes[0]!.materializationId);
+    const restarted = new PostgresBundledShipmentRepository(pool, '/synthetic/bundled');
+    assert.equal((await restarted.find(item.shipmentId))!.materializationId, outcomes[0]!.materializationId);
+    await assert.rejects(pool.query('UPDATE bundled_shipments SET materialization_id = $2 WHERE shipment_id = $1', [item.shipmentId, randomUUID()]), /prepared|identity/i);
+  });
+
+  it('requires a private copy for new artifacts and forbids claiming a copy for reuse', async () => {
+    for (const kind of ['new', 'reuse'] as const) {
+      const item = identity();
+      await shipments.register(item);
+      await shipments.reserveCandidate(item.shipmentId, proposal(A, kind));
+      await assert.rejects(shipments.markPrepared(item.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: kind === 'new' ? null : randomUUID() }), /copy|materialization/i);
+      assert.equal((await shipments.find(item.shipmentId))!.state, 'registered');
+    }
+  });
+
   it('prevents duplicate new candidate ownership but records explicit reuse separately', async () => {
     const first = identity();
     const second = identity();
