@@ -9,6 +9,7 @@ import {
   AdminRequiredError,
   AllSlotsUsedError,
   PortReservedError,
+  ReservationInventoryPendingError,
   TargetNotVerifiedError,
   BeeNodeError,
   BeeNotReadyError,
@@ -313,6 +314,10 @@ export function errorHandler(
   }
   if (err instanceof PortReservedError) {
     res.status(409).json({ error: 'port_reserved', name: err.profileName, message: err.message });
+    return;
+  }
+  if (err instanceof ReservationInventoryPendingError) {
+    res.status(409).json({ error: 'reservation_inventory_pending', message: err.message });
     return;
   }
 

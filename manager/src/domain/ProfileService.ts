@@ -57,6 +57,7 @@ import {
 import {
   AllSlotsUsedError,
   TargetNotVerifiedError,
+  ReservationInventoryPendingError,
   GroupBusyError,
   GroupExistsError,
   GroupNotFoundError,
@@ -75,6 +76,7 @@ import { isPendingStamp } from './stampLogic.js';
 import { portTableOf } from './versions/portTable.js';
 import type { NewProfilePlacement } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
+import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -165,6 +167,7 @@ export class ProfileService {
     private readonly targets: DeployTargets = REFUSES_EVERY_TARGET,
     private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
     private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
+    private readonly reservations?: Pick<PortReservationRepository, 'inventorySeededAt'>,
   ) {}
 
   /**
@@ -176,6 +179,12 @@ export class ProfileService {
     version: StackVersionRecord,
     host: string | null,
   ): Promise<NewProfilePlacement> {
+    if (version.contract?.allocationProblem) {
+      throw new InvalidStackVersionError(`${version.name}: ${version.contract.allocationProblem}`);
+    }
+    if (!await this.reservations?.inventorySeededAt()) {
+      throw new ReservationInventoryPendingError();
+    }
     return {
       stackVersionId: version.id,
       slotCap: slotCapFor(version.contract),
@@ -684,6 +693,7 @@ export class ProfileService {
       }
     }
 
+    const placement = await this.placementFor(version, input.host ?? null);
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
@@ -700,9 +710,9 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
       stack_version_id: version.id,
-      slot_cap: slotCapFor(version.contract),
-      daemon_id: await this.targets.daemonIdFor(input.host ?? null),
-      table: portTableOf(version.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -1008,6 +1018,10 @@ export class ProfileService {
 
     const canonical = members[0]!;
     const version = await this.versions.findById(canonical.stack_version_id);
+    if (!version) {
+      throw new InvalidStackVersionError(`Stack version ${canonical.stack_version_id} does not exist`);
+    }
+    const placement = await this.placementFor(version, canonical.host);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
@@ -1020,9 +1034,9 @@ export class ProfileService {
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
       stack_version_id: canonical.stack_version_id,
-      slot_cap: slotCapFor(version?.contract),
-      daemon_id: await this.targets.daemonIdFor(canonical.host),
-      table: portTableOf(version?.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.
