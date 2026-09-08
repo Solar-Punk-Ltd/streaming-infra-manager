@@ -8,10 +8,12 @@ const helpers = new URL('../integration/helpers.ts', import.meta.url).href;
 let server: http.Server;
 let url: string;
 let invalidCreation: boolean;
+let groupResponseCount: number;
 let calls: { method: string; path: string; body: Record<string, unknown>; writeHeader: string | string[] | undefined }[];
 let profiles: Map<string, { name: string; instance_id: string; status: string }>;
 beforeEach(async () => {
   invalidCreation = false;
+  groupResponseCount = 2;
   calls = [];
   profiles = new Map();
   server = http.createServer(async (req, res) => {
@@ -27,7 +29,7 @@ beforeEach(async () => {
       return profile;
     };
     if (req.method === 'POST' && path === '/profiles') return answer(202, invalidCreation ? {} : insert(body.name));
-    if (req.method === 'POST' && path === '/groups') return answer(202, { group: { id: 7, name: body.group_name }, profiles: [insert(`${body.group_name}-profile-2`), insert(`${body.group_name}-profile-8`)] });
+    if (req.method === 'POST' && path === '/groups') return answer(202, { group: { id: 7, name: body.group_name }, profiles: [insert(`${body.group_name}-profile-2`), ...(groupResponseCount === 2 ? [insert(`${body.group_name}-profile-8`)] : [])] });
     if (req.method === 'POST' && path === '/groups/9/members') return answer(202, { group: { id: 9, name: 'itest-run-existing' }, profiles: [insert('itest-run-existing-profile-6')] });
     if (path.startsWith('/profiles/')) {
       const name = decodeURIComponent(path.slice('/profiles/'.length));
@@ -97,4 +99,34 @@ it('the Node test runner reports the original assertion and unresolved cleanup s
   assert.match(result.output, /original assertion marker/);
   assert.match(result.output, /Integration cleanup incomplete/);
   assert.equal(calls.some(call => call.method === 'DELETE'), false);
+});
+
+for (const returned of [1, 2]) {
+  it(`uses the sent raw JSON to assess creation coverage with ${returned} returned members`, async () => {
+    groupResponseCount = returned;
+    const result = await run(`
+      const h = await import(${JSON.stringify(helpers)});
+      await h.requestWith('POST', '/groups', { size: 1 }, { rawBody: JSON.stringify({ group_name: 'itest-run-raw', kind: 'viewer', size: 2 }) });
+      await h.cleanup();
+    `);
+    if (returned === 2) assert.equal(result.code, 0, result.output);
+    else {
+      assert.notEqual(result.code, 0);
+      assert.match(result.output, /member-count-mismatch/);
+    }
+    assert.equal(profiles.size, 0);
+    assert.equal(calls.find(call => call.method === 'POST')?.body.size, 2);
+  });
+}
+
+it('serializes a toJSON body once and records that exact request coverage', async () => {
+  const result = await run(`
+    const h = await import(${JSON.stringify(helpers)});
+    let serializations = 0;
+    await h.api('POST', '/groups', { size: 1, toJSON() { serializations++; return { group_name: 'itest-run-json', kind: 'viewer', size: 2 }; } });
+    if (serializations !== 1) throw new Error('Body serialized more than once');
+    await h.cleanup();
+  `);
+  assert.equal(result.code, 0, result.output);
+  assert.equal(profiles.size, 0);
 });
