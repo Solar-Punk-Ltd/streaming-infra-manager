@@ -285,6 +285,21 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
   });
 
+  it('records a conflict after settlement without reopening its guard over a newer operation', async () => {
+    const a = await assertedOperation();
+    const b = await unknownOperation();
+    const owned = await repository.recordSubmission(b.id, { state: 'submitted', transactionHash, failureReason: null });
+    const settled = await repository.recordReceipt(owned, confirmed);
+    const c = await unknownOperation();
+    await repository.recordSubmission(a.id, { state: 'submitted', transactionHash, failureReason: null });
+    const historical = await repository.findById(b.id);
+    assert.equal(historical?.state, 'settled');
+    assert.equal(historical?.failureReason, 'hash_conflict');
+    assert.equal(historical?.revision, String(BigInt(settled.revision) + 1n));
+    assert.deepEqual(await repository.findById(c.id), c);
+    assert.equal((await repository.admit(operationCandidate())).kind, 'busy');
+  });
+
   it('serializes crossed response conflicts on different nodes without reassigning either owned hash', async () => {
     const a = (await repository.admit(operationCandidate())).operation;
     const b = (await repository.admit(operationCandidate({ nodeAddress: `0x${'98'.repeat(20)}` }))).operation;
