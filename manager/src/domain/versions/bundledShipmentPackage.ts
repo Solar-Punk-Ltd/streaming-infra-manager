@@ -87,7 +87,7 @@ function parseJson(bytes: Buffer): unknown {
   try { return JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Package manifest is not valid JSON.'); }
 }
 
-async function assertCopiedInputs(root: string, expected: BundledInputIdentity): Promise<void> {
+export async function assertCopiedBundledInputs(root: string, expected: BundledInputIdentity): Promise<void> {
   const raw = record(parseJson(await readOwnedFile(root, CONFIG_REVISION_FILE)), ['generation', 'files']);
   const revision = inputIdentity({ generation: raw.generation, hashes: raw.files });
   if (!isDeepStrictEqual(revision, expected)) throw new Error('Package input identity differs from its committed revision.');
@@ -105,20 +105,26 @@ function manifestPayload(raw: unknown): Omit<BundledPackageManifest, 'digest'> {
   return { format: 1, shipmentId: validateBundledShipmentId(item.shipmentId), commit: commitId(item.commit), inputs: inputIdentity(item.inputs), rootMode: mode(item.rootMode), entries };
 }
 
-/** Reads the full owned tree before returning the verification token used by shipment activation. */
-export async function verifyBundledPackage(root: string, expectedIdentity: BundledShipmentIdentity): Promise<VerifiedBundledPackage> {
-  const expected = validateBundledShipmentIdentity(expectedIdentity);
-  const bytes = await readOwnedFile(root, BUNDLED_PACKAGE_MANIFEST);
-  if (((await lstat(join(root, BUNDLED_PACKAGE_MANIFEST))).mode & 0o7777) !== MANIFEST_MODE) throw new Error('Package manifest mode changed.');
+/** Validates the envelope only. Trust in its files still requires a complete inventory check. */
+export function parseBundledPackageManifest(bytes: Buffer): BundledPackageManifest {
   const raw = parseJson(bytes);
   const payload = manifestPayload(raw);
   const digest = hash((raw as Record<string, unknown>).digest);
   const manifest = { ...payload, digest };
   if (digest !== sha256(JSON.stringify(payload)) || !isDeepStrictEqual(raw, manifest)) throw new Error('Package manifest digest or inventory is invalid.');
-  if (!isDeepStrictEqual(expected, { shipmentId: payload.shipmentId, commit: payload.commit, digest })) throw new Error('Package identity does not match the expected identity.');
+  return manifest;
+}
+
+/** Reads the full owned tree before returning the verification token used by shipment activation. */
+export async function verifyBundledPackage(root: string, expectedIdentity: BundledShipmentIdentity): Promise<VerifiedBundledPackage> {
+  const expected = validateBundledShipmentIdentity(expectedIdentity);
+  const bytes = await readOwnedFile(root, BUNDLED_PACKAGE_MANIFEST);
+  if (((await lstat(join(root, BUNDLED_PACKAGE_MANIFEST))).mode & 0o7777) !== MANIFEST_MODE) throw new Error('Package manifest mode changed.');
+  const manifest = parseBundledPackageManifest(bytes);
+  if (!isDeepStrictEqual(expected, { shipmentId: manifest.shipmentId, commit: manifest.commit, digest: manifest.digest })) throw new Error('Package identity does not match the expected identity.');
   const actual = await inventoryOwnedTree(root, BUNDLED_PACKAGE_MANIFEST);
-  if (actual.rootMode !== payload.rootMode || !isDeepStrictEqual(actual.entries, payload.entries)) throw new Error('Package inventory differs from the sealed manifest.');
-  await assertCopiedInputs(root, payload.inputs);
+  if (actual.rootMode !== manifest.rootMode || !isDeepStrictEqual(actual.entries, manifest.entries)) throw new Error('Package inventory differs from the sealed manifest.');
+  await assertCopiedBundledInputs(root, manifest.inputs);
   if (!(await readOwnedFile(root, BUNDLED_PACKAGE_MANIFEST)).equals(bytes)) throw new Error('Package manifest changed during verification.');
   return { [verifiedPackage]: true, root, identity: expected, manifest };
 }
@@ -133,7 +139,7 @@ export async function sealBundledPackage(
   await assertSeparateOwnedTrees(source, destination);
   const baseline = await inventoryOwnedTree(source);
   if (baseline.entries.some(item => item.path === BUNDLED_PACKAGE_MANIFEST)) throw new Error('Source already contains a package manifest.');
-  await assertCopiedInputs(source, selected.inputs);
+  await assertCopiedBundledInputs(source, selected.inputs);
   await mkdir(destination, { mode: 0o700 });
   try {
     for (const item of baseline.entries.filter(item => item.type === 'directory')) await mkdir(join(destination, item.path), { mode: 0o700 });
