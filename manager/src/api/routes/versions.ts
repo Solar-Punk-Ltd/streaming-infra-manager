@@ -77,7 +77,9 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     validateBody(patchVersionSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as PatchVersionBody;
-      res.json(await versions.setTested(versionIdOf(req), body.tested));
+      res.json(
+        await versions.setTested(versionIdOf(req), body.tested, body.commitSha ?? null),
+      );
     }),
   );
 

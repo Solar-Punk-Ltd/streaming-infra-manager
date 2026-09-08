@@ -36,6 +36,9 @@ function builtInStaging(args: string[]): void {
 let app: VersionsTestApp;
 let versionsRoot: string;
 
+/** The commit a page showed when the operator clicked Tested. */
+const SHOWN_COMMIT = 'b'.repeat(40);
+
 beforeEach(async () => {
   versionsRoot = scratchVersionsRoot();
   app = await startVersionsTestApp(versionsRoot);
@@ -201,7 +204,10 @@ describe('POST /versions/:id/default', () => {
   it('answers 204 and moves the badge', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+    });
 
     const answer = await callJson('POST', `/versions/${added?.id}/default`);
     assert.equal(answer.status, 204);
@@ -217,14 +223,59 @@ describe('POST /versions/:id/default', () => {
 });
 
 describe('PATCH /versions/:id', () => {
-  it('sets the tested flag and answers the row', async () => {
+  it('approves the commit the page showed, and answers the row', async () => {
     const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
     const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
 
-    assert.equal(answer.status, 200);
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
     assert.equal((answer.body as { tested: boolean }).tested, true);
+  });
+
+  it('refuses a click made for a commit the version has moved past, and changes nothing', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, 'e'.repeat(40));
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal((answer.body as { error: string }).error, 'stack_version_changed');
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
+  });
+
+  it('refuses to approve a version at a commit this host cannot tell', async () => {
+    const bundled = await app.repository.findByName('bundled');
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+    const body = answer.body as { errors?: string[] };
+
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.match(body.errors?.[0] ?? '', /cannot tell/);
+  });
+
+  it('refuses to approve without naming the commit, left out or null', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
+    const leftOut = await callJson('PATCH', `/versions/${bundled?.id}`, { tested: true });
+    const asNull = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: null,
+    });
+
+    assert.equal(leftOut.status, 400, JSON.stringify(leftOut.body));
+    assert.equal(asNull.status, 400, JSON.stringify(asNull.body));
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
   });
 
   it('refuses a body with no tested flag', async () => {
@@ -240,6 +291,7 @@ describe('PATCH /versions/:id', () => {
 
     const answer = await callJson('PATCH', `/versions/${failed?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
     const body = answer.body as { error: string; errors: string[] };
 
@@ -287,7 +339,10 @@ describe('DELETE /versions/:id', () => {
   it('answers 409 for the version that is the default', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+    });
     await callJson('POST', `/versions/${added?.id}/default`);
 
     const answer = await callJson('DELETE', `/versions/${added?.id}`);

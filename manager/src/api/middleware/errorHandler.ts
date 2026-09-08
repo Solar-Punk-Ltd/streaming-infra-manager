@@ -36,6 +36,7 @@ import {
   RestartInProgressError,
   StackBuildBusyError,
   StackVersionExistsError,
+  StackVersionChangedError,
   StackVersionInUseError,
   StackVersionNotFoundError,
   StampNotUsableError,
@@ -253,6 +254,15 @@ export function errorHandler(
     res
       .status(409)
       .json({ error: 'stack_version_exists', name: err.versionName });
+    return;
+  }
+  if (err instanceof StackVersionChangedError) {
+    res.status(409).json({
+      error: 'stack_version_changed',
+      name: err.versionName,
+      commitSha: err.commitSha,
+      message: err.message,
+    });
     return;
   }
   if (err instanceof StackVersionInUseError) {

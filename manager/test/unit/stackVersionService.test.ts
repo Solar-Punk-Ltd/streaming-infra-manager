@@ -80,7 +80,7 @@ const readyAndTested = async (name: string): Promise<number> => {
   await settled();
 
   const added = await repository.findByName(name);
-  await service.setTested(added?.id ?? 0, true);
+  await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null);
   return added?.id ?? 0;
 };
 
@@ -311,7 +311,7 @@ describe('removing a version', () => {
     await settled();
 
     const added = await repository.findByName('v3');
-    await service.setTested(added?.id ?? 0, true);
+    await service.setTested(added?.id ?? 0, true, added?.commitSha ?? null);
     await service.setDefault(added?.id ?? 0);
 
     await assert.rejects(
@@ -333,9 +333,10 @@ describe('removing a version', () => {
 });
 
 describe('the tested flag', () => {
-  it('is set by hand and answered back with the row', async () => {
+  it('is set by hand for the commit the page showed, and answered back with the row', async () => {
     const bundled = await repository.findByName('bundled');
-    const updated = await service.setTested(bundled?.id ?? 0, true);
+    await repository.setCommitSha(bundled?.id ?? 0, COMMIT);
+    const updated = await service.setTested(bundled?.id ?? 0, true, COMMIT);
 
     assert.equal(updated.tested, true);
     assert.equal(events.includes('version.changed'), true);
@@ -384,7 +385,7 @@ describe('the tested flag', () => {
     const building = await repository.findByName('v3');
 
     await assert.rejects(
-      () => service.setTested(building?.id ?? 0, true),
+      () => service.setTested(building?.id ?? 0, true, COMMIT),
       /v3 is building\. Only a version that finished building/,
     );
     assert.equal((await repository.findByName('v3'))?.tested, false);
@@ -397,7 +398,7 @@ describe('the tested flag', () => {
     const failed = await repository.findByName('v3');
 
     await assert.rejects(
-      () => service.setTested(failed?.id ?? 0, true),
+      () => service.setTested(failed?.id ?? 0, true, COMMIT),
       /v3 is failed\. Only a version that finished building/,
     );
   });
@@ -428,6 +429,20 @@ describe('the bundled version at boot', () => {
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, null);
     assert.equal(bundled?.contract, null);
+  });
+
+  it('keeps the approval on the same commit, and takes it with a move to another', async () => {
+    // Approval names a build. A manager deploy that moves the bundled
+    // checkout is a new build nobody has run yet, the way an Update is.
+    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    const bundled = await repository.findByName('bundled');
+    await repository.setTested(bundled?.id ?? 0, true);
+
+    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    assert.equal((await repository.findByName('bundled'))?.tested, true, 'the same commit');
+
+    await service.refreshBundled(V3_FIXTURE, 'f'.repeat(40));
+    assert.equal((await repository.findByName('bundled'))?.tested, false, 'another commit');
   });
 });
 

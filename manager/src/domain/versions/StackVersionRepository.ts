@@ -95,11 +95,26 @@ export interface StackVersionRepository {
    * is gone and nothing will ever finish it.
    */
   failInterruptedBuilds(lastError: string): Promise<StackVersionRecord[]>;
+  /**
+   * The bundled checkout's commit at boot. Approval given for another commit
+   * goes with the move, the way `markBuilt` drops it: what was tested is that
+   * commit, not the name.
+   */
   setCommitSha(id: number, commitSha: string | null): Promise<void>;
   /** The contract alone, for the bundled version read at every boot. */
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
-  setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;
+  /**
+   * Turns approval on for the build the caller looked at, or off. Turning it
+   * on is conditioned in the write itself on the row being ready at
+   * `forCommit`, and null comes back when it is not any more, or when the row
+   * is gone, which the caller tells apart with a read.
+   */
+  setTested(
+    id: number,
+    tested: boolean,
+    forCommit?: string | null,
+  ): Promise<StackVersionRecord | null>;
   remove(id: number): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */
   deploymentNames(id: number): Promise<string[]>;

@@ -17,11 +17,20 @@ export function setDefaultVersion(id: number): Promise<void> {
   return send('POST', `/versions/${id}/default`, {});
 }
 
+/**
+ * Turns Tested on for the commit the page showed, or off. The manager refuses
+ * a click made for a commit the version has moved past.
+ */
 export function setVersionTested(
   id: number,
   tested: boolean,
+  shownCommit: string | null,
 ): Promise<StackVersion> {
-  return sendJson<StackVersion>('PATCH', `/versions/${id}`, { tested });
+  return sendJson<StackVersion>(
+    'PATCH',
+    `/versions/${id}`,
+    tested ? { tested, commitSha: shownCommit } : { tested },
+  );
 }
 
 export function removeVersion(id: number): Promise<void> {

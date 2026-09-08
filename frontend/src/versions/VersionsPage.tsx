@@ -96,6 +96,9 @@ const SET_DEFAULT_MEANS =
 const CANNOT_TEST_UNBUILT =
   'Only a version that finished building can be marked as tested. There is no build here to have deployed.';
 
+const CANNOT_TEST_UNKNOWN_COMMIT =
+  'The commit this version is at is not known on this host, so there is no build to mark as tested.';
+
 const TESTED_MEANS =
   'Set by hand once one real deployment has run on this version. Reading the scripts proves the shape and not the behaviour. An update that lands on a new commit clears it again, because the approval was for the commit that was deployed.';
 
@@ -109,6 +112,7 @@ function defaultBlockedBecause(version: StackVersion): string {
 /** Why Tested cannot be turned on for this version, or the empty string. */
 function testedBlockedBecause(version: StackVersion): string {
   if (version.status !== 'ready') return CANNOT_TEST_UNBUILT;
+  if (!version.commitSha) return CANNOT_TEST_UNKNOWN_COMMIT;
   return '';
 }
 
@@ -297,7 +301,7 @@ export function VersionsPage() {
                       tested
                         ? `${version.name} is marked as tested`
                         : `${version.name} is no longer marked as tested`,
-                      (id) => setVersionTested(id, tested),
+                      (id) => setVersionTested(id, tested, version.commitSha),
                     )
                   }
                   onRemove={() => askRemove(version)}
