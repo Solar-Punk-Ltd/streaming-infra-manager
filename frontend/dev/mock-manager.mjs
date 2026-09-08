@@ -40,7 +40,7 @@ import {
   seedAuth,
 } from './mock-auth.mjs';
 import { engineRoutes } from './mock-engine.mjs';
-import { closeRollout, engineConfigRoutes } from './mock-engine-config.mjs';
+import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -140,6 +140,7 @@ function remove(profile) {
   profile.status = 'REMOVING';
   changed(profile);
   setTimeout(() => {
+    forgetEngineConfig(profile);
     state.profiles = state.profiles.filter((entry) => entry.name !== profile.name);
     state.nodes.delete(profile.name);
     publish({ type: 'profile.deleted', name: profile.name });

@@ -158,6 +158,14 @@ export function engineConfigSource(profileName, engine) {
 
 /** The file the latest rollout replaced, by deployment name, for back to the previous file. */
 const previousOf = new Map();
+const retiredProfiles = new WeakSet();
+
+/** Retire the object too, so its pending callbacks cannot write through a reused name. */
+export function forgetEngineConfig(profile) {
+  retiredProfiles.add(profile);
+  configs.delete(profile.name);
+  previousOf.delete(profile.name);
+}
 
 function setRolloutState(profile, state, error = null) {
   profile.engine_config_state = state;
@@ -243,6 +251,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
   /** The watch, played: `crash` takes the engine down and is reverted, anything else applies. */
   const watch = (profile, engine, previous, config) => {
     setTimeout(() => {
+      if (retiredProfiles.has(profile)) return;
       if (profile.engine_config_state !== 'watching') return;
       if (!/crash/.test(config)) {
         setRolloutState(
@@ -269,6 +278,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
     setRolloutState(profile, 'applying');
     deploy(profile, {
       onRunning: () => {
+        if (retiredProfiles.has(profile)) return;
         if (config === null) {
           setRolloutState(profile, 'applied');
         } else if (/fail/.test(config)) {
