@@ -4,6 +4,8 @@ import { TargetNotVerifiedError } from '../errors/index.js';
 import type { DaemonObserver, DaemonSnapshot } from '../DeployAttemptRepository.js';
 import { isLocalTarget, targetAlias } from './DeployTargets.js';
 import type { TargetIdentityProbe } from './VerifiedDeployTargets.js';
+import type { PublishedPortsProbe, PublishedPortsSnapshot } from './PublishedPortsProbe.js';
+import { collectPublishedPorts } from './publishedPorts.js';
 
 /** Captures only the selected non-secret fields, with a bounded runtime and output. */
 export type ReadOnlyCommand = (file: string, args: readonly string[]) => Promise<string>;
@@ -15,9 +17,13 @@ const readOnlyCommand: ReadOnlyCommand = (file, args) => new Promise((resolve, r
   });
 });
 
-export class TargetDocker implements TargetIdentityProbe, DaemonObserver {
+export class TargetDocker implements TargetIdentityProbe, DaemonObserver, PublishedPortsProbe {
   constructor(
-    private readonly local: { daemonId(): Promise<string>; containerIdsOf?(project: string): Promise<Map<string, string[]>> },
+    private readonly local: {
+      daemonId(): Promise<string>;
+      containerIdsOf?(project: string): Promise<Map<string, string[]>>;
+      publishedPorts?(): Promise<Omit<PublishedPortsSnapshot, 'daemonId'>>;
+    },
     private readonly run: ReadOnlyCommand = readOnlyCommand,
   ) {}
 
@@ -38,6 +44,29 @@ export class TargetDocker implements TargetIdentityProbe, DaemonObserver {
 
   async containerIdsOf(project: string, host = 'localhost'): Promise<Map<string, string[]>> {
     return (await this.snapshot(project, host)).containers;
+  }
+
+  async publishedPorts(host: string): Promise<PublishedPortsSnapshot> {
+    const alias = targetAlias(host);
+    if (isLocalTarget(alias)) {
+      if (!this.local.publishedPorts) throw new Error('Local published-port reader is not configured');
+      const daemonId = await this.local.daemonId();
+      const ports = await this.local.publishedPorts();
+      if (daemonId !== await this.local.daemonId()) throw new Error('Docker changed during port observation');
+      return { daemonId, ...ports };
+    }
+    const format = '{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"ports":{{json .NetworkSettings.Ports}},"networkMode":{{json .HostConfig.NetworkMode}}}';
+    const command = `docker info --format '{{json .ID}}' && ids=$(docker ps -q --no-trunc) && { for id in $ids; do docker inspect --format '${format}' "$id" || exit 1; done; } && docker info --format '{{json .ID}}'`;
+    const output = await this.run('ssh', [
+      '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes', alias, command,
+    ]);
+    const lines = output.trim().split('\n');
+    const first: unknown = JSON.parse(lines.shift() ?? '');
+    const last: unknown = JSON.parse(lines.pop() ?? '');
+    if (typeof first !== 'string' || !first.trim() || first !== last) {
+      throw new Error('Docker changed during port observation');
+    }
+    return { daemonId: first, ...collectPublishedPorts(lines.map((line) => JSON.parse(line))) };
   }
 
   async snapshot(project: string, host = 'localhost'): Promise<DaemonSnapshot> {

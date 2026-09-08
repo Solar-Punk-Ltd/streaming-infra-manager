@@ -26,6 +26,8 @@ import {
 } from './dockerStream.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { collectPublishedPorts } from './ports/publishedPorts.js';
+import type { PublishedPortsSnapshot } from './ports/PublishedPortsProbe.js';
 
 const logger = Logger.getInstance();
 
@@ -103,6 +105,9 @@ export interface ContainerHandle {
 /** The part of `docker inspect` the watch after a config change reads. */
 export interface InspectedContainer {
   Id: string;
+  Config?: { Labels?: Record<string, string> };
+  NetworkSettings?: { Ports?: unknown };
+  HostConfig?: { NetworkMode?: string };
   State: {
     Status: string;
     RestartCount?: number;
@@ -253,6 +258,26 @@ export class ContainerControl {
       throw new DockerUnavailableError();
     }
     return info.ID;
+  }
+
+  async publishedPorts(): Promise<Omit<PublishedPortsSnapshot, 'daemonId'>> {
+    const listed = await this.withinLimit(this.docker.listContainers({ all: false }));
+    const rows: unknown[] = [];
+    for (const container of listed) {
+      const info = await this.withinLimit(this.docker.getContainer(container.Id).inspect());
+      if (!['running', 'restarting'].includes(info.State.Status)) continue;
+      if (!info.NetworkSettings || !('Ports' in info.NetworkSettings)) {
+        throw new Error('Docker did not report published ports');
+      }
+      rows.push({
+        id: info.Id,
+        project: info.Config?.Labels?.[COMPOSE_PROJECT_LABEL] ?? null,
+        service: info.Config?.Labels?.[COMPOSE_SERVICE_LABEL] ?? null,
+        ports: info.NetworkSettings.Ports,
+        networkMode: info.HostConfig?.NetworkMode,
+      });
+    }
+    return collectPublishedPorts(rows);
   }
 
   /** Every container of the project, all states, by the service compose labels it. */

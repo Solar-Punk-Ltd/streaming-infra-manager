@@ -37,6 +37,7 @@ import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptR
 import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
 import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
 import { TargetDocker } from './domain/ports/TargetDocker.js';
+import { PortInventory } from './domain/ports/PortInventory.js';
 import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
@@ -245,6 +246,11 @@ async function main(): Promise<void> {
     await deployTargets.verify('localhost');
   } catch {
     logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
+  }
+  try {
+    await new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker).seed();
+  } catch (err) {
+    logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
   }
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,

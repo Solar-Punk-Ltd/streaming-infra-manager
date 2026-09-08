@@ -9,6 +9,8 @@ export interface PublishedPortBinding extends PortKey {
 export interface PublishedPortsSnapshot {
   daemonId: string;
   bindings: readonly PublishedPortBinding[];
+  /** Running host-network containers have no published-port map, so absence cannot release their ports. */
+  unverifiedProjects?: readonly string[];
 }
 
 export interface PublishedPortsProbe {
