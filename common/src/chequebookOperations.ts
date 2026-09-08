@@ -25,7 +25,7 @@ export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavail
 
 export type ChequebookReceiptObservation =
   | { readonly kind: 'pending'; readonly reason: 'awaiting_transaction' | 'awaiting_receipt' | 'awaiting_finality' }
-  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' | 'history_incomplete' }
   | {
     readonly kind: 'settled' | 'reverted';
     readonly receiptBlockNumber: string;

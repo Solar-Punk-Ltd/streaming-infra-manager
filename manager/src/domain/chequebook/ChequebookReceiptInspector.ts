@@ -22,10 +22,13 @@ const changed = Object.freeze({ kind: 'could_not_check', reason: 'chain_changed'
 /** A receipt releases protection only after its exact transaction and canonical finalized block agree. */
 export class ChequebookReceiptInspector {
   private readonly timeoutMs: number;
+  private readonly maxAncestryBlocks: number;
 
-  constructor(private readonly createReader: CreateReceiptReader, options: { timeoutMs?: number } = {}) {
+  constructor(private readonly createReader: CreateReceiptReader, options: { timeoutMs?: number; maxAncestryBlocks?: number } = {}) {
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.maxAncestryBlocks = options.maxAncestryBlocks ?? 512;
     if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 30_000) throw new ChainReadError();
+    if (!Number.isInteger(this.maxAncestryBlocks) || this.maxAncestryBlocks < 1 || this.maxAncestryBlocks > 2048) throw new ChainReadError();
   }
 
   async inspect(input: ReceiptOperation): Promise<ChequebookReceiptObservation> {
@@ -69,12 +72,23 @@ export class ChequebookReceiptInspector {
     const canonicalFinalized = await reader.blockHeader(BigInt(finalized.number), signal);
     if (!canonicalFinalized) return unavailable;
     if (canonicalFinalized.number !== finalized.number || canonicalFinalized.hash !== finalized.hash) return changed;
-    const finalAnchor = await reader.blockHeader(start, signal);
-    if (!finalAnchor) return unavailable;
-    if (finalAnchor.number !== operation.startBlockNumber || finalAnchor.hash !== operation.startBlockHash) return changed;
-    signal.throwIfAborted();
     if (BigInt(finalized.number) < BigInt(receipt.blockNumber)) return { kind: 'pending', reason: 'awaiting_finality' };
-    if (finalized.number === receipt.blockNumber && finalized.hash !== receipt.blockHash) return changed;
+    let current = canonicalFinalized;
+    let readBlocks = 0;
+    for (;;) {
+      signal.throwIfAborted();
+      if (current.number === receipt.blockNumber && current.hash !== receipt.blockHash) return changed;
+      if (current.number === operation.startBlockNumber) {
+        if (current.hash !== operation.startBlockHash) return changed;
+        break;
+      }
+      if (readBlocks++ >= this.maxAncestryBlocks) return { kind: 'could_not_check', reason: 'history_incomplete' };
+      const parentNumber = BigInt(current.number) - 1n;
+      const parent = await reader.blockHeader(parentNumber, signal);
+      if (!parent) return unavailable;
+      if (parent.number !== parentNumber.toString() || parent.hash !== current.parentHash) return changed;
+      current = parent;
+    }
     return Object.freeze({
       kind: receipt.status === 'success' ? 'settled' : 'reverted',
       receiptBlockNumber: receipt.blockNumber, receiptBlockHash: receipt.blockHash,
