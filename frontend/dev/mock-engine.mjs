@@ -29,6 +29,9 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
+import { omeSettingReadings } from '../../manager/src/domain/engineConfig/omeSettingReadings.ts';
+import { srsSettingReadings } from '../../manager/src/domain/engineConfig/srsSettingReadings.ts';
+import { engineConfigSource } from './mock-engine-config.mjs';
 import { send, sendText } from './mock-http.mjs';
 import { contractOfVersion } from './mock-versions.mjs';
 
@@ -187,10 +190,11 @@ export function engineRoutes({ readBody, withProfile, deploy, publish }) {
         if (!engine) return noEngine(res, profile);
         const defaults = hostDefaults(engine, profile);
         const fields = engineSettingsFieldsFor(engine, { abr });
+        const { template, config } = engineConfigSource(profile.name, engine);
         const readings = profile.has_engine_config
-          ? Object.fromEntries(fields.map(field => [field.key, field.placeholder
-            ? [{ kind: 'unverified', reason: 'metadata-unavailable' }]
-            : [{ kind: 'environment' }]]))
+          ? engine === OME_SERVICE
+            ? omeSettingReadings(template, config, fields)
+            : srsSettingReadings(template, config, fields, { abr })
           : environmentSettingReadings(fields);
         send(res, 200, {
           engine,

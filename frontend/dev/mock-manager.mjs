@@ -10,7 +10,7 @@
  * The dataset it starts from is in `mock-seed.mjs` and the metrics generator is
  * in `mock-metrics.mjs`. This file is the transitions and the routes.
  *
- *   node frontend/dev/mock-manager.mjs        (or: pnpm -C frontend dev:mock)
+ *   pnpm -C frontend dev:mock
  *
  * Signing in is real here too: every route but /health and the two sign-in
  * routes needs the session cookie, so the frontend's 401 handling can be

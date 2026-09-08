@@ -151,6 +151,11 @@ const TEMPLATES = { srs: SRS_TEMPLATE, [OME_SERVICE]: OME_TEMPLATE };
 /** The stored files, by deployment name. The profile only knows whether it has one. */
 const configs = new Map();
 
+/** The editor and overview read the same stored input. No generated or cached observation copy. */
+export function engineConfigSource(profileName, engine) {
+  return { template: TEMPLATES[engine] ?? null, config: configs.get(profileName) ?? null };
+}
+
 /** The file the latest rollout replaced, by deployment name, for back to the previous file. */
 const previousOf = new Map();
 
