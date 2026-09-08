@@ -7,11 +7,12 @@ function positiveCount(value: unknown): number {
 }
 
 function creationAttempt(method: string, path: string, value: unknown): CreationAttempt | null {
-  if (method !== 'POST') return null;
+  if (method.toUpperCase() !== 'POST') return null;
+  const pathname = new URL(path, 'http://integration.invalid').pathname.replace(/\/+$/, '').toLowerCase();
   const body = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  if (path === '/profiles') return { kind: 'profile' };
-  if (path === '/groups') return { kind: 'group', expectedMembers: body.abr_ladder === true ? 4 : positiveCount(body.size) };
-  const match = /^\/groups\/([1-9]\d*)\/members$/.exec(path);
+  if (pathname === '/profiles') return { kind: 'profile' };
+  if (pathname === '/groups') return { kind: 'group', expectedMembers: body.abr_ladder === true ? 4 : positiveCount(body.size) };
+  const match = /^\/groups\/([1-9]\d*)\/members$/.exec(pathname);
   const groupId = Number(match?.[1]);
   return match && Number.isSafeInteger(groupId) ? { kind: 'members', groupId, expectedMembers: positiveCount(body.count) } : null;
 }
