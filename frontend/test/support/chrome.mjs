@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function waitFor(read, accepts = Boolean, description = 'condition') {
-  const until = Date.now() + 15_000;
+export async function waitFor(read, accepts = Boolean, description = 'condition', timeoutMs = 15_000) {
+  const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     const value = await read();
     if (accepts(value)) return value;

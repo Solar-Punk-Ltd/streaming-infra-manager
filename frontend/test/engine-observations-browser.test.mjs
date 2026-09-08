@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor } from '@streaming-infra-manager/common';
+import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
 import { launchChrome, waitFor } from './support/chrome.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
@@ -23,8 +23,8 @@ const base = {
 function overview(profile, duration = '4') {
   const fields = engineSettingsFieldsFor('ome', { abr: false });
   const defaults = effectiveEngineDefaults('ome', { HLS_SEGMENT_DURATION: '6' }, {});
-  const readings = { HLS_SEGMENT_DURATION: [{ kind: 'literal', value: duration }],
-    HLS_SEGMENT_COUNT: [{ kind: 'literal', value: '8' }], OME_HLS_POLL_INTERVAL_MS: [{ kind: 'environment' }] };
+  const readings = profile.has_engine_config ? { HLS_SEGMENT_DURATION: [{ kind: 'literal', value: duration }],
+    HLS_SEGMENT_COUNT: [{ kind: 'literal', value: '8' }], OME_HLS_POLL_INTERVAL_MS: [{ kind: 'environment' }] } : environmentSettingReadings(fields);
   return { identity: engineOverviewIdentity(profile), engine: 'ome', abr: false, fields,
     settings: profile.engine_settings, defaults: defaults.values, defaultSources: defaults.sources,
     ...assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings }),
@@ -67,7 +67,9 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
           const status = responseStatus;
           const read = { revision: profile.engine_config_revision, closed: false };
           reads.push(read); res.on('close', () => { read.closed = true; });
-          const reply = () => json(status === 200 ? captured : { error: 'observation_unavailable', message: 'Synthetic observation unavailable.' }, status);
+          res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+          res.flushHeaders();
+          const reply = () => res.end(JSON.stringify(status === 200 ? captured : { error: 'observation_unavailable', message: 'Synthetic observation unavailable.' }));
           if (hold) held.push(reply); else reply();
           return;
         }
@@ -95,9 +97,12 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   function release() { hold = false; held.splice(0).forEach(reply => reply()); }
   async function reset(width = 1440) {
     release(); profile = structuredClone(base); duration = '4'; responseStatus = 200; responseIdentity = null;
+    await waitFor(async () => { try { return await evaluate('document.readyState === "complete"'); } catch { return false; } }, Boolean, 'active browser document');
     await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: `${origin}/#/deployments/observed-stream` });
-    await call('Page.reload');
+    if (await evaluate('location.origin') === origin) {
+      await evaluate(`location.hash = '#/deployments/observed-stream'`);
+      await call('Page.reload');
+    } else await call('Page.navigate', { url: `${origin}/#/deployments/observed-stream` });
     await waitFor(body, text => text.includes('segment 4 s'), 'initial observed literal');
     await waitFor(() => events.size, n => n > 0, 'profile event stream');
   }
@@ -189,6 +194,68 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await waitFor(drawer, text => text === '', 'drawer closed');
     await openDraft();
     assert.match(await drawer(), /5 seconds/);
+    assert.equal(await saveDisabled(), false);
+  });
+
+  await t.test('an obsolete response arriving last cannot replace the newer observation', async () => {
+    await reset();
+    await evaluate(`window.originalFixtureFetch = window.fetch; window.fetch = (input, init) => window.originalFixtureFetch(input, String(input).endsWith('/engine') ? { ...init, signal: undefined } : init);`);
+    hold = true; duration = '5';
+    publish({ engine_config_revision: 4, notes: 'older request held' });
+    await waitFor(() => held.length, count => count === 1, 'older request held');
+    const olderRead = reads.at(-1);
+    const replyOld = held.shift();
+    hold = false; duration = '6';
+    publish({ engine_config_revision: 5, notes: 'newer request completed' });
+    await waitFor(body, text => text.includes('segment 6 s'), 'newer observation');
+    replyOld();
+    await waitFor(() => olderRead.closed, Boolean, 'older response delivered');
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    assert.match(await body(), /segment 6 s/);
+    assert.doesNotMatch(await card(), /5\s+seconds/);
+    await evaluate('window.fetch = window.originalFixtureFetch');
+  });
+
+  await t.test('a read deadline aborts a stalled response and leaves Apply disabled', async () => {
+    await reset(); await openDraft();
+    hold = true;
+    publish({ engine_config_revision: 4, notes: 'deadline request held' });
+    await waitFor(() => held.length, count => count === 2, 'page and drawer reads held');
+    const pendingReads = reads.slice(-2);
+    await waitFor(drawer, text => text.includes('Reading engine settings timed out.'), 'read timeout', 20000);
+    await waitFor(() => pendingReads.every(read => read.closed), Boolean, 'both underlying responses aborted');
+    assert.equal(await typed(), '9');
+    assert.equal(await saveDisabled(), true);
+    assert.doesNotMatch(await card(), /4\s+seconds/);
+    release();
+  });
+
+  await t.test('leaving the page aborts the owned request without a write or late error', async () => {
+    await reset();
+    hold = true;
+    publish({ engine_config_revision: 4, notes: 'navigation request held' });
+    await waitFor(() => held.length, count => count === 1, 'navigation read held');
+    const pendingRead = reads.at(-1);
+    await evaluate(`location.hash = '#/deployments'`);
+    await waitFor(() => pendingRead.closed, Boolean, 'navigation cancelled request');
+    release();
+    assert.doesNotMatch(await body(), /Reading engine settings timed out/);
+  });
+
+  await t.test('environment defaults and editable deployment overrides remain available', async () => {
+    await reset();
+    publish({ has_engine_config: false, engine_settings: {}, notes: 'environment settings active' });
+    await waitFor(body, text => text.includes('segment 6 s'), 'host default observation');
+    assert.match(await card(), /6\s+seconds\s+Host default/);
+    await click('Settings');
+    await waitFor(() => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.placeholder`), value => value === '6', 'verified default placeholder');
+    assert.match(await drawer(), /Default 6 seconds, set on this host/);
+    await typeDuration('9');
+    assert.equal(await saveDisabled(), false);
+    publish({ engine_settings: { HLS_SEGMENT_DURATION: '7' }, notes: 'deployment override active' });
+    await waitFor(body, text => text.includes('segment 7 s'), 'deployment override observation');
+    assert.match(await card(), /7\s+seconds\s+Deployment override/);
+    assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), false);
   });
 
