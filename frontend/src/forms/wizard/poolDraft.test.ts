@@ -14,7 +14,8 @@ const uploader = {
   passMode: 'custom' as const, poolString: 'retained-external-choice',
 };
 const group: DeploymentGroup = { id: 79, name: 'chosen-pool', size: ABR_LADDER_SIZE, kind: ABR_NODE_POOL_GROUP_KIND, created_at: '2026-09-08T00:00:00Z' };
-const profiles = ladderMemberNames(group.name).map(name => ({ name, group_id: group.id, components: ['bee-uploader'] } as Profile));
+const profiles = ladderMemberNames(group.name).map(name => ({ name, group_id: group.id, kind: 'custom', status: 'RUNNING',
+  components: ['bee-uploader'], containers: [], created_at: group.created_at, updated_at: group.created_at } as Profile));
 
 describe('uploader draft round trip through pool creation', () => {
   it('starts an independent pool form with only the intended host and version carried over', () => {
@@ -33,8 +34,8 @@ describe('uploader draft round trip through pool creation', () => {
   });
 
   it('restores cancellation unchanged and selects only the exact successful compatible pool id', () => {
-    assert.deepEqual(finishPoolSetup(uploader, null).state, uploader);
-    const result = finishPoolSetup(uploader, { expectedName: group.name, group, profiles });
+    assert.deepEqual(finishPoolSetup(uploader, { kind: 'cancelled' }).state, uploader);
+    const result = finishPoolSetup(uploader, { kind: 'accepted', expectedName: group.name, value: { group, profiles } });
     assert.equal(result.state.poolId, group.id);
     assert.equal(result.state.poolMode, 'pick');
     assert.equal(result.state.step, 3);
@@ -53,11 +54,25 @@ describe('uploader draft round trip through pool creation', () => {
       { group, profiles: profiles.map(profile => ({ ...profile, group_id: 80 })) },
     ];
     for (const result of badResults) {
-      const restored = finishPoolSetup(uploader, { expectedName: group.name, ...result });
+      const restored = finishPoolSetup(uploader, { kind: 'accepted', expectedName: group.name, value: result });
       assert.deepEqual(restored.state, uploader);
       assert.equal(restored.created, null);
       assert.match(restored.notice ?? '', /could not select/i);
     }
+  });
+
+  it('treats malformed accepted JSON as unselectable, including null rather than cancellation', () => {
+    const malformed: unknown[] = [null, undefined, [], {}, { group: null, profiles }, { group },
+      { group, profiles: null }, { group, profiles: {} }, { group, profiles: [null, ...profiles.slice(1)] },
+      ...['components', 'containers'].map(field => ({ group, profiles: [{ ...profiles[0], [field]: null }, ...profiles.slice(1)] })),
+      { group, profiles: [{ ...profiles[0], containers: [null] }, ...profiles.slice(1)] }];
+    for (const value of malformed) {
+      const result = finishPoolSetup(uploader, { kind: 'accepted', expectedName: group.name, value });
+      assert.deepEqual(result.state, uploader);
+      assert.equal(result.created, null);
+      assert.match(result.notice ?? '', /accepted.*could not select/i);
+    }
+    assert.equal(finishPoolSetup(uploader, { kind: 'cancelled' }).notice, null);
   });
 
   it('keeps the exact returned identity while the global list is delayed without replacing fresher members', () => {
