@@ -270,4 +270,14 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     assert.equal(reads, 0);
     assert.deepEqual(await active(), before);
   });
+
+  it('never applies an older version row’s shipment to a replacement bundled row', async () => {
+    const item = await prepare();
+    await pool.query("UPDATE stack_versions SET name = 'retired-bundled' WHERE id = $1", [versionId]);
+    const replacement = await versions.insert({ name: 'bundled', gitRef: 'synthetic', rootPath: '/synthetic/replacement' });
+    const before = await versions.findById(replacement.id);
+    await assert.rejects(shipments.activate(item.shipmentId, async () => {}), /identity|version/i);
+    assert.deepEqual(await versions.findById(replacement.id), before);
+    assert.equal((await shipments.find(item.shipmentId))!.receipt, null);
+  });
 });
