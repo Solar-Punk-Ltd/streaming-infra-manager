@@ -155,12 +155,85 @@ test('version identity, states and actions fit verified narrow viewports', async
     }
   });
 
-  await t.test('Tested retains the shown commit and default still requires confirmation', async () => {
+  await t.test('a default updated to another build keeps its dated warning readable at every viewport', async () => {
+    const before = { ...versions[0] };
+    const invalidatedAt = '2026-09-08T08:15:00.000Z';
+    const date = await evaluate(`import('/src/format.ts').then(({formatDateTime}) => formatDateTime(${JSON.stringify(invalidatedAt)}))`);
+    versions[0] = { ...before, tested: false, buildId: `${'1'.repeat(40)}-r3`, testedInvalidatedAt: invalidatedAt };
+    try {
+      await clickButton('Refresh');
+      await waitFor(() => evaluate(`!document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`));
+      for (const width of [723, 390, 1280]) {
+        await call('Emulation.setDeviceMetricsOverride', { width, height: 960, deviceScaleFactor: 1, mobile: false });
+        const reading = await evaluate(`(() => {
+          const row = ${card(LONG_VERSION_NAME)};
+          row.scrollIntoView({ block: 'start' });
+          const warning = [...row.querySelectorAll('p')].find(el => el.textContent.includes('Not tested since the update on'));
+          const range = document.createRange();
+          if (warning) range.selectNodeContents(warning);
+          const controls = [...row.querySelectorAll('button, input[type=checkbox]')].map(el => {
+            const rect = (el.closest('label') ?? el).getBoundingClientRect();
+            return rect.left >= -1 && rect.right <= innerWidth + 1;
+          });
+          return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: row.innerText,
+            warning: warning?.textContent, warningFits: warning ? [...range.getClientRects()].every(rect => rect.left >= -1 && rect.right <= innerWidth + 1) : false,
+            controls };
+        })()`);
+        assert.equal(reading.width, width);
+        assert.ok(reading.scrollWidth <= width);
+        assert.equal(reading.warning, `Not tested since the update on ${date}.`);
+        assert.equal(reading.warningFits, true);
+        assert.ok(reading.text.includes('Default'));
+        assert.ok(reading.text.includes('1111111-r3'));
+        assert.deepEqual(reading.controls, [true, true, true, true]);
+        if (evidence) {
+          const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false, fromSurface: true });
+          await writeFile(resolve(evidence, `versions-${width}-approval-warning.png`), Buffer.from(data, 'base64'));
+        }
+      }
+    } finally {
+      versions[0] = before;
+      await clickButton('Refresh');
+      await waitFor(() => evaluate(`document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`));
+    }
+  });
+
+  await t.test('a missing immutable identity disables approval while a legacy commit remains eligible', async () => {
+    const before = { ...versions[2] };
+    versions[2] = { ...before, buildId: null };
+    try {
+      await clickButton('Refresh');
+      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('no build yet')`));
+      assert.equal(await evaluate(`document.querySelector('input[aria-label="candidate tested"]').disabled`), true);
+      assert.equal(await evaluate(`document.querySelector('input[aria-label="bundled tested"]').disabled`), false);
+    } finally {
+      versions[2] = before;
+      await clickButton('Refresh');
+      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('3333333-r2')`));
+    }
+  });
+
+  await t.test('Tested help explains distinct builds at one commit', async () => {
+    const point = await evaluate(`(() => {
+      const label = document.querySelector('input[aria-label="candidate tested"]').closest('label');
+      label.scrollIntoView({ block: 'center' });
+      const rect = label.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    })()`);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await waitFor(() => evaluate('document.querySelector("[role=tooltip]") !== null'));
+    const help = await evaluate('document.querySelector("[role=tooltip]").innerText');
+    assert.match(help, /different build clears approval, even at the same commit/);
+    assert.match(help, /Legacy versions/);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
+  });
+
+  await t.test('Tested retains the shown build and commit and default still requires confirmation', async () => {
     assert.equal(await evaluate(`[...(${card('candidate')}).querySelectorAll('button')].find(button => button.textContent === 'Set as default').disabled`), true);
     await evaluate(`document.querySelector('input[aria-label="candidate tested"]').focus()`);
     await pressKey(' ', 'Space', 32, ' ');
     await waitFor(() => writes.length, (count) => count === 1, 'tested request');
-    assert.deepEqual(writes[0], { method: 'PATCH', path: '/versions/3', body: { tested: true, commitSha: '3'.repeat(40) } });
+    assert.deepEqual(writes[0], { method: 'PATCH', path: '/versions/3', body: { tested: true, commitSha: '3'.repeat(40), buildId: `${'3'.repeat(40)}-r2` } });
     await waitFor(() => evaluate(`document.querySelector('input[aria-label="candidate tested"]').checked`));
     await clickButton('Set as default', card('candidate'));
     assert.equal(writes.length, 1, 'opening confirmation does not mutate default');

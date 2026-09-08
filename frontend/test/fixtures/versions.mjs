@@ -17,7 +17,7 @@ function version(id, input) {
   const commit = String(id).repeat(40);
   return {
     id, name: `version-${id}`, gitRef: 'main-v3', commitSha: commit,
-    status: 'ready', tested: false, isDefault: false,
+    status: 'ready', tested: false, testedInvalidatedAt: null, isDefault: false,
     builtAt: '2026-09-08T10:00:00.000Z', lastError: null,
     contract: structuredClone(contract), deployments: 0,
     layout: 'builds', buildId: `${commit}-r2`, previousBuildId: commit,
