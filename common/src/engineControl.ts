@@ -79,6 +79,13 @@ export interface EngineSettingsOverview {
    */
   defaults: EngineSettings;
   defaultSources: EngineDefaultSources;
+  /**
+   * What the engine runs with, by key: the stored value, else the host's
+   * default, else the stack's. Every card reads this one map. A key in
+   * `notInConfig` is left out: nothing in the deployment's own config file
+   * reads it, so what the engine runs with for it is not known from here.
+   */
+  effective: EngineSettings;
   fields: readonly EngineSettingField[];
   /** Why live status is not shown, in words the card can show as it stands. */
   liveUnavailableReason: string;

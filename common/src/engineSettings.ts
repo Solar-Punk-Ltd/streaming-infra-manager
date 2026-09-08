@@ -273,15 +273,20 @@ export function engineSettingsDefaults(engine: EngineName): EngineSettings {
  *
  * `defaults` is what an unset field falls back to on the host this deployment
  * runs on, which `effectiveEngineDefaults` answers. Left out, every field falls
- * back to the stack's own value.
+ * back to the stack's own value. `omitted` names the keys a config file of the
+ * deployment's own no longer reads: nothing in that file takes the value, so
+ * what the engine runs with for them is not known from here, and they are
+ * left out rather than guessed.
  */
 export function effectiveEngineSettings(
   engine: EngineName,
   settings: EngineSettings,
   defaults: EngineSettings = {},
+  omitted: readonly string[] = [],
 ): EngineSettings {
   const effective: EngineSettings = {};
   for (const field of engineSettingsFields(engine)) {
+    if (omitted.includes(field.key)) continue;
     const stored = settings[field.key]?.trim();
     effective[field.key] =
       stored || defaults[field.key] || field.defaultValue;

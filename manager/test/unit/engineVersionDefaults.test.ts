@@ -30,7 +30,7 @@ const { callEngine, startEngineTestApp } = await import(
   '../support/engineTestApp.js'
 );
 const { fakeDocker } = await import('../support/fakeDocker.js');
-const { harnessFor, profileRow } = await import(
+const { harnessFor, profileRow, profileServiceHarness } = await import(
   '../support/profileServiceHarness.js'
 );
 
@@ -79,5 +79,73 @@ describe('GET /profiles/:name/engine on a version with its own defaults', () => 
 
     assert.match(overview.liveUnavailableReason, /publishes the SRS API port/);
     assert.equal(overview.live, null);
+  });
+
+  it("answers what the engine runs with: the version's numbers under the stored overrides", async () => {
+    const res = await callEngine(app, 'GET', '/profiles/stream1/engine');
+    const overview = res.body as EngineOverview;
+
+    assert.equal(overview.effective.HLS_FRAGMENT, '0.5');
+    assert.equal(overview.effective.HLS_WINDOW, '15');
+  });
+
+  it('follows an override, and goes back to the version default once it is cleared', async () => {
+    // A row of its own, since this one is written to. The fake orchestrator
+    // leaves a recreated deployment DEPLOYING, so the row is put back between
+    // the two saves the way the real success hook does.
+    const own = harnessFor(profileRow());
+    await own.versions.setContract(1, V3_CONTRACT);
+    const ownApp = await startEngineTestApp(
+      own.service,
+      new ContainerControl(new EventBus(), fakeDocker([])),
+    );
+    try {
+      await own.service.updateEngineSettings('stream1', { HLS_WINDOW: '20' });
+      own.stored().status = 'RUNNING';
+      const overridden = (await callEngine(ownApp, 'GET', '/profiles/stream1/engine'))
+        .body as EngineOverview;
+
+      await own.service.updateEngineSettings('stream1', {});
+      own.stored().status = 'RUNNING';
+      const cleared = (await callEngine(ownApp, 'GET', '/profiles/stream1/engine'))
+        .body as EngineOverview;
+
+      assert.equal(overridden.effective.HLS_WINDOW, '20');
+      assert.equal(overridden.effective.HLS_FRAGMENT, '0.5', 'the other key keeps the version default');
+      assert.equal(cleared.effective.HLS_WINDOW, '15');
+    } finally {
+      await ownApp.close();
+    }
+  });
+});
+
+describe('GET /profiles/:name/engine on a deployment with a config file of its own', () => {
+  it('leaves out a key the file no longer reads, and lists it as not in the config', async () => {
+    const harness = profileServiceHarness([
+      profileRow({ has_engine_config: true, engine_settings: { HLS_WINDOW: '20' } }),
+    ]);
+    await harness.versions.setContract(1, V3_CONTRACT);
+    harness.profiles.engineConfigs.set(
+      'stream1',
+      'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n',
+    );
+    const app = await startEngineTestApp(
+      harness.service,
+      new ContainerControl(new EventBus(), fakeDocker([])),
+    );
+    try {
+      const overview = (await callEngine(app, 'GET', '/profiles/stream1/engine'))
+        .body as EngineOverview;
+
+      assert.equal(overview.effective.HLS_FRAGMENT, '0.5');
+      assert.equal(
+        overview.effective.HLS_WINDOW,
+        undefined,
+        'stored as 20, but nothing in the file reads it',
+      );
+      assert.ok(overview.notInConfig.includes('HLS_WINDOW'));
+    } finally {
+      await app.close();
+    }
   });
 });

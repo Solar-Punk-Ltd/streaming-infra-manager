@@ -11,6 +11,7 @@ import {
   type EngineName,
   engineOfServices,
   type EngineSettings,
+  effectiveEngineSettings,
   engineSettingsFieldsFor,
   type EngineSettingsOverview,
   engineSettingsProblem,
@@ -470,20 +471,27 @@ export class ProfileService {
     const { engine, abr } = this.engineFacts(profile);
     const defaults = await this.engineDefaults(profile, engine);
     const contract = await this.contractFor(profile);
+    const notInConfig = profile.has_engine_config
+      ? settingsNotInConfig(
+          engine,
+          (await this.repo.engineConfigOf(profile.name)) ?? '',
+        )
+      : [];
     return {
       engine,
       abr,
       settings: profile.engine_settings,
       defaults: defaults.values,
       defaultSources: defaults.sources,
+      effective: effectiveEngineSettings(
+        engine,
+        profile.engine_settings,
+        defaults.values,
+        notInConfig,
+      ),
       fields: engineSettingsFieldsFor(engine, { abr }),
       liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
-      notInConfig: profile.has_engine_config
-        ? settingsNotInConfig(
-            engine,
-            (await this.repo.engineConfigOf(profile.name)) ?? '',
-          )
-        : [],
+      notInConfig,
     };
   }
 

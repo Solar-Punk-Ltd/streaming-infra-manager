@@ -48,6 +48,9 @@ importers:
         specifier: ^2.48.11
         version: 2.49.3(typescript@5.6.3)
     devDependencies:
+      '@types/node':
+        specifier: 22.9.0
+        version: 22.9.0
       '@types/react':
         specifier: 18.3.12
         version: 18.3.12
@@ -57,6 +60,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 4.3.4
         version: 4.3.4(vite@5.4.11(@types/node@22.9.0))
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
       typescript:
         specifier: 5.6.3
         version: 5.6.3
