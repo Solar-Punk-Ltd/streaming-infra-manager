@@ -23,6 +23,17 @@ export interface ChequebookTransferContext {
 export type ChequebookOperationState = 'submitting' | 'submitted' | 'unknown' | 'settled' | 'reverted' | 'asserted' | 'rejected';
 export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavailable' | 'invalid_response';
 
+export type ChequebookReceiptObservation =
+  | { readonly kind: 'pending'; readonly reason: 'awaiting_transaction' | 'awaiting_receipt' | 'awaiting_finality' }
+  | { readonly kind: 'could_not_check'; readonly reason: 'rpc_unavailable' | 'identity_mismatch' | 'chain_changed' }
+  | {
+    readonly kind: 'settled' | 'reverted';
+    readonly receiptBlockNumber: string;
+    readonly receiptBlockHash: string;
+    readonly finalizedBlockNumber: string;
+    readonly finalizedBlockHash: string;
+  };
+
 export interface ChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
   readonly state: ChequebookOperationState;

@@ -19,17 +19,19 @@ interface ChainRpcOptions {
 
 type ReadMethod = 'eth_chainId' | 'eth_getTransactionCount' | 'eth_getTransactionByHash' | 'eth_getTransactionReceipt' | 'eth_getBlockByNumber' | 'eth_getBlockTransactionCountByHash';
 
-function blockTag(block: bigint | 'latest'): string {
-  if (block === 'latest') return block;
+type BlockReference = bigint | 'latest' | 'finalized';
+
+function blockTag(block: BlockReference): string {
+  if (block === 'latest' || block === 'finalized') return block;
   const tag = `0x${block.toString(16)}`;
   chainQuantity(tag);
   return tag;
 }
 
-function blockHeader(value: unknown, expected: bigint | 'latest'): ChainBlockHeader {
+function blockHeader(value: unknown, expected: BlockReference): ChainBlockHeader {
   const block = chainObject(value);
   const number = chainQuantity(block.number).toString();
-  if (expected !== 'latest' && number !== expected.toString()) throw new ChainEvidenceError();
+  if (typeof expected === 'bigint' && number !== expected.toString()) throw new ChainEvidenceError();
   return Object.freeze({ number, hash: chainHash(block.hash), parentHash: chainHash(block.parentHash) });
 }
 
@@ -78,7 +80,7 @@ export class ChainRpc {
     return receipt;
   }
 
-  async blockHeader(block: bigint | 'latest', signal?: AbortSignal): Promise<ChainBlockHeader | null> {
+  async blockHeader(block: BlockReference, signal?: AbortSignal): Promise<ChainBlockHeader | null> {
     const value = await this.#call('eth_getBlockByNumber', [blockTag(block), false], signal);
     return value === null ? null : blockHeader(value, block);
   }

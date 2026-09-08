@@ -13,6 +13,10 @@ Read-only source verification on 2026-09-08 found:
 
 The parser follows the [Ethereum JSON-RPC reference](https://ethereum.org/developers/docs/apis/json-rpc/). Amounts and nonces remain exact integers. Legacy transactions must carry an EIP-155 protected chain id, derived from `v` and checked against an explicit chain id when present. Typed transactions require an explicit chain id. Malformed or contradictory fields fail with a fixed error.
 
-The matcher requires sender, chain, token or chequebook destination, zero native value, exact ABI arguments and the saved nonce and block bounds. A matching pending transaction remains pending. The parser distinguishes receipt success, revert and absence. Canonical-block checks, durable receipt updates and recovery are separate parts of T09 and must finish before the flow is enabled.
+The matcher requires sender, chain, token or chequebook destination, zero native value, exact ABI arguments and the saved nonce and block bounds. A matching pending transaction remains pending. The parser distinguishes receipt success, revert and absence.
+
+Receipt confirmation requires a matching transaction and receipt, a canonical frozen start block, and a canonical receipt block at or below the RPC's `finalized` block. The finalized tag is checked against that block's numbered header. The frozen start block is checked again after those reads. Receipt status 1 means settled and status 0 means reverted only when these checks pass. A mined receipt before finality remains pending. Missing or unsupported finalized evidence remains could not check, with no fallback to latest or a balance change. The complete inspection has a 15-second deadline, including reader preparation, and cancels in-flight reads when it ends.
+
+The [JSON-RPC reference](https://ethereum.org/developers/docs/apis/json-rpc/) defines the finalized block tag. [Nethermind's RPC reference](https://docs.nethermind.io/interacting/json-rpc-ns/eth/) also lists it for `eth_getBlockByNumber`. This is the client confirmation contract. The configured live RPC's support was not tested. Durable receipt updates and recovery remain separate parts of T09 and must finish before the flow is enabled.
 
 No funded node, live chain endpoint or host was queried. The 0.5 BZZ chequebook fill's submission remains unverified.
