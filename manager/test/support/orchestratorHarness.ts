@@ -72,6 +72,12 @@ export function orchestratorHarness(
   const containers = new FakeContainers();
   const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
   const attempts = new InMemoryDeployAttempts();
+  profiles.onDeleted = name => {
+    for (const reference of ledger.references) {
+      if ((reference.holderKind === 'job' && reference.holderId === name)
+        || (reference.holderKind === 'snapshot' && reference.holderId.startsWith(`${name}/`))) reference.resolvedAt ??= new Date();
+    }
+  };
   const daemon = new FakeDaemon();
   const published: PublishedPortsSnapshot = { daemonId: daemon.id, bindings: [] };
   profiles.reservations.releaseBlocked = name => ledger.references.some(reference => reference.resolvedAt === null

@@ -220,21 +220,24 @@ describe('what ends an attempt without its script', () => {
     assert.match(harness.attempts.rows[0]?.reason ?? '', /never seen/);
   });
 
-  it('is released when its deployment is removed, so the name can be deployed again', async () => {
+  it('requires explicit release of an unresolved attempt before its deployment can be removed', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
     harness.runner.finish(0);
     await untilRunning(harness.profiles, 'stage');
     assert.equal(harness.attempts.rows[0]?.state, 'blocked');
 
+    await assert.rejects(harness.orchestrator.startRemove(row('stage')), /unresolved/);
+    await harness.orchestrator.releaseAttempt(harness.attempts.rows[0]!.id, 'operator checked that the attempt cannot create more containers');
     await harness.orchestrator.startRemove(row('stage'));
+    harness.daemon.containers.delete('stage');
     harness.runner.finish(1, 0);
     for (let tick = 0; tick < 300 && harness.profiles.rows.has('stage'); tick += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(harness.profiles.rows.has('stage'), false, 'the deployment is gone');
     assert.equal(harness.attempts.rows[0]?.state, 'released');
-    assert.match(harness.attempts.rows[0]?.releasedBy ?? '', /removed/);
+    assert.match(harness.attempts.rows[0]?.releasedBy ?? '', /operator checked/);
 
     harness.profiles.rows.set('stage', makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64) }));
     await harness.orchestrator.startDeploy(row('stage'), undefined);

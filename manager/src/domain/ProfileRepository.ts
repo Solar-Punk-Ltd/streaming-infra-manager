@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 
 export interface ProfileWriteData {
@@ -256,11 +257,33 @@ export class ProfileRepository {
   }
 
   async deleteByName(name: string): Promise<{ port_slot: number } | null> {
-    const result = await this.pool.query<{ port_slot: number }>(
-      'DELETE FROM profiles WHERE name = $1 RETURNING port_slot',
-      [name],
-    );
-    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+      const selected = await client.query<{ status: string }>('SELECT status FROM profiles WHERE name = $1 FOR UPDATE', [name]);
+      if (!selected.rows.length) {
+        await client.query('COMMIT');
+        return null;
+      }
+      if (selected.rows[0]!.status !== 'REMOVING') throw new ProfileConfigError(name, 'The deployment has not completed removal.');
+      const held = await client.query<{ blocked: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
+          OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS blocked`, [name],
+      );
+      if (held.rows[0]?.blocked) throw new ProfileConfigError(name, 'An unresolved deploy attempt or rollback operation still holds this deployment.');
+      await client.query('DELETE FROM port_reservations WHERE profile_name = $1', [name]);
+      await client.query(
+        `UPDATE build_references SET resolved_at = NOW() WHERE resolved_at IS NULL
+         AND ((holder_kind = 'job' AND holder_id = $1) OR (holder_kind = 'snapshot' AND split_part(holder_id, '/', 1) = $1))`, [name],
+      );
+      const result = await client.query<{ port_slot: number }>('DELETE FROM profiles WHERE name = $1 RETURNING port_slot', [name]);
+      await client.query('COMMIT');
+      return result.rows[0] ?? null;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally { client.release(); }
   }
 
   /** The commit of a deploy that touched every service and found them all on it. */

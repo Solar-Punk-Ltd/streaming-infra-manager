@@ -35,7 +35,7 @@ import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, Reserv
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
-import { portPlanFor } from './ports/portReservations.js';
+import { portKeyOf, portPlanFor } from './ports/portReservations.js';
 import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import {
   type AttemptOutcome,
@@ -218,15 +218,6 @@ export class DeploymentOrchestrator {
   /** Every attempt still holding a project or the daemon here, for the pages. */
   async unresolvedAttempts(): Promise<DeployAttempt[]> {
     return this.attempts.listUnresolved();
-  }
-
-  /** A removed deployment's attempts hold nothing: its containers are gone, and its name may be used again. */
-  private async releaseAttemptsOf(profile: Profile, by: string): Promise<void> {
-    const project = profile.name;
-    const released = await this.attempts.releaseProject(await this.targetDaemon(targetAlias(profile.host)), project, by);
-    if (released.length === 0) return;
-    logger.info(`[Orchestrator] released ${released.map((attempt) => attempt.jobId).join(', ')} of ${project}: ${by}`);
-    this.eventBus.publish({ type: 'attempt.changed' });
   }
 
   /** A blocked attempt released by a person who checked the host. */
@@ -679,6 +670,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     input: { all?: boolean } = {},
   ): Promise<RunHandle> {
+    await this.assertNoCreatingAttempt(profile.name);
     const args: string[] = [
       `--profile=${profile.name}`,
       `--host=${targetAlias(profile.host)}`,
@@ -700,9 +692,7 @@ export class DeploymentOrchestrator {
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
       onSuccess: async () => {
-        // First, so a failure here keeps the deployment and its attempts
-        // together for another try, and the name is free once the row goes.
-        await this.releaseAttemptsOf(profile, 'removed with the deployment');
+        await this.verifyPortRemoval(profile);
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);
         deleteProfileEnv(paths.root, profile.name);
@@ -714,6 +704,33 @@ export class DeploymentOrchestrator {
         await this.cleanupGroup(profile.group_id);
       },
     });
+  }
+
+  private async assertNoCreatingAttempt(profileName: string): Promise<void> {
+    const unresolved = (await this.attempts.listUnresolved()).find(attempt => attempt.project === profileName);
+    if (unresolved) {
+      throw new ProfileConfigError(profileName, `Deploy attempt ${unresolved.jobId} is unresolved. Resolve its creation guard before removing this deployment.`);
+    }
+  }
+
+  private async verifyPortRemoval(profile: Profile): Promise<void> {
+    await this.assertNoCreatingAttempt(profile.name);
+    if (!this.ports || !this.portObserver) throw new ProfileConfigError(profile.name, 'Port removal observation is not configured. Reservations were retained.');
+    const target = targetAlias(profile.host);
+    const daemonId = await this.targetDaemon(target);
+    const containers = await this.daemon.snapshot(profile.name, target);
+    const published = await this.portObserver.publishedPorts(target);
+    if (containers.daemonId !== daemonId || published.daemonId !== daemonId) {
+      throw new TargetNotVerifiedError(target, 'Removal observations came from a different Docker daemon. Reservations were retained.');
+    }
+    if ([...containers.containers.values()].some(ids => ids.length) || published.unverifiedProjects?.length) {
+      throw new ProfileConfigError(profile.name, 'Container removal or port release could not be verified. Reservations were retained.');
+    }
+    const reservations = await this.ports.listByProfile(profile.name);
+    const bound = new Set(published.bindings.map(portKeyOf));
+    if (reservations.some(port => port.daemonId !== daemonId || bound.has(portKeyOf(port)))) {
+      throw new ProfileConfigError(profile.name, 'Reserved ports are still bound or belong to another daemon. Reconcile them before removal.');
+    }
   }
 
   private async cleanupGroup(groupId: number | null): Promise<void> {

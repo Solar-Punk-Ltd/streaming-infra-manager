@@ -86,6 +86,7 @@ export class InMemoryProfiles {
 
   /** The `engine_config` column, kept apart from the rows for the same reason. */
   readonly engineConfigs = new Map<string, string>();
+  onDeleted?: (name: string) => void;
 
   constructor(
     profiles: readonly Profile[] = [],
@@ -173,7 +174,10 @@ export class InMemoryProfiles {
   async deleteByName(name: string): Promise<{ port_slot: number } | null> {
     const row = this.rows.get(name);
     if (!row) return null;
+    if (row.status !== 'REMOVING') throw new Error('The deployment has not completed removal');
     this.rows.delete(name);
+    this.reservations.dropProfile(name);
+    this.onDeleted?.(name);
     return { port_slot: row.port_slot };
   }
 
