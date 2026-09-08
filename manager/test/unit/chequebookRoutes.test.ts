@@ -22,6 +22,7 @@ async function testApi(options: { dropResponse?: boolean } = {}) {
   let receipts = 0;
   let recoveries = 0;
   let present = true;
+  let sessionToken = 'test-session';
   const repository = new InMemoryChequebookOperations();
   const submission = new ChequebookSubmission(repository, async () => {
     prepares++;
@@ -37,7 +38,7 @@ async function testApi(options: { dropResponse?: boolean } = {}) {
   const app = express();
   app.use(requireSameSite);
   app.use(express.json());
-  app.use(createRequireSession({ sessionFor: async token => token === 'test-session' ? { user: { id: 7, username: 'operator', isAdmin: false }, tokenHash: 'test-hash', expiresAt: new Date(Date.now() + 60_000) } : null } as AuthService));
+  app.use(createRequireSession({ sessionFor: async token => ['test-session', 'other-session'].includes(token) ? { user: { id: token === 'test-session' ? 7 : 8, username: 'operator', isAdmin: false }, tokenHash: 'test-hash', expiresAt: new Date(Date.now() + 60_000) } : null } as AuthService));
   if (options.dropResponse) app.use((req, res, next) => { if (req.method === 'POST') res.json = () => { req.socket.destroy(); return res; }; next(); });
   app.use(createChequebookRouter({ summary: async () => ({ source: 'summary' }) } as unknown as ChequebookService, service));
   app.use(errorHandler);
@@ -46,8 +47,9 @@ async function testApi(options: { dropResponse?: boolean } = {}) {
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const url = `http://127.0.0.1:${address.port}`;
   return { repository, service, counts: () => ({ prepares, posts, receipts, recoveries }), removeProfile() { present = false; },
+    switchAccount(id: 7 | 8) { sessionToken = id === 7 ? 'test-session' : 'other-session'; },
     async request(method: string, path: string, body?: unknown, authenticated = true, sameSite = true) {
-      return fetch(`${url}${path}`, { method, headers: { 'content-type': 'application/json', ...(authenticated ? { cookie: `${SESSION_COOKIE_NAME}=test-session` } : {}),
+      return fetch(`${url}${path}`, { method, headers: { 'content-type': 'application/json', ...(authenticated ? { cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` } : {}),
         ...(sameSite ? { [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
     }, async close() { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
@@ -69,15 +71,16 @@ describe('authenticated transaction-journal API', () => {
   it('requires a request UUID and rejects caller actor, endpoint, chain and malformed amounts', async t => {
     const api = await testApi(); t.after(() => api.close());
     const intent = transferIntent();
-    for (const body of [{ amount: intent.amountPlur }, { amount: 1, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId }, { amount: '01', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId },
-      ...[undefined, null, '', 'old-deployment'].map(profileInstanceId => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId })),
-      ...['actor', 'requestedBy', 'endpoint', 'chainId', 'contract'].map(key => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, [key]: 'synthetic-private-value' }))]) {
+    for (const body of [{ amount: intent.amountPlur }, { amount: 1, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 }, { amount: '01', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 },
+      ...[undefined, null, '', 'old-deployment'].map(profileInstanceId => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId, expectedAccountId: 7 })),
+      ...[undefined, null, 0, -1, 1.5, '7', Number.MAX_SAFE_INTEGER + 1].map(expectedAccountId => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId })),
+      ...['actor', 'requestedBy', 'endpoint', 'chainId', 'contract'].map(key => ({ amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7, [key]: 'synthetic-private-value' }))]) {
       const response = await api.request('POST', path, body);
       assert.equal(response.status, 400);
       assert.ok(!(await response.text()).includes('synthetic-private-value'));
     }
     assert.equal(api.counts().posts, 0);
-    const response = await api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId });
+    const response = await api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 });
     assert.equal(response.status, 202);
     const result = await response.json();
     assert.equal(result.operation.requestedBy, 'user:7');
@@ -85,16 +88,43 @@ describe('authenticated transaction-journal API', () => {
     assert.equal(result.operation.state, 'submitted');
     assert.equal(result.assertionConfirmation, chequebookAssertionConfirmation(intent.amountPlur));
     assert.deepEqual(result.responseEvidence, []);
-    const conflict = await api.request('POST', path, { amount: '1', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId });
+    const conflict = await api.request('POST', path, { amount: '1', requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 });
     assert.equal(conflict.status, 409);
     assert.equal((await conflict.json()).kind, 'conflict');
     assert.equal(api.counts().posts, 1);
   });
 
+  it('refuses a saved intent after cookie account switching before any preparation or journal mutation', async t => {
+    const api = await testApi(); t.after(() => api.close());
+    const intent = transferIntent();
+    const body = { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 };
+    api.switchAccount(8);
+    const refused = await api.request('POST', path, body);
+    assert.equal(refused.status, 409);
+    assert.deepEqual(await refused.json(), { error: 'account_changed', message: 'The signed-in account changed. Sign in with the account that confirmed this transfer.' });
+    assert.deepEqual(api.counts(), { prepares: 0, posts: 0, receipts: 0, recoveries: 0 });
+    assert.equal(await api.repository.findByRequestId(intent.requestId), null);
+
+    api.switchAccount(7);
+    const accepted = await api.request('POST', path, body);
+    assert.equal(accepted.status, 202);
+    const original = await accepted.json();
+    assert.equal(original.operation.requestedBy, 'user:7');
+    api.removeProfile();
+    api.switchAccount(8);
+    assert.equal((await api.request('POST', path, body)).status, 409);
+    assert.deepEqual(await api.repository.findByRequestId(intent.requestId), original.operation);
+    api.switchAccount(7);
+    const replayed = await api.request('POST', path, body);
+    assert.equal(replayed.status, 202);
+    assert.equal((await replayed.json()).kind, 'replayed');
+    assert.deepEqual(api.counts(), { prepares: 1, posts: 1, receipts: 0, recoveries: 0 });
+  });
+
   it('recovers an exact request key after losing the HTTP response and removing the profile', async t => {
     const api = await testApi({ dropResponse: true }); t.after(() => api.close());
     const intent = transferIntent();
-    await assert.rejects(api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId }));
+    await assert.rejects(api.request('POST', path, { amount: intent.amountPlur, requestId: intent.requestId, profileInstanceId: intent.profileInstanceId, expectedAccountId: 7 }));
     api.removeProfile();
     const response = await api.request('GET', `${operationsPath}/by-request/${intent.requestId}`);
     assert.equal(response.status, 200);
