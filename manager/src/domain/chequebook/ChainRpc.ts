@@ -17,7 +17,7 @@ interface ChainRpcOptions {
   maxResponseBytes?: number;
 }
 
-type ReadMethod = 'eth_chainId' | 'eth_getTransactionCount' | 'eth_getTransactionByHash' | 'eth_getTransactionReceipt' | 'eth_getBlockByNumber';
+type ReadMethod = 'eth_chainId' | 'eth_getTransactionCount' | 'eth_getTransactionByHash' | 'eth_getTransactionReceipt' | 'eth_getBlockByNumber' | 'eth_getBlockTransactionCountByHash';
 
 function blockTag(block: bigint | 'latest'): string {
   if (block === 'latest') return block;
@@ -91,12 +91,17 @@ export class ChainRpc {
     const rawTransactions = chainObject(value).transactions;
     if (!Array.isArray(rawTransactions)) throw new ChainEvidenceError();
     const transactions: ChainTransaction[] = [];
-    for (const value of rawTransactions) {
+    const seenHashes = new Set<string>();
+    for (const [index, value] of rawTransactions.entries()) {
       const transaction = chainObject(value);
-      chainHash(transaction.hash);
+      const hash = chainHash(transaction.hash);
+      if (seenHashes.has(hash) || chainQuantity(transaction.transactionIndex) !== BigInt(index)) throw new ChainEvidenceError();
+      seenHashes.add(hash);
       if (chainHash(transaction.blockHash) !== header.hash || chainQuantity(transaction.blockNumber).toString() !== header.number) throw new ChainEvidenceError();
       if (chainAddress(transaction.from) === sender) transactions.push(parseChainTransaction(value));
     }
+    const count = chainQuantity(await this.#call('eth_getBlockTransactionCountByHash', [header.hash], signal));
+    if (count !== BigInt(rawTransactions.length)) throw new ChainEvidenceError();
     return Object.freeze({ ...header, transactions: Object.freeze(transactions) });
   }
 
