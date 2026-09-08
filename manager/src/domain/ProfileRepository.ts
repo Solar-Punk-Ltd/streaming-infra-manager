@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
-import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 
@@ -80,9 +80,10 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id
+           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id, deployment_phase
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
           name,
@@ -318,6 +319,9 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = CASE
+               WHEN $2 = 'DEPLOYING' THEN ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL}
+               ELSE NULL END,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -332,6 +336,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = $2,
              last_error_at = NOW(),
              updated_at = NOW()
@@ -349,6 +354,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = $2,
+             deployment_phase = NULL,
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
@@ -363,6 +369,7 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET status = 'ERROR',
+             deployment_phase = NULL,
              last_error = 'manager restarted while ' || status,
              last_error_at = NOW(),
              updated_at = NOW()

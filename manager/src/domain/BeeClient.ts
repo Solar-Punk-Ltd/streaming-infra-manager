@@ -1,8 +1,10 @@
 import type {
   BeeTransaction,
+  BeeNodeObservation,
   ChequebookBalance,
 } from '@streaming-infra-manager/common';
 
+import { observeBeeNode } from './beeNodeObservation.js';
 import { BeeHttpError } from './errors/BeeHttpError.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -73,6 +75,10 @@ export class BeeClient {
     private readonly baseUrl: string,
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {}
+
+  async getNodeObservation(): Promise<BeeNodeObservation> {
+    return observeBeeNode(this.baseUrl, this.timeoutMs);
+  }
 
   async getAddresses(): Promise<BeeAddresses> {
     return this.request<BeeAddresses>('GET', '/addresses');

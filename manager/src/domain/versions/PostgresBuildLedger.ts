@@ -4,7 +4,7 @@ import { BUNDLED_VERSION_NAME, parseStackContract } from '@streaming-infra-manag
 
 import { Profile, ProfileStatus } from '../../types/index.js';
 import { ProfileConfigError } from '../errors/index.js';
-import { PROFILE_COLUMNS } from '../profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS } from '../profileSql.js';
 
 import {
   type BuildDescriptor,
@@ -112,7 +112,9 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
       }
       const claimed = await client.query<Profile>(
         `UPDATE profiles
-            SET status = 'DEPLOYING', last_error = NULL, last_error_at = NULL, updated_at = NOW()
+            SET status = 'DEPLOYING',
+                deployment_phase = ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL},
+                last_error = NULL, last_error_at = NULL, updated_at = NOW()
           WHERE name = $1 AND status = ANY($2::text[])
           RETURNING ${PROFILE_COLUMNS}`,
         [profileName, from],
