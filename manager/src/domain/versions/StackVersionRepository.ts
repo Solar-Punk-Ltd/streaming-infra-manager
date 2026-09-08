@@ -4,6 +4,14 @@ import type {
 } from '@streaming-infra-manager/common';
 
 /** One row of `stack_versions`, as the domain reads it. */
+/**
+ * Where a version deploys from. A legacy row deploys from its flat root, the
+ * checkout the build script used to move in place. A builds row deploys from
+ * its current build, one immutable directory under the builds root, and
+ * never from the flat root, which keeps only the host-owned inputs.
+ */
+export type StackVersionLayout = 'legacy' | 'builds';
+
 export interface StackVersionRecord {
   id: number;
   name: string;
@@ -12,6 +20,11 @@ export interface StackVersionRecord {
   status: StackVersionStatus;
   /** Null for the bundled version, whose root only the manager knows. */
   rootPath: string | null;
+  layout: StackVersionLayout;
+  /** The current build of a builds row: the commit, or `<commit>-r<n>`. */
+  buildId: string | null;
+  /** The build the current one replaced, kept for recovery until nothing references it. */
+  previousBuildId: string | null;
   contract: StackContract | null;
   isDefault: boolean;
   tested: boolean;
@@ -37,6 +50,13 @@ export interface BuildOutcome {
   contract: StackContract;
 }
 
+/** What one publication writes: the build that is current from now on. */
+export interface PublishOutcome {
+  buildId: string;
+  commitSha: string;
+  contract: StackContract;
+}
+
 /**
  * The versions of the streaming stack this manager holds.
  *
@@ -59,6 +79,15 @@ export interface StackVersionRepository {
    * person's word about one commit, not about the row.
    */
   markBuilt(id: number, outcome: BuildOutcome): Promise<StackVersionRecord | null>;
+  /**
+   * One row update, under the row's own lock: ready, layout builds, the new
+   * build current and the one it replaced kept as previous. `tested` survives
+   * only when the build id did not change, because the approval keys on the
+   * build.
+   */
+  publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null>;
+  /** A build that failed for a version that still has a usable build: ready as before, with the reason. */
+  markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
   markFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
   /**
    * Every row left in `building` fails with `lastError`. A build only ever runs

@@ -1,8 +1,9 @@
-import type { GroupKind } from '@streaming-infra-manager/common';
+import type { GroupKind, StackPortVar } from '@streaming-infra-manager/common';
 import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
+import { reserveSlotFor } from './ports/reservationSql.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface SharedProfileParams {
@@ -18,8 +19,12 @@ export interface SharedProfileParams {
   srt_passphrase: string | null;
   /** Every member of a group runs one version, the one the group was made on. */
   stack_version_id: number;
-  /** The highest port slot that version's deploy script accepts. */
-  max_slot: number;
+  /** The highest slot a member may get: the version's own maximum, never above the manager's. */
+  slot_cap: number;
+  /** The daemon the members' ports belong to, from `docker info`. */
+  daemon_id: string;
+  /** The version's port table, every port of which each member's slot reserves. */
+  table: readonly StackPortVar[];
 }
 
 export interface MemberSeed {
@@ -165,21 +170,22 @@ export class DeploymentGroupRepository {
     shared: SharedProfileParams,
     groupId: number,
   ): Promise<Profile> {
+    const placement = { slotCap: shared.slot_cap, daemonId: shared.daemon_id, table: shared.table };
+    const slot = await reserveSlotFor(client, name, placement);
+    if (slot === null) {
+      throw new AllSlotsUsedError(shared.slot_cap);
+    }
     const r = await client.query<Profile>(
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
          srt_passphrase, group_id, stack_version_id
        )
-       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-       FROM generate_series(1, $14::int) AS s(n)
-       LEFT JOIN profiles p ON p.port_slot = s.n
-       WHERE p.port_slot IS NULL
-       ORDER BY s.n
-       LIMIT 1
+       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
+        slot,
         shared.kind,
         shared.notes,
         shared.components,
@@ -192,12 +198,8 @@ export class DeploymentGroupRepository {
         shared.srt_passphrase,
         groupId,
         shared.stack_version_id,
-        shared.max_slot,
       ],
     );
-    if (!r.rowCount) {
-      throw new AllSlotsUsedError(shared.max_slot);
-    }
     return r.rows[0]!;
   }
 
