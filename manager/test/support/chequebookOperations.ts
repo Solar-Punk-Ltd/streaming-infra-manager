@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import type { ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
 export const nodeAddress = `0x${'ab'.repeat(20)}`;
@@ -43,7 +43,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     const open = [...this.rows.values()].find(row => row.chainId === candidate.chainId && row.nodeAddress.toLowerCase() === candidate.nodeAddress.toLowerCase() && ['submitting', 'submitted', 'unknown'].includes(row.state));
     if (open) return { kind: 'busy' as const, operation: structuredClone(open) };
     const now = new Date().toISOString();
-    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, createdAt: now, updatedAt: now };
+    const row: ChequebookOperation = { ...candidate, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, createdAt: now, updatedAt: now };
     this.rows.set(row.id, structuredClone(row));
     return { kind: 'admitted' as const, operation: structuredClone(row) };
   }
@@ -52,7 +52,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     const row = this.rows.get(id);
     if (!row) throw new Error('Missing operation');
     if (row.state !== 'submitting' || row.dispatchStartedAt !== null) return { claimed: false, operation: structuredClone(row) };
-    const operation = { ...row, dispatchStartedAt: new Date().toISOString() };
+    const operation = { ...row, dispatchStartedAt: new Date().toISOString(), revision: String(BigInt(row.revision) + 1n) };
     this.rows.set(id, operation);
     return { claimed: true, operation: structuredClone(operation) };
   }
@@ -60,7 +60,20 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {
     const row = this.rows.get(id);
     if (!row) throw new Error('Missing operation');
-    if (row.state === 'submitting') this.rows.set(id, { ...row, ...outcome });
+    if (row.state === 'submitting') this.rows.set(id, { ...row, ...outcome, revision: String(BigInt(row.revision) + 1n) });
     return structuredClone(this.rows.get(id)!);
+  }
+
+  async recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, observation: ChequebookReceiptObservation): Promise<ChequebookOperation> {
+    const row = this.rows.get(expected.id);
+    if (!row) throw new Error('Missing operation');
+    if (row.state !== 'submitted' || row.revision !== expected.revision || row.transactionHash !== expected.transactionHash) return structuredClone(row);
+    const now = new Date().toISOString();
+    const operation: ChequebookOperation = {
+      ...row, state: observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : row.state,
+      revision: String(BigInt(row.revision) + 1n), receiptObservation: structuredClone(observation), receiptCheckedAt: now, updatedAt: now,
+    };
+    this.rows.set(row.id, operation);
+    return structuredClone(operation);
   }
 }

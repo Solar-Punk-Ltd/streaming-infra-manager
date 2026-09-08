@@ -17,10 +17,15 @@ CREATE TABLE chequebook_operations (
   transaction_hash TEXT CHECK (transaction_hash ~ '^0x[0-9a-f]{64}$'),
   failure_reason TEXT CHECK (failure_reason IN ('preflight_failed', 'response_unavailable', 'invalid_response')),
   dispatch_started_at TIMESTAMPTZ,
+  revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  receipt_observation JSONB,
+  receipt_checked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (state NOT IN ('submitted', 'settled', 'reverted') OR transaction_hash IS NOT NULL),
-  CHECK (state NOT IN ('submitting', 'unknown', 'rejected') OR transaction_hash IS NULL)
+  CHECK (state NOT IN ('submitting', 'unknown', 'rejected') OR transaction_hash IS NULL),
+  CHECK ((receipt_observation IS NULL) = (receipt_checked_at IS NULL)),
+  CHECK (receipt_observation IS NULL OR jsonb_typeof(receipt_observation) = 'object')
 );
 
 -- History outlives a deployment and remains available for late request retries.

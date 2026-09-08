@@ -1,7 +1,9 @@
 import type { Pool } from 'pg';
-import type { ChequebookAdmissionResult, ChequebookOperation } from '@streaming-infra-manager/common';
+import type { ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from './ChequebookOperationRepository.js';
-import { normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
+import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
+import { normalizeReceiptObservation } from './receiptObservation.js';
+import { ChequebookOperationInputError } from '../errors/ChequebookOperationInputError.js';
 
 type OperationRow = {
   id: string; request_id: string; profile_name: string; requested_by: string;
@@ -10,6 +12,7 @@ type OperationRow = {
   start_block_number: string; start_block_hash: string; nonce_lower_bound: string; nonce_query_tag: string;
   state: ChequebookOperation['state']; transaction_hash: string | null;
   failure_reason: ChequebookOperation['failureReason']; dispatch_started_at: Date | null; created_at: Date; updated_at: Date;
+  revision: string; receipt_observation: ChequebookReceiptObservation | null; receipt_checked_at: Date | null;
 };
 
 function operationFrom(row: OperationRow): ChequebookOperation {
@@ -21,6 +24,8 @@ function operationFrom(row: OperationRow): ChequebookOperation {
     nonceLowerBound: row.nonce_lower_bound, nonceQueryTag: row.nonce_query_tag,
     state: row.state, transactionHash: row.transaction_hash, failureReason: row.failure_reason,
     dispatchStartedAt: row.dispatch_started_at?.toISOString() ?? null,
+    revision: row.revision, receiptObservation: row.receipt_observation ? normalizeReceiptObservation(row.receipt_observation) : null,
+    receiptCheckedAt: row.receipt_checked_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   });
 }
@@ -76,7 +81,7 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
 
   async claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }> {
     const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
-      SET dispatch_started_at = NOW(), updated_at = NOW()
+      SET dispatch_started_at = NOW(), updated_at = NOW(), revision = revision + 1
       WHERE id = $1 AND state = 'submitting' AND dispatch_started_at IS NULL RETURNING *`, [operationId(id)]);
     if (updated.rows[0]) return { claimed: true, operation: operationFrom(updated.rows[0]) };
     const current = await this.findById(id);
@@ -86,8 +91,25 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
 
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {
     const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
-      SET state = $2, transaction_hash = $3, failure_reason = $4, updated_at = NOW()
+      SET state = $2, transaction_hash = $3, failure_reason = $4, updated_at = NOW(), revision = revision + 1
       WHERE id = $1 AND state = 'submitting' RETURNING *`, [operationId(id), outcome.state, outcome.transactionHash, outcome.failureReason]);
+    if (updated.rows[0]) return operationFrom(updated.rows[0]);
+    const current = await this.findById(id);
+    if (!current) throw new Error('The chequebook operation no longer exists.');
+    return current;
+  }
+
+  async recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, input: ChequebookReceiptObservation): Promise<ChequebookOperation> {
+    const id = operationId(expected.id);
+    if (!isTransactionHash(expected.transactionHash) || !/^(0|[1-9][0-9]{0,18})$/.test(expected.revision) || BigInt(expected.revision) > 9223372036854775807n) {
+      throw new ChequebookOperationInputError('receipt revision');
+    }
+    const observation = normalizeReceiptObservation(input);
+    const nextState = observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : 'submitted';
+    const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
+      SET state = $4, receipt_observation = $5::jsonb, receipt_checked_at = NOW(), updated_at = NOW(), revision = revision + 1
+      WHERE id = $1 AND revision = $2 AND transaction_hash = $3 AND state = 'submitted' RETURNING *`,
+    [id, expected.revision, expected.transactionHash.toLowerCase(), nextState, JSON.stringify(observation)]);
     if (updated.rows[0]) return operationFrom(updated.rows[0]);
     const current = await this.findById(id);
     if (!current) throw new Error('The chequebook operation no longer exists.');

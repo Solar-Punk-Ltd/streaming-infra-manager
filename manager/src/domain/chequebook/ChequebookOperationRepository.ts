@@ -1,4 +1,4 @@
-import type { ChequebookAdmissionResult, ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import type { ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 
 export interface NewChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
@@ -18,4 +18,6 @@ export interface ChequebookOperationRepository {
   claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }>;
   /** Change only a still-submitting row. A concurrent resolution wins. */
   recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation>;
+  /** Every check advances the observed revision. Stale observations return the current row. */
+  recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, observation: ChequebookReceiptObservation): Promise<ChequebookOperation>;
 }
