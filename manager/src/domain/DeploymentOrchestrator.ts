@@ -30,7 +30,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { ProfileBusyError, StampRequiredError } from './errors/index.js';
+import { ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, StampRequiredError } from './errors/index.js';
 import type { EngineConfigOperationRepository } from './engineConfig/EngineConfigOperationRepository.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
@@ -143,6 +143,7 @@ const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
  */
 export interface DeployReservation {
   readonly profileName: string;
+  readonly claimedProfile?: Profile;
   /** What the run will start, after the stamp hold-back. */
   readonly services: readonly string[];
   readonly heldBackForStamp: readonly string[];
@@ -279,11 +280,11 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
     const reservation = await this.claim(profile, requested);
-    await this.operatorActed(
-      profile,
+    const claimedProfile = await this.operatorActed(
+      reservation.claimedProfile,
       'Redeployed by the operator before the file was verified.',
     );
-    return reservation;
+    return { ...reservation, claimedProfile };
   }
 
   /**
@@ -304,15 +305,17 @@ export class DeploymentOrchestrator {
    * operation closes with the reason. After the claim, never before it, so a
    * refused action moves nothing.
    */
-  private async operatorActed(profile: Profile, reason: string): Promise<void> {
-    await this.profiles.bumpIntent(profile.name);
-    await this.operations.supersedeOpen(profile.instance_id, reason);
+  private async operatorActed(profile: Profile, reason: string): Promise<Profile> {
+    const updated = await this.profiles.bumpIntent(profile.name, profile.instance_id);
+    if (!updated) throw new ProfileInstanceChangedError(profile.name);
+    await this.operations.supersedeOpen(updated.instance_id, reason);
+    return updated;
   }
 
   private async claim(
     profile: Profile,
     requested: string[] | undefined,
-  ): Promise<DeployReservation> {
+  ): Promise<DeployReservation & { claimedProfile: Profile }> {
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
@@ -321,22 +324,27 @@ export class DeploymentOrchestrator {
       profile.name,
       REDEPLOY_STATUS,
       REDEPLOYABLE_FROM,
+      profile.instance_id,
     );
     if (!transitioned) {
       const current = await this.profiles.findByName(profile.name);
-      throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
+      if (!current) throw new ProfileNotFoundError(profile.name);
+      if (current.instance_id !== profile.instance_id) throw new ProfileInstanceChangedError(profile.name);
+      throw new ProfileBusyError(profile.name, current.status);
     }
     await this.publishChanged(transitioned);
 
-    return { ...planned, transitioned: true };
+    return { ...planned, transitioned: true, claimedProfile: transitioned };
   }
 
   /** Gives the profile its status back, for a claim that will not be run. */
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     if (!reservation.transitioned) return;
+    if (!reservation.claimedProfile) throw new Error('A deployment reservation has no claimed instance.');
     const restored = await this.profiles.markTerminal(
       reservation.profileName,
       reservation.previousStatus,
+      reservation.claimedProfile.instance_id,
     );
     if (restored) {
       await this.publishChanged(restored);
@@ -555,11 +563,12 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
-      afterClaim: () =>
-        this.operatorActed(
+      afterClaim: async () => {
+        await this.operatorActed(
           profile,
           'Stopped by the operator before the file was verified.',
-        ),
+        );
+      },
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,
@@ -594,8 +603,7 @@ export class DeploymentOrchestrator {
       args,
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-      afterClaim: () =>
-        this.operatorActed(profile, 'The deployment was removed.'),
+      afterClaim: async () => { await this.operatorActed(profile, 'The deployment was removed.'); },
       onSuccess: async () => {
         await this.removeProfileDataDir(profile.name);
         await this.profiles.deleteByName(profile.name);

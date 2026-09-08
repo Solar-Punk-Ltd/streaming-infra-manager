@@ -141,9 +141,11 @@ export class InMemoryProfiles {
     name: string,
     next: ProfileStatus,
     allowedFrom: readonly ProfileStatus[],
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
     const row = this.rows.get(name);
     if (!row || this.claimsRefused.has(name)) return null;
+    if (expectedInstanceId !== undefined && row.instance_id !== expectedInstanceId) return null;
     if (!allowedFrom.includes(row.status)) return null;
     return this.write(name, {
       status: next,
@@ -155,7 +157,9 @@ export class InMemoryProfiles {
   async markTerminal(
     name: string,
     status: ProfileStatus,
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
+    if (expectedInstanceId !== undefined && this.rows.get(name)?.instance_id !== expectedInstanceId) return null;
     return this.write(name, {
       status,
       last_error: null,
@@ -192,7 +196,9 @@ export class InMemoryProfiles {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
+    if (expectedInstanceId !== undefined && this.rows.get(name)?.instance_id !== expectedInstanceId) return null;
     return this.write(name, { engine_settings: settings });
   }
 
@@ -229,9 +235,10 @@ export class InMemoryProfiles {
   }
 
   /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
-  async bumpIntent(name: string): Promise<Profile | null> {
+  async bumpIntent(name: string, expectedInstanceId?: string): Promise<Profile | null> {
     const row = this.rows.get(name);
     if (!row) return null;
+    if (expectedInstanceId !== undefined && row.instance_id !== expectedInstanceId) return null;
     return this.write(name, { intent_revision: row.intent_revision + 1 });
   }
 

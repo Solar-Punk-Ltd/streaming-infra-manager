@@ -45,10 +45,11 @@ export function createEngineRouter(
     validateParams(profileNameSchema),
     validateBody(engineSettingsSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const settings = req.body as EngineSettingsBody;
+      const { expectedInstanceId, ...settings } = req.body as EngineSettingsBody;
       const profile = await profileService.updateEngineSettings(
         req.params.name as string,
         definedValues(settings),
+        expectedInstanceId,
       );
       res.status(202).json(profile);
     }),

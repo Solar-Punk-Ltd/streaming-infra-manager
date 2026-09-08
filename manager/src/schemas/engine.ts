@@ -30,7 +30,10 @@ const settingValueFields = Object.fromEntries(
 // noUnknown strips a key neither engine reads, so a stale drawer cannot store
 // one. Anything it lets through is checked again by engineSettingsProblem,
 // which names the engine that does not read it.
-export const engineSettingsSchema = object(settingValueFields).noUnknown(true);
+export const engineSettingsSchema = object({
+  ...settingValueFields,
+  expectedInstanceId: string().optional().strict().uuid('expectedInstanceId must be a deployment instance UUID'),
+}).noUnknown(true);
 
 export type EngineSettingsBody = InferType<typeof engineSettingsSchema>;
 

@@ -4,6 +4,7 @@ export { DockerUnavailableError } from './DockerUnavailableError.js';
 export { RestartInProgressError } from './RestartInProgressError.js';
 export { UnknownServiceError } from './UnknownServiceError.js';
 export { ProfileBusyError } from './ProfileBusyError.js';
+export { ProfileInstanceChangedError } from './ProfileInstanceChangedError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';
 export { GroupExistsError } from './GroupExistsError.js';

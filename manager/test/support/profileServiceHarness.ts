@@ -12,7 +12,7 @@ import {
   DeploymentOrchestrator,
   DeployReservation,
 } from '../../src/domain/DeploymentOrchestrator.js';
-import { AllSlotsUsedError, ProfileBusyError } from '../../src/domain/errors/index.js';
+import { AllSlotsUsedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { ProfileService } from '../../src/domain/ProfileService.js';
 import { RunHandle } from '../../src/domain/ScriptRunner.js';
@@ -83,14 +83,18 @@ export class FakeOrchestrator {
       profile.name,
       'DEPLOYING',
       REDEPLOYABLE_FROM,
+      profile.instance_id,
     );
     if (!claimed) {
       const current = await this.profiles.findByName(profile.name);
-      throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
+      if (!current) throw new ProfileNotFoundError(profile.name);
+      if (current.instance_id !== profile.instance_id) throw new ProfileInstanceChangedError(profile.name);
+      throw new ProfileBusyError(profile.name, current.status);
     }
     this.reserved.push(profile.name);
     return {
       profileName: profile.name,
+      claimedProfile: claimed,
       services: requested ?? [],
       heldBackForStamp: [],
       previousStatus: profile.status,
@@ -109,6 +113,7 @@ export class FakeOrchestrator {
       await this.profiles.markTerminal(
         reservation.profileName,
         reservation.previousStatus,
+        reservation.claimedProfile?.instance_id,
       );
     }
   }

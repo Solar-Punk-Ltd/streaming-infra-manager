@@ -64,6 +64,7 @@ import {
   InvalidStackVersionError,
   LadderGroupError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
@@ -517,8 +518,12 @@ export class ProfileService {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
+    expectedInstanceId?: string,
   ): Promise<ProfileWithContainers> {
     const existing = await this.getByName(name);
+    if (expectedInstanceId !== undefined && existing.instance_id !== expectedInstanceId) {
+      throw new ProfileInstanceChangedError(name);
+    }
     if (
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
     ) {
@@ -550,8 +555,9 @@ export class ProfileService {
     );
 
     const row = await this.writeOrCancel([reservation], async () => {
-      const written = await this.repo.updateEngineSettings(name, settings);
-      if (!written) throw new ProfileNotFoundError(name);
+      if (!reservation.claimedProfile) throw new Error('An engine settings save has no claimed instance.');
+      const written = await this.repo.updateEngineSettings(name, settings, reservation.claimedProfile.instance_id);
+      if (!written) throw new ProfileInstanceChangedError(name);
       return written;
     });
 
