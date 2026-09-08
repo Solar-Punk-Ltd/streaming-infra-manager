@@ -351,6 +351,7 @@ test('a busy saved request can explicitly retry its same ID after the blocking t
   assert.equal(h.dispatched.length, 1);
   await click(browser, 'Retry this saved request');
   await click(browser, 'Send the same request again');
+  await waitFor(() => h.dispatched.length, value => value === 2, 'admitted exact retry');
   await visible(browser, 'Waiting for transaction confirmation');
   assert.equal(h.dispatched.length, 2);
   assert.equal(h.dispatched[1].requestId, saved.requestId);

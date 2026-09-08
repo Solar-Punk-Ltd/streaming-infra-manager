@@ -103,7 +103,6 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     h.busy(false);
     await h.controller.retryExact();
     assert(h.requests.length === 2 && h.requests.every(request => request === intent.requestId), 'An explicit identical-ID retry may reach admission after the other transfer stops blocking');
-    h.setRecord(detail(intent));
     await h.controller.restore();
     assert(h.controller.state.detail?.operation.requestId === intent.requestId && h.requests.length === 2, 'Exact lookup recovers own record after busy without sending');
     tests.push('busy response stays separate from exact intent recovery');

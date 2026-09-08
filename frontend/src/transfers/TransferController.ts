@@ -18,11 +18,12 @@ export interface TransferControllerState {
   readonly intent: StoredTransferIntent | null;
   readonly detail: ChequebookOperationDetail | null;
   readonly blocking: ChequebookOperationDetail | null;
+  readonly blockingReason: 'busy' | 'identity_conflict' | null;
   readonly issue: TransferControllerIssue | null;
 }
 type Context = { readonly accountId: number; readonly profile: TransferProfileIdentity };
 type ActiveTask = { readonly controller: AbortController; readonly epoch: number; readonly context: Context };
-const empty = (phase: TransferControllerState['phase']): TransferControllerState => ({ phase, intent: null, detail: null, blocking: null, issue: null });
+const empty = (phase: TransferControllerState['phase']): TransferControllerState => ({ phase, intent: null, detail: null, blocking: null, blockingReason: null, issue: null });
 
 /** A saved UUID survives every interrupted UI action. Only explicit confirmation or retry can call submit. */
 export class TransferController {
@@ -91,7 +92,7 @@ export class TransferController {
       const intent = await this.current(task);
       if (!this.live(task) || !intent) return;
       const detail = await this.lookup(task, intent);
-      if (!this.live(task) || detail || this.snapshot.issue !== 'lookup_missing') return;
+      if (!this.live(task) || detail || this.snapshot.issue !== 'lookup_missing' || this.snapshot.blockingReason === 'identity_conflict') return;
       await this.send(task, intent);
     });
   }
@@ -99,7 +100,11 @@ export class TransferController {
   private async current(task: ActiveTask): Promise<StoredTransferIntent | null> {
     try {
       const intent = await this.store.current(task.context.accountId, task.context.profile.instanceId);
-      if (this.live(task)) this.update({ ...empty(intent ? 'loading' : 'entry'), intent });
+      if (this.live(task)) {
+        const retained = intent && intent.requestId === this.snapshot.intent?.requestId
+          ? { blocking: this.snapshot.blocking, blockingReason: this.snapshot.blockingReason } : {};
+        this.update({ ...empty(intent ? 'loading' : 'entry'), intent, ...retained });
+      }
       return intent;
     } catch {
       if (this.live(task)) this.patch({ phase: 'ready', issue: 'storage_unavailable' });
@@ -150,13 +155,13 @@ export class TransferController {
       if (saved.kind === 'unavailable') issue = 'link_unavailable';
     } catch { issue = 'link_unavailable'; }
     if (!this.live(task)) return false;
-    this.update({ phase: 'ready', intent, detail, blocking: null, issue });
+    this.update({ phase: 'ready', intent, detail, blocking: null, blockingReason: null, issue });
     return true;
   }
 
   private async blocked(task: ActiveTask, intent: StoredTransferIntent, detail: ChequebookOperationDetail, issue: 'busy' | 'identity_conflict'): Promise<void> {
     if (!this.live(task)) return;
-    this.update({ phase: 'ready', intent, detail: null, blocking: detail, issue });
+    this.update({ phase: 'ready', intent, detail: null, blocking: detail, blockingReason: issue, issue });
     try { await this.store.recordBlocking(intent.requestId, detail.operation.id); }
     catch { /* The immutable request UUID still provides exact recovery. */ }
   }

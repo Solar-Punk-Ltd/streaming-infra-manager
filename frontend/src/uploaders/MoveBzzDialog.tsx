@@ -45,9 +45,10 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
   const signedIn = accountId !== null && state.phase !== 'signed_out';
   const canEdit = signedIn && editingNew && !busy && state.issue !== 'storage_unavailable';
   const canNew = state.intent !== null && state.detail !== null && permitsNewTransfer(state.detail) && !busy;
-  const canRetry = state.intent !== null && state.issue === 'lookup_missing' && !busy &&
+  const canRetry = state.intent !== null && state.issue === 'lookup_missing' && !busy && state.blockingReason !== 'identity_conflict' &&
     state.intent.accountId === accountId && state.intent.profileName === profileName && state.intent.profileInstanceId === profileInstanceId;
   const intent = state.intent;
+  const blockingContext = state.blockingReason === 'identity_conflict' ? 'identity_conflict' : state.issue === 'busy' ? 'busy' : 'previous_busy';
   const title = intent && !editingNew ? (intent.direction === 'deposit' ? 'Saved fill to chequebook' : 'Saved withdrawal from chequebook') : copy.title;
 
   const confirm = () => {
@@ -76,7 +77,7 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
             {state.detail ? <TransferEvidencePanel detail={state.detail} /> : <Typography variant="body2" color="text.secondary">
               The manager has not returned a verified record for this request. Its transaction outcome is unknown.
             </Typography>}
-            {state.blocking && <TransferEvidencePanel detail={state.blocking} blocking />}
+            {state.blocking && <TransferEvidencePanel detail={state.blocking} context={blockingContext} />}
             {step === 'retry' && <Alert severity="warning">Send the same request again only to recover this exact saved intent. It keeps the same request ID and amount. The manager decides whether the request was already recorded.</Alert>}
           </>}
           {editingNew && step !== 'review' && <>
