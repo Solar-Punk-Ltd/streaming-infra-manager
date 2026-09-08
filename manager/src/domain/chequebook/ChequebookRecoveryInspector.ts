@@ -96,7 +96,7 @@ export class ChequebookRecoveryInspector {
             return failed('identity_mismatch');
           }
         }
-        if (!options.forceScan && !missingEvidence && pendingComplete && hashes.size === 1) return result({ kind: 'candidate', ...evidence() });
+        if (!scan && !options.forceScan && !missingEvidence && pendingComplete && hashes.size === 1) return result({ kind: 'candidate', ...evidence() });
 
         const head = await checked(reader.blockHeader(scan ? BigInt(scan.headBlockNumber) : 'latest', signal));
         if (!head) return failed();
@@ -128,6 +128,7 @@ export class ChequebookRecoveryInspector {
         if (currentHead.number !== scan.headBlockNumber || currentHead.hash !== scan.headBlockHash ||
             currentAnchor.number !== operation.startBlockNumber || currentAnchor.hash !== operation.startBlockHash) return changed();
         if (missingEvidence) return failed();
+        if (!scan.complete) return result({ kind: 'searching', ...evidence(), scan });
         if (hashes.size > 1) return result({ kind: 'ambiguous', ...evidence() });
         if (hashes.size === 1) return result({ kind: 'candidate', ...evidence() });
         if (!pendingComplete) return failed();
