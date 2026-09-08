@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
+export const profileGeneration = '11111111-1111-4111-8111-111111111111';
 export const nodeAddress = `0x${'ab'.repeat(20)}`;
 export const transactionHash = `0x${'cd'.repeat(32)}`;
 export const transferContext: ChequebookTransferContext = {
@@ -20,7 +21,7 @@ export const transferContext: ChequebookTransferContext = {
 };
 
 export function transferIntent(overrides: Partial<ChequebookTransferIntent> = {}): ChequebookTransferIntent {
-  return { requestId: randomUUID(), profileName: 'test-deployment', requestedBy: 'test-operator', direction: 'deposit', amountPlur: '5000000000000000', ...overrides };
+  return { requestId: randomUUID(), profileGeneration, profileName: 'test-deployment', requestedBy: 'test-operator', direction: 'deposit', amountPlur: '5000000000000000', ...overrides };
 }
 
 export function operationCandidate(overrides: Partial<NewChequebookOperation> = {}): NewChequebookOperation {
