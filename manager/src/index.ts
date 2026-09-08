@@ -266,6 +266,7 @@ async function main(): Promise<void> {
     new UploaderStartGate(stampService, chequebookService),
     portInventory,
     portReservations,
+    targetDocker,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();

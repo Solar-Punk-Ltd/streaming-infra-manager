@@ -33,6 +33,8 @@ import {
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
 import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
+import { PortHandover } from './ports/PortHandover.js';
+import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portPlanFor } from './ports/portReservations.js';
 import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import {
@@ -118,7 +120,7 @@ interface JobConfig {
   /** For a job that creates containers: the guard it holds while it runs. */
   guard?: { kind: DeployAttemptKind; services: readonly string[] };
 
-  onSuccess: () => Promise<void>;
+  onSuccess: (attempt: DeployAttempt | null) => Promise<void>;
 }
 
 const REDEPLOY_STATUS: ProfileStatus = 'DEPLOYING';
@@ -183,6 +185,7 @@ export class DeploymentOrchestrator {
     private readonly uploaderGate?: UploaderGate,
     private readonly targets?: DeployTargets,
     private readonly ports?: PortReservationRepository,
+    private readonly portObserver?: PublishedPortsProbe,
   ) {}
 
   /**
@@ -605,9 +608,19 @@ export class DeploymentOrchestrator {
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
       guard: { kind: this.attemptKindOf(version), services },
-      onSuccess: async () => {
+      onSuccess: async (attempt) => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         await this.observeMounts(profile, services);
+        if (attempt && this.ports && this.portObserver) {
+          const claimed = await this.profiles.findByName(profile.name);
+          if (claimed) {
+            try {
+              await new PortHandover(this.ports, this.portObserver, this.daemon).reconcile(claimed, build, attempt);
+            } catch (err) {
+              logger.warn(`[Orchestrator] port handover for ${profile.name} could not be verified: ${getErrorMessage(err)}. Reservations were retained.`);
+            }
+          }
+        }
         await removeStaleEngineConfigs(
           engineConfigDirFor(profile.name),
           engine,
@@ -801,7 +814,7 @@ export class DeploymentOrchestrator {
     handle.emitter.on('done', ({ code }: { code: number }) => {
       void (async () => {
         if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, code, stderrTail, stdoutTail);
+        await this.finalizeJob(cfg, code, stderrTail, stdoutTail, attempt);
       })();
     });
     // A script that never started ends the attempt the same way: nothing new
@@ -809,7 +822,7 @@ export class DeploymentOrchestrator {
     handle.emitter.on('error', (err: Error) => {
       void (async () => {
         if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, -1, err.message, stdoutTail);
+        await this.finalizeJob(cfg, -1, err.message, stdoutTail, attempt);
       })();
     });
 
@@ -851,10 +864,11 @@ export class DeploymentOrchestrator {
     code: number,
     stderrTail: string,
     stdoutTail: string,
+    attempt: DeployAttempt | null,
   ): Promise<void> {
     try {
       if (code === 0) {
-        await cfg.onSuccess();
+        await cfg.onSuccess(attempt);
         logger.info(`[Orchestrator] ${cfg.profileName} ← success`);
         return;
       }
