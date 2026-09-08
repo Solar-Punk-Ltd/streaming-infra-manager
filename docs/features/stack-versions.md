@@ -89,6 +89,6 @@ A version's current commit does not prove which code every service is using. Ser
 
 T08's approval and wizard behavior passed unit, browser and type checks. Its eight real PostgreSQL regressions passed at `347c7dd`, including publication between read and write and a competing row lock. T18 carries those semantics into the reviewed responsive cards at `5f835ca`.
 
-T04a's additional stale-snapshot, missing-version and initial-preparation error corrections are still being implemented. Their real database races must pass before the admission guarantee above is treated as verified. T06's Linux firewall checks and T05a's matching Engine 29.1.3 / Compose v5.1.4 harness remain separate acceptance items.
+T04a's additional stale-snapshot, missing-version, initial-preparation and malformed-path corrections passed36 real PostgreSQL tests at `5577c94`. Integration into T06 passed53 combined SQL tests at `4e3f53b`. The separate successful no-op reference cleanup correction passed800 manager tests at `b65f8d9`. T12's direct ledger phase integration is still in progress. T06's Linux firewall checks and T05a's matching Engine 29.1.3 / Compose v5.1.4 harness remain separate acceptance items.
 
 No local unit, database or browser result proves the live deployment or playback path. T22 retains that acceptance work and its separately agreed resource and spending limits.
