@@ -61,6 +61,7 @@ export function orchestratorHarness(
   uploaderGate?: UploaderGate,
   versionsRoot = '/srv/stack-versions',
   targets?: DeployTargets,
+  inventoryTargets?: DeployTargets,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -115,6 +116,7 @@ export function orchestratorHarness(
     targets,
     profiles.reservations,
     { publishedPorts: async () => published },
+    inventoryTargets,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published };

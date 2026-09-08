@@ -34,6 +34,24 @@ function setup(expectedId?: string) {
 }
 
 describe('deploy attempts on their target daemon', () => {
+  it('requires inventory for deploy admission but never for Stop or Remove identity checks', async () => {
+    const stored = [makeProfile({ name: 'incomplete', status: 'RUNNING', components: ['srs'] })];
+    let scans = 0;
+    const h = orchestratorHarness(stored, undefined, undefined,
+      { daemonIdFor: async () => 'daemon-1' },
+      { daemonIdFor: async () => { scans += 1; throw new Error('inventory cannot parse the old contract'); } });
+    await assert.rejects(h.orchestrator.startDeploy(h.profiles.rows.get('incomplete')!, ['srs']), /inventory cannot parse/);
+    assert.equal(scans, 1);
+    assert.equal(h.runner.runs.length, 0);
+    await h.orchestrator.startStop(h.profiles.rows.get('incomplete')!, undefined);
+    assert.equal(scans, 1);
+    assert.equal(h.runner.runs.length, 1);
+    h.profiles.write('incomplete', { status: 'STOPPED' });
+    await h.orchestrator.startRemove(h.profiles.rows.get('incomplete')!);
+    assert.equal(scans, 1);
+    assert.equal(h.runner.runs.length, 2);
+  });
+
   it('refuses admission when the container snapshot came from a different daemon than the preflight', async () => {
     const h = setup('remote-daemon');
     h.daemon.snapshot = async () => ({
