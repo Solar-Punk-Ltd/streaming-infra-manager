@@ -79,6 +79,9 @@ export class PortInventory implements DeployTargets {
       if (snapshot.daemonId !== daemonId) {
         throw new TargetNotVerifiedError(alias, 'The port observation came from a different Docker daemon');
       }
+      if (snapshot.unverifiedProjects?.length) {
+        throw new InvalidStackVersionError('A host-network container has unknown bindings. Its ports must be accounted for before allocation can continue.');
+      }
       for (const binding of snapshot.bindings) {
         const owner = binding.project && daemonByProfile.get(binding.project) === daemonId
           ? binding.project
