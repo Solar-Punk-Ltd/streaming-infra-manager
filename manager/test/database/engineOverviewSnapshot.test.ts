@@ -25,8 +25,8 @@ describe('coherent engine overview inputs in isolated PostgreSQL', { skip: !Numb
       await pool.query(await readFile(new URL(file, migrations), 'utf8'));
     }
     profiles = new ProfileRepository(pool);
-    await pool.query(`INSERT INTO profiles (name, port_slot, kind, status, engine_config, engine_config_revision, intent_revision, engine_settings)
-      VALUES ('observed', 1, 'streamer', 'RUNNING', 'synthetic config A', 3, 4, '{"HLS_FRAGMENT":"7"}')`);
+    await pool.query(`INSERT INTO profiles (name, port_slot, kind, status, stack_version_id, engine_config, engine_config_revision, intent_revision, engine_settings)
+      VALUES ('observed', 1, 'streamer', 'RUNNING', 1, 'synthetic config A', 3, 4, '{"HLS_FRAGMENT":"7"}')`);
   });
 
   afterEach(async () => {
@@ -78,8 +78,8 @@ describe('coherent engine overview inputs in isolated PostgreSQL', { skip: !Numb
       reads += 1;
       if (reads === 1) {
         await pool.query("DELETE FROM profiles WHERE name = 'observed'");
-        await pool.query(`INSERT INTO profiles (name, port_slot, kind, status, instance_id, engine_config, engine_config_revision)
-          VALUES ('observed', 1, 'streamer', 'RUNNING', $1, 'synthetic replacement', 8)`, [instance]);
+        await pool.query(`INSERT INTO profiles (name, port_slot, kind, status, stack_version_id, instance_id, engine_config, engine_config_revision)
+          VALUES ('observed', 1, 'streamer', 'RUNNING', 1, $1, 'synthetic replacement', 8)`, [instance]);
       }
       return result;
     } } as unknown as Pool);
