@@ -26,7 +26,7 @@ async function fixture(t, options = {}) {
   return { journal, node, dispatched, request: (path, body) => fetch(`${base}${path}`, { method: body === undefined ? 'GET' : 'POST',
     headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) }),
     input: () => ({ requestId: randomUUID(), profileInstanceId: profile.instance_id, expectedAccountId: 7, amount: '5000000000000000' }),
-    replace() { profile = { ...profile, instance_id: randomUUID() }; }, remove() { profile = null; }, account(id) { account = { id }; } };
+    replace() { profile = { ...profile, instance_id: randomUUID() }; }, remove() { profile = null; }, account(id) { account = id === null ? null : { id }; } };
 }
 const depositPath = '/profiles/synthetic-test/chequebook/deposit';
 const exact = requestId => `/chequebook/operations/by-request/${requestId}`;
@@ -116,4 +116,42 @@ test('mock lost Bee response stays unknown and exact replay never dispatches aga
   assert.equal((await (await h.request(exact(input.requestId))).json()).operation.id, unknown.operation.id);
   assert.equal((await (await h.request(depositPath, input)).json()).kind, 'replayed');
   assert.equal(h.dispatched.length, 1);
+});
+
+test('mock global history pages saved records after profile removal and requires authentication', async t => {
+  const h = await fixture(t);
+  const ids = [];
+  for (let count = 0; count < 3; count++) {
+    const admitted = await (await h.request(depositPath, h.input())).json();
+    ids.push(admitted.operation.id);
+    h.journal.observeReceipt(admitted.operation.id, receipt);
+  }
+  h.remove();
+  const firstResponse = await h.request('/chequebook/operations?limit=2');
+  assert.equal(firstResponse.status, 200);
+  const first = await firstResponse.json();
+  assert.equal(first.operations.length, 2);
+  assert.equal(typeof first.nextCursor, 'string');
+  assert.equal('responseEvidence' in first.operations[0], false);
+  const second = await (await h.request(`/chequebook/operations?limit=2&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
+  assert.equal(second.operations.length, 1);
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(new Set([...first.operations, ...second.operations].map(operation => operation.id)), new Set(ids));
+  assert.equal((await (await h.request('/chequebook/operations?profileName=missing')).json()).operations.length, 0);
+  assert.equal(h.dispatched.length, 3);
+  h.account(null);
+  assert.equal((await h.request('/chequebook/operations')).status, 401);
+  assert.equal((await h.request(`/chequebook/operations/${ids[0]}`)).status, 401);
+});
+
+test('mock history rejects malformed pagination instead of silently returning an empty page', async t => {
+  const h = await fixture(t);
+  for (const query of ['limit=0', 'limit=101', 'limit=01', 'limit=1.5', 'limit=2&limit=3', 'cursor=broken', 'endpoint=synthetic-private-value']) {
+    const response = await h.request(`/chequebook/operations?${query}`);
+    assert.equal(response.status, 400, query);
+    assert.ok(!(await response.text()).includes('synthetic-private-value'));
+  }
+  const empty = await (await h.request('/chequebook/operations')).json();
+  assert.deepEqual(empty, { operations: [], nextCursor: null });
+  assert.equal(h.dispatched.length, 0);
 });
