@@ -21,6 +21,7 @@ async function fixture(t, { unknown = false } = {}) {
   let user = { id: 7 };
   let dropResponse = false;
   let missing = false;
+  let view = null;
   const dispatched = [];
   const posts = [];
   const journal = createMockChequebookJournal({ profileFor: () => profile,
@@ -32,6 +33,10 @@ async function fixture(t, { unknown = false } = {}) {
     const path = new URL(req.url, 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/profiles/synthetic-test') return json(res, profile ? 200 : 404, profile ?? {});
     if (req.method === 'GET' && path.startsWith('/chequebook/') && missing) return json(res, 404, {});
+    if (req.method === 'GET' && path.startsWith('/chequebook/') && view) {
+      const operation = dispatched.find(operation => path.endsWith(operation.requestId) || path.endsWith(operation.id));
+      if (operation) return json(res, 200, view(journal.detail(operation.id)));
+    }
     if (req.method === 'POST') {
       posts.push(path);
       if (dropResponse) {
@@ -47,6 +52,7 @@ async function fixture(t, { unknown = false } = {}) {
   });
   return { ...server, journal, dispatched, posts, account(id) { user = id === null ? null : { id }; },
     replace() { profile = { ...profile, instance_id: randomUUID() }; return profile; }, remove() { profile = null; },
+    view(transform) { view = transform; },
     drop(value) { dropResponse = value; }, missing(value) { missing = value; } };
 }
 
@@ -279,4 +285,18 @@ test('a stale reviewed confirmation restores the other tab’s new terminal requ
   await visible(first, 'Transfer verified on chain');
   assert.equal(h.dispatched.length, 2);
   assert.equal(h.posts.length, 2);
+});
+
+test('receipt and recovery check times stay distinct', async t => {
+  const h = await fixture(t);
+  const browser = await open(t, h);
+  await click(browser, 'Fill chequebook'); await confirm(browser);
+  await visible(browser, 'Waiting for transaction confirmation');
+  h.view(detail => ({ ...detail, operation: { ...detail.operation,
+    receiptObservation: { kind: 'pending', reason: 'awaiting_finality' }, receiptCheckedAt: '2026-09-08T10:00:00.000Z',
+    recoveryObservation: { kind: 'could_not_check', reason: 'rpc_unavailable', candidateHashes: [] }, recoveryCheckedAt: '2026-09-08T11:00:00.000Z' } }));
+  await click(browser, 'Refresh saved status');
+  await visible(browser, 'Last receipt check'); await visible(browser, '2026-09-08T10:00:00.000Z');
+  await visible(browser, 'Last recovery check'); await visible(browser, '2026-09-08T11:00:00.000Z');
+  assert.equal(h.posts.length, 1);
 });
