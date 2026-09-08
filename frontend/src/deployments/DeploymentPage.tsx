@@ -17,6 +17,7 @@ import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
 import { StaleReadings } from '../resources/StaleReadings';
 import { useMetrics } from '../useMetrics';
+import { beeReadinessView } from '../uploaders/beeReadiness';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
 import { clientUrl, srtPublishUrl } from '../urls';
@@ -147,6 +148,7 @@ function DeploymentBody({
 
   const checklistInput: ChecklistInput = {
     profile,
+    nodeReadiness: bee ? beeReadinessView(bee.nodeObservation, bee.observationNow, bee.loading || profile.status !== 'RUNNING') : undefined,
     wallet: bee?.wallet ?? null,
     chequebook: chequebookHealth,
     nodeAddress: bee?.address?.ethereum ?? null,

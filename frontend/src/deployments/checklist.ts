@@ -19,6 +19,7 @@ import {
   XDAI_DECIMALS,
 } from '../format';
 import type { Profile } from '../types';
+import type { BeeReadinessView } from '../uploaders/beeReadiness';
 import type { BeeStamp, BeeWallet } from '../uploaders/stampApi';
 import { isStreamLike, statusLabelOf } from './shape';
 import { deploymentProgressText } from './deploymentPhase';
@@ -54,6 +55,7 @@ export interface ChecklistStep {
 
 export interface ChecklistInput {
   profile: Profile;
+  nodeReadiness?: BeeReadinessView;
   /** What this deployment's own Bee node holds, when the page asked it. */
   wallet: BeeWallet | null;
   /** What the same node can still pay peers with, null when it did not say. */
@@ -74,6 +76,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
   const steps: ChecklistStep[] = [containersStep(profile)];
 
   if (ownsBeeNode(profile)) {
+    if (input.nodeReadiness) steps.push(nodeStep(input.nodeReadiness));
     steps.push(fundingStep(input));
     steps.push(stampStep(input));
   }
@@ -92,6 +95,13 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
 
 export function firstBlocker(steps: readonly ChecklistStep[]): ChecklistStep | null {
   return steps.find((step) => step.state !== 'ok') ?? null;
+}
+
+function nodeStep(observed: BeeReadinessView): ChecklistStep {
+  return { title: 'Bee API observation', problem: observed.label,
+    state: observed.state === 'ready' ? 'ok' : observed.state === 'unhealthy' ? 'err' : observed.state === 'initializing' ? 'busy' : 'warn',
+    detail: observed.detail,
+    action: observed.state === 'ready' ? undefined : { label: 'Retry node checks', kind: 'refresh-node' } };
 }
 
 function containersStep(profile: Profile): ChecklistStep {
@@ -316,7 +326,7 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
     };
   }
 
-  const ready = isRunning(profile) && canDeployUploader(profile) && stampHealth.ok && fundingStep(input).state === 'ok';
+  const ready = isRunning(profile) && canDeployUploader(profile) && stampHealth.ok && fundingStep(input).state === 'ok' && (!input.nodeReadiness || input.nodeReadiness.state === 'ready');
   return {
     title,
     problem: 'Uploader not started',

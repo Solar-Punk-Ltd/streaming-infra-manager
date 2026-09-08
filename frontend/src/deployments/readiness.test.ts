@@ -52,6 +52,19 @@ describe('one readiness blocker', () => {
     assert.equal(steps.some((step) => step.action?.kind === 'deploy-uploader'), false);
   });
 
+  it('cannot enable a new uploader using otherwise valid readings while the Bee observation is stale', () => {
+    const state = input({
+      profile: { ...runningProfile, stamp_id: 'batch' },
+      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 },
+      chequebook: { state: 'ok', availablePlur: 10000000000000000n, floorPlur: 5000000000000000n },
+      nodeReadiness: { state: 'stale', label: 'Bee observation stale', detail: 'Previous check is stale.' },
+    });
+    assert.equal(readinessFor(state).label, 'Bee observation stale');
+    assert.equal(firstBlocker(buildChecklist(state))?.action?.kind, 'refresh-node');
+    assert.equal(buildChecklist(state).some(step => step.action?.kind === 'deploy-uploader'), false);
+    assert.equal(state.profile.status, 'RUNNING');
+  });
+
   it('does not call a recorded stamp and running containers ready or playable', () => {
     const profile = { ...runningProfile, stamp_id: 'batch', containers: [...runningProfile.containers, { service: 'stream-uploader', ports: {} }] };
     assert.doesNotMatch(readinessOf(profile).label, /ready|watchable|playable/i);
