@@ -1,0 +1,113 @@
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { createServer as createNetServer } from 'node:net';
+import { writeFile, mkdir } from 'node:fs/promises';
+import test from 'node:test';
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import { launchChrome, waitFor } from './support/chrome.mjs';
+const frontend = fileURLToPath(new URL('../', import.meta.url));
+const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
+const base = { name: 'test-stream', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
+  created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:00:00Z', engine_settings: {}, has_engine_config: false, engine_config_error: null,
+  stamp_id: 'a'.repeat(64), public_key: '1'.repeat(40), containers: [{ service: 'srs', ports: {} }, { service: 'bee-uploader', ports: {} }], pendingStamp: false };
+const second = { ...base, name: 'second-stream', port_slot: 2 };
+async function freePort() {
+  const server = createNetServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+test('readiness and container diagnostics use current observations in the browser', async (t) => {
+  let mode = 'ready';
+  let hold = false;
+  const held = [], logRequests = [], writes = [];
+  const server = await createServer({
+    root: frontend, configFile: false,
+    resolve: { alias: { '@streaming-infra-manager/common': common } },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
+    plugins: [react(), { name: 't12-offline-fixture', configureServer(vite) {
+      vite.middlewares.use((req, res, next) => {
+        const path = req.url?.split('?')[0];
+        const json = (body, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+        if (!/^\/(auth|profiles|groups|config|events|metrics|versions)(\/|$)/.test(path)) return next();
+        if (req.method !== 'GET') { writes.push({ path, method: req.method }); return json({}, 405); }
+        if (path === '/auth/session') return json({ username: 'readiness-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' });
+        if (path === '/profiles') return json({ profiles: [base, second] });
+        if (path === '/groups') return json({ groups: [] });
+        if (path === '/versions') return json([]);
+        if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
+        if (path === '/events' || path.startsWith('/metrics')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': fixture\n\n'); return; }
+        if (path.includes('/containers/') && path.endsWith('/logs')) {
+          logRequests.push(path); res.setHeader('content-type', 'text/plain');
+          return res.end(`Only ${path.split('/')[4]} logs for ${path.split('/')[2]}`);
+        }
+        function beeResponse() {
+          if (mode === 'failed' && /\/(wallet|stamps|chainstate)$/.test(path)) return json({ error: 'Node unavailable', code: 'bee_node_unreachable' }, 503);
+          if (path.endsWith('/readiness')) return json({ state: mode === 'failed' ? 'unreachable' : mode, observedAt: new Date().toISOString(), healthStatus: 'ok', readinessStatus: mode === 'ready' ? 'ready' : 'notReady', version: '2.8.2', apiVersion: '8.1.0', chainProgress: null });
+          if (path.endsWith('/address')) return json({ ethereum: '0x' + 'b'.repeat(40) });
+          if (path.endsWith('/wallet')) return json({ nativeTokenBalance: '1000000000000000000', bzzBalance: '10000000000000000' });
+          if (path.endsWith('/chainstate')) return json({ chainTip: 20, block: 20, totalAmount: '1', currentPrice: '1' });
+          if (path.endsWith('/stamps')) return json({ stamps: [{ batchID: base.stamp_id, batchTTL: 500000, usable: true, exists: true, depth: 20, amount: '1', utilization: 0 }] });
+          if (path.endsWith('/chequebook')) return json({ address: '0x' + 'c'.repeat(40), totalBalance: '10000000000000000', availableBalance: '10000000000000000', totalSent: '0', totalReceived: '0', health: { state: 'ok', availablePlur: '10000000000000000', floorPlur: '5000000000000000' } });
+          return json({}, 404);
+        }
+        if (path.includes('/stamp/') || path.endsWith('/chequebook')) { if (hold) held.push(beeResponse); else beeResponse(); return; }
+        return json({}, 404);
+      });
+    }}],
+  });
+  await server.listen();
+  t.after(async () => { server.httpServer.closeAllConnections(); await server.close(); });
+  const port = server.httpServer.address().port;
+  const origin = `http://127.0.0.1:${port}`;
+  const browser = await launchChrome(t, origin);
+  const { call, evaluate } = browser;
+  const body = () => evaluate('document.body.innerText');
+  const hasUploader = () => evaluate(`!![...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Start uploader')`);
+  const click = text => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw Error('Missing button'); button.click(); })()`);
+  await call('Page.navigate', { url: `${origin}/#/deployments/test-stream` });
+  try { await waitFor(body, text => text.includes('Bee reports its API is ready'), 'current Bee readiness'); }
+  catch (error) { console.log(await body(), browser.errors); throw error; }
+  assert.equal(await hasUploader(), true);
+  assert.match(await body(), /Checked \d{4}-\d{2}-\d{2}T/);
+  assert.doesNotMatch(await body(), /usually within a minute|Ready to stream|Watchable/);
+  for (const service of ['bee-uploader', 'srs']) {
+    await evaluate(`document.querySelector('button[aria-label="View ${service} logs"]').click()`);
+    await waitFor(body, text => text.includes(`Only ${service} logs`), `${service} selected logs`);
+    assert.equal(logRequests.at(-1), `/profiles/test-stream/containers/${service}/logs`);
+    await evaluate(`document.querySelector('button[aria-label="close"]').click()`);
+    await waitFor(() => evaluate('document.querySelector("[role=dialog]") === null'));
+  }
+  await evaluate('window.fixtureNow = Date.now; Date.now = () => window.fixtureNow() + 31000');
+  await waitFor(body, text => text.includes('Bee observation stale'), 'expired observation');
+  assert.equal(await hasUploader(), false);
+  hold = true;
+  await click('Retry node checks');
+  await waitFor(() => held.length, count => count >= 1, 'held reload');
+  assert.equal(await hasUploader(), false);
+  mode = 'failed'; hold = false; held.splice(0).forEach(reply => reply());
+  await evaluate('Date.now = window.fixtureNow');
+  await waitFor(body, text => text.includes('Bee unreachable'), 'failed reload');
+  assert.equal(await hasUploader(), false);
+  mode = 'initializing'; await click('Retry node checks');
+  await waitFor(body, text => text.includes('Bee initializing'), 'initializing response');
+  assert.match(await body(), /No completion estimate/);
+  hold = true;
+  await evaluate(`location.hash = '#/deployments/second-stream'`);
+  await waitFor(() => held.length, count => count >= 1, 'second deployment loading');
+  assert.match(await body(), /No current Bee API observation/);
+  assert.equal(await hasUploader(), false);
+  mode = 'ready'; hold = false; held.splice(0).forEach(reply => reply());
+  await waitFor(body, text => text.includes('Bee reports its API is ready') && text.includes('second-stream'), 'new deployment observations');
+  assert.equal(await hasUploader(), true);
+  assert.deepEqual(writes, []);
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(browser.blockedRequests, []);
+  await mkdir('/private/tmp/t12-browser-evidence', { recursive: true });
+  await writeFile('/private/tmp/t12-browser-evidence/processes.json', JSON.stringify({ chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: port, logRequests }, null, 2));
+  const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
+  await writeFile('/private/tmp/t12-browser-evidence/readiness.png', Buffer.from(data, 'base64'));
+});
