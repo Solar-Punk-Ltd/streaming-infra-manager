@@ -168,21 +168,25 @@ test('version identity, states and actions fit verified narrow viewports', async
         const reading = await evaluate(`(() => {
           const row = ${card(LONG_VERSION_NAME)};
           row.scrollIntoView({ block: 'start' });
+          const topBar = document.querySelector('h1').parentElement.getBoundingClientRect();
+          window.scrollBy(0, -topBar.height - 12);
           const warning = [...row.querySelectorAll('p')].find(el => el.textContent.includes('Not tested since the update on'));
           const range = document.createRange();
           if (warning) range.selectNodeContents(warning);
           const controls = [...row.querySelectorAll('button, input[type=checkbox]')].map(el => {
             const rect = (el.closest('label') ?? el).getBoundingClientRect();
-            return rect.left >= -1 && rect.right <= innerWidth + 1;
+            return rect.left >= -1 && rect.right <= innerWidth + 1 && rect.top >= topBar.bottom && rect.bottom <= innerHeight;
           });
           return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: row.innerText,
             warning: warning?.textContent, warningFits: warning ? [...range.getClientRects()].every(rect => rect.left >= -1 && rect.right <= innerWidth + 1) : false,
+            warningVisible: warning ? warning.getBoundingClientRect().top >= topBar.bottom && warning.getBoundingClientRect().bottom <= innerHeight : false,
             controls };
         })()`);
         assert.equal(reading.width, width);
         assert.ok(reading.scrollWidth <= width);
         assert.equal(reading.warning, `Not tested since the update on ${date}.`);
         assert.equal(reading.warningFits, true);
+        assert.equal(reading.warningVisible, true);
         assert.ok(reading.text.includes('Default'));
         assert.ok(reading.text.includes('1111111-r3'));
         assert.deepEqual(reading.controls, [true, true, true, true]);

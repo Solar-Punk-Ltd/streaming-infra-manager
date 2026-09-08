@@ -20,7 +20,7 @@ import { ShapePill } from '../components/ShapePill';
 import type { Tone } from '../components/tone';
 import { formatDateTime, shortCommit } from '../format';
 import { ANOTHER_BUILDING } from './buildSlot';
-import { describeBuild, describePreviousBuild } from './versionText';
+import { describeBuild, describePreviousBuild, lostApprovalWarning } from './versionText';
 
 const STATUS_LABELS: Record<StackVersion['status'], string> = {
   building: 'Building',
@@ -35,7 +35,7 @@ const STATUS_TONES: Record<StackVersion['status'], Tone> = {
 const CANNOT_UPDATE_BUNDLED =
   'The bundled version moves when the manager is deployed. Add a version to follow a branch yourself.';
 const TESTED_MEANS =
-  'Set by hand once one real deployment has run on this version. Reading the scripts proves the shape and not the behaviour. An update that lands on a new commit clears it again, because the approval was for the commit that was deployed.';
+  'Set by hand once one real deployment has run on this build. A different build clears approval, even at the same commit. Legacy versions without immutable builds keep approval only while their commit is unchanged.';
 
 function defaultBlockedBecause(version: StackVersion): string {
   if (version.status !== 'ready') {
@@ -53,6 +53,9 @@ function testedBlockedBecause(version: StackVersion): string {
   }
   if (!version.commitSha) {
     return 'The commit this version is at is not known on this host, so there is no build to mark as tested.';
+  }
+  if (version.layout === 'builds' && !version.buildId) {
+    return 'The immutable build identity is missing. Reload after a successful build before marking it as tested.';
   }
   return '';
 }
@@ -104,6 +107,7 @@ export function VersionCard({
   const defaultBlocked = defaultBlockedBecause(version);
   const removalBlocked = removalBlockedBecause(version);
   const previousBuild = describePreviousBuild(version);
+  const approvalWarning = lostApprovalWarning(version);
   const headingId = `version-${version.id}-heading`;
 
   return (
@@ -135,6 +139,12 @@ export function VersionCard({
         />
         {version.isDefault && <ShapePill label="Default" />}
       </Stack>
+
+      {approvalWarning && (
+        <Typography variant="body2" color="warning.main" component="p">
+          {approvalWarning}
+        </Typography>
+      )}
 
       <Stack direction="row" alignItems="center" flexWrap="wrap" useFlexGap spacing={2}>
         <Typography

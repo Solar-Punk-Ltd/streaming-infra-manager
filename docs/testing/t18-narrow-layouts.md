@@ -8,7 +8,7 @@ The Versions page now presents each version as a card. Its name, state, default 
 
 This implements the T18 acceptance criteria recorded in the main-v2 consensus. The branch starts at `d046ebf` and merges `fix/t04a-immutable-builds` at `6b360c6` and `fix/t08-tested-approval` at `b9a2334`. These merges retain their history. Nothing is merged into main-v2.
 
-T18 changes presentation and preserves the existing version operations. T08 is still partial. Approval keyed to an immutable build id and the D07 wizard default behavior remain separate T08 work. The present Tested request continues to send the commit shown on the page.
+The reviewed T08 completion at `347c7dd` was merged locally in `e74ed67`. Tested now sends both the shown build id and commit. The cards carry T08's missing-build guard, accurate approval help and recorded invalidation warning. Default, Update, Remove and keyboard disclosure behavior remain unchanged.
 
 ## Tests first
 
@@ -56,7 +56,17 @@ The recorded final Chrome PID was `47797`, its debug port was `51956`, and the f
 ## Remaining observations and limits
 
 - The inherited UI still allows Update on a Building row loaded from `GET /versions` because its busy flag comes from builds started on this page. T18 preserves that lifecycle behavior and makes it visible. The browser tests distinguish the loaded Building fixture from a locally started build. A follow-up should connect action availability to the authoritative build state.
-- T08's immutable-build approval and D07 default selection work remain open. A card displaying Tested is not evidence that those remaining approval rules are implemented.
+- T08's actual PostgreSQL race suite remains unexecuted pending approval of its disposable local database. The completed browser integration does not stand in for that SQL verification.
 - These are actual browser viewports, not a physical phone or touch-device test. Only the installed Chromium engine was exercised.
 - The suite checks rendering, clipping, keyboard behavior and API calls. It does not collect statement coverage or run a separate accessibility scanner.
 - No host, deployment, funded node, live RPC or chain transaction was touched. The earlier 0.5 BZZ chequebook fill remains unverified.
+
+## T08 completion integrated on 2026-09-08
+
+Card integration RED `919116c` reproduced the missing dated warning, enabled approval with no immutable build id and obsolete commit-only help. The fix reuses `lostApprovalWarning` and carries the reviewed guard and copy into `VersionCard`.
+
+The combined offline card, wizard and protocol suite passes 21 tests. It checks the shown build payload, default confirmation, withdrawal, legacy eligibility, delayed version loading and a removed explicit choice. The 13 publication tests pass after the dependency merge. Workspace types and diff checks pass. No additional backend behavior was changed here.
+
+The warning and all four card controls fit below the sticky header at actual widths 390, 723 and 1280, each with height 960. Its date stays distinct from the later build date. Long metadata and errors still wrap. Contract disclosure, default confirmation, Remove and locally started build behavior remain covered. The three warning screenshots were visually inspected.
+
+Integration evidence is in `.scratch/t18-visual-evidence/t08-integration/` in this worktree. `cards/` contains the viewport measurements and `versions-<width>-approval-warning.png` screenshots. `wizard/` contains the review warning screenshot. Execution logs are `/private/tmp/t18-t08-browser-green.log`, `/private/tmp/t18-t08-publication-green.log` and `/private/tmp/t18-t08-final-types.log`.
