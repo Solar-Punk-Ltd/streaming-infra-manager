@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   type PortProtocol,
   DEFAULT_MAX_SLOT,
+  OME_PORT_SOURCES,
   type EngineConfigSupport,
   type EngineImages,
   type StackContract,
@@ -97,6 +98,11 @@ export function readStackContract(root: string): StackContract {
 
   return {
     ports: portsWithProtocol,
+    portAliases: Object.entries(OME_PORT_SOURCES).flatMap(([name, sourceName]) => {
+      const source = ports.find(port => port.name === sourceName);
+      const mapping = mappings.published.get(name);
+      return source && mapping ? [{ ...source, name, protocol: mapping.protocol, service: mapping.service }] : [];
+    }),
     maxSlot: parseMaxSlot(readOptional(root, DEPLOY_SCRIPT)),
     requiredSecrets: readRequiredSecrets(root),
     engineDefaults: readEngineDefaults(root),

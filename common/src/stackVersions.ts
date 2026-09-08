@@ -72,6 +72,8 @@ export interface EngineImages {
 /** What the manager reads out of a version's checkout instead of assuming it. */
 export interface StackContract {
   ports: StackPortVar[];
+  /** Compose-verified OME aliases of the slot variables. Missing on older captures. */
+  portAliases?: StackPortVar[];
   /** The highest port slot `deploy.sh` accepts. */
   maxSlot: number;
   /** Env keys the containers refuse to start without, generated per deployment. */
@@ -283,6 +285,7 @@ export function parseStackContract(value: unknown): StackContract | null {
 
   return {
     ports,
+    ...(Array.isArray(value.portAliases) ? { portAliases: parsePorts(value.portAliases) ?? [] } : {}),
     maxSlot,
     requiredSecrets: stringsOf(value.requiredSecrets),
     engineDefaults: stringMapOf(value.engineDefaults),

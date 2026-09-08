@@ -3,6 +3,7 @@ export const PORT_SLOT_STRIDE: number;
 export const PROTECTED_PORT_MIN: number;
 export const PROTECTED_PORT_MAX: number;
 export const PORT_POLICY_VERSION: number;
+export const OME_PORT_SOURCES: Readonly<Record<string, string>>;
 
 export interface ExposureEntry {
   port: number;
@@ -12,6 +13,7 @@ export interface ExposureEntry {
 }
 
 export interface PublicPortRole {
+  aliases?: readonly { portVar: string; service: string }[];
   group: string;
   protocol: string;
   base: number;

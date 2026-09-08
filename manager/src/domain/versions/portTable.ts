@@ -1,6 +1,7 @@
 import {
   DEFAULT_MAX_SLOT,
   PORT_SLOT_STRIDE,
+  OME_PORT_SOURCES,
   type StackContract,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
@@ -40,10 +41,6 @@ function bundledServiceOf(name: string): string {
 }
 
 /** OvenMediaEngine listens where SRS would, so its ports follow the SRS entries. */
-const OME_PORTS_FOLLOW: Record<string, string> = {
-  OME_SRT_PORT: 'SRS_SRT_PORT',
-  OME_HLS_PORT: 'SRS_HTTP_PORT',
-};
 
 export function portTableOf(
   contract: StackContract | null | undefined,
@@ -78,8 +75,8 @@ export function omePortsFor(
 ): OmePorts {
   if (portSlot <= 0) return {};
   const byName = new Map(table.map((port) => [port.name, port]));
-  const srt = byName.get(OME_PORTS_FOLLOW.OME_SRT_PORT!);
-  const hls = byName.get(OME_PORTS_FOLLOW.OME_HLS_PORT!);
+  const srt = byName.get(OME_PORT_SOURCES.OME_SRT_PORT!);
+  const hls = byName.get(OME_PORT_SOURCES.OME_HLS_PORT!);
   return {
     ...(srt ? { omeSrtPort: portFor(srt, portSlot) } : {}),
     ...(hls ? { omeHlsPort: portFor(hls, portSlot) } : {}),
