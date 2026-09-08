@@ -54,6 +54,7 @@ describe('deploy attempts on their target daemon', () => {
 
   it('refuses admission when the container snapshot came from a different daemon than the preflight', async () => {
     const h = setup('remote-daemon');
+    const older = await h.ledger.describe('remote', await h.versions.findById(1), ['srs', 'stream-uploader']);
     h.daemon.snapshot = async () => ({
       daemonId: 'different-daemon',
       containers: new Map([['srs', ['other-new']]]),
@@ -61,6 +62,15 @@ describe('deploy attempts on their target daemon', () => {
     await assert.rejects(h.orchestrator.startDeploy(h.row('remote'), ['srs']), /different Docker daemon/);
     assert.equal(h.runner.runs.length, 0);
     assert.equal(h.attempts.rows.length, 0);
+    assert.deepEqual(h.ledger.openJobReferences('remote').map(reference => reference.id), [older.referenceId]);
+  });
+
+  it('retains the job reference if runner invocation throws with an uncertain launch outcome', async () => {
+    const h = setup('remote-daemon');
+    h.runner.run = () => { throw new Error('unknown runner outcome'); };
+    await assert.rejects(h.orchestrator.startDeploy(h.row('remote'), ['srs']), /unknown runner outcome/);
+    assert.equal(h.ledger.openJobReferences('remote').length, 1);
+    assert.equal(h.attempts.rows.length, 1);
   });
 
   it('keeps recovery held when a different daemon supplies the container snapshot after preflight', async () => {
