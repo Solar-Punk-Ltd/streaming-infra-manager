@@ -6,7 +6,7 @@ import { POOL_RESPONSE_NOTICE } from './PoolResponseError';
 
 export type PoolSetupOutcome = { kind: 'cancelled' } | { kind: 'accepted'; expectedName: string; value: unknown };
 
-export function beginPoolSetup(uploader: WizardState, context: WizardContext) {
+export function beginPoolSetup(uploader: WizardState, context: WizardContext): { uploader: WizardState; pool: WizardState } {
   return {
     uploader: { ...uploader, components: [...uploader.components] },
     pool: {

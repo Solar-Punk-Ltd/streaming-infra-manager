@@ -12,7 +12,8 @@ export const runningProfile: Profile = {
   status: 'RUNNING', last_error: null, last_error_at: null,
   created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:00:00Z',
   engine_settings: {}, has_engine_config: false, engine_config_error: null,
-  containers: [{ service: 'srs', ports: {} }, { service: 'bee-uploader', ports: {} }],
+  last_full_deploy_commit: null,
+  containers: [{ service: 'srs', ports: {}, buildId: null, buildCommit: null }, { service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
 };
 
 function input(overrides: Partial<ChecklistInput> = {}): ChecklistInput {
@@ -84,7 +85,7 @@ describe('one readiness blocker', () => {
   });
 
   it('does not call a recorded stamp and running containers ready or playable', () => {
-    const profile = { ...runningProfile, stamp_id: 'batch', containers: [...runningProfile.containers, { service: 'stream-uploader', ports: {} }] };
+    const profile = { ...runningProfile, stamp_id: 'batch', containers: [...runningProfile.containers, { service: 'stream-uploader', ports: {}, buildId: null, buildCommit: null }] };
     assert.doesNotMatch(readinessOf(profile).label, /ready|watchable|playable/i);
     const viewer = { ...profile, kind: 'viewer' as const, components: ['client'], feed_owner: '0x123' };
     const summary = readySummary(input({ profile: viewer, clientUrl: 'http://example.test' }));
