@@ -17,6 +17,16 @@ async function setup() {
 }
 
 describe('durable chequebook receipt checks', () => {
+  it('does not inspect a receipt while its transaction attribution is conflicted', async () => {
+    const { repository, submitted } = await setup();
+    const conflicted = { ...submitted, failureReason: 'hash_conflict' as const };
+    repository.rows.set(submitted.id, conflicted);
+    let inspections = 0;
+    const checker = new ChequebookReceiptCheck(repository, async () => { inspections++; return confirmed; });
+    assert.deepEqual(await checker.check(submitted.id), conflicted);
+    assert.equal(inspections, 0);
+  });
+
   it('returns the persisted result and supplies only the frozen transfer to its inspector', async () => {
     const { repository, submitted } = await setup();
     const check = new ChequebookReceiptCheck(repository, async operation => {
