@@ -167,6 +167,10 @@ export interface DeployReservation {
   readonly build: BuildDescriptor | null;
 }
 
+type CapturedDeployReservation = DeployReservation & {
+  readonly build: BuildDescriptor & { version: StackVersionRecord };
+};
+
 /**
  * Whatever must hold before a stream-uploader container is started.
  *
@@ -452,19 +456,26 @@ export class DeploymentOrchestrator {
     reservation: DeployReservation,
     profile: Profile,
   ): Promise<RunHandle> {
+    let prepared = reservation;
     try {
-      return await this.startReservedJob(reservation, profile);
+      const build = reservation.build ?? await this.ledger.describe(
+        profile.name, await this.versionForDeploy(profile), [...reservation.services],
+      );
+      const version = this.deployVersionOrThrow(profile, build.version);
+      const captured: CapturedDeployReservation = { ...reservation, build: { ...build, version } };
+      prepared = captured;
+      return await this.startReservedJob(captured, profile);
     } catch (err) {
       // The guard is taken under the daemon's lock when the job starts, and
       // a deploy that passed the check a moment earlier can lose it there.
       // That is a refusal, not a failure: a claimed deployment gets its
       // status back. One that exists for this deploy alone has no status to
       // go back to and is marked failed with the reason, like any failure.
-      if (err instanceof DeployAttemptRefusedError && reservation.transitioned) {
-        await this.cancelReservation(reservation);
+      if (err instanceof DeployAttemptRefusedError && prepared.transitioned) {
+        await this.cancelReservation(prepared);
         throw err;
       }
-      await this.markFailed(reservation.profileName, getErrorMessage(err));
+      await this.markFailed(prepared.profileName, getErrorMessage(err));
       throw err;
     }
   }
@@ -576,7 +587,7 @@ export class DeploymentOrchestrator {
   }
 
   private async startReservedJob(
-    reservation: DeployReservation,
+    reservation: CapturedDeployReservation,
     profile: Profile,
   ): Promise<RunHandle> {
     let launchPossible = false;
@@ -591,7 +602,7 @@ export class DeploymentOrchestrator {
   }
 
   private async prepareReservedJob(
-    reservation: DeployReservation,
+    reservation: CapturedDeployReservation,
     profile: Profile,
     onLaunch: () => void,
   ): Promise<RunHandle> {
@@ -604,18 +615,14 @@ export class DeploymentOrchestrator {
 
     // From the descriptor the claim captured, never from the version row
     // again: a deploy that selected build A must not read version B.
-    const build =
-      reservation.build ??
-      (await this.ledger.describe(profile.name, await this.versionForDeploy(profile), [
-        ...reservation.services,
-      ]));
-    const version = this.deployVersionOrThrow(profile, build.version);
+    const build = reservation.build;
+    const version = build.version;
+    const paths = stackPathsForRoot(build.root);
 
     // An empty service filter would make deploy.sh deploy every configured service.
     if (reservation.services.length === 0) {
-      return this.completeWithoutScript(profile);
+      return this.completeWithoutScript(profile, paths);
     }
-    const paths = stackPathsForRoot(build.root);
     await this.ensureStackDefaults(paths);
 
     // .env.<profile> carries the per-profile keys deploy.sh reads from its env
@@ -684,8 +691,8 @@ export class DeploymentOrchestrator {
     });
   }
 
-  private async completeWithoutScript(profile: Profile): Promise<RunHandle> {
-    await this.ensureStackDefaults(await this.pathsFor(profile));
+  private async completeWithoutScript(profile: Profile, paths: StackPaths): Promise<RunHandle> {
+    await this.ensureStackDefaults(paths);
 
     const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
     if (updated) {
