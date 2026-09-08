@@ -72,6 +72,31 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     return repository.assertNoSubmission(checked, assertion);
   }
 
+  it('pages retained history without losing rows within one millisecond', async () => {
+    const first = (await repository.admit(operationCandidate({ profileName: 'removed-profile' }))).operation;
+    await repository.recordSubmission(first.id, { state: 'rejected', transactionHash: null, failureReason: 'preflight_failed' });
+    const second = (await repository.admit(operationCandidate({ profileName: 'removed-profile' }))).operation;
+    await pool.query("UPDATE chequebook_operations SET created_at = $2::timestamptz WHERE id = $1", [first.id, '2026-09-08T02:03:04.123456Z']);
+    await pool.query("UPDATE chequebook_operations SET created_at = $2::timestamptz WHERE id = $1", [second.id, '2026-09-08T02:03:04.123457Z']);
+    const page = await repository.listHistory({ limit: 1, profileName: 'removed-profile' });
+    assert.equal(page.operations[0]?.id, second.id);
+    assert.ok(page.nextCursor);
+    const older = await repository.listHistory({ limit: 1, profileName: 'removed-profile', cursor: page.nextCursor! });
+    assert.deepEqual(older.operations.map(operation => operation.id), [first.id]);
+    assert.equal(older.nextCursor, null);
+    assert.equal((await repository.listHistory({ profileName: 'unrelated' })).operations.length, 0);
+  });
+
+  it('reads a conflicted operation and its response evidence in one detail snapshot', async () => {
+    const owned = await submittedOperation();
+    const otherHash = `0x${'99'.repeat(32)}`;
+    await repository.recordSubmission(owned.id, { state: 'submitted', transactionHash: otherHash, failureReason: null });
+    const detail = await repository.findWithResponses(owned.id);
+    assert.equal(detail?.operation.failureReason, 'hash_conflict');
+    assert.equal(detail?.operation.transactionHash, transactionHash);
+    assert.deepEqual(new Set(detail?.responseEvidence.map(evidence => evidence.transactionHash)), new Set([transactionHash, otherHash]));
+  });
+
   it('requires current complete no-match evidence and exact typed risk before assertion', async () => {
     const unknown = await unknownOperation();
     await assert.rejects(repository.assertNoSubmission(unknown, assertion), /search/i);
