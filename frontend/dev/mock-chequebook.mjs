@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation } from '@streaming-infra-manager/common';
 import { readBody, send } from './mock-http.mjs';
+import { mockChequebookHistory } from './mock-chequebook-history.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIVE = new Set(['submitting', 'submitted', 'unknown']);
@@ -99,15 +100,21 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     }
     answer(res, 'admitted', operation.id);
   }
-  function read(res, id) {
+  function read(req, res, id) {
+    if (!userFor(req)) return send(res, 401, { error: 'not_signed_in' });
     const value = detail(id);
     send(res, value ? 200 : 404, value ?? { error: 'chequebook_operation_not_found' });
   }
   const routes = [
     ['POST', /^\/profiles\/([^/]+)\/chequebook\/deposit$/, (req, res, [name]) => submit(req, res, decodeURIComponent(name), 'deposit')],
     ['POST', /^\/profiles\/([^/]+)\/chequebook\/withdraw$/, (req, res, [name]) => submit(req, res, decodeURIComponent(name), 'withdraw')],
-    ['GET', /^\/chequebook\/operations\/by-request\/([^/]+)$/, (_req, res, [id]) => read(res, byRequest.get(id.toLowerCase()))],
-    ['GET', /^\/chequebook\/operations\/([^/]+)$/, (_req, res, [id]) => read(res, id.toLowerCase())],
+    ['GET', /^\/chequebook\/operations$/, (req, res) => {
+      if (!userFor(req)) return send(res, 401, { error: 'not_signed_in' });
+      try { send(res, 200, mockChequebookHistory([...records.values()].map(record => record.operation), req.url)); }
+      catch { send(res, 400, { error: 'validation_error', errors: ['Invalid saved transfer history query'] }); }
+    }],
+    ['GET', /^\/chequebook\/operations\/by-request\/([^/]+)$/, (req, res, [id]) => read(req, res, byRequest.get(id.toLowerCase()))],
+    ['GET', /^\/chequebook\/operations\/([^/]+)$/, (req, res, [id]) => read(req, res, id.toLowerCase())],
   ];
   return { routes, detail, observeReceipt, observeResponse };
 }
