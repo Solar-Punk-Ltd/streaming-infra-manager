@@ -1,5 +1,7 @@
-import { rm } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -24,10 +26,32 @@ import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { RunHandle, ScriptSpawner } from '../ScriptRunner.js';
 
-import { readCheckoutCommit } from './bundledCommit.js';
+import type { BuildReferenceReader } from './buildLedger.js';
+import {
+  BUILD_COMPLETE_MARKER,
+  BUILD_MANIFEST_FILE,
+  buildIdProblem,
+  type BuildManifest,
+  readBuildManifest,
+} from './buildManifest.js';
+import { protectedBuildIds } from './buildReferences.js';
+import {
+  adoptHostConfig,
+  captureHostConfig,
+  commitHostConfig,
+  envKeysIn,
+} from './hostConfigCapture.js';
 import { readStackContract } from './stackContract.js';
-import { versionRootFor } from './stackPaths.js';
+import {
+  buildDirFor,
+  buildsRootFor,
+  configRootFor,
+  repoRootFor,
+  stagingDirFor,
+  versionRootFor,
+} from './stackPaths.js';
 import type {
+  PublishOutcome,
   StackVersionRecord,
   StackVersionRepository,
 } from './StackVersionRepository.js';
@@ -50,6 +74,47 @@ export const STACK_REPO_URL =
 
 /** How much of the build log is kept as a failed version's reason. */
 const LOG_TAIL_BYTES = 4096;
+
+/** The image and the package manager the build script builds with. The script's test keeps the two in step. */
+export const BUILD_IMAGE = 'node:22-alpine';
+export const PINNED_PNPM = 'pnpm@9.12.0';
+const BUILD_TOOLCHAIN = `${BUILD_IMAGE} ${PINNED_PNPM}`;
+
+/** What the build script leaves in the staging directory: the commit it exported. */
+export const STACK_COMMIT_FILE = '.stack-commit';
+
+/** The name the build script gives its container, so boot can tell a live builder from a dead one. */
+export const BUILD_CONTAINER_PREFIX = 'stack-build-';
+
+const STAGING_PREFIX = 'tmp-';
+const BUILDS_SUFFIX = '.builds';
+const COMMIT_RE = /^[0-9a-f]{7,40}$/;
+
+/** The samples a build ships and the host-owned files seeded from them when the version has none yet. */
+const CONFIG_SEEDS: readonly { sample: string; live: string }[] = [
+  { sample: '.env.sample', live: '.env' },
+  { sample: 'deploy/config.sample.json', live: 'deploy/config.json' },
+];
+
+/** Whether a build container still runs, asked of Docker at boot. */
+export interface BuildAttemptFence {
+  containerExists(name: string): Promise<boolean>;
+}
+
+export interface InterruptedAttempts {
+  removed: string[];
+  kept: string[];
+}
+
+/** What an attempt made current: the build, published or adopted. */
+interface PublishedBuild extends PublishOutcome {
+  reused: boolean;
+}
+
+export interface PrunedBuilds {
+  removed: string[];
+  kept: string[];
+}
 
 /** What a version left mid-build by a restart says when the manager comes back. */
 const INTERRUPTED_BUILD =
@@ -79,6 +144,7 @@ export class StackVersionService {
     private readonly runner: ScriptSpawner,
     private readonly eventBus: EventBus,
     private readonly versionsRoot: string,
+    private readonly references: BuildReferenceReader,
   ) {}
 
   async list(): Promise<StackVersion[]> {
@@ -140,13 +206,12 @@ export class StackVersionService {
         throw new StackVersionExistsError(name);
       }
 
-      const rootPath = versionRootFor(this.versionsRoot, name);
       const version = await this.versions.insert({
         name,
         gitRef: ref,
-        rootPath,
+        rootPath: configRootFor(this.versionsRoot, name),
       });
-      return this.startBuild(version, rootPath);
+      return this.startBuild(version);
     } catch (err) {
       this.buildingName = null;
       throw err;
@@ -163,10 +228,8 @@ export class StackVersionService {
         );
       }
 
-      const rootPath =
-        version.rootPath ?? versionRootFor(this.versionsRoot, version.name);
       const building = await this.versions.markBuilding(id);
-      return this.startBuild(building ?? version, rootPath);
+      return this.startBuild(building ?? version);
     } catch (err) {
       this.buildingName = null;
       throw err;
@@ -251,16 +314,26 @@ export class StackVersionService {
     this.buildingName = label;
   }
 
-  private startBuild(version: StackVersionRecord, root: string): StackBuild {
+  /**
+   * One attempt: its own staging directory and its own build container name,
+   * so an attempt a gone manager left behind can be told from a live one and
+   * never shares a path with the next.
+   */
+  private startBuild(version: StackVersionRecord): StackBuild {
     this.buildingName = version.name;
+    const attempt = randomBytes(6).toString('hex');
+    const repo = repoRootFor(this.versionsRoot, version.name);
+    const staging = stagingDirFor(this.versionsRoot, version.name, attempt);
     logger.info(
-      `[Versions] building ${version.name} from ${version.gitRef} in ${root}`,
+      `[Versions] building ${version.name} from ${version.gitRef}, attempt ${attempt}, in ${staging}`,
     );
 
     const handle = this.runner.run(BUILD_SCRIPT, [
-      root,
+      repo,
+      staging,
       version.gitRef,
       STACK_REPO_URL,
+      attempt,
     ]);
 
     let log = '';
@@ -271,7 +344,7 @@ export class StackVersionService {
     const settle = (code: number): void => {
       if (settled) return;
       settled = true;
-      void this.finishBuild(version, root, code, log);
+      void this.finishBuild(version, attempt, code, log);
     };
 
     handle.emitter.on('stdout', keepTail);
@@ -287,34 +360,254 @@ export class StackVersionService {
     return { version, handle };
   }
 
+  /**
+   * Publishes what the attempt built, or records why it could not. A version
+   * that already has a usable build keeps it, ready, with the reason. Only a
+   * version with nothing to deploy from is failed. The staging directory
+   * goes either way.
+   */
   private async finishBuild(
     version: StackVersionRecord,
-    root: string,
+    attempt: string,
     code: number,
     log: string,
   ): Promise<void> {
     this.buildingName = null;
+    const staging = stagingDirFor(this.versionsRoot, version.name, attempt);
+    let outcome: PublishedBuild | null = null;
+    let failure: string | null = null;
     try {
-      if (code === 0) {
-        // Asked of the checkout rather than read out of the log. The script
-        // prints the commit too, but a real build prints tens of thousands of
-        // lines after it and only the tail of that stream is kept.
-        await this.versions.markBuilt(version.id, {
-          commitSha: readCheckoutCommit(root),
-          contract: readStackContract(root),
-        });
-        logger.info(`[Versions] ${version.name} is ready`);
-      } else {
-        const reason = log.trim() || `the build exited with code ${code}`;
-        await this.versions.markFailed(version.id, reason);
-        logger.warn(`[Versions] ${version.name} failed to build: ${reason}`);
+      if (code !== 0) {
+        throw new Error(log.trim() || `the build exited with code ${code}`);
       }
+      outcome = await this.publishStaging(version, staging);
     } catch (err) {
-      const message = getErrorMessage(err);
-      logger.error(`[Versions] could not finish ${version.name}: ${message}`);
-      await this.versions.markFailed(version.id, message).catch(() => null);
+      failure = getErrorMessage(err);
+    }
+    // Before the row says anything, so a reader that sees the outcome finds
+    // the builds directory as the outcome describes it. A tree the build
+    // container left owned by root is one the manager's own user cannot
+    // remove, and that is a warning to act on, not a reason for the process
+    // to go down with an unhandled rejection.
+    try {
+      await rm(staging, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn(
+        `[Versions] could not remove staging ${staging}: ${getErrorMessage(err)}. Remove it by hand.`,
+      );
+    }
+
+    try {
+      if (outcome) {
+        await this.versions.publish(version.id, outcome);
+        logger.info(
+          `[Versions] ${version.name} is ready on build ${outcome.buildId}${outcome.reused ? ', the complete build it already had' : ''}`,
+        );
+        await this.pruneBuilds(version.id);
+      } else {
+        const current = await this.versions.findById(version.id);
+        if (current?.buildId) {
+          await this.versions.markUpdateFailed(
+            version.id,
+            `${failure} (attempt ${attempt}, ${new Date().toISOString()}). Still on build ${current.buildId}.`,
+          );
+        } else {
+          await this.versions.markFailed(version.id, failure ?? 'the build did not publish');
+        }
+        logger.warn(`[Versions] ${version.name} attempt ${attempt} did not publish: ${failure}`);
+      }
+    } catch (writeErr) {
+      logger.error(`[Versions] could not record the outcome of ${version.name}: ${getErrorMessage(writeErr)}`);
     }
     this.publishChanged();
+  }
+
+  /**
+   * The staging directory becomes a build: the host configuration is captured
+   * and copied in, the manifest and the complete marker are written, and the
+   * directory is renamed into place under its identity. A complete build of
+   * the same commit and the same inputs is adopted instead, untouched. Then
+   * one row update makes it current.
+   */
+  private async publishStaging(
+    version: StackVersionRecord,
+    staging: string,
+  ): Promise<PublishedBuild> {
+    const commitPath = join(staging, STACK_COMMIT_FILE);
+    if (!existsSync(commitPath)) {
+      throw new Error(`the build left no ${STACK_COMMIT_FILE} in ${staging}, so its commit is unknown`);
+    }
+    const commit = (await readFile(commitPath, 'utf8')).trim().toLowerCase();
+    if (!COMMIT_RE.test(commit)) {
+      throw new Error(`${STACK_COMMIT_FILE} in ${staging} does not hold a commit`);
+    }
+    const contract = readStackContract(staging);
+
+    const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
+    await this.seedHostConfig(configRoot, staging);
+    const capture = await captureHostConfig(configRoot, {
+      sampleEnvKeys: await sampledEnvKeys(staging),
+    });
+    if (capture.problem !== null) throw new Error(capture.problem);
+    const inputs = capture.captured;
+
+    const buildsRoot = buildsRootFor(this.versionsRoot, version.name);
+    await mkdir(buildsRoot, { recursive: true });
+    const existing = await this.completeBuildOf(version.name, commit, inputs.generation);
+    if (existing) {
+      return { buildId: existing.buildId, commitSha: commit, contract, reused: true };
+    }
+
+    for (const [relative, bytes] of inputs.files) {
+      await mkdir(dirname(join(staging, relative)), { recursive: true });
+      await writeFile(join(staging, relative), bytes);
+    }
+    const buildId = await this.freeBuildId(version.name, commit);
+    const manifest: BuildManifest = {
+      commit,
+      buildId,
+      builtAt: new Date().toISOString(),
+      toolchain: BUILD_TOOLCHAIN,
+      inputGeneration: inputs.generation,
+      inputHashes: inputs.hashes,
+    };
+    await writeFile(join(staging, BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
+    await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
+    await rename(staging, buildDirFor(this.versionsRoot, version.name, buildId));
+    return { buildId, commitSha: commit, contract, reused: false };
+  }
+
+  /**
+   * The host-owned inputs a version starts with: the samples the build ships,
+   * committed as generation one when the version has none of its own yet, so
+   * an added version deploys with the stack's defaults the way it always did.
+   * A root that has the files but no manifest is adopted as it stands.
+   */
+  private async seedHostConfig(configRoot: string, staging: string): Promise<void> {
+    await mkdir(configRoot, { recursive: true });
+    const seeds: Record<string, Buffer> = {};
+    for (const { sample, live } of CONFIG_SEEDS) {
+      if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
+        seeds[live] = await readFile(join(staging, sample));
+      }
+    }
+    if (Object.keys(seeds).length > 0) {
+      await commitHostConfig(configRoot, seeds);
+      logger.info(`[Versions] seeded ${Object.keys(seeds).join(', ')} in ${configRoot} from the build's samples`);
+      return;
+    }
+    const adopted = await adoptHostConfig(configRoot);
+    if (adopted) {
+      logger.info(`[Versions] adopted the host configuration in ${configRoot} as generation 1`);
+    }
+  }
+
+  /** A complete build of this commit whose inputs are the same generation, or null. */
+  private async completeBuildOf(
+    name: string,
+    commit: string,
+    generation: number,
+  ): Promise<BuildManifest | null> {
+    for (const id of await this.buildIdsOf(name, commit)) {
+      const read = readBuildManifest(buildDirFor(this.versionsRoot, name, id));
+      if (read.manifest && read.manifest.inputGeneration === generation) return read.manifest;
+    }
+    return null;
+  }
+
+  /** The commit itself when nothing is published under it, else the next `<commit>-r<n>`. Files under a published path are never replaced. */
+  private async freeBuildId(name: string, commit: string): Promise<string> {
+    const taken = await this.buildIdsOf(name, commit);
+    if (taken.length === 0) return commit;
+    const highest = taken.reduce((max, id) => {
+      const match = /-r([1-9][0-9]*)$/.exec(id);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    return `${commit}-r${highest + 1}`;
+  }
+
+  private async buildIdsOf(name: string, commit: string): Promise<string[]> {
+    const buildsRoot = buildsRootFor(this.versionsRoot, name);
+    if (!existsSync(buildsRoot)) return [];
+    return (await readdir(buildsRoot)).filter((entry) => entry === commit || entry.startsWith(`${commit}-r`));
+  }
+
+  /**
+   * Deletes every build directory of the version that nothing protects: not
+   * the current build, not the previous one, and not one an open reference
+   * names. Under the version row's lock, so a claim taking its reference
+   * either committed before this read or waits and reads the row as prune
+   * left it. An attempt's staging directory is boot's, and the flat root,
+   * which keeps the host-owned inputs, is never a build.
+   */
+  async pruneBuilds(versionId: number): Promise<PrunedBuilds> {
+    const prune = async (): Promise<PrunedBuilds> => {
+      const version = await this.versions.findById(versionId);
+      const outcome: PrunedBuilds = { removed: [], kept: [] };
+      if (!version || version.layout !== 'builds') return outcome;
+      const buildsRoot = buildsRootFor(this.versionsRoot, version.name);
+      if (!existsSync(buildsRoot)) return outcome;
+      const keep = protectedBuildIds(version, await this.references.openReferences(versionId));
+      for (const entry of (await readdir(buildsRoot)).sort()) {
+        if (buildIdProblem(entry) !== null) continue;
+        if (keep.has(entry)) {
+          outcome.kept.push(entry);
+          continue;
+        }
+        await rm(join(buildsRoot, entry), { recursive: true, force: true });
+        outcome.removed.push(entry);
+      }
+      if (outcome.removed.length > 0) {
+        logger.info(`[Versions] pruned ${version.name}: removed ${outcome.removed.join(', ')}, kept ${outcome.kept.join(', ') || 'none'}`);
+      }
+      return outcome;
+    };
+    return this.references.lockVersion ? this.references.lockVersion(versionId, prune) : prune();
+  }
+
+  /** Prune for every version, at boot, after the containers were observed. */
+  async pruneAll(): Promise<void> {
+    for (const version of await this.versions.list()) {
+      await this.pruneBuilds(version.id);
+    }
+  }
+
+  /**
+   * What boot does with the staging directories of attempts a gone manager
+   * left: an attempt whose build container still runs keeps its directory,
+   * because the container is still writing into it, and any other is removed.
+   * A container Docker cannot be asked about counts as present, so an
+   * inspection failure never deletes a directory a builder may still use.
+   */
+  async cleanInterruptedAttempts(fence: BuildAttemptFence): Promise<InterruptedAttempts> {
+    const outcome: InterruptedAttempts = { removed: [], kept: [] };
+    if (!existsSync(this.versionsRoot)) return outcome;
+    for (const entry of (await readdir(this.versionsRoot)).sort()) {
+      if (!entry.endsWith(BUILDS_SUFFIX)) continue;
+      const name = entry.slice(0, -BUILDS_SUFFIX.length);
+      const buildsRoot = join(this.versionsRoot, entry);
+      for (const child of (await readdir(buildsRoot)).sort()) {
+        if (!child.startsWith(STAGING_PREFIX)) continue;
+        const attempt = child.slice(STAGING_PREFIX.length);
+        const label = `${name}/${child}`;
+        let live = true;
+        try {
+          live = await fence.containerExists(`${BUILD_CONTAINER_PREFIX}${attempt}`);
+        } catch (err) {
+          logger.warn(`[Versions] could not ask Docker about ${BUILD_CONTAINER_PREFIX}${attempt}: ${getErrorMessage(err)}. Keeping ${label}.`);
+        }
+        if (live) {
+          outcome.kept.push(label);
+          continue;
+        }
+        await rm(join(buildsRoot, child), { recursive: true, force: true });
+        outcome.removed.push(label);
+      }
+    }
+    if (outcome.removed.length > 0 || outcome.kept.length > 0) {
+      logger.info(`[Versions] build attempts at boot: removed ${outcome.removed.join(', ') || 'none'}, kept ${outcome.kept.join(', ') || 'none'}`);
+    }
+    return outcome;
   }
 
   // ---------------------------------------------------------- the plumbing
@@ -340,13 +633,20 @@ export class StackVersionService {
       return;
     }
 
-    try {
-      await rm(expected, { recursive: true, force: true });
-      logger.info(`[Versions] removed checkout ${expected}`);
-    } catch (err) {
-      logger.warn(
-        `[Versions] could not delete ${expected}: ${getErrorMessage(err)}. The version is gone from the table, so remove that directory by hand.`,
-      );
+    // The flat root, the clone and every build: all three are the version's.
+    for (const dir of [
+      expected,
+      repoRootFor(this.versionsRoot, version.name),
+      buildsRootFor(this.versionsRoot, version.name),
+    ]) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        logger.info(`[Versions] removed ${dir}`);
+      } catch (err) {
+        logger.warn(
+          `[Versions] could not delete ${dir}: ${getErrorMessage(err)}. The version is gone from the table, so remove that directory by hand.`,
+        );
+      }
     }
   }
 
@@ -376,9 +676,19 @@ function toApiVersion(
     lastError: version.lastError,
     contract: version.contract,
     deployments,
+    layout: version.layout,
+    buildId: version.buildId,
+    previousBuildId: version.previousBuildId,
   };
 }
 
 function refuse(problem: string | null): void {
   if (problem) throw new InvalidStackVersionError(problem);
+}
+
+/** The keys the build's .env.sample assigns, which the base env must carry. */
+async function sampledEnvKeys(staging: string): Promise<string[]> {
+  const sample = join(staging, '.env.sample');
+  if (!existsSync(sample)) return [];
+  return [...envKeysIn(await readFile(sample, 'utf8'))];
 }

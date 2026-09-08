@@ -1,5 +1,7 @@
 import {
   DEFAULT_MAX_SLOT,
+  PORT_SLOT_STRIDE,
+  OME_PORT_SOURCES,
   type StackContract,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
@@ -24,13 +26,19 @@ export const BUNDLED_PORT_TABLE: readonly StackPortVar[] = [
   name,
   defaultPort: 10000 + index,
   slotBase: 10000 + index,
+  // The SRT ingest is the one UDP mapping the bundled compose file carries.
+  protocol: name === 'SRS_SRT_PORT' ? ('udp' as const) : ('tcp' as const),
+  service: bundledServiceOf(name),
 }));
 
-/** OvenMediaEngine listens where SRS would, so its ports follow the SRS entries. */
-const OME_PORTS_FOLLOW: Record<string, string> = {
-  OME_SRT_PORT: 'SRS_SRT_PORT',
-  OME_HLS_PORT: 'SRS_HTTP_PORT',
-};
+/** The compose service that publishes a bundled port variable, as its compose file maps it. */
+function bundledServiceOf(name: string): string {
+  if (name === 'API_PORT') return 'stream-uploader';
+  if (name === 'CLIENT_PORT') return 'client';
+  if (name.startsWith('SRS_')) return 'srs';
+  if (name.startsWith('BEE_UPLOADER_')) return 'bee-uploader';
+  return 'bee-gateway';
+}
 
 export function portTableOf(
   contract: StackContract | null | undefined,
@@ -47,7 +55,7 @@ export function maxSlotOf(contract: StackContract | null | undefined): number {
 
 /** What `deploy.sh --portSlot=N` resolves one port variable to. */
 export function portFor(port: StackPortVar, portSlot: number): number {
-  return portSlot > 0 ? port.slotBase + portSlot * 10 : port.defaultPort;
+  return portSlot > 0 ? port.slotBase + portSlot * PORT_SLOT_STRIDE : port.defaultPort;
 }
 
 export interface OmePorts {
@@ -65,8 +73,8 @@ export function omePortsFor(
 ): OmePorts {
   if (portSlot <= 0) return {};
   const byName = new Map(table.map((port) => [port.name, port]));
-  const srt = byName.get(OME_PORTS_FOLLOW.OME_SRT_PORT!);
-  const hls = byName.get(OME_PORTS_FOLLOW.OME_HLS_PORT!);
+  const srt = byName.get(OME_PORT_SOURCES.OME_SRT_PORT!);
+  const hls = byName.get(OME_PORT_SOURCES.OME_HLS_PORT!);
   return {
     ...(srt ? { omeSrtPort: portFor(srt, portSlot) } : {}),
     ...(hls ? { omeHlsPort: portFor(hls, portSlot) } : {}),

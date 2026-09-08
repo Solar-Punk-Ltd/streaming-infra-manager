@@ -32,7 +32,12 @@ export type ManagerEvent =
    * pill to show and this exists to appear in the activity list.
    */
   | { type: 'engine.restarted'; profile: string; service: string }
-  | { type: 'version.changed' };
+  | { type: 'version.changed' }
+  /**
+   * A deploy attempt opened, was judged or was released. No payload: what
+   * holds a deployment or the host is read whole, the way the versions are.
+   */
+  | { type: 'attempt.changed' };
 
 export const MAX_EVENT_CLIENTS = 100;
 
