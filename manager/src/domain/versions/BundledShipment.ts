@@ -38,3 +38,9 @@ export interface PreparedBundledCandidate { artifactDigest: string; contract: St
 export type BundledActivation =
   | { status: 'published'; receipt: BundledShipmentReceipt }
   | { status: 'superseded'; shipmentId: string };
+export type BundledMaterialization = BundledActivation | { status: 'prepared'; shipment: BundledShipmentRecord };
+
+export function resolvedBundledShipment(record: BundledShipmentRecord): BundledActivation | null {
+  if (record.receipt) return { status: 'published', receipt: record.receipt };
+  return record.state === 'superseded' ? { status: 'superseded', shipmentId: record.shipmentId } : null;
+}

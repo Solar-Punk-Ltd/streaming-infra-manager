@@ -172,6 +172,26 @@ describe('bundled artifact materialization with isolated PostgreSQL and files', 
     });
   }
 
+  it('does not overwrite an empty destination appearing after private-copy verification', async () => {
+    const item = await fixture();
+    const path = await finalPath(item.id);
+    let occupiedInode: number | null = null;
+    let renames = 0;
+    const racing = new BundledArtifactMaterializer(shipments, {
+      verify: async (...args) => {
+        const result = await verifyBundledArtifact(...args);
+        if (occupiedInode === null) { await mkdir(path); occupiedInode = (await lstat(path)).ino; }
+        return result;
+      },
+      rename: async (source, destination) => { renames += 1; await rename(source, destination); },
+    });
+    await assert.rejects(racing.materialize(item.id, async () => item.sealed));
+    assert.notEqual(occupiedInode, null);
+    assert.equal((await lstat(path)).ino, occupiedInode);
+    assert.equal(renames, 0);
+    assert.ok(existsSync(bundledMaterializationPath(await stored(item.id))));
+  });
+
   it('converges duplicate callers onto one durable copy and one final artifact', async () => {
     const item = await fixture();
     const both = signal();
@@ -285,5 +305,14 @@ describe('bundled artifact materialization with isolated PostgreSQL and files', 
     assert.deepEqual(await readFile(join(legacy, '.stack-manifest.json')), before);
     assert.notEqual(await finalPath(item.id), legacy);
     assert.equal((await activate(item.id)).status, 'published');
+  });
+
+  it('does not advertise a pre-journal artifact as reused without recorded byte provenance', async () => {
+    const item = await bundledArtifactFixture(root);
+    await shipments.register(item.sealed.identity);
+    await shipments.reserveCandidate(item.record.shipmentId, { buildId: A, kind: 'reuse', manifest: item.record.candidateManifest!, metadata: item.record.candidateMetadata! });
+    await assert.rejects(materializer.materialize(item.record.shipmentId, async () => item.sealed, { reuseFromShipmentId: randomUUID() }), /provenance/i);
+    assert.equal((await stored(item.record.shipmentId)).state, 'registered');
+    assert.equal((await stored(item.record.shipmentId)).artifactDigest, null);
   });
 });

@@ -4,7 +4,7 @@ import { BUNDLED_VERSION_NAME, parseStackContract } from '@streaming-infra-manag
 import type { Pool, PoolClient } from 'pg';
 
 import { buildIdProblem } from './buildManifest.js';
-import type { BundledActivation, BundledCandidateProposal, BundledShipmentRecord, PreparedBundledCandidate } from './BundledShipment.js';
+import { resolvedBundledShipment, type BundledActivation, type BundledCandidateProposal, type BundledMaterialization, type BundledShipmentRecord, type PreparedBundledCandidate } from './BundledShipment.js';
 import { validateBundledShipmentId, validateBundledShipmentIdentity, type BundledShipmentIdentity } from './bundledShipmentPackage.js';
 import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
 import { bundledArtifactMetadata } from './bundledArtifactMetadata.js';
@@ -33,11 +33,6 @@ function toRecord(row: ShipmentRow): BundledShipmentRecord {
       publicationRevision: row.receipt_revision!, publishedAt: row.published_at!,
     } : null,
   };
-}
-function resolved(record: BundledShipmentRecord): BundledActivation | null {
-  if (record.receipt) return { status: 'published', receipt: record.receipt };
-  if (record.state === 'superseded') return { status: 'superseded', shipmentId: record.shipmentId };
-  return null;
 }
 function candidateIdentity(record: BundledShipmentRecord) {
   return [record.candidateBuildId, record.candidateKind, record.candidateManifest, record.candidateMetadata, record.materializationId, record.artifactDigest, record.candidateContract];
@@ -145,7 +140,7 @@ export class PostgresBundledShipmentRepository {
   async activate(shipmentId: string, verifyCandidate: (candidate: BundledShipmentRecord) => Promise<void>): Promise<BundledActivation> {
     const snapshot = await this.find(shipmentId);
     if (!snapshot) throw new Error('Shipment was not found.');
-    const previous = resolved(snapshot);
+    const previous = resolvedBundledShipment(snapshot);
     if (previous) return previous;
     if (snapshot.state !== 'prepared') throw new Error('Shipment candidate is not prepared.');
     const revision = await this.pool.query<{ publication_revision: string }>(
@@ -154,7 +149,7 @@ export class PostgresBundledShipmentRepository {
     if (revision.rows[0]?.publication_revision !== snapshot.expectedRevision) {
       const stale = await this.transaction(async (client, version) => {
         const current = (await this.readLocked(client, shipmentId, version.id))!;
-        const previous = resolved(current);
+        const previous = resolvedBundledShipment(current);
         if (previous) return previous;
         if (current.expectedRevision === version.publication_revision) return null;
         await this.supersede(client, current);
@@ -172,7 +167,7 @@ export class PostgresBundledShipmentRepository {
     }
     return this.transaction(async (client, version) => {
       const current = (await this.readLocked(client, shipmentId, version.id))!;
-      const previous = resolved(current);
+      const previous = resolvedBundledShipment(current);
       if (previous) return previous;
       if (current.expectedRevision !== version.publication_revision) {
         await this.supersede(client, current);
@@ -198,6 +193,24 @@ export class PostgresBundledShipmentRepository {
 
   async pendingBuildIds(versionId: number): Promise<string[]> {
     return readPendingShipmentBuildIds(this.pool, versionId);
+  }
+
+  /** Only the final path check and rename may run here. Copying and full verification stay outside this lock. */
+  async withPreparedCandidate(snapshot: BundledShipmentRecord, install?: () => Promise<void>): Promise<BundledMaterialization> {
+    return this.transaction(async (client, version) => {
+      const current = (await this.readLocked(client, snapshot.shipmentId, version.id))!;
+      const previous = resolvedBundledShipment(current);
+      if (previous) return previous;
+      if (current.expectedRevision !== version.publication_revision) {
+        await this.supersede(client, current);
+        return { status: 'superseded', shipmentId: current.shipmentId };
+      }
+      if (current.state !== 'prepared' || !isDeepStrictEqual(candidateIdentity(current), candidateIdentity(snapshot))) {
+        throw new Error('Prepared shipment candidate changed before installation.');
+      }
+      await install?.();
+      return { status: 'prepared', shipment: current };
+    });
   }
 
   private async supersede(client: PoolClient, record: BundledShipmentRecord): Promise<BundledShipmentRecord> {
