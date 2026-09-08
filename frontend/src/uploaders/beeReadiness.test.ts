@@ -15,7 +15,7 @@ describe('fresh Bee evidence on screen', () => {
     }
   });
   it('labels API readiness separately from publishing and timestamps the observation', () => {
-    const view = beeReadinessView(observation, observedAt + 1000, false);
+    const view = beeReadinessView(observation, observedAt + 1000, false, observedAt);
     assert.equal(view.state, 'ready');
     assert.equal(view.label, 'Bee API ready');
     assert.match(view.detail, /2026-09-08T00:00:00.000Z/);
@@ -29,18 +29,18 @@ describe('fresh Bee evidence on screen', () => {
       [{ ...observation, observedAt: 'invalid' }, observedAt, false],
       [observation, observedAt + 1000, true],
     ] as const) {
-      assert.equal(beeReadinessView(value, now, refreshing).state, 'stale');
+      assert.equal(beeReadinessView(value, now, refreshing, observedAt).state, 'stale');
     }
   });
 
   it('distinguishes unknown, unreachable, initializing and reported failure without invented progress', () => {
-    assert.equal(beeReadinessView(null, observedAt, false).state, 'unknown');
+    assert.equal(beeReadinessView(null, observedAt, false, null).state, 'unknown');
     for (const state of ['unknown', 'unreachable', 'initializing', 'unhealthy'] as const) {
-      const view = beeReadinessView({ ...observation, state }, observedAt, false);
+      const view = beeReadinessView({ ...observation, state }, observedAt, false, observedAt);
       assert.equal(view.state, state);
       assert.doesNotMatch(view.detail, /%|minute|block [0-9]/i);
     }
-    const withProgress = beeReadinessView({ ...observation, state: 'initializing', chainProgress: { block: 12, chainTip: 20 } }, observedAt, false);
+    const withProgress = beeReadinessView({ ...observation, state: 'initializing', chainProgress: { block: 12, chainTip: 20 } }, observedAt, false, observedAt);
     assert.match(withProgress.detail, /12.*20/);
   });
 });

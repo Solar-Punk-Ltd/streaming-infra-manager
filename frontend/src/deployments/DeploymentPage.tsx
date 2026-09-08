@@ -148,7 +148,7 @@ function DeploymentBody({
 
   const checklistInput: ChecklistInput = {
     profile,
-    nodeReadiness: bee ? beeReadinessView(bee.nodeObservation, bee.observationNow, bee.loading || profile.status !== 'RUNNING') : undefined,
+    nodeReadiness: bee ? beeReadinessView(bee.nodeObservation, bee.observationNow, bee.loading || profile.status !== 'RUNNING', bee.observationReceivedAt) : undefined,
     wallet: bee?.wallet ?? null,
     chequebook: chequebookHealth,
     nodeAddress: bee?.address?.ethereum ?? null,

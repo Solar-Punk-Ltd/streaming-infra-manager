@@ -23,6 +23,7 @@ async function freePort() {
 test('readiness and container diagnostics use current observations in the browser', async (t) => {
   let mode = 'ready';
   let hold = false;
+  let holdWallet = false;
   const held = [], logRequests = [], writes = [];
   const server = await createServer({
     root: frontend, configFile: false,
@@ -54,7 +55,7 @@ test('readiness and container diagnostics use current observations in the browse
           if (path.endsWith('/chequebook')) return json({ address: '0x' + 'c'.repeat(40), totalBalance: '10000000000000000', availableBalance: '10000000000000000', totalSent: '0', totalReceived: '0', health: { state: 'ok', availablePlur: '10000000000000000', floorPlur: '5000000000000000' } });
           return json({}, 404);
         }
-        if (path.includes('/stamp/') || path.endsWith('/chequebook')) { if (hold) held.push(beeResponse); else beeResponse(); return; }
+        if (path.includes('/stamp/') || path.endsWith('/chequebook')) { if (hold || (holdWallet && path.endsWith('/wallet'))) held.push(beeResponse); else beeResponse(); return; }
         return json({}, 404);
       });
     }}],
@@ -81,7 +82,7 @@ test('readiness and container diagnostics use current observations in the browse
     await evaluate(`document.querySelector('button[aria-label="close"]').click()`);
     await waitFor(() => evaluate('document.querySelector("[role=dialog]") === null'));
   }
-  await evaluate('window.fixtureNow = Date.now; Date.now = () => window.fixtureNow() + 31000');
+  await evaluate('window.fixtureNow = performance.now.bind(performance); performance.now = () => window.fixtureNow() + 31000');
   await waitFor(body, text => text.includes('Bee observation stale'), 'expired observation');
   assert.equal(await hasUploader(), false);
   hold = true;
@@ -89,7 +90,6 @@ test('readiness and container diagnostics use current observations in the browse
   await waitFor(() => held.length, count => count >= 1, 'held reload');
   assert.equal(await hasUploader(), false);
   mode = 'failed'; hold = false; held.splice(0).forEach(reply => reply());
-  await evaluate('Date.now = window.fixtureNow');
   await waitFor(body, text => text.includes('Bee unreachable'), 'failed reload');
   assert.equal(await hasUploader(), false);
   mode = 'initializing'; await click('Retry node checks');
@@ -103,6 +103,21 @@ test('readiness and container diagnostics use current observations in the browse
   mode = 'ready'; hold = false; held.splice(0).forEach(reply => reply());
   await waitFor(body, text => text.includes('Bee reports its API is ready') && text.includes('second-stream'), 'new deployment observations');
   assert.equal(await hasUploader(), true);
+  // A sibling wallet request must not renew an earlier probe response.
+  holdWallet = true;
+  await evaluate('performance.now = () => window.fixtureNow() + 62000');
+  await waitFor(body, text => text.includes('Bee observation stale'), 'second expiry');
+  await evaluate('performance.clearResourceTimings()');
+  const completedProbes = await evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/stamp/readiness')).length`);
+  await click('Retry node checks');
+  await waitFor(() => held.length, count => count >= 1, 'held wallet sibling');
+  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/stamp/readiness')).length`), count => count > completedProbes, 'probe response received before wallet');
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  await evaluate('performance.now = () => window.fixtureNow() + 93000');
+  holdWallet = false; held.splice(0).forEach(reply => reply());
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('#storage button')].find(button => button.textContent.trim() === 'Refresh' && !button.disabled)`));
+  assert.equal(await hasUploader(), false);
+  assert.match(await body(), /Bee observation stale/);
   assert.deepEqual(writes, []);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);

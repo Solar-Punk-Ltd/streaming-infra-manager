@@ -22,10 +22,10 @@ const DETAILS: Record<BeeNodeState, string> = {
   unknown: 'The node did not supply complete, recognized API probe results. Retry the node checks.',
 };
 
-export function beeReadinessView(observation: BeeNodeObservation | null, now: number, refreshing: boolean): BeeReadinessView {
+export function beeReadinessView(observation: BeeNodeObservation | null, now: number, refreshing: boolean, receivedAt: number | null): BeeReadinessView {
   if (!observation) return { state: 'unknown', label: 'Bee API not checked', detail: 'No current Bee API observation. Retry the node checks.' };
   const observedAt = Date.parse(observation.observedAt);
-  const stale = refreshing || !Number.isFinite(observedAt) || observedAt > now || now - observedAt >= OBSERVATION_MAX_AGE_MS;
+  const stale = refreshing || !Number.isFinite(observedAt) || receivedAt === null || !Number.isFinite(receivedAt) || receivedAt > now || now - receivedAt >= OBSERVATION_MAX_AGE_MS;
   if (stale) return { state: 'stale', label: 'Bee observation stale', detail: `Previous check: ${observation.observedAt}. Current node state is not verified. Retry the node checks.` };
   const progress = observation.chainProgress
     ? ` Bee reports chain block ${observation.chainProgress.block} of tip ${observation.chainProgress.chainTip}.`

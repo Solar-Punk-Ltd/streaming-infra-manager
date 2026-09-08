@@ -56,6 +56,7 @@ const sleep = (ms: number): Promise<void> =>
 export interface BeeUtils {
   nodeObservation: BeeNodeObservation | null;
   observationNow: number;
+  observationReceivedAt: number | null;
   address: BeeAddress | null;
   wallet: BeeWallet | null;
   /**
@@ -147,9 +148,10 @@ export function useBeeUtils(
   const profileName = profile.name;
   const profileRevision = `${profile.status}:${profile.updated_at}`;
   const [nodeObservation, setNodeObservation] = useState<BeeNodeObservation | null>(null);
-  const [observationNow, setObservationNow] = useState(Date.now);
+  const [observationReceivedAt, setObservationReceivedAt] = useState<number | null>(null);
+  const [observationNow, setObservationNow] = useState(() => performance.now());
   useEffect(() => {
-    const timer = setInterval(() => setObservationNow(Date.now()), 1_000);
+    const timer = setInterval(() => setObservationNow(performance.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -197,7 +199,7 @@ export function useBeeUtils(
       chainStateResult,
       chequebookResult,
     ] = await Promise.allSettled([
-      fetchBeeNodeObservation(profileName),
+      fetchBeeNodeObservation(profileName).then(value => ({ value, receivedAt: performance.now() })),
       fetchStampAddress(profileName),
       fetchStampWallet(profileName),
       fetchStamps(profileName),
@@ -207,8 +209,9 @@ export function useBeeUtils(
 
     if (seq !== latestReload.current) return;
 
-    setNodeObservation(observationResult.status === 'fulfilled' ? observationResult.value : null);
-    setObservationNow(Date.now());
+    setNodeObservation(observationResult.status === 'fulfilled' ? observationResult.value.value : null);
+    setObservationReceivedAt(observationResult.status === 'fulfilled' ? observationResult.value.receivedAt : null);
+    setObservationNow(performance.now());
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
     if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
     setStamps(
@@ -309,6 +312,7 @@ export function useBeeUtils(
   return {
     nodeObservation,
     observationNow,
+    observationReceivedAt,
     address,
     wallet,
     stamps,
