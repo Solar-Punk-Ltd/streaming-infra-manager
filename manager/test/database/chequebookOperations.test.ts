@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
+import http from 'node:http';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import express from 'express';
+import { REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME } from '@streaming-infra-manager/common';
 import pg, { type Pool } from 'pg';
+import { createChequebookRouter } from '../../src/api/routes/chequebook.js';
+import { createRequireSession } from '../../src/api/middleware/requireSession.js';
+import { requireSameSite } from '../../src/api/middleware/requireSameSite.js';
+import { errorHandler } from '../../src/api/middleware/errorHandler.js';
+import { ChequebookOperationsService } from '../../src/domain/chequebook/ChequebookOperationsService.js';
+import type { AuthService } from '../../src/domain/auth/AuthService.js';
+import type { ChequebookService } from '../../src/domain/ChequebookService.js';
 import { PostgresChequebookOperationRepository } from '../../src/domain/chequebook/PostgresChequebookOperationRepository.js';
 import { ChequebookRecovery } from '../../src/domain/chequebook/ChequebookRecovery.js';
 import { ChequebookRecoveryInspector } from '../../src/domain/chequebook/ChequebookRecoveryInspector.js';
@@ -98,6 +108,75 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(detail?.operation.failureReason, 'hash_conflict');
     assert.equal(detail?.operation.transactionHash, transactionHash);
     assert.deepEqual(new Set(detail?.responseEvidence.map(evidence => evidence.transactionHash)), new Set([transactionHash, otherHash]));
+  });
+
+  it('blocks a new intent behind a terminal conflict while retaining exact replay and unrelated node admission', async () => {
+    const submitted = await submittedOperation();
+    await repository.recordReceipt(submitted, confirmed);
+    const conflict = await repository.recordSubmission(submitted.id, { state: 'submitted', transactionHash: `0x${'99'.repeat(32)}`, failureReason: null });
+    assert.equal(conflict.state, 'settled');
+    assert.equal(conflict.failureReason, 'hash_conflict');
+    const candidate = operationCandidate();
+    const refused = await repository.admit(candidate);
+    assert.equal(refused.kind, 'busy');
+    assert.deepEqual(refused.operation, conflict);
+    assert.equal(await repository.findById(candidate.id), null);
+    assert.equal((await repository.admit({ ...operationCandidate(), ...submitted, profileInstanceId: submitted.profileInstanceId! })).kind, 'replayed');
+    const unrelated = await repository.admit(operationCandidate({ nodeAddress: `0x${'98'.repeat(20)}` }));
+    assert.equal(unrelated.kind, 'admitted');
+    assert.deepEqual(await repository.findById(conflict.id), conflict);
+    assert.equal((await repository.listSubmissionResponses(conflict.id)).length, 2);
+  });
+
+  it('refuses HTTP submission after a held terminal GET predates a durable conflict', async t => {
+    const submitted = await submittedOperation();
+    await repository.recordReceipt(submitted, confirmed);
+    let entered!: () => void;
+    const readHeld = new Promise<void>(resolve => { entered = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let sends = 0;
+    const submission = new ChequebookSubmission(repository, async () => ({ context: transferContext, dispose() {},
+      preflight: async () => {}, send: async () => { sends++; return { transactionHash: `0x${'98'.repeat(32)}` }; } }));
+    const receipts = new ChequebookReceiptCheck(repository, async () => ({ kind: 'pending', reason: 'awaiting_receipt' }));
+    const service = new ChequebookOperationsService(repository, submission, receipts, {} as ChequebookRecovery);
+    const app = express();
+    app.use(requireSameSite, express.json());
+    app.use(createRequireSession({ sessionFor: async token => token === 'test-session' ? { user: { id: 7, username: 'operator', isAdmin: false },
+      tokenHash: 'synthetic', expiresAt: new Date(Date.now() + 60_000) } : null } as AuthService));
+    app.use((req, res, next) => {
+      if (req.method === 'GET') {
+        const sendJson = res.json.bind(res);
+        res.json = body => { entered(); void gate.then(() => sendJson(body)); return res; };
+      }
+      next();
+    });
+    app.use(createChequebookRouter({} as ChequebookService, service), errorHandler);
+    const server = http.createServer(app);
+    t.after(async () => { release(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); assert.ok(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    const headers = { cookie: `${SESSION_COOKIE_NAME}=test-session`, [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE, 'content-type': 'application/json' };
+    const oldRead = fetch(`${base}/chequebook/operations/by-request/${submitted.requestId}`, { headers, signal: AbortSignal.timeout(10_000) });
+    await readHeld;
+    await repository.recordSubmission(submitted.id, { state: 'submitted', transactionHash: `0x${'99'.repeat(32)}`, failureReason: null });
+    release();
+    const oldDetail = await (await oldRead).json();
+    assert.equal(oldDetail.operation.state, 'settled');
+    assert.equal(oldDetail.operation.failureReason, null);
+    const next = transferIntent();
+    const response = await fetch(`${base}/profiles/${next.profileName}/chequebook/deposit`, { method: 'POST', headers,
+      body: JSON.stringify({ requestId: next.requestId, profileInstanceId: next.profileInstanceId, expectedAccountId: 7, amount: next.amountPlur }),
+      signal: AbortSignal.timeout(10_000) });
+    assert.equal(response.status, 409);
+    const refused = await response.json();
+    assert.equal(refused.kind, 'busy');
+    assert.equal(refused.operation.id, submitted.id);
+    assert.equal(refused.operation.failureReason, 'hash_conflict');
+    assert.equal(refused.responseEvidence.length, 2);
+    assert.equal(await repository.findByRequestId(next.requestId), null);
+    assert.equal(sends, 0);
   });
 
   it('requires current complete no-match evidence and exact typed risk before assertion', async () => {

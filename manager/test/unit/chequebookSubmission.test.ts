@@ -26,6 +26,18 @@ function harness() {
 }
 
 describe('durable chequebook submission', () => {
+  it('refuses a new intent behind terminal conflict evidence without dispatching it', async () => {
+    const h = harness();
+    const candidate = operationCandidate();
+    const first = await h.repository.admit(candidate);
+    h.repository.rows.set(first.operation.id, { ...first.operation, state: 'settled', transactionHash, failureReason: 'hash_conflict' });
+    assert.equal((await h.service().submit(transferIntent())).kind, 'busy');
+    assert.equal(h.submissions(), 0);
+    assert.equal(h.repository.rows.size, 1);
+    assert.equal((await h.service().submit(candidate)).kind, 'replayed');
+    assert.equal((await h.repository.admit(operationCandidate({ nodeAddress: `0x${'98'.repeat(20)}` }))).kind, 'admitted');
+  });
+
   it('disposes prepared sessions after success, busy admission, and every failure after preparation', async () => {
     for (const failure of ['none', 'context', 'admission', 'preflight', 'claim', 'send', 'record'] as const) {
       const h = harness();
