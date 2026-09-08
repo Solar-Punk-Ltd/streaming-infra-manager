@@ -83,14 +83,20 @@ export class ChainRpc {
     return value === null ? null : blockHeader(value, block);
   }
 
-  async blockTransactions(block: bigint, signal?: AbortSignal): Promise<ChainBlock | null> {
+  async blockTransactions(block: bigint, nodeAddress: string, signal?: AbortSignal): Promise<ChainBlock | null> {
+    const sender = chainAddress(nodeAddress);
     const value = await this.#call('eth_getBlockByNumber', [blockTag(block), true], signal);
     if (value === null) return null;
     const header = blockHeader(value, block);
     const rawTransactions = chainObject(value).transactions;
     if (!Array.isArray(rawTransactions)) throw new ChainEvidenceError();
-    const transactions = rawTransactions.map(parseChainTransaction);
-    if (transactions.some(transaction => transaction.blockHash !== header.hash || transaction.blockNumber !== header.number)) throw new ChainEvidenceError();
+    const transactions: ChainTransaction[] = [];
+    for (const value of rawTransactions) {
+      const transaction = chainObject(value);
+      chainHash(transaction.hash);
+      if (chainHash(transaction.blockHash) !== header.hash || chainQuantity(transaction.blockNumber).toString() !== header.number) throw new ChainEvidenceError();
+      if (chainAddress(transaction.from) === sender) transactions.push(parseChainTransaction(value));
+    }
     return Object.freeze({ ...header, transactions: Object.freeze(transactions) });
   }
 
