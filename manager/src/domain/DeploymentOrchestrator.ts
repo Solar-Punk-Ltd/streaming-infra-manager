@@ -10,6 +10,8 @@ import {
   engineSettingsEnv,
   getErrorMessage,
   ownsBeeNode,
+  portExposureProblem,
+  slotCapFor,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
@@ -391,6 +393,12 @@ export class DeploymentOrchestrator {
     if (!contract?.ports.length || contract.allocationProblem) {
       throw new ProfileConfigError(profile.name, contract?.allocationProblem ?? 'The captured build has no readable port table. Rebuild the version before deploying.');
     }
+    const plan = portPlanFor(contract.ports, profile.port_slot);
+    const exposureProblem = plan.map(portExposureProblem).find(problem => problem !== null);
+    if (exposureProblem) throw new ProfileConfigError(profile.name, exposureProblem);
+    if (profile.port_slot < 1 || profile.port_slot > slotCapFor(contract)) {
+      throw new ProfileConfigError(profile.name, `Slot ${profile.port_slot} is outside the supported range 1 to ${slotCapFor(contract)}. Existing resources were retained.`);
+    }
     if (!await this.ports?.inventorySeededAt()) throw new ReservationInventoryPendingError();
     const target = targetAlias(reservation.host ?? profile.host);
     const daemonId = await this.targetDaemon(target);
@@ -401,7 +409,7 @@ export class DeploymentOrchestrator {
       throw new TargetNotVerifiedError(target, 'The reserved ports belong to a different Docker daemon. No deploy was started.');
     }
     await this.ports!.plan(
-      daemonId, profile.name, portPlanFor(contract.ports, profile.port_slot),
+      daemonId, profile.name, plan,
       `build ${reservation.build!.buildId}, job reference ${reservation.build!.referenceId}`,
     );
     return daemonId;

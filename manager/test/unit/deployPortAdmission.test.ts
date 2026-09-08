@@ -45,8 +45,8 @@ describe('captured contract port admission', () => {
   it('cancels only the current unstarted build reference when port admission is refused', async () => {
     const h = await setup();
     const old = await h.ledger.describe('a', await h.versions.findById(1), ['srs', 'stream-uploader']);
-    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
-    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(20000).ports, 1), 'conflict');
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
+    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(13000).ports, 1), 'conflict');
     await assert.rejects(h.orchestrator.reserveDeploy(h.row(), undefined), /b holds/);
     assert.deepEqual(h.ledger.openJobReferences('a').map(reference => reference.id), [old.referenceId]);
     assert.equal(h.row().status, 'RUNNING');
@@ -54,18 +54,18 @@ describe('captured contract port admission', () => {
 
   it('adds the entire captured table while keeping old active ports until observed release', async () => {
     const h = await setup();
-    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
     await h.orchestrator.reserveDeploy(h.row(), ['srs']);
     assert.deepEqual(h.ports.rows.map(r => [r.port, r.state]), [
-      [10010, 'active'], [10011, 'active'], [20010, 'planned'], [20011, 'planned'],
+      [10010, 'active'], [10011, 'active'], [13010, 'planned'], [13011, 'planned'],
     ]);
     await assert.rejects(h.ports.plan('daemon-1', 'b', [{ protocol: 'tcp', port: 10010, service: 'srs', portVar: 'RTMP_PORT' }], 'other'), /a holds/);
   });
 
   it('refuses a conflicting new table and restores the claim without starting a script', async () => {
     const h = await setup();
-    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
-    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(20000).ports, 1), 'other');
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
+    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(13000).ports, 1), 'other');
     await assert.rejects(h.orchestrator.reserveDeploy(h.row(), ['srs']), /b holds/);
     assert.equal(h.row().status, 'RUNNING');
     assert.equal(h.runner.runs.length, 0);
@@ -74,18 +74,18 @@ describe('captured contract port admission', () => {
 
   it('uses X for reservation and launch after Y is published', async () => {
     const h = await setup();
-    await h.versions.markBuilt(1, { commitSha: 'X', contract: contract(20000) });
+    await h.versions.markBuilt(1, { commitSha: 'X', contract: contract(13000) });
     const reserved = await h.orchestrator.reserveDeploy(h.row(), ['srs']);
-    await h.versions.markBuilt(1, { commitSha: 'Y', contract: contract(30000) });
+    await h.versions.markBuilt(1, { commitSha: 'Y', contract: contract(14000) });
     await h.orchestrator.runReserved(reserved, h.row());
     assert.equal(reserved.build?.version?.commitSha, 'X');
-    assert.deepEqual(h.ports.rows.map(r => r.port), [10010, 10011, 20010, 20011]);
+    assert.deepEqual(h.ports.rows.map(r => r.port), [10010, 10011, 13010, 13011]);
     assert.equal(h.runner.runs.length, 1);
   });
 
   it('keeps both tables after a failed recreate', async () => {
     const h = await setup();
-    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
     await h.orchestrator.startDeploy(h.row(), ['srs']);
     h.daemon.autoRecreate = false;
     const failed = new Promise<void>(resolve => h.events.subscribe(event => {
@@ -94,7 +94,7 @@ describe('captured contract port admission', () => {
     h.runner.finish(0, 1);
     await failed;
     assert.deepEqual(h.ports.rows.map(r => [r.port, r.state]), [
-      [10010, 'active'], [10011, 'active'], [20010, 'planned'], [20011, 'planned'],
+      [10010, 'active'], [10011, 'active'], [13010, 'planned'], [13011, 'planned'],
     ]);
   });
 
@@ -102,9 +102,9 @@ describe('captured contract port admission', () => {
     it(`refuses ${missing} port evidence before launch`, async () => {
       const h = await setup();
       const version = (await h.versions.findById(1))!;
-      if (missing === 'empty') version.contract = { ...contract(20000), ports: [] };
+      if (missing === 'empty') version.contract = { ...contract(13000), ports: [] };
       if (missing === 'absent') version.contract = null;
-      if (missing === 'unparseable') version.contract = { ...contract(20000), allocationProblem: 'unknown mapping' };
+      if (missing === 'unparseable') version.contract = { ...contract(13000), allocationProblem: 'unknown mapping' };
       if (missing === 'inventory') h.ports.seededAt = null;
       await assert.rejects(h.orchestrator.startDeploy(h.row(), ['srs']), /port table|unknown mapping|inventory/);
       assert.equal(h.runner.runs.length, 0);
@@ -115,8 +115,8 @@ describe('captured contract port admission', () => {
   it('revalidates initial deploy against the build captured after allocation', async () => {
     const h = await setup();
     h.profiles.write('a', { status: 'DEPLOYING' });
-    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(20000) });
-    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(20000).ports, 1), 'other');
+    await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
+    await h.ports.plan('daemon-1', 'b', portPlanFor(contract(13000).ports, 1), 'other');
     await assert.rejects(h.orchestrator.startInitialDeploy(h.row(), ['srs']), /b holds/);
     assert.equal(h.runner.runs.length, 0);
     assert.deepEqual(h.ledger.openJobReferences('a'), []);

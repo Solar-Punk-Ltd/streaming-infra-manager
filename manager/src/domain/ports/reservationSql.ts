@@ -1,4 +1,4 @@
-import type { StackPortVar } from '@streaming-infra-manager/common';
+import { MANAGER_SLOT_CAP, PORT_SLOT_STRIDE, portExposureProblem, type StackPortVar } from '@streaming-infra-manager/common';
 import type { PoolClient } from 'pg';
 
 import { type PortPlanEntry, type PortReservation, type ReservationState, portPlanFor } from './portReservations.js';
@@ -54,23 +54,26 @@ export interface SlotPlacement {
  * slot lock, inside the transaction that inserts the deployment.
  */
 export async function freeSlotFor(client: PoolClient, placement: SlotPlacement): Promise<number | null> {
+  const candidates = Array.from({ length: Math.min(placement.slotCap, MANAGER_SLOT_CAP) }, (_, index) => index + 1)
+    .filter(slot => portPlanFor(placement.table, slot).every(entry => portExposureProblem(entry) === null));
   const result = await client.query<{ n: number }>(
     `SELECT s.n
-       FROM generate_series(1, $1::int) AS s(n)
+       FROM unnest($1::int[]) AS s(n)
       WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.port_slot = s.n)
         AND NOT EXISTS (
           SELECT 1
             FROM port_reservations r
             JOIN unnest($2::text[], $3::int[]) AS t(protocol, base)
-              ON r.protocol = t.protocol AND r.port = t.base + s.n * 10
+              ON r.protocol = t.protocol AND r.port = t.base + s.n * $5
            WHERE r.daemon_id = $4)
       ORDER BY s.n
       LIMIT 1`,
     [
-      placement.slotCap,
+      candidates,
       placement.table.map((port) => port.protocol),
       placement.table.map((port) => port.slotBase),
       placement.daemonId,
+      PORT_SLOT_STRIDE,
     ],
   );
   return result.rows[0]?.n ?? null;

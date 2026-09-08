@@ -1,5 +1,6 @@
 import {
   DEFAULT_MAX_SLOT,
+  PORT_SLOT_STRIDE,
   type StackContract,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
@@ -59,7 +60,7 @@ export function maxSlotOf(contract: StackContract | null | undefined): number {
 
 /** What `deploy.sh --portSlot=N` resolves one port variable to. */
 export function portFor(port: StackPortVar, portSlot: number): number {
-  return portSlot > 0 ? port.slotBase + portSlot * 10 : port.defaultPort;
+  return portSlot > 0 ? port.slotBase + portSlot * PORT_SLOT_STRIDE : port.defaultPort;
 }
 
 export interface OmePorts {

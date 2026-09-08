@@ -1,4 +1,4 @@
-import type { StackPortVar } from '@streaming-infra-manager/common';
+import { MANAGER_SLOT_CAP, portExposureProblem, type StackPortVar } from '@streaming-infra-manager/common';
 
 import { PortReservedError } from '../../src/domain/errors/index.js';
 import type { PortReservationRepository } from '../../src/domain/ports/PortReservationRepository.js';
@@ -34,9 +34,10 @@ export class InMemoryPortReservations implements PortReservationRepository {
 
   /** The lowest slot up to the cap no record holds and no port of which anyone holds on the daemon, or null. */
   freeSlot(daemonId: string, table: readonly StackPortVar[], slotCap: number, takenSlots: ReadonlySet<number>): number | null {
-    for (let slot = 1; slot <= slotCap; slot += 1) {
+    for (let slot = 1; slot <= Math.min(slotCap, MANAGER_SLOT_CAP); slot += 1) {
       if (takenSlots.has(slot)) continue;
       const plan = portPlanFor(table, slot);
+      if (plan.some(entry => portExposureProblem(entry))) continue;
       if (plan.some((entry) => this.holderOf(daemonId, entry))) continue;
       return slot;
     }
