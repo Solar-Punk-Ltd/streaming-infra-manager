@@ -24,7 +24,6 @@ import {
   needsStamp,
   needsStreamKey,
   poolValueIn,
-  versionChoiceShown,
   type WizardContext,
   type WizardState,
 } from './wizardState';
@@ -74,7 +73,7 @@ function basicsError(
   }
   // A version can stop being choosable while the dialog is open: an Update
   // puts it back to building, and the select then names nothing.
-  if (versionChoiceShown(context) && !chosenVersion(state, context)) {
+  if (!chosenVersion(state, context)) {
     return NO_VERSION;
   }
   return notesProblem(state.notes);

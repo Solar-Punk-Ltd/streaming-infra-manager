@@ -7,14 +7,15 @@ import type { Pool } from 'pg';
 import type {
   BuildOutcome,
   NewStackVersion,
+  PublishOutcome,
   StackVersionRecord,
   StackVersionRepository,
   StackVersionUsage,
 } from './StackVersionRepository.js';
 
 const VERSION_COLUMNS = `
-  id, name, git_ref, commit_sha, status, root_path, contract,
-  is_default, tested, built_at, last_error, created_at
+  id, name, git_ref, commit_sha, status, root_path, layout, build_id, previous_build_id, contract,
+  is_default, tested, tested_invalidated_at, built_at, last_error, created_at
 `;
 
 /**
@@ -29,9 +30,13 @@ interface StackVersionDbRow {
   commit_sha: string | null;
   status: string;
   root_path: string | null;
+  layout: string;
+  build_id: string | null;
+  previous_build_id: string | null;
   contract: unknown;
   is_default: boolean;
   tested: boolean;
+  tested_invalidated_at: Date | null;
   built_at: Date | null;
   last_error: string | null;
   created_at: Date;
@@ -112,6 +117,8 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       `UPDATE stack_versions
           SET status = 'ready',
               tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+              tested_invalidated_at = CASE WHEN tested AND commit_sha IS DISTINCT FROM $2
+                THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
               commit_sha = $2,
               contract = $3::jsonb,
               built_at = NOW(),
@@ -119,6 +126,56 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
       [id, outcome.commitSha, JSON.stringify(outcome.contract)],
+    );
+  }
+
+  async publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null> {
+    // One statement, so the build, the commit, the contract and the layout
+    // change together and a reader never sees the new build with the old
+    // contract. Every SET expression reads the row as it was, which is what
+    // makes the previous build and the tested rule right.
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM stack_versions WHERE id = $1 FOR UPDATE', [id]);
+      const result = await client.query<StackVersionDbRow>(
+        `UPDATE stack_versions
+            SET status = 'ready',
+                layout = 'builds',
+                previous_build_id = CASE
+                  WHEN build_id IS NOT NULL AND build_id <> $2 THEN build_id
+                  ELSE previous_build_id
+                END,
+                tested = tested AND build_id IS NOT DISTINCT FROM $2,
+                tested_invalidated_at = CASE WHEN tested AND build_id IS DISTINCT FROM $2
+                  THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
+                build_id = $2,
+                commit_sha = $3,
+                contract = $4::jsonb,
+                built_at = NOW(),
+                last_error = NULL
+          WHERE id = $1
+          RETURNING ${VERSION_COLUMNS}`,
+        [id, outcome.buildId, outcome.commitSha, JSON.stringify(outcome.contract)],
+      );
+      await client.query('COMMIT');
+      const row = result.rows[0];
+      return row ? toRecord(row) : null;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+    return this.one(
+      `UPDATE stack_versions
+          SET status = 'ready', last_error = $2
+        WHERE id = $1
+        RETURNING ${VERSION_COLUMNS}`,
+      [id, lastError],
     );
   }
 
@@ -138,9 +195,13 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   async failInterruptedBuilds(
     lastError: string,
   ): Promise<StackVersionRecord[]> {
+    // A row with a usable build keeps it: failed is for a version that has
+    // nothing to deploy from.
     const result = await this.pool.query<StackVersionDbRow>(
       `UPDATE stack_versions
-          SET status = 'failed', last_error = $1
+          SET status = CASE WHEN build_id IS NULL AND layout = 'builds' THEN 'failed' ELSE
+                        CASE WHEN layout = 'legacy' AND commit_sha IS NULL THEN 'failed' ELSE 'ready' END END,
+              last_error = $1
         WHERE status = 'building'
         RETURNING ${VERSION_COLUMNS}`,
       [lastError],
@@ -149,8 +210,16 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
+    // The same rule as `markBuilt`: approval names a commit, and the row is
+    // read before the update, so the comparison is against the commit the
+    // approval was given for.
     await this.pool.query(
-      'UPDATE stack_versions SET commit_sha = $2 WHERE id = $1',
+      `UPDATE stack_versions
+          SET tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+              tested_invalidated_at = CASE WHEN tested AND commit_sha IS DISTINCT FROM $2
+                THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
+              commit_sha = $2
+        WHERE id = $1`,
       [id, commitSha],
     );
   }
@@ -186,11 +255,21 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   async setTested(
     id: number,
     tested: boolean,
+    forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
-      `UPDATE stack_versions SET tested = $2 WHERE id = $1
-       RETURNING ${VERSION_COLUMNS}`,
-      [id, tested],
+      `UPDATE stack_versions
+          SET tested = $2, tested_invalidated_at = NULL
+        WHERE id = $1
+          AND (NOT $2 OR (
+            status = 'ready' AND commit_sha = $3::text AND (
+              (layout = 'builds' AND build_id = $4::text)
+              OR (layout = 'legacy' AND build_id IS NULL AND $4::text IS NULL)
+            )
+          ))
+        RETURNING ${VERSION_COLUMNS}`,
+      [id, tested, forCommit, forBuild],
     );
   }
 
@@ -228,9 +307,13 @@ function toRecord(row: StackVersionDbRow): StackVersionRecord {
     commitSha: row.commit_sha,
     status: toStatus(row.status),
     rootPath: row.root_path,
+    layout: row.layout === 'builds' ? 'builds' : 'legacy',
+    buildId: row.build_id,
+    previousBuildId: row.previous_build_id,
     contract: parseStackContract(row.contract),
     isDefault: row.is_default,
     tested: row.tested,
+    testedInvalidatedAt: row.tested_invalidated_at,
     builtAt: row.built_at,
     lastError: row.last_error,
     createdAt: row.created_at,

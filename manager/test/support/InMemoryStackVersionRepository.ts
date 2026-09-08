@@ -3,6 +3,7 @@ import type { StackContract } from '@streaming-infra-manager/common';
 import type {
   BuildOutcome,
   NewStackVersion,
+  PublishOutcome,
   StackVersionRecord,
   StackVersionRepository,
   StackVersionUsage,
@@ -30,9 +31,13 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: null,
       status: 'ready',
       rootPath: null,
+      layout: 'legacy',
+      buildId: null,
+      previousBuildId: null,
       contract: null,
       isDefault: true,
       tested: true,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(0),
@@ -43,6 +48,11 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
 
   setDeployments(id: number, names: string[]): void {
     this.deployments.set(id, names);
+  }
+
+  /** A row as migration 015 leaves every existing one: deploying from its flat root. */
+  markLegacy(id: number): void {
+    this.rows = this.rows.map((row) => (row.id === id ? { ...row, layout: 'legacy', buildId: null } : row));
   }
 
   async list(): Promise<StackVersionUsage[]> {
@@ -76,9 +86,14 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: null,
       status: 'building',
       rootPath: version.rootPath,
+      // The column's default: a row is legacy until its first publication.
+      layout: 'legacy',
+      buildId: null,
+      previousBuildId: null,
       contract: null,
       isDefault: false,
       tested: false,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(),
@@ -98,14 +113,44 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     const before = this.rows.find((row) => row.id === id);
     if (!before) return null;
 
+    // The build outcome of the flat layout: a row marked built this way is a
+    // legacy row, deploying from its flat root, as every row was before
+    // migration 015.
     return this.patch(id, {
       status: 'ready',
+      layout: 'legacy',
+      buildId: null,
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.commitSha === outcome.commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== outcome.commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
       builtAt: new Date(),
       lastError: null,
     });
+  }
+
+  async publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null> {
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return null;
+    const replaced = before.buildId !== null && before.buildId !== outcome.buildId;
+    return this.patch(id, {
+      status: 'ready',
+      layout: 'builds',
+      buildId: outcome.buildId,
+      previousBuildId: replaced ? before.buildId : before.previousBuildId,
+      commitSha: outcome.commitSha,
+      contract: outcome.contract,
+      tested: before.tested && before.buildId === outcome.buildId,
+      testedInvalidatedAt: before.tested && before.buildId !== outcome.buildId
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
+      builtAt: new Date(),
+      lastError: null,
+    });
+  }
+
+  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+    return this.patch(id, { status: 'ready', lastError });
   }
 
   async markFailed(
@@ -120,13 +165,21 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   ): Promise<StackVersionRecord[]> {
     const interrupted = this.rows.filter((row) => row.status === 'building');
     for (const row of interrupted) {
-      await this.patch(row.id, { status: 'failed', lastError });
+      const usable = row.layout === 'builds' ? row.buildId !== null : row.commitSha !== null;
+      await this.patch(row.id, { status: usable ? 'ready' : 'failed', lastError });
     }
     return this.rows.filter((row) => interrupted.some((r) => r.id === row.id));
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
-    await this.patch(id, { commitSha });
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return;
+    await this.patch(id, {
+      commitSha,
+      tested: before.tested && before.commitSha === commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
+    });
   }
 
   async setContract(id: number, contract: StackContract): Promise<void> {
@@ -140,8 +193,18 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   async setTested(
     id: number,
     tested: boolean,
+    forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
-    return this.patch(id, { tested });
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return null;
+    const identityMatches = before.layout === 'builds'
+      ? before.buildId !== null && before.buildId === forBuild
+      : before.buildId === null && forBuild === null;
+    if (tested && (before.status !== 'ready' || forCommit === null || before.commitSha !== forCommit || !identityMatches)) {
+      return null;
+    }
+    return this.patch(id, { tested, testedInvalidatedAt: null });
   }
 
   async remove(id: number): Promise<boolean> {

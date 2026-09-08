@@ -72,7 +72,7 @@ export async function launchChrome(t, origin) {
   const executable = process.env.CHROME_BIN ??
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   await access(executable);
-  const profile = await mkdtemp(join(tmpdir(), 't12-chrome-'));
+  const profile = await mkdtemp(join(tmpdir(), 't15-chrome-'));
   const child = spawn(executable, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update',
@@ -118,5 +118,9 @@ export async function launchChrome(t, origin) {
   await call('Runtime.enable');
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-  return { call, evaluate, errors, blockedRequests, pid: child.pid, debuggingPort: port };
+  const version = await call('Browser.getVersion');
+  return {
+    call, evaluate, errors, blockedRequests,
+    pid: child.pid, profile, debuggingPort: port, version: version.product,
+  };
 }

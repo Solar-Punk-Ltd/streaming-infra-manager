@@ -17,7 +17,7 @@ export const PROFILE_COLUMNS = `
   components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
   bee_publishers, bee_url, srt_passphrase, engine_settings,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error,
-  status, deployment_phase, last_error, last_error_at,
+  status, deployment_phase, last_error, last_error_at, last_full_deploy_commit,
   created_at, updated_at, group_id, stack_version_id
 `;
 

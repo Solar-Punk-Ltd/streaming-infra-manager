@@ -1,4 +1,6 @@
-import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
+import { getErrorStack, plurToBzz,
+  getErrorMessage,
+} from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { AuthService } from './domain/auth/AuthService.js';
@@ -30,6 +32,7 @@ import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
+import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
@@ -144,11 +147,21 @@ async function main(): Promise<void> {
   const stackVersionRepository = new PostgresStackVersionRepository(
     database.pool,
   );
+  // Ahead of the profiles: the versions are what deployments run on.
+  const containerControl = new ContainerControl(eventBus);
+  // Which build each deployment runs on. The claim writes it, the success
+  // hook and boot observe the containers, and prune keeps what they mount.
+  const buildLedger = new PostgresBuildLedger(
+    database.pool,
+    containerControl,
+    config.stackVersionsRoot,
+  );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,
     scriptRunner,
     eventBus,
     config.stackVersionsRoot,
+    buildLedger,
   );
   await stackVersionService.refreshBundled(
     BUNDLED_STACK_ROOT,
@@ -164,6 +177,20 @@ async function main(): Promise<void> {
 
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
+
+  // What a gone manager left: attempts whose builder is gone go, containers
+  // are asked what they mount so a crashed job's reference can resolve, and
+  // then builds nothing protects go. A daemon that does not answer keeps
+  // everything, which is the safe side.
+  try {
+    await stackVersionService.cleanInterruptedAttempts({
+      containerExists: (name) => containerControl.containerExists(name),
+    });
+    await buildLedger.observeAll();
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
@@ -206,6 +233,7 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    buildLedger,
     new UploaderStartGate(stampService, chequebookService),
   );
   const profileService = new ProfileService(
@@ -220,7 +248,6 @@ async function main(): Promise<void> {
   );
   const deployService = new DeployService(profileService, orchestrator);
 
-  const containerControl = new ContainerControl(eventBus);
   const engineConfigService = new EngineConfigService(
     profileRepository,
     containerRepository,

@@ -34,6 +34,17 @@ export const createVersionSchema = object({
 
 export const patchVersionSchema = object({
   tested: boolean().required(),
+  /** The commit the page showed. Required to turn tested on: approval names a build, not a name. */
+  commitSha: string()
+    .nullable()
+    .notRequired()
+    .when('tested', {
+      is: true,
+      then: (schema) =>
+        schema.required('commitSha names the build being marked as tested'),
+    }),
+  /** Null only for an explicitly legacy row. The service checks its layout. */
+  buildId: string().nullable().notRequired(),
 }).noUnknown(true);
 
 export type CreateVersionBody = InferType<typeof createVersionSchema>;

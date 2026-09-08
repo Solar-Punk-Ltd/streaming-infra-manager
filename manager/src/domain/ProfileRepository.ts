@@ -255,6 +255,14 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
+  /** The commit of a deploy that touched every service and found them all on it. */
+  async setLastFullDeployCommit(name: string, commit: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE profiles SET last_full_deploy_commit = $2, updated_at = NOW() WHERE name = $1',
+      [name, commit],
+    );
+  }
+
   async transitionStatus(
     name: string,
     next: ProfileStatus,

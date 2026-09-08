@@ -144,6 +144,70 @@ The api image gains `git` (one apk line). Two builds never run at once: a mutex 
 `StackVersionService` serialises them, and a version in `building` state cannot be chosen for a
 deployment.
 
+### Immutable builds and an identified running build (T04a, 2026-09-08)
+
+The build described above moved the checkout in place, so a failed update left a mixed tree, a
+deploy admitted during the update ran on it, and a container restart picked up new files under an
+old container. Migration `015_stack_builds.sql` and the code around it change that.
+
+**Layout.** A version with builds keeps three sibling directories under `STACK_VERSIONS_ROOT`.
+`<name>/` is the flat root it always had: the host-owned inputs live there (`.env`,
+`deploy/config.json`, `engines/<engine>/.env`), and a row still on the old layout deploys from it.
+`<name>.repo/` is the clone, which only fetches and is never deployed from. `<name>.builds/<id>/`
+is one immutable directory per build, `<id>` being the commit or `<commit>-r<n>` for the same
+commit published again with other inputs. A dot cannot appear in a version name, so the flat root
+is never an ancestor of a build. A build carries `.stack-manifest.json` (commit, build id, built
+at, toolchain, the generation and hashes of the inputs copied in) and a `.complete` marker written
+last. `stack_versions.layout` is `legacy` for every row that exists when the migration runs and
+`builds` from a row's first publication on. A `builds` row deploys from `build_id` and refuses,
+naming the build, when that directory is missing or incomplete. It never falls back to the flat
+root. `previous_build_id` is the build the current one replaced.
+
+**Building.** `stack-version-build.sh <repo-root> <staging-dir> <ref> <repo-url> <attempt-id>`
+fetches into the clone, exports the commit into the attempt's own staging directory
+(`<name>.builds/tmp-<attempt>`), builds it in a container named `stack-build-<attempt>`, leaves
+the commit in `.stack-commit` and publishes nothing. The manager then captures the version's host
+configuration (below), copies it into the staging tree, writes the manifest and the marker,
+renames the tree under its identity, or adopts a complete build of the same commit and inputs
+untouched, and publishes with one row update under the row's own lock: ready, layout `builds`,
+the previous build kept, `tested` surviving only when the build id did not change. A failed
+update leaves a row with a usable build ready with the reason. Files under a published path are
+never replaced. At boot a staging directory is removed only when Docker says no container of its
+name exists, so a builder that outlived the manager keeps its tree.
+
+**Host configuration.** The inputs are edited through `manager/scripts/stack-config-edit.sh
+<root> set <file> <source>...` or `... commit`, which holds `<root>/.config.lock` (an atomic
+`mkdir`) for the whole edit, replaces each file beside itself and renames over it, and writes
+`.config-revision.json` last, with a generation and every file's hash. Capture takes the same
+lock with a bounded wait, reads every listed file between two stats, checks the base env against
+the build's `.env.sample` keys and the deploy config as JSON, compares every hash to the manifest
+and refuses naming the file on any difference, so a build can never carry one new file and one
+old. An edit outside the script is refused by hash until it is committed with the script. A root
+without a manifest is adopted at generation one from its current bytes, recorded as such.
+`--unlock` removes a lock whose editor is gone, by a person who checked.
+
+**References.** A deploy claim reads the version once, moves the profile to `DEPLOYING` and
+inserts a `job` reference (`build_references`) for the build it will run, in one transaction under
+a share lock on the version row, and hands the run a descriptor: the version as read, the build's
+identity and its root. The run deploys from the descriptor and never reads the version again.
+After the script, the success hook asks Docker which root each service's container was started
+from (the compose working directory label the container carries), writes one `snapshot`
+reference per service and resolves every job reference newer snapshots cover. A daemon that does
+not answer and a script that fails both keep the job reference. Boot observes every profile with
+an open job reference the same way. Prune keeps the current build, the previous one and every
+build an open reference names, deletes the other build directories, and runs under the version
+row's update lock after a publication and at boot. It never touches a staging directory or the
+flat root, which keeps the host-owned inputs.
+
+**What runs.** Each service's container row records the build and the commit it was seen to be
+started from, and a profile records `last_full_deploy_commit` only when a deploy touched every
+service it has and found every one on that commit. The deployment page shows one commit when
+every container agrees and names each service's own when they differ. The Versions page shows
+the layout, the current build and the previous one.
+
+Out of scope here: the bundled checkout stays on the old layout until T04b publishes it as builds
+of its own, and the legacy flat root is never pruned, because it doubles as the config root.
+
 ### Reading the contract
 
 `manager/src/domain/stackContract.ts`, tested against fixtures cut from both branches:
@@ -169,11 +233,19 @@ The contract is stored as JSON and shown on the Versions page in plain words: `1
 a **Tested** toggle Levi sets by hand after one real deployment on that version, because static
 reading of scripts proves the shape and not the behaviour.
 
-The approval belongs to the commit that was deployed, not to the row. An **Update** that fetches
-a moved branch clears **Tested** again, and one that lands on the commit the row already carried
-leaves it alone. The toggle can only be turned on while the version is Ready, because a building
-or failed version has no build anybody could have deployed. Turning it off works in any state, so
-an approval can always be withdrawn.
+Approval belongs to the immutable build that was deployed. Reusing that build keeps **Tested**.
+Publishing a different build clears it, including a rebuild at the same commit. An explicitly
+legacy version has no immutable build id and keeps its earlier commit-bound approval behavior.
+The approval request names the commit and build shown by the page. The database write requires
+that exact identity and a Ready row, so a concurrent publication cannot inherit a stale click.
+Turning Tested off works in any state and needs no identity.
+
+An update that removes approval records `testedInvalidatedAt`. Later unapproved updates retain
+the first date. Reapproval or manual withdrawal clears it. Migration leaves historical dates
+unknown rather than guessing. A default that loses approval stays the default. The wizard keeps
+it selected and shows "Not tested since the update on <date>" in Basics and Review. When there
+is no recorded date, it says the version is not currently marked as tested. With no Ready default,
+the wizard requires an explicit choice, even when only one version is available.
 
 ### Per version images (decision D9)
 
@@ -232,12 +304,15 @@ that deployment, falling back to the manager's own floor.
 | POST | `/versions` | `{ name, ref }` | SSE build log, then `version.changed` |
 | POST | `/versions/:id/update` | | SSE build log |
 | POST | `/versions/:id/default` | | 204, 409 while the version is not marked tested |
-| PATCH | `/versions/:id` | `{ tested }` | 200, 400 for `{ tested: true }` while the version is not Ready |
+| PATCH | `/versions/:id` | On: `{ tested: true, commitSha, buildId }`. Off: `{ tested: false }` | 200, 400 when not Ready or commit unknown, 409 when the shown identity changed |
 | DELETE | `/versions/:id` | | 204, 409 with deployment names |
 | POST | `/profiles/:name/move-version` | `{ version_id }` | 202, the profile |
 | POST | `/groups/:id/move-version` | `{ version_id }` | 202, the members |
 
 `POST /profiles` and `POST /groups` accept `stack_version_id`, default to the default version.
+The wizard always sends its selected version id. `GET /versions` also returns `layout`, `buildId`,
+`previousBuildId` and `testedInvalidatedAt`. Approval of a `builds` row requires its non-null
+build id. A legacy row accepts a missing or null build id only while it remains explicitly legacy.
 
 ## Frontend
 

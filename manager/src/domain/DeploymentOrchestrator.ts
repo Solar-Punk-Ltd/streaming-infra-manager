@@ -30,7 +30,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { ProfileBusyError, StampRequiredError } from './errors/index.js';
+import { ProfileBusyError, ProfileConfigError, StampRequiredError } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -43,7 +43,13 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
 import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
-import { stackPaths, type StackPaths } from './versions/stackPaths.js';
+import type { BuildDescriptor, BuildLedger, Observation } from './versions/buildLedger.js';
+import {
+  deployRootProblem,
+  stackPaths,
+  type StackPaths,
+  stackPathsForRoot,
+} from './versions/stackPaths.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
 import type {
   StackVersionRecord,
@@ -127,6 +133,11 @@ export interface DeployReservation {
   /** False for an initial deploy, whose row was inserted DEPLOYING already. */
   readonly transitioned: boolean;
   readonly host?: string;
+  /**
+   * The build the run will deploy from, captured with the claim. Null only
+   * for a reservation made without one, which the run describes itself.
+   */
+  readonly build: BuildDescriptor | null;
 }
 
 /**
@@ -148,6 +159,7 @@ export class DeploymentOrchestrator {
     private readonly eventBus: EventBus,
     private readonly groups: DeploymentGroupRepository,
     private readonly versions: StackVersionRepository,
+    private readonly ledger: BuildLedger,
     private readonly uploaderGate?: UploaderGate,
   ) {}
 
@@ -254,18 +266,26 @@ export class DeploymentOrchestrator {
 
     await this.assertUploaderCanStart(profile, planned.services);
 
-    const transitioned = await this.profiles.transitionStatus(
+    // What the deploy will run is decided here, once. A version whose build
+    // is missing is refused before anything is claimed, naming the build,
+    // and never falls back to another root.
+    const version = await this.versionFor(profile);
+    const problem = version ? deployRootProblem(version) : null;
+    if (problem) throw new ProfileConfigError(profile.name, problem);
+
+    const claimed = await this.ledger.claim(
       profile.name,
-      REDEPLOY_STATUS,
       REDEPLOYABLE_FROM,
+      version,
+      planned.services,
     );
-    if (!transitioned) {
+    if (!claimed) {
       const current = await this.profiles.findByName(profile.name);
       throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
     }
-    await this.publishChanged(transitioned);
+    await this.publishChanged(claimed.profile);
 
-    return { ...planned, transitioned: true };
+    return { ...planned, transitioned: true, build: claimed.descriptor };
   }
 
   /** Gives the profile its status back, for a claim that will not be run. */
@@ -313,10 +333,14 @@ export class DeploymentOrchestrator {
   ): Promise<RunHandle> {
     // The row was inserted DEPLOYING for this call, so there is no status to
     // claim: nothing else can be deploying a profile that did not exist yet.
-    return this.runReserved(
-      this.planDeploy(profile, requested, opts.host),
-      profile,
-    );
+    // The build is still captured here, with its reference, for the same
+    // reason a claim captures it.
+    const planned = this.planDeploy(profile, requested, opts.host);
+    const version = await this.versionFor(profile);
+    const problem = version ? deployRootProblem(version) : null;
+    if (problem) throw new ProfileConfigError(profile.name, problem);
+    const build = await this.ledger.describe(profile.name, version, planned.services);
+    return this.runReserved({ ...planned, build }, profile);
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
@@ -354,6 +378,7 @@ export class DeploymentOrchestrator {
       previousStatus: profile.status,
       transitioned: false,
       host,
+      build: null,
     };
   }
 
@@ -407,8 +432,15 @@ export class DeploymentOrchestrator {
       return this.completeWithoutScript(profile);
     }
 
-    const version = await this.versionFor(profile);
-    const paths = stackPaths(version ?? { rootPath: null });
+    // From the descriptor the claim captured, never from the version row
+    // again: a deploy that selected build A must not read version B.
+    const build =
+      reservation.build ??
+      (await this.ledger.describe(profile.name, await this.versionFor(profile), [
+        ...reservation.services,
+      ]));
+    const version = build.version;
+    const paths = stackPathsForRoot(build.root);
     await this.ensureStackDefaults(paths);
 
     // .env.<profile> carries the per-profile keys deploy.sh reads from its env
@@ -445,6 +477,7 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services, reservation.host),
       onSuccess: async () => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
+        await this.observeMounts(profile, services);
         await removeStaleEngineConfigs(
           engineConfigDirFor(profile.name),
           engine,
@@ -679,6 +712,46 @@ export class DeploymentOrchestrator {
     const dir = profileDataRoot(profileName);
     await rm(dir, { recursive: true, force: true });
     logger.info(`[Orchestrator] removed data dir ${dir}`);
+  }
+
+  /**
+   * Records which build each service's container was started from, as the
+   * container says it, and resolves the job's reference when every service
+   * it touched has been seen. A daemon that does not answer keeps the
+   * reference, which is the safe side: the build stays. A row that cannot
+   * be written is logged and nothing more: this runs inside the success
+   * hook, and the containers are up whatever the rows managed to say.
+   */
+  private async observeMounts(profile: Profile, services: string[]): Promise<void> {
+    let observations: Observation[];
+    try {
+      observations = await this.ledger.observe(profile.name, services);
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] could not observe what ${profile.name} mounts: ${getErrorMessage(err)}. Its build reference stays open.`,
+      );
+      return;
+    }
+    try {
+      for (const seen of observations) {
+        await this.containers.setBuild(profile.name, seen.service, seen.buildId, seen.commit);
+      }
+      // One commit for the deployment only when this deploy touched every
+      // service it has and every one was seen on that commit. A partial deploy
+      // advances the services it touched and nothing else.
+      const every = defaultServicesFor(profile);
+      const agreed = observations[0]?.commit ?? null;
+      const full =
+        agreed !== null &&
+        every.every((service) => observations.some((seen) => seen.service === service && seen.commit === agreed));
+      if (full) {
+        await this.profiles.setLastFullDeployCommit(profile.name, agreed);
+      }
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] could not record what ${profile.name} runs: ${getErrorMessage(err)}. The rows say what they said before.`,
+      );
+    }
   }
 
   private async snapshotContainers(

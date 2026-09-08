@@ -4,6 +4,14 @@ import type {
 } from '@streaming-infra-manager/common';
 
 /** One row of `stack_versions`, as the domain reads it. */
+/**
+ * Where a version deploys from. A legacy row deploys from its flat root, the
+ * checkout the build script used to move in place. A builds row deploys from
+ * its current build, one immutable directory under the builds root, and
+ * never from the flat root, which keeps only the host-owned inputs.
+ */
+export type StackVersionLayout = 'legacy' | 'builds';
+
 export interface StackVersionRecord {
   id: number;
   name: string;
@@ -12,9 +20,15 @@ export interface StackVersionRecord {
   status: StackVersionStatus;
   /** Null for the bundled version, whose root only the manager knows. */
   rootPath: string | null;
+  layout: StackVersionLayout;
+  /** The current build of a builds row: the commit, or `<commit>-r<n>`. */
+  buildId: string | null;
+  /** The build the current one replaced, kept for recovery until nothing references it. */
+  previousBuildId: string | null;
   contract: StackContract | null;
   isDefault: boolean;
   tested: boolean;
+  testedInvalidatedAt: Date | null;
   builtAt: Date | null;
   lastError: string | null;
   createdAt: Date;
@@ -34,6 +48,13 @@ export interface NewStackVersion {
 
 export interface BuildOutcome {
   commitSha: string | null;
+  contract: StackContract;
+}
+
+/** What one publication writes: the build that is current from now on. */
+export interface PublishOutcome {
+  buildId: string;
+  commitSha: string;
   contract: StackContract;
 }
 
@@ -59,6 +80,15 @@ export interface StackVersionRepository {
    * person's word about one commit, not about the row.
    */
   markBuilt(id: number, outcome: BuildOutcome): Promise<StackVersionRecord | null>;
+  /**
+   * One row update, under the row's own lock: ready, layout builds, the new
+   * build current and the one it replaced kept as previous. `tested` survives
+   * only when the build id did not change, because the approval keys on the
+   * build.
+   */
+  publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null>;
+  /** A build that failed for a version that still has a usable build: ready as before, with the reason. */
+  markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
   markFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
   /**
    * Every row left in `building` fails with `lastError`. A build only ever runs
@@ -66,11 +96,29 @@ export interface StackVersionRepository {
    * is gone and nothing will ever finish it.
    */
   failInterruptedBuilds(lastError: string): Promise<StackVersionRecord[]>;
+  /**
+   * The bundled checkout's commit at boot. Approval given for another commit
+   * goes with the move, the way `markBuilt` drops it: what was tested is that
+   * commit, not the name.
+   */
   setCommitSha(id: number, commitSha: string | null): Promise<void>;
   /** The contract alone, for the bundled version read at every boot. */
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
-  setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;
+  /**
+   * Turns approval on for the build the caller looked at, or off. Turning it
+   * on is conditioned in the write itself on the row being ready at
+   * the shown commit and build identity. Legacy rows retain commit approval
+   * only while they remain explicitly legacy with no build id. Null comes
+   * back when the identity changed, or when the row
+   * is gone, which the caller tells apart with a read.
+   */
+  setTested(
+    id: number,
+    tested: boolean,
+    forCommit?: string | null,
+    forBuild?: string | null,
+  ): Promise<StackVersionRecord | null>;
   remove(id: number): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */
   deploymentNames(id: number): Promise<string[]>;

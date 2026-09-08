@@ -96,6 +96,8 @@ export interface StackVersion {
   isDefault: boolean;
   /** Set by hand after one real deployment has run on this version. */
   tested: boolean;
+  /** First observed update that invalidated approval, or null when none is recorded. */
+  testedInvalidatedAt: string | null;
   /** ISO, or null for a version that has never finished a build. */
   builtAt: string | null;
   /** Why the last build failed, or null. */
@@ -104,6 +106,12 @@ export interface StackVersion {
   contract: StackContract | null;
   /** How many deployments run this version. */
   deployments: number;
+  /** Where the version deploys from: its flat root, as before builds, or its current build. */
+  layout: 'legacy' | 'builds';
+  /** The current build of a builds row, the commit or `<commit>-r<n>`, or null. */
+  buildId: string | null;
+  /** The build the current one replaced, kept for recovery, or null. */
+  previousBuildId: string | null;
 }
 
 /** Slot ceiling for a version whose deploy script names no other. */

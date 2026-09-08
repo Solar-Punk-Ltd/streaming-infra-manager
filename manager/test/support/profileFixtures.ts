@@ -42,6 +42,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,
+    last_full_deploy_commit: null,
     created_at: new Date(0),
     updated_at: new Date(0),
     group_id: null,
@@ -210,7 +211,11 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
-  private write(name: string, patch: Partial<Profile>): Profile | null {
+  async setLastFullDeployCommit(name: string, commit: string): Promise<void> {
+    this.write(name, { last_full_deploy_commit: commit });
+  }
+
+  write(name: string, patch: Partial<Profile>): Profile | null {
     const row = this.rows.get(name);
     if (!row) return null;
     const next: Profile = { ...row, ...patch, updated_at: new Date() };
@@ -236,6 +241,17 @@ export class FakeContainers {
       service: snapshot.service,
       ports: snapshot.ports,
     });
+  }
+
+  /** `<profile>/<service>` to what the container was seen to run, as `setBuild` recorded it. */
+  readonly builds = new Map<string, { buildId: string; commit: string | null }>();
+
+  /** When set, `setBuild` throws, the way a database that went away would. */
+  failSetBuild = false;
+
+  async setBuild(profileName: string, service: string, buildId: string, commit: string | null): Promise<void> {
+    if (this.failSetBuild) throw new Error('the database went away');
+    this.builds.set(`${profileName}/${service}`, { buildId, commit });
   }
 
   async listApiContainers(): Promise<ApiContainer[]> {

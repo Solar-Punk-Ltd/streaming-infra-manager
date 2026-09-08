@@ -100,6 +100,7 @@ export class FakeOrchestrator {
       heldBackForStamp: [],
       previousStatus: profile.status,
       transitioned: true,
+      build: null,
     };
   }
 
@@ -149,6 +150,7 @@ export class FakeOrchestrator {
         heldBackForStamp: [],
         previousStatus: profile.status,
         transitioned: false,
+        build: null,
       },
       profile,
     );
