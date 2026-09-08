@@ -14,6 +14,7 @@ function harness() {
   let available = '10000000000000000';
   let address = transferContext.nodeAddress;
   let anchorHash = transferContext.startBlockHash;
+  let target = { url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct' as const, revision: 'revision-1' };
   const calls: string[] = [];
   const session = {
     async getAddresses() { calls.push('addresses'); return { ethereum: address }; },
@@ -30,9 +31,10 @@ function harness() {
     async blockHeader() { return { number: '500', hash: anchorHash, parentHash: `0x${'55'.repeat(32)}` }; },
   };
   const registry = new ChequebookChainRegistry('{"100":"https://rpc.example.invalid"}', () => reader);
-  const preparation = new ChequebookTransferPreparation(async () => ({ url: 'http://bee.example.invalid:1633', mode: 'direct' }), registry, () => { sessions++; return session; });
+  const preparation = new ChequebookTransferPreparation(async () => ({ ...target }), registry, () => { sessions++; return session; });
   return { preparation, session, reader, calls, counts: () => ({ disposed, posts, sessions }),
     changeWallet(value: Partial<typeof wallet>) { wallet = { ...wallet, ...value }; }, setAvailable(value: string) { available = value; },
+    changeTarget(value: Partial<typeof target>) { target = { ...target, ...value }; },
     setAddress(value: string) { address = value; }, setAnchor(value: string) { anchorHash = value; } };
 }
 
@@ -90,7 +92,22 @@ describe('fresh pinned transfer preparation', () => {
     }
   });
 
-  it('requires a verified direct target and never looks it up for an existing request', async () => {
+  it('rejects a changed profile revision, host or port before dispatch', async () => {
+    for (const target of [{ revision: 'revision-2' }, { url: 'http://other.example.invalid:1633' }, { url: 'http://bee.example.invalid:1634' }]) {
+      const h = harness();
+      const submission = new ChequebookSubmission(new InMemoryChequebookOperations(), async intent => {
+        const prepared = await h.preparation.prepare(intent);
+        h.changeTarget(target);
+        return prepared;
+      });
+      const result = await submission.submit(transferIntent());
+      assert.equal(result.operation.state, 'rejected');
+      assert.equal(result.operation.dispatchStartedAt, null);
+      assert.deepEqual(h.counts(), { disposed: 1, posts: 0, sessions: 1 });
+    }
+  });
+
+  it('requires an operator-asserted direct target and never looks it up for an existing request', async () => {
     const h = harness();
     const missing = new ChequebookTransferPreparation(async () => { throw new Error('synthetic-private-path'); }, new ChequebookChainRegistry(undefined), () => { assert.fail('No session should be opened'); });
     await assert.rejects(missing.prepare(transferIntent()), error => error instanceof Error && !error.message.includes('private-path'));
@@ -104,7 +121,7 @@ describe('fresh pinned transfer preparation', () => {
   it('bounds a stalled identity adapter and disposes its session', async () => {
     const h = harness();
     h.session.getAddresses = async () => new Promise(() => {});
-    const preparation = new ChequebookTransferPreparation(async () => ({ url: 'http://bee.example.invalid:1633', mode: 'direct' }), new ChequebookChainRegistry(undefined), () => h.session, { timeoutMs: 15 });
+    const preparation = new ChequebookTransferPreparation(async () => ({ url: 'http://bee.example.invalid:1633', topology: 'operator_asserted_direct', revision: 'revision-1' }), new ChequebookChainRegistry(undefined), () => h.session, { timeoutMs: 15 });
     await assert.rejects(preparation.prepare(transferIntent()), /checked/i);
     assert.equal(h.counts().disposed, 1);
     assert.equal(h.counts().posts, 0);
