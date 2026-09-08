@@ -15,6 +15,8 @@
  * same way for the offline flow to be worth playing.
  */
 
+import { MANAGER_SLOT_CAP } from './portPolicy.js';
+
 /** The version the manager ships with, always present and never removable. */
 export const BUNDLED_VERSION_NAME = 'bundled';
 
@@ -143,7 +145,7 @@ export const DEFAULT_MAX_SLOT = 999;
  * same number. The cap counts every stored deployment record, stopped ones
  * included, because a stopped deployment keeps its slot.
  */
-export const MANAGER_SLOT_CAP = 100;
+export { MANAGER_SLOT_CAP } from './portPolicy.js';
 
 /** The highest slot a deployment of this version may get: the version's own limit, and never above the manager's. */
 export function slotCapFor(contract: Pick<StackContract, 'maxSlot'> | null | undefined): number {
