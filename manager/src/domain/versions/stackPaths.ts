@@ -36,6 +36,9 @@ export interface StackPaths {
   bootstrapPairs: readonly BootstrapPair[];
 }
 
+const MISSING_BUILD_ROOT = 'This version uses immutable builds but has no artifact root. Restore its build before deploying.';
+const MISSING_BUILD_ID = 'This version has no build to deploy from yet.';
+
 /**
  * Where a version deploys from. A null rootPath is the bundled one. A legacy
  * row deploys from its flat root. A builds row deploys from its current
@@ -44,15 +47,17 @@ export interface StackPaths {
  * fallback.
  */
 export function stackRootOf(version: StackVersionRoot): string {
-  if (version.rootPath === null) return BUNDLED_STACK_ROOT;
-  if ((version.layout ?? 'legacy') !== 'builds' || !version.buildId) return version.rootPath;
+  if ((version.layout ?? 'legacy') !== 'builds') return version.rootPath ?? BUNDLED_STACK_ROOT;
+  if (version.rootPath === null) throw new Error(MISSING_BUILD_ROOT);
+  if (!version.buildId) throw new Error(MISSING_BUILD_ID);
   return buildDirFor(dirname(version.rootPath), basename(version.rootPath), version.buildId);
 }
 
 /** Why a version cannot be deployed from right now, naming what is missing, or null. */
 export function deployRootProblem(version: StackVersionRoot): string | null {
-  if (version.rootPath === null || (version.layout ?? 'legacy') !== 'builds') return null;
-  if (!version.buildId) return 'This version has no build to deploy from yet.';
+  if ((version.layout ?? 'legacy') !== 'builds') return null;
+  if (version.rootPath === null) return MISSING_BUILD_ROOT;
+  if (!version.buildId) return MISSING_BUILD_ID;
   const problem = readBuildManifest(stackRootOf(version)).problem;
   return problem ? `Build ${version.buildId} of this version cannot be deployed from. ${problem}` : null;
 }
