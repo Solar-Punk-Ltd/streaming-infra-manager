@@ -34,7 +34,7 @@ export async function launchTransferFixture(t, handler) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const managerPort = server.address().port;
   child = fork(fileURLToPath(new URL('./transfer-vite.mjs', import.meta.url)), [], {
-    cwd: fileURLToPath(new URL('../../', import.meta.url)), silent: true,
+    cwd: fileURLToPath(new URL('../../', import.meta.url)), silent: true, execArgv: [],
     env: { ...process.env, VITE_MANAGER_URL: `http://127.0.0.1:${managerPort}`, T09_VITE_CACHE: join(evidence, 'vite-cache') },
   });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-32_768); });
