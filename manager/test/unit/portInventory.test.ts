@@ -21,6 +21,15 @@ function setup() {
 }
 
 describe('seeding the reservation inventory', () => {
+  it('keeps allocation gated when a host-network container has unknown bindings', async () => {
+    const { h, targets } = setup();
+    const inventory = new PortInventory(h.profiles.asRepository(), h.versions, h.profiles.reservations, targets,
+      { publishedPorts: async () => ({ daemonId: 'daemon-1', bindings: [], unverifiedProjects: ['outside'] }) });
+    await assert.rejects(inventory.seed(), /host-network|unknown bindings/);
+    assert.equal(await h.profiles.reservations.inventorySeededAt(), null);
+    assert.equal(await h.profiles.reservations.inventorySeededAt('daemon-1'), null);
+  });
+
   it('inventories a new remote daemon before allocating there after local boot completed', async () => {
     const h = profileServiceHarness();
     h.profiles.reservations.seededAt = null;
