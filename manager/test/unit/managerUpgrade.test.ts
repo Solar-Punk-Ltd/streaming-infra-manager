@@ -80,6 +80,16 @@ describe('one manager upgrade owns every active project mutation', () => {
     assert.equal((await readdir(root)).includes('upgrade-owner'), false, 'the manager is up, so nothing is held for a person');
   });
 
+  it('lets go of the host when the bundled wait itself fails, because the manager is already up', async () => {
+    const ops = operations();
+    ops.awaitBundledBuild = async () => { actions.push('await-bundled-build'); throw new Error('synthetic bundled read failure'); };
+
+    await assert.rejects(runManagerUpgrade(environment, request(), ops), /synthetic bundled read failure/);
+
+    assert.deepEqual(actions, ['stop-api', 'migrate', 'start-api-web-edge', 'verify-project', 'await-bundled-build']);
+    assert.equal((await readdir(root)).includes('upgrade-owner'), false, 'a read that failed after the api was verified holds nothing for a person to remove');
+  });
+
   it('keeps ownership through startup so a second upgrade cannot start or change any service', async () => {
     const entered = signal(); const release = signal(); const aOps = operations();
     aOps.startProject = async () => { actions.push('A-start-held'); entered.resolve(); await release.promise; };
