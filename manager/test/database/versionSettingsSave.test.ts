@@ -12,10 +12,11 @@
  * refusal is the one an operator would actually get.
  */
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import http from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -26,7 +27,11 @@ import { errorHandler } from '../../src/api/middleware/errorHandler.js';
 import { notFound } from '../../src/api/middleware/notFound.js';
 import { createVersionsRouter } from '../../src/api/routes/versions.js';
 import { EventBus } from '../../src/domain/EventBus.js';
-import { commitHostConfig } from '../../src/domain/versions/hostConfigCapture.js';
+import {
+  commitHostConfig,
+  CONFIG_LOCK_DIR,
+  CONFIG_REVISION_FILE,
+} from '../../src/domain/versions/hostConfigCapture.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
 import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
@@ -43,6 +48,9 @@ const connection = {
 const COMMIT = 'e'.repeat(40);
 const HOST_ENV = ['# The token this host was given.', 'API_AUTH_TOKEN=first', ''].join('\n');
 
+/** Long enough for a request that has reached the router to reach the lock it waits on. */
+const SETTLE_MS = 100;
+
 describe('settings saves in isolated PostgreSQL schemas', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535,
 }, () => {
@@ -53,6 +61,8 @@ describe('settings saves in isolated PostgreSQL schemas', {
   let url: string;
   let configRoot: string;
   let id: number;
+  /** Resolves once a save has reached the router, so the interleave below is not a guess. */
+  let saveArrived: Promise<void>;
 
   beforeEach(async () => {
     schema = `t04b_${randomBytes(8).toString('hex')}`;
@@ -86,6 +96,14 @@ describe('settings saves in isolated PostgreSQL schemas', {
     );
     const app = express();
     app.use(express.json({ limit: '256kb' }));
+    let sawSave = (): void => undefined;
+    saveArrived = new Promise<void>((resolve) => {
+      sawSave = resolve;
+    });
+    app.use('/versions', (req, _res, next) => {
+      if (req.method === 'PUT') sawSave();
+      next();
+    });
     app.use('/versions', createVersionsRouter(service));
     app.use(notFound);
     app.use(errorHandler);
@@ -104,6 +122,16 @@ describe('settings saves in isolated PostgreSQL schemas', {
       await admin.end();
     }
   });
+
+  /** What an ssh commit leaves behind: the file, then the manifest naming its hash. */
+  function commitByHand(env: string, generation: number): void {
+    writeFileSync(join(configRoot, '.env'), env);
+    const revision = {
+      generation,
+      files: { '.env': createHash('sha256').update(Buffer.from(env, 'utf8')).digest('hex') },
+    };
+    writeFileSync(join(configRoot, CONFIG_REVISION_FILE), `${JSON.stringify(revision, null, 2)}\n`);
+  }
 
   function save(value: string): Promise<Response> {
     return fetch(`${url}/versions/${id}/settings`, {
@@ -147,6 +175,31 @@ describe('settings saves in isolated PostgreSQL schemas', {
 
     const manifest = JSON.parse(readFileSync(join(configRoot, '.config-revision.json'), 'utf8'));
     assert.equal(manifest.generation, 2);
+  });
+
+  it('reads the revision it checks against under the lock, not before waiting for it', async () => {
+    // The interleave, made to happen rather than raced for: this test holds the
+    // edit lock the way an ssh session does, sends the save, commits a newer
+    // revision by hand while the save waits, and only then lets go. A save that
+    // read the generation before waiting read the one that is already gone, and
+    // would write over an edit it never saw.
+    const lock = join(configRoot, CONFIG_LOCK_DIR);
+    mkdirSync(lock);
+
+    const answer = save('from-the-page');
+    await saveArrived;
+    await sleep(SETTLE_MS);
+    commitByHand('API_AUTH_TOKEN=from-the-ssh-session\n', 2);
+    rmdirSync(lock);
+
+    const refused = await answer;
+    const body = (await refused.json()) as { error: string; generation: number };
+    assert.equal(refused.status, 409);
+    assert.deepEqual(
+      { error: body.error, generation: body.generation },
+      { error: 'settings_changed', generation: 2 },
+    );
+    assert.match(readFileSync(join(configRoot, '.env'), 'utf8'), /from-the-ssh-session/);
   });
 
   it('takes the next save once the page has reloaded onto the new revision', async () => {
