@@ -11,11 +11,12 @@ import { DEV_PASSWORD, DEV_USERNAME } from '../dev/mock-auth.mjs';
 const bootstrap = `
 import { state, makeProfile, node } from './dev/mock-seed.mjs';
 await import('./dev/mock-manager.mjs');
-for (const name of ['missing', 'unreadable', 'funded']) {
+for (const name of ['missing', 'unreadable', 'funded', 'low']) {
   state.profiles.push(makeProfile({ name, kind: 'custom', components: ['srs', 'stream-uploader', 'bee-uploader'] }));
 }
 node('unreadable').chequebook.available = 'synthetic-unreadable';
 node('funded').chequebook.total = node('funded').chequebook.available = '10000000000000000';
+node('low').chequebook.total = node('low').chequebook.available = '1000000000000000';
 state.profiles.push(makeProfile({ name: 'external', kind: 'custom', components: ['srs', 'stream-uploader'], bee_url: 'http://synthetic.invalid:1633' }));
 state.profiles.push(makeProfile({ name: 'pool', kind: 'abr-uploader', bee_publishers: 'synthetic-pool' }));
 process.send({ ready: true });
@@ -36,7 +37,7 @@ async function request(path, method = 'GET', body) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(2000),
   });
-  return { status: response.status, body: await response.json(), cookie: response.headers.get('set-cookie') };
+  return { status: response.status, body: response.status === 204 ? null : await response.json(), cookie: response.headers.get('set-cookie') };
 }
 
 before(async () => {
@@ -67,7 +68,7 @@ before(async () => {
     child.once('error', finish);
   });
   const login = await request('/auth/login', 'POST', { username: DEV_USERNAME, password: DEV_PASSWORD });
-  assert.equal(login.status, 200);
+  assert.equal(login.status, 204);
   cookie = login.cookie.split(';')[0];
 });
 
@@ -101,4 +102,12 @@ describe('authenticated offline uploader funding admission', { concurrency: fals
       assert.equal((await request(`/profiles/${name}`)).body.status, 'DEPLOYING');
     });
   }
+
+  it('keeps proven low funds distinct from an unverified node', async () => {
+    const before = await request('/profiles/low');
+    const result = await request('/profiles/low/deploy-uploader', 'POST');
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, 'chequebook_unfunded');
+    assert.deepEqual((await request('/profiles/low')).body, before.body);
+  });
 });

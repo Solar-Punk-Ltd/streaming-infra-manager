@@ -27,7 +27,6 @@ import {
   depositOverWalletReason,
   NO_XDAI_FOR_GAS_REASON,
   plurToBzz,
-  uncheckedChequebookNotice,
   uploaderUnfundedReason,
   withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
@@ -244,23 +243,19 @@ function moveBzz(name, amountPlur, direction) {
 }
 
 /**
- * The uploader gate, refusing on the same rule and with the same 409 body.
- *
- * A deployment that publishes to a pool has no node of its own to ask, which in
- * the real manager is a failed probe and never a refusal.
+ * The uploader gate uses the manager's funding refusal and unknown-node bodies.
+ * A deployment without a local Bee node keeps its external or pool path.
  */
 function chequebookRefusal(profile) {
   if (!servicesOf(profile).includes('bee-uploader')) return null;
 
   const entry = nodeIfKnown(profile.name);
   if (!entry) {
-    publish({
-      type: 'profile.notice',
-      profile: profile.name,
-      text: uncheckedChequebookNotice(profile.name),
-      tone: 'warn',
-    });
-    return null;
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} did not answer the chequebook check, so the uploader was not started. Try again once the node answers.`,
+    };
   }
 
   const health = chequebookHealthFrom(
@@ -270,6 +265,13 @@ function chequebookRefusal(profile) {
     },
     CHEQUEBOOK_FLOOR_PLUR,
   );
+  if (health.state === 'unknown') {
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
+    };
+  }
   if (health.state !== 'low' && health.state !== 'empty') return null;
 
   return {
@@ -499,7 +501,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/deploy-uploader$/,
     withProfile((_req, res, profile) => {
       const refusal = chequebookRefusal(profile);
-      if (refusal) return send(res, 409, refusal);
+      if (refusal) return send(res, refusal.error === 'bee_node_unreachable' ? 502 : 409, refusal);
       deploy(profile, { withUploader: true });
       send(res, 202, { status: 'accepted' });
     }),
