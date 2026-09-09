@@ -223,5 +223,17 @@ describe('manager:upgrade', () => {
     assert.ok(said.includes(HELD_PHASE), 'so is the phase the earlier upgrade stopped in');
     assert.match(said, /A person checks the host before removing that directory\./);
     assert.equal(existsSync(guard), true, 'the guard is never removed by a rerun');
+    assert.equal(closed, 1, 'and what the refused run opened is let go of again');
+  });
+
+  it('builds its host operations from the flags it was given', async () => {
+    const composeFile = join(mutableRoot, 'docker-compose.yml');
+
+    const run = await upgrade(argvWith({ '--compose-file': composeFile }, ['--public-edge']));
+
+    assert.equal(run.error, null);
+    assert.deepEqual(settings, {
+      versionsRoot, composeFile, toolchain: TOOLCHAIN, publicEdge: true, firstUse: false,
+    });
   });
 });
