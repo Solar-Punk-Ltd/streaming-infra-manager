@@ -11,6 +11,12 @@ export interface Profile {
   port_slot: number;
   kind: ProfileKind;
   notes: string | null;
+  /**
+   * Moves with every change of the notes. A save carries the revision its
+   * page loaded, and one whose revision has moved is refused rather than
+   * applied over a newer note. See migrations/013.
+   */
+  notes_revision: number;
   components: string[] | null;
   host: string | null;
   feed_owner: string | null;

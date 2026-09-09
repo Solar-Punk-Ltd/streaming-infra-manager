@@ -102,7 +102,10 @@ export function createProfile(body: CreateProfileBody): Promise<Profile> {
   return sendJson<Profile>('POST', '/profiles', body);
 }
 
-export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'>;
+export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'> & {
+  /** The revision the drawer loaded the notes at, sent along with an edited note. */
+  notes_revision?: number;
+};
 
 export interface CreateGroupBody {
   group_name: string;
@@ -197,5 +200,21 @@ export function updateProfile(
     'PUT',
     `/profiles/${encodeURIComponent(name)}`,
     body,
+  );
+}
+
+/**
+ * Saves the notes alone: no claim on the deployment, no deploy. A note saved
+ * elsewhere since `loadedRevision` was read is answered with 409.
+ */
+export function updateNotes(
+  name: string,
+  notes: string | null,
+  loadedRevision: number,
+): Promise<Profile> {
+  return sendJson<Profile>(
+    'PATCH',
+    `/profiles/${encodeURIComponent(name)}/notes`,
+    { notes, notes_revision: loadedRevision },
   );
 }

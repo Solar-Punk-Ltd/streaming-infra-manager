@@ -203,6 +203,8 @@ export type CreateProfileInput = InferType<typeof createProfileSchema>;
 
 export const updateProfileSchema = object({
   notes: string().nullable().notRequired().max(500),
+  /** The revision the drawer loaded the notes at. Sent with an edited note. */
+  notes_revision: number().integer().min(0).notRequired(),
   feed_owner: string()
     .notRequired()
     .matches(
@@ -253,6 +255,14 @@ export const removeGroupSchema = object({
 }).noUnknown(true).strict();
 
 export type RemoveGroupInput = InferType<typeof removeGroupSchema>;
+
+export const updateNotesSchema = object({
+  notes: string().nullable().defined().max(500),
+  /** The revision the page loaded the notes at. A moved one refuses the save. */
+  notes_revision: number().integer().min(0).required(),
+}).noUnknown(true);
+
+export type UpdateNotesInput = InferType<typeof updateNotesSchema>;
 
 export const createGroupSchema = object({
   group_name: string()

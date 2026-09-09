@@ -43,6 +43,7 @@ import {
   LadderGroupError,
   LockedOutError,
   NotSignedInError,
+  NotesConflictError,
   NoUsersError,
   ProfileConfigError,
   ProfileExistsError,
@@ -191,6 +192,14 @@ export function errorHandler(
       error: 'deploy_attempt_refused',
       name: err.profileName,
       message: err.reason,
+    });
+    return;
+  }
+  if (err instanceof NotesConflictError) {
+    res.status(409).json({
+      error: 'notes_conflict',
+      name: err.profileName,
+      message: err.message,
     });
     return;
   }

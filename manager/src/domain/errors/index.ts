@@ -11,6 +11,7 @@ export { ProfileInstanceChangedError } from './ProfileInstanceChangedError.js';
 export { EngineSettingsChangedError } from './EngineSettingsChangedError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';
+export { NotesConflictError } from './NotesConflictError.js';
 export { GroupExistsError } from './GroupExistsError.js';
 export { GroupNotFoundError } from './GroupNotFoundError.js';
 export { GroupBusyError } from './GroupBusyError.js';

@@ -307,7 +307,11 @@ function DeploymentBody({
           {shape === 'stream' && isRunning(profile) && (
             <NextStepsCard streamName={profile.name} />
           )}
-          <NotesCard name={profile.name} notes={profile.notes} />
+          <NotesCard
+            name={profile.name}
+            notes={profile.notes}
+            notesRevision={profile.notes_revision}
+          />
         </Stack>
       </Box>
 

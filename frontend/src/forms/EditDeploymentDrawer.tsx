@@ -48,6 +48,7 @@ export function EditDeploymentDrawer({
   // The snapshot the form opened with. Saving compares against it, so a field
   // the operator never touched keeps whatever the live profile holds by then.
   const [initial] = useState<DeploymentEdits>(() => initialEdits(profile));
+  const [loadedNotesRevision] = useState(() => profile?.notes_revision ?? 0);
   const [edits, setEdits] = useState<DeploymentEdits>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export function EditDeploymentDrawer({
     try {
       const saved = await updateProfile(
         profile.name,
-        bodyFor(profile, initial, edits, shown),
+        bodyFor(profile, initial, edits, shown, loadedNotesRevision),
       );
       mergeProfiles([saved]);
       onClose();

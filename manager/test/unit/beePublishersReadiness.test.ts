@@ -58,6 +58,7 @@ function member(rung: string, index: number): Profile {
     port_slot: index,
     kind: 'custom',
     notes: null,
+    notes_revision: 0,
     components: ['bee-uploader'],
     host: '10.0.0.9',
     feed_owner: null,

@@ -165,18 +165,24 @@ export class ProfileRepository {
    * @param engineSettings replaces the column in the same statement, for a
    *   caller whose edit changes what the stored settings mean. Left out, the
    *   column keeps what it holds, which is what every ordinary PUT body wants.
+   * @param expectedNotesRevision the notes revision the caller's page loaded.
+   *   Given, the write happens only while that is still the current one, and
+   *   null comes back when it moved, the same as for a row that is gone.
    */
   async updateEditable(
     name: string,
     kind: ProfileKind,
     dataWithOptionalValues: ProfileWriteData = {},
     engineSettings?: EngineSettings,
+    expectedNotesRevision?: number,
   ): Promise<Profile | null> {
     const data = nullify(dataWithOptionalValues);
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET kind = $2,
              notes = $3,
+             notes_revision = notes_revision
+               + CASE WHEN notes IS DISTINCT FROM $3::text THEN 1 ELSE 0 END,
              components = $4,
              feed_owner = $5,
              feed_topic = $6,
@@ -189,6 +195,7 @@ export class ProfileRepository {
              engine_settings = COALESCE($13::jsonb, engine_settings),
              updated_at = NOW()
        WHERE name = $1
+         AND ($14::int IS NULL OR notes_revision = $14::int)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -204,7 +211,30 @@ export class ProfileRepository {
         data.bee_url,
         data.srt_passphrase,
         engineSettings === undefined ? null : JSON.stringify(engineSettings),
+        expectedNotesRevision ?? null,
       ],
+    );
+    return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
+  /**
+   * Writes the notes alone, while the revision the caller loaded is still the
+   * current one. Null when the row is gone or the revision moved, which the
+   * caller tells apart with a read.
+   */
+  async updateNotes(
+    name: string,
+    notes: string | null,
+    expectedRevision: number,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET notes = $2,
+             notes_revision = notes_revision + 1,
+             updated_at = NOW()
+       WHERE name = $1 AND notes_revision = $3
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name, notes, expectedRevision],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }

@@ -19,6 +19,8 @@ export interface Profile {
   port_slot: number;
   kind: ProfileKind;
   notes: string | null;
+  /** Moves with every change of the notes. A save carries the revision its page loaded. */
+  notes_revision: number;
   host?: string | null;
   components?: string[] | null;
   feed_owner?: string | null;

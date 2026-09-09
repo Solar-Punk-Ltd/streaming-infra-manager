@@ -393,6 +393,19 @@ const EDITABLE_FIELDS = [
   'srt_passphrase',
 ];
 
+/** The manager's rule: a note saved from a page that loaded before another save is refused. */
+function notesMoved(profile, body) {
+  return body.notes_revision !== undefined && body.notes_revision !== profile.notes_revision;
+}
+
+function notesConflict(profile) {
+  return {
+    error: 'notes_conflict',
+    name: profile.name,
+    message: `The notes of ${profile.name} changed since this page loaded. Reload to see them, then save again.`,
+  };
+}
+
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
@@ -456,10 +469,33 @@ const ROUTES = [
     withProfile(async (req, res, profile) => {
       const refusal = attemptRefusal(profile);
       if (refusal) return send(res, 409, refusal);
-      replaceEditable(profile, await readBody(req));
+      const body = await readBody(req);
+      if ('notes' in body && notesMoved(profile, body)) {
+        send(res, 409, notesConflict(profile));
+        return;
+      }
+      const notesBefore = profile.notes;
+      replaceEditable(profile, body);
+      if (profile.notes !== notesBefore) profile.notes_revision += 1;
       closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, profile);
+    }),
+  ],
+  [
+    'PATCH',
+    /^\/profiles\/([^/]+)\/notes$/,
+    withProfile(async (req, res, profile) => {
+      const body = await readBody(req);
+      if (notesMoved(profile, body)) {
+        send(res, 409, notesConflict(profile));
+        return;
+      }
+      profile.notes = body.notes ?? null;
+      profile.notes_revision += 1;
+      profile.updated_at = new Date().toISOString();
+      changed(profile);
+      send(res, 200, profile);
     }),
   ],
   [

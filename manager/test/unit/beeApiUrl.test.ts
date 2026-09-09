@@ -23,6 +23,7 @@ function profile(over: Partial<Profile> = {}): Profile {
     port_slot: 5,
     kind: 'custom',
     notes: null,
+    notes_revision: 0,
     components: ['bee-uploader'],
     host: '65.108.40.58',
     feed_owner: null,

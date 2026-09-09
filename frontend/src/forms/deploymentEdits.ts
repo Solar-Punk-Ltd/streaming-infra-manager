@@ -115,12 +115,17 @@ export function hasEdits<T extends object>(initial: T, edits: T): boolean {
  * overlaid. Untouched fields take the live value, not the value that was on
  * screen when the drawer opened: a stamp that settled while the operator was
  * typing a note has to survive the save.
+ *
+ * An edited note goes with the revision the drawer loaded it at, so a note
+ * saved from the Notes card since is a refusal from the manager rather than
+ * an overwrite.
  */
 export function bodyFor(
   profile: Profile,
   initial: DeploymentEdits,
   edits: DeploymentEdits,
   shown: ShownFields,
+  loadedNotesRevision: number,
 ): UpdateProfileBody {
   const changed = (field: keyof DeploymentEdits) =>
     edits[field] !== initial[field];
@@ -138,6 +143,9 @@ export function bodyFor(
     srt_passphrase: profile.srt_passphrase ?? undefined,
   };
 
+  if (changed('notes')) {
+    body.notes_revision = loadedNotesRevision;
+  }
   if (shown.passphrase && (changed('passMode') || changed('passphrase'))) {
     // The host-wide choice is an omitted field, which the PUT stores as null.
     body.srt_passphrase =

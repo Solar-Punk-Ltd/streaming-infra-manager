@@ -77,6 +77,7 @@ import {
   ProfileExistsError,
   ProfileNotFoundError,
   StackVersionNotFoundError,
+  NotesConflictError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
@@ -347,6 +348,8 @@ export class ProfileService {
     name: string,
     input: {
       notes?: string | null;
+      /** The revision the drawer loaded the notes at. Given, a moved one refuses the save. */
+      notes_revision?: number;
       feed_owner?: string | null;
       feed_topic?: string | null;
       private_key?: string | null;
@@ -362,6 +365,18 @@ export class ProfileService {
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
     ) {
       throw new ProfileBusyError(name, existing.status);
+    }
+
+    // Before the claim, so a drawer that loaded before another notes save is
+    // refused without the deployment ever leaving its status. The write below
+    // checks the revision again, for the save that lands in between.
+    const notesRevisionSent =
+      input.notes !== undefined ? input.notes_revision : undefined;
+    if (
+      notesRevisionSent !== undefined &&
+      notesRevisionSent !== existing.notes_revision
+    ) {
+      throw new NotesConflictError(name);
     }
 
     // The row the edit proposes, built once. The gate is asked about it, the
@@ -417,9 +432,12 @@ export class ProfileService {
         existing.kind,
         { ...edits, components: existing.components },
         laddersEnded ? withoutLadderSettings(existing) : undefined,
+        notesRevisionSent,
       );
       if (!written) {
-        throw new ProfileNotFoundError(name);
+        throw (await this.repo.findByName(name))
+          ? new NotesConflictError(name)
+          : new ProfileNotFoundError(name);
       }
       return written;
     });
@@ -437,6 +455,30 @@ export class ProfileService {
     await this.orchestrator.runReserved(reservation, row);
 
     return this.containers.withContainers(row);
+  }
+
+  /**
+   * Saves the notes and nothing else: no claim, no gate, no deploy.
+   *
+   * A note is text on the row that no container reads, so it can be saved
+   * while a stamp is invalid, a node is unfunded, or a deploy is running. The
+   * revision is the one the page loaded, and a note saved elsewhere since is
+   * a refusal, not an overwrite.
+   */
+  async updateNotes(
+    name: string,
+    notes: string | null,
+    loadedRevision: number,
+  ): Promise<ProfileWithContainers> {
+    const row = await this.repo.updateNotes(name, notes, loadedRevision);
+    if (!row) {
+      throw (await this.repo.findByName(name))
+        ? new NotesConflictError(name)
+        : new ProfileNotFoundError(name);
+    }
+    const withContainers = await this.containers.withContainers(row);
+    this.publishChanged(withContainers);
+    return withContainers;
   }
 
   /**

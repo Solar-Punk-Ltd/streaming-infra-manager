@@ -27,6 +27,7 @@ const PROFILE: Profile = {
   port_slot: 3,
   kind: 'custom',
   notes: null,
+  notes_revision: 0,
   components: ['bee-uploader'],
   host: '10.0.0.9',
   feed_owner: null,
