@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   abrLadderEnvValue,
@@ -152,6 +153,7 @@ interface JobConfig {
 
   /** For a job that creates containers: the guard it holds while it runs. */
   guard?: { kind: DeployAttemptKind; services: readonly string[] };
+  reservedAttempt?: DeployAttempt;
 
   beforeRun?: () => Promise<void>;
 
@@ -196,6 +198,7 @@ export interface DeployReservation {
   readonly transitioned: boolean;
   readonly host?: string;
   readonly daemonId?: string;
+  readonly attempt?: DeployAttempt;
   /**
    * The build the run will deploy from, captured with the claim. Null only
    * for a reservation made without one, which the run describes itself.
@@ -742,6 +745,7 @@ export class DeploymentOrchestrator {
       script: paths.deploy,
       args: this.buildScriptArgs(profile, services, reservation.host),
       guard: { kind: this.attemptKindOf(version), services },
+      reservedAttempt: reservation.attempt,
       onSuccess: async (attempt) => {
         await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
         await this.observeMounts(profile, services);
@@ -945,6 +949,9 @@ export class DeploymentOrchestrator {
     if (cfg.reservedDaemonId && cfg.reservedDaemonId !== daemonId) {
       throw new TargetNotVerifiedError(cfg.target, 'The reserved ports belong to a different Docker daemon. No deploy was started.');
     }
+    let attempt = cfg.reservedAttempt
+      ? await this.validatedReservedAttempt(cfg, daemonId)
+      : null;
     await this.ensureStackDefaults(cfg.paths);
 
     if (cfg.transitionTo && cfg.allowedFrom) {
@@ -973,8 +980,8 @@ export class DeploymentOrchestrator {
 
     // The guard, before anything is spawned: the project's containers as they
     // are, so what the attempt creates can be told from what was there.
-    let attempt: DeployAttempt | null = null;
-    if (cfg.guard) {
+    if (cfg.guard && !attempt) {
+      const snapshotToken = await this.attempts.captureSnapshotToken(daemonId, cfg.profileName);
       const before = await this.daemon.snapshot(cfg.profileName, cfg.target);
       if (before.daemonId !== daemonId) {
         throw new TargetNotVerifiedError(cfg.target, 'The container snapshot came from a different Docker daemon. No deploy was started.');
@@ -987,6 +994,7 @@ export class DeploymentOrchestrator {
         kind: cfg.guard.kind,
         services: cfg.guard.services,
         preJobContainerIds: [...before.containers.values()].flat(),
+        snapshotToken,
       });
       this.eventBus.publish({ type: 'attempt.changed' });
     }
@@ -1025,6 +1033,18 @@ export class DeploymentOrchestrator {
     handle.emitter.on('error', (err: Error) => finish(-1, err.message));
 
     return handle;
+  }
+
+  private async validatedReservedAttempt(cfg: JobConfig, daemonId: string): Promise<DeployAttempt> {
+    const expected = cfg.reservedAttempt!;
+    const current = await this.attempts.findByJob(expected.jobId);
+    if (!cfg.guard || expected.state !== 'open' || expected.daemonId !== daemonId ||
+        expected.target !== cfg.target || expected.project !== cfg.profileName ||
+        expected.kind !== cfg.guard.kind || !isDeepStrictEqual(expected.services, cfg.guard.services) ||
+        !isDeepStrictEqual(current, expected)) {
+      throw new DeployAttemptRefusedError(cfg.profileName, 'The prepared deploy attempt changed or no longer owns this deployment. No deploy was started.');
+    }
+    return current!;
   }
 
   /**
