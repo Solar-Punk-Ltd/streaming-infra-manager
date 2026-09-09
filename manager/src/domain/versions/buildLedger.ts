@@ -14,11 +14,11 @@ export const BUNDLED_BUILD_ID = 'bundled';
  * select one build and later read another version's contract.
  */
 export interface BuildDescriptor {
-  /** Null when the row the profile names is gone, which deploys the bundled checkout with a warning. */
+  /** Deploy admission requires an existing version, including a legitimate bundled legacy row. Null is refused. */
   version: StackVersionRecord | null;
   buildId: string;
   root: string;
-  /** The job reference the claim inserted, or null when there was no version row to reference. */
+  /** An admitted deploy has its own job reference. The nullable shape remains for historical descriptors. */
   referenceId: number | null;
 }
 
