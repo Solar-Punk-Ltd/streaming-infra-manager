@@ -35,6 +35,7 @@ interface TransferTargetLease {
   dispose(): void;
 }
 type AcquireTransferTarget = (intent: ChequebookTransferIntent, step: PreparationStep, lifetime: AbortSignal) => Promise<TransferTargetLease>;
+type TransferChains = Pick<ChequebookChainRegistry, 'forChain'>;
 
 function address(value: unknown): string {
   if (typeof value !== 'string' || !/^0x[0-9a-f]{40}$/i.test(value)) throw new ChequebookPreparationError();
@@ -74,7 +75,7 @@ function sameIdentity(a: ChequebookTransferContext, b: Pick<ChequebookTransferCo
 class TransferPreparation {
   private readonly timeoutMs: number;
 
-  constructor(private readonly acquireTarget: AcquireTransferTarget, private readonly chains: ChequebookChainRegistry,
+  constructor(private readonly acquireTarget: AcquireTransferTarget, private readonly chains: TransferChains,
     options: { timeoutMs?: number } = {}) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 60_000) throw new ChequebookPreparationError();
@@ -165,7 +166,7 @@ function frozenTarget(value: FrozenChequebookTarget, intent: ChequebookTransferI
 }
 
 export class ChequebookTransferPreparation extends TransferPreparation {
-  constructor(resolveTarget: ResolveConfiguredBeeTarget, chains: ChequebookChainRegistry,
+  constructor(resolveTarget: ResolveConfiguredBeeTarget, chains: TransferChains,
     createSession: (url: string) => BeeTransferSession = url => new PinnedBeeSession(url), options: { timeoutMs?: number } = {}) {
     super(async (intent, step) => {
       const target = Object.freeze({ ...await checked(() => resolveTarget(intent.profileName), step.signal, step.deadline) });
@@ -180,9 +181,9 @@ export class ChequebookTransferPreparation extends TransferPreparation {
     }, chains, options);
   }
 
-  /** Inactive owned-target entrypoint. The injected acquirer must use the qualified pinned Docker handshake. */
+  /** The injected acquirer must use the qualified pinned Docker handshake. */
   static fromOwnedTarget(captureTarget: CaptureTransferTarget, acquireBoundStream: AcquireBoundBeeStream,
-    chains: ChequebookChainRegistry, options: OwnedTransferPreparationOptions = {}): Pick<ChequebookTransferPreparation, 'prepare'> {
+    chains: TransferChains, options: OwnedTransferPreparationOptions = {}): Pick<ChequebookTransferPreparation, 'prepare'> {
     try {
       const copied = structuredClone(options);
       const sessionOptions = normalizePinnedBeeSessionOptions(copied);

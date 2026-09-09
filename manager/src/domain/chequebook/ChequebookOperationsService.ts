@@ -8,11 +8,15 @@ import type { ChequebookReceiptCheck } from './ChequebookReceiptCheck.js';
 import type { ChequebookRecovery } from './ChequebookRecovery.js';
 import { normalizeHistoryQuery } from './chequebookHistory.js';
 import { operationId } from './operationIdentity.js';
+import type { ChequebookTransportCleanup } from './OwnedChequebookTransports.js';
 
 /** Global saved-operation reads are independent of current profile existence and configuration. */
 export class ChequebookOperationsService {
   constructor(private readonly repository: ChequebookOperationRepository, private readonly submission: ChequebookSubmission,
-    private readonly receipts: ChequebookReceiptCheck, private readonly recovery: ChequebookRecovery) {}
+    private readonly receipts: ChequebookReceiptCheck, private readonly recovery: ChequebookRecovery,
+    private readonly closeTransports: () => Promise<readonly ChequebookTransportCleanup[]> = async () => []) {}
+
+  shutdown(): Promise<readonly ChequebookTransportCleanup[]> { return this.closeTransports(); }
 
   async submit(intent: ChequebookTransferIntent): Promise<ChequebookAdmissionDetail> {
     const result = await this.submission.submit(intent);
