@@ -1,7 +1,7 @@
 import { lstat, readdir, rm } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
+import { BUNDLED_VERSION_NAME, getErrorMessage } from '@streaming-infra-manager/common';
 
 import type { BundledShipmentRecord } from './BundledShipment.js';
 import { isBundledShipmentId } from './bundledShipmentPackage.js';
@@ -19,6 +19,12 @@ export interface BundledShipmentJournal {
   findByMaterialization(materializationId: string): Promise<BundledShipmentRecord | null>;
 }
 
+/** A directory the sweep meant to remove and could not, and what stopped it. */
+export interface UnsweptBundledPackage {
+  name: string;
+  reason: string;
+}
+
 /** Directory names under the versions root. Never what any of them contained. */
 export interface SweptBundledPackages {
   removed: string[];
@@ -26,6 +32,8 @@ export interface SweptBundledPackages {
   kept: string[];
   /** Left because the journal has no shipment of that id, so a person decides. */
   unknown: string[];
+  /** Left because removing it failed, which stops that one directory and nothing else. */
+  failed: UnsweptBundledPackage[];
 }
 
 const SEALED_PREFIX = 'sealed-';
@@ -71,10 +79,24 @@ async function removeSweptDirectory(root: string, entry: string): Promise<void> 
  * registered or prepared stays, because it may still publish, and one whose id
  * the journal never registered stays and is reported, because only a person can
  * say where it came from.
+ *
+ * One directory that cannot be removed stops that directory alone. The rest are
+ * swept and the answer names what failed, because giving up on the first one
+ * would leave the secrets of every later one on the host and say nothing about
+ * the ones already gone.
  */
 export async function sweepBundledPackages(versionsRoot: string, journal: BundledShipmentJournal): Promise<SweptBundledPackages> {
-  const swept: SweptBundledPackages = { removed: [], kept: [], unknown: [] };
+  const swept: SweptBundledPackages = { removed: [], kept: [], unknown: [], failed: [] };
   const name = (root: string, entry: string) => relative(versionsRoot, join(root, entry));
+
+  const remove = async (root: string, entry: string): Promise<void> => {
+    try {
+      await removeSweptDirectory(root, entry);
+      swept.removed.push(name(root, entry));
+    } catch (error) {
+      swept.failed.push({ name: name(root, entry), reason: getErrorMessage(error) });
+    }
+  };
 
   const byShipment = async (root: string, entry: string, shipmentId: string): Promise<void> => {
     const record = await journal.find(shipmentId);
@@ -86,8 +108,7 @@ export async function sweepBundledPackages(versionsRoot: string, journal: Bundle
       swept.kept.push(name(root, entry));
       return;
     }
-    await removeSweptDirectory(root, entry);
-    swept.removed.push(name(root, entry));
+    await remove(root, entry);
   };
 
   const packagesRoot = bundledPackagesRootFor(versionsRoot);
@@ -117,8 +138,7 @@ export async function sweepBundledPackages(versionsRoot: string, journal: Bundle
       swept.kept.push(name(copiesRoot, entry));
       continue;
     }
-    await removeSweptDirectory(copiesRoot, entry);
-    swept.removed.push(name(copiesRoot, entry));
+    await remove(copiesRoot, entry);
   }
 
   return swept;

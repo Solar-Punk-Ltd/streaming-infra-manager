@@ -222,9 +222,9 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    *
    * Every package a deploy ships carries the streaming stack's own host inputs,
    * so a host that never removed one keeps a copy of every secret every deploy
-   * ever shipped. A sweep that cannot finish is said out loud and nothing more,
-   * because the publication above it already stands and undoing it to tidy up
-   * would be the worse answer.
+   * ever shipped. What the sweep could not remove is said out loud and nothing
+   * more, because the publication above it already stands and undoing it to
+   * tidy up would be the worse answer.
    */
   private async sweepShippedPackages(versionId: number): Promise<void> {
     try {
@@ -232,6 +232,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
       const swept = await sweepBundledPackages(this.settings.versionsRoot, this.database);
       for (const name of swept.removed) this.streams.err(`${CLI_PREFIX} removed ${name}`);
       for (const name of swept.unknown) this.streams.err(`${CLI_PREFIX} kept ${name}, which no shipment of this journal made`);
+      for (const failure of swept.failed) this.streams.err(`${CLI_PREFIX} could not remove ${failure.name}: ${failure.reason}`);
     } catch (error) {
       this.streams.err(`${CLI_PREFIX} the shipped packages could not be swept: ${getErrorMessage(error)}. The publication stands.`);
     }
