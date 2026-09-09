@@ -76,9 +76,11 @@ const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).dig
 /**
  * The paths of the set a root holds, each with whether it is a regular file.
  *
- * Nothing here is followed. A link at one of these paths names bytes outside
- * the root, and the legacy tree they are taken from is writable by anything
- * that reaches the host, so a link is passed by rather than read.
+ * Nothing here is followed. A link at one of these paths, or at a directory on
+ * the way to one, names bytes outside the root, and the legacy tree they are
+ * taken from is writable by anything that reaches the host, so a link is
+ * passed by rather than read. The path it sits at is reported either way, so
+ * the caller can say what it left alone.
  */
 function hostConfigPathsIn(root: string): { relative: string; isFile: boolean }[] {
   const paths: { relative: string; isFile: boolean }[] = [];
@@ -86,14 +88,20 @@ function hostConfigPathsIn(root: string): { relative: string; isFile: boolean }[
     const entry = lstatSync(join(root, relative), { throwIfNoEntry: false });
     if (entry) paths.push({ relative, isFile: entry.isFile() });
   };
-  const isPlainDirectory = (relative: string): boolean =>
-    lstatSync(join(root, relative), { throwIfNoEntry: false })?.isDirectory() === true;
+  /** Whether to look inside. Anything else at that path is reported and not descended into. */
+  const descend = (relative: string): boolean => {
+    const entry = lstatSync(join(root, relative), { throwIfNoEntry: false });
+    if (!entry) return false;
+    if (entry.isDirectory()) return true;
+    paths.push({ relative, isFile: false });
+    return false;
+  };
 
   consider(BASE_ENV);
-  if (isPlainDirectory(DEPLOY_DIR)) consider(DEPLOY_CONFIG);
-  if (isPlainDirectory(ENGINES_DIR)) {
+  if (descend(DEPLOY_DIR)) consider(DEPLOY_CONFIG);
+  if (descend(ENGINES_DIR)) {
     for (const engine of readdirSync(join(root, ENGINES_DIR)).sort()) {
-      if (isPlainDirectory(`${ENGINES_DIR}/${engine}`)) consider(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
+      if (descend(`${ENGINES_DIR}/${engine}`)) consider(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
     }
   }
   return paths;

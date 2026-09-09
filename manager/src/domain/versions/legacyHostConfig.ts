@@ -22,7 +22,7 @@ import { hostConfigFilesOf, hostConfigNonFilesOf, withHostConfigLock } from './h
 export interface LegacyHostConfigCarryOver {
   /** Relative posix paths committed into the config root. */
   carried: string[];
-  /** Paths of the set the legacy tree holds as something other than a regular file. */
+  /** Paths the legacy tree holds as something the set has no use for, a link above all. */
   skipped: string[];
 }
 

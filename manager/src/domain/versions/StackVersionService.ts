@@ -564,7 +564,7 @@ export class StackVersionService {
       logger.info(`[Versions] took ${carried.join(', ')} over from ${this.bundledRoot} into ${configRoot}, which had none`);
     }
     if (skipped.length > 0) {
-      logger.warn(`[Versions] passed by ${skipped.join(', ')} in ${this.bundledRoot}, which are not regular files. Nothing a link points at becomes a setting of this host.`);
+      logger.warn(`[Versions] passed by ${skipped.join(', ')} in ${this.bundledRoot}, where the set wants a regular file or a plain directory. Nothing a link points at becomes a setting of this host.`);
     }
   }
 
