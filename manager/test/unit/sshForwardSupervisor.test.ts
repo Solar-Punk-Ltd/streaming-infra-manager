@@ -33,7 +33,7 @@ it('reconstructs fixed isolated argv from the strict start locator and freezes t
   const input = start(); const validated = validateForwardStart(input, 0n, 123);
   assert.equal(validated.command.file, '/usr/bin/ssh'); assert.equal(validated.command.options.shell, false);
   assert.deepEqual(validated.command.args.slice(0, 5), ['-F', '/dev/null', '-N', '-T', '-n']);
-  input.locator.host = 'changed.invalid'; input.directory.identity.ino = 'changed';
+  Object.assign(input.locator, { host: 'changed.invalid' }); Object.assign(input.directory.identity, { ino: 'changed' });
   assert.equal(validated.start.locator.host, 'example.invalid'); assert.equal(validated.start.directory.identity.ino, '2');
   assert.ok(Object.isFrozen(validated.start)); assert.ok(Object.isFrozen(validated.start.directory.identity));
 });
@@ -153,4 +153,18 @@ it('readiness is refused if a socket appeared before the one owned child started
   const h = harness(); h.paths.set(socketPath, socketIdentity); h.receive(start()); await tick();
   assert.equal(h.commands.length, 0); assert.equal(h.output.some(value => value.type === 'ready'), false);
   assert.equal((await h.supervisor.done)?.outcome.state, 'unverified'); assert.equal(h.events.includes('unlink'), false);
+});
+
+it('disconnect wakes a held readiness poll so confirmed child exit can clean within its reserve', async () => {
+  const h = harness(); h.dependencies.spawn = command => { h.commands.push(command); return h.child; };
+  h.receive(start()); await tick(); assert.equal(h.output.length, 0);
+  h.disconnect(); await tick();
+  assert.equal(h.output.at(-1)?.type, 'cleanup');
+  assert.equal((await h.supervisor.done)?.outcome.state, 'closed'); assert.equal(h.finishes(), 1);
+});
+
+it('the no-start budget is enforced monotonically when its timer has not run', async () => {
+  const h = harness(); h.clock.time = 1001;
+  h.receive({ ...start(), acquisitionDeadlineNs: '1101000000', operationalDeadlineNs: '1301000000', cleanupDeadlineNs: '1321000000' });
+  await tick(); assert.equal(h.commands.length, 0); assert.equal(h.finishes(), 1);
 });
