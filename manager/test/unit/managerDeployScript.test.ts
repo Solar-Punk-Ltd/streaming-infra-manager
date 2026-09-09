@@ -179,6 +179,15 @@ describe('deploy/deploy.sh', () => {
     assert.ok(checked < script.indexOf('REMOTE_VERSIONS_ROOT="'), 'and before anything is built out of it');
   });
 
+  it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
+    // The remote block runs under set -e with pipefail, so a failing pipe inside this
+    // substitution would end it here and the warning, the upgrade and the receipt would never run.
+    const line = script.split('\n').find((one) => one.startsWith('PUBLIC_HOST="'));
+    assert.ok(line, 'the remote block reads the address of the host');
+    assert.match(line, /\|\| true\)"$/);
+    assert.ok(script.indexOf('WARNING: PUBLIC_HOST is empty') > script.indexOf('PUBLIC_HOST="'), 'and says so below it');
+  });
+
   it('never asks compose to print a rendered configuration', () => {
     for (const match of script.matchAll(/docker compose[^\n]*\bconfig\b[^\n]*/g)) {
       assert.match(match[0], /--quiet/, 'a rendered compose file would carry the values of every secret');
