@@ -232,13 +232,20 @@ service_containers() {
         --filter "label=com.docker.compose.service=\$1" \
         --filter "label=com.docker.compose.oneoff=False"
 }
+# Each answer is read into a variable of its own before it is looked at. Inside
+# a test the shell reports what the substitution printed rather than that it
+# failed, so a daemon that could not be asked would read as a host with nothing
+# on it and this deploy would call an old database new.
+DATA_VOLUME="\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)"
+API_CONTAINERS="\$(service_containers api)"
+POSTGRES_CONTAINERS="\$(service_containers postgres)"
 FIRST_USE_FLAG=""
-if [ -z "\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)" ]; then
-    if [ -n "\$(service_containers api)" ]; then
+if [ -z "\${DATA_VOLUME}" ]; then
+    if [ -n "\${API_CONTAINERS}" ]; then
         echo "[deploy] ERROR: this host has an api container but no \${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again." >&2
         exit 1
     fi
-    if [ -z "\$(service_containers postgres)" ]; then
+    if [ -z "\${POSTGRES_CONTAINERS}" ]; then
         FIRST_USE_FLAG="--first-use"
         echo "[deploy] no data volume and no containers of this project: this host has never run the manager"
     fi
