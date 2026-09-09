@@ -163,6 +163,11 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), (type) => type === 'password', 'the masked token');
   });
 
+  await t.test('a masked field asks the browser not to save or fill it', async () => {
+    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.getAttribute('autocomplete')`), 'off');
+    assert.equal(await evaluate(`${fieldOf('SRT_PASSPHRASE')}.getAttribute('autocomplete')`), 'off');
+  });
+
   await t.test('a key at the version default says so, and one the manager fills says that', async () => {
     const marks = async (key) => evaluate(`[...(${rowOf(key)}).querySelectorAll('.MuiChip-label')].map(el => el.textContent.trim())`);
 
