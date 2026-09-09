@@ -256,7 +256,7 @@ Two gaps in the tests were closed by mutation rather than by a code change.
 "Existing lines byte for byte untouched" had no fixture with a comment, a blank
 line, trailing spaces or a CRLF line, so stripping every comment and trimming the
 leading blank both passed. Both now go red. The bundled card's enabled Update
-button was asserted nowhere, and putting the old disable back passed every test;
+button was asserted nowhere, and putting the old disable back passed every test.
 `frontend/test/versions-layout.test.mjs`, which renders the real page in headless
 Chrome, now asserts the button is enabled and the commit is on the card. That
 file is not part of `pnpm test`, which reads `src/**/*.test.ts` only, so it was
