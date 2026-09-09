@@ -8,7 +8,7 @@ Recovery can fail. Saving a file is not proof that publishing or playback works.
 This page describes the agreed remediation and its local implementation on
 `fix/t01-config-ownership`, `fix/t02-srs-check-isolation`,
 `fix/t03-ome-xml` and `fix/t11-effective-settings`. Those branches still need
-integration. As checked on 2026-09-08, `main-v2` remains at `d046ebf` and does
+integration. As checked on 2026-09-09, `main-v2` remains at `d046ebf` and does
 not contain these fixes. No deployment of this remediation is claimed here.
 The earlier engine-configuration decisions were accepted on 2026-09-07.
 
@@ -33,15 +33,33 @@ addresses and ports. Do not paste credentials into documentation or test
 fixtures. A custom file is stored as text, so replacing a placeholder with a
 literal also stores that literal.
 
-The settings drawer and summary use the manager's effective settings. These
-combine the selected version's defaults, valid host overrides and deployment
-overrides. Clearing a deployment override returns to the effective default,
-which can differ between versions. The agreed T11 completion requires reliably parsed literals in a custom file
-to be shown as file-controlled, with omitted or unparseable values unverified.
-The current local T11 branch only detects missing placeholders and suppresses
-their effective values. It still labels a literal as missing, so that distinction
-is an open acceptance correction, not implemented behavior. Inspect the
-running configuration under Logs when checking what an engine actually loaded.
+The settings drawer and summary show configured values with their source.
+For a setting read from the environment, the manager combines the selected
+version's defaults, valid host overrides and deployment overrides. Clearing
+a deployment override uses the effective default, which can differ between
+versions. A reliably parsed literal is labeled "Set in config file". Changing
+an environment override does not change that literal.
+
+Omitted settings are labeled "Not specified". Conflicting values, unsupported
+syntax and other uncertain readings are "Unverified", with a reason. The
+manager checks relevant sections together instead of choosing the first
+value it finds. Generated SRS sections can prevent a reliable reading of the
+fields they control. OME's uploader poll interval is read independently of
+the XML file. These observations describe configured input, not proof of what
+the running engine loaded. Inspect its running configuration under Logs.
+
+When the deployment or its configuration changes, the card and open drawer
+hide old observations immediately. Failed or timed-out refreshes keep the
+draft text but do not restore stale values. A draft for a deleted and
+recreated deployment cannot be applied to the replacement. Close and reopen
+Settings to review that deployment.
+
+The accepted local T11 checkpoint `1684131` also binds the settings write to
+the exact deployment job that reserved it. Losing that ownership returns a
+conflict and preserves the draft. Two integration boundaries remain open:
+binding validation and job admission to the same published build, and
+capturing mutable host inputs before execution. These changes have not been
+deployed to `main-v2`.
 
 ## What validation establishes
 
@@ -123,6 +141,11 @@ outcome. A successful HTTP response does not prove playback.
 
 Local regressions cover operation ownership, restart reconciliation, isolated
 SRS check files, XML parsing and protected paths, and effective-setting sources.
+The T11 exact-job write checkpoint passed 18 database, 27 focused HTTP and
+13 browser checks, plus workspace types. Its full manager run passed
+1095 of 1097 cases. The two remaining failures exercise the unfinished T01
+integration between configuration operations and deployment claims. The
+configured-value UI also has desktop and 390-pixel responsive browser review.
 These are separate from running the real engine containers.
 
 Fable's 2026-09-08 local T03 evidence records OME `v0.21.0` with manifest-list
@@ -137,6 +160,8 @@ container evidence in this continuation.
 Levi still owns the stack image-pin change. T20 must integrate these regressions
 with the real SRS parser concurrency check and the combined CI workflow. The
 recorded arm64 result is not an amd64 CI run or a funded-host result. T11's
-literal-versus-omitted correction remains open as described above. T22 separately
-verifies authorized live Swarm delivery. Unit tests do not substitute for any
-of these execution results.
+published-build and mutable-input integration remain open as described above.
+T01 still needs the atomic operation claim, retained-build recovery and
+deployment completion checks connected through its service callers. T22
+separately verifies authorized live Swarm delivery. Unit tests do not
+substitute for any of these execution results.
