@@ -242,10 +242,10 @@ service_containers() {
         --filter "label=com.docker.compose.service=\$1" \
         --filter "label=com.docker.compose.oneoff=False"
 }
-# Each answer is read into a variable of its own before it is looked at. Inside
-# a test the shell reports what the substitution printed rather than that it
-# failed, so a daemon that could not be asked would read as a host with nothing
-# on it and this deploy would call an old database new.
+# Each answer is read into a variable of its own before it is looked at. A
+# substitution inside a [ ... ] condition reports what it printed rather than
+# that it failed, so a daemon that could not be asked would read as a host with
+# nothing on it and this deploy would call an old database new.
 DATA_VOLUME="\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)"
 API_CONTAINERS="\$(service_containers api)"
 POSTGRES_CONTAINERS="\$(service_containers postgres)"

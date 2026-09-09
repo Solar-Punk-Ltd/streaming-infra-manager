@@ -96,8 +96,9 @@ describe('deploy/deploy.sh', () => {
   });
 
   it('reads each probe into a variable of its own, where a docker that could not be asked stops the deploy', () => {
-    // Inside a test the shell reports what the substitution answered, not that it failed, so a
-    // daemon that is down would read as a host with nothing on it and take the first use branch.
+    // A substitution inside a [ ... ] condition reports what it printed rather than that it
+    // failed, so a daemon that is down would read as a host with nothing on it and take the
+    // first use branch.
     const before = script.slice(0, script.indexOf('docker compose run --rm --no-deps -T api')).split('\n');
     for (const probe of ['docker volume ls -q --filter name=', 'service_containers api', 'service_containers postgres']) {
       const asked = before.filter((line) => line.includes(probe));
