@@ -29,8 +29,25 @@ export interface ClonedBuildTree {
 const COPY_INSTEAD = new Set(['EXDEV', 'EPERM', 'EMLINK', 'ENOTSUP', 'EOPNOTSUPP']);
 
 /**
+ * A deployment's own env file, at the root as `.env.<profile>` and beside each
+ * engine as `engines/<engine>/.env.<profile>`.
+ *
+ * The one file of a build tree that is written again after the build is
+ * published: `writeProfileEnv` truncates it in place on every deploy, and the
+ * stack's `ensure_engine_env` creates the engine one when it is missing. A
+ * hard link would therefore carry the new build's values into the build every
+ * running deployment reads, and carry the old engine values forward into the
+ * new one. The version's `.env.sample` is not one of these and is shared like
+ * the rest of the tree.
+ */
+function isPerDeploymentEnv(name: string): boolean {
+  return name.startsWith('.env.') && name !== '.env.sample';
+}
+
+/**
  * Fills `to` from `from`, leaving out the relative paths in `skip`, which the
- * caller writes itself.
+ * caller writes itself, and every deployment's own env file, which belongs to
+ * the deployment rather than to the build.
  */
 export async function cloneBuildTree(
   from: string,
@@ -83,6 +100,7 @@ async function cloneEntry(
     cloned.passedBy.push(relative);
     return;
   }
+  if (isPerDeploymentEnv(entry.name)) return;
   await shareFile(source, target, cloned);
 }
 
