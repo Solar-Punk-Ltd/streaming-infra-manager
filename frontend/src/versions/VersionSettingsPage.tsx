@@ -129,15 +129,15 @@ export function VersionSettingsPage({ id }: { id: number }) {
   };
 
   /**
-   * The revision the save landed on is carried into the page state before
-   * anything else can throw. Without it a refused apply left the page naming
-   * the revision it loaded with, and the operator's next save was refused as a
-   * change somebody else had made, which was their own.
+   * Both callers reload after this, whatever they went on to do, and that
+   * reload is what puts the page on the revision the save made. Without it a
+   * refused apply left the page naming the revision it loaded with, and the
+   * operator's next save was refused as a change somebody else had made, which
+   * was their own.
    */
   const saveEdits = async (): Promise<void> => {
     if (!settings || edits.length === 0) return;
-    const saved = await saveVersionSettings(id, settings.generation, edits);
-    setSettings((current) => (current ? { ...current, generation: saved.generation } : current));
+    await saveVersionSettings(id, settings.generation, edits);
   };
 
   const save = () =>
