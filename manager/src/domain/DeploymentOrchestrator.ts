@@ -13,13 +13,13 @@ import {
   ownsBeeNode,
   portExposureProblem,
   slotCapFor,
+  ENGINE_CONFIG_ENV_KEYS,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
 import {
   bootstrapStackDefaults,
   deleteProfileEnv,
-  ENGINE_CONFIG_ENV_KEYS,
   parseBaseEnv,
   writeProfileEnv,
 } from '../utils/envUtils.js';

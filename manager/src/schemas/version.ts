@@ -1,4 +1,5 @@
 import {
+  settingValueProblem,
   stackRefProblem,
   stackVersionNameProblem,
 } from '@streaming-infra-manager/common';
@@ -64,20 +65,28 @@ const SETTINGS_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  */
 const SETTINGS_PATH_RE = /^(?:\.env|deploy\/config\.json|engines\/[A-Za-z0-9_-]+\/\.env)$/;
 
+/**
+ * The value rule is `common`'s, so the page shows the same refusal under the
+ * field before the save is ever sent. The message names the key and never the
+ * value, which is a secret often enough that no error path may carry one, and
+ * `typeError` replaces yup's own message for the same reason.
+ */
 const settingsEntrySchema = object({
   key: string()
     .required()
+    .typeError('a settings key is text')
     .matches(
       SETTINGS_KEY_RE,
       'a settings key starts with a letter or an underscore and holds letters, digits and underscores',
     ),
   value: string()
     .defined()
-    .test(
-      'one-line',
-      'a settings value cannot hold a line break, which would make it a second key',
-      (value) => !/[\r\n]/.test(value ?? ''),
-    ),
+    .typeError('a settings value is text')
+    .test('settings-value', 'that is not a value this key can hold', function (value) {
+      const key = typeof this.parent.key === 'string' ? this.parent.key : '';
+      const problem = settingValueProblem(key, value ?? '');
+      return problem ? this.createError({ message: `${key} ${problem}` }) : true;
+    }),
   /** Deletes the key's line rather than assigning it. */
   remove: boolean().notRequired(),
 }).noUnknown(true);
@@ -96,7 +105,7 @@ const settingsFileSchema = object({
     .required()
     .matches(SETTINGS_PATH_RE, 'that is not a settings file of a stack version'),
   entries: array().of(settingsEntrySchema).notRequired(),
-  text: string().notRequired(),
+  text: string().typeError(`${DEPLOY_CONFIG} is text`).notRequired(),
 })
   .noUnknown(true)
   .test(

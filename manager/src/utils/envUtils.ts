@@ -9,6 +9,8 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   effectiveEngineDefaults,
+  ENGINE_CONFIG_ENV_KEYS,
+  ENGINE_CONFIG_FILE_RE,
   type EngineName,
   type EngineSettings,
   engineSettingsEnv,
@@ -36,14 +38,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // reading this one.
 export const BUNDLED_STACK_ROOT =
   process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
-
-/** The env key each engine's compose override reads the config file path from. */
-export const ENGINE_CONFIG_ENV_KEYS: Record<EngineName, string> = {
-  srs: 'SRS_CONF_FILE',
-  ome: 'OME_CONF_FILE',
-};
-
-const ENGINE_CONFIG_FILE_RE = /^\/[A-Za-z0-9._\/-]+$/;
 
 /**
  * The deployment's own env file, owner only.

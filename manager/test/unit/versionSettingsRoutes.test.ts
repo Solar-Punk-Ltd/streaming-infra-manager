@@ -514,15 +514,23 @@ describe('PUT /versions/:id/settings', () => {
     seedHostFiles();
     const id = await buildV3();
 
-    for (const entry of [{ key: 'API_PORT', value: 3100 }, { key: 12345, value: 'x' }]) {
+    const entries = [
+      { key: 'API_PORT', value: { nested: 'a-value-shaped-thing' } },
+      { key: ['API_PORT', 'a-key-shaped-thing'], value: 'x' },
+    ];
+
+    for (const entry of entries) {
       const answer = await callJson('PUT', `/versions/${id}/settings`, {
         expectedGeneration: 2,
         files: [{ path: '.env', entries: [entry] }],
       });
 
       assert.equal(answer.status, 400, JSON.stringify(entry));
-      assert.equal(JSON.stringify(answer.body).includes('3100'), false, 'the refusal never repeats the value');
-      assert.equal(JSON.stringify(answer.body).includes('12345'), false, 'the refusal never repeats the value');
+      assert.equal(
+        JSON.stringify(answer.body).includes('shaped'),
+        false,
+        'the refusal never repeats what was submitted',
+      );
     }
   });
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Box, Button, Chip, Stack, TextField, Typography } from '@mui/material';
 
-import type { StackSettingsEntry } from '@streaming-infra-manager/common';
+import { settingValueProblem, type StackSettingsEntry } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../app/theme';
 
@@ -32,6 +32,9 @@ export function SettingsEntryField({
 }) {
   const [revealed, setRevealed] = useState(false);
   const atSample = isAtSampleValue({ value, sampleValue: entry.sampleValue });
+  // The manager's own rule, so the field says what a save would be refused for
+  // before the save goes out.
+  const problem = settingValueProblem(entry.key, value);
 
   return (
     <Box component="li" sx={{ listStyle: 'none', py: 1.5, borderTop: 1, borderColor: 'divider' }}>
@@ -61,6 +64,8 @@ export function SettingsEntryField({
           value={value}
           disabled={disabled}
           type={entry.secret && !revealed ? 'password' : 'text'}
+          error={problem !== null}
+          helperText={problem === null ? undefined : `This value ${problem}`}
           onChange={(event) => onChange(event.target.value)}
           inputProps={{
             'aria-label': entry.key,
