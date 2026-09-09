@@ -71,6 +71,7 @@ import {
   stackPathsForRoot,
 } from './versions/stackPaths.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
+import { versionSuppliedSecrets } from './versions/versionSuppliedSecrets.js';
 import type {
   DeployVersionSnapshot,
   StackVersionRecord,
@@ -343,16 +344,27 @@ export class DeploymentOrchestrator {
    * Generated at deploy rather than at creation, so a version whose contract
    * grows a secret on Update is covered by the next deploy of every deployment
    * on it, with nothing to migrate.
+   *
+   * A key the version's own settings answer is neither generated nor written,
+   * so the version's line stands. A value already stored against this
+   * deployment still wins over both, because the containers were started with
+   * it and rotating a token is a decision rather than a side effect.
    */
   private async stackSecretsFor(
     profile: Profile,
     version: DeployVersionSnapshot | null,
+    root: string,
+    engine: EngineName,
   ): Promise<StackSecrets> {
     const required = version?.contract?.requiredSecrets ?? [];
     if (required.length === 0) return {};
 
     const stored = await this.profiles.stackSecretsOf(profile.name);
-    const generated = missingStackSecrets(required, stored);
+    const supplied = versionSuppliedSecrets(root, engine, required);
+    const generated = missingStackSecrets(
+      required.filter((key) => !supplied.has(key)),
+      stored,
+    );
     if (Object.keys(generated).length > 0) {
       await this.profiles.storeStackSecrets(profile.name, generated);
       logger.info(
@@ -362,7 +374,8 @@ export class DeploymentOrchestrator {
 
     const secrets: StackSecrets = {};
     for (const key of required) {
-      secrets[key] = generated[key] ?? stored[key]!;
+      const value = generated[key] ?? stored[key];
+      if (value) secrets[key] = value;
     }
     return secrets;
   }
@@ -745,7 +758,7 @@ export class DeploymentOrchestrator {
       srtPassphrase: profile.srt_passphrase,
       streamKey: profile.private_key,
       engineSettings: profile.engine_settings,
-      stackSecrets: await this.stackSecretsFor(profile, version),
+      stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
       stackEngineDefaults: version?.contract?.engineDefaults,
       engineConfigFile,
       // From the profile's own components, deliberately not from the reserved

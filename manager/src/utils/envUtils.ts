@@ -82,6 +82,19 @@ export function parseBaseEnv(root: string): Record<string, string> {
   return parseEnvFile(baseEnvPath(root));
 }
 
+export function engineEnvPath(root: string, engine: EngineName): string {
+  return join(root, 'engines', engine, '.env');
+}
+
+/**
+ * The engine's own env file of a checkout. deploy.sh reads it beside the base
+ * env and lets the root file win, so a key the manager writes at the root
+ * decides and a key it leaves out is decided here.
+ */
+export function parseEngineEnv(root: string, engine: EngineName): Record<string, string> {
+  return parseEnvFile(engineEnvPath(root, engine));
+}
+
 /** A file the checkout ships as a sample, and the live file copied from it. */
 export interface BootstrapPair {
   src: string;
@@ -161,6 +174,10 @@ export interface ProfileEnvValues {
    * example API_AUTH_TOKEN and SRS_WEBHOOK_TOKEN on main-v3. Written at the
    * root, where compose interpolates both the uploader's and the engine's copy
    * from, and where deploy.sh lets the root file win over the engine env.
+   *
+   * A key the version's own settings already set is absent from this map, and
+   * that absence is what applies it: the copy below carries the version's line
+   * unchanged, as with the passphrase and the stream key above.
    */
   stackSecrets?: StackSecrets;
 
