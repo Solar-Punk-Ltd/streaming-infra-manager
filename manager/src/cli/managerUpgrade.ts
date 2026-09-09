@@ -9,6 +9,7 @@ import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
 import { execFileCommandRunner } from './commandRunner.js';
 import { parseFlags, withUsage } from './flags.js';
 import { PostgresManagerUpgradeDatabase } from './managerUpgradeDatabase.js';
+import { assertToolchain, TOOLCHAIN_FLAG } from './toolchain.js';
 
 export const MANAGER_UPGRADE = 'manager:upgrade';
 
@@ -21,7 +22,6 @@ const IMAGE_ID = '--image-id';
 const PROJECT = '--project';
 const COMPOSE_FILE = '--compose-file';
 const MUTABLE_ROOT = '--mutable-root';
-const TOOLCHAIN = '--toolchain';
 const PUBLIC_EDGE = '--public-edge';
 const FIRST_USE = '--first-use';
 
@@ -32,7 +32,7 @@ export const MANAGER_UPGRADE_USAGE = [
   `  node dist/cli.js ${MANAGER_UPGRADE} ${SHIPMENT_ID} <uuid> ${COMMIT} <sha> ${DIGEST} <sha256>`,
   `      ${MANAGER_COMMIT} <sha> ${MANAGER_DIGEST} <sha256> ${IMAGE_ID} sha256:<sha256>`,
   `      ${PROJECT} <compose project> ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path>`,
-  `      ${TOOLCHAIN} <text> [${PUBLIC_EDGE}] [${FIRST_USE}]`,
+  `      ${TOOLCHAIN_FLAG} <text> [${PUBLIC_EDGE}] [${FIRST_USE}]`,
   '',
   'Publishes the package the deploy shipped and brings the project back up,',
   'holding one directory under the stack versions root for the whole run so a',
@@ -96,9 +96,10 @@ export async function runManagerUpgradeCommand(
   const versionsRoot = dependencies.versionsRoot ?? config.stackVersionsRoot;
   const { request, settings, environment } = withUsage(MANAGER_UPGRADE_USAGE, () => {
     const flags = parseFlags(argv, {
-      valued: [SHIPMENT_ID, COMMIT, DIGEST, MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, TOOLCHAIN],
+      valued: [SHIPMENT_ID, COMMIT, DIGEST, MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, TOOLCHAIN_FLAG],
       switches: [PUBLIC_EDGE, FIRST_USE],
     });
+    assertToolchain(flags.required(TOOLCHAIN_FLAG));
     return {
       // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
       request: captureManagerUpgradeRequest({
@@ -109,7 +110,7 @@ export async function runManagerUpgradeCommand(
       settings: {
         versionsRoot,
         composeFile: flags.required(COMPOSE_FILE),
-        toolchain: flags.required(TOOLCHAIN),
+        toolchain: flags.required(TOOLCHAIN_FLAG),
         publicEdge: flags.has(PUBLIC_EDGE),
         firstUse: flags.has(FIRST_USE),
       } satisfies ComposeUpgradeSettings,

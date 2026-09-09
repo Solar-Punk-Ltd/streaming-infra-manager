@@ -7,6 +7,7 @@ import { adoptHostConfig, readHostConfigRevision } from '../domain/versions/host
 import { assertOwnedDirectory, assertRelativeTreePath, assertSeparateOwnedTrees } from '../domain/versions/ownedTreePaths.js';
 import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
 import { parseFlags, withUsage } from './flags.js';
+import { assertToolchain, TOOLCHAIN_FLAG } from './toolchain.js';
 
 export const BUNDLED_SEAL = 'bundled:seal';
 
@@ -15,12 +16,9 @@ const OUT = '--out';
 const SHIPMENT_ID = '--shipment-id';
 const DIST = '--dist';
 const ADOPT_INPUTS = '--adopt-inputs';
-const TOOLCHAIN = '--toolchain';
 
 /** The working tree the export goes into, removed once the package is sealed. */
 const EXPORT_DIR = 'export';
-const MAX_TOOLCHAIN_LENGTH = 256;
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const FILE_MODE = 0o644;
 const EXECUTABLE_MODE = 0o755;
 
@@ -28,7 +26,7 @@ export const BUNDLED_SEAL_USAGE = [
   'Usage:',
   `  node dist/cli.js ${BUNDLED_SEAL} ${SOURCE} <checkout> ${OUT} <directory outside it>`,
   `      ${SHIPMENT_ID} <uuid> ${DIST} <built directory> [${DIST} ...]`,
-  `      ${TOOLCHAIN} <text> [${ADOPT_INPUTS}]`,
+  `      ${TOOLCHAIN_FLAG} <text> [${ADOPT_INPUTS}]`,
   '',
   'Turns the checked out streaming stack into one sealed package the host can',
   'verify byte for byte. The files come from the commit the checkout is on, so',
@@ -41,13 +39,6 @@ export const BUNDLED_SEAL_USAGE = [
   'Prints one line of JSON on standard output with the identity of the package:',
   'its shipment id, the commit it was taken from, its digest and where it is.',
 ].join('\n');
-
-/** Refused here rather than on the host, where the same rule guards the build manifest. */
-function assertToolchain(value: string): void {
-  if (!value.trim() || value.length > MAX_TOOLCHAIN_LENGTH || CONTROL_CHARACTER.test(value)) {
-    throw new Error(`${TOOLCHAIN} must be one line of at most ${MAX_TOOLCHAIN_LENGTH} characters naming what built the stack.`);
-  }
-}
 
 async function makeOwnedDirectory(root: string, path: string): Promise<void> {
   try {
@@ -96,7 +87,7 @@ async function addBuiltDirectory(source: string, exported: string, path: string,
  */
 export async function runBundledSeal(argv: readonly string[], streams: CommandStreams): Promise<void> {
   const { source, out, shipmentId, built, adoptInputs } = withUsage(BUNDLED_SEAL_USAGE, () => {
-    const flags = parseFlags(argv, { valued: [SOURCE, OUT, SHIPMENT_ID, TOOLCHAIN], repeated: [DIST], switches: [ADOPT_INPUTS] });
+    const flags = parseFlags(argv, { valued: [SOURCE, OUT, SHIPMENT_ID, TOOLCHAIN_FLAG], repeated: [DIST], switches: [ADOPT_INPUTS] });
     const selected = {
       source: flags.required(SOURCE),
       out: flags.required(OUT),
@@ -104,7 +95,7 @@ export async function runBundledSeal(argv: readonly string[], streams: CommandSt
       built: flags.list(DIST),
       adoptInputs: flags.has(ADOPT_INPUTS),
     };
-    assertToolchain(flags.required(TOOLCHAIN));
+    assertToolchain(flags.required(TOOLCHAIN_FLAG));
     if (selected.built.length === 0) throw new Error(`${DIST} names a built directory to ship and is needed at least once.`);
     return selected;
   });
