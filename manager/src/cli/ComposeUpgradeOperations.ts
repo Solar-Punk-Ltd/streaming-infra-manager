@@ -39,6 +39,10 @@ export interface ComposeUpgradeSettings {
    * from inside it would then see a data volume nothing has ever written to.
    */
   firstUse: boolean;
+  /** The database volume of this project, without the project name Compose prefixes it with. */
+  postgresVolume: string;
+  /** Where the new api answers inside the project network. */
+  apiHealthUrl: string;
   timeouts?: ComposeUpgradeTimeouts;
 }
 
@@ -49,13 +53,10 @@ const DEFAULT_TIMEOUTS: Required<ComposeUpgradeTimeouts> = {
   pollPause: 2_000,
 };
 
-const API_SERVICE = 'api';
+export const API_SERVICE = 'api';
 const POSTGRES_SERVICE = 'postgres';
 const EDGE_SERVICE = 'edge';
 const PUBLIC_PROFILE = ['--profile', 'public'];
-/** The Compose volume that holds the manager's database, prefixed by the project name. */
-const POSTGRES_VOLUME = 'manager-pg';
-const API_HEALTH_URL = 'http://api:9876/health';
 const HEALTHY = 'healthy';
 const RUNNING = 'running';
 const PROBE_TIMEOUT_MS = 10_000;
@@ -109,6 +110,11 @@ function commandFailure(what: string, project: string, program: string, result: 
     ? `It was killed after ${Math.round(timeoutMs / 1000)} seconds.`
     : `It exited with ${result.code}.`;
   return `"${what}" failed on the ${project} project. ${outcome} Run the same ${program} command on the host to see its output.`;
+}
+
+/** Where the api of one manager project answers, which is the port it was configured with. */
+export function apiHealthUrlFor(port: number): string {
+  return `http://${API_SERVICE}:${port}/health`;
 }
 
 export const httpHealthProbe: HealthProbe = async (url) => {
@@ -327,7 +333,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    * is how a database gets treated as new.
    */
   private async hasPostgresVolume(project: string): Promise<boolean> {
-    const name = `${project}_${POSTGRES_VOLUME}`;
+    const name = `${project}_${this.settings.postgresVolume}`;
     const argv = ['docker', 'volume', 'ls', '-q', '--filter', `name=^${name}$`];
     const result = await this.run(argv, { timeoutMs: this.timeouts.command });
     if (result.code !== 0) {
@@ -350,7 +356,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
       if (!hasVolume) {
         const api = await this.serviceContainerIds(project, API_SERVICE);
         if (api.length > 0) {
-          throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
+          throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${this.settings.postgresVolume} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
         }
       }
       firstUse = firstUse || !hasVolume;
@@ -376,14 +382,14 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     let lastProblem = '';
     for (;;) {
       try {
-        const { status } = await this.probe(API_HEALTH_URL);
+        const { status } = await this.probe(this.settings.apiHealthUrl);
         if (status === 200) return;
         lastProblem = `It answered ${status}.`;
       } catch (error) {
         lastProblem = (error as Error).message;
       }
       if (Date.now() >= deadline) {
-        throw new Error(`The new api did not answer ${API_HEALTH_URL} within ${Math.round(this.timeouts.apiHealthy / 1000)} seconds. ${lastProblem}`);
+        throw new Error(`The new api did not answer ${this.settings.apiHealthUrl} within ${Math.round(this.timeouts.apiHealthy / 1000)} seconds. ${lastProblem}`);
       }
       await sleep(this.timeouts.pollPause);
     }

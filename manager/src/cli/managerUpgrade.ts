@@ -6,7 +6,8 @@ import { captureManagerUpgradeRequest, runManagerUpgrade, type ManagerUpgradeOpe
 import { retainedUpgradePhase, UPGRADE_ALREADY_OWNED } from '../domain/versions/managerUpgradeGuard.js';
 import { managerUpgradeGuardRootFor } from '../domain/versions/stackPaths.js';
 import { config } from '../utils/config.js';
-import { ComposeUpgradeOperations, type ComposeUpgradeSettings } from './ComposeUpgradeOperations.js';
+import { MANAGER_POSTGRES_VOLUME } from '../domain/versions/managerProject.js';
+import { apiHealthUrlFor, ComposeUpgradeOperations, type ComposeUpgradeSettings } from './ComposeUpgradeOperations.js';
 import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
 import { execFileCommandRunner } from './commandRunner.js';
 import { parseFlags, withUsage } from './flags.js';
@@ -132,6 +133,8 @@ export async function runManagerUpgradeCommand(
         toolchain: flags.required(TOOLCHAIN_FLAG),
         publicEdge: flags.has(PUBLIC_EDGE),
         firstUse: flags.has(FIRST_USE),
+        postgresVolume: MANAGER_POSTGRES_VOLUME,
+        apiHealthUrl: apiHealthUrlFor(config.port),
       } satisfies ComposeUpgradeSettings,
       environment: { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) },
     };
