@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import { beginSshDockerBeeAcquisition, type ForwardPathIdentity } from '../../src/domain/chequebook/sshDockerBeeAcquisition.js';
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
@@ -27,6 +26,24 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
   it('dispose before work starts is idempotent and never resolves or creates a resource', async () => {
     const { h, handle } = start(); handle.dispose(); handle.dispose();
     await assert.rejects(handle.result, fixedFailure); assert.deepEqual(await handle.cleanup, { state: 'closed' }); assert.deepEqual(h.events, []);
+  });
+
+  it('owns the created path before a metadata failure and reports the retained directory', async () => {
+    const h = fakeForwardHarness(); let metadataReads = 0;
+    h.dependencies.createDirectory = async () => { h.paths.set(directoryPath, { ...dirIdentity }); return directoryPath; };
+    h.dependencies.lstat = async path => { assert.equal(path, directoryPath); metadataReads++; throw new Error('private metadata diagnostic'); };
+    const { handle } = start(h); await assert.rejects(handle.result, fixedFailure); await h.clock.advance(20);
+    assert.ok(metadataReads > 0); assert.deepEqual(await handle.cleanup, { state: 'unverified', reason: 'cleanup_failed', remaining: ['directory'] });
+    assert.equal(h.paths.has(directoryPath), true); assert.equal(h.events.includes('rmdir'), false); assert.equal(h.events.includes('spawn'), false);
+  });
+
+  it('captures directory metadata separately after creation before spawning', async () => {
+    const h = fakeForwardHarness();
+    h.dependencies.createDirectory = async () => { h.events.push('mkdir-path'); h.paths.set(directoryPath, { ...dirIdentity }); return directoryPath; };
+    const { handle } = start(h); await handle.result;
+    assert.ok(h.events.indexOf('mkdir-path') < h.events.indexOf(`stat:${directoryPath}`));
+    assert.ok(h.events.indexOf(`stat:${directoryPath}`) < h.events.indexOf('spawn'));
+    handle.dispose(); assert.deepEqual(await handle.cleanup, { state: 'closed' });
   });
 
   it('owns a directory that resolves after the cleanup deadline without relabeling the unverified snapshot', async () => {
@@ -74,9 +91,9 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
     const h = fakeForwardHarness(); const target = structuredClone(syntheticTarget); const limits = { ...forwardLimits }; const locator = remoteLocator();
     const ready = deferred<typeof locator>(); const acquire = h.dependencies.acquire;
     h.dependencies.acquire = async (...args) => { assert.equal(args[1].daemonId, syntheticTarget.daemonId); assert.ok(Object.isFrozen(args[1].profile)); return acquire(...args); };
-    const spawn = h.dependencies.spawn; h.dependencies.spawn = command => { assert.equal(command.target.host, 'example.invalid'); locator.host = 'mutated.invalid'; return spawn(command); };
+    const spawn = h.dependencies.spawn; h.dependencies.spawn = command => { assert.equal(command.target.host, 'example.invalid'); Object.assign(locator, { host: 'mutated.invalid' }); return spawn(command); };
     const handle = beginSshDockerBeeAcquisition(target, () => ready.promise, limits, h.dependencies, () => true);
-    target.profile.name = 'mutated'; target.daemonId = 'mutated'; limits.acquisitionTimeoutMs = 1;
+    Object.assign(target.profile, { name: 'mutated' }); Object.assign(target, { daemonId: 'mutated' }); limits.acquisitionTimeoutMs = 1;
     ready.resolve(locator); await handle.result; handle.dispose(); assert.deepEqual(await handle.cleanup, { state: 'closed' });
   });
 

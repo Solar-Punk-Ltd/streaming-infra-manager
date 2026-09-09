@@ -61,7 +61,8 @@ export function fakeForwardHarness() {
     connect(path) { events.push('connect'); return { stream: raw, connected: Promise.resolve() }; },
     async acquire(stream, target, options, qualify, signal, cap) {
       events.push('handshake'); return { stream: decoded, binding: { containerId: 'a'.repeat(64), imageId: `sha256:${'d'.repeat(64)}`,
-        daemonId: target.daemonId, project: target.profile.name, service: 'bee-uploader', internalPort: 1633, publishedPort: target.reservation.port } } as AcquiredDockerBeeStream;
+        daemonId: target.daemonId, project: target.profile.name, service: 'bee-uploader', internalPort: 1633,
+        networkMode: 'synthetic_default', publishedBindings: [{ hostIp: '0.0.0.0', hostPort: target.reservation.port }] } } satisfies AcquiredDockerBeeStream;
     },
   };
   return { events, clock, child, paths, raw, decoded, dependencies, destroyCount: () => destroyCount };
