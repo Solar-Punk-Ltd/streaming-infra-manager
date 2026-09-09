@@ -94,6 +94,21 @@ describe('sampleSettingsOf', () => {
     assert.equal(settings[0]?.description, 'What it is. HLS_WINDOW=15');
   });
 
+  it('keeps a wrapped sentence that happens to open with a key name', () => {
+    const settings = sampleSettingsOf(
+      [
+        '# What it is, and what it needs. Requires',
+        '# HLS_ENABLED=true, since there is nothing to fragment otherwise.',
+        'HLS_WINDOW=15',
+      ].join('\n'),
+    );
+
+    assert.equal(
+      settings[0]?.description,
+      'What it is, and what it needs. Requires HLS_ENABLED=true, since there is nothing to fragment otherwise.',
+    );
+  });
+
   it('drops a section rule, so a description opens with a sentence', () => {
     const settings = sampleSettingsOf(
       ['# --- Logging ------------', '# What it is.', 'LOG_LEVEL=debug'].join('\n'),
@@ -245,6 +260,14 @@ describe('sampleSettingsOf over the version samples themselves', () => {
 
     assert.match(publishers, /^One Bee node per ABR rung/);
     assert.match(publishers, /BEE_PUBLISHERS=360p@/);
+    assert.match(publishers, /1080p@http:\/\/localhost:1663<batchid>$/);
+  });
+
+  it('keeps the sentences a wrapped line beginning with another key name would cut', () => {
+    const publishers = describedAs('.env', 'BEE_PUBLISHERS');
+
+    assert.match(publishers, /Every rung in ABR_LADDER must appear here and nothing else may/);
+    assert.match(publishers, /Requires ABR_ENABLED=true, since with no ladder there is nothing to map onto\./);
   });
 
   it('opens a description with a sentence rather than with a section rule', () => {
