@@ -61,6 +61,7 @@ import {
   TargetNotVerifiedError,
   ReservationInventoryPendingError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   GroupExistsError,
   GroupNotFoundError,
   InvalidStackVersionError,
@@ -589,18 +590,23 @@ export class ProfileService {
 
   async remove(
     name: string,
-    input: { all?: boolean } = {},
+    input: { all?: boolean; expectedInstanceId?: string } = {},
   ): Promise<ProfileWithContainers> {
     const profile = await this.getByName(name);
     if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {
       throw new ProfileBusyError(name, profile.status);
     }
-    await this.orchestrator.startRemove(profile, input);
-    return { ...profile, status: 'REMOVING' };
+    const removal = await this.orchestrator.startRemove(profile, input);
+    return { ...removal.profile, containers: profile.containers, pendingStamp: profile.pendingStamp };
   }
 
   async listGroups(): Promise<DeploymentGroup[]> {
     return this.groupRepo.list();
+  }
+
+  async removeEmptyGroup(id: number, expectedName: string): Promise<void> {
+    const result = await this.groupRepo.removeEmptyGroup(id, expectedName);
+    if (result === 'changed' || result === 'not_empty') throw new GroupRemovalRefusedError(id, result);
   }
 
   /**
@@ -987,6 +993,7 @@ export class ProfileService {
    * a group is too: leaving its members STOPPED under a "Deploying" toast said
    * one thing and did another. Each member is read back after its start, so the
    * response carries the status and reason for the ones that did not take.
+   * A replacement with the same name is not part of this creation response.
    */
   private async deployNewMembers(
     created: readonly Profile[],
@@ -995,8 +1002,9 @@ export class ProfileService {
     for (const member of created) {
       this.publishChanged(await this.containers.withContainers(member));
       await this.startMember(member);
-      const latest = (await this.repo.findByName(member.name)) ?? member;
-      profiles.push(await this.containers.withContainers(latest));
+      const latest = await this.repo.findByName(member.name);
+      const owned = latest?.instance_id === member.instance_id ? latest : member;
+      profiles.push(await this.containers.withContainers(owned));
     }
     return profiles;
   }

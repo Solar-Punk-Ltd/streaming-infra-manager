@@ -37,8 +37,33 @@ export interface NewProfilePlacement {
   table: readonly StackPortVar[];
 }
 
+export type ProfileRemovalClaim = Pick<Profile, 'name' | 'instance_id' | 'intent_revision'>;
+
 export class ProfileRepository {
   constructor(private readonly pool: Pool) {}
+
+  async claimRemoval(name: string, expectedInstanceId: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles SET status = 'REMOVING', intent_revision = intent_revision + 1,
+         last_error = NULL, last_error_at = NULL, updated_at = NOW()
+       WHERE name = $1 AND instance_id = $2 AND status IN ('RUNNING', 'STOPPED', 'ERROR')
+       RETURNING ${PROFILE_COLUMNS}`, [name, expectedInstanceId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async failRemoval(claim: ProfileRemovalClaim, message: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles SET status = 'ERROR', last_error = $4, last_error_at = NOW(), updated_at = NOW()
+       WHERE name = $1 AND instance_id = $2 AND intent_revision = $3 AND status = 'REMOVING'
+       RETURNING ${PROFILE_COLUMNS}`, [claim.name, claim.instance_id, claim.intent_revision, message],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async completeRemoval(claim: ProfileRemovalClaim, cleanFiles: () => Promise<void>): Promise<{ port_slot: number } | null> {
+    return this.deleteProfile(claim.name, claim, cleanFiles);
+  }
 
   async findByName(name: string): Promise<Profile | null> {
     const r = await this.pool.query<Profile>(
@@ -256,22 +281,31 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+  private async deleteProfile(
+    name: string,
+    claim: ProfileRemovalClaim,
+    cleanFiles: () => Promise<void>,
+  ): Promise<{ port_slot: number } | null> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
-      const selected = await client.query<{ status: string }>('SELECT status FROM profiles WHERE name = $1 FOR UPDATE', [name]);
-      if (!selected.rows.length) {
+      const selected = await client.query<Pick<Profile, 'status' | 'instance_id' | 'intent_revision'>>(
+        'SELECT status, instance_id, intent_revision FROM profiles WHERE name = $1 FOR UPDATE', [name],
+      );
+      const row = selected.rows[0];
+      if (!row || row.instance_id !== claim.instance_id || row.intent_revision !== claim.intent_revision || row.status !== 'REMOVING') {
         await client.query('COMMIT');
         return null;
       }
-      if (selected.rows[0]!.status !== 'REMOVING') throw new ProfileConfigError(name, 'The deployment has not completed removal.');
+      if (row.status !== 'REMOVING') throw new ProfileConfigError(name, 'The deployment has not completed removal.');
       const held = await client.query<{ blocked: boolean }>(
         `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
           OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS blocked`, [name],
       );
       if (held.rows[0]?.blocked) throw new ProfileConfigError(name, 'An unresolved deploy attempt or rollback operation still holds this deployment.');
+      // Keep the row locked and its name occupied until all name-owned files are gone.
+      await cleanFiles();
       await client.query('DELETE FROM port_reservations WHERE profile_name = $1', [name]);
       await client.query(
         `UPDATE build_references SET resolved_at = NOW() WHERE resolved_at IS NULL

@@ -33,7 +33,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, ProfileInstanceChangedError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
@@ -155,6 +155,7 @@ interface JobConfig {
   afterClaim?: () => Promise<void>;
 
   onFailure?: (message: string) => Promise<void>;
+  markFailure?: (message: string) => Promise<void>;
 }
 
 const REDEPLOY_STATUS: ProfileStatus = 'DEPLOYING';
@@ -808,45 +809,52 @@ export class DeploymentOrchestrator {
 
   async startRemove(
     profile: Profile,
-    input: { all?: boolean } = {},
-  ): Promise<RunHandle> {
+    input: { all?: boolean; expectedInstanceId?: string } = {},
+  ): Promise<RunHandle & { profile: Profile }> {
     await this.assertRemovalReady(profile.name);
-    const args: string[] = [
-      `--profile=${profile.name}`,
-      `--host=${targetAlias(profile.host)}`,
-      `--portSlot=${profile.port_slot}`,
-      '--yes',
-      '--volumes',
-    ];
-    if (input.all) {
-      args.push('--all');
+    await this.targetDaemon(targetAlias(profile.host));
+    const expectedInstanceId = input.expectedInstanceId ?? profile.instance_id;
+    const claimed = await this.profiles.claimRemoval(profile.name, expectedInstanceId);
+    if (!claimed) {
+      const current = await this.profiles.findByName(profile.name);
+      if (!current || current.instance_id !== expectedInstanceId) throw new ProfileInstanceChangedError(profile.name);
+      throw new ProfileBusyError(profile.name, current.status);
     }
-
-    const paths = await this.pathsFor(profile);
-    return this.runJob({
-      profileName: profile.name,
-      target: targetAlias(profile.host),
-      paths,
-      script: paths.clean,
-      args,
-      transitionTo: 'REMOVING',
-      allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
-      beforeRun: () => this.assertRemovalReady(profile.name),
-      afterClaim: () =>
-        this.operatorActed(profile, 'The deployment was removed.'),
-      onSuccess: async () => {
-        await this.verifyPortRemoval(profile);
-        await this.removeProfileDataDir(profile.name);
-        await this.profiles.deleteByName(profile.name);
-        deleteProfileEnv(paths.root, profile.name);
-        this.eventBus.publish({ type: 'profile.deleted', name: profile.name });
-        logger.info(
-          `[Orchestrator] Removed profile ${profile.name} (released slot ${profile.port_slot})`,
-        );
-
-        await this.cleanupGroup(profile.group_id);
-      },
-    });
+    const markFailure = async (message: string) => {
+      const errored = await this.profiles.failRemoval(claimed, message);
+      if (errored) await this.publishChanged(errored);
+    };
+    try {
+      await this.publishChanged(claimed);
+      await this.operations.supersedeOpen(claimed.instance_id, 'The deployment was removed.');
+      const paths = await this.pathsFor(claimed);
+      const args = [`--profile=${claimed.name}`, `--host=${targetAlias(claimed.host)}`, `--portSlot=${claimed.port_slot}`, '--yes', '--volumes'];
+      if (input.all) args.push('--all');
+      const handle = await this.runJob({
+        profileName: claimed.name,
+        target: targetAlias(claimed.host),
+        paths,
+        script: paths.clean,
+        args,
+        beforeRun: () => this.assertRemovalReady(claimed.name),
+        markFailure,
+        onSuccess: async () => {
+          await this.verifyPortRemoval(claimed);
+          const removed = await this.profiles.completeRemoval(claimed, async () => {
+            await this.removeProfileDataDir(claimed.name);
+            deleteProfileEnv(paths.root, claimed.name);
+          });
+          if (!removed) return;
+          this.eventBus.publish({ type: 'profile.deleted', name: claimed.name });
+          logger.info(`[Orchestrator] Removed profile ${claimed.name} (released slot ${removed.port_slot})`);
+          await this.cleanupGroup(claimed.group_id);
+        },
+      });
+      return { ...handle, profile: claimed };
+    } catch (err) {
+      await markFailure(getErrorMessage(err));
+      throw err;
+    }
   }
 
   private async assertNoCreatingAttempt(profileName: string): Promise<void> {
@@ -988,20 +996,19 @@ export class DeploymentOrchestrator {
       stdoutTail = (stdoutTail + chunk).slice(-STDOUT_TAIL_BYTES);
     });
 
-    handle.emitter.on('done', ({ code }: { code: number }) => {
+    let finalizationStarted = false;
+    const finish = (code: number, errorText: string) => {
+      if (finalizationStarted) return;
+      finalizationStarted = true;
       void (async () => {
         if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, code, stderrTail, stdoutTail, attempt);
+        await this.finalizeJob(cfg, code, errorText, stdoutTail, attempt);
       })();
-    });
+    };
+    handle.emitter.on('done', ({ code }: { code: number }) => finish(code, stderrTail));
     // A script that never started ends the attempt the same way: nothing new
     // was created, so it blocks, and the host is not held open for nothing.
-    handle.emitter.on('error', (err: Error) => {
-      void (async () => {
-        if (attempt) await this.judgeAttempt(attempt);
-        await this.finalizeJob(cfg, -1, err.message, stdoutTail, attempt);
-      })();
-    });
+    handle.emitter.on('error', (err: Error) => finish(-1, err.message));
 
     return handle;
   }
@@ -1054,9 +1061,10 @@ export class DeploymentOrchestrator {
         stdoutTail.trim() ||
         stderrTail.trim() ||
         `${cfg.script} exited with code ${code}`;
-      const errored = await this.profiles.markError(cfg.profileName, message);
-      if (errored) {
-        await this.publishChanged(errored);
+      if (cfg.markFailure) await cfg.markFailure(message);
+      else {
+        const errored = await this.profiles.markError(cfg.profileName, message);
+        if (errored) await this.publishChanged(errored);
       }
       await cfg.onFailure?.(message);
       logger.warn(
@@ -1067,7 +1075,10 @@ export class DeploymentOrchestrator {
       logger.error(
         `[Orchestrator] failed to finalize ${cfg.profileName}: ${message}`,
       );
-      await this.markFailed(cfg.profileName, message);
+      if (cfg.markFailure) {
+        try { await cfg.markFailure(message); }
+        catch (failure) { logger.error(`[Orchestrator] failed to record owned removal failure: ${getErrorMessage(failure)}`); }
+      } else await this.markFailed(cfg.profileName, message);
     }
   }
 

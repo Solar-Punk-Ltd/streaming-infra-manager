@@ -23,9 +23,11 @@ import {
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
@@ -157,6 +159,10 @@ export function errorHandler(
     });
     return;
   }
+  if (err instanceof ProfileInstanceChangedError) {
+    res.status(409).json({ error: 'profile_instance_changed', name: err.profileName, message: err.message });
+    return;
+  }
   if (err instanceof GroupExistsError) {
     res.status(409).json({ error: 'group_exists', name: err.name });
     return;
@@ -171,6 +177,10 @@ export function errorHandler(
       name: err.groupName,
       members: err.busyMembers,
     });
+    return;
+  }
+  if (err instanceof GroupRemovalRefusedError) {
+    res.status(409).json({ error: `group_${err.reason}`, id: err.groupId });
     return;
   }
   if (err instanceof StampRequiredError) {
