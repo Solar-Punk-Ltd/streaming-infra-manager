@@ -37,6 +37,7 @@ import {
   StackVersionService,
 } from '../../src/domain/versions/StackVersionService.js';
 import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
+import type { ScriptSpawner } from '../../src/domain/ScriptRunner.js';
 import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
 import { InMemoryStackVersionRepository } from '../support/InMemoryStackVersionRepository.js';
 import { V3_FIXTURE } from '../support/stackFixtures.js';
@@ -203,14 +204,79 @@ describe('what boot does about the pinned stack commit', () => {
 
   it('leaves a manager that pins no commit on the legacy tree, untouched', async () => {
     const before = legacyBytes();
+    const row = await bundled();
+
+    assert.equal(await service.ensureBundledBuild(), null);
+
+    assert.deepEqual(await bundled(), row, 'a laptop without the file is not a host with a problem');
+    assert.equal(runner.spawned.length, 0);
+    assert.equal(legacyBytes(), before);
+  });
+});
+
+describe('what boot records when it cannot build the pin', () => {
+  /** The service again, over the same table, with a runner that cannot start anything. */
+  function serviceWith(runner: ScriptSpawner): StackVersionService {
+    return new StackVersionService(repository, runner, new EventBus(), versionsRoot, { openReferences: async () => [] }, legacyRoot);
+  }
+
+  it('moves the row onto the pin and says which version is building', async () => {
+    pinned(PIN);
+    await service.add('review-stack', 'main-v3');
 
     assert.equal(await service.ensureBundledBuild(), null);
 
     const row = await bundled();
-    assert.equal(row.layout, 'legacy');
-    assert.equal(row.rootPath, null);
+    assert.equal(row.gitRef, PIN, 'the deploy waits for a row on the pin');
+    assert.equal(row.status, 'failed');
+    assert.match(row.lastError ?? '', /review-stack is building/);
+  });
+
+  it('keeps a version that has a build ready, with the reason beside it', async () => {
+    pinned(PIN);
+    await publishBuild(COMMIT_A, baseEnv('older'));
+    await service.add('review-stack', 'main-v3');
+
+    assert.equal(await service.ensureBundledBuild(), null);
+
+    const row = await bundled();
+    assert.equal(row.status, 'ready', 'it still deploys from the build it has');
+    assert.equal(row.buildId, COMMIT_A);
+    assert.match(row.lastError ?? '', /review-stack is building/);
+  });
+
+  it('says so when the pin file holds something that is not a commit', async () => {
+    writeFileSync(join(dirname(legacyRoot), '.stack-commit'), 'not-a-commit\n');
+
+    assert.equal(await service.ensureBundledBuild(), null);
+
+    const row = await bundled();
+    assert.equal(row.status, 'failed');
+    assert.match(row.lastError ?? '', /\.stack-commit/);
+    assert.equal(row.gitRef, 'main-v2', 'there is no commit to move the row onto');
     assert.equal(runner.spawned.length, 0);
-    assert.equal(legacyBytes(), before);
+  });
+
+  it('records a build whose script could not be started at all', async () => {
+    pinned(PIN);
+    const refusing = serviceWith({ run: () => { throw new Error('spawn ENOENT'); } });
+
+    assert.equal(await refusing.ensureBundledBuild(), null, 'the api starts either way');
+
+    const row = await bundled();
+    assert.equal(row.status, 'failed', 'and nothing is left building');
+    assert.equal(row.gitRef, PIN);
+    assert.match(row.lastError ?? '', /spawn ENOENT/);
+  });
+
+  it('leaves a row that already deploys from the pin exactly as it was', async () => {
+    pinned(PIN);
+    await publishBuild(PIN, baseEnv('pinned'));
+    const row = await bundled();
+
+    assert.equal(await service.ensureBundledBuild(), null);
+
+    assert.deepEqual(await bundled(), row);
   });
 });
 

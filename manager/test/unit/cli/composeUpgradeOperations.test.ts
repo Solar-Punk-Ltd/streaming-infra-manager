@@ -384,6 +384,20 @@ describe('the manager upgrade against one Compose project', () => {
       assert.equal(outcome.problem, 'an earlier boot could not reach github', 'and what it does say is still shown');
     });
 
+    it('reports a boot that could not start the build at all, without waiting out the bound', async () => {
+      const before = bundledRow({ status: 'failed', layout: 'legacy', gitRef: 'main-v2', commitSha: null, buildId: null, rootPath: null, lastError: 'an earlier boot could not reach github' });
+      const recorded = 'The pinned stack commit was not built: review-stack is building. Wait for it to finish, then try again.';
+      bundledStates = [before, bundledRow({ ...before, gitRef: PIN, lastError: recorded })];
+      const upgrade = operations();
+      await upgrade.startProject(request);
+
+      const outcome = await upgrade.awaitBundledBuild();
+
+      assert.equal(outcome.state, 'failed');
+      assert.equal(outcome.problem, recorded);
+      assert.equal(steps.filter((step) => step === 'read-bundled').length, 2, 'the row it read before the api started, and one poll');
+    });
+
     it('gives up after its own bound, saying which commit it waited for', async () => {
       bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null })];
 
