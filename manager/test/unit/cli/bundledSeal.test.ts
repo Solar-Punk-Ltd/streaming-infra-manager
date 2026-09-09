@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -21,6 +21,10 @@ import { verifyBundledPackage } from '../../../src/domain/versions/bundledShipme
 const SHIPMENT_ID = '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71';
 const TOOLCHAIN = 'node v22.9.0 pnpm 9.0.0 Darwin/arm64';
 const DIST = 'packages/x/dist';
+const DIRECTORY_MODE = 0o755;
+const FILE_MODE = 0o644;
+const EXECUTABLE_MODE = 0o755;
+const INPUT_MODE = 0o600;
 /** A synthetic value, so a test can prove the command never echoes an input file's contents. */
 const TOKEN_VALUE = 'synthetic-token-value';
 
@@ -48,6 +52,8 @@ describe('bundled:seal', () => {
     await writeFile(join(source, '.env'), `API_AUTH_TOKEN=${TOKEN_VALUE}\nSRT_PASSPHRASE=synthetic-passphrase\n`);
     await writeFile(join(source, 'deploy', 'config.json'), '{}\n');
     await writeFile(join(source, DIST, 'app.js'), 'export const built = true;\n');
+    await writeFile(join(source, DIST, 'tool.sh'), '#!/bin/sh\necho built\n');
+    await chmod(join(source, DIST, 'tool.sh'), EXECUTABLE_MODE);
     await writeFile(join(source, 'node_modules', 'installed.js'), 'module.exports = {};\n');
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -117,6 +123,23 @@ describe('bundled:seal', () => {
     assert.match(said, /\.env/);
     assert.match(said, /deploy\/config\.json/);
     assert.equal(said.includes(TOKEN_VALUE), false, 'an input value never reaches the output');
+  });
+
+  it('seals modes the engine containers can read, whatever the umask of the machine it ran on', async () => {
+    const before = process.umask(0);
+    try {
+      await seal();
+    } finally {
+      process.umask(before);
+    }
+
+    const sealed = join(out, `sealed-${SHIPMENT_ID}`);
+    const mode = async (path: string) => (await lstat(path)).mode & 0o777;
+    assert.equal(await mode(sealed), DIRECTORY_MODE, 'the package root');
+    assert.equal(await mode(join(sealed, DIST)), DIRECTORY_MODE, 'a directory inside it');
+    assert.equal(await mode(join(sealed, 'deploy', 'docker-compose.yml')), FILE_MODE, 'a plain file');
+    assert.equal(await mode(join(sealed, DIST, 'tool.sh')), EXECUTABLE_MODE, 'an executable of a built directory');
+    assert.equal(await mode(join(sealed, '.env')), INPUT_MODE, 'and the host inputs stay to their owner');
   });
 
   it('answers a missing option with what the command takes', async () => {
