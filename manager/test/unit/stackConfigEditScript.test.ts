@@ -7,10 +7,10 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -110,4 +110,44 @@ describe(`${CONFIG_EDIT_SCRIPT} run against a root`, () => {
     assert.match(edit(root, '--unlock'), /Removed/);
     assert.match(edit(root, 'commit'), /Committed revision 1/);
   });
+});
+
+describe(`${CONFIG_EDIT_SCRIPT} and the modes it leaves behind`, () => {
+  // Every file of the set holds secrets, the base env the stream passphrase
+  // and the api token among them, and the versions root above them is
+  // readable by anyone on the host. The umask is fixed here so the answer is
+  // the script's rather than the machine's.
+  let umask: number;
+  before(() => { umask = process.umask(0o022); });
+  after(() => { process.umask(umask); });
+
+  const modeOf = (path: string): number => statSync(path).mode & 0o777;
+
+  const sourceFile = (text: string): string => {
+    const source = join(mkdtempSync(join(tmpdir(), 'config-edit-source-')), 'content');
+    writeFileSync(source, text);
+    return source;
+  };
+
+  it('gives a file it creates, and the manifest beside it, the owner only mode', () => {
+    const root = mkdtempSync(join(tmpdir(), 'config-edit-modes-'));
+
+    edit(root, 'set', '.env', sourceFile('ENGINE=srs\n'));
+
+    assert.equal(modeOf(join(root, '.env')), 0o600);
+    assert.equal(modeOf(join(root, CONFIG_REVISION_FILE)), 0o600);
+  });
+
+  for (const mode of [0o600, 0o640]) {
+    it(`keeps the ${mode.toString(8)} an operator gave a file it replaces`, () => {
+      const root = mkdtempSync(join(tmpdir(), 'config-edit-modes-'));
+      writeFileSync(join(root, '.env'), 'ENGINE=srs\n');
+      chmodSync(join(root, '.env'), mode);
+
+      edit(root, 'set', '.env', sourceFile('ENGINE=ome\n'));
+
+      assert.equal(modeOf(join(root, '.env')), mode);
+      assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'ENGINE=ome\n');
+    });
+  }
 });
