@@ -200,6 +200,21 @@ describe('sweeping the packages a deploy left on the host', () => {
     assert.equal(existsSync(join(elsewhere, '.env')), true, 'what the link pointed at is untouched');
   });
 
+  it('removes nothing through a packages root that is itself a symbolic link', async () => {
+    const published = record('published');
+    const elsewhere = join(root, 'elsewhere-packages');
+    await directory(join(elsewhere, `sealed-${published}`));
+    await rm(bundledPackagesRootFor(versionsRoot), { recursive: true, force: true });
+    await symlink(elsewhere, bundledPackagesRootFor(versionsRoot));
+
+    const swept = await sweepBundledPackages(versionsRoot, journal());
+
+    assert.deepEqual(swept.removed, []);
+    assert.deepEqual(swept.failed.map((failure) => failure.name), [`bundled.packages/sealed-${published}`]);
+    assert.match(swept.failed[0]!.reason, /parent|link/i, 'and says the root itself is the reason');
+    assert.equal(existsSync(join(elsewhere, `sealed-${published}`, '.env')), true, 'what the link pointed at is untouched');
+  });
+
   it('answers nothing at all on a host where no package has ever been shipped', async () => {
     await rm(bundledPackagesRootFor(versionsRoot), { recursive: true, force: true });
     await rm(materializationsRootFor(configRootFor(versionsRoot, BUNDLED)), { recursive: true, force: true });
