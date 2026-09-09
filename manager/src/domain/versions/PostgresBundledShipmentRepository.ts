@@ -195,6 +195,37 @@ export class PostgresBundledShipmentRepository {
     return readPendingShipmentBuildIds(this.pool, versionId);
   }
 
+  /** The shipment whose private copy carries this id, which is what says who owns that directory. */
+  async findByMaterialization(materializationId: string): Promise<BundledShipmentRecord | null> {
+    validateBundledShipmentId(materializationId);
+    const result = await this.pool.query<ShipmentRow>(`SELECT ${SHIPMENT_COLUMNS} FROM bundled_shipments WHERE materialization_id = $1`, [materializationId]);
+    return result.rows[0] ? toRecord(result.rows[0]) : null;
+  }
+
+  /**
+   * Marks every shipment this version's current publication has left behind,
+   * and answers the records it changed.
+   *
+   * A shipment registered or prepared against an older publication revision can
+   * never activate, so its package and its private copy are files nothing will
+   * read again. Saying so under the version row's lock is what lets a sweep
+   * remove them without racing a publication that is still deciding.
+   */
+  async supersedeStalePending(versionId: number): Promise<BundledShipmentRecord[]> {
+    return this.transaction(async (client, version) => {
+      if (version.id !== versionId) throw new Error('Shipment identity belongs to another version.');
+      const stale = await client.query<ShipmentRow>(
+        `SELECT ${SHIPMENT_COLUMNS} FROM bundled_shipments
+         WHERE version_id = $1 AND state IN ('registered', 'prepared') AND expected_publication_revision < $2
+         ORDER BY shipment_id FOR UPDATE`,
+        [versionId, version.publication_revision],
+      );
+      const changed: BundledShipmentRecord[] = [];
+      for (const row of stale.rows) changed.push(await this.supersede(client, toRecord(row)));
+      return changed;
+    });
+  }
+
   /** Only the final path check and rename may run here. Copying and full verification stay outside this lock. */
   async withPreparedCandidate(snapshot: BundledShipmentRecord, install?: () => Promise<void>): Promise<BundledMaterialization> {
     return this.transaction(async (client, version) => {

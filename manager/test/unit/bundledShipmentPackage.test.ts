@@ -51,6 +51,18 @@ test('seals and verifies the exact path, type, permission, content and copied-in
   assert.equal((await lstat(join(output, BUNDLED_PACKAGE_MANIFEST))).mode & 0o777, 0o600);
 });
 
+test('records a symbolic link with the one mode every platform gives one, so a package travels', async () => {
+  const { source, output, capture } = await fixture();
+
+  const sealed = await sealBundledPackage(source, output, capture);
+
+  const verified = await verifyBundledPackage(output, sealed.identity);
+  const link = verified.manifest.entries.find(entry => entry.path === 'entry');
+  assert.equal(link?.type, 'symlink');
+  // Linux gives every symbolic link 0777 and offers no way to change it, so that is what a package records.
+  assert.equal(link?.mode, 0o777);
+});
+
 test('produces the same identity from the same tree independently of destination and wall time', async () => {
   const { root, source, output, capture } = await fixture();
   const first = await sealBundledPackage(source, output, capture);

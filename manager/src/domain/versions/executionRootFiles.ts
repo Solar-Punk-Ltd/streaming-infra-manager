@@ -1,4 +1,4 @@
-import { chmod, lchmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord } from './ExecutionRoot.js';
@@ -53,7 +53,6 @@ export async function copyExecutionRoot(
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
         await symlink(entry.target, join(root, entry.path));
-        if (((await lstat(join(root, entry.path))).mode & 0o7777) !== entry.mode) await lchmod(join(root, entry.path), entry.mode);
       }
     }
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);

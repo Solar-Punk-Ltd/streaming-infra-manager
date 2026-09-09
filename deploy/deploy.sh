@@ -10,30 +10,36 @@
 #     LocalForward 8080 localhost:8080
 #
 # What it does:
-#   1. Builds swarm-hls-stream locally so its dist/ artifacts ship over rsync
-#      (the host docker daemon mounts those into sibling containers spawned
-#      by the manager, so they must exist on the server filesystem).
+#   1. Builds swarm-hls-stream locally so its dist/ artifacts ship with the
+#      stack (the host docker daemon mounts those into sibling containers
+#      spawned by the manager, so they must exist on the server filesystem).
 #   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager, without
 #      manager/swarm-hls-stream: the tree the engines of existing deployments
 #      mount is never written over again, so a container restart keeps the
 #      files it was started with. Excludes node_modules, build caches and
 #      .git. The manager's .env DOES ship, and --delete means this checkout
 #      is the only source of truth for it.
-#   3. rsyncs the built stack into bundled.incoming.tmp/ under the versions
-#      root and promotes it to bundled.incoming/ with one rename once every
-#      file, the commit included, arrived, so the api never sees a tree a
-#      dropped connection left half copied. The api publishes it at boot as
-#      bundled.builds/<commit>/, one immutable directory per build, and
-#      commits the stack's .env, deploy config and engine envs as the bundled
-#      version's host configuration when they changed, so this checkout
-#      stays their source of truth too. A new deploy of a deployment runs
-#      from the published build. A container keeps what it mounts until its
-#      deployment is deployed.
-#   4. SSHes in and runs `docker compose up -d --build --remove-orphans`.
-#      Builds happen on the server, so the image tags match the server's
-#      docker engine. With MANAGER_DOMAIN set, the `public` profile joins in
-#      and starts the TLS edge. With it cleared, the edge is removed by name
-#      and the removal is checked, because dropping a profile does not stop a
+#   3. Seals the streaming stack into one package with `bundled:seal`. The
+#      package holds the files of the commit the checkout is on, the two
+#      built directories, the stack's own .env, deploy config and engine
+#      envs, and a manifest naming every path with its hash. It is copied to
+#      the host under a staging name and renamed once every file arrived, so
+#      the host never reads a package a dropped connection left half copied.
+#      Nothing about it is published yet.
+#   4. Builds the images on the server, decides there whether this host has
+#      ever run the manager, and then runs `manager:upgrade` in a one-off
+#      container of the image just built. The first use question is answered
+#      before that container exists, because preparing it can create the
+#      project's volumes, and it stops the deploy when the data volume is gone
+#      from under an installed manager. The command owns the rest:
+#      it holds one directory for the whole run so a second upgrade cannot
+#      start beside it, stops the old api, checks the package against the
+#      identity it was given, migrates, publishes the package as an immutable
+#      build the bundled version deploys from, starts the project and waits
+#      for the api to answer. A container keeps what it mounts until its own
+#      deployment is deployed. With MANAGER_DOMAIN set the upgrade is asked
+#      for the public TLS edge, and without it the edge is removed by name and
+#      the removal is checked, because dropping a profile does not stop a
 #      container already running under it.
 
 set -euo pipefail
@@ -72,10 +78,10 @@ MANAGER_DOMAIN="$(
 HOSTNAME_PATTERN='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 
 if [ -z "$MANAGER_DOMAIN" ]; then
-    COMPOSE_PROFILE_FLAG=""
+    PUBLIC_EDGE_FLAG=""
     echo "==> MANAGER_DOMAIN is empty: no public edge, SSH tunnel only"
 elif [[ "$MANAGER_DOMAIN" =~ $HOSTNAME_PATTERN ]]; then
-    COMPOSE_PROFILE_FLAG="--profile public"
+    PUBLIC_EDGE_FLAG="--public-edge"
     echo "==> MANAGER_DOMAIN=${MANAGER_DOMAIN}: starting the public HTTPS edge too"
 else
     echo "ERROR: MANAGER_DOMAIN in $ENV_FILE is not a host name: '${MANAGER_DOMAIN}'." >&2
@@ -84,29 +90,89 @@ else
     exit 1
 fi
 
-echo "==> Building swarm-hls-stream locally (so dist/ ships over rsync)"
+echo "==> Building swarm-hls-stream locally (so its dist/ ships inside the package)"
 # swarm-hls-stream has its own pnpm workspace, separate from the parent repo.
 pnpm -C manager/swarm-hls-stream install --frozen-lockfile
 pnpm -C manager/swarm-hls-stream -r build
 
 echo "==> Recording the bundled stack commit"
 # The rsync below excludes .git, so on the server the submodule tree carries no
-# way of saying which commit it is. The manager reads this file at boot and
-# shows it as the bundled version's commit. Written next to the checkout rather
-# than inside it, because the submodule's own .gitignore does not cover it and a
-# file in there would show up as an untracked change in the submodule.
+# way of saying which commit it is. A bundled row that has never been published
+# reads this file at boot and shows it as its commit. Written next to the
+# checkout rather than inside it, because the submodule's own .gitignore does
+# not cover it and a file in there would show up as an untracked change.
 git -C manager/swarm-hls-stream rev-parse HEAD > manager/.stack-commit
 echo "[deploy] bundled stack commit: $(cat manager/.stack-commit)"
 
-# The host's versions root, where the api publishes from: the path the remote
-# block below exports and manager/docker-compose.yml bind-mounts, under the
-# home of the user the api runs as.
+echo "==> Building the manager, so its command line exists here"
+pnpm --filter @streaming-infra-manager/api... build
+
+# One fresh id per deploy run, which is what the host's journal records the
+# shipment under. Replaying an earlier one is not something this script does.
+SHIPMENT_ID="$(uuidgen | tr 'A-Z' 'a-z')"
+TOOLCHAIN="node $(node --version) pnpm $(pnpm --version) $(uname -s)/$(uname -m)"
+SEAL_DIR="$(mktemp -d)"
+trap 'rm -rf "$SEAL_DIR"' EXIT
+
+echo "==> Sealing the bundled stack (shipment ${SHIPMENT_ID})"
+SEAL_JSON="$(node manager/dist/cli.js bundled:seal \
+    --source manager/swarm-hls-stream \
+    --out "$SEAL_DIR" \
+    --shipment-id "$SHIPMENT_ID" \
+    --dist packages/client/dist \
+    --dist packages/stream-uploader/dist \
+    --adopt-inputs \
+    --toolchain "$TOOLCHAIN")"
+# The command prints one JSON line on standard output and nothing else. Read it
+# with one node run that refuses a line missing either field by name, and take
+# the two values from the two lines it writes back.
+SEAL_FIELDS="$(node -e '
+const sealed = JSON.parse(process.argv[1]);
+for (const field of ["commit", "digest"]) {
+    if (typeof sealed[field] !== "string") {
+        process.stderr.write("ERROR: bundled:seal printed no " + field + " for this shipment.\n");
+        process.exit(1);
+    }
+}
+process.stdout.write(sealed.commit + "\n" + sealed.digest + "\n");
+' "$SEAL_JSON")"
+SHIPMENT_COMMIT="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 1p)"
+SHIPMENT_DIGEST="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 2p)"
+
+# Every identity below is interpolated into a command line that runs on the
+# host, so each one is checked here rather than trusted.
+UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+COMMIT_PATTERN='^[a-f0-9]{40}$'
+DIGEST_PATTERN='^[a-f0-9]{64}$'
+HOME_PATTERN='^/[A-Za-z0-9._/-]+$'
+# The same letters, digits, spaces and punctuation the seal command allows.
+TOOLCHAIN_PATTERN='^[A-Za-z0-9 ._/+-]+$'
+check_identity() {
+    local name="$1" value="$2" pattern="$3"
+    if [[ ! "$value" =~ $pattern ]]; then
+        echo "ERROR: ${name} is not the identity it has to be: '${value}'." >&2
+        exit 1
+    fi
+}
+check_identity "SHIPMENT_ID" "$SHIPMENT_ID" "$UUID_PATTERN"
+check_identity "SHIPMENT_COMMIT" "$SHIPMENT_COMMIT" "$COMMIT_PATTERN"
+check_identity "SHIPMENT_DIGEST" "$SHIPMENT_DIGEST" "$DIGEST_PATTERN"
+check_identity "TOOLCHAIN" "$TOOLCHAIN" "$TOOLCHAIN_PATTERN"
+echo "[deploy] sealed ${SHIPMENT_COMMIT} as ${SHIPMENT_DIGEST}"
+
+# The host's versions root, where the upgrade publishes from: the path the
+# remote block below exports and manager/docker-compose.yml bind-mounts, under
+# the home of the user the api runs as.
 REMOTE_HOME="$(ssh "$SSH_TARGET" 'printf %s "$HOME"')"
 if [ -z "$REMOTE_HOME" ]; then
     echo "ERROR: could not read the home directory on ${SSH_TARGET}." >&2
     exit 1
 fi
+# The host said this, and every remote path below is built out of it and put
+# into a command line there, so it is checked here like every other identity.
+check_identity "REMOTE_HOME" "$REMOTE_HOME" "$HOME_PATTERN"
 REMOTE_VERSIONS_ROOT="${REMOTE_HOME}/streaming-infra-manager-versions"
+REMOTE_PACKAGES="${REMOTE_VERSIONS_ROOT}/bundled.packages"
 
 echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH} (manager/swarm-hls-stream left as it is)"
 rsync -avz --delete \
@@ -118,29 +184,24 @@ rsync -avz --delete \
     --exclude '.DS_Store' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
-echo "==> rsync the built stack → ${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp"
-# Into a staging directory beside the published builds, replaced whole by
-# every deploy, never into a published build and never into the legacy tree,
-# and made the shipment with one rename once every file arrived: a dropped
-# connection leaves a torn staging directory the next deploy replaces, never
-# a shipment the api would read. The per deployment files a local run may
-# have left, .env.<profile> and the like, stay home. The sample they are made
-# from ships.
-ssh "$SSH_TARGET" "rm -rf '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp' && mkdir -p '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp'"
-rsync -avz --delete \
-    --exclude '.git/' \
-    --exclude 'node_modules/' \
-    --exclude 'deploy/data/' \
-    --include '.env.sample' \
-    --exclude '.env.*' \
-    --exclude '.DS_Store' \
-    manager/swarm-hls-stream/ "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp/"
-rsync -avz manager/.stack-commit "${SSH_TARGET}:${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp/.stack-commit"
+echo "==> rsync the sealed package → ${SSH_TARGET}:${REMOTE_PACKAGES}"
+# Archive mode and nothing else: the manifest records every file's mode and
+# every symbolic link, and a copy that dropped either would fail verification
+# on the host. Into a staging name beside the packages already there, never
+# over one, and made visible with one rename once every file arrived.
+ssh "$SSH_TARGET" "mkdir -p '${REMOTE_PACKAGES}' && rm -rf '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp'"
+rsync -a --delete \
+    "${SEAL_DIR}/sealed-${SHIPMENT_ID}/" "${SSH_TARGET}:${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp/"
+ssh "$SSH_TARGET" "mv '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp' '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}'"
 
-echo "==> promote the shipment"
-ssh "$SSH_TARGET" "rm -rf '${REMOTE_VERSIONS_ROOT}/bundled.incoming' && mv '${REMOTE_VERSIONS_ROOT}/bundled.incoming.tmp' '${REMOTE_VERSIONS_ROOT}/bundled.incoming'"
+# What the upgrade records as the manager it installed: the commit of this
+# checkout and a digest of the tree that commit names.
+MANAGER_COMMIT="$(git rev-parse HEAD)"
+MANAGER_DIGEST="$(git ls-tree -r --full-tree HEAD | shasum -a 256 | cut -c1-64)"
+check_identity "MANAGER_COMMIT" "$MANAGER_COMMIT" "$COMMIT_PATTERN"
+check_identity "MANAGER_DIGEST" "$MANAGER_DIGEST" "$DIGEST_PATTERN"
 
-echo "==> Remote build + up"
+echo "==> Remote build + upgrade"
 # Detect the server's primary IP on the host (the manager runs in a container,
 # so it can't see the host's real address itself) and pass it through as
 # PUBLIC_HOST for building component URLs.
@@ -148,10 +209,13 @@ ssh "$SSH_TARGET" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_PATH}/manager
 
-PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}')"
+# The || true is what keeps this line from ending the whole remote block: it runs
+# under pipefail, so a host without ip, or a route that cannot be read, would
+# fail the substitution and none of the lines below would run.
+PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}' || true)"
 echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}' (default-route src IP)"
 if [ -z "\${PUBLIC_HOST}" ]; then
-    echo "[deploy] WARNING: PUBLIC_HOST is empty; component URLs will fall back to localhost" >&2
+    echo "[deploy] WARNING: PUBLIC_HOST is empty, so component URLs will fall back to localhost" >&2
 fi
 
 export PUBLIC_HOST
@@ -163,32 +227,62 @@ export STACK_VERSIONS_ROOT="\${HOME}/streaming-infra-manager-versions"
 mkdir -p "\${STACK_VERSIONS_ROOT}"
 echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
 
-# --remove-orphans reaches a service renamed or deleted in the compose file,
-# and only inside the manager compose project, each deployment having its own
-# project name. It does not reach the edge: Compose counts a service whose
-# profile is inactive as one it knows about rather than an orphan, so a
-# container started under --profile public keeps running once the profile is
-# dropped. Naming the profile is the only way to reach it, so with no domain
-# set the edge is removed by name and the removal is checked. It publishes 80,
-# 443 and 443/udp, so a deploy that leaves it up leaves the host public.
-docker compose ${COMPOSE_PROFILE_FLAG} up -d --build --remove-orphans
+docker compose build
+IMAGE_ID="\$(docker image inspect --format '{{.Id}}' manager-api)"
+echo "[deploy] built api image \${IMAGE_ID}"
 
-if [ -z "${COMPOSE_PROFILE_FLAG}" ]; then
-    docker compose --profile public rm -sf edge
-    if [ -n "\$(docker compose --profile public ps -q edge)" ]; then
-        echo "[deploy] ERROR: MANAGER_DOMAIN is empty and the edge is still running." >&2
-        echo "[deploy] The host is still answering on 80 and 443." >&2
-        echo "[deploy] Stop it by hand: cd ${REMOTE_PATH}/manager && docker compose --profile public rm -sf edge" >&2
+# Whether this host has ever run the manager is decided here, before the one-off
+# container below exists. Preparing that container can create the project's
+# volumes, so the same question asked from inside it would find a data volume
+# nothing has ever written to and call an old database a new one.
+POSTGRES_VOLUME="manager_manager-pg"
+service_containers() {
+    docker ps -aq \
+        --filter "label=com.docker.compose.project=manager" \
+        --filter "label=com.docker.compose.service=\$1" \
+        --filter "label=com.docker.compose.oneoff=False"
+}
+# Each answer is read into a variable of its own before it is looked at. A
+# substitution inside a [ ... ] condition reports what it printed rather than
+# that it failed, so a daemon that could not be asked would read as a host with
+# nothing on it and this deploy would call an old database new.
+DATA_VOLUME="\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)"
+API_CONTAINERS="\$(service_containers api)"
+POSTGRES_CONTAINERS="\$(service_containers postgres)"
+FIRST_USE_FLAG=""
+if [ -z "\${DATA_VOLUME}" ]; then
+    if [ -n "\${API_CONTAINERS}" ]; then
+        echo "[deploy] ERROR: this host has an api container but no \${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again." >&2
         exit 1
     fi
-    echo "[deploy] no public edge running"
+    if [ -z "\${POSTGRES_CONTAINERS}" ]; then
+        FIRST_USE_FLAG="--first-use"
+        echo "[deploy] no data volume and no containers of this project: this host has never run the manager"
+    fi
 fi
 
+# --no-deps is deliberate. This one-off container decides for itself whether
+# Postgres may be started, because a host that has never run the manager and a
+# host whose database was removed are different situations and only one of them
+# may be treated as an empty database. The container joins the project network,
+# so postgres and api resolve by name inside it.
+RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade \
+    --shipment-id '${SHIPMENT_ID}' \
+    --commit '${SHIPMENT_COMMIT}' \
+    --digest '${SHIPMENT_DIGEST}' \
+    --manager-commit '${MANAGER_COMMIT}' \
+    --manager-digest '${MANAGER_DIGEST}' \
+    --image-id "\${IMAGE_ID}" \
+    --project manager \
+    --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
+    --mutable-root ${REMOTE_PATH} \
+    \${FIRST_USE_FLAG} \
+    --toolchain '${TOOLCHAIN}' ${PUBLIC_EDGE_FLAG} < /dev/null)"
+echo "[deploy] upgrade receipt: \${RECEIPT}"
+
 echo "[deploy] PUBLIC_HOST seen inside api container:"
-docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' || \
+docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' < /dev/null || \
     echo "[deploy] (could not exec into api container to verify)"
-echo "[deploy] the api publishes the shipped bundled stack as it boots. Its log names the build:"
-echo "[deploy]   docker compose logs api | grep 'bundled'"
 REMOTE
 
 

@@ -1,130 +1,56 @@
-import {
-  getErrorMessage,
-  usernameProblem,
-} from '@streaming-infra-manager/common';
+import { getErrorMessage } from '@streaming-infra-manager/common';
 
-import { AuthService } from './domain/auth/AuthService.js';
-import { OpenStreams } from './domain/auth/OpenStreams.js';
-import { PostgresCredentialRepository } from './domain/auth/PostgresCredentialRepository.js';
-import { PostgresSessionRepository } from './domain/auth/PostgresSessionRepository.js';
-import { PostgresUserRepository } from './domain/auth/PostgresUserRepository.js';
-import { Database } from './domain/Database.js';
+import { BUNDLED_SEAL, runBundledSeal } from './cli/bundledSeal.js';
+import { CLI_PREFIX, processStreams } from './cli/commandStreams.js';
 import { Logger } from './domain/Logger.js';
-import { config } from './utils/config.js';
-import { promptSecret, readSecretFromStdin } from './utils/secretInput.js';
 
 /**
- * The manager's command line, for the one thing that cannot be done through
- * the API: creating a user when none exists yet.
+ * The manager's command line.
  *
- *   docker compose exec -it api node dist/cli.js user:add <username>
- *   op read "op://<vault>/<item>/password" | \
- *     docker compose exec -T api node dist/cli.js user:add <username> --password-stdin
+ *   node dist/cli.js user:add <username>          on the host, in the api container
+ *   node dist/cli.js bundled:seal ...             on the machine a deploy runs from
+ *   node dist/cli.js manager:upgrade ...          on the host, from a freshly built image
  *
- * Only the hash reaches Postgres. There is deliberately no way to pass the
- * password as an argument or an environment variable.
+ * Only `bundled:seal` runs without a database, so it is the only command
+ * loaded up front. The other two are loaded when they are asked for, which is
+ * what keeps a laptop with no DATABASE_URL from being refused before it has
+ * even sealed anything.
  */
 
 const USER_ADD = 'user:add';
-const PASSWORD_STDIN_FLAG = '--password-stdin';
-const ADMIN_FLAG = '--admin';
+const MANAGER_UPGRADE = 'manager:upgrade';
 
 const USAGE = [
   'Usage:',
-  `  node dist/cli.js ${USER_ADD} <username> [${PASSWORD_STDIN_FLAG}] [${ADMIN_FLAG}]`,
+  '  node dist/cli.js <command> [options]',
   '',
-  'Prompts for the password twice, with nothing echoed. Needs a terminal,',
-  `so run it with "docker compose exec -it". With ${PASSWORD_STDIN_FLAG} the`,
-  'password is read from a pipe instead, for feeding it from a vault.',
-  `${ADMIN_FLAG} lets the new user add and remove users. The first user`,
-  'ever added can do that whether or not the flag is given.',
+  'Commands:',
+  `  ${USER_ADD}         add a user, which is how the first one on a host is made`,
+  `  ${BUNDLED_SEAL}     seal the checked out streaming stack into one package`,
+  `  ${MANAGER_UPGRADE}  publish a sealed package and bring the project back up`,
+  '',
+  'Each command refuses with its own usage when its options are wrong.',
 ].join('\n');
 
-const logger = Logger.getInstance();
-
-async function readPassword(fromStdin: boolean): Promise<string> {
-  if (fromStdin) {
-    const password = await readSecretFromStdin();
-    if (password === '') throw new Error('no password arrived on stdin');
-    return password;
-  }
-
-  if (!process.stdin.isTTY) {
-    throw new Error(
-      `stdin is not a terminal, so the password cannot be typed. Run this with "docker compose exec -it", or pipe the password in with ${PASSWORD_STDIN_FLAG}.`,
-    );
-  }
-
-  const password = await promptSecret('Password: ');
-  const again = await promptSecret('Password again: ');
-  if (password !== again) throw new Error('the two passwords do not match');
-  return password;
-}
-
-async function addUser(
-  username: string,
-  fromStdin: boolean,
-  admin: boolean,
-): Promise<void> {
-  // Checked before the prompt, so a bad name is not found out after the
-  // password has been typed twice.
-  const badName = usernameProblem(username);
-  if (badName) throw new Error(`"${username}": ${badName}`);
-
-  const password = await readPassword(fromStdin);
-  const database = new Database(config.databaseUrl);
-
-  try {
-    // Idempotent, and it means the first user can be created on a host where
-    // the API has not started yet.
-    await database.migrate();
-    const authService = new AuthService(
-      new PostgresUserRepository(database.pool),
-      new PostgresSessionRepository(database.pool),
-      new PostgresCredentialRepository(database.pool),
-      new OpenStreams(),
-    );
-    const created = await authService.addUser(username, password, { admin });
-    logger.info(
-      `[cli] created user ${username}${created.isAdmin ? ' (can manage users)' : ''}`,
-    );
-  } finally {
-    await database.close();
-  }
-}
-
 async function main(): Promise<void> {
+  // Standard output carries the one line a caller parses, so everything logged goes beside it.
+  Logger.getInstance().writeEverythingToStandardError();
   const [command, ...rest] = process.argv.slice(2);
 
-  if (command !== USER_ADD) {
-    throw new Error(
-      command ? `unknown command: ${command}\n\n${USAGE}` : USAGE,
-    );
+  if (command === BUNDLED_SEAL) return runBundledSeal(rest, processStreams);
+  if (command === USER_ADD) return (await import('./cli/userAdd.js')).runUserAdd(rest);
+  if (command === MANAGER_UPGRADE) {
+    return (await import('./cli/managerUpgrade.js')).runManagerUpgradeCommand(rest, processStreams);
   }
 
-  const flags = rest.filter((argument) => argument.startsWith('-'));
-  const unknownFlag = flags.find(
-    (flag) => flag !== PASSWORD_STDIN_FLAG && flag !== ADMIN_FLAG,
-  );
-  if (unknownFlag) throw new Error(`unknown option: ${unknownFlag}\n\n${USAGE}`);
-
-  const [username, ...extra] = rest.filter(
-    (argument) => !argument.startsWith('-'),
-  );
-  if (!username || extra.length > 0) {
-    throw new Error(`${USER_ADD} takes exactly one username\n\n${USAGE}`);
-  }
-
-  await addUser(
-    username,
-    flags.includes(PASSWORD_STDIN_FLAG),
-    flags.includes(ADMIN_FLAG),
-  );
+  throw new Error(command ? `unknown command: ${command}\n\n${USAGE}` : USAGE);
 }
 
 main()
-  .then(() => process.exit(0))
+  // The exit code is set rather than taken, because ending the process here can
+  // drop the line already written to a standard output that is a pipe.
+  .then(() => { process.exitCode = 0; })
   .catch((err: unknown) => {
-    logger.error(`[cli] ${getErrorMessage(err)}`);
+    processStreams.err(`${CLI_PREFIX} ${getErrorMessage(err)}`);
     process.exit(1);
   });

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, rename, rm } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { resolvedBundledShipment, type BundledMaterialization, type BundledShipmentRecord } from './BundledShipment.js';
@@ -8,7 +8,7 @@ import { copyBundledArtifact, verifyBundledArtifact } from './bundledArtifactFil
 import { verifyBundledPackage, type VerifiedBundledPackage } from './bundledShipmentPackage.js';
 import { assertOwnedDirectory } from './ownedTreePaths.js';
 import { PostgresBundledShipmentRepository } from './PostgresBundledShipmentRepository.js';
-import { stackRootOf } from './stackPaths.js';
+import { materializationsRootFor, stackRootOf } from './stackPaths.js';
 
 interface ArtifactFiles {
   copy: typeof copyBundledArtifact;
@@ -18,7 +18,7 @@ interface ArtifactFiles {
 export interface BundledMaterializationOptions { reuseFromShipmentId?: string }
 
 function privateParent(record: BundledShipmentRecord): string {
-  return join(dirname(record.rootPath), `${basename(record.rootPath)}.materializations`);
+  return materializationsRootFor(record.rootPath);
 }
 export function bundledMaterializationPath(record: BundledShipmentRecord): string {
   if (!record.materializationId || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(record.materializationId)) throw new Error('Shipment has no selected materialization copy.');

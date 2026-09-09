@@ -31,7 +31,8 @@ const COMMIT = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const REVISION = /^(0|[1-9][0-9]{0,18})$/;
 
-function captureRequest(input: ManagerUpgradeRequest): ManagerUpgradeRequest {
+/** The request as this upgrade will use it: every field checked, frozen, and no field the caller added. */
+export function captureManagerUpgradeRequest(input: ManagerUpgradeRequest): ManagerUpgradeRequest {
   const request = structuredClone(input);
   const fields = (value: unknown, keys: string[]) => value !== null && typeof value === 'object' && !Array.isArray(value) &&
     isDeepStrictEqual(Object.keys(value).sort(), keys.sort());
@@ -63,7 +64,7 @@ function assertCurrent(publication: ManagerPublication, receipt: BundledShipment
 /** Uncertain creators retain the durable guard. Neither elapsed time nor same-ID replay can launch them again. */
 export async function runManagerUpgrade(environment: { guardRoot: string; mutableRoot: string }, input: ManagerUpgradeRequest,
   operations: ManagerUpgradeOperations): Promise<ManagerUpgradeResult> {
-  const request = captureRequest(input);
+  const request = captureManagerUpgradeRequest(input);
   const guard = new ManagerUpgradeGuard(environment.guardRoot, environment.mutableRoot);
   guard.acquire(request);
   let effectStarted = false;

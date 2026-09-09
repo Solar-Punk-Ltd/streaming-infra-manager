@@ -7,6 +7,9 @@ import { assertOwnedVersionParent } from './ownedVersionParent.js';
 const MAX_RECORD_BYTES = 32768;
 const UNVERIFIED = 'Manager upgrade ownership cannot be verified.';
 
+/** What a rerun is told when a directory an earlier upgrade left is still there. */
+export const UPGRADE_ALREADY_OWNED = 'Manager upgrade is already owned or in progress.';
+
 function missing(error: unknown): boolean { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
 function inside(parent: string, child: string): boolean {
   const path = relative(parent, child);
@@ -78,7 +81,7 @@ export class ManagerUpgradeGuard {
 
   acquire(request: unknown): void {
     try { mkdirSync(this.root, { mode: 0o700 }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Manager upgrade is already owned or in progress.'); throw error; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(UPGRADE_ALREADY_OWNED); throw error; }
     syncDirectory(dirname(this.root));
     this.record = { schema: 1, ownerId: this.ownerId, request, phase: 'checking' };
     atomicRecord(join(this.root, 'owner.json'), this.record);
@@ -116,4 +119,17 @@ export class ManagerUpgradeGuard {
     rmdirSync(this.root);
     syncDirectory(dirname(this.root));
   }
+}
+
+/**
+ * The phase a retained guard directory says its upgrade stopped in, or null
+ * when it holds no readable record. Read through the same checks acquisition
+ * uses, so a link left in place of the record is a refusal and not an answer.
+ */
+export function retainedUpgradePhase(guardRoot: string): string | null {
+  assertOwnedVersionParent(guardRoot);
+  const record = readRecord(join(guardRoot, 'owner.json'));
+  if (!record || typeof record !== 'object') return null;
+  const phase = (record as { phase?: unknown }).phase;
+  return typeof phase === 'string' ? phase : null;
 }
