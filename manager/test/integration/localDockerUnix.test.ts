@@ -38,13 +38,13 @@ it('runs native Unix connection plus synthetic Docker/Bee preparation and one su
   };
   const preparation = ChequebookTransferPreparation.fromOwnedTarget(async () => syntheticTarget,
     (target, budgets, signal) => acquireLocalDockerBeeStream(target, async alias => ({ kind: 'unix', alias, socketPath }), budgets,
-      image => image === syntheticImageId, signal),
+      execution => execution.imageId === syntheticImageId, signal),
     new ChequebookChainRegistry('{"100":"https://rpc.example.invalid"}', () => reader));
   const repository = new InMemoryChequebookOperations();
   const intent = transferIntent(); const submission = new ChequebookSubmission(repository, input => preparation.prepare(input));
   assert.equal((await submission.submit(intent)).operation.state, 'submitted');
   assert.equal((await submission.submit(intent)).kind, 'replayed');
-  assert.equal(accepted, 1); assert.equal(docker.dockerRequests.length, 5); assert.equal(docker.counts().posts, 1);
+  assert.equal(accepted, 1); assert.equal(docker.dockerRequests.length, 6); assert.equal(docker.counts().posts, 1);
   await cleanup();
   await assert.rejects(stat(directory), { code: 'ENOENT' });
   assert.equal(server.listening, false); assert.equal(connections.size, 0);

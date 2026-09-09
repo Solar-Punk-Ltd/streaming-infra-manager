@@ -5,7 +5,7 @@ import type { Duplex } from 'node:stream';
 import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.js';
 import { targetLockIdentity, type FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { acquireDockerBeeStream, normalizeDockerBeeAcquisitionOptions,
-  type AcquiredDockerBeeStream, type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeImage } from './acquireDockerBeeStream.js';
+  type AcquiredDockerBeeStream, type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeExecution } from './acquireDockerBeeStream.js';
 
 /** A trusted runtime locator. The connection must separately prove the captured daemon identity. */
 export interface LocalDockerLocator { readonly kind: 'unix'; readonly alias: string; readonly socketPath: string }
@@ -49,7 +49,7 @@ function capturedLocator(value: LocalDockerLocator, alias: string): Readonly<Loc
 
 /** Inactive adapter. Resolution, one connection and the handshake share one acquisition allowance. */
 export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarget, resolveLocator: ResolveLocalDockerLocator,
-  options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeImage = () => false,
+  options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeExecution = () => false,
   signal?: AbortSignal, connectUnix: ConnectUnixDocker = openUnixDockerConnection): Promise<AcquiredDockerBeeStream> {
   const startedAt = performance.now();
   let raw: Duplex | undefined;

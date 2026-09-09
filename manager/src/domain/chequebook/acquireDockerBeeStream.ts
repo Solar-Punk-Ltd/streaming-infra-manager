@@ -7,6 +7,7 @@ import { OwnedHttpStream } from './OwnedHttpStream.js';
 import { createDockerExecDuplex } from './createDockerExecDuplex.js';
 import { dockerObject, fullDockerId, listedBeeContainer, observedBeeContainer, type ObservedBeeContainer } from './DockerBeeBinding.js';
 import { dockerBeeBridgeCommand } from './dockerBeeBridge.js';
+import { DOCKER_BEE_STREAM_BOUNDS, dockerEngineVersion, observedBeeBridgeExecution, type QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
 
 export interface DockerBeeAcquisitionOptions {
   acquisitionTimeoutMs?: number;
@@ -19,7 +20,7 @@ export interface AcquiredDockerBeeStream {
   readonly binding: ObservedBeeContainer;
 }
 /** Trusted qualification of the exact immutable image, never a request field or an operator assertion. */
-export type QualifiedBeeBridgeImage = (imageId: string) => boolean;
+export type { QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
 type Budgets = Required<DockerBeeAcquisitionOptions>;
 const MAX_JSON_BYTES = 1024 * 1024;
 const ignoreLateError = () => {};
@@ -152,7 +153,7 @@ class DockerHandshake extends http.Agent {
 
 /** Owns one supplied Docker API connection. The optional cap is a local monotonic deadline, never an API field. */
 export async function acquireDockerBeeStream(transport: Duplex, expected: FrozenChequebookTarget, options: DockerBeeAcquisitionOptions = {},
-  qualifyImage: QualifiedBeeBridgeImage = () => false, signal?: AbortSignal, acquisitionDeadline?: number): Promise<AcquiredDockerBeeStream> {
+  qualifyImage: QualifiedBeeBridgeExecution = () => false, signal?: AbortSignal, acquisitionDeadline?: number): Promise<AcquiredDockerBeeStream> {
   const startedAt = performance.now();
   let owned: OwnedHttpStream | undefined;
   let handshake: DockerHandshake | undefined;
@@ -170,18 +171,20 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     handshake = new DockerHandshake(owned, deadline, signal);
     const info = dockerObject(await handshake.json('GET', '/info', 200));
     if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError();
+    const engineVersion = dockerEngineVersion(info);
     const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
     const containerId = listedBeeContainer(await handshake.json('GET', `/containers/json?all=0&filters=${filters}`, 200), target);
     const binding = observedBeeContainer(await handshake.json('GET', `/containers/${containerId}/json`, 200), containerId, target);
-    if (typeof qualifyImage !== 'function' || qualifyImage(binding.imageId) !== true) throw new DockerBeeAcquisitionError();
+    const image = await handshake.json('GET', `/images/${binding.imageId}/json`, 200);
+    const execution = observedBeeBridgeExecution(engineVersion, image, binding.imageId, bridgeLifetimeMs, limits.cleanupGraceMs);
+    if (typeof qualifyImage !== 'function' || qualifyImage(execution) !== true) throw new DockerBeeAcquisitionError();
     const created = dockerObject(await handshake.json('POST', `/containers/${containerId}/exec`, 201, {
       AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: false, Privileged: false,
       Cmd: dockerBeeBridgeCommand(binding.internalPort, bridgeLifetimeMs, limits.cleanupGraceMs),
     }));
     await handshake.upgrade(fullDockerId(created.Id));
     handshake.requireActive();
-    stream = createDockerExecDuplex(owned, { maxFrameBytes: 1024 * 1024, maxOutputBytes: 8 * 1024 * 1024,
-      maxInputBytes: 64 * 1024, totalTimeoutMs: Math.max(1, Math.ceil(totalDeadline - performance.now())) }, signal);
+    stream = createDockerExecDuplex(owned, { ...DOCKER_BEE_STREAM_BOUNDS, totalTimeoutMs: Math.max(1, Math.ceil(totalDeadline - performance.now())) }, signal);
     stream.on('error', ignoreLateError);
     handshake.release();
     return Object.freeze({ stream, binding });

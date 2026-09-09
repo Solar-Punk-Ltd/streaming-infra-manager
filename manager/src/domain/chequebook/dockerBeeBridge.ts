@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /** Every binary and shell feature here requires qualification against the immutable Bee image. */
 const BRIDGE_SCRIPT = `set -eu
 exec 4<&0
@@ -21,3 +23,6 @@ export function dockerBeeBridgeCommand(internalPort: number, lifetimeMs: number,
     `--kill-after=${cleanupGraceMs / 1000}s`, `${Math.ceil(lifetimeMs / 1000)}s`, '/bin/bash', '--noprofile', '--norc', '-c',
     BRIDGE_SCRIPT, 'bee-byte-bridge', String(internalPort)];
 }
+
+/** A change to any binary, fixed argument or script byte invalidates prior qualification records. */
+export const DOCKER_BEE_BRIDGE_REVISION = `sha256:${createHash('sha256').update(JSON.stringify(dockerBeeBridgeCommand(1, 1000, 1000))).digest('hex')}`;
