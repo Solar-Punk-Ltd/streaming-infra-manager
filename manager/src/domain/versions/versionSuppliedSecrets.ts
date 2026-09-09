@@ -16,6 +16,10 @@ import { parseBaseEnv, parseEngineEnv } from '../../utils/envUtils.js';
  *
  * Both files are read, because the stack splits its secrets between them:
  * `API_AUTH_TOKEN` is the base env's and `SRS_WEBHOOK_TOKEN` the engine's.
+ * The base env decides every key it assigns, blank included, because the root
+ * file wins over the engine's in the stack's deploy script: a key the base
+ * sample declares blank and the operator set only in the engine env would
+ * otherwise leave the empty root line winning with nothing generated.
  */
 export function versionSuppliedSecrets(
   root: string,
@@ -24,7 +28,10 @@ export function versionSuppliedSecrets(
 ): Set<string> {
   const base = parseBaseEnv(root);
   const engineEnv = parseEngineEnv(root, engine);
-  const set = (key: string): boolean =>
-    (base[key] ?? '').trim() !== '' || (engineEnv[key] ?? '').trim() !== '';
-  return new Set(keys.filter(set));
+  const answers = (key: string): boolean => {
+    const atRoot = base[key];
+    if (atRoot !== undefined) return atRoot.trim() !== '';
+    return (engineEnv[key] ?? '').trim() !== '';
+  };
+  return new Set(keys.filter(answers));
 }
