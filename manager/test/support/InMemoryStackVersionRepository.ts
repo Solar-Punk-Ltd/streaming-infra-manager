@@ -111,11 +111,11 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     return row;
   }
 
-  async markBuilding(id: number): Promise<StackVersionRecord | null> {
+  async markBuilding(id: number, gitRef?: string): Promise<StackVersionRecord | null> {
     const current = this.rows.find(row => row.id === id);
     const problem = current ? versionRemovalProblem(current) : null;
     if (problem) throw new StackVersionRemovalHeldError(current!.name, 'marker');
-    return this.patch(id, { status: 'building', lastError: null });
+    return this.patch(id, { status: 'building', lastError: null, ...(gitRef ? { gitRef } : {}) });
   }
 
   async markBuilt(

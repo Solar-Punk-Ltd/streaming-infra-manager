@@ -50,7 +50,9 @@ beforeEach(() => {
   events = [];
   landed = 0;
   bus.subscribe((event) => events.push(event.type));
-  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
+  // A bundled root of this test's own, so whether this checkout carries a
+  // pinned stack commit changes nothing here.
+  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] }, join(versionsRoot, 'bundled-tree'));
 });
 
 /** Waits until no version is building any more, which is when the outcome is recorded. */
@@ -227,7 +229,7 @@ describe('the build mutex', () => {
     const bundled = await repository.findByName('bundled');
     await assert.rejects(
       () => service.update(bundled?.id ?? 0),
-      /comes with the manager/,
+      /pins no stack commit/,
     );
 
     await service.add('v3', 'main-v3');
