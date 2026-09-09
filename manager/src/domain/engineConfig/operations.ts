@@ -1,4 +1,5 @@
 import type { EngineConfigState, EngineName } from '@streaming-infra-manager/common';
+import type { RolloutRecoveryDescriptor } from './rolloutRecoveryDescriptor.js';
 
 /**
  * Where a config file rollout stands, the shared state under the name the
@@ -32,6 +33,9 @@ export interface EngineConfigOperation {
   /** The intent the rollout was started under. A moved intent ends it without a write. */
   intentRevision: number;
   state: EngineConfigOperationState;
+  recoveryDescriptor: RolloutRecoveryDescriptor | null;
+  recoveryReferenceId: number | null;
+  deploymentJobReferenceId: number | null;
   /** The container the watch verified, recorded when the watch started. */
   containerId: string | null;
   containerStartedAt: string | null;

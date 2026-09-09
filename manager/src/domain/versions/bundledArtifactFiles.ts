@@ -7,7 +7,7 @@ import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from './buildManifest.js';
 import type { BundledShipmentRecord } from './BundledShipment.js';
 import { bundledArtifactMetadata } from './bundledArtifactMetadata.js';
 import { assertCopiedBundledInputs, BUNDLED_PACKAGE_MANIFEST, parseBundledPackageManifest, verifyBundledPackage, type BundledPackageManifest, type VerifiedBundledPackage } from './bundledShipmentPackage.js';
-import { byPath, inventoryOwnedTree, sha256, type OwnedTreeEntry } from './ownedTreeInventory.js';
+import { byPath, inventoryOwnedTree, ownedTreeDigest, sha256, type OwnedTreeEntry } from './ownedTreeInventory.js';
 import { assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 import { readStackContract } from './stackContract.js';
 
@@ -53,7 +53,7 @@ export async function verifyBundledArtifact(root: string, candidate: BundledShip
   const expectedEntries = [...manifest.entries, ...generated].sort(byPath);
   if (actual.rootMode !== manifest.rootMode || !isDeepStrictEqual(actual.entries, expectedEntries)) throw new Error('Final artifact inventory differs from its exact package and generated files.');
   await assertCopiedBundledInputs(root, manifest.inputs);
-  const digest = sha256(JSON.stringify({ format: 1, rootMode: actual.rootMode, entries: actual.entries }));
+  const digest = ownedTreeDigest(actual);
   if (candidate.artifactDigest !== null && candidate.artifactDigest !== digest) throw new Error('Final artifact digest differs from its prepared identity.');
   const contract = readStackContract(root);
   if (candidate.candidateContract !== null && !isDeepStrictEqual(candidate.candidateContract, contract)) throw new Error('Final artifact contract differs from its prepared identity.');

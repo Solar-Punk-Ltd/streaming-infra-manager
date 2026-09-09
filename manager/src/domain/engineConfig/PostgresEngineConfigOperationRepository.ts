@@ -8,6 +8,8 @@ import { ProfileConfigError } from '../errors/index.js';
 import { insertOwnedBuildJob } from '../versions/buildJobClaim.js';
 import { captureRolloutAdmission, lockRolloutDeploy, reserveRolloutDeploy,
   type ClaimedRolloutDeploy, type PreparedRolloutDeploy, type RolloutAdmissionProof } from './rolloutDeployAdmission.js';
+import { captureRolloutRecovery, parseRolloutRecoveryDescriptor, validateCapturedRecovery,
+  type RolloutRecoveryCapture } from './rolloutRecoveryDescriptor.js';
 
 import type {
   BeginRollout,
@@ -26,7 +28,8 @@ const OPERATION_COLUMNS = `
   id, profile_name, profile_instance_id, engine, kind,
   previous_config, previous_is_template, applied_revision, intent_revision, state,
   container_id, container_started_at,
-  started_at, recreate_finished_at, watch_started_at, finished_at, message
+  started_at, recreate_finished_at, watch_started_at, finished_at, message,
+  recovery_descriptor, recovery_reference_id, deployment_job_reference_id
 `;
 
 interface OperationRow {
@@ -47,6 +50,9 @@ interface OperationRow {
   watch_started_at: Date | null;
   finished_at: Date | null;
   message: string | null;
+  recovery_descriptor: unknown;
+  recovery_reference_id: number | null;
+  deployment_job_reference_id: number | null;
 }
 
 function toOperation(row: OperationRow): EngineConfigOperation {
@@ -68,6 +74,9 @@ function toOperation(row: OperationRow): EngineConfigOperation {
     watchStartedAt: row.watch_started_at,
     finishedAt: row.finished_at,
     message: row.message,
+    recoveryDescriptor: parseRolloutRecoveryDescriptor(row.recovery_descriptor),
+    recoveryReferenceId: row.recovery_reference_id,
+    deploymentJobReferenceId: row.deployment_job_reference_id,
   };
 }
 
@@ -87,7 +96,11 @@ function closes(state: EngineConfigOperationState): boolean {
 export class PostgresEngineConfigOperationRepository
   implements EngineConfigOperationRepository
 {
-  constructor(private readonly pool: Pool, private readonly versionsRoot?: string) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly versionsRoot?: string,
+    private readonly captureRecovery: RolloutRecoveryCapture = captureRolloutRecovery,
+  ) {}
 
   async captureDeployAdmission(profile: Profile): Promise<RolloutAdmissionProof> {
     const expected = structuredClone(profile);
@@ -98,9 +111,11 @@ export class PostgresEngineConfigOperationRepository
     const request = structuredClone(input);
     const versionsRoot = this.requireVersionsRoot(request.profile.name);
     if (request.kind === 'reset' && request.config !== null) throw new ProfileConfigError(request.profile.name, 'A reset must select the engine template.');
+    const recovery = await this.captureRecovery(request.version, versionsRoot);
     return this.inTransaction(async client => {
       const locked = await lockRolloutDeploy(client, request, `config-${randomUUID()}`);
       if (!locked) return null;
+      validateCapturedRecovery(recovery, request.version, versionsRoot);
       const previous = (await client.query<{ engine_config: string | null }>('SELECT engine_config FROM profiles WHERE name = $1', [locked.profile.name])).rows[0]!.engine_config;
       const attempt = await reserveRolloutDeploy(client, locked);
       await client.query(
@@ -123,7 +138,16 @@ export class PostgresEngineConfigOperationRepository
           profile.engine_config_revision, profile.intent_revision],
       )).rows[0]!);
       const descriptor = await insertOwnedBuildJob(client, profile, request.version, [request.engine], versionsRoot);
-      return { profile, operation, descriptor, previousStatus: locked.profile.status, attempt };
+      const hold = (await client.query<{ id: number }>(
+        `INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision)
+         VALUES ($1, $2, 'operation', $3, $4::text[], $5, $6) RETURNING id`,
+        [request.version.id, descriptor.buildId, String(operation.id), [request.engine], profile.instance_id, profile.intent_revision],
+      )).rows[0]!.id;
+      const recorded = toOperation((await client.query<OperationRow>(
+        `UPDATE engine_config_operations SET recovery_descriptor = $2::jsonb, recovery_reference_id = $3, deployment_job_reference_id = $4
+         WHERE id = $1 RETURNING ${OPERATION_COLUMNS}`, [operation.id, JSON.stringify(recovery), hold, descriptor.referenceId],
+      )).rows[0]!);
+      return { profile, operation: recorded, descriptor, previousStatus: locked.profile.status, attempt };
     });
   }
 

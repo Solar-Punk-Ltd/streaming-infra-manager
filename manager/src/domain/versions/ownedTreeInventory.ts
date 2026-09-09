@@ -12,6 +12,9 @@ export type OwnedTreeEntry = { path: string; mode: number } & (
 );
 export interface OwnedTreeInventory { rootMode: number; entries: OwnedTreeEntry[]; stamps: Record<string, string> }
 export const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
+/** Format 1 is shared by final artifacts, execution sources and rollout recovery evidence. */
+export const ownedTreeDigest = ({ rootMode, entries }: Pick<OwnedTreeInventory, 'rootMode' | 'entries'>): string =>
+  sha256(JSON.stringify({ format: 1, rootMode, entries }));
 const stamp = (info: BigIntStats): string => [info.dev, info.ino, info.mode, info.size, info.mtimeNs, info.ctimeNs].join(':');
 export const byPath = (left: { path: string }, right: { path: string }): number => left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 

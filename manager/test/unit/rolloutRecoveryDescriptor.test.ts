@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -7,6 +10,7 @@ import { captureRolloutRecovery, parseRolloutRecoveryDescriptor, validateCapture
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
 import { inventoryOwnedTree, sha256 } from '../../src/domain/versions/ownedTreeInventory.js';
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';
+import { copyExecutionRoot } from '../../src/domain/versions/executionRootFiles.js';
 import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
@@ -49,6 +53,22 @@ describe('captured config rollback artifact evidence', () => {
     } }), /changed/i);
   });
 
+  it('uses recovery evidence directly as the execution copy source digest without changing format', async () => {
+    const captured = await captureRolloutRecovery(version, parent);
+    if (captured.kind !== 'immutable-build') throw new Error('immutable evidence required');
+    const executions = join(parent, '.executions');
+    await mkdir(executions);
+    const executionId = randomUUID();
+    const result = await copyExecutionRoot({ executionId,
+      source: { versionId: version.id, root: artifact, buildId: A, commit: A, artifactDigest: captured.artifactDigest },
+      profile: { name: 'synthetic-owner', instanceId: randomUUID(), intentRevision: 1, status: 'DEPLOYING' },
+      jobReferenceId: 9, target: { alias: 'localhost', daemonId: 'synthetic-daemon' }, project: 'synthetic-owner', action: 'deploy', services: ['srs'],
+      root: join(executions, executionId, 'tree'), state: 'copying', copyToken: randomUUID(), referenceId: 10, createdAt: new Date(0),
+    }, executions);
+    assert.equal(result.artifactDigest, captured.artifactDigest);
+    assert.equal(await readFile(join(result.root, 'source.sh'), 'utf8'), await readFile(join(artifact, 'source.sh'), 'utf8'));
+  });
+
   it('refuses a disappearing source during capture', async () => {
     await assert.rejects(captureRolloutRecovery(version, parent, { afterInventory: async () => {
       await rm(artifact, { recursive: true });
@@ -77,6 +97,58 @@ describe('captured config rollback artifact evidence', () => {
 
   it('refuses a build root outside the configured version parent', async () => {
     await assert.rejects(captureRolloutRecovery({ ...version, rootPath: join(parent, 'elsewhere', version.name) }, parent), /root|parent/i);
+  });
+
+  it('refuses a malformed name before inventory can reach a sibling artifact', async () => {
+    const configured = join(parent, 'versions');
+    await mkdir(configured);
+    const sentinel = await readFile(join(artifact, 'source.sh'), 'utf8');
+    let inventoriedSibling = false;
+    await assert.rejects(captureRolloutRecovery({ ...version, name: '../source-stack' }, configured, {
+      afterInventory: async () => { inventoriedSibling = true; },
+    }), /descriptor|name/i);
+    assert.equal(inventoriedSibling, false, 'malformed identity must be rejected before any sibling inventory');
+    assert.equal(await readFile(join(artifact, 'source.sh'), 'utf8'), sentinel);
+    assert.equal((await captureRolloutRecovery(version, parent)).kind, 'immutable-build');
+  });
+
+  it('rejects invalid version identity before trying to read missing evidence', async () => {
+    await rm(join(artifact, BUILD_MANIFEST_FILE));
+    await assert.rejects(captureRolloutRecovery({ ...version, id: -1 }, parent), /Invalid rollout recovery descriptor/);
+  });
+
+  it('parses the bounded manifest bytes without reopening a replaced path under admission locks', async t => {
+    const captured = await captureRolloutRecovery(version, parent);
+    const manifestPath = join(artifact, BUILD_MANIFEST_FILE);
+    const sibling = join(parent, 'synthetic-replacement.json');
+    await writeFile(sibling, JSON.stringify({ commit: 'b'.repeat(40), buildId: 'b'.repeat(40), builtAt: '2026-01-01', toolchain: 'synthetic' }));
+    const originalClose = fs.closeSync;
+    const originalRead = fs.readFileSync;
+    let replaced = false;
+    let manifestReopens = 0;
+    let failure: unknown;
+    t.mock.method(fs, 'closeSync', (fd: number) => {
+      originalClose(fd);
+      if (!replaced) {
+        replaced = true;
+        fs.unlinkSync(manifestPath);
+        fs.symlinkSync(sibling, manifestPath);
+      }
+    });
+    t.mock.method(fs, 'readFileSync', ((...args: Parameters<typeof fs.readFileSync>) => {
+      if (args[0] === manifestPath) manifestReopens++;
+      return Reflect.apply(originalRead, fs, args);
+    }) as typeof fs.readFileSync);
+    try {
+      syncBuiltinESMExports();
+      try { validateCapturedRecovery(captured, version, parent); } catch (error) { failure = error; }
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+    assert.equal(replaced, true);
+    assert.equal(manifestReopens, 0, 'the manifest identity must come from the bytes whose hash was captured');
+    assert.equal(failure, undefined);
   });
 
   it('checks selected identity again rather than accepting another version with identical file bytes', async () => {

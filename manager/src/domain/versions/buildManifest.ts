@@ -71,9 +71,20 @@ export function readBuildManifest(dir: string): BuildManifestRead {
   if (!existsSync(manifestPath)) {
     return { manifest: null, problem: `${dir} has no ${BUILD_MANIFEST_FILE}.` };
   }
+  let bytes: string;
+  try {
+    bytes = readFileSync(manifestPath, 'utf8');
+  } catch {
+    return { manifest: null, problem: `${manifestPath} does not parse as JSON.` };
+  }
+  return parseBuildManifestBytes(bytes, manifestPath);
+}
+
+/** Parse bytes already captured by a caller without reopening their source path. */
+export function parseBuildManifestBytes(bytes: string | Buffer, manifestPath = BUILD_MANIFEST_FILE): BuildManifestRead {
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    raw = JSON.parse(bytes.toString());
   } catch {
     return { manifest: null, problem: `${manifestPath} does not parse as JSON.` };
   }

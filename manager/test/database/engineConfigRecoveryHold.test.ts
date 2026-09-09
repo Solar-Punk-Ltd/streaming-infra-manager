@@ -180,13 +180,26 @@ describe('config rollout recovery representation and holds in PostgreSQL', { ski
     assert.equal(await profiles.engineConfigOf(initial.name), 'synthetic new config');
   });
 
-  for (const state of ['watching', 'interrupted', 'applied', 'reverted', 'failed', 'superseded'] as const) {
+  for (const state of ['watching', 'reverting', 'interrupted', 'applied', 'reverted', 'failed', 'superseded'] as const) {
     it(`does not infer safe hold release from the ${state} label alone`, async () => {
       const result = (await operations.beginDeploy(await request()))!;
       assert.ok(await operations.transition(ownershipOf(result.operation), ['applying'], state));
       const hold = (await pool.query("SELECT * FROM build_references WHERE holder_kind = 'operation' AND holder_id = $1", [String(result.operation.id)])).rows[0];
       assert.ok(hold);
       assert.equal(hold.resolved_at, null);
+    });
+  }
+
+  for (const field of ['recovery_descriptor', 'recovery_reference_id']) {
+    it(`keeps committed ${field} immutable through subsequent operation writes`, async () => {
+      const result = (await operations.beginDeploy(await request()))!;
+      const before = (await pool.query('SELECT * FROM engine_config_operations WHERE id = $1', [result.operation.id])).rows[0];
+      const expression = field === 'recovery_descriptor'
+        ? "jsonb_set(recovery_descriptor, '{artifactDigest}', to_jsonb(repeat('b',64)))"
+        : 'recovery_reference_id + 100';
+      await assert.rejects(pool.query(`UPDATE engine_config_operations SET ${field} = ${expression} WHERE id = $1`, [result.operation.id]), /immutable/i);
+      assert.deepEqual((await pool.query('SELECT * FROM engine_config_operations WHERE id = $1', [result.operation.id])).rows[0], before);
+      assert.equal((await pool.query('SELECT resolved_at FROM build_references WHERE id = $1', [before.recovery_reference_id])).rows[0].resolved_at, null);
     });
   }
 

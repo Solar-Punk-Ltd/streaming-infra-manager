@@ -101,3 +101,27 @@ describe('buildIdProblem', () => {
     assert.match(buildIdProblem('ABC1234') ?? '', /build id/);
   });
 });
+
+describe('parseBuildManifestBytes', () => {
+  it('parses captured bytes with the existing manifest fields and optional input evidence', async () => {
+    const { parseBuildManifestBytes } = await import('../../src/domain/versions/buildManifest.js');
+    const manifest = { ...MANIFEST, inputGeneration: 7, inputHashes: { '.env': 'a'.repeat(64) } };
+    assert.deepEqual(parseBuildManifestBytes(Buffer.from(JSON.stringify(manifest))), { manifest, problem: null });
+  });
+
+  it('retains malformed JSON, object and field diagnostics without reading a path', async () => {
+    const { parseBuildManifestBytes } = await import('../../src/domain/versions/buildManifest.js');
+    for (const [bytes, problem] of [
+      ['{ invalid', /does not parse as JSON/], ['[]', /manifest object/],
+      [JSON.stringify({ ...MANIFEST, commit: 'wrong' }), /commit/],
+      [JSON.stringify({ ...MANIFEST, buildId: '../escape' }), /buildId/],
+      [JSON.stringify({ ...MANIFEST, builtAt: 'wrong' }), /builtAt/],
+      [JSON.stringify({ ...MANIFEST, toolchain: '' }), /toolchain/],
+    ] as const) {
+      const parsed = parseBuildManifestBytes(bytes, 'synthetic-unread-path');
+      assert.equal(parsed.manifest, null);
+      assert.match(parsed.problem ?? '', problem);
+      assert.match(parsed.problem ?? '', /^synthetic-unread-path/);
+    }
+  });
+});
