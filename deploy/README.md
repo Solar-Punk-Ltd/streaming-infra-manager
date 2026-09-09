@@ -19,8 +19,8 @@ sudo usermod -aG docker solarpunk
 mkdir -p ~/streaming-infra-manager/manager
 ```
 
-Make sure `manager/.env` exists in your local checkout — it gets rsynced to
-the server on every deploy (your laptop is the source of truth). Example:
+Make sure `manager/.env` exists in your local checkout. It gets rsynced to
+the server on every deploy, so your laptop is the source of truth. Example:
 
 ```env
 POSTGRES_PASSWORD=<pick-something>
@@ -61,7 +61,8 @@ edit made on the server is undone by the next deploy.
 ## What a deploy does to the bundled stack
 
 The streaming stack the manager ships with is a version like any other, called
-`bundled`, and a deploy publishes a new build of it. Four steps, in this order.
+`bundled`, and a deploy publishes a new build of it. Three steps, in this order,
+and then where the result lives.
 
 **Seal.** On your machine, `bundled:seal` exports the files of the commit
 `manager/swarm-hls-stream` is on, adds the two built directories (which are not
@@ -334,7 +335,7 @@ docker compose logs -f api        # tail manager logs
 docker compose logs -f web        # tail nginx logs
 docker compose restart api        # restart just the manager
 docker compose down               # stop everything (postgres volume kept)
-docker compose down -v            # nuke postgres data too — be sure
+docker compose down -v            # nuke postgres data too, so be sure
 ```
 
 ## Architecture notes
