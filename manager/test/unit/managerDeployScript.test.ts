@@ -94,6 +94,17 @@ describe('deploy/deploy.sh', () => {
     assert.match(before, /label=com\.docker\.compose\.oneoff=False/, 'neither count a one-off container');
   });
 
+  it('reads each probe into a variable of its own, where a docker that could not be asked stops the deploy', () => {
+    // Inside a test the shell reports what the substitution answered, not that it failed, so a
+    // daemon that is down would read as a host with nothing on it and take the first use branch.
+    const before = script.slice(0, script.indexOf('docker compose run --rm --no-deps -T api')).split('\n');
+    for (const probe of ['docker volume ls -q --filter name=', 'service_containers api', 'service_containers postgres']) {
+      const asked = before.filter((line) => line.includes(probe));
+      assert.equal(asked.length, 1, `${probe} is asked in one place`);
+      assert.match(asked[0]!.trim(), /^[A-Z_]+="\\\$\(/, `${probe} is read into a variable of its own`);
+    }
+  });
+
   it('stops before the upgrade when the data volume went missing under an installed manager', () => {
     const abort = script.indexOf('so its database was removed under a manager that is still installed');
     assert.notEqual(abort, -1, 'the deploy says what it found');
