@@ -19,6 +19,7 @@ import {
   isAtSampleValue,
   settingsRefusal,
   withEntry,
+  withRemoval,
   withText,
 } from './settingsDraft';
 
@@ -34,6 +35,7 @@ const SETTINGS: StackSettings = {
       entries: [
         { key: 'API_PORT', value: '3000', sampleValue: '3000', description: '', secret: false, generated: false },
         { key: 'API_AUTH_TOKEN', value: 'kept', sampleValue: '', description: 'The token.', secret: true, generated: true },
+        { key: 'EXTRA_LOCAL_KEY', value: 'own', sampleValue: null, description: '', secret: false, generated: false },
       ],
     },
     { path: 'deploy/config.json', kind: 'json', text: '{"a":1}', sampleText: '{}' },
@@ -43,9 +45,20 @@ const SETTINGS: StackSettings = {
 describe('draftOf', () => {
   it('starts as what the manager answered', () => {
     assert.deepEqual(draftOf(SETTINGS), {
-      '.env': { kind: 'env', values: { API_PORT: '3000', API_AUTH_TOKEN: 'kept' } },
+      '.env': {
+        kind: 'env',
+        values: { API_PORT: '3000', API_AUTH_TOKEN: 'kept', EXTRA_LOCAL_KEY: 'own' },
+        removed: [],
+      },
       'deploy/config.json': { kind: 'json', text: '{"a":1}' },
     });
+  });
+
+  it('is what Discard goes back to, removals included', () => {
+    const draft = withRemoval(draftOf(SETTINGS), '.env', 'EXTRA_LOCAL_KEY');
+
+    assert.deepEqual(editedFiles(SETTINGS, draft).length, 1);
+    assert.deepEqual(editedFiles(SETTINGS, draftOf(SETTINGS)), []);
   });
 });
 
@@ -81,6 +94,36 @@ describe('editedFiles', () => {
       '.env',
       'deploy/config.json',
     ]);
+  });
+
+  it('sends a key the operator removed as the removal it is', () => {
+    const draft = withRemoval(draftOf(SETTINGS), '.env', 'EXTRA_LOCAL_KEY');
+
+    assert.deepEqual(editedFiles(SETTINGS, draft), [
+      { path: '.env', entries: [{ key: 'EXTRA_LOCAL_KEY', value: '', remove: true }] },
+    ]);
+  });
+
+  it('sends a removal beside the values that moved in the same file', () => {
+    const draft = withRemoval(withEntry(draftOf(SETTINGS), '.env', 'API_PORT', '3100'), '.env', 'EXTRA_LOCAL_KEY');
+
+    assert.deepEqual(editedFiles(SETTINGS, draft), [
+      {
+        path: '.env',
+        entries: [
+          { key: 'API_PORT', value: '3100' },
+          { key: 'EXTRA_LOCAL_KEY', value: '', remove: true },
+        ],
+      },
+    ]);
+  });
+
+  it('leaves the draft it was given alone when a key is removed', () => {
+    const draft = draftOf(SETTINGS);
+    const edited = withRemoval(draft, '.env', 'EXTRA_LOCAL_KEY');
+
+    assert.deepEqual(draft['.env']?.kind === 'env' && draft['.env'].removed, []);
+    assert.notEqual(draft, edited);
   });
 
   it('leaves the draft it was given alone', () => {

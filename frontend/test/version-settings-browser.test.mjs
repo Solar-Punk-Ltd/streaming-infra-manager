@@ -429,6 +429,28 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     assert.match(text, /link or a directory/);
   });
 
+  await t.test('a key the version does not declare can be taken out of the file', async () => {
+    const before = writes.length;
+    assert.equal(
+      await evaluate(`[...(${rowOf('API_PORT')}).querySelectorAll('button')].some(b => b.textContent.trim() === 'Remove')`),
+      false,
+      'a key the sample declares is not removable',
+    );
+
+    await clickButton('Remove', rowOf('EXTRA_LOCAL_KEY'));
+    await waitFor(
+      () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`),
+      (off) => off === false,
+      'an enabled Save',
+    );
+    await clickButton('Save');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the save with the removal');
+
+    assert.deepEqual(writes[before].body.files, [
+      { path: '.env', entries: [{ key: 'EXTRA_LOCAL_KEY', value: '', remove: true }] },
+    ]);
+  });
+
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
 });
