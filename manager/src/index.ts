@@ -268,6 +268,7 @@ async function main(): Promise<void> {
   // operator acts on the deployment and the config service acts through.
   const engineConfigOperations = new PostgresEngineConfigOperationRepository(
     database.pool,
+    config.stackVersionsRoot,
   );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,

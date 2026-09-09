@@ -1,6 +1,7 @@
 import type { EngineName } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../types/index.js';
+import type { ClaimedRolloutDeploy, PreparedRecoveryDeploy, PreparedRolloutDeploy, RolloutAdmissionProof } from './rolloutDeployAdmission.js';
 
 import type {
   EngineConfigOperation,
@@ -33,6 +34,10 @@ export interface RolloutStarted {
  * intent revision together, and answers null when any of them moved.
  */
 export interface EngineConfigOperationRepository {
+  captureDeployAdmission(profile: Profile): Promise<RolloutAdmissionProof>;
+  beginDeploy(input: PreparedRolloutDeploy & { kind: Exclude<EngineConfigOperationKind, 'restore-previous'>; config: string | null }): Promise<ClaimedRolloutDeploy | null>;
+  beginRevertDeploy(input: PreparedRecoveryDeploy): Promise<ClaimedRolloutDeploy | null>;
+  beginRestorePreviousDeploy(input: PreparedRecoveryDeploy): Promise<ClaimedRolloutDeploy | null>;
   /**
    * One transaction: the instance's open operation becomes superseded, the
    * file is stored under the expected revision with the intent bumped, and

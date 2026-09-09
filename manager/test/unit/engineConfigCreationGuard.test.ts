@@ -20,6 +20,7 @@ const { EngineConfigChecker } = await import('../../src/domain/engineConfig/engi
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
 const { ALLOCATION_CONTRACT } = await import('../support/allocationContract.js');
+const { publishEngineConfigFixture } = await import('../support/engineConfigAdmissionFixture.js');
 const OLD = 'listen 1935; # previous\n';
 const A = 'listen 1935; # new\n';
 
@@ -32,8 +33,9 @@ async function until(condition: () => boolean): Promise<void> {
 }
 
 async function setup() {
-  const h = orchestratorHarness([makeProfile({ name: 'stage', has_engine_config: true })]);
+  const h = orchestratorHarness([makeProfile({ name: 'stage', has_engine_config: true })], undefined, root);
   await h.versions.setContract(1, { ...ALLOCATION_CONTRACT, engineConfig: { srs: true, ome: false }, engineImages: { srs: 'ossrs/srs:6', ome: null } });
+  await publishEngineConfigFixture(h.versions, root);
   h.profiles.engineConfigs.set('stage', OLD);
   h.daemon.autoRecreate = false;
   const watcher: EngineWatcher = { inspect: async () => null, logs: async () => '' };

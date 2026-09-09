@@ -12,10 +12,10 @@
  */
 import assert from 'node:assert/strict';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 
 import type { StackContract } from '@streaming-infra-manager/common';
 
@@ -34,6 +34,7 @@ import {
 // Both roots are read when their modules load, so they are set before the
 // dynamic imports below and nothing above imports them statically.
 const root = mkdtempSync(join(tmpdir(), 'engine-config-service-'));
+after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
@@ -63,6 +64,7 @@ const { profileRow, profileServiceHarness } = await import(
 const { InMemoryEngineConfigOperations } = await import(
   '../support/InMemoryEngineConfigOperations.js'
 );
+const { configureEngineConfigAdmission } = await import('../support/engineConfigAdmissionFixture.js');
 
 const V3_CONTRACT: StackContract = {
   ports: [...ALLOCATION_CONTRACT.ports],
@@ -136,6 +138,8 @@ async function setup<W extends EngineWatcher = ScriptedWatcher>(options: {
     state.checkerCalls += 1;
     return options.check ?? OK;
   });
+  const operations = new InMemoryEngineConfigOperations(harness.profiles);
+  await configureEngineConfigAdmission(harness, operations, root);
   const service = new EngineConfigService(
     harness.profiles.asRepository(),
     harness.containers.asRepository(),
@@ -144,7 +148,7 @@ async function setup<W extends EngineWatcher = ScriptedWatcher>(options: {
     watcher,
     checker,
     harness.events,
-    new InMemoryEngineConfigOperations(harness.profiles),
+    operations,
     { intervalMs: 5, durationMs: 20 },
   );
   return {

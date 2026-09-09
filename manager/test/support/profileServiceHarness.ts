@@ -24,6 +24,8 @@ import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import { ALLOCATION_CONTRACT } from './allocationContract.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import { FakeContainers, InMemoryProfiles, makeProfile } from './profileFixtures.js';
+import type { InMemoryDeployAttempts } from './InMemoryDeployAttempts.js';
+import type { RolloutAdmissionProof } from '../../src/domain/engineConfig/rolloutDeployAdmission.js';
 
 /** One host, one daemon: what every deployment of these tests reserves its ports on. */
 export const ONE_DAEMON: DeployTargets = { daemonIdFor: async () => 'daemon-1' };
@@ -58,6 +60,7 @@ export interface RecordedDeploy {
  * ERROR through the repository.
  */
 export class FakeOrchestrator {
+  rolloutAttempts?: InMemoryDeployAttempts;
   readonly reserved: string[] = [];
 
   readonly cancelled: string[] = [];
@@ -91,6 +94,10 @@ export class FakeOrchestrator {
   /** Every fake row runs the bundled checkout, the one SHLS_ROOT names. */
   async stackRootFor(): Promise<string> {
     return BUNDLED_STACK_ROOT;
+  }
+
+  async captureRolloutSnapshot(profile: Profile, admission: RolloutAdmissionProof) {
+    return { daemonId: admission.daemonId, containerIds: [`${profile.name}-before`] };
   }
 
   async reserveDeploy(
@@ -156,6 +163,7 @@ export class FakeOrchestrator {
     // to run after it, and a failed script marks ERROR with its reason.
     handle.emitter.once('done', () => {
       void (async () => {
+        if (reservation.attempt) await this.rolloutAttempts?.resolve(reservation.attempt.id, { state: 'released', reason: null });
         if (code === 0) {
           await this.profiles.markTerminal(profile.name, 'RUNNING');
           await hooks.afterRunning?.();

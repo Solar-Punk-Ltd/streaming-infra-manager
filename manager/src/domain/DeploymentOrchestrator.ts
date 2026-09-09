@@ -50,6 +50,7 @@ import {
 } from './deployAttempts.js';
 import type { DaemonObserver, DeployAttemptRepository } from './DeployAttemptRepository.js';
 import type { EngineConfigOperationRepository } from './engineConfig/EngineConfigOperationRepository.js';
+import type { PreparedRolloutDeploy, RolloutAdmissionProof } from './engineConfig/rolloutDeployAdmission.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
@@ -394,6 +395,19 @@ export class DeploymentOrchestrator {
   /** The checkout root this deployment's env file is built from. */
   async stackRootFor(profile: Profile): Promise<string> {
     return (await this.pathsFor(profile)).root;
+  }
+
+  async captureRolloutSnapshot(profile: Profile, admission: RolloutAdmissionProof): Promise<PreparedRolloutDeploy['snapshot']> {
+    const target = targetAlias(profile.host);
+    const daemonId = await this.targetDaemon(target);
+    if (admission.alias !== target || admission.daemonId !== daemonId) {
+      throw new TargetNotVerifiedError(target, 'The prepared rollout belongs to a different Docker daemon. No deploy was started.');
+    }
+    const snapshot = await this.daemon.snapshot(profile.name, target);
+    if (snapshot.daemonId !== daemonId) {
+      throw new TargetNotVerifiedError(target, 'The container snapshot came from a different Docker daemon. No deploy was started.');
+    }
+    return { daemonId, containerIds: [...snapshot.containers.values()].flat() };
   }
 
   private async publishChanged(profile: Profile): Promise<void> {

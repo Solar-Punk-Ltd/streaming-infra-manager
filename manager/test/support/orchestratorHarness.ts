@@ -84,6 +84,7 @@ export function orchestratorHarness(
     }
   };
   const daemon = new FakeDaemon();
+  operations.deployments = { versions, versionsRoot, ledger, attempts, daemonId: daemon.id };
   const published: PublishedPortsSnapshot = { daemonId: daemon.id, bindings: [] };
   profiles.reservations.removalBlocked = name => ledger.references.some(reference => reference.resolvedAt === null && reference.holderKind === 'operation')
     || attempts.rows.some(attempt => attempt.project === name && attempt.state !== 'released');

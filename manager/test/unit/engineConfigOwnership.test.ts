@@ -11,12 +11,13 @@
  * in a closure and nothing recorded whose the rollout was.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 
 import type { StackContract } from '@streaming-infra-manager/common';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 import type { ContainerState } from '../../src/domain/ContainerControl.js';
 import type { EngineWatcher } from '../../src/domain/engineConfig/EngineConfigService.js';
@@ -26,6 +27,7 @@ import type {
 } from '../../src/domain/engineConfig/operations.js';
 
 const root = mkdtempSync(join(tmpdir(), 'engine-config-ownership-'));
+after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
@@ -44,9 +46,10 @@ const { profileRow, profileServiceHarness } = await import(
 const { InMemoryEngineConfigOperations } = await import(
   '../support/InMemoryEngineConfigOperations.js'
 );
+const { configureEngineConfigAdmission } = await import('../support/engineConfigAdmissionFixture.js');
 
 const V3_CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   allocationProblem: null,
   requiredSecrets: [],
@@ -111,6 +114,7 @@ async function setup() {
   await harness.versions.setContract(1, V3_CONTRACT);
   harness.profiles.engineConfigs.set('stream1', OLD);
   const operations = new InMemoryEngineConfigOperations(harness.profiles);
+  const version = await configureEngineConfigAdmission(harness, operations, root);
   const watcher = new ScriptedWatcher();
   const service = new EngineConfigService(
     harness.profiles.asRepository(),
@@ -129,10 +133,10 @@ async function setup() {
     return found;
   };
   /** An operation left by a manager that is gone, the way boot finds it. */
-  const leftBehind = (
+  const leftBehind = async (
     state: EngineConfigOperationState,
     over: Partial<EngineConfigOperation> = {},
-  ): EngineConfigOperation => {
+  ): Promise<EngineConfigOperation> => {
     const current = row();
     harness.profiles.engineConfigs.set('stream1', A);
     const operation: EngineConfigOperation = {
@@ -160,6 +164,7 @@ async function setup() {
       ...over,
     };
     operations.rows.push(operation);
+    await operations.seedRecovery(operation, version);
     harness.profiles.write('stream1', { engine_config_state: state });
     return operation;
   };
@@ -281,7 +286,7 @@ describe('a recreate that fails', () => {
 describe('what boot does with a rollout a gone manager left open', () => {
   it('marks one still applying as interrupted, writing nothing', async () => {
     const { service, harness, leftBehind, states, row } = await setup();
-    leftBehind('applying');
+    await leftBehind('applying');
     harness.profiles.write('stream1', { status: 'ERROR' });
 
     await service.reconcileAtBoot();
@@ -295,7 +300,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('runs a fresh watch on one that was watching a container still up and never restarted', async () => {
     const { service, leftBehind, states } = await setup();
-    leftBehind('watching');
+    await leftBehind('watching');
 
     await service.reconcileAtBoot();
     await until('the fresh watch to finish', () => states()[0] === 'applied');
@@ -305,7 +310,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('supersedes one watching a deployment that is not running any more, and recreates nothing', async () => {
     const { service, harness, leftBehind, states, watcher, row } = await setup();
-    leftBehind('watching');
+    await leftBehind('watching');
     // Stopped by an older manager that did not close the operation, or by a
     // stop the crash cut short. The container is gone, and that is not
     // failure evidence: nothing may recreate a stopped deployment.
@@ -323,7 +328,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('reverts one that was watching a container that restarted meanwhile', async () => {
     const { service, harness, leftBehind, states, watcher } = await setup();
-    leftBehind('watching');
+    await leftBehind('watching');
     watcher.states = [RESTARTED];
 
     await service.reconcileAtBoot();
@@ -336,7 +341,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('supersedes one whose container is not the one it watched', async () => {
     const { service, harness, leftBehind, states, watcher } = await setup();
-    leftBehind('watching');
+    await leftBehind('watching');
     watcher.states = [{ ...RUNNING, id: 'c2' }];
 
     await service.reconcileAtBoot();
@@ -349,7 +354,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('marks one it cannot inspect as interrupted', async () => {
     const { service, leftBehind, states, watcher, harness } = await setup();
-    leftBehind('watching');
+    await leftBehind('watching');
     watcher.failing = true;
 
     await service.reconcileAtBoot();
@@ -361,7 +366,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 
   it('never acts on a deployment of the same name created after its own was removed', async () => {
     const { service, harness, leftBehind, states } = await setup();
-    leftBehind('watching', { profileInstanceId: 'instance-gone' });
+    await leftBehind('watching', { profileInstanceId: 'instance-gone' });
 
     await service.reconcileAtBoot();
     await settle();
@@ -375,7 +380,7 @@ describe('what boot does with a rollout a gone manager left open', () => {
 describe('what the operator does with an interrupted rollout', () => {
   it('verifies the stored file again, as a rollout of its own that supersedes the interrupted one', async () => {
     const { service, harness, leftBehind, states } = await setup();
-    leftBehind('interrupted');
+    await leftBehind('interrupted');
 
     await service.verifyNow('stream1');
     await until('the new rollout to finish', () => states()[1] === 'applied');
@@ -387,7 +392,7 @@ describe('what the operator does with an interrupted rollout', () => {
 
   it('verifies an interrupted reset by recreating on the template, so the operation does not stay open', async () => {
     const { service, harness, leftBehind, states, row } = await setup();
-    leftBehind('interrupted', { kind: 'reset' });
+    await leftBehind('interrupted', { kind: 'reset' });
     harness.profiles.engineConfigs.delete('stream1');
     harness.profiles.write('stream1', { has_engine_config: false });
 
@@ -401,12 +406,12 @@ describe('what the operator does with an interrupted rollout', () => {
 
   it('goes back to the previous file the interrupted rollout recorded, through a rollout of its own', async () => {
     const { service, harness, leftBehind, states } = await setup();
-    leftBehind('interrupted');
+    await leftBehind('interrupted');
 
     await service.recreateOnPrevious('stream1');
-    await until('the new rollout to finish', () => states()[1] === 'applied');
+    await until('the previous rollout to be restored', () => states()[1] === 'reverted');
 
-    assert.deepEqual(states(), ['superseded', 'applied']);
+    assert.deepEqual(states(), ['superseded', 'reverted']);
     assert.equal(harness.profiles.engineConfigs.get('stream1'), OLD);
     assert.equal(harness.orchestrator.deploys.length, 1);
   });
