@@ -267,7 +267,7 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   });
 });
 
-describe('writeProfileEnv — the generated stack secrets', () => {
+describe('writeProfileEnv, the generated stack secrets', () => {
   it('writes a value of the shape the manager generates', () => {
     const path = writeProfileEnv(root, 'secrets', {
       engine: 'srs',
@@ -308,7 +308,7 @@ describe('writeProfileEnv — the generated stack secrets', () => {
  * container runs as root, so on the host these bytes are root-owned and
  * readable by every account unless the mode says otherwise.
  */
-describe('writeProfileEnv — the mode of the file it writes', () => {
+describe('writeProfileEnv, the mode of the file it writes', () => {
   const modeOf = (path: string): string => (statSync(path).mode & 0o777).toString(8);
 
   it('writes a new deployment env owner only', () => {
