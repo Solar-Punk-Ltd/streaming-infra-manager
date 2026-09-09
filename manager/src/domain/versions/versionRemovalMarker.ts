@@ -58,6 +58,7 @@ export function versionRemovalProblem(version: RemovalIdentity): string | null {
     const marker = readMarker(version.rootPath);
     if (!marker) return null;
     if (!Number.isSafeInteger(version.id) || version.id! < 1) return UNVERIFIED;
+    if (marker.versionId > version.id!) return UNVERIFIED;
     return marker.versionId === version.id ? REMOVING : null;
   } catch { return UNVERIFIED; }
 }
@@ -67,6 +68,7 @@ export async function persistVersionRemoval(version: { id: number; name: string;
   const anchor = version.rootPath;
   if (!anchor || !Number.isSafeInteger(version.id) || version.id < 1 || version.name !== basename(anchor)) throw new Error(UNVERIFIED);
   const previous = readMarker(anchor);
+  if (previous && previous.versionId > version.id) throw new Error(UNVERIFIED);
   const marker: RemovalMarker = previous?.versionId === version.id ? previous : {
     schema: 1, versionId: version.id, name: version.name, rootPath: anchor, removalId: randomUUID(),
   };
