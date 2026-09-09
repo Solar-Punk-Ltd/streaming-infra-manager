@@ -27,11 +27,47 @@ import {
   fakeDocker,
   frame,
   openStream,
+  RUNNING_AFTER_TWO_RESTARTS,
   type FakeContainer,
 } from '../support/fakeDocker.js';
 
 /** Docker's per-write header: the stream, three zero bytes, and the length. */
 const FRAME_HEADER_BYTES = 8;
+
+describe('published port inventory', () => {
+  it('retains ports owned by paused containers', async () => {
+    const docker = fakeDocker([{ id: 'paused', labels: labels('outside', 'web') }]);
+    const handle = docker.getContainer('paused');
+    docker.getContainer = () => ({ ...handle, inspect: async () => ({
+      Id: 'paused', RestartCount: 0, State: { Status: 'paused', StartedAt: '2026-09-07T10:00:00Z' },
+      Config: { Labels: labels('outside', 'web') },
+      HostConfig: { NetworkMode: 'bridge' },
+      NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '10012' }] } },
+    }) });
+    const snapshot = await new ContainerControl(new EventBus(), docker).publishedPorts();
+    assert.deepEqual(snapshot.bindings.map(binding => [binding.project, binding.protocol, binding.port]), [['outside', 'tcp', 10012]]);
+  });
+});
+
+describe('daemon identity verification', () => {
+  it('reads the current local identity again after the socket is replaced', async () => {
+    const docker = fakeDocker([]);
+    let id = 'first-daemon';
+    docker.info = async () => ({ ID: id });
+    const control = new ContainerControl(new EventBus(), docker);
+    assert.equal(await control.daemonId(), 'first-daemon');
+    id = 'replacement-daemon';
+    assert.equal(await control.daemonId(), 'replacement-daemon');
+  });
+
+  it('does not report an old verification when Docker stops answering', async () => {
+    const docker = fakeDocker([]);
+    const control = new ContainerControl(new EventBus(), docker);
+    await control.daemonId();
+    docker.info = async () => { throw new Error('offline'); };
+    await assert.rejects(control.daemonId());
+  });
+});
 
 function labels(project: string, service: string): Record<string, string> {
   return {
@@ -412,5 +448,39 @@ describe('ContainerControl.effectiveConfig', () => {
     assert.deepEqual(docker.execCommands, [
       ['cat', '/opt/ovenmediaengine/bin/origin_conf/Server.xml'],
     ]);
+  });
+});
+
+describe('ContainerControl.inspect', () => {
+  it('reads the restart count from beside State, where Docker puts it', async () => {
+    // A container that died on its config file and was brought back by its
+    // restart policy is `running` again with a count above zero. Read from
+    // under `State`, where Docker never puts it, the count is always zero, and
+    // the watch after a config change is blind to the one thing it looks for.
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+      {
+        id: 'own-srs',
+        labels: labels('stream1', 'srs'),
+        inspectAnswer: RUNNING_AFTER_TWO_RESTARTS,
+      },
+    ]);
+
+    const state = await control.inspect('stream1', 'srs');
+
+    assert.deepEqual(state, {
+      id: 'own-srs',
+      status: 'running',
+      restartCount: 2,
+      startedAt: '2026-09-07T10:00:09.000000000Z',
+    });
+  });
+
+  it('answers null when the deployment has no container of that service', async () => {
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+    ]);
+
+    assert.equal(await control.inspect('stream1', 'srs'), null);
   });
 });

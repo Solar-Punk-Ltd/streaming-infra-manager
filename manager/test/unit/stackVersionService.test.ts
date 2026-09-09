@@ -11,6 +11,7 @@
  * reaches `git clone --branch`, where a leading dash is an option.
  */
 import assert from 'node:assert/strict';
+import { cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 
@@ -20,16 +21,13 @@ import {
   STACK_REPO_URL,
   StackVersionService,
 } from '../../src/domain/versions/StackVersionService.js';
+import { repoRootFor, stagingDirFor } from '../../src/domain/versions/stackPaths.js';
 import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
 import { InMemoryStackVersionRepository } from '../support/InMemoryStackVersionRepository.js';
-import {
-  advanceCheckout,
-  checkoutCommit,
-  scratchVersionsRoot,
-  V3_FIXTURE,
-} from '../support/stackFixtures.js';
+import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 
 const COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
+const MOVED = 'c0ffee0000000000000000000000000000000000';
 
 let repository: InMemoryStackVersionRepository;
 let runner: FakeScriptSpawner;
@@ -50,16 +48,47 @@ beforeEach(() => {
   runner = new FakeScriptSpawner();
   bus = new EventBus();
   events = [];
+  landed = 0;
   bus.subscribe((event) => events.push(event.type));
-  service = new StackVersionService(repository, runner, bus, versionsRoot);
+  service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
 });
 
-/** Lets the service's own `done` handler finish before the assertions run. */
-const settled = () => new Promise((resolve) => setImmediate(resolve));
+/** Waits until no version is building any more, which is when the outcome is recorded. */
+/** How many builds the test has waited out, so the wait below knows how many announcements to expect. */
+let landed = 0;
+
+/**
+ * Waits for a build to land: no row building, and the service's own
+ * announcement of it seen. The row leaves `building` before the service
+ * prunes and announces, so a wait on the row alone let a test read the
+ * events a moment too early on a loaded laptop, and the suite runs its
+ * files in parallel.
+ */
+const settled = async (): Promise<void> => {
+  landed += 1;
+  for (let tick = 0; tick < 2000; tick += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const rows = await repository.list();
+    const announced = events.filter((event) => event === 'version.changed').length;
+    if (!rows.some((row) => row.status === 'building') && announced >= landed) return;
+  }
+  throw new Error('a version is still building, or was never announced');
+};
+
+/**
+ * What the build script leaves in the newest attempt's staging directory
+ * when it succeeds: the built tree and the commit it was exported from.
+ */
+const built = (name: string, commit = COMMIT): void => {
+  const staging = stagingDirFor(versionsRoot, name, runner.last.args[4] ?? '');
+  cpSync(V3_FIXTURE, staging, { recursive: true });
+  writeFileSync(join(staging, '.stack-commit'), `${commit}\n`);
+};
 
 /** A built version, marked tested the way an operator marks one. */
 const readyAndTested = async (name: string): Promise<number> => {
   await service.add(name, 'main-v3');
+  built(name);
   runner.finish(0, 'built\n');
   await settled();
 
@@ -68,39 +97,51 @@ const readyAndTested = async (name: string): Promise<number> => {
   return added?.id ?? 0;
 };
 
-/** A rebuild the fake runner reports as successful. */
-const rebuild = async (id: number): Promise<void> => {
+/** A rebuild the fake runner reports as successful, on the given commit. */
+const rebuild = async (id: number, commit = COMMIT): Promise<void> => {
   await service.update(id);
+  built('v3', commit);
   runner.finish(0, 'built\n');
   await settled();
 };
 
 describe('adding a version', () => {
-  it('runs the build script with the root, the ref and the fixed repository', async () => {
+  it('runs the build script with the clone, the staging directory, the ref, the fixed repository and the attempt', async () => {
     await service.add('v3', 'main-v3');
 
     assert.equal(runner.last.script, BUILD_SCRIPT);
+    const attempt = runner.last.args[4] ?? '';
     assert.deepEqual(runner.last.args, [
-      join(versionsRoot, 'v3'),
+      repoRootFor(versionsRoot, 'v3'),
+      stagingDirFor(versionsRoot, 'v3', attempt),
       'main-v3',
       STACK_REPO_URL,
+      attempt,
     ]);
   });
 
-  it('lands ready with the commit the checkout is on and the contract it read', async () => {
+  it('lands ready with the commit the build exported and the contract it read', { timeout: 5000 }, async (context) => {
     await service.add('v3', 'main-v3');
+    built('v3');
+    const changed = new Promise<void>((resolve) => {
+      const unsubscribe = bus.subscribe((event) => {
+        if (event.type === 'version.changed') resolve();
+      });
+      context.after(unsubscribe);
+    });
     runner.finish(0, 'cloning\nbuilt\n');
-    await settled();
+    await changed;
 
     const version = await repository.findByName('v3');
     assert.equal(version?.status, 'ready');
-    assert.equal(version?.commitSha, checkoutCommit(join(versionsRoot, 'v3')));
+    assert.equal(version?.commitSha, COMMIT);
     assert.equal(version?.contract?.maxSlot, 99);
     assert.equal(events.includes('version.changed'), true);
   });
 
   it('still pins the commit when the build log is longer than the kept tail', async () => {
     await service.add('v3', 'main-v3');
+    built('v3');
     // A real `pnpm install` prints tens of thousands of lines. The commit used
     // to be parsed out of this stream, of which only the last four kilobytes
     // are kept, so on every build that did any work it was already gone.
@@ -108,7 +149,7 @@ describe('adding a version', () => {
     await settled();
 
     const version = await repository.findByName('v3');
-    assert.equal(version?.commitSha, checkoutCommit(join(versionsRoot, 'v3')));
+    assert.equal(version?.commitSha, COMMIT);
   });
 
   it('lands failed with the tail of the log when the build exits non-zero', async () => {
@@ -195,6 +236,7 @@ describe('the build mutex', () => {
 
   it('lets the next build start once the first has finished', async () => {
     await service.add('v3', 'main-v3');
+    built('v3');
     runner.finish(0, 'built\n');
     await settled();
 
@@ -226,6 +268,7 @@ describe('the default version', () => {
 
   it('refuses a version nobody has deployed on yet', async () => {
     await service.add('v3', 'main-v3');
+    built('v3');
     runner.finish(0, 'built\n');
     await settled();
     const added = await repository.findByName('v3');
@@ -254,6 +297,7 @@ describe('the default version', () => {
 describe('removing a version', () => {
   it('refuses while a deployment runs it, and names the deployments', async () => {
     await service.add('v3', 'main-v3');
+    built('v3');
     runner.finish(0, 'built\n');
     await settled();
 
@@ -281,6 +325,7 @@ describe('removing a version', () => {
     // index permits none rather than requiring one, and the next deployment
     // would be created with no version to run.
     await service.add('v3', 'main-v3');
+    built('v3');
     runner.finish(0, 'built\n');
     await settled();
 
@@ -320,12 +365,11 @@ describe('the tested flag', () => {
     // it work. Carrying it over to whatever the branch moved to would let an
     // untested commit become the default without anybody saying so.
     const id = await readyAndTested('v3');
-    const moved = advanceCheckout(join(versionsRoot, 'v3'));
 
-    await rebuild(id);
+    await rebuild(id, MOVED);
 
     const rebuilt = await repository.findById(id);
-    assert.equal(rebuilt?.commitSha, moved);
+    assert.equal(rebuilt?.commitSha, MOVED);
     assert.equal(rebuilt?.tested, false);
   });
 
@@ -344,6 +388,7 @@ describe('the tested flag', () => {
 
   it('stays off through an update of a version nobody approved', async () => {
     await service.add('v3', 'main-v3');
+    built('v3');
     runner.finish(0, 'built\n');
     await settled();
 
@@ -389,7 +434,7 @@ describe('the tested flag', () => {
 
 describe('the bundled version at boot', () => {
   it('records the commit and reads the contract from its own checkout', async () => {
-    await service.refreshBundled(V3_FIXTURE, COMMIT);
+    await service.syncBundled(V3_FIXTURE, COMMIT);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, COMMIT);
@@ -397,7 +442,7 @@ describe('the bundled version at boot', () => {
   });
 
   it('keeps the row when the checkout cannot be read, with no commit', async () => {
-    await service.refreshBundled(join(versionsRoot, 'nowhere'), null);
+    await service.syncBundled(join(versionsRoot, 'nowhere'), null);
 
     const bundled = await repository.findByName('bundled');
     assert.equal(bundled?.commitSha, null);
@@ -415,6 +460,7 @@ describe('a build the manager was restarted during', () => {
       new FakeScriptSpawner(),
       bus,
       versionsRoot,
+      { openReferences: async () => [], pendingShipmentBuildIds: async () => [] },
     );
 
     assert.deepEqual(await rebooted.failInterruptedBuilds(), ['v3']);

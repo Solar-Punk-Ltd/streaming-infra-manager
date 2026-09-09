@@ -12,6 +12,7 @@ import {
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   getErrorMessage,
   reconcileProfiles,
+  type DeployAttemptView,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -20,6 +21,7 @@ import { fetchGroups, fetchProfiles, fetchServerConfig } from '../data';
 import { openLiveStream } from '../liveStream';
 import type { DeploymentGroup, Profile } from '../types';
 import { useToast, type ToastTone } from './ToastProvider';
+import { fetchAttempts } from '../versions/attemptsApi';
 import { fetchVersions } from '../versions/versionsApi';
 
 export interface ActivityEntry {
@@ -45,8 +47,16 @@ export interface DeploymentsStore {
   /** The stack versions this manager holds. Null until the first answer. */
   versions: StackVersion[] | null;
   versionsError: string | null;
+  /**
+   * The deploy attempts still holding a deployment or the host. Empty until
+   * the first answer, because a page has nothing to say about an attempt it
+   * has not read.
+   */
+  attempts: DeployAttemptView[];
+  attemptsError: string | null;
   reload: () => void;
   reloadVersions: () => void;
+  reloadAttempts: () => void;
   /** Folds freshly created profiles in without waiting for their events. */
   mergeProfiles: (profiles: Profile[]) => void;
 }
@@ -117,6 +127,8 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [versions, setVersions] = useState<StackVersion[] | null>(null);
   const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [attempts, setAttempts] = useState<DeployAttemptView[]>([]);
+  const [attemptsError, setAttemptsError] = useState<string | null>(null);
   const nextActivityId = useRef(0);
   const hasOpened = useRef(false);
   const toast = useToast();
@@ -143,6 +155,15 @@ export function useDeploymentsStore(): DeploymentsStore {
       .catch((error: unknown) => setVersionsError(getErrorMessage(error)));
   }, []);
 
+  const reloadAttempts = useCallback(() => {
+    fetchAttempts()
+      .then((next) => {
+        setAttempts(next);
+        setAttemptsError(null);
+      })
+      .catch((error: unknown) => setAttemptsError(getErrorMessage(error)));
+  }, []);
+
   const mergeProfiles = useCallback((incoming: Profile[]) => {
     setProfiles((prev) => {
       const merged = [...incoming, ...(prev ?? [])];
@@ -167,6 +188,7 @@ export function useDeploymentsStore(): DeploymentsStore {
 
   useEffect(() => reload(), [reload]);
   useEffect(() => reloadVersions(), [reloadVersions]);
+  useEffect(() => reloadAttempts(), [reloadAttempts]);
 
   useEffect(() => {
     fetchServerConfig()
@@ -185,7 +207,10 @@ export function useDeploymentsStore(): DeploymentsStore {
           setConnected(true);
           // The stream carries no backlog, so a deployment that stopped, failed
           // or was removed while it was down is only in the database.
-          if (hasOpened.current) reload();
+          if (hasOpened.current) {
+            reload();
+            reloadAttempts();
+          }
           hasOpened.current = true;
         },
         onDown: () => setConnected(false),
@@ -234,9 +259,13 @@ export function useDeploymentsStore(): DeploymentsStore {
           // No payload: the default badge, every usage count and a build's
           // status move together, so the whole table is read again.
           'version.changed': () => reloadVersions(),
+
+          // No payload either: an attempt opened, resolved or released, and
+          // what holds the host is read whole.
+          'attempt.changed': () => reloadAttempts(),
         },
       }),
-    [log, reload, toast, reloadVersions],
+    [log, reload, toast, reloadVersions, reloadAttempts],
   );
 
   // A fresh object every render is a fresh context value, and every consumer
@@ -255,8 +284,11 @@ export function useDeploymentsStore(): DeploymentsStore {
       loadError,
       versions,
       versionsError,
+      attempts,
+      attemptsError,
       reload,
       reloadVersions,
+      reloadAttempts,
       mergeProfiles,
     }),
     [
@@ -270,8 +302,11 @@ export function useDeploymentsStore(): DeploymentsStore {
       loadError,
       versions,
       versionsError,
+      attempts,
+      attemptsError,
       reload,
       reloadVersions,
+      reloadAttempts,
       mergeProfiles,
     ],
   );

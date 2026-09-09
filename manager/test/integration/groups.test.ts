@@ -29,10 +29,9 @@ import {
 
 const DEPLOY_TIMEOUT = 240_000;
 
-const created = new Set<string>();
 before(requireStack);
 after(async () => {
-  await cleanup(created);
+  await cleanup();
 });
 
 describe('group config edit (Feature A): bulk feed change redeploys every member', () => {
@@ -50,7 +49,6 @@ describe('group config edit (Feature A): bulk feed change redeploys every member
     });
     assert.equal(profiles.length, 2, 'group should be created with 2 members');
     const memberNames = profiles.map((p) => p.name);
-    memberNames.forEach((n) => created.add(n));
     for (const p of profiles) {
       assert.equal(p.status, 'DEPLOYING', 'new group members are deployed');
       assert.equal(p.group_id, group.id);

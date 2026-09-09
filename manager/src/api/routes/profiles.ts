@@ -4,9 +4,11 @@ import { ProfileService } from '../../domain/ProfileService.js';
 import {
   CreateProfileInput,
   UpdateProfileInput,
+  RemoveProfileInput,
   createProfileSchema,
   profileNameSchema,
   updateProfileSchema,
+  removeProfileSchema,
 } from '../../schemas/profile.js';
 import { ProfileKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -81,8 +83,9 @@ export function createProfilesRouter(profileService: ProfileService): Router {
   router.delete(
     '/:name',
     validateParams(profileNameSchema),
+    validateBody(removeProfileSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const profile = await profileService.remove(req.params.name as string);
+      const profile = await profileService.remove(req.params.name as string, req.body as RemoveProfileInput);
       res.status(202).json(profile);
     }),
   );

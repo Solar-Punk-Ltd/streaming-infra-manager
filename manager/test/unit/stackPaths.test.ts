@@ -15,11 +15,12 @@ import { describe, it } from 'node:test';
 import {
   stackPaths,
   stackRootOf,
+  deployRootProblem,
   versionRootFor,
 } from '../../src/domain/versions/stackPaths.js';
 import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 
-const VERSIONS_ROOT = '/home/solarpunk/streaming-infra-manager-versions';
+const VERSIONS_ROOT = '/synthetic-main-v2-stack-versions';
 const ADDED_ROOT = join(VERSIONS_ROOT, 'main-v3');
 
 describe('stackPaths for the bundled version', () => {
@@ -86,5 +87,26 @@ describe('stackPaths for an added version', () => {
 describe('versionRootFor', () => {
   it('gives each version one directory under the versions root', () => {
     assert.equal(versionRootFor(VERSIONS_ROOT, 'main-v3'), ADDED_ROOT);
+  });
+});
+
+describe('incomplete immutable build rows', () => {
+  for (const buildId of ['a'.repeat(40), null]) {
+    it(`does not resolve a builds row without a root to bundled, build ${buildId ?? 'unset'}`, () => {
+      const version = { rootPath: null, layout: 'builds' as const, buildId };
+      assert.match(deployRootProblem(version) ?? '', /artifact root/);
+      assert.throws(() => stackRootOf(version), /artifact root/);
+    });
+  }
+
+  it('does not resolve a builds row without a build id to the legacy root', () => {
+    const version = { rootPath: ADDED_ROOT, layout: 'builds' as const, buildId: null };
+    assert.match(deployRootProblem(version) ?? '', /no build/);
+    assert.throws(() => stackRootOf(version), /no build/);
+  });
+
+  it('resolves a published bundled build from its explicit artifact root', () => {
+    const buildId = 'a'.repeat(40);
+    assert.equal(stackRootOf({ rootPath: join(VERSIONS_ROOT, 'bundled'), layout: 'builds', buildId }), join(VERSIONS_ROOT, 'bundled.builds', buildId));
   });
 });

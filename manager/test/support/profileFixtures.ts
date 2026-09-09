@@ -4,11 +4,14 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
+import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
+import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
   NewProfilePlacement,
   ProfileRepository,
+  type ProfileRemovalClaim,
   ProfileWriteData,
 } from '../../src/domain/ProfileRepository.js';
 import {
@@ -19,6 +22,8 @@ import {
   ProfileWithContainers,
 } from '../../src/types/index.js';
 
+import { InMemoryPortReservations } from './InMemoryPortReservations.js';
+
 export function makeProfile(over: Partial<Profile> = {}): Profile {
   return {
     name: 'stage',
@@ -26,6 +31,10 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     kind: 'streamer',
     notes: null,
     components: null,
+    instance_id: 'instance-1',
+    engine_config_revision: 0,
+    intent_revision: 0,
+    engine_config_state: null,
     host: null,
     feed_owner: null,
     feed_topic: null,
@@ -42,6 +51,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     status: 'RUNNING',
     last_error: null,
     last_error_at: null,
+    last_full_deploy_commit: null,
     created_at: new Date(0),
     updated_at: new Date(0),
     group_id: null,
@@ -69,6 +79,8 @@ export class InMemoryProfiles {
 
   readonly markErrorCalls: string[] = [];
 
+  readonly activeDeployJobs = new Map<string, number>();
+
   readonly updateEditableCalls: string[] = [];
 
   /** Names whose claim is refused, as though another caller took it first. */
@@ -82,9 +94,19 @@ export class InMemoryProfiles {
 
   /** The `engine_config` column, kept apart from the rows for the same reason. */
   readonly engineConfigs = new Map<string, string>();
+  onDeleted?: (name: string) => void;
 
-  constructor(profiles: readonly Profile[] = []) {
+  constructor(
+    profiles: readonly Profile[] = [],
+    /** The reservation table the allocator writes, when a test gave it one. */
+    readonly reservations: InMemoryPortReservations = new InMemoryPortReservations(),
+  ) {
     for (const profile of profiles) this.rows.set(profile.name, profile);
+  }
+
+  /** The slots every stored record holds, stopped ones included. */
+  takenSlots(): Set<number> {
+    return new Set([...this.rows.values()].map((row) => row.port_slot));
   }
 
   asRepository(): ProfileRepository {
@@ -103,7 +125,11 @@ export class InMemoryProfiles {
     return [...this.rows.values()];
   }
 
-  /** The next slot is the next number: no gaps, the way a fresh host fills up. */
+  /**
+   * The lowest slot no record holds and no port of which anyone holds on the
+   * daemon, with every port of it reserved planned in one step, as the SQL
+   * does it in one transaction.
+   */
   async insertWithFreeSlot(
     name: string,
     kind: ProfileKind,
@@ -112,8 +138,8 @@ export class InMemoryProfiles {
     placement: NewProfilePlacement,
   ): Promise<Profile | null> {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
-    const slot = this.rows.size + 1;
-    if (slot > placement.maxSlot) return null;
+    const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
+    if (slot === null) return null;
     const row = makeProfile({
       name,
       kind,
@@ -123,6 +149,7 @@ export class InMemoryProfiles {
       stack_version_id: placement.stackVersionId,
     });
     this.rows.set(name, row);
+    this.reservations.planNow(placement.daemonId, name, portPlanFor(placement.table, slot), `allocated with ${name}`);
     return row;
   }
 
@@ -152,13 +179,61 @@ export class InMemoryProfiles {
     });
   }
 
+  async deleteByName(name: string): Promise<{ port_slot: number } | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    if (row.status !== 'REMOVING') throw new Error('The deployment has not completed removal');
+    this.rows.delete(name);
+    this.reservations.dropProfile(name);
+    this.onDeleted?.(name);
+    return { port_slot: row.port_slot };
+  }
+
+  async claimRemoval(name: string, expectedInstanceId: string): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || row.instance_id !== expectedInstanceId || this.claimsRefused.has(name)
+      || !['RUNNING', 'STOPPED', 'ERROR'].includes(row.status)) return null;
+    return this.write(name, { status: 'REMOVING', intent_revision: row.intent_revision + 1, last_error: null, last_error_at: null });
+  }
+
+  private ownsRemoval(claim: ProfileRemovalClaim): boolean {
+    const row = this.rows.get(claim.name);
+    return !!row && row.instance_id === claim.instance_id && row.intent_revision === claim.intent_revision && row.status === 'REMOVING';
+  }
+
+  async failRemoval(claim: ProfileRemovalClaim, message: string): Promise<Profile | null> {
+    if (!this.ownsRemoval(claim)) return null;
+    return this.markError(claim.name, message);
+  }
+
+  async completeRemoval(claim: ProfileRemovalClaim, cleanFiles: () => Promise<void>): Promise<{ port_slot: number } | null> {
+    if (!this.ownsRemoval(claim)) return null;
+    if (await this.reservations.hasRemovalHold(claim.name)) throw new Error('An unresolved removal hold remains');
+    await cleanFiles();
+    return this.deleteByName(claim.name);
+  }
+
   async markError(name: string, message: string): Promise<Profile | null> {
     this.markErrorCalls.push(name);
     return this.write(name, {
       status: 'ERROR',
+      deployment_phase: null,
       last_error: message,
       last_error_at: new Date(),
     });
+  }
+
+  async markDeployError(
+    name: string,
+    owner: ExpectedDeployOwner,
+    referenceId: number | null,
+    message: string,
+  ): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || row.status !== 'DEPLOYING' || row.instance_id !== owner.instanceId ||
+        row.intent_revision !== owner.intentRevision || row.engine_config_revision !== owner.configRevision ||
+        row.stack_version_id !== owner.stackVersionId || (this.activeDeployJobs.get(name) ?? null) !== referenceId) return null;
+    return this.markError(name, message);
   }
 
   async updateEditable(
@@ -210,7 +285,18 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
-  private write(name: string, patch: Partial<Profile>): Profile | null {
+  async setLastFullDeployCommit(name: string, commit: string): Promise<void> {
+    this.write(name, { last_full_deploy_commit: commit });
+  }
+
+  /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
+  async bumpIntent(name: string): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row) return null;
+    return this.write(name, { intent_revision: row.intent_revision + 1 });
+  }
+
+  write(name: string, patch: Partial<Profile>): Profile | null {
     const row = this.rows.get(name);
     if (!row) return null;
     const next: Profile = { ...row, ...patch, updated_at: new Date() };
@@ -236,6 +322,17 @@ export class FakeContainers {
       service: snapshot.service,
       ports: snapshot.ports,
     });
+  }
+
+  /** `<profile>/<service>` to what the container was seen to run, as `setBuild` recorded it. */
+  readonly builds = new Map<string, { buildId: string; commit: string | null }>();
+
+  /** When set, `setBuild` throws, the way a database that went away would. */
+  failSetBuild = false;
+
+  async setBuild(profileName: string, service: string, buildId: string, commit: string | null): Promise<void> {
+    if (this.failSetBuild) throw new Error('the database went away');
+    this.builds.set(`${profileName}/${service}`, { buildId, commit });
   }
 
   async listApiContainers(): Promise<ApiContainer[]> {

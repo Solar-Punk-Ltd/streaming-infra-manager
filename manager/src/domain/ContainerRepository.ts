@@ -10,6 +10,8 @@ export interface ContainerRow {
   service: string;
   ports: Record<string, number>;
   env: Record<string, string>;
+  build_id: string | null;
+  build_commit: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -37,9 +39,23 @@ export class ContainerRepository {
     );
   }
 
+  /** What the service's container was seen to be started from. Only a row a deploy wrote is updated. */
+  async setBuild(
+    profileName: string,
+    service: string,
+    buildId: string,
+    buildCommit: string | null,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE containers SET build_id = $3, build_commit = $4, updated_at = NOW()
+        WHERE profile_name = $1 AND service = $2`,
+      [profileName, service, buildId, buildCommit],
+    );
+  }
+
   async listForProfile(profileName: string): Promise<ContainerRow[]> {
     const r = await this.pool.query<ContainerRow>(
-      `SELECT profile_name, service, ports, env, created_at, updated_at
+      `SELECT profile_name, service, ports, env, build_id, build_commit, created_at, updated_at
          FROM containers
         WHERE profile_name = $1
         ORDER BY service ASC`,
@@ -50,7 +66,12 @@ export class ContainerRepository {
 
   async listApiContainers(profileName: string): Promise<ApiContainer[]> {
     const rows = await this.listForProfile(profileName);
-    return rows.map((row) => ({ service: row.service, ports: row.ports }));
+    return rows.map((row) => ({
+      service: row.service,
+      ports: row.ports,
+      buildId: row.build_id,
+      buildCommit: row.build_commit,
+    }));
   }
 
   async withContainers(profile: Profile): Promise<ProfileWithContainers> {

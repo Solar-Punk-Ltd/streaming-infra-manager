@@ -1,4 +1,5 @@
 import {
+  slotCapFor,
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
   applicableEngineSettings,
@@ -6,28 +7,31 @@ import {
   type BeePublishersResult,
   beeTargetProblem,
   defaultServicesFor,
+  effectiveEngineDefaults,
   type EngineDefaults,
   type EngineName,
-  effectiveEngineDefaults,
   engineOfServices,
+  engineForComponents,
   type EngineSettings,
-  type EngineSettingsOverview,
+  effectiveEngineSettings,
   engineSettingsFieldsFor,
+  type EngineSettingsOverview,
   engineSettingsProblem,
-  type GroupKind,
   getErrorMessage,
+  type GroupKind,
   hasBeePublishers,
   isLadderKind,
   ladderMemberNames,
   liveUnavailableReason,
+  nullify,
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
   settingsNotInConfig,
   type StackContract,
-  STANDARD_GROUP_KIND,
   type StampHealth,
   stampHealthFrom,
+  STANDARD_GROUP_KIND,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
@@ -46,6 +50,7 @@ import {
 } from '../types/index.js';
 
 import { parseBaseEnv } from '../utils/envUtils.js';
+import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { UPLOADER_ENGINE_SETTING_KEYS } from './containerKeysSpec.js';
@@ -55,7 +60,10 @@ import {
 } from './DeploymentOrchestrator.js';
 import {
   AllSlotsUsedError,
+  TargetNotVerifiedError,
+  ReservationInventoryPendingError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   GroupExistsError,
   GroupNotFoundError,
   InvalidStackVersionError,
@@ -70,7 +78,10 @@ import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
-import { maxSlotOf } from './versions/portTable.js';
+import { portTableOf } from './versions/portTable.js';
+import type { NewProfilePlacement } from './ProfileRepository.js';
+import type { DeployTargets } from './ports/DeployTargets.js';
+import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
@@ -110,6 +121,13 @@ export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
 
 // The honest answers for a caller wired without probes: nothing asked, so nothing
 // is known. Readiness treats both as unverified, which is exactly what they are.
+/** A service built without a target reader can allocate nothing: a reservation needs a daemon. */
+const REFUSES_EVERY_TARGET: DeployTargets = {
+  daemonIdFor: async (host) => {
+    throw new TargetNotVerifiedError(host ?? 'localhost');
+  },
+};
+
 const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
@@ -150,9 +168,39 @@ export class ProfileService {
     private readonly events: EventBus,
     private readonly groupRepo: DeploymentGroupRepository,
     private readonly versions: StackVersionRepository,
+    /** Which daemon a deployment's host reaches, so its ports are reserved on that one. */
+    private readonly targets: DeployTargets = REFUSES_EVERY_TARGET,
     private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
     private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
+    private readonly reservations?: Pick<PortReservationRepository, 'inventorySeededAt'>,
   ) {}
+
+  /**
+   * Where a new deployment goes: the version it runs, the cap of the lower
+   * of its own maximum and the manager's, the daemon its host reaches, and
+   * the table every port of its slot is reserved from.
+   */
+  private async placementFor(
+    version: StackVersionRecord,
+    host: string | null,
+    components?: readonly string[] | null,
+  ): Promise<NewProfilePlacement> {
+    if (version.contract?.allocationProblem) {
+      throw new InvalidStackVersionError(`${version.name}: ${version.contract.allocationProblem}`);
+    }
+    if (!version.contract?.ports.length) {
+      throw new InvalidStackVersionError(`${version.name} has no readable port table. Rebuild the version before allocating a deployment.`);
+    }
+    if (!await this.reservations?.inventorySeededAt()) {
+      throw new ReservationInventoryPendingError();
+    }
+    return {
+      stackVersionId: version.id,
+      slotCap: slotCapFor(version.contract),
+      daemonId: await this.targets.daemonIdFor(host),
+      table: portTableForEngine(version.contract, engineForComponents(components)),
+    };
+  }
 
   private publishChanged(profile: ProfileWithContainers): void {
     this.events.publish({ type: 'profile.changed', profile });
@@ -241,7 +289,7 @@ export class ProfileService {
           bee_url: input.bee_url,
           srt_passphrase: input.srt_passphrase,
         },
-        { stackVersionId: version.id, maxSlot: maxSlotOf(version.contract) },
+        await this.placementFor(version, input.host ?? null, input.components),
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -254,7 +302,7 @@ export class ProfileService {
       throw err;
     }
     if (!row) {
-      throw new AllSlotsUsedError(maxSlotOf(version.contract));
+      throw new AllSlotsUsedError(slotCapFor(version.contract));
     }
 
     logger.info(
@@ -306,16 +354,32 @@ export class ProfileService {
       throw new ProfileBusyError(name, existing.status);
     }
 
-    // PUT replaces every editable field, so a body that omits bee_publishers
-    // clears it. For an abr-uploader that silently removes the only thing it
-    // publishes through, and neither yup test can catch it: `kind` and
-    // `components` are not in an update body. Checked here, against the state
-    // the write would actually leave behind.
+    // The row the edit proposes, built once. The gate is asked about it, the
+    // claim is taken for it, and it is what is written and deployed, so the
+    // state that is judged is the state that lands. PUT replaces every
+    // editable field, so a field the body leaves out becomes null here the
+    // way the write stores it.
+    const edits = nullify({
+      notes: input.notes,
+      feed_owner: input.feed_owner,
+      feed_topic: input.feed_topic,
+      private_key: input.private_key,
+      public_key: input.public_key,
+      stamp_id: input.stamp_id,
+      bee_publishers: input.bee_publishers,
+      bee_url: input.bee_url,
+      srt_passphrase: input.srt_passphrase,
+    });
+    const proposed: Profile = { ...existing, ...edits };
+
+    // A body that omits bee_publishers clears it. For an abr-uploader that
+    // silently removes the only thing it publishes through, and neither yup
+    // test can catch it: `kind` and `components` are not in an update body.
     const configProblem = beeTargetProblem({
-      kind: existing.kind,
-      components: existing.components,
-      bee_publishers: input.bee_publishers ?? null,
-      bee_url: input.bee_url ?? null,
+      kind: proposed.kind,
+      components: proposed.components,
+      bee_publishers: proposed.bee_publishers,
+      bee_url: proposed.bee_url,
     });
     if (configProblem) {
       throw new ProfileConfigError(name, configProblem);
@@ -326,30 +390,24 @@ export class ProfileService {
     // the pool string, in one statement, so no state exists in which the column
     // holds settings the deployment cannot act on.
     const laddersEnded =
-      hasBeePublishers(existing) && !input.bee_publishers?.trim();
+      hasBeePublishers(existing) && !proposed.bee_publishers?.trim();
 
     // Claimed before anything is written. Two concurrent PUTs both pass the
     // busy check above, so without the claim the loser would rewrite the row
     // and the env file under the winner's running deploy, then mark the profile
     // ERROR while that deploy was still going.
     const reservation = await this.orchestrator.reserveDeploy(
-      existing,
+      proposed,
       existing.components ?? undefined,
     );
 
     const row = await this.writeOrCancel([reservation], async () => {
-      const written = await this.repo.updateEditable(name, existing.kind, {
-        notes: input.notes,
-        components: existing.components,
-        feed_owner: input.feed_owner,
-        feed_topic: input.feed_topic,
-        private_key: input.private_key,
-        public_key: input.public_key,
-        stamp_id: input.stamp_id,
-        bee_publishers: input.bee_publishers,
-        bee_url: input.bee_url,
-        srt_passphrase: input.srt_passphrase,
-      }, laddersEnded ? withoutLadderSettings(existing) : undefined);
+      const written = await this.repo.updateEditable(
+        name,
+        existing.kind,
+        { ...edits, components: existing.components },
+        laddersEnded ? withoutLadderSettings(existing) : undefined,
+      );
       if (!written) {
         throw new ProfileNotFoundError(name);
       }
@@ -459,20 +517,27 @@ export class ProfileService {
     const { engine, abr } = this.engineFacts(profile);
     const defaults = await this.engineDefaults(profile, engine);
     const contract = await this.contractFor(profile);
+    const notInConfig = profile.has_engine_config
+      ? settingsNotInConfig(
+          engine,
+          (await this.repo.engineConfigOf(profile.name)) ?? '',
+        )
+      : [];
     return {
       engine,
       abr,
       settings: profile.engine_settings,
       defaults: defaults.values,
       defaultSources: defaults.sources,
+      effective: effectiveEngineSettings(
+        engine,
+        profile.engine_settings,
+        defaults.values,
+        notInConfig,
+      ),
       fields: engineSettingsFieldsFor(engine, { abr }),
       liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
-      notInConfig: profile.has_engine_config
-        ? settingsNotInConfig(
-            engine,
-            (await this.repo.engineConfigOf(profile.name)) ?? '',
-          )
-        : [],
+      notInConfig,
     };
   }
 
@@ -544,18 +609,23 @@ export class ProfileService {
 
   async remove(
     name: string,
-    input: { all?: boolean } = {},
+    input: { all?: boolean; expectedInstanceId?: string } = {},
   ): Promise<ProfileWithContainers> {
     const profile = await this.getByName(name);
     if ((TRANSITIONAL_STATUSES as readonly string[]).includes(profile.status)) {
       throw new ProfileBusyError(name, profile.status);
     }
-    await this.orchestrator.startRemove(profile, input);
-    return { ...profile, status: 'REMOVING' };
+    const removal = await this.orchestrator.startRemove(profile, input);
+    return { ...removal.profile, containers: profile.containers, pendingStamp: profile.pendingStamp };
   }
 
   async listGroups(): Promise<DeploymentGroup[]> {
     return this.groupRepo.list();
+  }
+
+  async removeEmptyGroup(id: number, expectedName: string): Promise<void> {
+    const result = await this.groupRepo.removeEmptyGroup(id, expectedName);
+    if (result === 'changed' || result === 'not_empty') throw new GroupRemovalRefusedError(id, result);
   }
 
   /**
@@ -654,6 +724,7 @@ export class ProfileService {
       }
     }
 
+    const placement = await this.placementFor(version, input.host ?? null, input.abr_ladder ? ABR_RUNG_COMPONENTS : input.components);
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
@@ -670,7 +741,9 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
       stack_version_id: version.id,
-      max_slot: maxSlotOf(version.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     const kind: GroupKind = input.abr_ladder
@@ -833,8 +906,14 @@ export class ProfileService {
     }));
 
     // Every member is claimed before the bulk write, so a group edit that
-    // cannot own all of its deployments changes none of them.
-    const reservations = await this.reserveMembers(group, members);
+    // cannot own all of its deployments changes none of them. Each claim is
+    // for the row that member is about to become, so the gate judges the
+    // stamp the edit proposes and not the one it replaces.
+    const proposedMembers = members.map((member, index) => ({
+      ...member,
+      ...writes[index],
+    }));
+    const reservations = await this.reserveMembers(group, proposedMembers);
 
     const updated = await this.writeOrCancel([...reservations.values()], () =>
       this.groupRepo.updateMembersConfig(writes),
@@ -939,6 +1018,7 @@ export class ProfileService {
    * a group is too: leaving its members STOPPED under a "Deploying" toast said
    * one thing and did another. Each member is read back after its start, so the
    * response carries the status and reason for the ones that did not take.
+   * A replacement with the same name is not part of this creation response.
    */
   private async deployNewMembers(
     created: readonly Profile[],
@@ -947,8 +1027,9 @@ export class ProfileService {
     for (const member of created) {
       this.publishChanged(await this.containers.withContainers(member));
       await this.startMember(member);
-      const latest = (await this.repo.findByName(member.name)) ?? member;
-      profiles.push(await this.containers.withContainers(latest));
+      const latest = await this.repo.findByName(member.name);
+      const owned = latest?.instance_id === member.instance_id ? latest : member;
+      profiles.push(await this.containers.withContainers(owned));
     }
     return profiles;
   }
@@ -976,6 +1057,10 @@ export class ProfileService {
 
     const canonical = members[0]!;
     const version = await this.versions.findById(canonical.stack_version_id);
+    if (!version) {
+      throw new InvalidStackVersionError(`Stack version ${canonical.stack_version_id} does not exist`);
+    }
+    const placement = await this.placementFor(version, canonical.host, canonical.components);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
@@ -988,7 +1073,9 @@ export class ProfileService {
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
       stack_version_id: canonical.stack_version_id,
-      max_slot: maxSlotOf(version?.contract),
+      slot_cap: placement.slotCap,
+      daemon_id: placement.daemonId,
+      table: placement.table,
     };
 
     // Generate the next free `<group>-profile-N` names, skipping any taken.

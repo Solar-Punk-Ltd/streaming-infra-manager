@@ -47,15 +47,10 @@ const LIVE = process.env.ABR_BEE_PUBLISHERS?.trim();
 // derives its catalog feed's owner from it. Deliberately not a real one.
 const TEST_KEY = `0x${'11'.repeat(32)}`;
 
-const created = new Set<string>();
-const track = (name: string): string => {
-  created.add(name);
-  return name;
-};
 
 before(requireStack);
 after(async () => {
-  await cleanup(created);
+  await cleanup();
 });
 
 describe('ABR uploader — validation', () => {
@@ -117,7 +112,7 @@ describe('ABR uploader — validation', () => {
 describe('bee_url — an external node for a single-node uploader', () => {
   it('is accepted when the deployment runs no bee-uploader', async () => {
     // This one really is created and deployed, so it is tracked for teardown.
-    const name = track(uniqueName('beeurl'));
+    const name = uniqueName('beeurl');
     const { status, body } = await apiRaw('POST', '/profiles', {
       name,
       kind: 'custom',
@@ -184,7 +179,7 @@ describe('the update path enforces the same rules as create', () => {
     // into an override file that outranks .env.<profile> whenever one is
     // enabled, so a stored value here would never apply — the create path has
     // always said so, and PUT used to accept it anyway.
-    const name = track(uniqueName('beeurl'));
+    const name = uniqueName('beeurl');
     const created = await apiRaw('POST', '/profiles', {
       name,
       kind: 'custom',
@@ -224,7 +219,6 @@ describe('the update path enforces the same rules as create', () => {
     // Structurally valid but unreachable rungs: accepted, and it will not come
     // up, which is fine — this test is about the update rule, not the deploy.
     assert.equal(created.status, 202, JSON.stringify(created.body));
-    track(name);
     await waitForSettled(name);
 
     const { status, body } = await apiRaw('PUT', `/profiles/${name}`, {
@@ -254,7 +248,6 @@ describe('the update path enforces the same rules as create', () => {
       private_key: TEST_KEY,
     });
     assert.equal(status, 202, JSON.stringify(body));
-    track(name);
     assert.equal((body as { bee_publishers: string }).bee_publishers, SYNTHETIC);
   });
 });
@@ -285,7 +278,7 @@ describe('bee_url reaches the container', () => {
         : 'set ABR_BEE_PUBLISHERS — its 360p rung is reused here as an external node',
     },
     async () => {
-      const name = track(uniqueName('beeurl'));
+      const name = uniqueName('beeurl');
       const profile = await createProfile({
         name,
         kind: 'custom',
@@ -321,7 +314,7 @@ describe('ABR uploader — deploy against real rungs', () => {
     'deploys srs + stream-uploader, no bee node, no stamp pending',
     { skip: LIVE ? false : 'set ABR_BEE_PUBLISHERS to a funded ladder to run this' },
     async () => {
-      const name = track(uniqueName('abrup'));
+      const name = uniqueName('abrup');
 
       const profile = await createProfile({
         name,

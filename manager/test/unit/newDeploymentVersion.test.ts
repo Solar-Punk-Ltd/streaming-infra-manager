@@ -11,25 +11,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { StackContract } from '@streaming-infra-manager/common';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 import { InvalidStackVersionError } from '../../src/domain/errors/index.js';
 import {
   profileServiceHarness,
   type ProfileServiceHarness,
 } from '../support/profileServiceHarness.js';
-
-const EMPTY_CONTRACT: StackContract = {
-  ports: [],
-  maxSlot: 999,
-  requiredSecrets: [],
-  engineDefaults: {},
-  features: { srsApiPort: false, chequebookGate: false },
-  chequebookMinBzz: null,
-  engineConfig: { srs: false, ome: false },
-  engineImages: { srs: null, ome: null },
-  warnings: [],
-};
 
 async function addVersion(
   harness: ProfileServiceHarness,
@@ -44,7 +32,7 @@ async function addVersion(
   if (status === 'ready') {
     await harness.versions.markBuilt(row.id, {
       commitSha: 'abc1234',
-      contract: EMPTY_CONTRACT,
+      contract: ALLOCATION_CONTRACT,
     });
   }
   if (status === 'failed') {

@@ -5,10 +5,12 @@ import {
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
 import Docker from 'dockerode';
+import { dirname } from 'node:path';
 
 import {
   COMPOSE_PROJECT_LABEL,
   COMPOSE_SERVICE_LABEL,
+  COMPOSE_WORKING_DIR_LABEL,
 } from './composeLabels.js';
 import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
 import {
@@ -24,6 +26,8 @@ import {
 } from './dockerStream.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { collectPublishedPorts } from './ports/publishedPorts.js';
+import type { PublishedPortsSnapshot } from './ports/PublishedPortsProbe.js';
 
 const logger = Logger.getInstance();
 
@@ -98,15 +102,19 @@ export interface ContainerHandle {
   inspect(): Promise<InspectedContainer>;
 }
 
-/** The part of `docker inspect` the watch after a config change reads. */
-export interface InspectedContainer {
-  Id: string;
-  State: {
-    Status: string;
-    RestartCount?: number;
-    StartedAt?: string;
-  };
-}
+/**
+ * The part of `docker inspect` the watch after a config change reads.
+ *
+ * Picked out of dockerode's own type so the shape stays Docker's: the restart
+ * count sits beside `State`, not inside it, and a double that puts it under
+ * `State` no longer compiles.
+ */
+export type InspectedContainer = Pick<Docker.ContainerInspectInfo, 'Id' | 'RestartCount'> & {
+  Config?: { Labels?: Record<string, string> };
+  NetworkSettings?: { Ports?: unknown };
+  HostConfig?: { NetworkMode?: string };
+  State: Pick<Docker.ContainerInspectInfo['State'], 'Status' | 'StartedAt'>;
+};
 
 /** One container's state, as `inspect` answers it. */
 export interface ContainerState {
@@ -129,6 +137,8 @@ export interface ListedContainer {
 }
 
 export interface DockerEngine {
+  /** `docker info`, for the daemon's own id. */
+  info(): Promise<unknown>;
   listContainers(
     options: Docker.ContainerListOptions,
   ): Promise<ListedContainer[]>;
@@ -195,6 +205,45 @@ export class ContainerControl {
   }
 
   /**
+   * The root the service's container was started from, read off the compose
+   * working directory label the container carries, or null when there is no
+   * container. This is what a build reference is resolved by: what runs,
+   * never what a deploy planned.
+   */
+  async mountedRootOf(profile: string, service: string): Promise<string | null> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: true,
+        filters: {
+          label: [
+            `${COMPOSE_PROJECT_LABEL}=${profile}`,
+            `${COMPOSE_SERVICE_LABEL}=${service}`,
+          ],
+        },
+      }),
+    );
+    const match = containers.find(
+      (info) =>
+        info.Labels?.[COMPOSE_PROJECT_LABEL] === profile &&
+        info.Labels?.[COMPOSE_SERVICE_LABEL] === service,
+    );
+    const workingDir = match?.Labels?.[COMPOSE_WORKING_DIR_LABEL];
+    if (!workingDir) return null;
+    return dirname(workingDir);
+  }
+
+  /** Whether a container of exactly this name exists, in any state. Throws when Docker cannot be asked. */
+  async containerExists(name: string): Promise<boolean> {
+    try {
+      await this.withinLimit(this.docker.getContainer(name).inspect());
+      return true;
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return false;
+      throw err;
+    }
+  }
+
+  /**
    * The state of a deployment's service container in any state, or null when
    * there is none at all.
    *
@@ -202,6 +251,54 @@ export class ContainerControl {
    * answers is whether a container the deploy just created is still up, and
    * one that died is exactly the answer wanted.
    */
+  /** A fresh identity for target verification and for judging recorded attempts. */
+  async daemonId(): Promise<string> {
+    const info = (await this.withinLimit(this.docker.info())) as { ID?: string };
+    if (typeof info.ID !== 'string' || !info.ID.trim()) {
+      logger.error('[ContainerControl] docker info answered no daemon id');
+      throw new DockerUnavailableError();
+    }
+    return info.ID;
+  }
+
+  async publishedPorts(): Promise<Omit<PublishedPortsSnapshot, 'daemonId'>> {
+    const listed = await this.withinLimit(this.docker.listContainers({ all: false }));
+    const rows: unknown[] = [];
+    for (const container of listed) {
+      const info = await this.withinLimit(this.docker.getContainer(container.Id).inspect());
+      if (!['running', 'restarting', 'paused'].includes(info.State.Status)) continue;
+      if (!info.NetworkSettings || !('Ports' in info.NetworkSettings)) {
+        throw new Error('Docker did not report published ports');
+      }
+      rows.push({
+        id: info.Id,
+        project: info.Config?.Labels?.[COMPOSE_PROJECT_LABEL] ?? null,
+        service: info.Config?.Labels?.[COMPOSE_SERVICE_LABEL] ?? null,
+        ports: info.NetworkSettings.Ports,
+        networkMode: info.HostConfig?.NetworkMode,
+      });
+    }
+    return collectPublishedPorts(rows);
+  }
+
+  /** Every container of the project, all states, by the service compose labels it. */
+  async containerIdsOf(project: string): Promise<Map<string, string[]>> {
+    const containers = await this.withinLimit(
+      this.docker.listContainers({
+        all: true,
+        filters: { label: [`${COMPOSE_PROJECT_LABEL}=${project}`] },
+      }),
+    );
+    const byService = new Map<string, string[]>();
+    for (const info of containers) {
+      if (info.Labels?.[COMPOSE_PROJECT_LABEL] !== project) continue;
+      const service = info.Labels?.[COMPOSE_SERVICE_LABEL];
+      if (!service) continue;
+      byService.set(service, [...(byService.get(service) ?? []), info.Id]);
+    }
+    return byService;
+  }
+
   async inspect(profile: string, service: string): Promise<ContainerState | null> {
     const containers = await this.withinLimit(
       this.docker.listContainers({
@@ -225,8 +322,8 @@ export class ContainerControl {
     return {
       id: info.Id,
       status: info.State.Status,
-      restartCount: info.State.RestartCount ?? 0,
-      startedAt: info.State.StartedAt ?? null,
+      restartCount: info.RestartCount,
+      startedAt: info.State.StartedAt,
     };
   }
 

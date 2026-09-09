@@ -28,25 +28,15 @@ import {
 
 const BATCH = (seed: string) => seed.replace(/\D/g, '').padEnd(64, '0');
 
-const created = new Set<string>();
-const track = (name: string): string => {
-  created.add(name);
-  return name;
-};
-/** A pool's members are `<pool>-<rung>`; removing all four drops the group. */
-const trackPool = (pool: string): string => {
-  for (const rung of RUNGS) track(`${pool}-${rung}`);
-  return pool;
-};
 
 before(requireStack);
 after(async () => {
-  await cleanup(created);
+  await cleanup();
 });
 
 describe('ABR node pool', () => {
   it('creates one bee-uploader per rung, named <pool>-<rung>', async () => {
-    const pool = trackPool(uniqueName('pool'));
+    const pool = uniqueName('pool');
 
     const { group, profiles } = await createGroup({
       group_name: pool,
@@ -77,7 +67,7 @@ describe('ABR node pool', () => {
   });
 
   it('withholds BEE_PUBLISHERS and names every rung that is not ready', async () => {
-    const pool = trackPool(uniqueName('pool'));
+    const pool = uniqueName('pool');
     const { group } = await createGroup({
       group_name: pool,
       size: 1,
@@ -114,7 +104,7 @@ describe('ABR node pool', () => {
   });
 
   it('refuses a bulk stamp edit and refuses appending members', async () => {
-    const pool = trackPool(uniqueName('pool'));
+    const pool = uniqueName('pool');
     const { group } = await createGroup({
       group_name: pool,
       size: 1,
@@ -145,7 +135,7 @@ describe('ABR node pool', () => {
   });
 
   it('still allows the edits that are safe across a pool', async () => {
-    const pool = trackPool(uniqueName('pool'));
+    const pool = uniqueName('pool');
     const { group } = await createGroup({
       group_name: pool,
       size: 1,
@@ -201,7 +191,6 @@ describe('ABR node pool', () => {
       kind: 'custom',
       components: [BEE_UPLOADER],
     });
-    for (let i = 1; i <= 2; i += 1) track(`${name}-profile-${i}`);
 
     assert.equal(group.kind, 'standard');
     const { status, body } = await apiRaw(

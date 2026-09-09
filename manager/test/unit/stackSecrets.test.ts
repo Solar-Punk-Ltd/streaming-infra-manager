@@ -10,7 +10,8 @@
  * cut the engine off from an uploader that was started with the old one.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -21,7 +22,8 @@ import { missingStackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
 
-const root = mkdtempSync(join(tmpdir(), 'stack-secrets-'));
+const root = join(mkdtempSync(join(tmpdir(), 'stack-secrets-')), 'main-v3');
+mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
 const { orchestratorHarness, untilRunning } = await import(
@@ -31,15 +33,16 @@ const { orchestratorHarness, untilRunning } = await import(
 const REQUIRED = ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'];
 
 const V3_CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: REQUIRED,
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: true },
+  features: { srsApiPort: true, chequebookGate: true, sharedImageTags: true },
   chequebookMinBzz: '0.5',
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const HEX_64 = /^[0-9a-f]{64}$/;

@@ -8,6 +8,9 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AdminRequiredError,
   AllSlotsUsedError,
+  PortReservedError,
+  ReservationInventoryPendingError,
+  TargetNotVerifiedError,
   BeeNodeError,
   BeeNotReadyError,
   BundledVersionError,
@@ -20,9 +23,11 @@ import {
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  GroupRemovalRefusedError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
@@ -45,8 +50,10 @@ import {
   UserExistsError,
   UserNotFoundError,
   WeakPasswordError,
+  DeployAttemptRefusedError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
+import { StackVersionRemovalHeldError } from '../../domain/errors/StackVersionRemovalHeldError.js';
 
 const logger = Logger.getInstance();
 
@@ -137,12 +144,24 @@ export function errorHandler(
     res.status(409).json({ error: 'profile_exists', name: err.profileName });
     return;
   }
+  if (err instanceof DeployAttemptRefusedError) {
+    res.status(409).json({
+      error: 'deploy_attempt_refused',
+      name: err.profileName,
+      message: err.reason,
+    });
+    return;
+  }
   if (err instanceof ProfileBusyError) {
     res.status(409).json({
       error: 'profile_busy',
       name: err.profileName,
       status: err.currentStatus,
     });
+    return;
+  }
+  if (err instanceof ProfileInstanceChangedError) {
+    res.status(409).json({ error: 'profile_instance_changed', name: err.profileName, message: err.message });
     return;
   }
   if (err instanceof GroupExistsError) {
@@ -159,6 +178,10 @@ export function errorHandler(
       name: err.groupName,
       members: err.busyMembers,
     });
+    return;
+  }
+  if (err instanceof GroupRemovalRefusedError) {
+    res.status(409).json({ error: `group_${err.reason}`, id: err.groupId });
     return;
   }
   if (err instanceof StampRequiredError) {
@@ -264,6 +287,10 @@ export function errorHandler(
     });
     return;
   }
+  if (err instanceof StackVersionRemovalHeldError) {
+    res.status(409).json({ error: 'stack_version_removal_held', name: err.versionName, reason: err.reason, message: err.message });
+    return;
+  }
   if (err instanceof BundledVersionError) {
     res.status(409).json({ error: 'bundled_version', message: err.reason });
     return;
@@ -294,6 +321,18 @@ export function errorHandler(
   }
   if (err instanceof AllSlotsUsedError) {
     res.status(503).json({ error: 'all_slots_used', message: err.message });
+    return;
+  }
+  if (err instanceof TargetNotVerifiedError) {
+    res.status(409).json({ error: 'target_not_verified', alias: err.alias, message: err.message });
+    return;
+  }
+  if (err instanceof PortReservedError) {
+    res.status(409).json({ error: 'port_reserved', name: err.profileName, message: err.message });
+    return;
+  }
+  if (err instanceof ReservationInventoryPendingError) {
+    res.status(409).json({ error: 'reservation_inventory_pending', message: err.message });
     return;
   }
 

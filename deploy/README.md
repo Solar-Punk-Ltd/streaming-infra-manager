@@ -113,7 +113,7 @@ Each deployment publishes the API of every Bee node it runs, on the ports
 ending 5 and 7 for its slot, and by default on every interface. Set them to the
 Docker bridge address instead. **A firewall is no substitute for this**: Docker
 publishes a container port by rewriting the packet's destination and forwarding
-it, so a firewall's input rules never see it at all, and the DOCKER-USER rules
+it, so a firewall's input rules never see it at all, and the forward rules
 of step 3 filter it one way in rather than closing it. The binding is the
 control.
 
@@ -139,57 +139,77 @@ binding on its next deploy and not before: the manager copies that base file
 fresh into each deployment's own `.env.<name>` every time it deploys, which is
 how a value set once reaches all of them.
 
-### 3. Firewall the host, default deny inbound
+### 3. Generate and review the host firewall
 
-The generator needs the name of the interface the internet arrives on. Read it
-off the host:
+The generator requires Node.js, this checkout's shared port policy, and a fresh
+inventory export for the target. In the signed-in manager browser, open
+`/targets/firewall?alias=localhost` and save the download as
+`firewall-inventory.json`. Use the verified SSH alias instead of `localhost`
+for a remote target, URL-encoding the alias when needed.
+
+The export is read-only. It checks daemon identity, reservations, observed
+bindings and retained immutable build contracts. It refuses unresolved jobs,
+unknown owners, incomplete inventory and mutable or missing build history.
+A published version is only a candidate. A retained service snapshot must be
+covered by its own build contract.
+
+With the external interface name supplied by the host operator:
 
 ```sh
-ssh manager-host 'ip -4 route get 1.1.1.1'   # the name after "dev", often eth0
-```
-
-Then, with that name:
-
-```sh
-./deploy/host/firewall-rules.sh --iface eth0 --max-slot 20 > /tmp/manager-firewall.nft
+./deploy/host/firewall-rules.sh --iface eth0 \
+  --inventory firewall-inventory.json --max-slot 20 \
+  > /tmp/manager-firewall.nft
 less /tmp/manager-firewall.nft
-scp /tmp/manager-firewall.nft manager-host:/tmp/
-ssh manager-host 'sudo nft -f /tmp/manager-firewall.nft'
 ```
 
-It prints and applies nothing itself. Read it before it becomes law. Give
-`--max-slot` the highest deployment slot in use rather than the default 100, and
-`--ssh-port` if sshd is not on 22.
+The command prints a draft and applies nothing. Run it from this checkout.
+The shell wrapper needs its sibling Node files and `common/src/portPolicy.js`.
 
-It refuses a `--max-slot` above 100, which is lower than the 999 slots the
-manager allocates. Above 100 the two port bands land on each other: first-band
-slot 101 has its RTMP port on 11012, and 11012 is the second band's slot 1 P2P
-port, which the ruleset opens. Opening both bands that far would put RTMP on the
-internet. So a host really running a deployment above slot 100 has that
-deployment's public ports left closed rather than opened, which is the safe
-direction, and its viewers and Swarm peers cannot reach it until the ceiling
-moves. Making the ceiling follow the stack's own port contract instead of a
-constant in the script is a later change.
+Both new allocation and the generator use a maximum of 100 slots. Allocation
+also honors a lower stack limit. Existing deployments keep their slots and
+reservations. A stopped slot-101 RTMP endpoint on TCP 11012 causes generation
+to refuse, because that port is also a legitimate v3 rung peer endpoint.
+It is not treated as a closed port merely because `--max-slot` is at most 100.
+Fix the conflicting ownership through the reviewed remediation process before
+generating another candidate. Do not renumber a funded deployment to bypass
+this refusal.
 
-Keep that SSH session open and open a second one to prove you can still get in.
-Nothing applied this way survives a reboot unless it is copied to
-`/etc/nftables.conf`, which is both how to keep it and how to undo a mistake.
+The candidate replaces only the `inet streaming_infra_manager` table. It
+does not clear Docker's chains or another application's tables. Its input
+chain defaults to deny and permits SSH, the web edge and the supported public
+stack ports. `--ssh-port` cannot exempt a port within the protected
+10000 to 19999 range.
 
-Docker has to be running when the file is applied. Its second section adds
-rules to `DOCKER-USER`, a chain Docker creates at start, and `nft` refuses the
-whole file and changes nothing when that chain is absent.
+Its forward chain covers IPv4 and IPv6. On the selected external interface,
+it permits supported translated public ports and drops other translated
+TCP/UDP ports in the protected range. It also drops new direct routing that
+has no destination translation, including direct access to container API
+ports. **Review this restriction before using the candidate on a host that
+also serves as a router.** Forwarding arriving on other interfaces and
+unrelated translated ports outside the protected range are left to the
+host's other policies. Established and related connections remain eligible.
 
-Three things close the doors between them, and each closes a different set:
+The forward rules match the original destination port after Docker's
+translation. An accept in this table does not override a later table's drop.
+See the [nftables chain documentation](https://wiki.nftables.org/wiki-nftables/index.php/Configuring_chains)
+for hook ordering and verdict behavior.
 
-- **The Bee API bind of step 2** closes the Bee node APIs at the source,
-  whatever any ruleset says. Nothing in this file replaces it.
-- **The DOCKER-USER section** closes everything else the stack publishes: the
-  uploader API, the media server's HTTP and RTMP, the SRS API. Docker forwards
-  a published port's traffic rather than delivering it locally, so it never
-  reaches an input chain, and these rules meet it in the forward hook instead,
-  matching on the port the client dialled rather than the container's.
-- **The input chain** closes the host itself, its own listeners and the whole
-  stack when that runs with `COMPOSE_NETWORK=host`.
+The export records a capture time and database fingerprint. It is evidence
+from that capture, not proof that the host has remained unchanged or that a
+hand-edited file is trustworthy. Re-export after deployment, reservation or
+network changes. Read-only capture cannot freeze external host changes.
+
+Before applying a reviewed file, the operator must validate it with the
+host's nftables version and review coexistence with the complete existing
+ruleset. Keep the SSH session open and verify a second connection after any
+operator-approved application. Persist only the manager table through the
+host's existing firewall configuration. Replacing all of `/etc/nftables.conf`
+could discard unrelated policy.
+
+The Bee API bind in step 2 still closes those APIs at their published
+interface. The input hook covers host listeners. The forward hook covers
+published container traffic. Host-network containers with unprovable bindings
+cause the inventory export to refuse.
 
 ### 4. DNS, then the domain
 
