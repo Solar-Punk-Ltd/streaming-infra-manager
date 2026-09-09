@@ -77,4 +77,24 @@ describe('Bee startup observations', () => {
     const large = await client((_path, res) => res.end('x'.repeat(70000)));
     assert.equal((await large.getNodeObservation()).state, 'unknown');
   });
+
+  // On the CI runner a body read outlived the probe's abort by five minutes,
+  // until the server's own request timeout closed the socket: the transport
+  // did not turn the abort into a rejected read. The bound has to be the
+  // probe's, whatever the transport does with the signal.
+  it('bounds a body read even when the transport ignores the abort signal', { timeout: 5_000 }, async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+      cancel() { /* the transport that never gives up */ },
+    }), { status: 200 });
+    try {
+      const start = Date.now();
+      const observed = await new BeeClient('http://127.0.0.1:1', 50).getNodeObservation();
+      assert.notEqual(observed.state, 'ready');
+      assert.ok(Date.now() - start < 1000, `took ${Date.now() - start} ms`);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
