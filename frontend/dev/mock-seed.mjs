@@ -35,7 +35,10 @@ export const bzz = (whole, hundredths = 0) =>
 export const hex = (bytes) => randomBytes(bytes).toString('hex');
 /** A readable fake SRT passphrase, distinct per run like every other secret here. */
 export const passphrase = (label) => `${label}-${hex(6)}`;
-export const HOST_PASSPHRASE = passphrase('lab-host');
+// MOCK_HOST_PASSPHRASE='' runs the mock as a host without a shared passphrase,
+// which is the host the wizard's passphrase default is about.
+export const HOST_PASSPHRASE =
+  process.env.MOCK_HOST_PASSPHRASE === '' ? null : passphrase('lab-host');
 const key = () => `0x${hex(32)}`;
 const address = () => `0x${hex(20)}`;
 const batchId = () => hex(32);

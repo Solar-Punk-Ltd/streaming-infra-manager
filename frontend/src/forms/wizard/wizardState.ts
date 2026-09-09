@@ -172,7 +172,7 @@ export function initialWizardState(
     group: false,
     size: '2',
     engine: SRS_SERVICE,
-    passMode: 'host',
+    passMode: defaultPassphraseChoice(context),
     generatedPassphrase: generateSrtPassphrase(),
     ownPassphrase: '',
     keyMode: 'generate',
@@ -218,12 +218,33 @@ export function withGoal(
   };
 }
 
+/**
+ * The host-wide passphrase when the host has one, one generated for the
+ * deployment when it has none. 'host' on a host without a passphrase is
+ * unencrypted ingest, which a default must never be.
+ */
+export function defaultPassphraseChoice(context: WizardContext): PassphraseChoice {
+  return context.hostPassphrase ? 'host' : 'generate';
+}
+
 /** The passphrase this deployment would get, or null for the host-wide one. */
 export function chosenPassphrase(state: WizardState): string | null {
   if (state.passMode === 'host') return null;
   return state.passMode === 'generate'
     ? state.generatedPassphrase
     : state.ownPassphrase.trim();
+}
+
+/**
+ * The Review line for the passphrase, in the words the Publish card will use
+ * once the deployment runs.
+ */
+export function passphraseSummary(state: WizardState, context: WizardContext): string {
+  if (state.passMode === 'generate') return 'generated for this deployment';
+  if (state.passMode === 'custom') return 'a passphrase of your own';
+  return context.hostPassphrase
+    ? 'the host-wide passphrase'
+    : 'none on this host, so the ingest is unencrypted';
 }
 
 export function chosenKey(state: WizardState): string {
