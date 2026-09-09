@@ -100,6 +100,10 @@ trap 'code=$?; if [ "$code" -ne 0 ]; then rm -rf "$STAGING"; fi' EXIT
 # Git only, up to here. Nothing out of the fetched tree has run yet.
 if [ -d "$REPO/.git" ]; then
     echo "==> Fetching $REF into $REPO"
+    # The url is checked as an argument, so the fetch has to use that one. What
+    # the clone carries is writable by anyone who can write into the versions
+    # root, and a fetch honours it.
+    git -C "$REPO" remote set-url origin "$REPO_URL"
     if [ "$REF_IS_COMMIT" = yes ]; then
         git -C "$REPO" fetch --prune origin "$REF"
     else
