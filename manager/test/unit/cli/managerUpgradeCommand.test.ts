@@ -15,7 +15,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import type { ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOperations.js';
+import { processStreams } from '../../../src/cli/commandStreams.js';
 import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
+import { Logger } from '../../../src/domain/Logger.js';
 import type { BundledShipmentReceipt } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerUpgradeOperations } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
@@ -176,6 +178,35 @@ describe('manager:upgrade', () => {
     assert.match(run.error?.message ?? '', /--compose-file/);
     assert.match(run.error?.message ?? '', /--mutable-root/);
     assert.equal(opened, 0);
+  });
+
+  it('keeps what the migration logs out of the one line on standard output the deploy reads', async () => {
+    // What the command line does before it dispatches, so a migration cannot write into the receipt.
+    Logger.getInstance().writeEverythingToStandardError();
+    const written: string[] = [];
+    const original = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => { written.push(String(chunk)); return true; }) as typeof process.stdout.write;
+    try {
+      await runManagerUpgradeCommand(argvWith(), processStreams, {
+        versionsRoot,
+        operations: () => ({
+          operations: {
+            ...operations(),
+            publish: async () => {
+              Logger.getInstance().info('[Database] Applied migration: 024_bundled_shipments.sql');
+              revision = receipt.publicationRevision;
+              return receipt;
+            },
+          },
+          close: async () => {},
+        }),
+      });
+    } finally {
+      process.stdout.write = original;
+    }
+
+    assert.equal(written.length, 1, 'exactly one line reaches the standard output the deploy reads');
+    assert.equal(JSON.parse(written[0]!).receipt.shipmentId, SHIPMENT_ID);
   });
 
   it('names the retained directory and the phase it stopped in when an earlier upgrade still holds the host', async () => {
