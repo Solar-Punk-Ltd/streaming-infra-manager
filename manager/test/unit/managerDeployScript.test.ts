@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -186,6 +187,13 @@ describe('deploy/deploy.sh', () => {
     assert.ok(line, 'the remote block reads the address of the host');
     assert.match(line, /\|\| true\)"$/);
     assert.ok(script.indexOf('WARNING: PUBLIC_HOST is empty') > script.indexOf('PUBLIC_HOST="'), 'and says so below it');
+  });
+
+  it('looks for the same data volume the upgrade names, so a rename on one side fails here', () => {
+    // The script cannot import TypeScript, so its one literal is read back against the
+    // constant the command uses and the two are changed together.
+    assert.ok(script.includes(`POSTGRES_VOLUME="manager_${MANAGER_POSTGRES_VOLUME}"`),
+      `the deploy names the manager_${MANAGER_POSTGRES_VOLUME} volume of the manager project`);
   });
 
   it('never asks compose to print a rendered configuration', () => {
