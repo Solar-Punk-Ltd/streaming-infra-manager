@@ -64,6 +64,13 @@ function containers(state: string, health: string): string {
   return `${JSON.stringify({ Name: 'manager-postgres-1', Service: 'postgres', State: state, Health: health })}\n`;
 }
 
+/** How the upgrade asks whether one service of the project has a container of its own. */
+function serviceProbe(service: string): string {
+  return ['docker', 'ps', '-aq', '--filter', `label=com.docker.compose.project=${PROJECT}`,
+    '--filter', `label=com.docker.compose.service=${service}`, '--filter', 'label=com.docker.compose.oneoff=False'].join(' ');
+}
+const API_CONTAINERS = serviceProbe('api');
+
 const JOURNAL: ManagerPublication = { schema: 'journal', revision: '4', buildId: `${COMMIT}-r7`, receipt: null, pending: null };
 const FRESH: ManagerPublication = { schema: 'fresh', revision: '0', buildId: null, receipt: null, pending: null };
 
@@ -139,7 +146,7 @@ describe('the manager upgrade against one Compose project', () => {
     function scriptFirstUse(): void {
       runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
       runner.answer(`docker volume inspect ${POSTGRES_VOLUME}`, { code: 1, stderr: 'no such volume' });
-      runner.answer('ps -aq api', { stdout: '' });
+      runner.answer(API_CONTAINERS, { stdout: '' });
     }
 
     it('treats a host with no container and no data volume as first use, and starts Postgres for it', async () => {
@@ -147,8 +154,18 @@ describe('the manager upgrade against one Compose project', () => {
       publication = FRESH;
 
       assert.deepEqual(await operations().readPublication(request), FRESH);
-      assert.deepEqual(runner.seen, ['ps -a --format json postgres', `docker volume inspect ${POSTGRES_VOLUME}`, 'ps -aq api',
+      assert.deepEqual(runner.seen, ['ps -a --format json postgres', `docker volume inspect ${POSTGRES_VOLUME}`, API_CONTAINERS,
         'up -d --no-build postgres', 'ps -a --format json postgres']);
+    });
+
+    it('leaves the one-off container this upgrade runs in out of the api containers it counts', async () => {
+      scriptFirstUse();
+      // What a Compose listing would answer inside the one-off container of this very upgrade.
+      runner.answer('ps -aq api', { stdout: 'deadbeef0001\n' });
+      publication = FRESH;
+
+      assert.deepEqual(await operations().readPublication(request), FRESH);
+      assert.equal(runner.seen.includes('ps -aq api'), false, 'a Compose listing with -a counts this upgrade own container');
     });
 
     it('refuses a first use whose database turns out not to be empty', async () => {
@@ -170,7 +187,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('refuses a host that has an api container but no data volume, and says what it found', async () => {
       runner.answer('ps -a --format json postgres', { stdout: '' });
       runner.answer(`docker volume inspect ${POSTGRES_VOLUME}`, { code: 1, stderr: 'no such volume' });
-      runner.answer('ps -aq api', { stdout: 'c0ffee\n' });
+      runner.answer(API_CONTAINERS, { stdout: 'c0ffee\n' });
 
       await assert.rejects(operations().readPublication(request), (error: Error) => {
         assert.match(error.message, new RegExp(POSTGRES_VOLUME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
