@@ -69,8 +69,15 @@ and then where the result lives.
 committed), adds that checkout's own `.env`, `deploy/config.json` and engine
 envs, and writes a manifest naming every path with its mode and its hash. An
 uncommitted change to the application is refused here, so what ships is always a
-commit you can go back to. The result is one directory named after a shipment
-id made fresh for this deploy.
+commit you can go back to. The checkout's `.env` has to declare every key the
+version's `.env.sample` declares, and the seal refuses one that does not,
+naming the keys: that is what a stack bump leaves behind, because the base env
+is your file and never moves with the submodule. Add the missing keys with the
+sample's defaults, then record the edit as a revision with
+`manager/scripts/stack-config-edit.sh manager/swarm-hls-stream commit`. A
+checkout that never had a revision needs no such step: the deploy passes
+`--adopt-inputs`, which takes the files as they are, once. The result is one
+directory named after a shipment id made fresh for this deploy.
 
 **Ship.** The package is copied to
 `~/streaming-infra-manager-versions/bundled.packages/` under a name ending
