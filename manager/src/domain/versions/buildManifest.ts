@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { BuildTreeSharing } from './buildTreeClone.js';
+
 /** Written by the build script into every build, with the commit and how it was built. */
 export const BUILD_MANIFEST_FILE = '.stack-manifest.json';
 
@@ -21,6 +23,12 @@ export interface BuildManifest {
   /** The generation of the host configuration copied into the build, and its hashes. Absent on a build an older manager wrote. */
   inputGeneration?: number;
   inputHashes?: Record<string, string>;
+  /**
+   * How the unchanged files of a build made by applying settings reached it:
+   * hard linked to the build it was made from, or copied because the
+   * filesystem refused a link. Absent on a build the build script wrote.
+   */
+  treeSharing?: BuildTreeSharing;
 }
 
 export type BuildManifestRead =
@@ -103,6 +111,9 @@ export function parseBuildManifestBytes(bytes: string | Buffer, manifestPath = B
       ...(Number.isInteger(record.inputGeneration) ? { inputGeneration: record.inputGeneration as number } : {}),
       ...(typeof record.inputHashes === 'object' && record.inputHashes !== null
         ? { inputHashes: record.inputHashes as Record<string, string> }
+        : {}),
+      ...(record.treeSharing === 'linked' || record.treeSharing === 'copied'
+        ? { treeSharing: record.treeSharing }
         : {}),
     },
     problem: null,

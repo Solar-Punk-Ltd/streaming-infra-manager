@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,7 @@ import {
   stackRefProblem,
   stackVersionNameProblem,
   type StackSettings,
+  type StackSettingsApplied,
   type StackSettingsSave,
   type StackSettingsSaved,
   type StackVersion,
@@ -38,6 +39,11 @@ import {
   readBuildManifest,
 } from './buildManifest.js';
 import { protectedBuildIds } from './buildReferences.js';
+import {
+  cloneBuildTree,
+  fileModeOf,
+  type BuildTreeSharing,
+} from './buildTreeClone.js';
 import { persistVersionRemoval } from './versionRemovalMarker.js';
 import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
@@ -134,6 +140,9 @@ export interface PrunedBuilds {
   removed: string[];
   kept: string[];
 }
+
+/** A settings file a build did not have before lands owner only, as the config root's own does. */
+const NEW_SETTINGS_FILE_MODE = 0o600;
 
 /** What a version left mid-build by a restart says when the manager comes back. */
 const INTERRUPTED_BUILD =
@@ -415,6 +424,116 @@ export class StackVersionService {
       `[Versions] ${version.name} settings saved as revision ${generation}: ${describeSettingsSave(save)}`,
     );
     return { generation };
+  }
+
+  /**
+   * The current build again, with the settings as they stand now.
+   *
+   * A saved setting reaches a deployment only through a build that captured
+   * it, and fetching and building the stack again for one changed line takes
+   * minutes. So this publishes another build of the same commit instead: the
+   * current build's tree, its settings files replaced by the committed
+   * revision. It holds the build mutex for its whole run, because it publishes
+   * a build like any other.
+   */
+  async applySettings(id: number): Promise<StackSettingsApplied> {
+    this.reserveBuild(`version ${id}`);
+    try {
+      const version = await this.require(id);
+      this.buildingName = version.name;
+      const applied = await this.publishSettingsBuild(version);
+      this.publishChanged();
+      return applied;
+    } finally {
+      this.buildingName = null;
+    }
+  }
+
+  private async publishSettingsBuild(version: StackVersionRecord): Promise<StackSettingsApplied> {
+    const from = settingsTreeOf(version);
+    if (from === null || version.layout !== 'builds' || !version.buildId) {
+      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_BUILD);
+    }
+    const current = readBuildManifest(from);
+    if (current.problem !== null) {
+      throw new StackSettingsNotReadyError(
+        version.name,
+        `Build ${version.buildId} cannot be read, so there is nothing to make another one from. ${current.problem}`,
+      );
+    }
+
+    const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
+    const capture = await captureHostConfig(configRoot, { sampleEnvKeys: await sampledEnvKeys(from) });
+    if (capture.problem !== null) throw new Error(capture.problem);
+    const inputs = capture.captured;
+
+    const attempt = randomBytes(6).toString('hex');
+    const staging = stagingDirFor(this.versionsRoot, version.name, attempt);
+    await mkdir(buildsRootFor(this.versionsRoot, version.name), { recursive: true });
+    const buildId = await this.freeBuildId(version.name, current.manifest.commit);
+    const built = buildDirFor(this.versionsRoot, version.name, buildId);
+    let sharing: BuildTreeSharing = 'linked';
+    try {
+      const cloned = await cloneBuildTree(
+        from,
+        staging,
+        new Set([...inputs.files.keys(), BUILD_MANIFEST_FILE, BUILD_COMPLETE_MARKER]),
+      );
+      sharing = cloned.sharing;
+      if (cloned.passedBy.length > 0) {
+        logger.warn(
+          `[Versions] ${version.name}: passed by ${cloned.passedBy.join(', ')} in ${from}, which is neither a file, a directory nor a link`,
+        );
+      }
+      await this.writeSettingsInto(staging, from, inputs.files);
+      await writeFile(
+        join(staging, BUILD_MANIFEST_FILE),
+        `${JSON.stringify(
+          {
+            ...current.manifest,
+            buildId,
+            builtAt: new Date().toISOString(),
+            inputGeneration: inputs.generation,
+            inputHashes: inputs.hashes,
+            treeSharing: cloned.sharing,
+          } satisfies BuildManifest,
+          null,
+          2,
+        )}\n`,
+      );
+      await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
+      await rename(staging, built);
+    } catch (err) {
+      await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    }
+
+    await this.versions.publish(version.id, {
+      buildId,
+      commitSha: current.manifest.commit,
+      contract: readStackContract(built),
+      rootPath: configRoot,
+    });
+    logger.info(
+      `[Versions] ${version.name} deploys from build ${buildId}, made from ${version.buildId} with settings revision ${inputs.generation}, tree ${sharing}`,
+    );
+    await this.pruneBuilds(version.id);
+    return { buildId };
+  }
+
+  /** The revision's own bytes, never a link, at the mode the build they replace had. */
+  private async writeSettingsInto(
+    staging: string,
+    from: string,
+    files: ReadonlyMap<string, Buffer>,
+  ): Promise<void> {
+    for (const [relative, bytes] of files) {
+      const target = join(staging, relative);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes, { mode: NEW_SETTINGS_FILE_MODE });
+      const mode = await fileModeOf(join(from, relative));
+      if (mode !== null) await chmod(target, mode);
+    }
   }
 
   private settingsSourcesOf(version: StackVersionRecord): HostConfigSettingsSources {

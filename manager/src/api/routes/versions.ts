@@ -85,6 +85,17 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     }),
   );
 
+  // Publishes another build of the same commit rather than fetching and
+  // building the stack again, so a changed line is minutes cheaper. Under the
+  // build mutex, because what comes out of it is a build like any other.
+  router.post(
+    '/:id/settings/apply',
+    validateParams(versionIdSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await versions.applySettings(versionIdOf(req)));
+    }),
+  );
+
   router.post(
     '/:id/default',
     validateParams(versionIdSchema),
