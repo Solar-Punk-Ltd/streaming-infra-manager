@@ -6,6 +6,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
+import { HostConfigLockHeldError } from '../errors/HostConfigLockHeldError.js';
+
 /**
  * The host-owned inputs of a version root, captured for a build as one
  * committed revision.
@@ -31,9 +33,11 @@ export const CONFIG_LOCK_DIR = '.config.lock';
 /** The name of the manager's editing script, for the refusals that point at it. */
 export const CONFIG_EDIT_SCRIPT = 'stack-config-edit.sh';
 
-const BASE_ENV = '.env';
+export const BASE_ENV = '.env';
 const DEPLOY_DIR = 'deploy';
-const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
+export const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
+/** The version's own default for the deploy config, which the page resets to. */
+export const DEPLOY_CONFIG_SAMPLE = `${DEPLOY_DIR}/config.sample.json`;
 const ENGINES_DIR = 'engines';
 const ENGINE_ENV = '.env';
 
@@ -134,7 +138,8 @@ export async function holdHostConfigLock(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
       if (Date.now() >= deadline) {
-        throw new Error(
+        throw new HostConfigLockHeldError(
+          root,
           `The host configuration in ${root} is being edited: ${CONFIG_LOCK_DIR} is held. Wait for the edit to finish, or remove a lock whose editor is gone with ${CONFIG_EDIT_SCRIPT} --unlock.`,
         );
       }
@@ -261,12 +266,10 @@ export async function captureHostConfig(
   root: string,
   options: CaptureOptions = {},
 ): Promise<HostConfigCapture> {
-  let release: () => Promise<void>;
-  try {
-    release = await holdHostConfigLock(root, options.lockWaitMs);
-  } catch (err) {
-    return { captured: null, problem: getErrorMessage(err) };
-  }
+  // The lock being held travels as itself rather than as a problem string: a
+  // build records the message either way, and a settings request answers it as
+  // the refusal it is instead of an unhandled error.
+  const release = await holdHostConfigLock(root, options.lockWaitMs);
   try {
     const revision = await readRevision(root);
     if (!revision) {

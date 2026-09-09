@@ -10,6 +10,7 @@ export type Route =
   | { page: 'group'; id: number }
   | { page: 'host' }
   | { page: 'versions' }
+  | { page: 'versionSettings'; id: number }
   | { page: 'access' }
   | { page: 'transfers' }
   | { page: 'transfer'; id: string }
@@ -20,6 +21,7 @@ export const routes = {
   deployments: '#/deployments',
   host: '#/host',
   versions: '#/versions',
+  versionSettings: (id: number): string => `#/versions/${id}/settings`,
   access: '#/access',
   transfers: '#/transfers',
   transfer: (id: string): string => `#/transfers/${encodeURIComponent(id)}`,
@@ -45,7 +47,13 @@ function parse(hash: string): Route {
 
   if (segments.length === 0) return { page: 'overview' };
   if (segments[0] === 'host') return { page: 'host' };
-  if (segments[0] === 'versions') return { page: 'versions' };
+  if (segments[0] === 'versions') {
+    const id = Number.parseInt(segments[1] ?? '', 10);
+    if (segments[2] === 'settings' && Number.isInteger(id)) {
+      return { page: 'versionSettings', id };
+    }
+    return { page: 'versions' };
+  }
   if (segments[0] === 'access') return { page: 'access' };
 
   if (segments[0] === 'transfers') {

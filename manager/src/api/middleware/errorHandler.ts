@@ -37,6 +37,7 @@ import {
   GroupNotFoundError,
   GroupBusyError,
   GroupRemovalRefusedError,
+  HostConfigLockHeldError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
@@ -50,6 +51,8 @@ import {
   ProfileNotFoundError,
   RestartInProgressError,
   StackBuildBusyError,
+  StackSettingsChangedError,
+  StackSettingsNotReadyError,
   StackVersionExistsError,
   StackVersionChangedError,
   StackVersionInUseError,
@@ -67,6 +70,22 @@ import { Logger } from '../../domain/Logger.js';
 import { StackVersionRemovalHeldError } from '../../domain/errors/StackVersionRemovalHeldError.js';
 
 const logger = Logger.getInstance();
+
+const BODY_TOO_LARGE =
+  'That request is larger than this manager accepts. Save fewer files or fewer keys at once.';
+
+/**
+ * A body over `express.json`'s limit. body-parser marks it with `entity.too.large`
+ * rather than a class of its own, and without this branch it reached the
+ * unhandled case below and came back as a fault.
+ */
+function isPayloadTooLarge(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { type?: unknown }).type === 'entity.too.large'
+  );
+}
 
 /**
  * Centralised error → HTTP mapping. Domain errors get specific status codes;
@@ -109,6 +128,10 @@ export function errorHandler(
   }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (isPayloadTooLarge(err)) {
+    res.status(413).json({ error: 'payload_too_large', message: BODY_TOO_LARGE });
     return;
   }
   if (
@@ -367,6 +390,29 @@ export function errorHandler(
     res.status(409).json({
       error: 'stack_version_untested',
       name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof StackSettingsNotReadyError) {
+    res.status(409).json({
+      error: 'settings_not_ready',
+      name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof HostConfigLockHeldError) {
+    // An ordinary outcome: the editing script holds this lock for a whole ssh
+    // edit, and the message says what to do about it.
+    res.status(409).json({ error: 'settings_locked', message: err.message });
+    return;
+  }
+  if (err instanceof StackSettingsChangedError) {
+    res.status(409).json({
+      error: 'settings_changed',
+      name: err.versionName,
+      generation: err.generation,
       message: err.message,
     });
     return;

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,8 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   effectiveEngineDefaults,
+  ENGINE_CONFIG_ENV_KEYS,
+  ENGINE_CONFIG_FILE_RE,
   type EngineName,
   type EngineSettings,
   engineSettingsEnv,
@@ -37,13 +39,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const BUNDLED_STACK_ROOT =
   process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
 
-/** The env key each engine's compose override reads the config file path from. */
-export const ENGINE_CONFIG_ENV_KEYS: Record<EngineName, string> = {
-  srs: 'SRS_CONF_FILE',
-  ome: 'OME_CONF_FILE',
-};
-
-const ENGINE_CONFIG_FILE_RE = /^\/[A-Za-z0-9._\/-]+$/;
+/**
+ * The deployment's own env file, owner only.
+ *
+ * It holds every secret the deployment was given, generated or otherwise, and
+ * the api container runs as root, so a mode left to the umask is a file every
+ * account on the host can read.
+ */
+const DEPLOYMENT_ENV_MODE = 0o600;
 
 export function profileEnvPath(root: string, name: string): string {
   return join(root, `.env.${name}`);
@@ -80,6 +83,19 @@ function parseEnvText(text: string): Record<string, string> {
 
 export function parseBaseEnv(root: string): Record<string, string> {
   return parseEnvFile(baseEnvPath(root));
+}
+
+export function engineEnvPath(root: string, engine: EngineName): string {
+  return join(root, 'engines', engine, '.env');
+}
+
+/**
+ * The engine's own env file of a checkout. deploy.sh reads it beside the base
+ * env and lets the root file win, so a key the manager writes at the root
+ * decides and a key it leaves out is decided here.
+ */
+export function parseEngineEnv(root: string, engine: EngineName): Record<string, string> {
+  return parseEnvFile(engineEnvPath(root, engine));
 }
 
 /** A file the checkout ships as a sample, and the live file copied from it. */
@@ -161,6 +177,10 @@ export interface ProfileEnvValues {
    * example API_AUTH_TOKEN and SRS_WEBHOOK_TOKEN on main-v3. Written at the
    * root, where compose interpolates both the uploader's and the engine's copy
    * from, and where deploy.sh lets the root file win over the engine env.
+   *
+   * A key the version's own settings already set is absent from this map, and
+   * that absence is what applies it: the copy below carries the version's line
+   * unchanged, as with the passphrase and the stream key above.
    */
   stackSecrets?: StackSecrets;
 
@@ -396,7 +416,12 @@ export function writeProfileEnv(
   }
 
   const path = profileEnvPath(root, name);
-  writeFileSync(path, contents, 'utf8');
+  writeFileSync(path, contents, { encoding: 'utf8', mode: DEPLOYMENT_ENV_MODE });
+  // The mode argument applies only to a file this call creates, and every
+  // deploy after the first one rewrites a file that is already there, so a
+  // deployment first written by an older manager keeps its wider mode without
+  // this.
+  chmodSync(path, DEPLOYMENT_ENV_MODE);
   return path;
 }
 

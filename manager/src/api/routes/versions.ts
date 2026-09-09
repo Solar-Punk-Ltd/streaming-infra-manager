@@ -1,11 +1,14 @@
 import { Request, Response, Router } from 'express';
 
+import type { StackSettingsSave } from '@streaming-infra-manager/common';
+
 import { StackVersionService } from '../../domain/versions/StackVersionService.js';
 import {
   CreateVersionBody,
   PatchVersionBody,
   createVersionSchema,
   patchVersionSchema,
+  saveVersionSettingsSchema,
   versionIdSchema,
 } from '../../schemas/version.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -59,6 +62,39 @@ export function createVersionsRouter(versions: StackVersionService): Router {
         script: BUILD_SCRIPT_NAME,
         args: [build.version.name, build.version.gitRef],
       });
+    }),
+  );
+
+  // The values come back in the clear, secrets included: the page is behind
+  // the session gate, the operator is the only reader, and a value they cannot
+  // see is one they cannot check. Never logged, here or anywhere below, and
+  // never kept by anything on the way back either.
+  router.get(
+    '/:id/settings',
+    validateParams(versionIdSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(await versions.settingsOf(versionIdOf(req)));
+    }),
+  );
+
+  router.put(
+    '/:id/settings',
+    validateParams(versionIdSchema),
+    validateBody(saveVersionSettingsSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await versions.saveSettings(versionIdOf(req), req.body as StackSettingsSave));
+    }),
+  );
+
+  // Publishes another build of the same commit rather than fetching and
+  // building the stack again, so a changed line is minutes cheaper. Under the
+  // build mutex, because what comes out of it is a build like any other.
+  router.post(
+    '/:id/settings/apply',
+    validateParams(versionIdSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await versions.applySettings(versionIdOf(req)));
     }),
   );
 

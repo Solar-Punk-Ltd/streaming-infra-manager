@@ -119,18 +119,30 @@ completes the host's own file from that sample rather than refusing: the sample'
 own line for each missing key is appended, blank where the sample leaves it
 blank, and the log names the keys it added. Your own lines are never touched.
 
-Until the settings page exists, edit them on the server with the manager's
-editing script, which commits the whole set as one revision:
+Edit them from the manager: **Settings** on a version card opens a page holding
+every one of those files, with what the version's own sample says about each key
+beside it. **Save** commits the whole set as one revision, and **Save and apply**
+publishes another build of the same commit carrying it, which is what new
+deployments then run. Redeploy the deployments that should pick it up.
+
+The editing script is still there for work over ssh, and commits the same
+revision the page does. Run it with `sudo`: the manager's api container runs as
+root, so every file under the versions root belongs to root, and each of them is
+readable by its owner alone.
 
 ```sh
 ssh manager-host
 cd ~/streaming-infra-manager/manager
-scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled set .env /tmp/new-env
-scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled commit
+sudo scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled set .env /tmp/new-env
+sudo scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled commit
 ```
 
-Then Update the bundled version from the Versions page, which builds again and
-captures the new revision, and redeploy the deployments that should pick it up.
+Both take the same lock, so a save from the page and an edit over ssh cannot
+write over each other. While the script holds it the page says so and offers
+another go, and a lock whose editor is gone comes off with
+`sudo scripts/stack-config-edit.sh <root> --unlock`. Update on the Versions
+page still works too: it builds the version again and captures whatever
+revision is current.
 
 ## A deploy that stopped half way
 

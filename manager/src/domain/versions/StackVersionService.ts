@@ -9,6 +9,10 @@ import {
   getErrorMessage,
   stackRefProblem,
   stackVersionNameProblem,
+  type StackSettings,
+  type StackSettingsApplied,
+  type StackSettingsSave,
+  type StackSettingsSaved,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -16,6 +20,7 @@ import {
   BundledVersionError,
   InvalidStackVersionError,
   StackBuildBusyError,
+  StackSettingsNotReadyError,
   StackVersionChangedError,
   StackVersionExistsError,
   StackVersionNotFoundError,
@@ -34,6 +39,7 @@ import {
   readBuildManifest,
 } from './buildManifest.js';
 import { protectedBuildIds } from './buildReferences.js';
+import { cloneBuildTree, type BuildTreeSharing } from './buildTreeClone.js';
 import { persistVersionRemoval } from './versionRemovalMarker.js';
 import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
@@ -43,7 +49,18 @@ import {
   withHostConfigLock,
 } from './hostConfigCapture.js';
 import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
-import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import {
+  completeHostConfigFromSamples,
+  samplePairsIn,
+  type SamplePair,
+} from './hostConfigCompletion.js';
+import { describeSettingsSave, saveHostConfigSettings } from './hostConfigSave.js';
+import {
+  readHostConfigSettings,
+  readySettingsSources,
+  SETTINGS_NEED_A_MANAGED_BUILD,
+  type HostConfigSettingsSources,
+} from './hostConfigSettings.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
 import { readStackContract } from './stackContract.js';
 import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
@@ -54,6 +71,7 @@ import {
   deployRootProblem,
   deploysBuildOf,
   repoRootFor,
+  settingsTreeOf,
   stackRootOf,
   stagingDirFor,
   versionRootFor,
@@ -98,11 +116,11 @@ const STAGING_PREFIX = 'tmp-';
 const BUILDS_SUFFIX = '.builds';
 const COMMIT_RE = /^[0-9a-f]{7,40}$/;
 
-/** The samples a build ships and the host-owned files seeded from them when the version has none yet. */
-const CONFIG_SEEDS: readonly { sample: string; live: string }[] = [
-  { sample: '.env.sample', live: '.env' },
-  { sample: 'deploy/config.sample.json', live: 'deploy/config.json' },
-];
+/** The deploy config's own seed. The env files come from `samplePairsIn`, which completion walks too. */
+const DEPLOY_CONFIG_SEED: SamplePair = {
+  sample: 'deploy/config.sample.json',
+  live: 'deploy/config.json',
+};
 
 /** Whether a build container still runs, asked of Docker at boot. */
 export interface BuildAttemptFence {
@@ -123,6 +141,15 @@ export interface PrunedBuilds {
   removed: string[];
   kept: string[];
 }
+
+/**
+ * Every build's copy of a settings file, owner only.
+ *
+ * These are the same bytes as the config root's own files, secrets included,
+ * and the api container runs as root, so a mode left to the umask is a file
+ * every account on the host can read.
+ */
+const SETTINGS_FILE_MODE = 0o600;
 
 /** What a version left mid-build by a restart says when the manager comes back. */
 const INTERRUPTED_BUILD =
@@ -155,6 +182,12 @@ export class StackVersionService {
     private readonly references: BuildReferenceReader,
     /** The tree the manager ships with, what a legacy bundled row runs. */
     private bundledRoot: string = BUNDLED_STACK_ROOT,
+    /**
+     * How long a settings request waits for the config root's edit lock. Left
+     * to `holdHostConfigLock` unless a caller wants a shorter one, which the
+     * route tests do so a held lock does not cost them ten seconds.
+     */
+    private readonly settingsLockWaitMs: number | undefined = undefined,
   ) {}
 
   async list(): Promise<StackVersion[]> {
@@ -384,6 +417,162 @@ export class StackVersionService {
     return toApiVersion(updated, deployments.length);
   }
 
+  // ---------------------------------------------------------- the settings
+
+  /** The host-owned files of one version, against the samples its build ships. */
+  async settingsOf(id: number): Promise<StackSettings> {
+    const version = await this.require(id);
+    return readHostConfigSettings(version.name, this.settingsSourcesOf(version));
+  }
+
+  /** Commits an edit of those files as one revision, and answers the new generation. */
+  async saveSettings(id: number, save: StackSettingsSave): Promise<StackSettingsSaved> {
+    const version = await this.require(id);
+    const sources = readySettingsSources(version.name, this.settingsSourcesOf(version));
+    const generation = await saveHostConfigSettings(
+      version.name,
+      sources.configRoot,
+      save,
+      this.settingsLockWaitMs,
+    );
+    logger.info(
+      `[Versions] ${version.name} settings saved as revision ${generation}: ${describeSettingsSave(save)}`,
+    );
+    return { generation };
+  }
+
+  /**
+   * The current build again, with the settings as they stand now.
+   *
+   * A saved setting reaches a deployment only through a build that captured
+   * it, and fetching and building the stack again for one changed line takes
+   * minutes. So this publishes another build of the same commit instead: the
+   * current build's tree, its settings files replaced by the committed
+   * revision. It holds the build mutex for its whole run, because it publishes
+   * a build like any other.
+   */
+  async applySettings(id: number): Promise<StackSettingsApplied> {
+    this.reserveBuild(`version ${id}`);
+    try {
+      const version = await this.require(id);
+      this.buildingName = version.name;
+      const applied = await this.publishSettingsBuild(version);
+      this.publishChanged();
+      return applied;
+    } finally {
+      this.buildingName = null;
+    }
+  }
+
+  private async publishSettingsBuild(version: StackVersionRecord): Promise<StackSettingsApplied> {
+    // A legacy row's settings tree is its flat checkout, which no build made
+    // and none can be made from, so this is refused before anything reads a
+    // manifest that is not there.
+    if (version.layout !== 'builds') {
+      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_MANAGED_BUILD);
+    }
+    const { configRoot, buildRoot: from } = readySettingsSources(
+      version.name,
+      this.settingsSourcesOf(version),
+    );
+    const current = readBuildManifest(from);
+    if (current.problem !== null) {
+      throw new StackSettingsNotReadyError(
+        version.name,
+        `Its current build cannot be read, so there is nothing to make another one from. ${current.problem}`,
+      );
+    }
+
+    const capture = await captureHostConfig(configRoot, {
+      sampleEnvKeys: await sampledEnvKeys(from),
+      lockWaitMs: this.settingsLockWaitMs,
+    });
+    if (capture.problem !== null) throw new Error(capture.problem);
+    const inputs = capture.captured;
+
+    // A build of this commit already carrying this revision is the one new
+    // deployments run, because a revision's generation only rises. Publishing
+    // another copy of it would clear the version's approval and push the build
+    // it was made from out of the protected window, for no change at all.
+    const carrying = await this.completeBuildOf(version.name, current.manifest.commit, inputs.generation);
+    if (carrying) return { buildId: carrying.buildId, reused: true };
+
+    const attempt = randomBytes(6).toString('hex');
+    const staging = stagingDirFor(this.versionsRoot, version.name, attempt);
+    await mkdir(buildsRootFor(this.versionsRoot, version.name), { recursive: true });
+    const buildId = await this.freeBuildId(version.name, current.manifest.commit);
+    const built = buildDirFor(this.versionsRoot, version.name, buildId);
+    let sharing: BuildTreeSharing = 'linked';
+    try {
+      const cloned = await cloneBuildTree(
+        from,
+        staging,
+        new Set([...inputs.files.keys(), BUILD_MANIFEST_FILE, BUILD_COMPLETE_MARKER]),
+      );
+      sharing = cloned.sharing;
+      if (cloned.passedBy.length > 0) {
+        logger.warn(
+          `[Versions] ${version.name}: passed by ${cloned.passedBy.join(', ')} in ${from}, which is neither a file, a directory nor a link`,
+        );
+      }
+      await this.writeSettingsInto(staging, inputs.files);
+      await writeFile(
+        join(staging, BUILD_MANIFEST_FILE),
+        `${JSON.stringify(
+          {
+            ...current.manifest,
+            buildId,
+            builtAt: new Date().toISOString(),
+            inputGeneration: inputs.generation,
+            inputHashes: inputs.hashes,
+            treeSharing: cloned.sharing,
+          } satisfies BuildManifest,
+          null,
+          2,
+        )}\n`,
+      );
+      await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
+      await rename(staging, built);
+    } catch (err) {
+      await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    }
+
+    await this.versions.publish(version.id, {
+      buildId,
+      commitSha: current.manifest.commit,
+      contract: readStackContract(built),
+      rootPath: configRoot,
+    });
+    logger.info(
+      `[Versions] ${version.name} deploys from build ${buildId}, made from ${version.buildId} with settings revision ${inputs.generation}, tree ${sharing}`,
+    );
+    await this.pruneBuilds(version.id);
+    return { buildId, reused: false };
+  }
+
+  /** The revision's own bytes, never a link, owner only whatever the build it was made from had. */
+  private async writeSettingsInto(
+    staging: string,
+    files: ReadonlyMap<string, Buffer>,
+  ): Promise<void> {
+    for (const [relative, bytes] of files) {
+      const target = join(staging, relative);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes, { mode: SETTINGS_FILE_MODE });
+    }
+  }
+
+  private settingsSourcesOf(version: StackVersionRecord): HostConfigSettingsSources {
+    return {
+      configRoot: version.rootPath ?? configRootFor(this.versionsRoot, version.name),
+      buildRoot: settingsTreeOf(version),
+      buildId: version.buildId,
+      requiredSecrets: version.contract?.requiredSecrets ?? [],
+      lockWaitMs: this.settingsLockWaitMs,
+    };
+  }
+
   async remove(id: number): Promise<void> {
     const version = await this.require(id);
     if (this.buildingName === version.name) {
@@ -560,10 +749,7 @@ export class StackVersionService {
       return { buildId: existing.buildId, commitSha: commit, contract, rootPath: configRoot, reused: true };
     }
 
-    for (const [relative, bytes] of inputs.files) {
-      await mkdir(dirname(join(staging, relative)), { recursive: true });
-      await writeFile(join(staging, relative), bytes);
-    }
+    await this.writeSettingsInto(staging, inputs.files);
     const buildId = await this.freeBuildId(version.name, commit);
     const manifest: BuildManifest = {
       commit,
@@ -606,6 +792,11 @@ export class StackVersionService {
    * committed as generation one when the version has none of its own yet, so
    * an added version deploys with the stack's defaults the way it always did.
    * A root that has the files but no manifest is adopted as it stands.
+   *
+   * Every engine the version ships a sample for gets its env here, so the
+   * engine half of a version's settings exists to be shown and edited. The
+   * stack's own `ensure_engine_env` copies the same sample when the file is
+   * missing, so seeding it changes nothing a deploy reads.
    */
   private async seedHostConfig(configRoot: string, staging: string): Promise<void> {
     await mkdir(configRoot, { recursive: true });
@@ -614,7 +805,7 @@ export class StackVersionService {
     // theirs rather than a sample written over it.
     await withHostConfigLock(configRoot, async (commit) => {
       const seeds: Record<string, Buffer> = {};
-      for (const { sample, live } of CONFIG_SEEDS) {
+      for (const { sample, live } of [...samplePairsIn(staging), DEPLOY_CONFIG_SEED]) {
         if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
           seeds[live] = await readFile(join(staging, sample));
         }

@@ -305,6 +305,80 @@ answered by the API.
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
 | PATCH  | `/versions/:id`         | `{ tested }`    | 200 and the row.                                                 |
 | DELETE | `/versions/:id`         |                 | 204, or 409 with the deployment names when it is in use.         |
+| GET    | `/versions/:id/settings` |                | `{ generation, buildGeneration, buildId, files, leftAlone }`, or 409 `settings_not_ready`. `Cache-Control: no-store`. |
+| PUT    | `/versions/:id/settings` | `{ expectedGeneration, files }` | `{ generation }`, or 409 `settings_changed`, 409 `settings_locked`, 400 on a value, 413 `payload_too_large`. |
+| POST   | `/versions/:id/settings/apply` |          | `{ buildId, reused }`, or 409 `stack_build_busy`, 409 `settings_not_ready`, 409 `settings_locked`. |
+
+#### The settings page
+
+Every version keeps three kinds of file the operator owns, beside its checkout:
+the base `.env`, `deploy/config.json` and one `.env` per engine. They are seeded
+from the version's own samples by its first build and no build ever writes over
+them. **Settings** on a version card opens `#/versions/<id>/settings`, one
+section per file, in the order base env, deploy config, engines.
+
+Each key of an env file shows what the version's `.env.sample` says about it,
+which is the comment block directly above the key in that sample. That block
+ends at a commented out assignment of another key, because those lines document
+that key, and a section rule such as `# --- Logging ---` is dropped. A value
+that still equals the sample's is marked `default`. A secret-like key is masked
+until **Reveal** is pressed: the values do come back in the clear, because the
+routes are behind the session gate and a value the operator cannot see is one
+they cannot check, and nothing logs one, nothing caches the answer and no
+browser is asked to remember a masked field. A key the manager fills per
+deployment says so. A key the version's sample does not declare carries
+**Remove**, which takes the line out of the file on the next save.
+
+A value has to be one the stack's own env loader and the manager read the same
+way, which is `settingValueProblem` in `common`. Padding at either end, an
+unquoted space before a `#`, a quote that does not close at the end and a
+control character are all refused, by the field before the save goes out and by
+the route with a 400 naming the key. `SRS_CONF_FILE` and `OME_CONF_FILE` take
+only an absolute path or nothing, because the version's compose override mounts
+whatever they hold into the engine container.
+
+**Save** writes the files as one revision, and refuses with 409
+`settings_changed` when anything moved since the page loaded, so a page and an
+`ssh` editing session cannot write over each other. An env file is rewritten
+from its own current bytes: the named lines get the new value, and every
+comment, blank line and spacing survives byte for byte. One save carries at most
+sixteen files and 512 keys per file, names each file once, and a body over the
+request limit comes back as 413 rather than as a fault. While an editing session
+holds the lock every one of these routes answers 409 `settings_locked` with what
+holds it and how to get it back, and the page offers **Try again**.
+
+The header says which revision the files are at and, when the current build
+already carries it, `applied`. When it does not, the page says which revision
+the build carries and that new deployments do not have the change until Apply
+makes a build. A path of the set that holds a link or a directory rather than a
+file is named as left alone rather than dropped, because nothing here reads or
+writes one.
+
+**Save and apply** saves and then publishes another build of the same commit
+carrying the new revision, rather than fetching and building the stack again for
+one changed line. The new build is the current build's tree with the settings
+files replaced, its unchanged files hard linked to the build it was made from
+where the filesystem allows and copied otherwise, which the manifest records as
+`treeSharing`. It takes the build mutex for its whole run and refuses with 409
+`stack_build_busy` while a build runs. New deployments run the new build.
+Deployments already running keep the settings they started with until they are
+deployed again. A build of the same commit already carrying this revision is
+answered as it stands, with `reused` true and nothing published, so applying
+twice makes one build rather than two and the version's approval survives. Every
+build's copy of a settings file is written owner only, as the deployment's own
+`.env.<profile>` is, and no `.env.<profile>` is ever shared between two builds.
+
+A version still deploying from a flat checkout has no build to make another one
+from, so its **Settings** button says to Update it first.
+
+A generated secret the version's own base or engine env already sets is neither
+generated nor written per deployment, so the version's line is what the
+containers read. The base env decides every key it assigns, blank included,
+because the root file wins over the engine's in the stack's deploy script, and
+the engine env decides only a key the base env does not assign at all. An empty
+one is generated per deployment as before, and a value already in
+`profiles.stack_secrets` still wins over both, because rotating the token a
+running container was started with is a decision rather than a side effect.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
 <repo-url>`, which clones or fetches, exports the fetched commit into a staging

@@ -10,7 +10,7 @@
  * rungs the publishers cover — the uploader refuses any mismatch.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
@@ -264,5 +264,65 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
     // deploy.sh and an older manager working.
     const path = writeProfileEnv(root, 'unsaid', { engine: 'srs' });
     assert.equal(lineFor(path, 'LOCAL_BEE_UPLOADER'), undefined);
+  });
+});
+
+describe('writeProfileEnv, the generated stack secrets', () => {
+  it('writes a value of the shape the manager generates', () => {
+    const path = writeProfileEnv(root, 'secrets', {
+      engine: 'srs',
+      stackSecrets: { API_AUTH_TOKEN: 'a'.repeat(64) },
+    });
+
+    assert.equal(lineFor(path, 'API_AUTH_TOKEN'), `API_AUTH_TOKEN=${'a'.repeat(64)}`);
+  });
+
+  it('refuses a value that is not one, because nothing else may reach this column', () => {
+    for (const value of ['not-a-real-secret', 'A'.repeat(64), 'a'.repeat(63), `${'a'.repeat(64)} `]) {
+      assert.throws(
+        () =>
+          writeProfileEnv(root, 'refused', {
+            engine: 'srs',
+            stackSecrets: { API_AUTH_TOKEN: value },
+          }),
+        /not a secret this manager generated/,
+        `${value.length} characters`,
+      );
+    }
+  });
+
+  it('refuses a key that is not an env name', () => {
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'refused', {
+          engine: 'srs',
+          stackSecrets: { 'not a key': 'a'.repeat(64) },
+        }),
+      /not a secret this manager generated/,
+    );
+  });
+});
+
+/**
+ * The file holds every generated secret of the deployment, and the manager's
+ * container runs as root, so on the host these bytes are root-owned and
+ * readable by every account unless the mode says otherwise.
+ */
+describe('writeProfileEnv, the mode of the file it writes', () => {
+  const modeOf = (path: string): string => (statSync(path).mode & 0o777).toString(8);
+
+  it('writes a new deployment env owner only', () => {
+    const path = writeProfileEnv(root, 'freshmode', { engine: 'srs' });
+
+    assert.equal(modeOf(path), '600');
+  });
+
+  it('narrows a deployment env an earlier deploy left readable', () => {
+    const path = writeProfileEnv(root, 'widemode', { engine: 'srs' });
+    chmodSync(path, 0o644);
+
+    writeProfileEnv(root, 'widemode', { engine: 'srs' });
+
+    assert.equal(modeOf(path), '600');
   });
 });

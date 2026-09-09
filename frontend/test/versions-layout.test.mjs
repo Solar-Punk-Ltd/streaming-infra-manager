@@ -131,7 +131,7 @@ test('version identity, states and actions fit verified narrow viewports', async
       assert.equal(measurement.width, width, 'the requested viewport must actually apply');
       assert.ok(measurement.scrollWidth <= width, `page width ${measurement.scrollWidth} exceeds ${width}`);
       for (const row of measurement.rows) {
-        assert.equal(row.controls.length, 4, `${row.name} preserves Tested and three actions`);
+        assert.equal(row.controls.length, 5, `${row.name} preserves Tested and four actions`);
         for (const control of row.controls) assert.ok(control.within, `${row.name}: ${control.name} lies outside the visible page (${control.left}..${control.right})`);
         for (const label of row.labels) assert.ok(label.within, `${row.name}: ${label.text} extends beyond the viewport`);
       }
@@ -190,7 +190,7 @@ test('version identity, states and actions fit verified narrow viewports', async
         assert.equal(reading.warningVisible, true);
         assert.ok(reading.text.includes('Default'));
         assert.ok(reading.text.includes('1111111-r3'));
-        assert.deepEqual(reading.controls, [true, true, true, true]);
+        assert.deepEqual(reading.controls, [true, true, true, true, true]);
         if (evidence) {
           const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false, fromSurface: true });
           await writeFile(resolve(evidence, `versions-${width}-approval-warning.png`), Buffer.from(data, 'base64'));
