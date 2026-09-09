@@ -1,4 +1,5 @@
 import {
+  BUNDLED_VERSION_NAME,
   type ObservedContainer,
   runningCommitOf,
   type StackVersion,
@@ -35,6 +36,19 @@ export function describeVersion(version: StackVersion): string {
 }
 
 /**
+ * What pressing Update on this card does, for the one version where the button
+ * needs saying. Empty for a version an operator added, whose branch or tag is
+ * already on the card and whose Update follows it.
+ */
+export function updateHint(version: StackVersion): string {
+  if (version.name !== BUNDLED_VERSION_NAME) return '';
+  const ships = 'Rebuild the version the manager ships with';
+  return version.commitSha
+    ? `${ships}, commit ${shortCommit(version.commitSha)}.`
+    : `${ships}. This host cannot tell which commit that is yet.`;
+}
+
+/**
  * Where the version deploys from: `build ee99c36` for a builds row, with
  * `-r2` and the like kept, `flat root` for a legacy one, and for a bundled
  * row never published, the tree that came with the manager.
@@ -43,7 +57,7 @@ export function describeBuild(version: StackVersion): string {
   if (version.layout === 'builds') {
     return version.buildId ? `build ${shortBuildId(version.buildId)}` : 'no build yet';
   }
-  return version.name === 'bundled' ? 'with the manager, legacy tree' : 'flat root';
+  return version.name === BUNDLED_VERSION_NAME ? 'with the manager, legacy tree' : 'flat root';
 }
 
 /** The build the current one replaced, or an empty string. */

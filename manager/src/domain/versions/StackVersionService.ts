@@ -39,15 +39,20 @@ import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
   adoptHostConfig,
   captureHostConfig,
-  commitHostConfig,
   envKeysIn,
+  withHostConfigLock,
 } from './hostConfigCapture.js';
+import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
+import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
 import { readStackContract } from './stackContract.js';
 import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import {
   buildDirFor,
   buildsRootFor,
   configRootFor,
+  deployRootProblem,
+  deploysBuildOf,
   repoRootFor,
   stackRootOf,
   stagingDirFor,
@@ -157,8 +162,8 @@ export class StackVersionService {
     return rows.map((row) => toApiVersion(row, row.deployments));
   }
 
-  /** Refreshes metadata only for an explicit legacy row. Artifact publication
-   * belongs to the guarded shipment flow, never a timestamp or incoming path. */
+  /** Refreshes metadata only for an explicit legacy row. A build is published
+   * by the build that produced it, never by a timestamp or an incoming path. */
   async syncBundled(bundledRoot: string, legacyCommit: string | null): Promise<void> {
     this.bundledRoot = bundledRoot;
     const snapshot = await this.versions.captureLegacyMetadata();
@@ -226,23 +231,98 @@ export class StackVersionService {
     }
   }
 
+  /**
+   * Builds the version again. For the bundled one that means the stack commit
+   * this manager pins, which is also the ref its row is moved onto, so a
+   * rebuild after a manager deploy follows the new pin rather than the old one.
+   */
   async update(id: number): Promise<StackBuild> {
     this.reserveBuild(`version ${id}`);
     try {
       const version = await this.require(id);
-      if (version.name === BUNDLED_VERSION_NAME) {
-        throw new BundledVersionError(
-          'The bundled version comes with the manager. Deploy the manager to move it, or add another version to follow a branch.',
-        );
-      }
+      const gitRef = version.name === BUNDLED_VERSION_NAME ? this.pinnedStackCommit() : undefined;
 
-      const building = await this.versions.markBuilding(id);
+      const building = await this.versions.markBuilding(id, gitRef);
       if (!building) throw new StackVersionNotFoundError(id);
       return this.startBuild(building);
     } catch (err) {
       this.buildingName = null;
       throw err;
     }
+  }
+
+  /**
+   * Builds the pinned stack commit when the bundled version is not already on
+   * a complete build of it, which is what boot calls.
+   *
+   * Nothing runs when this manager pins no commit, which is a developer
+   * machine: there the row stays legacy on the tree in the checkout. Nothing
+   * runs either while another version is building, because one build at a time
+   * is the rule and the next restart tries again. A build that fails leaves a
+   * failed version row on the Versions page, and the api starts either way.
+   */
+  async ensureBundledBuild(): Promise<StackBuild | null> {
+    const pin = readBundledPin(this.bundledRoot);
+    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
+    if (!pin) {
+      const problem = bundledPinProblem(this.bundledRoot);
+      if (!problem) {
+        logger.info('[Versions] this manager pins no stack commit, so the bundled version stays on the tree it ships with');
+        return null;
+      }
+      logger.warn(`[Versions] ${problem}`);
+      if (bundled && bundled.buildId === null) await this.recordUnstartedBuild(bundled, null, problem);
+      return null;
+    }
+    if (!bundled) {
+      logger.warn(`[Versions] there is no ${BUNDLED_VERSION_NAME} row to build the pinned stack commit ${pin} into`);
+      return null;
+    }
+    if (deploysBuildOf(bundled, pin)) {
+      logger.info(`[Versions] the bundled version deploys from build ${bundled.buildId} of the pinned commit ${pin}`);
+      return null;
+    }
+    logger.info(`[Versions] building the pinned stack commit ${pin} for the bundled version`);
+    try {
+      return await this.update(bundled.id);
+    } catch (err) {
+      const hint = err instanceof StackBuildBusyError ? ' Update the bundled version when it is done.' : '';
+      const reason = `The pinned stack commit ${pin} was not built: ${getErrorMessage(err)}${hint}`;
+      logger.warn(`[Versions] ${reason}`);
+      await this.recordUnstartedBuild(bundled, pin, reason);
+      return null;
+    }
+  }
+
+  /**
+   * Why a boot did not build the pin, written into the row it could not build.
+   *
+   * The deploy that started this manager watches that row and tells this
+   * boot's answer from an earlier one's by the row having moved, so a boot
+   * that starts nothing has to move it or the deploy waits out its whole
+   * bound for a build that was never going to run. The row is moved onto the
+   * pin for the same reason, and a version that still has a build keeps
+   * deploying from it.
+   */
+  private async recordUnstartedBuild(
+    bundled: StackVersionRecord,
+    gitRef: string | null,
+    reason: string,
+  ): Promise<void> {
+    if (bundled.buildId === null) await this.versions.markFailed(bundled.id, reason, gitRef);
+    else await this.versions.markUpdateFailed(bundled.id, reason, gitRef);
+    this.publishChanged();
+  }
+
+  /** The commit this manager pins, or a refusal saying there is none to rebuild from. */
+  private pinnedStackCommit(): string {
+    const pin = readBundledPin(this.bundledRoot);
+    if (!pin) {
+      throw new BundledVersionError(
+        'This manager pins no stack commit, so there is nothing to rebuild the bundled version from. Deploy the manager, or add another version to follow a branch.',
+      );
+    }
+    return pin;
   }
 
   async setDefault(id: number): Promise<void> {
@@ -461,8 +541,12 @@ export class StackVersionService {
     }
     const contract = readStackContract(staging);
 
+    // The bundled row carries no root until its first build publishes one, and
+    // the outcome anchors it there so it deploys from its builds from then on.
     const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
+    if (version.name === BUNDLED_VERSION_NAME) await this.adoptLegacyHostConfig(configRoot);
     await this.seedHostConfig(configRoot, staging);
+    await this.completeHostConfig(configRoot, staging);
     const capture = await captureHostConfig(configRoot, {
       sampleEnvKeys: await sampledEnvKeys(staging),
     });
@@ -473,7 +557,7 @@ export class StackVersionService {
     await mkdir(buildsRoot, { recursive: true });
     const existing = await this.completeBuildOf(version.name, commit, inputs.generation);
     if (existing) {
-      return { buildId: existing.buildId, commitSha: commit, contract, reused: true };
+      return { buildId: existing.buildId, commitSha: commit, contract, rootPath: configRoot, reused: true };
     }
 
     for (const [relative, bytes] of inputs.files) {
@@ -492,7 +576,29 @@ export class StackVersionService {
     await writeFile(join(staging, BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
     await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
     await rename(staging, buildDirFor(this.versionsRoot, version.name, buildId));
-    return { buildId, commitSha: commit, contract, reused: false };
+    return { buildId, commitSha: commit, contract, rootPath: configRoot, reused: false };
+  }
+
+  /**
+   * The settings of the tree the manager used to ship, taken over the first
+   * time the bundled version is built here. Only the bundled version has a
+   * legacy tree, and only a config root with no settings of its own takes it.
+   */
+  private async adoptLegacyHostConfig(configRoot: string): Promise<void> {
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, this.bundledRoot);
+    if (carried.length > 0) {
+      logger.info(`[Versions] took ${carried.join(', ')} over from ${this.bundledRoot} into ${configRoot}, which had none`);
+    }
+    if (skipped.length > 0) {
+      logger.warn(`[Versions] passed by ${skipped.join(', ')} in ${this.bundledRoot}, where the set wants a regular file or a plain directory. Nothing a link points at becomes a setting of this host.`);
+    }
+  }
+
+  /** The keys this version declares and the host's own files do not have yet. */
+  private async completeHostConfig(configRoot: string, staging: string): Promise<void> {
+    for (const [file, keys] of Object.entries(await completeHostConfigFromSamples(configRoot, staging))) {
+      logger.info(`[Versions] added ${keys.join(', ')} to ${file} in ${configRoot} from this version's sample`);
+    }
   }
 
   /**
@@ -503,21 +609,26 @@ export class StackVersionService {
    */
   private async seedHostConfig(configRoot: string, staging: string): Promise<void> {
     await mkdir(configRoot, { recursive: true });
-    const seeds: Record<string, Buffer> = {};
-    for (const { sample, live } of CONFIG_SEEDS) {
-      if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
-        seeds[live] = await readFile(join(staging, sample));
+    // Which files the root already has is read under the acquisition of the
+    // lock that writes, so a file an operator created while the build ran is
+    // theirs rather than a sample written over it.
+    await withHostConfigLock(configRoot, async (commit) => {
+      const seeds: Record<string, Buffer> = {};
+      for (const { sample, live } of CONFIG_SEEDS) {
+        if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
+          seeds[live] = await readFile(join(staging, sample));
+        }
       }
-    }
-    if (Object.keys(seeds).length > 0) {
-      await commitHostConfig(configRoot, seeds);
-      logger.info(`[Versions] seeded ${Object.keys(seeds).join(', ')} in ${configRoot} from the build's samples`);
-      return;
-    }
-    const adopted = await adoptHostConfig(configRoot);
-    if (adopted) {
-      logger.info(`[Versions] adopted the host configuration in ${configRoot} as generation 1`);
-    }
+      if (Object.keys(seeds).length > 0) {
+        await commit(seeds);
+        logger.info(`[Versions] seeded ${Object.keys(seeds).join(', ')} in ${configRoot} from the build's samples`);
+        return;
+      }
+      const adopted = await adoptHostConfig(configRoot, commit);
+      if (adopted) {
+        logger.info(`[Versions] adopted the host configuration in ${configRoot} as generation 1`);
+      }
+    });
   }
 
   /** A complete build of this commit whose inputs are the same generation, or null. */
@@ -553,8 +664,7 @@ export class StackVersionService {
   /**
    * Deletes every build directory of the version that nothing protects: not
    * the current build, not the previous one, and not one an open reference
-   * names, and not a registered or prepared shipment's candidate. Under the
-   * version row's lock, so a claim taking its reference
+   * names. Under the version row's lock, so a claim taking its reference
    * either committed before this read or waits and reads the row as prune
    * left it. An attempt's staging directory is boot's, and the flat root,
    * which keeps the host-owned inputs, is never a build.
@@ -567,7 +677,6 @@ export class StackVersionService {
       const buildsRoot = buildsRootFor(this.versionsRoot, version.name);
       if (!existsSync(buildsRoot)) return outcome;
       const keep = protectedBuildIds(version, await this.references.openReferences(versionId));
-      for (const id of await this.references.pendingShipmentBuildIds(versionId)) keep.add(id);
       for (const entry of (await readdir(buildsRoot)).sort()) {
         if (buildIdProblem(entry) !== null) continue;
         if (keep.has(entry)) {

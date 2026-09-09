@@ -256,7 +256,7 @@ describe('version removal before files disappear in isolated PostgreSQL', {
     assert.notEqual(await versions.markBuilding(replacement.id), null);
   });
 
-  for (const table of ['profiles', 'build_references', 'bundled_shipments', 'execution_roots']) {
+  for (const table of ['profiles', 'build_references', 'execution_roots']) {
     it(`a failed ${table} hold read cannot reach cleanup or delete the row`, async () => {
       const repository = new PostgresStackVersionRepository(intercepted(async (sql, run) => {
         if (new RegExp(`FROM ${table}\\b`, 'i').test(sql)) throw new Error(`synthetic ${table} read failure`);
@@ -426,24 +426,6 @@ describe('version removal before files disappear in isolated PostgreSQL', {
   for (const holder of ['job', 'snapshot', 'operation', 'execution']) {
     it(`keeps files and row while an unresolved ${holder} reference remains`, async () => {
       await pool.query('INSERT INTO build_references (version_id, build_id, holder_kind, holder_id) VALUES ($1,$2,$3,$4)', [selected.id, BUILD, holder, 'synthetic-owner']);
-      await serviceRefuses();
-    });
-  }
-
-  for (const state of ['registered', 'prepared', 'published', 'superseded']) {
-    it(`keeps files and row for a ${state} shipment, including registration without a candidate`, async () => {
-      const candidate = state === 'prepared' || state === 'published';
-      const manifest = { buildId: BUILD, commit: BUILD, builtAt: '2026-09-09T00:00:00Z', toolchain: 'synthetic' };
-      const metadata = { manifestBytes: JSON.stringify(manifest), manifestMode: 420, completeBytes: '', completeMode: 420 };
-      await pool.query(`INSERT INTO bundled_shipments (shipment_id, version_id, package_digest, commit_sha, expected_publication_revision, root_path, state,
-        candidate_build_id, candidate_kind, candidate_manifest, candidate_metadata, artifact_digest, candidate_contract, receipt_revision, published_at)
-        VALUES ($1,$2,$3,$4,0,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12::jsonb,$13,$14)`, [
-        randomUUID(), selected.id, 'd'.repeat(64), BUILD, selected.rootPath, state,
-        candidate ? BUILD : null, candidate ? 'reuse' : null, candidate ? JSON.stringify(manifest) : null,
-        candidate ? JSON.stringify(metadata) : null, candidate ? 'e'.repeat(64) : null,
-        candidate ? JSON.stringify(ALLOCATION_CONTRACT) : null, state === 'published' ? 1 : null,
-        state === 'published' ? new Date() : null,
-      ]);
       await serviceRefuses();
     });
   }

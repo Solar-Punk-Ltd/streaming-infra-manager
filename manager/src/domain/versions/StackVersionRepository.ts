@@ -91,7 +91,8 @@ export interface StackVersionRepository {
   findDefault(): Promise<StackVersionRecord | null>;
   insert(version: NewStackVersion): Promise<StackVersionRecord>;
   /** Back to `building`, for an update of a version already on disk. */
-  markBuilding(id: number): Promise<StackVersionRecord | null>;
+  /** `gitRef` moves the row onto another ref, which is what the bundled version's pin does. */
+  markBuilding(id: number, gitRef?: string): Promise<StackVersionRecord | null>;
   /**
    * Ready, on the commit and contract the build landed on. `tested` survives
    * only when that is the commit the row already carried: the approval is a
@@ -105,9 +106,14 @@ export interface StackVersionRepository {
    * build.
    */
   publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null>;
-  /** A build that failed for a version that still has a usable build: ready as before, with the reason. */
-  markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
-  markFailed(id: number, lastError: string): Promise<StackVersionRecord | null>;
+  /**
+   * A build that failed for a version that still has a usable build: ready as
+   * before, with the reason. `gitRef` moves the row onto another ref, the way
+   * `markBuilding` does, for a failure recorded about a ref the row is not on
+   * yet.
+   */
+  markUpdateFailed(id: number, lastError: string, gitRef?: string | null): Promise<StackVersionRecord | null>;
+  markFailed(id: number, lastError: string, gitRef?: string | null): Promise<StackVersionRecord | null>;
   /**
    * Every row left in `building` fails with `lastError`. A build only ever runs
    * inside one manager process, so at boot a building row is one whose process

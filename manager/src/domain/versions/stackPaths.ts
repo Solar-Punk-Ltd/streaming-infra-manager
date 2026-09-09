@@ -7,7 +7,6 @@ import {
 } from '../../utils/envUtils.js';
 
 import { buildIdProblem, readBuildManifest } from './buildManifest.js';
-import { validateBundledShipmentId } from './bundledShipmentPackage.js';
 import type { StackVersionLayout } from './StackVersionRepository.js';
 import { versionRemovalProblem } from './versionRemovalMarker.js';
 
@@ -65,6 +64,23 @@ export function deployRootProblem(version: StackVersionRoot): string | null {
   if (!version.buildId) return MISSING_BUILD_ID;
   const problem = readBuildManifest(stackRootOf(version)).problem;
   return problem ? `Build ${version.buildId} of this version cannot be deployed from. ${problem}` : null;
+}
+
+/** A version root plus what says whether its build is the one wanted. */
+export interface DeployableVersion extends StackVersionRoot {
+  status: string;
+  commitSha: string | null;
+}
+
+/**
+ * Whether the version deploys from a complete build of this commit right now.
+ *
+ * Boot and the manager upgrade both decide from this, so a build the upgrade
+ * calls ready is never one the next boot rebuilds.
+ */
+export function deploysBuildOf(version: DeployableVersion, commit: string): boolean {
+  return version.layout === 'builds' && version.status === 'ready' &&
+    version.commitSha === commit && deployRootProblem(version) === null;
 }
 
 export function stackPaths(version: StackVersionRoot): StackPaths {
@@ -131,53 +147,14 @@ export function stagingDirFor(versionsRoot: string, name: string, attemptId: str
 /**
  * Where the host-owned inputs of a version live: the base env, the deploy
  * config and the engine envs. The flat root the version always had, which a
- * legacy row also deploys from. The bundled version never had one: its
- * config root is created by its first publication and holds the inputs the
- * manager's deploy shipped.
+ * legacy row also deploys from. The bundled version has none until its first
+ * build here, which takes over what the tree the manager shipped had.
  */
 export function configRootFor(versionsRoot: string, name: string): string {
   return versionRootFor(versionsRoot, name);
 }
 
-const MATERIALIZATIONS_SUFFIX = '.materializations';
-
-/**
- * Where a publication makes its private copy of a package before it renames
- * one into place as a build. A sibling of the version's own root, so a copy
- * that no publication finished is never inside a tree anything deploys from.
- */
-export function materializationsRootFor(versionRootPath: string): string {
-  return join(dirname(versionRootPath), `${basename(versionRootPath)}${MATERIALIZATIONS_SUFFIX}`);
-}
-
-const PACKAGES_DIR = 'bundled.packages';
-const CLAIMS_DIR = 'claims';
-const SEALED_PREFIX = 'sealed-';
 const MANAGER_UPGRADE_GUARD_DIR = '.manager-upgrade';
-
-/**
- * Where a manager deploy leaves the sealed packages it ships. A sibling of
- * `bundled.builds`, so neither prune nor the cleanup of interrupted build
- * attempts ever looks inside it, and a directory of its own, so the rsync
- * that brings one package in cannot reach a published build.
- */
-export function bundledPackagesRootFor(versionsRoot: string): string {
-  return join(versionsRoot, PACKAGES_DIR);
-}
-
-/** One shipment's package, named by the shipment id the deploy made for it. */
-export function sealedBundledPackagePathFor(versionsRoot: string, shipmentId: string): string {
-  return join(bundledPackagesRootFor(versionsRoot), `${SEALED_PREFIX}${validateBundledShipmentId(shipmentId)}`);
-}
-
-/**
- * Where publication moves a package it has taken ownership of. Inside the
- * packages root, because the publication command derives the packages root
- * from this one and so the two can never name different parents.
- */
-export function bundledPackageClaimsRootFor(versionsRoot: string): string {
-  return join(bundledPackagesRootFor(versionsRoot), CLAIMS_DIR);
-}
 
 /**
  * The directory one manager upgrade holds while it runs. Outside the

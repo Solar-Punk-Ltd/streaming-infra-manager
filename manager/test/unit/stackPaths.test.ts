@@ -13,11 +13,8 @@ import { dirname, join, relative } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
-  bundledPackageClaimsRootFor,
-  bundledPackagesRootFor,
   buildsRootFor,
   managerUpgradeGuardRootFor,
-  sealedBundledPackagePathFor,
   stackPaths,
   stackRootOf,
   deployRootProblem,
@@ -116,27 +113,11 @@ describe('incomplete immutable build rows', () => {
   });
 });
 
-describe('where a manager deploy leaves what it ships', () => {
-  const shipmentId = '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71';
-
-  it('puts sealed packages in one directory of their own under the versions root', () => {
-    assert.equal(bundledPackagesRootFor(VERSIONS_ROOT), join(VERSIONS_ROOT, 'bundled.packages'));
-    assert.equal(sealedBundledPackagePathFor(VERSIONS_ROOT, shipmentId), join(VERSIONS_ROOT, 'bundled.packages', `sealed-${shipmentId}`));
-  });
-
-  it('refuses a shipment id that is not one, because the id becomes a path', () => {
-    assert.throws(() => sealedBundledPackagePathFor(VERSIONS_ROOT, '../escape'), /shipment identity/i);
-  });
-
-  it('claims packages beside them, so the publication command derives one root from the other', () => {
-    assert.equal(bundledPackageClaimsRootFor(VERSIONS_ROOT), join(bundledPackagesRootFor(VERSIONS_ROOT), 'claims'));
-    assert.equal(dirname(bundledPackageClaimsRootFor(VERSIONS_ROOT)), bundledPackagesRootFor(VERSIONS_ROOT));
-  });
-
-  it('keeps the upgrade guard out of every published build and out of the packages it reads', () => {
+describe('where a manager upgrade holds the host', () => {
+  it('keeps the upgrade guard out of every published build and out of the version roots', () => {
     const guard = managerUpgradeGuardRootFor(VERSIONS_ROOT);
     assert.equal(guard, join(VERSIONS_ROOT, '.manager-upgrade'));
-    for (const owned of [buildsRootFor(VERSIONS_ROOT, 'bundled'), bundledPackagesRootFor(VERSIONS_ROOT), versionRootFor(VERSIONS_ROOT, 'bundled')]) {
+    for (const owned of [buildsRootFor(VERSIONS_ROOT, 'bundled'), versionRootFor(VERSIONS_ROOT, 'bundled')]) {
       assert.equal(relative(owned, guard).startsWith('..'), true, `the guard is outside ${owned}`);
     }
   });

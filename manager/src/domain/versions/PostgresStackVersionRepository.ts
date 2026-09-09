@@ -111,7 +111,7 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     finally { client.release(); }
   }
 
-  async markBuilding(id: number): Promise<StackVersionRecord | null> {
+  async markBuilding(id: number, gitRef?: string): Promise<StackVersionRecord | null> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -121,7 +121,8 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       const problem = versionRemovalProblem(current);
       if (problem) throw new StackVersionRemovalHeldError(current.name, 'marker');
       const result = await client.query<StackVersionDbRow>(
-        `UPDATE stack_versions SET status = 'building', last_error = NULL WHERE id = $1 RETURNING ${VERSION_COLUMNS}`, [id],
+        `UPDATE stack_versions SET status = 'building', last_error = NULL, git_ref = COALESCE($2, git_ref)
+         WHERE id = $1 RETURNING ${VERSION_COLUMNS}`, [id, gitRef ?? null],
       );
       await client.query('COMMIT');
       return toRecord(result.rows[0]!);
@@ -180,26 +181,27 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     }
   }
 
-  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+  async markUpdateFailed(id: number, lastError: string, gitRef: string | null = null): Promise<StackVersionRecord | null> {
     return this.one(
       `UPDATE stack_versions
-          SET status = 'ready', last_error = $2
+          SET status = 'ready', last_error = $2, git_ref = COALESCE($3, git_ref)
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
-      [id, lastError],
+      [id, lastError, gitRef],
     );
   }
 
   async markFailed(
     id: number,
     lastError: string,
+    gitRef: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
       `UPDATE stack_versions
-          SET status = 'failed', last_error = $2
+          SET status = 'failed', last_error = $2, git_ref = COALESCE($3, git_ref)
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
-      [id, lastError],
+      [id, lastError, gitRef],
     );
   }
 
@@ -334,9 +336,6 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       if (deployments.rows.length) throw new StackVersionInUseError(current.name, deployments.rows.map(row => row.name));
       const references = await client.query('SELECT 1 FROM build_references WHERE version_id = $1 AND resolved_at IS NULL LIMIT 1', [current.id]);
       if (references.rowCount) throw new StackVersionRemovalHeldError(current.name, 'references');
-      // Terminal shipment receipts are immutable and their version FK is RESTRICT.
-      const shipments = await client.query('SELECT 1 FROM bundled_shipments WHERE version_id = $1 LIMIT 1', [current.id]);
-      if (shipments.rowCount) throw new StackVersionRemovalHeldError(current.name, 'shipments');
       const executions = await client.query("SELECT 1 FROM execution_roots WHERE version_id = $1 AND state <> 'released' LIMIT 1", [current.id]);
       if (executions.rowCount) throw new StackVersionRemovalHeldError(current.name, 'executions');
       await removeOwnedFiles(current);

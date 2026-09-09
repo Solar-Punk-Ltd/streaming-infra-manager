@@ -89,6 +89,25 @@ hash_of() {
   fi
 }
 
+# GNU and busybox spell it one way, BSD another, and only one of the two is
+# ever installed.
+mode_of() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
+# A file of the set holds the stream passphrase and the api token, and the
+# versions root above them is readable by anyone on the host. The temporary
+# file is created owner only and then takes the mode the target already has,
+# so an edit never widens a file and the umask never decides one.
+narrow_temp() {
+  local temp="$1" target="$2"
+  : > "$temp"
+  chmod 600 "$temp"
+  if [ -f "$target" ]; then
+    chmod "$(mode_of "$target")" "$temp"
+  fi
+}
+
 # Written beside the target and renamed over it, so a reader sees the old file or the new one.
 replace_file() {
   local relative="$1" source="$2" target
@@ -96,6 +115,7 @@ replace_file() {
   [ -f "$source" ] || { echo "ERROR: $source does not exist" >&2; exit 2; }
   target="$ROOT/$relative"
   mkdir -p "$(dirname "$target")"
+  narrow_temp "$target.tmp.$$" "$target"
   cp "$source" "$target.tmp.$$"
   mv -f "$target.tmp.$$" "$target"
   echo "==> Replaced $relative"
@@ -110,6 +130,7 @@ write_manifest() {
   fi
   generation=$((generation + 1))
   temp="$manifest.tmp.$$"
+  narrow_temp "$temp" "$manifest"
   {
     echo "{"
     echo "  \"generation\": $generation,"

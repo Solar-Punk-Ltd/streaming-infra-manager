@@ -266,13 +266,17 @@ ceiling from `deploy.sh`, the secrets the containers refuse to start without
 from the `.env.sample` files, and the engine defaults from the entrypoints. A
 moving branch changes nothing until `update` is called.
 
-The **bundled** version is the submodule the manager ships with, the stack's
-`main-v3` branch. It is the default until another is chosen, and it cannot be
-removed or updated here: it moves when the manager itself is deployed. The
+The **bundled** version is the stack commit the manager pins, and the host
+fetches and builds it there like any other version. The pin is
+`manager/.stack-commit`, which `deploy/deploy.sh` writes from the repository
+with `git rev-parse HEAD:manager/swarm-hls-stream`, so it is the submodule pin
+whether or not the submodule is checked out. The API reads it at boot and builds
+that commit when it has no complete build of it, and **Update** on the bundled
+card builds it again. It is the default until another is chosen, and it cannot
+be removed. A manager that pins no commit, which is a developer machine, keeps
+the row on the tree in the checkout and refuses the rebuild, saying so. The
 stack's `main-v2` is obsolete and is kept only as a second version to test
-version selection with. Its commit comes from
-`manager/.stack-commit`, which `deploy/deploy.sh` writes before the rsync,
-because the tree reaches the server without a `.git`.
+version selection with.
 
 Every deployment runs one version, chosen in the new deployment wizard when
 more than one has finished building and preselected to the default. `POST

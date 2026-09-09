@@ -21,7 +21,7 @@ describe('bundled boot never invents shipment publication authority', () => {
     await mkdir(versionsRoot); await cp(V3_FIXTURE, legacyRoot, { recursive: true });
     versions = new InMemoryStackVersionRepository(); versions.seedBundled();
     service = new StackVersionService(versions, new FakeScriptSpawner(), new EventBus(), versionsRoot, {
-      openReferences: async () => [], pendingShipmentBuildIds: async () => [],
+      openReferences: async () => [],
     }, legacyRoot);
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });

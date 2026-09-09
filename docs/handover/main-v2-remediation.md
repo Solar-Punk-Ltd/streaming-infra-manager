@@ -135,3 +135,181 @@ What landed on `feat/ai-remediation`: the pin moves from the tip of the stack's 
 Verified with the new pin: manager 2146 unit tests green and typecheck clean, the real tree's contract read with no warning and `sharedImageTags` false, the stack installed and built on the laptop with the same two commands `deploy/deploy.sh` runs. A trial seal of the real tree then refused the laptop's stack `.env`, which still follows the `main-v2` sample and lacks twenty keys the `main-v3` sample declares (only the key names were seen). That is the check working as designed, and it means the first deploy after this bump needs those keys added to `manager/swarm-hls-stream/.env` first. The deploy README now says so. The trial's generation-one revision file was removed again, so the laptop checkout is back to never having had one and the deploy's `--adopt-inputs` takes the files as they are.
 
 Nothing has run against the real host. Next, unchanged: exact execution and recovery completion, then T09, T20, T21, T14 and T22.
+
+## The bundled stack is built on the host, 2026-09-09
+
+Levi's D12: "We run the infra manager on the server. The host should be able to
+checkout and pull the version or tag or branch whatever and build it there.
+Immediately it shows the settings that's needed for that version but filled with
+the working defaults." The bundled version stops arriving with the deploy. The
+brief is `../consensus/BUNDLED-ON-HOST-BRIEF.md`, the work is on
+`feat/bundled-on-host` off `feat/ai-remediation`.
+
+**What changed.** `deploy/deploy.sh` writes `manager/.stack-commit` from the
+repository itself, `git rev-parse HEAD:manager/swarm-hls-stream`, so the pin is
+what the submodule records and not what a laptop has checked out. That file is
+now the only thing about the stack a deploy carries. At boot the api reads the
+pin and, when the bundled row is not already on a complete build of it, builds
+that commit through the same path an added version takes: the same build script,
+the same one-build-at-a-time mutex, the same log on the Versions page. Update on
+the bundled version means rebuild that pin, and refuses with a plain message on a
+machine that pins none. The build script learned to fetch a forty character
+commit, which `git clone --branch` refuses. The upgrade command lost the
+shipment: its phases are checking, stopping, migrating, starting, verifying and
+then a bounded wait, `--bundled-timeout`, for the api's own boot to reach a build
+of the pin. A build that failed or timed out is printed and exits non zero, after
+the guard is released, because the manager is up by then.
+
+**Settings.** The first build on a host deployed the old way takes the bundled
+stack's `.env`, `deploy/config.json` and engine envs out of the legacy tree at
+`SHLS_ROOT`, byte for byte, as the config root's first revision. The legacy tree
+is only ever read, because running engines still mount it, and only the bundled
+version reads it at all. Then every env file is completed from the sample of the
+version being built: the sample's own line for each key the file lacks, in the
+sample's order, appended and committed as one more revision, which the build then
+captures. A file that does not parse, and a base env that is still short after
+completion, are refused with today's messages. That is the settings model the
+version settings page of D13 will read: one set per version on the host,
+committed as revisions in `.config-revision.json` under the same lock the editing
+script takes.
+
+**What went.** `bundled:seal`, the package format, the shipment journal
+(migration 030 drops `bundled_shipments` and its trigger, keeping
+`publication_revision` and its trigger), the publication command, the
+materializer, the package claim and sweep, the toolchain flag, and the strict
+path mode of the host config capture that only the seal used. Their tests went
+with them. The deploy script lost the stack build, the seal, the package rsync,
+the identity checks and the remote home probe those guarded, because with the
+package gone the only values it still interpolates into a remote command line are
+a local `git rev-parse` and a local `shasum`.
+
+**The T04b guarantee still holds and is still tested.** A deployment created
+while the bundled row was legacy keeps running the legacy tree until its own next
+deploy moves it: `manager/test/unit/deployBuildDescriptor.test.ts`, "runs the
+legacy tree until the bundled version is published, and its build after, each by
+its own deploy". `bundledBootRecovery.test.ts` still asserts that boot's metadata
+refresh adopts nothing and writes nothing into the legacy tree, and
+`bundledPublication.test.ts` was reworked around the new boot behaviour rather
+than deleted.
+
+**Verified.** Manager unit 2063 of 2063, manager database 98 of 98 against a
+disposable local Postgres, common 300, frontend 68, both manager typechecks and
+the common and frontend typechecks clean, `bash -n deploy/deploy.sh` clean.
+Earlier runs of the same suites, at load average 34 to 45 on this machine, failed
+a handful of timing-sensitive tests that pass alone, including
+`ownedChequebookPreparation.test.ts` and the pre-existing
+`legacyMetadataRefresh.test.ts` and `acquireDockerBeeStream.test.ts`, which
+nothing in this slice touches. `feat/ai-remediation` failed four of the same
+tests under that load, so the sensitivity is the machine's and not this branch's.
+Nothing ran against the real host, nothing was pushed, and no `.env` of the
+submodule was read.
+
+**Two things the brief asked for that are not here.** The build script's commit
+path is covered by a real run against a repository on this disk, put behind the
+stack's own https url with git's `insteadOf` in a home directory of the test's
+making, so neither the url check nor anything else in the script was relaxed for
+it. `readManagerPublication.ts` was kept and simplified rather than deleted: the
+brief lists it among the removed modules but also says `readPublication` keeps
+the first-use rule and the schema state, and something has to read the schema.
+Its database test was rewritten rather than removed, and it is where the
+migration-030 assertions live.
+
+**After the reviews, 2026-09-10.** A security review and a correctness review
+ran in parallel over the slice and found fourteen things, all now fixed on
+`feat/bundled-on-host`, one test-first commit pair each. The two that mattered
+were the same leftover from both sides: `removeGuarded` still asked
+`bundled_shipments` whether a version was held, and migration 030 drops that
+table, so the first version removal after an upgrade would have failed on the
+host and eleven database tests failed on the branch. The other one that could
+have reached the host is the guard: the twenty minute bundled wait did not catch
+its own read errors, so one failed query after the api was verified left
+`.manager-upgrade` behind and refused every later deploy. It now releases before
+it rethrows.
+
+Three findings were about the settings files, which hold the stream passphrase,
+the api token, the webhook token and the bee passphrase. They were being written
+at 0644 under a versions root anyone on the host can enter, because the atomic
+replacement wrote its temporary file with no mode. A file a commit creates is now
+owner only and a file it replaces keeps the mode an operator gave it. The
+completion and the legacy carry over both read a file and then took the lock only
+for the write, so an edit made in between was overwritten: `withHostConfigLock`
+now takes the lock once and hands the body a commit. And the set of settings
+files was built with calls that follow symbolic links, so a link planted in the
+legacy tree would have had its target read in the api container and committed as
+generation one. Every path of the set is now lstat checked, the `deploy` and
+`engines` directories included, and what was passed by is logged.
+
+The build script fetched from whatever `remote.origin.url` the clone on disk
+carried, so the https only check held for the first build alone. It repoints
+origin at the checked url before every fetch. The deploy refuses a
+`BUNDLED_TIMEOUT` that is not whole seconds and an ssh target starting with a
+dash, keeps the exit status of the upgrade so the receipt reaches the deployer
+before the failure, and `--bundled-timeout` is now optional with the twenty
+minute default the operations already carried. `deploysBuildOf` moved next to
+`deployRootProblem` so boot and the upgrade decide ready by the same rule, and
+the wait counts a `lastError` as its own only when the row has moved since it
+started the api, which is what tells this build's failure from one an earlier
+boot left standing. That baseline is read in `startProject`, which is the last
+moment before the new api can run its own boot.
+
+Two gaps in the tests were closed by mutation rather than by a code change.
+"Existing lines byte for byte untouched" had no fixture with a comment, a blank
+line, trailing spaces or a CRLF line, so stripping every comment and trimming the
+leading blank both passed. Both now go red. The bundled card's enabled Update
+button was asserted nowhere, and putting the old disable back passed every test.
+`frontend/test/versions-layout.test.mjs`, which renders the real page in headless
+Chrome, now asserts the button is enabled and the commit is on the card. That
+file is not part of `pnpm test`, which reads `src/**/*.test.ts` only, so it was
+run on its own: 12 of 12. The live build script test also set only `HOME`, which
+`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_COUNT` outrank, so a developer with either
+set would have sent that fetch to github.com. It answers all of them now.
+
+**Verified, 2026-09-10.** Manager unit 2081 of 2081. The whole
+`manager/test/database` directory 492 of 492 with nothing skipped, against a
+disposable Postgres holding the nine databases the files name, every
+`*_TEST_PG_PORT` set. That is five fewer than the base commit, which is exactly
+the four shipment cases and the one dropped table this round removed. Common 300,
+frontend 68, both manager typechecks and the common and frontend typechecks
+clean, `bash -n deploy/deploy.sh` clean, and the remote heredoc body parses as
+bash on its own. Nothing ran against the real host, nothing was pushed, and no
+`.env` of the submodule was read.
+
+**Third round, 2026-09-10.** A targeted re-review of those fixes found six more,
+all now in, one test-first commit each. Two were the same two shapes again, in
+places the first round missed. `manager/scripts/stack-config-edit.sh`, the
+supported way to edit a version's settings by hand, created its temporary file
+at whatever the umask allowed, so one `set` widened a 0600 `.env` back to 0644
+and undid the mode fix through the one door an operator is told to use. It now
+creates that file owner only and gives it the mode the target already has, and
+the revision manifest goes the same way. `seedHostConfig` asked whether a file
+was there outside the lock and committed under a fresh one, so a file an
+operator created while a build ran was written over by the sample. It holds the
+lock across both now, and `adoptHostConfig` commits through the caller's hold
+rather than taking its own.
+
+A legacy tree whose `deploy` or `engines` is a symbolic link was reported as
+holding nothing at all, so nothing was carried and no log said why. Those two
+paths are now named the same way a linked file is. The modes were asserted only
+where a file already existed, so the rule that a carried file lands owner only
+and a completed file keeps the mode it had was not held by anything. It is now,
+proven by a mutation that drops the mode handling and turns three suites red.
+
+The last one is the twenty minute wait a deploy does for the bundled build. It
+told this boot's answer from an earlier one's by the row having changed, and a
+boot that never started the build left the row byte identical, so the deploy sat
+out its whole bound and then printed an error from an earlier boot. Every path
+in `ensureBundledBuild` that does not start the build now writes the reason into
+the row and moves it onto the pin: the mutex refusing while another version
+builds, a `.stack-commit` that holds something that is not a commit, and a build
+whose script could not be started at all. A version that still has a build stays
+ready with the reason beside it, a version with nothing to deploy from is
+failed, and a machine with no pin file, which is a laptop rather than a broken
+deploy, is still left alone. `docs/features/stack-versions.md` lost the last
+mention of shipment records among the removal holds.
+
+**Verified, 2026-09-10.** Manager unit 2096 of 2096, fifteen more than the round
+before and nothing else moved. The whole `manager/test/database` directory 492 of
+492 with nothing skipped, run the nine-database way. Common 300, frontend 68,
+both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
+clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
+the submodule was read.

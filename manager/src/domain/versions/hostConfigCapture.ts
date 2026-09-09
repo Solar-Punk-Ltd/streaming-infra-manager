@@ -1,13 +1,10 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { chmod, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
-
-import { isHostInputPath, ownedHostInputPaths } from './hostInputPaths.js';
-import { assertOwnedDirectory, readOwnedFile } from './ownedTreePaths.js';
 
 /**
  * The host-owned inputs of a version root, captured for a build as one
@@ -35,7 +32,8 @@ export const CONFIG_LOCK_DIR = '.config.lock';
 export const CONFIG_EDIT_SCRIPT = 'stack-config-edit.sh';
 
 const BASE_ENV = '.env';
-const DEPLOY_CONFIG = 'deploy/config.json';
+const DEPLOY_DIR = 'deploy';
+const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
 const ENGINES_DIR = 'engines';
 const ENGINE_ENV = '.env';
 
@@ -71,27 +69,52 @@ export interface CaptureOptions {
   /** The keys the version's .env.sample holds, which the base env must all carry. */
   sampleEnvKeys?: readonly string[];
   lockWaitMs?: number;
-  /** Package capture refuses links and paths outside the complete host-input set. */
-  strictPaths?: boolean;
 }
 
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
-/** The hash a revision records for a file's bytes. */
-export const hostConfigHash = sha256;
+/**
+ * The paths of the set a root holds, each with whether it is a regular file.
+ *
+ * Nothing here is followed. A link at one of these paths, or at a directory on
+ * the way to one, names bytes outside the root, and the legacy tree they are
+ * taken from is writable by anything that reaches the host, so a link is
+ * passed by rather than read. The path it sits at is reported either way, so
+ * the caller can say what it left alone.
+ */
+function hostConfigPathsIn(root: string): { relative: string; isFile: boolean }[] {
+  const paths: { relative: string; isFile: boolean }[] = [];
+  const consider = (relative: string): void => {
+    const entry = lstatSync(join(root, relative), { throwIfNoEntry: false });
+    if (entry) paths.push({ relative, isFile: entry.isFile() });
+  };
+  /** Whether to look inside. Anything else at that path is reported and not descended into. */
+  const descend = (relative: string): boolean => {
+    const entry = lstatSync(join(root, relative), { throwIfNoEntry: false });
+    if (!entry) return false;
+    if (entry.isDirectory()) return true;
+    paths.push({ relative, isFile: false });
+    return false;
+  };
+
+  consider(BASE_ENV);
+  if (descend(DEPLOY_DIR)) consider(DEPLOY_CONFIG);
+  if (descend(ENGINES_DIR)) {
+    for (const engine of readdirSync(join(root, ENGINES_DIR)).sort()) {
+      if (descend(`${ENGINES_DIR}/${engine}`)) consider(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
+    }
+  }
+  return paths;
+}
 
 /** The host-owned files a root has, relative, posix: the base env, the deploy config and every engine env. */
 export function hostConfigFilesOf(root: string): string[] {
-  const files: string[] = [];
-  if (existsSync(join(root, BASE_ENV))) files.push(BASE_ENV);
-  if (existsSync(join(root, DEPLOY_CONFIG))) files.push(DEPLOY_CONFIG);
-  const engines = join(root, ENGINES_DIR);
-  if (existsSync(engines) && statSync(engines).isDirectory()) {
-    for (const engine of readdirSync(engines).sort()) {
-      if (existsSync(join(engines, engine, ENGINE_ENV))) files.push(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
-    }
-  }
-  return files;
+  return hostConfigPathsIn(root).filter((path) => path.isFile).map((path) => path.relative);
+}
+
+/** The paths of the set a root holds that are not regular files, so nothing reads them. */
+export function hostConfigNonFilesOf(root: string): string[] {
+  return hostConfigPathsIn(root).filter((path) => !path.isFile).map((path) => path.relative);
 }
 
 /**
@@ -134,12 +157,17 @@ async function readSteady(path: string, relative: string): Promise<Buffer> {
   throw new Error(`${relative} kept changing while it was read.`);
 }
 
+/** The key one line assigns, or null for a comment, a blank line or anything else. */
+export function envKeyIn(line: string): string | null {
+  return /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1] ?? null;
+}
+
 /** The keys an env file assigns, comments and blank lines skipped. */
 export function envKeysIn(text: string): Set<string> {
   const keys = new Set<string>();
   for (const line of text.split('\n')) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    if (match) keys.add(match[1]!);
+    const key = envKeyIn(line);
+    if (key) keys.add(key);
   }
   return keys;
 }
@@ -172,10 +200,10 @@ export async function readHostConfigRevision(root: string): Promise<ConfigRevisi
   return readRevision(root);
 }
 
-async function readRevision(root: string, strictPaths = false): Promise<ConfigRevision | null> {
+async function readRevision(root: string): Promise<ConfigRevision | null> {
   const path = join(root, CONFIG_REVISION_FILE);
   if (!existsSync(path)) return null;
-  const bytes = strictPaths ? await readOwnedFile(root, CONFIG_REVISION_FILE) : await readFile(path);
+  const bytes = await readFile(path);
   let raw: unknown;
   try { raw = JSON.parse(bytes.toString('utf8')); } catch {
     throw new Error(`${CONFIG_REVISION_FILE} does not parse as a revision.`);
@@ -188,11 +216,32 @@ async function readRevision(root: string, strictPaths = false): Promise<ConfigRe
   return { generation: record.generation as number, files: record.files as Record<string, string> };
 }
 
-/** Written to a temporary name beside the target, then renamed over it. */
+/** The mode a settings file gets when there is no file yet to take one from. */
+const OWNER_ONLY_MODE = 0o600;
+
+/** The mode of an existing file, or owner only for a file that does not exist yet. */
+async function modeToKeep(path: string): Promise<number> {
+  try {
+    return (await stat(path)).mode & 0o777;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return OWNER_ONLY_MODE;
+    throw err;
+  }
+}
+
+/**
+ * Written to a temporary name beside the target, then renamed over it.
+ *
+ * Every file of the set holds secrets, and the versions root above them is
+ * readable by anyone on the host, so a new file is owner only and a replaced
+ * one keeps the mode it had. The temporary file never exists at a wider mode
+ * than the one it ends at, whatever the umask of the process is.
+ */
 async function replaceAtomically(path: string, bytes: Buffer): Promise<void> {
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, bytes);
+  await writeFile(temp, bytes, { mode: OWNER_ONLY_MODE });
   try {
+    await chmod(temp, await modeToKeep(path));
     await rename(temp, path);
   } catch (err) {
     await rm(temp, { force: true });
@@ -214,25 +263,19 @@ export async function captureHostConfig(
 ): Promise<HostConfigCapture> {
   let release: () => Promise<void>;
   try {
-    if (options.strictPaths) await assertOwnedDirectory(root);
     release = await holdHostConfigLock(root, options.lockWaitMs);
   } catch (err) {
     return { captured: null, problem: getErrorMessage(err) };
   }
   try {
-    const revision = await readRevision(root, options.strictPaths);
+    const revision = await readRevision(root);
     if (!revision) {
       return {
         captured: null,
         problem: `${root} has no committed revision of its host configuration. Commit one with ${CONFIG_EDIT_SCRIPT}.`,
       };
     }
-    if (options.strictPaths && (revision.generation < 1 || Object.entries(revision.files).some(([path, hash]) =>
-      !isHostInputPath(path) || typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)))) {
-      throw new Error('The committed revision contains an invalid host input path or hash.');
-    }
-    const presentFiles = options.strictPaths ? await ownedHostInputPaths(root) : hostConfigFilesOf(root);
-    for (const relative of presentFiles) {
+    for (const relative of hostConfigFilesOf(root)) {
       if (!(relative in revision.files)) {
         return {
           captured: null,
@@ -247,7 +290,7 @@ export async function captureHostConfig(
       if (!existsSync(path)) {
         return { captured: null, problem: `${relative} is in the committed revision but missing from ${root}.` };
       }
-      const bytes = options.strictPaths ? await readOwnedFile(root, relative) : await readSteady(path, relative);
+      const bytes = await readSteady(path, relative);
       const actual = sha256(bytes);
       if (actual !== committed) {
         return {
@@ -278,22 +321,49 @@ export async function commitHostConfig(
   files: Record<string, Buffer>,
   options: CommitOptions = {},
 ): Promise<ConfigRevision> {
-  const release = await holdHostConfigLock(root, options.lockWaitMs);
+  return withHostConfigLock(root, (commit) => commit(files, options), options.lockWaitMs);
+}
+
+/** Commits a set of files into a root whose lock the caller already holds. */
+export type CommitUnderLock = (files: Record<string, Buffer>, options?: CommitOptions) => Promise<ConfigRevision>;
+
+/**
+ * Runs one edit under one acquisition of the lock.
+ *
+ * A caller that reads a file and then commits what it read has to hold the
+ * lock across both, because an editor that got in between leaves it writing
+ * back bytes that are already stale, and the manifest carries no expected
+ * generation to catch that.
+ */
+export async function withHostConfigLock<T>(
+  root: string,
+  body: (commit: CommitUnderLock) => Promise<T>,
+  waitMs?: number,
+): Promise<T> {
+  const release = await holdHostConfigLock(root, waitMs);
   try {
-    const current = await readRevision(root);
-    for (const [relative, bytes] of Object.entries(files)) {
-      await mkdir(join(root, relative, '..'), { recursive: true });
-      await replaceAtomically(join(root, relative), bytes);
-    }
-    for (const relative of options.remove ?? []) {
-      await rm(join(root, relative), { force: true });
-    }
-    const revision = await revisionOfPresentFiles(root, (current?.generation ?? 0) + 1);
-    await writeRevision(root, revision);
-    return revision;
+    return await body((files, options = {}) => commitHeldHostConfig(root, files, options));
   } finally {
     await release();
   }
+}
+
+async function commitHeldHostConfig(
+  root: string,
+  files: Record<string, Buffer>,
+  options: CommitOptions,
+): Promise<ConfigRevision> {
+  const current = await readRevision(root);
+  for (const [relative, bytes] of Object.entries(files)) {
+    await mkdir(join(root, relative, '..'), { recursive: true });
+    await replaceAtomically(join(root, relative), bytes);
+  }
+  for (const relative of options.remove ?? []) {
+    await rm(join(root, relative), { force: true });
+  }
+  const revision = await revisionOfPresentFiles(root, (current?.generation ?? 0) + 1);
+  await writeRevision(root, revision);
+  return revision;
 }
 
 async function revisionOfPresentFiles(root: string, generation: number): Promise<ConfigRevision> {
@@ -308,15 +378,15 @@ async function revisionOfPresentFiles(root: string, generation: number): Promise
  * The migration: a root without a manifest gets generation one from its
  * current bytes, because nothing older exists to compare against. Answers
  * the revision written, or null for a root that already has one.
+ *
+ * Commits through the lock its caller holds, because a caller that already
+ * decided something about the root under that lock would otherwise decide it
+ * again against a root an editor changed in between.
  */
-export async function adoptHostConfig(root: string): Promise<ConfigRevision | null> {
-  const release = await holdHostConfigLock(root);
-  try {
-    if (await readRevision(root)) return null;
-    const revision = await revisionOfPresentFiles(root, 1);
-    await writeRevision(root, revision);
-    return revision;
-  } finally {
-    await release();
-  }
+export async function adoptHostConfig(
+  root: string,
+  commit: CommitUnderLock,
+): Promise<ConfigRevision | null> {
+  if (await readRevision(root)) return null;
+  return commit({});
 }

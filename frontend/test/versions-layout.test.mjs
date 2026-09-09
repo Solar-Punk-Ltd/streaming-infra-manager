@@ -268,6 +268,17 @@ test('version identity, states and actions fit verified narrow viewports', async
     await waitFor(() => evaluate(`!document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`));
   });
 
+  await t.test('the bundled card offers the rebuild the host can now do, and names the commit', async () => {
+    const bundled = await evaluate(`(() => {
+      const row = ${card('bundled')};
+      const update = [...row.querySelectorAll('button')].find(button => button.textContent === 'Update');
+      return { enabled: update ? !update.disabled : null, text: row.innerText };
+    })()`);
+
+    assert.equal(bundled.enabled, true, 'the host fetches and builds the pinned commit, so Update is a thing this card does');
+    assert.match(bundled.text, /Commit 2{6,}/, 'and the card says which commit it would rebuild');
+  });
+
   await t.test('approval can be withdrawn and removal still confirms before sending', async () => {
     await evaluate(`document.querySelector('input[aria-label="rebuilding-tested-version tested"]').focus()`);
     await pressKey(' ', 'Space', 32, ' ');

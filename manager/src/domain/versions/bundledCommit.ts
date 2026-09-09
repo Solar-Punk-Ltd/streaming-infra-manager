@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 
 const COMMIT_FILE = '.stack-commit';
 const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/;
+/** A pin is a whole commit, because the build script fetches it from GitHub by name. */
+const PIN_SHA_RE = /^[0-9a-f]{40}$/;
 
 /**
  * Which commit a checkout is on, or null when it cannot be asked.
@@ -50,4 +52,33 @@ function fromCommitFile(bundledRoot: string): string | null {
 
   const sha = readFileSync(path, 'utf8').trim().toLowerCase();
   return COMMIT_SHA_RE.test(sha) ? sha : null;
+}
+
+/**
+ * The stack commit this manager ships with, or null when it ships none.
+ *
+ * `deploy/deploy.sh` writes it beside the checkout, from the submodule pin the
+ * repository records rather than from anybody's working tree, and that is what
+ * the host builds the bundled version from. A developer machine has no such
+ * file, and null is how that says so: there the bundled version stays on the
+ * tree in the checkout.
+ */
+export function readBundledPin(bundledRoot: string): string | null {
+  const sha = fromCommitFile(bundledRoot);
+  return sha !== null && PIN_SHA_RE.test(sha) ? sha : null;
+}
+
+/**
+ * Why the file beside a checkout names no commit to build, or null when it
+ * names one or when there is no file at all.
+ *
+ * A machine with no file is a developer laptop, which is not a problem. A file
+ * that is there and holds something else is a deploy that went wrong, and this
+ * is the only thing that tells the two apart. What it holds is never repeated
+ * back, because a broken file can hold anything.
+ */
+export function bundledPinProblem(bundledRoot: string): string | null {
+  if (!existsSync(join(dirname(bundledRoot), COMMIT_FILE))) return null;
+  if (readBundledPin(bundledRoot)) return null;
+  return `${COMMIT_FILE} beside ${bundledRoot} does not hold a whole commit, so there is nothing to build the bundled version from. Deploy the manager again.`;
 }

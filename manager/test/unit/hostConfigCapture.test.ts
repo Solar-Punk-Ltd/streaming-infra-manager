@@ -15,10 +15,10 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 
 import {
   adoptHostConfig,
@@ -27,6 +27,7 @@ import {
   CONFIG_LOCK_DIR,
   CONFIG_REVISION_FILE,
   holdHostConfigLock,
+  withHostConfigLock,
 } from '../../src/domain/versions/hostConfigCapture.js';
 
 const SAMPLE_KEYS = ['ENGINE', 'API_PORT'];
@@ -196,17 +197,47 @@ describe('commitHostConfig', () => {
   });
 });
 
+describe('the modes commitHostConfig leaves behind', () => {
+  // These files hold the stream passphrase, the api token and the bee
+  // passphrase, and the versions root above them is world readable.
+  let umask: number;
+  before(() => { umask = process.umask(0o022); });
+  after(() => { process.umask(umask); });
+
+  const modeOf = (path: string): number => statSync(path).mode & 0o777;
+
+  it('gives a file it creates the owner only mode, whatever the umask allows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-config-modes-'));
+
+    await commitHostConfig(dir, { '.env': Buffer.from('ENGINE=srs\n') });
+
+    assert.equal(modeOf(join(dir, '.env')), 0o600);
+    assert.equal(modeOf(join(dir, CONFIG_REVISION_FILE)), 0o600);
+  });
+
+  for (const mode of [0o600, 0o640]) {
+    it(`keeps the ${mode.toString(8)} an operator gave a file it replaces`, async () => {
+      const dir = root();
+      chmodSync(join(dir, '.env'), mode);
+
+      await commitHostConfig(dir, { '.env': Buffer.from('ENGINE=ome\nAPI_PORT=3000\n') });
+
+      assert.equal(modeOf(join(dir, '.env')), mode);
+    });
+  }
+});
+
 describe('adoptHostConfig', () => {
   it('gives a root without a manifest generation 1 from its current bytes, and leaves a committed one alone', async () => {
     const fresh = root();
     rmSync(join(fresh, CONFIG_REVISION_FILE));
 
-    const adopted = await adoptHostConfig(fresh);
+    const adopted = await withHostConfigLock(fresh, (commit) => adoptHostConfig(fresh, commit));
     assert.equal(adopted?.generation, 1);
     assert.equal(JSON.parse(readFileSync(join(fresh, CONFIG_REVISION_FILE), 'utf8')).files['.env'], sha('ENGINE=srs\nAPI_PORT=3000\n'));
 
     const committed = root({ generation: 7 });
-    assert.equal(await adoptHostConfig(committed), null);
+    assert.equal(await withHostConfigLock(committed, (commit) => adoptHostConfig(committed, commit)), null);
     assert.equal(JSON.parse(readFileSync(join(committed, CONFIG_REVISION_FILE), 'utf8')).generation, 7);
   });
 });

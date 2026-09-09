@@ -1,18 +1,17 @@
-import { lstat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 
-import { getErrorMessage } from '@streaming-infra-manager/common';
-
-import type { BundledShipmentReceipt } from '../domain/versions/BundledShipment.js';
-import { sweepBundledPackages } from '../domain/versions/bundledPackageSweep.js';
-import { BUNDLED_PACKAGE_MANIFEST, parseBundledPackageManifest } from '../domain/versions/bundledShipmentPackage.js';
-import type { ManagerPublication, ManagerUpgradeOperations, ManagerUpgradeRequest } from '../domain/versions/ManagerUpgrade.js';
-import { readOwnedFile } from '../domain/versions/ownedTreePaths.js';
-import { sealedBundledPackagePathFor } from '../domain/versions/stackPaths.js';
+import { readBundledPin } from '../domain/versions/bundledCommit.js';
+import { deploysBuildOf } from '../domain/versions/stackPaths.js';
+import type {
+  BundledBuildOutcome,
+  ManagerPublication,
+  ManagerUpgradeOperations,
+  ManagerUpgradeRequest,
+} from '../domain/versions/ManagerUpgrade.js';
 import type { CommandResult, CommandRunner } from './commandRunner.js';
-import { CLI_PREFIX, processStreams, type CommandStreams } from './commandStreams.js';
-import type { ManagerUpgradeDatabase } from './managerUpgradeDatabase.js';
+import type { BundledVersionState, ManagerUpgradeDatabase } from './managerUpgradeDatabase.js';
 
 /** The status of one plain GET. Nothing else about the response is used. */
 export type HealthProbe = (url: string) => Promise<{ status: number }>;
@@ -22,13 +21,16 @@ export interface ComposeUpgradeTimeouts {
   command?: number;
   postgresReady?: number;
   apiHealthy?: number;
+  /** How long the api's own boot may take to build the pinned stack commit. */
+  bundledBuild?: number;
   pollPause?: number;
 }
 
 export interface ComposeUpgradeSettings {
   versionsRoot: string;
   composeFile: string;
-  toolchain: string;
+  /** The tree the manager ships with, whose parent holds the commit it pins. */
+  bundledStackRoot: string;
   /** Whether this deploy asked for the public HTTPS edge. */
   publicEdge: boolean;
   /**
@@ -46,10 +48,14 @@ export interface ComposeUpgradeSettings {
   timeouts?: ComposeUpgradeTimeouts;
 }
 
+/** How long the upgrade waits for the api's boot to build the pinned commit, unless the deploy says otherwise. */
+export const DEFAULT_BUNDLED_BUILD_MS = 1_200_000;
+
 const DEFAULT_TIMEOUTS: Required<ComposeUpgradeTimeouts> = {
   command: 300_000,
   postgresReady: 120_000,
   apiHealthy: 90_000,
+  bundledBuild: DEFAULT_BUNDLED_BUILD_MS,
   pollPause: 2_000,
 };
 
@@ -60,8 +66,6 @@ const PUBLIC_PROFILE = ['--profile', 'public'];
 const HEALTHY = 'healthy';
 const RUNNING = 'running';
 const PROBE_TIMEOUT_MS = 10_000;
-/** Far above any manifest of a package, and far below what reading a wrong file would cost. */
-const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
 /** Compose sets this to True on the container a `docker compose run` starts. */
@@ -112,6 +116,28 @@ function commandFailure(what: string, project: string, program: string, result: 
   return `"${what}" failed on the ${project} project. ${outcome} Run the same ${program} command on the host to see its output.`;
 }
 
+/**
+ * What the bundled row says about the pinned commit, or null while it is still
+ * being built.
+ *
+ * Ready is the same question boot asks: does the row deploy from a complete
+ * build of this commit. Failed needs the row to have moved since this upgrade
+ * started the new api, because `ensureBundledBuild` can throw before it marks
+ * the row as building, and the boot that swallows that leaves the error of an
+ * earlier one standing.
+ */
+function outcomeOf(bundled: BundledVersionState | null, commit: string, before: BundledVersionState | null | undefined): BundledBuildOutcome | null {
+  if (!bundled) return { state: 'failed', commit, buildId: null, problem: 'this database holds no bundled version row' };
+  if (deploysBuildOf(bundled, commit)) {
+    return { state: 'ready', commit, buildId: bundled.buildId, problem: null };
+  }
+  const built = before === undefined || !isDeepStrictEqual(bundled, before);
+  if (built && bundled.status !== 'building' && bundled.gitRef === commit && bundled.lastError !== null) {
+    return { state: 'failed', commit, buildId: bundled.buildId, problem: bundled.lastError };
+  }
+  return null;
+}
+
 /** Where the api of one manager project answers, which is the port it was configured with. */
 export function apiHealthUrlFor(port: number): string {
   return `http://${API_SERVICE}:${port}/health`;
@@ -125,60 +151,40 @@ export const httpHealthProbe: HealthProbe = async (url) => {
 };
 
 /**
- * The manifest of a shipped package, read as a file of a tree this host owns.
- *
- * Never through a link, because the path is under a directory an rsync from
- * another machine writes into, and never beyond a size a manifest can have,
- * because what sits at that path may be something else entirely.
- */
-async function readSealedManifest(sealed: string): Promise<Buffer> {
-  const path = join(sealed, BUNDLED_PACKAGE_MANIFEST);
-  const info = await lstat(path);
-  if (info.size > MAX_MANIFEST_BYTES) {
-    throw new Error(`${path} holds more than ${MAX_MANIFEST_BYTES} bytes, which no package manifest does.`);
-  }
-  return readOwnedFile(sealed, BUNDLED_PACKAGE_MANIFEST);
-}
-
-/**
  * What one manager upgrade does to the host, as Compose commands against one
  * project.
  *
- * The sources are not installed here. The deploy has already copied the
- * manager's own files and built the image, and a running container takes its
- * code from its image, so the step named `installSources` checks that the
- * package the deploy shipped is the one this upgrade was told to publish and
- * copies nothing. A mismatch is a refusal before anything is published.
+ * Nothing of the streaming stack is installed here. The deploy has copied the
+ * manager's own files and built the image, and the commit the manager pins is
+ * fetched and built by the api itself once it is up, which is what the last
+ * step waits for.
  */
 export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   private readonly timeouts: Required<ComposeUpgradeTimeouts>;
-  /**
-   * Whether the read that decides about an empty database has happened.
-   *
-   * One upgrade reads the publication again after it published and again after
-   * the project is up, and by then its own migration has turned the schema it
-   * found empty into a journal. Only the first read can answer the question, so
-   * only the first read asks it.
-   */
-  private firstUseSettled = false;
+  /** The bundled row before this upgrade started the api, or undefined when it has not started it. */
+  private bundledBeforeStart: BundledVersionState | null | undefined;
 
   constructor(
     private readonly settings: ComposeUpgradeSettings,
     private readonly database: ManagerUpgradeDatabase,
     private readonly run: CommandRunner,
     private readonly probe: HealthProbe = httpHealthProbe,
-    private readonly streams: CommandStreams = processStreams,
   ) {
     this.timeouts = { ...DEFAULT_TIMEOUTS, ...settings.timeouts };
   }
 
+  /**
+   * The state of the schema, read before the old api is stopped, and the one
+   * place a host that has never run the manager is told apart from one whose
+   * database went missing. Only this read can answer that, because the
+   * migration below it turns an empty schema into the current one.
+   */
   async readPublication(request: ManagerUpgradeRequest): Promise<ManagerPublication> {
     const firstUse = await this.startPostgres(request.project);
-    const publication = await this.database.readPublication(request.shipment);
-    if (firstUse && !this.firstUseSettled && publication.schema !== 'fresh') {
+    const publication = await this.database.readPublication();
+    if (firstUse && publication.schema !== 'fresh') {
       throw new Error('This host has no manager database volume, so its database should be empty, and it is not. Look at the host before deploying again.');
     }
-    this.firstUseSettled = true;
     return publication;
   }
 
@@ -188,57 +194,40 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     if (running.length > 0) throw new Error('An api container is still running after it was stopped, so this upgrade cannot go on.');
   }
 
-  async installSources(request: ManagerUpgradeRequest): Promise<void> {
-    const sealed = sealedBundledPackagePathFor(this.settings.versionsRoot, request.shipment.shipmentId);
-    let manifest;
-    try {
-      manifest = parseBundledPackageManifest(await readSealedManifest(sealed));
-    } catch (error) {
-      throw new Error(`The package this upgrade publishes cannot be read at ${sealed}. ${getErrorMessage(error)}`);
-    }
-    if (manifest.shipmentId !== request.shipment.shipmentId || manifest.commit !== request.shipment.commit ||
-      manifest.digest !== request.shipment.digest) {
-      throw new Error(`The package at ${sealed} carries another identity than this upgrade was given. Its digest or its commit differs.`);
-    }
-  }
-
-  async publish(request: ManagerUpgradeRequest): Promise<BundledShipmentReceipt> {
+  async migrate(): Promise<void> {
     // The old api is stopped by now, which is the rule: no migration ever runs under it.
     await this.database.migrate();
-    const activation = await this.database.publishBundled({
-      identity: request.shipment,
-      readyPath: sealedBundledPackagePathFor(this.settings.versionsRoot, request.shipment.shipmentId),
-      toolchain: this.settings.toolchain,
-    });
-    if (activation.status !== 'published') {
-      throw new Error('A newer publication of the bundled stack won, so this upgrade published nothing. Deploy again to ship a new shipment.');
-    }
-    await this.sweepShippedPackages(activation.receipt.versionId);
-    return activation.receipt;
   }
 
   /**
-   * Removes what this publication has just made unreadable.
+   * Waits for the api's own boot to build the stack commit this manager pins.
    *
-   * Every package a deploy ships carries the streaming stack's own host inputs,
-   * so a host that never removed one keeps a copy of every secret every deploy
-   * ever shipped. What the sweep could not remove is said out loud and nothing
-   * more, because the publication above it already stands and undoing it to
-   * tidy up would be the worse answer.
+   * The build is the api's, not this command's, so what is watched is the
+   * bundled version row. It is ready when the row deploys from a build of the
+   * pin, and failed when the row was moved onto the pin and carries the reason
+   * a build of it did not finish. Neither is thrown: the manager is up by now,
+   * and the caller decides what a failure is worth.
    */
-  private async sweepShippedPackages(versionId: number): Promise<void> {
-    try {
-      await this.database.supersedeStalePending(versionId);
-      const swept = await sweepBundledPackages(this.settings.versionsRoot, this.database);
-      for (const name of swept.removed) this.streams.err(`${CLI_PREFIX} removed ${name}`);
-      for (const name of swept.unknown) this.streams.err(`${CLI_PREFIX} kept ${name}, which no shipment of this journal made`);
-      for (const failure of swept.failed) this.streams.err(`${CLI_PREFIX} could not remove ${failure.name}: ${failure.reason}`);
-    } catch (error) {
-      this.streams.err(`${CLI_PREFIX} the shipped packages could not be swept: ${getErrorMessage(error)}. The publication stands.`);
+  async awaitBundledBuild(): Promise<BundledBuildOutcome> {
+    const commit = readBundledPin(this.settings.bundledStackRoot);
+    if (!commit) return { state: 'unpinned', commit: null, buildId: null, problem: null };
+    const deadline = Date.now() + this.timeouts.bundledBuild;
+    for (;;) {
+      const bundled = await this.database.readBundledVersion();
+      const outcome = outcomeOf(bundled, commit, this.bundledBeforeStart);
+      if (outcome) return outcome;
+      if (Date.now() >= deadline) {
+        return { state: 'timed-out', commit, buildId: bundled?.buildId ?? null, problem: bundled?.lastError ?? null };
+      }
+      await sleep(this.timeouts.pollPause);
     }
   }
 
   async startProject(request: ManagerUpgradeRequest): Promise<void> {
+    // The row as it stands before the new api exists. Anything it says after
+    // this is the boot this upgrade started, and anything it still says is an
+    // earlier one's.
+    this.bundledBeforeStart = await this.database.readBundledVersion();
     if (this.settings.publicEdge) {
       await this.compose(request.project, [...PUBLIC_PROFILE, 'up', '-d', '--no-build', '--remove-orphans']);
       return;

@@ -198,7 +198,7 @@ async function main(): Promise<void> {
     logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
   // After the containers were observed, so a bundled build one still mounts
-  // has its reference before the publication of a shipment prunes.
+  // has its reference before anything prunes.
   try {
     await stackVersionService.syncBundled(
       BUNDLED_STACK_ROOT,
@@ -211,6 +211,14 @@ async function main(): Promise<void> {
     await stackVersionService.pruneAll();
   } catch (err) {
     logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // The stack commit this manager pins, built here on the host. A build that
+  // cannot start or cannot finish leaves a failed version row the Versions page
+  // shows and an Update button retries, never an api that refuses to start.
+  try {
+    await stackVersionService.ensureBundledBuild();
+  } catch (err) {
+    logger.warn(`[Boot] the pinned stack commit was not built: ${getErrorMessage(err)}. The api starts either way.`);
   }
 
   const orphans = await profileRepository.resetOrphanedTransitions();

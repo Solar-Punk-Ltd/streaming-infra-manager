@@ -1,6 +1,6 @@
 /**
- * That the manager's own deploy seals what it ships, ships it where the host
- * publishes it from, and lets the host command decide the rest.
+ * That the manager's own deploy ships the manager and nothing of the streaming
+ * stack but the commit it pins, and lets the host command decide the rest.
  *
  * Read from the file, the way the build script is read: the deploy needs a
  * host, a network and a signing key. `pnpm test` in manager/.
@@ -17,8 +17,6 @@ import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
-const PACKAGES_DIR = 'bundled.packages';
-const SEALED = 'sealed-${SHIPMENT_ID}';
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
 
@@ -43,38 +41,26 @@ describe('deploy/deploy.sh', () => {
     assert.equal(script.includes('bundled.incoming'), false);
   });
 
-  it('still writes the stack commit next to the checkout, which a row never published reads', () => {
-    assert.match(script, new RegExp(`${STACK_COMMIT_FILE.replace('.', '\\.')}`));
+  it('pins the stack commit from the repository itself, not from a checkout of the submodule', () => {
+    assert.match(script, new RegExp(`git rev-parse HEAD:manager/swarm-hls-stream > manager/${STACK_COMMIT_FILE.replace('.', '\\.')}`));
   });
 
-  it('seals the built stack into a package, adopting the host inputs and taking both built directories', () => {
-    const called = script.indexOf('cli.js bundled:seal');
-    assert.notEqual(called, -1, 'the deploy seals what it ships');
-    const seal = script.slice(called, called + 600);
-    assert.match(seal, /--source manager\/swarm-hls-stream/);
-    assert.match(seal, /--shipment-id "\$SHIPMENT_ID"/);
-    assert.match(seal, /--dist packages\/client\/dist/);
-    assert.match(seal, /--dist packages\/stream-uploader\/dist/);
-    assert.match(seal, /--adopt-inputs/);
-    assert.match(seal, /--toolchain/);
+  it('builds nothing of the streaming stack here, because the host fetches and builds it', () => {
+    assert.equal(script.includes('pnpm -C manager/swarm-hls-stream'), false, 'the stack is not installed or built on this machine');
+    assert.equal(script.includes('bundled:seal'), false, 'nothing is sealed into a package any more');
+    assert.equal(script.includes('bundled.packages'), false, 'and no package root is written to');
+    assert.equal(script.includes('uuidgen'), false, 'a shipment has no id because there is no shipment');
   });
 
-  it('makes one shipment id per deploy rather than replaying an old one', () => {
-    assert.match(script, /SHIPMENT_ID="\$\(uuidgen/);
+  it('ships one rsync, the repository, and no package beside it', () => {
+    assert.equal(rsyncs().length, 1, 'the repository is the only thing copied to the host');
   });
 
-  it('ships the sealed package into a staging name under the packages root, keeping modes and links', () => {
-    assert.match(script, new RegExp(`REMOTE_PACKAGES="\\$\\{REMOTE_VERSIONS_ROOT\\}/${PACKAGES_DIR}"`), 'the packages root is one directory of its own');
-    const shipment = rsyncs().find((block) => block.includes(`\${REMOTE_PACKAGES}/${SEALED}.tmp/`));
-    assert.ok(shipment, 'the rsync of the sealed package');
-    assert.match(shipment, /rsync -a /, 'archive mode, so modes and symbolic links survive');
-    assert.match(shipment, /--delete/);
-  });
-
-  it('renames the staging name to the sealed one after the last rsync, so the host never reads a torn package', () => {
-    const promote = script.indexOf(`mv '\${REMOTE_PACKAGES}/${SEALED}.tmp' '\${REMOTE_PACKAGES}/${SEALED}'`);
-    assert.notEqual(promote, -1, 'the rename that makes the package visible');
-    assert.ok(promote > script.lastIndexOf('\nrsync '), 'nothing is visible to the host before the last rsync finished');
+  it('interpolates no identity it had to check first, because the seal that produced them is gone', () => {
+    assert.equal(script.includes('check_identity'), false);
+    assert.equal(script.includes('SHIPMENT_ID'), false);
+    assert.equal(script.includes('SHIPMENT_DIGEST'), false);
+    assert.equal(script.includes('TOOLCHAIN'), false);
   });
 
   it('builds the image on the host and then runs the upgrade from it, not from the running api', () => {
@@ -120,13 +106,40 @@ describe('deploy/deploy.sh', () => {
     assert.ok(upgrade.includes('\\${FIRST_USE_FLAG}'), 'and reaches the command');
   });
 
-  it('gives the upgrade the identity of the shipment, of the manager and of the image', () => {
+  it('gives the upgrade the identity of the manager, of the image and how long to wait for the bundled build', () => {
     const upgrade = script.slice(script.indexOf('manager:upgrade'));
-    for (const flag of ['--shipment-id', '--commit', '--digest', '--manager-commit', '--manager-digest',
-      '--image-id', '--project manager', '--compose-file', '--mutable-root', '--toolchain']) {
+    for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project manager',
+      '--compose-file', '--mutable-root', '--bundled-timeout']) {
       assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
     }
     assert.match(script, /IMAGE_ID="\\\$\(docker image inspect --format '\{\{\.Id\}\}' manager-api\)"/);
+  });
+
+  it('gives the upgrade no shipment, because the host builds the stack itself', () => {
+    const upgrade = script.slice(script.indexOf('manager:upgrade'));
+    for (const flag of ['--shipment-id', '--commit ', '--digest ', '--toolchain']) {
+      assert.equal(upgrade.includes(flag), false, `the upgrade is not given ${flag}`);
+    }
+  });
+
+  it('lets the deployer say how long the bundled build may take, with a default of its own', () => {
+    assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
+  });
+
+  it('refuses an ssh target that would read as an option to ssh', () => {
+    const taken = script.indexOf('SSH_TARGET="${1:-');
+    const checked = script.indexOf('if [[ "$SSH_TARGET" == -* ]]');
+    assert.notEqual(checked, -1, 'a leading dash makes the target an ssh flag');
+    assert.ok(checked > taken, 'after the argument is taken');
+    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before ssh is given it');
+  });
+
+  it('refuses a bundled timeout that is not whole seconds, before it reaches the remote quoting', () => {
+    const assignment = script.indexOf('BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-');
+    const checked = script.indexOf('if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]');
+    assert.notEqual(checked, -1, 'the value lands inside single quotes in the remote heredoc');
+    assert.ok(checked > assignment, 'after the value is settled');
+    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before anything runs on the host');
   });
 
   it('feeds both remote docker commands from /dev/null, so neither reads the rest of the script', () => {
@@ -135,8 +148,8 @@ describe('deploy/deploy.sh', () => {
     const run = script.slice(script.indexOf('docker compose run --rm --no-deps -T api'));
     const closed = run.indexOf(')"');
     assert.notEqual(closed, -1, 'the substitution that captures the receipt ends somewhere');
-    assert.match(run.slice(0, closed + 2), /--toolchain '\$\{TOOLCHAIN\}' \$\{PUBLIC_EDGE_FLAG\} < \/dev\/null\)"$/,
-      'the upgrade takes the toolchain, the edge decision and no standard input');
+    assert.match(run.slice(0, closed + 2), /\$\{PUBLIC_EDGE_FLAG\} < \/dev\/null\)"$/,
+      'the upgrade takes the edge decision and no standard input');
     assert.match(script, /docker compose exec -T api [^\n]* < \/dev\/null/, 'and neither does the check that follows it');
   });
 
@@ -158,27 +171,15 @@ describe('deploy/deploy.sh', () => {
     assert.ok(printed > captured, 'after the command that returned it, never before');
   });
 
-  it('checks the seal output and every identity it interpolates, before any of it reaches the host', () => {
-    const remote = script.indexOf('ssh "$SSH_TARGET" bash -s');
-    assert.notEqual(remote, -1, 'the remote block');
-    const before = script.slice(0, remote);
-    assert.match(before, /node -e/, 'one node run reads the JSON the seal printed and can refuse it');
-    assert.match(before, /printed no/, 'and names the field a line without one is missing');
-    for (const name of ['SHIPMENT_ID', 'SHIPMENT_COMMIT', 'SHIPMENT_DIGEST', 'MANAGER_COMMIT', 'MANAGER_DIGEST', 'TOOLCHAIN']) {
-      assert.ok(before.includes(`check_identity "${name}"`), `${name} is checked before it is interpolated`);
-    }
-    assert.match(before, /\[0-9a-f\]\{8\}-/, 'the shipment id is a uuid');
-    assert.match(before, /\[a-f0-9\]\{40\}\$/, 'a commit is forty hex characters');
-    assert.match(before, /\[a-f0-9\]\{64\}\$/, 'a digest is sixty four');
-  });
-
-  it('checks the home directory the host answered with, before building remote paths out of it', () => {
-    const read = script.indexOf('REMOTE_HOME="$(ssh');
-    assert.notEqual(read, -1, 'the home directory is read from the host');
-    const checked = script.indexOf('check_identity "REMOTE_HOME"');
-    assert.notEqual(checked, -1, 'and what came back is checked rather than trusted');
-    assert.ok(checked > read, 'after it was read');
-    assert.ok(checked < script.indexOf('REMOTE_VERSIONS_ROOT="'), 'and before anything is built out of it');
+  it('prints the receipt of an upgrade that failed, and only then fails the deploy', () => {
+    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    const kept = script.indexOf('|| UPGRADE_STATUS=\\$?');
+    assert.notEqual(kept, -1, 'the capture runs under set -e, where a failing substitution would end the block');
+    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
+    const failed = script.indexOf('exit "\\${UPGRADE_STATUS}"');
+    assert.ok(kept > captured, 'the status of the command is taken');
+    assert.ok(printed > kept, 'the receipt is printed with it in hand');
+    assert.ok(failed > printed, 'and the deploy fails after the deployer has read it');
   });
 
   it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
@@ -203,8 +204,7 @@ describe('deploy/deploy.sh', () => {
     }
   });
 
-  it('names one versions root on both sides', () => {
-    const named = script.match(/streaming-infra-manager-versions/g) ?? [];
-    assert.ok(named.length >= 2, 'the laptop side and the host side both name it');
+  it('names the versions root on the host, which is where the bundled build lands', () => {
+    assert.ok(script.includes('streaming-infra-manager-versions'), 'the remote block exports it');
   });
 });

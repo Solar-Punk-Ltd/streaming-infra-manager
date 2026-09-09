@@ -13,7 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { cpSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
@@ -25,6 +25,12 @@ import {
 } from '../support/versionsTestApp.js';
 
 const ROUTE_COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
+/** The commit a manager deploy would have pinned beside the bundled checkout. */
+const PINNED_COMMIT = 'a'.repeat(40);
+
+function pinStackCommit(commit: string): void {
+  writeFileSync(join(dirname(app.bundledRoot), '.stack-commit'), `${commit}\n`);
+}
 
 /** What the build script leaves in the attempt's staging directory, from the script's own arguments. */
 function builtInStaging(args: string[]): void {
@@ -169,12 +175,28 @@ describe('POST /versions/:id/update', () => {
     );
   });
 
-  it('refuses the bundled version, which the manager deploy moves', async () => {
+  it('rebuilds the bundled version from the commit this manager pins', async () => {
+    pinStackCommit(PINNED_COMMIT);
+    const bundled = await app.repository.findByName('bundled');
+
+    const { res, frames } = await build(`/versions/${bundled?.id}/update`);
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      frames.map((frame) => frame.event),
+      ['start', 'stdout', 'done'],
+    );
+    assert.equal(app.runner.last.args[2], PINNED_COMMIT, 'the build follows the pinned commit');
+    assert.equal((await app.repository.findByName('bundled'))?.gitRef, PINNED_COMMIT);
+  });
+
+  it('refuses to rebuild the bundled version when this manager pins no commit', async () => {
     const bundled = await app.repository.findByName('bundled');
     const answer = await callJson('POST', `/versions/${bundled?.id}/update`);
 
     assert.equal(answer.status, 409);
     assert.equal((answer.body as { error: string }).error, 'bundled_version');
+    assert.equal(app.runner.spawned.length, 0);
   });
 
   it('answers 404 for an id that names nothing', async () => {

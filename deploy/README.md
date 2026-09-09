@@ -51,9 +51,8 @@ From your local checkout:
 ./deploy/deploy.sh manager-host
 ```
 
-This rsyncs the repo (minus `node_modules`, `.git` and build caches), seals the
-streaming stack into one package and ships it, then builds the images on the
-server and runs the upgrade command that publishes the package and brings the
+This rsyncs the repo (minus `node_modules`, `.git` and build caches), then
+builds the images on the server and runs the upgrade command that brings the
 project back up. Both `.env` files travel with the repo rsync, and
 `rsync --delete` means your checkout is the only source of truth for them: an
 edit made on the server is undone by the next deploy.
@@ -61,39 +60,39 @@ edit made on the server is undone by the next deploy.
 ## What a deploy does to the bundled stack
 
 The streaming stack the manager ships with is a version like any other, called
-`bundled`, and a deploy publishes a new build of it. Three steps, in this order,
-and then where the result lives.
+`bundled`, and the server fetches and builds it there. The only thing about the
+stack a deploy carries is one commit.
 
-**Seal.** On your machine, `bundled:seal` exports the files of the commit
-`manager/swarm-hls-stream` is on, adds the two built directories (which are not
-committed), adds that checkout's own `.env`, `deploy/config.json` and engine
-envs, and writes a manifest naming every path with its mode and its hash. An
-uncommitted change to the application is refused here, so what ships is always a
-commit you can go back to. The checkout's `.env` has to declare every key the
-version's `.env.sample` declares, and the seal refuses one that does not,
-naming the keys: that is what a stack bump leaves behind, because the base env
-is your file and never moves with the submodule. Add the missing keys with the
-sample's defaults, then record the edit as a revision with
-`manager/scripts/stack-config-edit.sh manager/swarm-hls-stream commit`. A
-checkout that never had a revision needs no such step: the deploy passes
-`--adopt-inputs`, which takes the files as they are, once. The result is one
-directory named after a shipment id made fresh for this deploy.
+**Pin.** The deploy writes `manager/.stack-commit` from the repository itself,
+with `git rev-parse HEAD:manager/swarm-hls-stream`, so it is the commit the
+submodule pin records whether or not you have the submodule checked out. That
+file ships with the repo rsync. Nothing of the stack is installed or built on
+your machine.
 
-**Ship.** The package is copied to
-`~/streaming-infra-manager-versions/bundled.packages/` under a name ending
-`.tmp`, and renamed only once every file arrived. A dropped connection therefore
-leaves a staging directory the next deploy replaces, never a package the host
-would read.
+**Build, on the server.** When the API starts it reads that pin. If the bundled
+version is not already on a complete build of that commit, it fetches the commit
+from GitHub into `~/streaming-infra-manager-versions/bundled.repo` and builds it
+in a throwaway `node:22-alpine` container, exactly as it does for a version you
+add in the UI. The build log is on the Versions page. A build that fails leaves
+a failed version row with the reason, and Update on the bundled card runs it
+again. The API starts either way: a stack that could not be fetched never stops
+the manager coming up.
 
 **Upgrade.** The server builds its images, then runs `manager:upgrade` in a
 one-off container of the image it has just built. That command creates
 `~/streaming-infra-manager-versions/.manager-upgrade` and holds it for the whole
 run, so a second deploy started beside this one refuses instead of interleaving
 with it. Inside the guard it decides whether Postgres may be started, reads the
-current publication, stops the old API, checks the shipped package against the
-identity it was given, migrates the database with no old API running, publishes
-the package, starts the project and waits for the new API to answer its health
-check. It prints one line of JSON with the receipt, which the deploy echoes.
+schema, stops the old API, migrates the database with no old API running, starts
+the project, waits for the new API to answer its health check, and then waits for
+that API's own boot to finish building the pinned commit. `--bundled-timeout`
+says how long that last wait may take, twenty minutes by default, and you can
+raise it for a first build on a cold host with
+`BUNDLED_TIMEOUT=3600 ./deploy/deploy.sh manager-host`. It prints one line of
+JSON with the state and the bundled build, which the deploy echoes. A bundled
+build that failed or ran out of time makes the deploy exit non zero after the
+manager is already up, so the fix is Update on the Versions page rather than
+another deploy.
 
 **Where builds live.** Each published build is one immutable directory at
 `~/streaming-infra-manager-versions/bundled.builds/<build id>`. Nothing is ever
@@ -104,6 +103,34 @@ deploy any more.
 A running container keeps the files it was started with until its own deployment
 is deployed again. Updating the manager does not restart anybody's stream and
 does not move a deployment onto the new build.
+
+## Where the streaming stack's settings live
+
+On the server, in `~/streaming-infra-manager-versions/bundled/`: the base `.env`,
+`deploy/config.json` and `engines/<engine>/.env`. They are the operator's files
+and no deploy reads or writes them.
+
+The first build on a host that was deployed the old way takes them over from
+`manager/swarm-hls-stream` on the server, byte for byte, as the first revision.
+After that the tree is only ever read, because running engines still mount it.
+
+A version that adds a setting ships it in its `.env.sample`, and the build
+completes the host's own file from that sample rather than refusing: the sample's
+own line for each missing key is appended, blank where the sample leaves it
+blank, and the log names the keys it added. Your own lines are never touched.
+
+Until the settings page exists, edit them on the server with the manager's
+editing script, which commits the whole set as one revision:
+
+```sh
+ssh manager-host
+cd ~/streaming-infra-manager/manager
+scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled set .env /tmp/new-env
+scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled commit
+```
+
+Then Update the bundled version from the Versions page, which builds again and
+captures the new revision, and redeploy the deployments that should pick it up.
 
 ## A deploy that stopped half way
 
@@ -116,11 +143,11 @@ ls ~/streaming-infra-manager-versions/.manager-upgrade
 cat ~/streaming-infra-manager-versions/.manager-upgrade/owner.json
 ```
 
-`owner.json` names the phase it stopped in: `checking`, `stopping`,
-`installing`, `publishing`, `starting` or `verifying`. The next deploy refuses
-while that directory exists and prints the path and the phase rather than
-clearing it, because from `stopping` onwards the API may be down and only a
-person can tell whether the host is in a state worth keeping.
+`owner.json` names the phase it stopped in: `checking`, `stopping`, `migrating`,
+`starting`, `verifying` or `bundled`. The next deploy refuses while that
+directory exists and prints the path and the phase rather than clearing it,
+because from `stopping` onwards the API may be down and only a person can tell
+whether the host is in a state worth keeping.
 
 What to look at before removing it:
 
@@ -131,9 +158,9 @@ docker compose ps                 # is the api up, is postgres healthy
 docker compose logs --tail 200 api
 ```
 
-The database is safe to leave as it is. Publication is one transaction, so the
-bundled version either moved onto the new build or it did not, and a rerun that
-finds the shipment already published answers with the receipt it already has.
+The database is safe to leave as it is. The upgrade publishes nothing itself,
+and a build the API had started either finished into its own immutable directory
+or left a staging directory the next boot removes.
 
 When the host looks sound, remove the directory by hand and deploy again:
 
@@ -141,48 +168,26 @@ When the host looks sound, remove the directory by hand and deploy again:
 rm -r ~/streaming-infra-manager-versions/.manager-upgrade
 ```
 
-The next deploy is a new shipment with a new id. It does not resume the one that
-stopped, and it does not need to.
+### What a stopped deploy leaves behind
 
-### What a stopped deploy leaves in `bundled.packages/`
-
-The other directory to look at is
-`~/streaming-infra-manager-versions/bundled.packages/`. Every package a deploy
-ships lands there, and a package carries the streaming stack's own `.env`, its
-`deploy/config.json` and its engine envs, so a directory left there is a copy of
-the secrets that deploy shipped.
-
-A finished upgrade cleans this itself. Once it has published, it marks every
-shipment an older publication left behind as superseded and then removes the
-packages and the claimed copies of every shipment that published or was
-superseded, printing one `[cli] removed ...` line for each. What it leaves is
-what may still be needed: a package whose shipment is still registered or
-prepared.
-
-The same sweep looks into `~/streaming-infra-manager-versions/bundled.materializations/`,
-which is where a publication makes its private copy of a package before renaming
-it into a build, and it removes or names what it finds there by the same rule.
-
-Two kinds of leftover it will not touch, because it cannot tell where they came
-from:
-
-- `sealed-<uuid>.tmp` is a copy that never finished arriving, from a deploy
-  whose connection dropped during the rsync.
-- `sealed-<uuid>` with an id the journal has no shipment for is a package from a
-  deploy that stopped between shipping it and registering it.
-
-The upgrade names the second kind on its own line, saying it kept it because no
-shipment of this journal made it. Both are safe to remove by hand once no deploy
-is running:
+Nothing that has to be cleaned by hand. A deploy ships no package of the
+streaming stack any more, so there is no `bundled.packages/` directory to sweep
+and no copy of anybody's secrets waiting in one. A host that was deployed the old
+way may still have that directory from before this change: nothing reads it now,
+and it holds the `.env`, `deploy/config.json` and engine envs of every deploy
+that shipped one, so remove it once no deploy is running.
 
 ```sh
 ssh manager-host
-ls ~/streaming-infra-manager-versions/bundled.packages
-rm -r ~/streaming-infra-manager-versions/bundled.packages/sealed-<the id you saw>
+ls ~/streaming-infra-manager-versions/bundled.packages    # if it is still there
+rm -r ~/streaming-infra-manager-versions/bundled.packages
 ```
 
-Never remove a package a deploy that is still running shipped, and never remove
-anything under `bundled.builds/`, which is where the published builds live.
+What a build that was interrupted leaves is a `tmp-<attempt>` directory under
+`~/streaming-infra-manager-versions/bundled.builds/`. The next boot removes it,
+unless its build container is still running, and never removes a published build.
+Never remove anything else under `bundled.builds/`, which is where the published
+builds live.
 
 ## The first user
 
@@ -244,11 +249,11 @@ it, so a firewall's input rules never see it at all, and the forward rules
 of step 3 filter it one way in rather than closing it. The binding is the
 control.
 
-The two settings live in `manager/swarm-hls-stream/.env` **in your local
-checkout**, not on the server. That file has no `.env` exclude in the deploy
-rsync, so it ships on every deploy and replaces whatever is on the server.
-Find the bridge address with `ip -4 addr show docker0` on the server, usually
-`172.17.0.1`:
+The two settings live on the server, in
+`~/streaming-infra-manager-versions/bundled/.env`, and no deploy reads or writes
+that file. Edit it there with the editing script, as under "Where the streaming
+stack's settings live" above. Find the bridge address with
+`ip -4 addr show docker0` on the server, usually `172.17.0.1`:
 
 ```env
 BEE_UPLOADER_API_BIND=172.17.0.1
@@ -261,8 +266,9 @@ If this host runs the stack with `COMPOSE_NETWORK=host`, the pair that applies
 is `BEE_UPLOADER_API_LISTEN` and `BEE_GATEWAY_API_LISTEN` instead. The file's
 own comments explain both.
 
-Deploy, then redeploy each Bee node from the UI. A node picks up its new
-binding on its next deploy and not before: the manager copies that base file
+Commit the edit, Update the bundled version from the Versions page so the next
+build captures it, then redeploy each Bee node from the UI. A node picks up its
+new binding on its next deploy and not before: the manager copies that base file
 fresh into each deployment's own `.env.<name>` every time it deploys, which is
 how a value set once reaches all of them.
 
