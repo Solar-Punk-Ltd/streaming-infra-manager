@@ -16,6 +16,12 @@ const ASSIGNMENT_RE = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=)(.*?)(\r?)$
 
 const COMMENT_RE = /^\s*#/;
 
+/**
+ * A section rule such as `# --- Logging ---` or `# === ABR ladder ===`: a
+ * divider that documents no key, so it opens no description.
+ */
+const SECTION_RULE_RE = /^[-=]{3,}(?: [A-Za-z0-9][A-Za-z0-9-]*)*(?: *[-=]{3,})?$/;
+
 /** The value one line assigns, or null for a line that assigns nothing. */
 export function envValueIn(line: string): string | null {
   return ASSIGNMENT_RE.exec(line)?.[2] ?? null;
@@ -54,7 +60,7 @@ export function sampleSettingsOf(text: string): SampleSetting[] {
     settings.push({
       key,
       value: envValueIn(line) ?? '',
-      description: descriptionAbove(lines, index),
+      description: descriptionAbove(lines, index, key),
     });
   });
   return settings;
@@ -63,17 +69,25 @@ export function sampleSettingsOf(text: string): SampleSetting[] {
 /**
  * The comment lines directly above a key, joined.
  *
- * A blank line ends the run, so a section header with a gap under it belongs to
- * the section rather than to the key. A commented out assignment is a comment
- * line like any other and stays in the text, because upstream comments a key
- * out to say what the fallback is.
+ * Three things end or thin the run, all of them shapes upstream writes. A blank
+ * line ends it, so a section header with a gap under it belongs to the section
+ * rather than to the key. A commented out assignment of a different key ends it
+ * too, because the lines above that line document that key and not this one:
+ * without it `ORPHAN_REAP_MS` took the paragraph explaining `# HLS_FRAGMENT`. A
+ * commented out assignment of this same key stays in the run, because that is
+ * how upstream shows what a value looks like. And a section rule is dropped, so
+ * a description opens with a sentence rather than with a row of dashes.
  */
-function descriptionAbove(lines: readonly string[], index: number): string {
+function descriptionAbove(lines: readonly string[], index: number, key: string): string {
   const run: string[] = [];
   for (let i = index - 1; i >= 0 && COMMENT_RE.test(lines[i] ?? ''); i -= 1) {
-    run.unshift(commentTextIn(lines[i] ?? ''));
+    const text = commentTextIn(lines[i] ?? '');
+    const commentedKey = envKeyIn(text);
+    if (commentedKey !== null && commentedKey !== key) break;
+    if (text === '' || SECTION_RULE_RE.test(text)) continue;
+    run.unshift(text);
   }
-  return run.filter((piece) => piece !== '').join(' ');
+  return run.join(' ');
 }
 
 function commentTextIn(line: string): string {

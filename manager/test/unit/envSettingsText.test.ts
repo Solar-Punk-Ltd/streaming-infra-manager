@@ -77,13 +77,29 @@ describe('sampleSettingsOf', () => {
     assert.equal(settings.find((setting) => setting.key === 'STREAM_KEY')?.description, '');
   });
 
-  it('counts a commented out assignment inside the run as a comment line', () => {
+  it('ends the run at a commented out assignment of another key, whose lines those are', () => {
     const settings = sampleSettingsOf(
-      ['# What it is.', '# HLS_FRAGMENT=0.5', 'HLS_WINDOW=15'].join('\n'),
+      ['# What HLS_FRAGMENT is.', '# HLS_FRAGMENT=0.5', '# What this one is.', 'HLS_WINDOW=15'].join('\n'),
     );
 
     assert.deepEqual(settings.map((setting) => setting.key), ['HLS_WINDOW']);
-    assert.equal(settings[0]?.description, 'What it is. HLS_FRAGMENT=0.5');
+    assert.equal(settings[0]?.description, 'What this one is.');
+  });
+
+  it('keeps a commented out assignment of the key itself, which is its example', () => {
+    const settings = sampleSettingsOf(
+      ['# What it is.', '# HLS_WINDOW=15', 'HLS_WINDOW='].join('\n'),
+    );
+
+    assert.equal(settings[0]?.description, 'What it is. HLS_WINDOW=15');
+  });
+
+  it('drops a section rule, so a description opens with a sentence', () => {
+    const settings = sampleSettingsOf(
+      ['# --- Logging ------------', '# What it is.', 'LOG_LEVEL=debug'].join('\n'),
+    );
+
+    assert.equal(settings[0]?.description, 'What it is.');
   });
 
   it('reads a sample whose lines end with a carriage return', () => {
