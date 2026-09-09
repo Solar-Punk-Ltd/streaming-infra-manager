@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { createConnection } from 'node:net';
+import { performance } from 'node:perf_hooks';
 import type { Duplex } from 'node:stream';
 import type { BeeTransaction, ChequebookBalance } from '@streaming-infra-manager/common';
 import type { BeeAddresses, BeeChequebookAddress, BeeWallet } from '../BeeClient.js';
@@ -70,6 +71,7 @@ class HttpBeeSession implements BeeTransferSession {
   #postTimeoutMs: number;
   #maxResponseBytes: number;
   #preflightTimer: ReturnType<typeof setTimeout>;
+  readonly #preflightDeadline: number;
 
   constructor(target: URL, source: ConnectionSource, options: PinnedBeeSessionOptions) {
     this.#target = target;
@@ -82,6 +84,7 @@ class HttpBeeSession implements BeeTransferSession {
       if (!Number.isInteger(value) || value! < 1 || value! > maximum!) throw new BeeConnectionError();
     }
     this.#agent = new OneConnectionAgent(source, () => { this.#unusable = true; });
+    this.#preflightDeadline = performance.now() + preflightTimeoutMs;
     this.#preflightTimer = setTimeout(() => this.dispose(), preflightTimeoutMs);
   }
 
@@ -94,6 +97,7 @@ class HttpBeeSession implements BeeTransferSession {
   withdrawChequebook(amountPlur: bigint): Promise<BeeTransaction> { return this.#send('withdraw', amountPlur); }
 
   assertUsable(): void {
+    if (!this.#posted && performance.now() >= this.#preflightDeadline) this.dispose();
     if (this.#unusable || !this.#agent.isConnected()) throw new BeeConnectionError();
   }
 

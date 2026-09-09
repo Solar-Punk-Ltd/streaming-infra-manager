@@ -239,6 +239,20 @@ describe('Bee HTTP over one already acquired owned byte stream', { timeout: 5000
     assert.equal(bee.counts().acquisitions, 0);
   });
 
+  it('lets a POST started before expiry use its separate response budget', async t => {
+    const bee = syntheticBee(t, (request, response) => {
+      if (request.method === 'GET') { response.end('{}'); return; }
+      const timer = setTimeout(() => response.end(JSON.stringify({ transactionHash })), 50);
+      t.after(() => clearTimeout(timer));
+    });
+    const session = PinnedBeeSession.fromStream(bee.owned, { preflightTimeoutMs: 30, postTimeoutMs: 150 });
+    t.after(() => session.dispose());
+    await session.getAddresses();
+    assert.equal((await session.depositChequebook(1n)).transactionHash, transactionHash);
+    assert.equal(bee.counts().posts, 1);
+    assert.equal(bee.counts().acquisitions, 0);
+  });
+
   it('contains late owned-stream errors before first use and after disposal', async t => {
     const bee = syntheticBee(t);
     const session = PinnedBeeSession.fromStream(bee.owned);
