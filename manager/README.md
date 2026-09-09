@@ -205,12 +205,13 @@ Saving settings redeploys the engine service alone, so the profile goes
 below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
-Live status (what is publishing right now) is not read yet. On the bundled
-stack SRS's HTTP API listens on 1985 inside the container and the compose file
-publishes no such port, and OvenMediaEngine's API needs a `<Managers>` block
-the template does not carry. `main-v3` publishes the SRS port and the manager
-does not read it yet. `GET /profiles/:name/engine` answers `live: null` with
-the reason for that deployment's version in `liveUnavailableReason`.
+Live status (what is publishing right now) is not read yet. The bundled
+stack, `main-v3`, publishes SRS's HTTP API port per deployment as
+`SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
+`main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
+API needs a `<Managers>` block the template does not carry on either.
+`GET /profiles/:name/engine` answers `live: null` with the reason for that
+deployment's version in `liveUnavailableReason`.
 
 #### A config file of the deployment's own
 
@@ -227,8 +228,9 @@ setting the drawer marks as not read (`notInConfig`).
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
 `deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-`main-v3` from the commit that added them. The bundled `main-v2` renders its
-template and the editor says so. At deploy the orchestrator writes the file to
+`main-v3` from the commit that added them, which the bundled version is on. A
+version without the hook, such as the stack's `main-v2`, renders its template
+and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
 `SRS_CONF_FILE` or `OME_CONF_FILE` in `.env.<name>`, which the stack's
 `build_compose_files` turns into a read-only mount. The data root survives a
@@ -264,9 +266,11 @@ ceiling from `deploy.sh`, the secrets the containers refuse to start without
 from the `.env.sample` files, and the engine defaults from the entrypoints. A
 moving branch changes nothing until `update` is called.
 
-The **bundled** version is the submodule the manager ships with. It is the
-default until another is chosen, and it cannot be removed or updated here: it
-moves when the manager itself is deployed. Its commit comes from
+The **bundled** version is the submodule the manager ships with, the stack's
+`main-v3` branch. It is the default until another is chosen, and it cannot be
+removed or updated here: it moves when the manager itself is deployed. The
+stack's `main-v2` is obsolete and is kept only as a second version to test
+version selection with. Its commit comes from
 `manager/.stack-commit`, which `deploy/deploy.sh` writes before the rsync,
 because the tree reaches the server without a `.git`.
 
@@ -281,10 +285,10 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on `main-v3`, 999 on the bundled version), the engine defaults the settings
+(99 on `main-v3`, the bundled version, 999 on the older `main-v2`), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
-`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on `main-v3`, are generated the first
+`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on the bundled `main-v3`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.
