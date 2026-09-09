@@ -21,6 +21,7 @@ import { verifyBundledPackage } from '../../../src/domain/versions/bundledShipme
 const SHIPMENT_ID = '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71';
 const TOOLCHAIN = 'node v22.9.0 pnpm 9.0.0 Darwin/arm64';
 const DIST = 'packages/x/dist';
+const SECOND_DIST = 'packages/y/dist';
 const DIRECTORY_MODE = 0o755;
 const FILE_MODE = 0o644;
 const EXECUTABLE_MODE = 0o755;
@@ -41,8 +42,10 @@ describe('bundled:seal', () => {
     source = join(root, 'stack'); out = join(root, 'shipment');
     await mkdir(join(source, 'deploy', 'scripts'), { recursive: true });
     await mkdir(join(source, DIST), { recursive: true });
+    await mkdir(join(source, SECOND_DIST), { recursive: true });
     await mkdir(join(source, 'node_modules'));
     await writeFile(join(source, '.gitignore'), ['node_modules/', '.env', 'deploy/config.json', 'packages/*/dist/', CONFIG_REVISION_FILE, ''].join('\n'));
+    await writeFile(join(source, 'packages', 'y', 'kept.txt'), 'committed beside the built directory\n');
     await writeFile(join(source, 'deploy', 'scripts', '_lib.sh'), 'readonly PORT_VARS=(\n  "RTMP_PORT:1935:19000"\n)\n');
     await writeFile(join(source, 'deploy', 'docker-compose.yml'), 'services:\n  srs:\n    image: synthetic/srs:fixed\n');
     await writeFile(join(source, '.env.sample'), 'API_AUTH_TOKEN=\nSRT_PASSPHRASE=\n');
@@ -54,14 +57,16 @@ describe('bundled:seal', () => {
     await writeFile(join(source, DIST, 'app.js'), 'export const built = true;\n');
     await writeFile(join(source, DIST, 'tool.sh'), '#!/bin/sh\necho built\n');
     await chmod(join(source, DIST, 'tool.sh'), EXECUTABLE_MODE);
+    await writeFile(join(source, SECOND_DIST, 'uploader.js'), 'export const uploads = true;\n');
     await writeFile(join(source, 'node_modules', 'installed.js'), 'module.exports = {};\n');
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-  async function seal(options: { dist?: string; out?: string; adoptInputs?: boolean; toolchain?: string } = {}): Promise<{ stdout: string[]; stderr: string[] }> {
+  async function seal(options: { dist?: readonly string[]; out?: string; adoptInputs?: boolean; toolchain?: string } = {}): Promise<{ stdout: string[]; stderr: string[] }> {
     const stdout: string[] = []; const stderr: string[] = [];
     await runBundledSeal(
-      ['--source', source, '--out', options.out ?? out, '--shipment-id', SHIPMENT_ID, '--dist', options.dist ?? DIST,
+      ['--source', source, '--out', options.out ?? out, '--shipment-id', SHIPMENT_ID,
+        ...(options.dist ?? [DIST, SECOND_DIST]).flatMap((dist) => ['--dist', dist]),
         '--toolchain', options.toolchain ?? TOOLCHAIN, ...(options.adoptInputs === false ? [] : ['--adopt-inputs'])],
       { out: (line) => stdout.push(line), err: (line) => stderr.push(line) },
     );
@@ -77,6 +82,8 @@ describe('bundled:seal', () => {
     const verified = await verifyBundledPackage(sealed, identity);
     assert.equal(verified.manifest.commit, identity.commit);
     assert.equal(await readFile(join(sealed, DIST, 'app.js'), 'utf8'), 'export const built = true;\n');
+    assert.equal(await readFile(join(sealed, SECOND_DIST, 'uploader.js'), 'utf8'), 'export const uploads = true;\n');
+    assert.equal(await readFile(join(sealed, 'packages', 'y', 'kept.txt'), 'utf8'), 'committed beside the built directory\n');
     assert.equal(await readFile(join(sealed, 'deploy', 'config.json'), 'utf8'), '{}\n');
     assert.match(await readFile(join(sealed, '.env'), 'utf8'), /SRT_PASSPHRASE=/);
     assert.ok(existsSync(join(sealed, CONFIG_REVISION_FILE)), 'the package carries the input revision it was sealed against');
@@ -96,7 +103,7 @@ describe('bundled:seal', () => {
   });
 
   it('refuses a built directory the checkout does not have, naming it and the command that builds it', async () => {
-    await assert.rejects(seal({ dist: 'packages/missing/dist' }), (error: Error) => {
+    await assert.rejects(seal({ dist: ['packages/missing/dist'] }), (error: Error) => {
       assert.match(error.message, /packages\/missing\/dist/);
       assert.match(error.message, /pnpm/);
       return true;
