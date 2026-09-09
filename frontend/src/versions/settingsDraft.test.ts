@@ -17,6 +17,7 @@ import {
   draftOf,
   editedFiles,
   isAtSampleValue,
+  keysWithAValueProblem,
   settingsRefusal,
   withEntry,
   withRemoval,
@@ -140,6 +141,56 @@ describe('isAtSampleValue', () => {
     assert.equal(isAtSampleValue({ value: '3000', sampleValue: '3000' }), true);
     assert.equal(isAtSampleValue({ value: '3100', sampleValue: '3000' }), false);
     assert.equal(isAtSampleValue({ value: 'kept', sampleValue: null }), false);
+  });
+});
+
+describe('keysWithAValueProblem', () => {
+  it('names nothing while every edited value is one the readers agree on', () => {
+    const draft = withText(
+      withEntry(draftOf(SETTINGS), '.env', 'API_PORT', '3100'),
+      'deploy/config.json',
+      '{"a":2}',
+    );
+
+    assert.deepEqual(keysWithAValueProblem(editedFiles(SETTINGS, draft)), []);
+  });
+
+  it('names a key whose value the manager would refuse', () => {
+    const draft = withEntry(draftOf(SETTINGS), '.env', 'API_PORT', '3100 #notacomment');
+
+    assert.deepEqual(keysWithAValueProblem(editedFiles(SETTINGS, draft)), ['API_PORT']);
+  });
+
+  it('names a key whose own rule the value breaks, not only the shared one', () => {
+    assert.deepEqual(
+      keysWithAValueProblem([
+        { path: 'engines/srs/.env', entries: [{ key: 'SRS_CONF_FILE', value: 'conf/srs.conf' }] },
+      ]),
+      ['SRS_CONF_FILE'],
+    );
+  });
+
+  it('passes a removal by, which carries no value to refuse', () => {
+    const draft = withRemoval(draftOf(SETTINGS), '.env', 'EXTRA_LOCAL_KEY');
+
+    assert.deepEqual(keysWithAValueProblem(editedFiles(SETTINGS, draft)), []);
+  });
+
+  it('names every key of every file that has one', () => {
+    assert.deepEqual(
+      keysWithAValueProblem([
+        {
+          path: '.env',
+          entries: [
+            { key: 'API_PORT', value: '3100' },
+            { key: 'API_AUTH_TOKEN', value: ' padded ' },
+          ],
+        },
+        { path: 'deploy/config.json', text: '{}' },
+        { path: 'engines/srs/.env', entries: [{ key: 'SRT_PASSPHRASE', value: '"unclosed' }] },
+      ]),
+      ['API_AUTH_TOKEN', 'SRT_PASSPHRASE'],
+    );
   });
 });
 

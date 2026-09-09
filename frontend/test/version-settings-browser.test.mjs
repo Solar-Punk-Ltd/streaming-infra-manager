@@ -236,6 +236,29 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     );
   });
 
+  await t.test('nothing can be saved while a field holds a value that would be refused', async () => {
+    await typeInto('API_PORT', '3000 #notacomment');
+    await waitFor(
+      () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`),
+      (off) => off === true,
+      'a Save that stops at the bad value',
+    );
+
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save and apply').disabled`),
+      true,
+    );
+    assert.match(await evaluate('document.body.innerText'), /One value cannot be saved as written: API_PORT/);
+    assert.equal(writes.length, 0, 'nothing went to the manager');
+
+    await typeInto('API_PORT', '3000');
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('Nothing changed yet'),
+      'the footer back at rest once the value is writable',
+    );
+  });
+
   await t.test('a save sends the key that moved and no other', async () => {
     await typeInto('API_PORT', '3100');
     await waitFor(() => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`), (off) => off === false, 'an enabled Save');
