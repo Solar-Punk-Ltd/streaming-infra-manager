@@ -81,8 +81,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
                 reused: applyReused,
               });
             }
-            if (saveConflict) {
-              return json({ error: 'settings_changed', name: 'candidate', generation: 9, message: 'candidate settings changed since this page loaded.' }, 409);
+            // The real check, not only the staged one: a save naming a revision
+            // the files have moved past is what the manager refuses, and a page
+            // that lost track of its own save sends exactly that.
+            const stale = JSON.parse(text).expectedGeneration !== settings.generation;
+            if (saveConflict || stale) {
+              return json({ error: 'settings_changed', name: 'candidate', generation: settings.generation, message: 'candidate settings changed since this page loaded.' }, 409);
             }
             settings = { ...settings, generation: settings.generation + 1 };
             return json({ generation: settings.generation });
@@ -314,6 +318,29 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
       'the busy message',
     );
     applyBusy = false;
+  });
+
+  await t.test('the save that a refused apply followed is not held against the next one', async () => {
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('Nothing changed yet'),
+      'the reload the refused apply did not skip',
+    );
+
+    await typeInto('API_PORT', '3600');
+    await clickButton('Save');
+    await waitFor(() => writes.length, (count) => count === 7, 'the next save');
+
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('Nothing changed yet'),
+      'the reload after the next save',
+    );
+    assert.equal(
+      (await evaluate('document.body.innerText')).includes('Somebody changed these settings'),
+      false,
+      'the page saved against its own revision rather than the one it loaded with',
+    );
   });
 
   await t.test('a version with no build yet says why and offers no fields', async () => {
