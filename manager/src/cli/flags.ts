@@ -18,6 +18,8 @@ export interface FlagSpec {
 export interface Flags {
   /** The value given for an option, or a refusal naming the missing one. */
   required(name: string): string;
+  /** The value given for an option, or undefined when it was not given. */
+  optional(name: string): string | undefined;
   /** Every value given for a repeated option, in the order they arrived. */
   list(name: string): readonly string[];
   has(name: string): boolean;
@@ -51,6 +53,7 @@ export function parseFlags(argv: readonly string[], spec: FlagSpec): Flags {
       if (!given) throw new Error(`${name} is needed and was not given.`);
       return given[0]!;
     },
+    optional: (name) => values.get(name)?.[0],
     list: (name) => values.get(name) ?? [],
     has: (name) => present.has(name),
   };

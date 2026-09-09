@@ -193,6 +193,9 @@ fi
 # host whose database was removed are different situations and only one of them
 # may be treated as an empty database. The container joins the project network,
 # so postgres and api resolve by name inside it.
+# The status is taken rather than left to end the block, because the receipt
+# is the one line the upgrade prints and a failed bundled build is in it.
+UPGRADE_STATUS=0
 RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade \
     --manager-commit '${MANAGER_COMMIT}' \
     --manager-digest '${MANAGER_DIGEST}' \
@@ -201,8 +204,12 @@ RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:up
     --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
     --mutable-root ${REMOTE_PATH} \
     --bundled-timeout '${BUNDLED_TIMEOUT}' \
-    \${FIRST_USE_FLAG} ${PUBLIC_EDGE_FLAG} < /dev/null)"
+    \${FIRST_USE_FLAG} ${PUBLIC_EDGE_FLAG} < /dev/null)" || UPGRADE_STATUS=\$?
 echo "[deploy] upgrade receipt: \${RECEIPT}"
+if [ "\${UPGRADE_STATUS}" -ne 0 ]; then
+    echo "[deploy] the upgrade exited with \${UPGRADE_STATUS}" >&2
+    exit "\${UPGRADE_STATUS}"
+fi
 
 echo "[deploy] PUBLIC_HOST seen inside api container:"
 docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' < /dev/null || \

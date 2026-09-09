@@ -48,11 +48,14 @@ export interface ComposeUpgradeSettings {
   timeouts?: ComposeUpgradeTimeouts;
 }
 
+/** How long the upgrade waits for the api's boot to build the pinned commit, unless the deploy says otherwise. */
+export const DEFAULT_BUNDLED_BUILD_MS = 1_200_000;
+
 const DEFAULT_TIMEOUTS: Required<ComposeUpgradeTimeouts> = {
   command: 300_000,
   postgresReady: 120_000,
   apiHealthy: 90_000,
-  bundledBuild: 1_200_000,
+  bundledBuild: DEFAULT_BUNDLED_BUILD_MS,
   pollPause: 2_000,
 };
 

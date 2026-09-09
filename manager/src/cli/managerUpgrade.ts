@@ -9,7 +9,7 @@ import { managerUpgradeGuardRootFor } from '../domain/versions/stackPaths.js';
 import { config } from '../utils/config.js';
 import { BUNDLED_STACK_ROOT } from '../utils/envUtils.js';
 import { MANAGER_POSTGRES_VOLUME } from '../domain/versions/managerProject.js';
-import { apiHealthUrlFor, ComposeUpgradeOperations, type ComposeUpgradeSettings } from './ComposeUpgradeOperations.js';
+import { apiHealthUrlFor, ComposeUpgradeOperations, DEFAULT_BUNDLED_BUILD_MS, type ComposeUpgradeSettings } from './ComposeUpgradeOperations.js';
 import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
 import { execFileCommandRunner } from './commandRunner.js';
 import { parseFlags, withUsage } from './flags.js';
@@ -31,7 +31,8 @@ const BUNDLED_TIMEOUT = '--bundled-timeout';
 const MIN_BUNDLED_TIMEOUT_SECONDS = 1;
 const MAX_BUNDLED_TIMEOUT_SECONDS = 86_400;
 
-function bundledTimeoutMs(value: string): number {
+function bundledTimeoutMs(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_BUNDLED_BUILD_MS;
   const seconds = Number(value);
   if (!Number.isInteger(seconds) || seconds < MIN_BUNDLED_TIMEOUT_SECONDS || seconds > MAX_BUNDLED_TIMEOUT_SECONDS) {
     throw new Error(`${BUNDLED_TIMEOUT} must be a whole number of seconds between ${MIN_BUNDLED_TIMEOUT_SECONDS} and ${MAX_BUNDLED_TIMEOUT_SECONDS}.`);
@@ -69,8 +70,8 @@ export const MANAGER_UPGRADE_USAGE = [
   'Usage:',
   `  node dist/cli.js ${MANAGER_UPGRADE} ${MANAGER_COMMIT} <sha> ${MANAGER_DIGEST} <sha256>`,
   `      ${IMAGE_ID} sha256:<sha256> ${PROJECT} <compose project>`,
-  `      ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path> ${BUNDLED_TIMEOUT} <seconds>`,
-  `      [${PUBLIC_EDGE}] [${FIRST_USE}]`,
+  `      ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path>`,
+  `      [${BUNDLED_TIMEOUT} <seconds>] [${PUBLIC_EDGE}] [${FIRST_USE}]`,
   '',
   'Brings the project back up on the image the deploy has just built, holding',
   'one directory under the stack versions root for the whole run so a second',
@@ -79,7 +80,8 @@ export const MANAGER_UPGRADE_USAGE = [
   'the host is touched.',
   '',
   `${BUNDLED_TIMEOUT} is how long to wait, once the api answers, for its own boot`,
-  'to fetch and build the stack commit this manager pins. A build that fails or',
+  `to fetch and build the stack commit this manager pins, ${DEFAULT_BUNDLED_BUILD_MS / 1000} seconds when it`,
+  'is not given. A build that fails or',
   'never finishes is reported and this command exits non zero, after it has let',
   'go of the host, because the manager is up and the Versions page can retry it.',
   '',
@@ -158,7 +160,7 @@ export async function runManagerUpgradeCommand(
         firstUse: flags.has(FIRST_USE),
         postgresVolume: MANAGER_POSTGRES_VOLUME,
         apiHealthUrl: apiHealthUrlFor(config.port),
-        timeouts: { bundledBuild: bundledTimeoutMs(flags.required(BUNDLED_TIMEOUT)) },
+        timeouts: { bundledBuild: bundledTimeoutMs(flags.optional(BUNDLED_TIMEOUT)) },
       } satisfies ComposeUpgradeSettings,
       environment: { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) },
     };
