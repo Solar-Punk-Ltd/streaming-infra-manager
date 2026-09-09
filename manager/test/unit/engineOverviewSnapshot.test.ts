@@ -183,7 +183,7 @@ describe('engine overview identity through the real HTTP route', { timeout: 1500
 
   it('does not invent fallback evidence when the selected version is absent', async () => {
     const { harness, app } = await appFor();
-    await harness.versions.remove(1);
+    harness.versions.findById = async () => null;
     try {
       const result = await callEngine(app, 'GET', '/profiles/stream1/engine');
       assert.equal(result.status, 404);
