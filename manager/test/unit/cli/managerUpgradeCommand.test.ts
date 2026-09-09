@@ -43,12 +43,14 @@ describe('manager:upgrade', () => {
   let root: string; let versionsRoot: string; let mutableRoot: string;
   let opened: number; let closed: number; let receipt: BundledShipmentReceipt; let revision: string;
   let settings: ComposeUpgradeSettings | null;
+  let factoryFailure: Error | null; let overrides: Partial<ManagerUpgradeOperations>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-upgrade-command-'));
     versionsRoot = join(root, 'versions'); mutableRoot = join(root, 'manager');
     await mkdir(versionsRoot); await mkdir(mutableRoot);
     opened = 0; closed = 0; revision = '0'; settings = null;
+    factoryFailure = null; overrides = {};
     receipt = { shipmentId: SHIPMENT_ID, versionId: 1, buildId: `${COMMIT}-r7`, publicationRevision: '1', publishedAt: new Date('2026-09-09T10:00:00.000Z') };
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -82,7 +84,8 @@ describe('manager:upgrade', () => {
         versionsRoot,
         operations: (given) => {
           opened += 1; settings = given;
-          return { operations: operations(), close: async () => { closed += 1; } };
+          if (factoryFailure) throw factoryFailure;
+          return { operations: { ...operations(), ...overrides }, close: async () => { closed += 1; } };
         },
       });
     } catch (thrown) {
@@ -209,6 +212,32 @@ describe('manager:upgrade', () => {
 
     assert.equal(written.length, 1, 'exactly one line reaches the standard output the deploy reads');
     assert.equal(JSON.parse(written[0]!).receipt.shipmentId, SHIPMENT_ID);
+  });
+
+  it('refuses without owning anything when the host could not be opened at all', async () => {
+    factoryFailure = new Error('synthetic connection refused');
+
+    const run = await upgrade(argvWith());
+
+    assert.match(run.error?.message ?? '', /connection refused/);
+    assert.equal(existsSync(managerUpgradeGuardRootFor(versionsRoot)), false, 'nothing was owned');
+    assert.deepEqual(run.stdout, []);
+    assert.equal(closed, 0, 'and there was nothing to let go of');
+  });
+
+  it('names the guard this run is still holding, and the phase it stopped in', async () => {
+    overrides = { verifyProject: async () => { throw new Error('synthetic health failure'); } };
+
+    const run = await upgrade(argvWith());
+
+    assert.match(run.error?.message ?? '', /synthetic health failure/);
+    const guard = managerUpgradeGuardRootFor(versionsRoot);
+    const said = run.stderr.join('\n');
+    assert.ok(said.includes(guard), 'the directory a person has to look at is named');
+    assert.ok(said.includes('verifying'), 'so is the phase it stopped in');
+    assert.match(said, /A person checks the host before removing that directory\./);
+    assert.equal(existsSync(guard), true, 'the guard is never removed by the run that left it');
+    assert.equal(closed, 1, 'and what it opened is let go of');
   });
 
   it('names the retained directory and the phase it stopped in when an earlier upgrade still holds the host', async () => {
