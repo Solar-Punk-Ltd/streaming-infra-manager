@@ -84,6 +84,29 @@ describe('deploy/deploy.sh', () => {
     assert.ok(build < upgrade, 'the image exists before the upgrade runs from it');
   });
 
+  it('decides on the host whether this manager has ever run here, before the one-off container exists', () => {
+    const run = script.indexOf('docker compose run --rm --no-deps -T api');
+    assert.notEqual(run, -1, 'the upgrade runs in a one-off container');
+    const before = script.slice(0, run);
+    assert.ok(before.includes('docker volume ls -q --filter name=^\\${POSTGRES_VOLUME}\\$'), 'the data volume is looked for by name');
+    assert.ok(before.includes('service_containers api'), 'so are the api containers of the project');
+    assert.ok(before.includes('service_containers postgres'), 'and the postgres ones');
+    assert.match(before, /label=com\.docker\.compose\.oneoff=False/, 'neither count a one-off container');
+  });
+
+  it('stops before the upgrade when the data volume went missing under an installed manager', () => {
+    const abort = script.indexOf('so its database was removed under a manager that is still installed');
+    assert.notEqual(abort, -1, 'the deploy says what it found');
+    assert.ok(abort < script.indexOf('docker compose run --rm --no-deps -T api'), 'and says it before anything is published');
+    assert.match(script.slice(abort, abort + 300), /exit 1/, 'the deploy stops there');
+  });
+
+  it('hands the first use answer to the upgrade rather than letting it probe from inside', () => {
+    assert.match(script, /FIRST_USE_FLAG="--first-use"/, 'the flag is set where the probes said so');
+    const upgrade = script.slice(script.indexOf('cli.js manager:upgrade'));
+    assert.ok(upgrade.includes('\\${FIRST_USE_FLAG}'), 'and reaches the command');
+  });
+
   it('gives the upgrade the identity of the shipment, of the manager and of the image', () => {
     const upgrade = script.slice(script.indexOf('manager:upgrade'));
     for (const flag of ['--shipment-id', '--commit', '--digest', '--manager-commit', '--manager-digest',

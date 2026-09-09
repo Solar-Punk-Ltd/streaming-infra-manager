@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
+import type { ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOperations.js';
 import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
 import type { BundledShipmentReceipt } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerUpgradeOperations } from '../../../src/domain/versions/ManagerUpgrade.js';
@@ -37,12 +38,13 @@ interface CommandRun {
 describe('manager:upgrade', () => {
   let root: string; let versionsRoot: string; let mutableRoot: string;
   let opened: number; let closed: number; let receipt: BundledShipmentReceipt; let revision: string;
+  let settings: ComposeUpgradeSettings | null;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-upgrade-command-'));
     versionsRoot = join(root, 'versions'); mutableRoot = join(root, 'manager');
     await mkdir(versionsRoot); await mkdir(mutableRoot);
-    opened = 0; closed = 0; revision = '0';
+    opened = 0; closed = 0; revision = '0'; settings = null;
     receipt = { shipmentId: SHIPMENT_ID, versionId: 1, buildId: `${COMMIT}-r7`, publicationRevision: '1', publishedAt: new Date('2026-09-09T10:00:00.000Z') };
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -59,14 +61,14 @@ describe('manager:upgrade', () => {
     };
   }
 
-  function argvWith(overrides: Record<string, string> = {}, publicEdge = false): string[] {
+  function argvWith(overrides: Record<string, string> = {}, switches: readonly string[] = []): string[] {
     const flags: Record<string, string> = {
       '--shipment-id': SHIPMENT_ID, '--commit': COMMIT, '--digest': DIGEST,
       '--manager-commit': MANAGER_COMMIT, '--manager-digest': MANAGER_DIGEST, '--image-id': IMAGE_ID,
       '--project': 'manager', '--compose-file': join(mutableRoot, 'docker-compose.yml'),
       '--mutable-root': mutableRoot, '--toolchain': TOOLCHAIN, ...overrides,
     };
-    return [...Object.entries(flags).flat(), ...(publicEdge ? ['--public-edge'] : [])];
+    return [...Object.entries(flags).flat(), ...switches];
   }
 
   async function upgrade(argv: string[]): Promise<CommandRun> {
@@ -74,8 +76,8 @@ describe('manager:upgrade', () => {
     try {
       await runManagerUpgradeCommand(argv, { out: (line) => stdout.push(line), err: (line) => stderr.push(line) }, {
         versionsRoot,
-        operations: () => {
-          opened += 1;
+        operations: (given) => {
+          opened += 1; settings = given;
           return { operations: operations(), close: async () => { closed += 1; } };
         },
       });
@@ -123,6 +125,20 @@ describe('manager:upgrade', () => {
     assert.match(run.error?.message ?? '', /--profile/);
     assert.ok((run.error?.message ?? '').includes(MANAGER_UPGRADE_USAGE), 'the usage of this command comes with the refusal');
     assert.equal(opened, 0);
+  });
+
+  it('passes the first use the deploy decided on to the operations it builds', async () => {
+    const run = await upgrade(argvWith({}, ['--first-use']));
+
+    assert.equal(run.error, null);
+    assert.equal(settings?.firstUse, true);
+  });
+
+  it('leaves first use unset when the deploy found a host that has run the manager before', async () => {
+    const run = await upgrade(argvWith());
+
+    assert.equal(run.error, null);
+    assert.equal(settings?.firstUse, false);
   });
 
   it('names the retained directory and the phase it stopped in when an earlier upgrade still holds the host', async () => {

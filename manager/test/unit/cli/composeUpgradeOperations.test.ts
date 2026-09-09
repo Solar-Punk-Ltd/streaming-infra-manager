@@ -109,10 +109,11 @@ describe('the manager upgrade against one Compose project', () => {
     };
   }
 
-  function operations(options: { publicEdge?: boolean; health?: number[] } = {}): ComposeUpgradeOperations {
+  function operations(options: { publicEdge?: boolean; firstUse?: boolean; health?: number[] } = {}): ComposeUpgradeOperations {
     const statuses = [...(options.health ?? [200])];
     return new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: options.publicEdge ?? false, timeouts: TIMEOUTS },
+      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: options.publicEdge ?? false,
+        firstUse: options.firstUse ?? false, timeouts: TIMEOUTS },
       database(),
       runner.run,
       async () => ({ status: statuses.length > 1 ? statuses.shift()! : statuses[0]! }),
@@ -195,6 +196,24 @@ describe('the manager upgrade against one Compose project', () => {
         return true;
       });
       assert.equal(runner.seen.includes('up -d --no-build postgres'), false, 'nothing was started');
+    });
+
+    it('refuses a database that is not empty where the deploy saw a host that had never run the manager', async () => {
+      // Preparing the one-off container this upgrade runs in can create the project's volumes,
+      // so the volume its own probe finds proves nothing and the deploy's answer decides.
+      runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
+      runner.answer(`docker volume inspect ${POSTGRES_VOLUME}`, { code: 0, stdout: '[]' });
+      publication = JOURNAL;
+
+      await assert.rejects(operations({ firstUse: true }).readPublication(request), /empty/i);
+    });
+
+    it('reads a fresh schema through the first use the deploy decided', async () => {
+      runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
+      runner.answer(`docker volume inspect ${POSTGRES_VOLUME}`, { code: 0, stdout: '[]' });
+      publication = FRESH;
+
+      assert.deepEqual(await operations({ firstUse: true }).readPublication(request), FRESH);
     });
 
     it('refuses when Postgres never becomes healthy rather than reading through it', async () => {
