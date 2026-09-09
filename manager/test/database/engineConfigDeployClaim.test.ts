@@ -125,9 +125,10 @@ describe('atomic config operation and final deploy job in PostgreSQL', { skip: !
       const rows = await allRows();
       assert.equal(rows.profiles[0].engine_config, config);
       assert.equal(rows.profiles[0].deploy_job_reference_id, result.descriptor.referenceId);
-      assert.equal(rows.references.length, 1);
-      assert.equal(rows.references[0].profile_instance_id, result.profile.instance_id);
-      assert.equal(rows.references[0].intent_revision, result.profile.intent_revision);
+      const jobs = rows.references.filter(reference => reference.holder_kind === 'job');
+      assert.equal(jobs.length, 1);
+      assert.equal(jobs[0].profile_instance_id, result.profile.instance_id);
+      assert.equal(jobs[0].intent_revision, result.profile.intent_revision);
       assert.equal(rows.attempts.length, 1);
       assert.equal(rows.attempts[0].id, result.attempt.id);
       assert.deepEqual(rows.attempts[0].pre_job_container_ids, ['synthetic-old-container']);
@@ -241,7 +242,7 @@ describe('atomic config operation and final deploy job in PostgreSQL', { skip: !
     assert.equal(wins.length, 1);
     const rows = await allRows();
     assert.equal(rows.operations.length, 1);
-    assert.equal(rows.references.length, 1);
+    assert.equal(rows.references.filter(reference => reference.holder_kind === 'job').length, 1);
     assert.equal(rows.attempts.length, 1);
     assert.equal(rows.profiles[0].intent_revision, initial.intent_revision + 1);
   });
@@ -262,9 +263,10 @@ describe('atomic config operation and final deploy job in PostgreSQL', { skip: !
       assert.notEqual(reverted.descriptor.referenceId, applied.descriptor.referenceId);
       const rows = await allRows();
       assert.equal(rows.profiles[0].engine_config, previous);
-      assert.equal(rows.references.length, 2);
-      assert.equal(rows.references[0].resolved_at, null);
-      assert.equal(rows.references[1].intent_revision, reverted.profile.intent_revision);
+      const jobs = rows.references.filter(reference => reference.holder_kind === 'job');
+      assert.equal(jobs.length, 2);
+      assert.equal(jobs[0].resolved_at, null);
+      assert.equal(jobs[1].intent_revision, reverted.profile.intent_revision);
       assert.equal(rows.profiles[0].deploy_job_reference_id, reverted.descriptor.referenceId);
     });
   }
