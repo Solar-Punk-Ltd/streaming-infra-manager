@@ -375,10 +375,10 @@ A generated secret the version's own base or engine env already sets is neither
 generated nor written per deployment, so the version's line is what the
 containers read. The base env decides every key it assigns, blank included,
 because the root file wins over the engine's in the stack's deploy script, and
-the engine env decides only a key the base env does not assign at all. An empty one is generated per deployment as before, and a value
-already in `profiles.stack_secrets` still wins over both, because rotating the
-token a running container was started with is a decision rather than a side
-effect.
+the engine env decides only a key the base env does not assign at all. An empty
+one is generated per deployment as before, and a value already in
+`profiles.stack_secrets` still wins over both, because rotating the token a
+running container was started with is a decision rather than a side effect.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
 <repo-url>`, which clones or fetches, exports the fetched commit into a staging

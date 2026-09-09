@@ -140,8 +140,9 @@ sudo scripts/stack-config-edit.sh ~/streaming-infra-manager-versions/bundled com
 Both take the same lock, so a save from the page and an edit over ssh cannot
 write over each other. While the script holds it the page says so and offers
 another go, and a lock whose editor is gone comes off with
-`sudo scripts/stack-config-edit.sh <root> --unlock`. Update on the Versions page still works too: it builds
-the version again and captures whatever revision is current.
+`sudo scripts/stack-config-edit.sh <root> --unlock`. Update on the Versions
+page still works too: it builds the version again and captures whatever
+revision is current.
 
 ## A deploy that stopped half way
 
