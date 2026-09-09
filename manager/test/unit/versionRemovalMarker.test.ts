@@ -55,6 +55,15 @@ describe('persistent removal markers at deployment admission', () => {
     assert.equal(await readFile(path, 'utf8'), '{');
     assert.deepEqual((await readdir(root)).filter(name => name.includes('.removal.')), ['test-stack.removal.json']);
   });
+  it('reports malformed marker text with a closed diagnostic', async () => {
+    await writeFile(path, 'synthetic malformed marker contents');
+    await assert.rejects(persistVersionRemoval({ id: 2, name: 'test-stack', rootPath: anchor }), error => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /version removal marker cannot be verified/i);
+      assert.equal(error.message.includes('synthetic malformed'), false);
+      return true;
+    });
+  });
   it('refuses to overwrite a well-formed future-ID marker', async () => {
     const future = JSON.stringify({ ...identity(), versionId: 3 });
     await writeFile(path, future);
