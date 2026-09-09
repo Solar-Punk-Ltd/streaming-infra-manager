@@ -64,6 +64,19 @@ it('copies the exact source to independent files and records ownership outside t
   assert.equal((await lstat(join(dirname(item.root), 'owner.json'))).mode & 0o777, 0o600);
 });
 
+it('copies a symbolic link as it stands, without touching the mode the platform gave it', async () => {
+  // Linux reports every link as 0777 and macOS reports the umask, and neither is this copy's to set.
+  const item = await record();
+  const link = join(source, 'entry');
+  const before = await lstat(link);
+
+  await copyExecutionRoot(item, executions);
+
+  const copied = join(item.root, 'entry');
+  assert.equal(await readlink(copied), 'deploy/scripts/deploy.sh');
+  assert.equal((await lstat(copied)).mode & 0o7777, before.mode & 0o7777);
+});
+
 it('contains manager env, engine env, deploy env and generated output writes without restoring absent base inputs', async () => {
   const item = await record();
   const before = await inventoryOwnedTree(source);
