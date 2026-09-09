@@ -409,3 +409,79 @@ frontend typechecks clean. The two browser suites were run on their own, as
 neither is in `pnpm test`: `versions-layout` 12 of 12 and `version-settings` 13
 of 13. Nothing ran against the real host, nothing was pushed, and no `.env` of
 the submodule was read.
+
+**The two reviews, 2026-09-10.** Two reviewers went over the slice at `637d758`
+with probes and mutations, and a third pass looked at it against the design. The
+correctness review found five high and eight medium problems, the security
+review two high, five medium and four low, and the design pass one high gap and
+one page nit. Five low correctness findings and two low security ones were
+looked at and left alone, and one question goes to Levi rather than into code:
+any signed-in account can read and set these values, which is what every other
+route does today, and whether version settings become admin-only is his to
+decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is in.
+
+The gap against D12 was that a version added in the UI never got
+`engines/<engine>/.env` at all, so its page had no engine section and half the
+secrets the stack keeps could not be set at version level. Seeding now walks the
+same sample pairs the completion walks, which means every engine the build tree
+ships. The stack's own `ensure_engine_env` copies that same sample when the file
+is missing, so a deploy reads what it always did.
+
+What the reviewers actually measured, in the order it was fixed. Every build's
+copy of a settings file was world readable, 644 in a 755 directory, and the
+apply path carried that 644 forward, as did the deployment's own
+`.env.<profile>` holding the generated secrets. All three are 0600 now, and an
+existing deployment env is narrowed on the next deploy. Nothing told the
+operator that a saved change had reached no build, so the answer carries the
+current build's own input generation and the page says `applied` or names the
+revision the build is still on. Apply with nothing changed published another
+identical build every time, each one clearing the version's approval and walking
+the protected build window, so it now answers the build that already carries the
+revision with `reused` and publishes nothing. An apply refused with
+`stack_build_busy` skipped the page's reload, so the operator's next Save was
+refused as somebody else's change when it was their own.
+
+A value the stack's env loader and the manager read differently was written
+through: `abc #notacomment` became `abc`, padding was kept by one reader and
+dropped by the other, and a quote that did not close swallowed the rest. One
+rule in `common` now refuses those, plus the C0 controls and the two Unicode
+line separators, and the page shows the same refusal under the field before the
+save goes out. `SRS_CONF_FILE` and `OME_CONF_FILE` take only an absolute path,
+because the version's compose override mounts whatever they hold, and the regex
+that already guarded the per-deployment value moved to `common` so both sides
+use one. The refusals name the key and never the value, type errors included.
+
+The rest. A required secret the base env declares blank is the base env's
+answer, because the root file wins in the deploy script, and the engine env
+decides only a key the base env does not name at all. Apply hard linked the
+previous build's `.env.<profile>`, which `writeProfileEnv` truncates in place,
+so a deploy on the new build wrote into the build every running deployment
+reads. A held edit lock came back as a 500 with the recovery buried in the log
+and is now 409 `settings_locked` with the manager's own words and a Try again.
+A path of the set holding a link or a directory fell out of the answer silently
+and is now named. The GET says `no-store`. One save carries at most sixteen
+files and 512 keys, names each file once, and a body over the limit is a 413.
+A description took the paragraph documenting a commented out neighbour, so
+`ORPHAN_REAP_MS` was explaining `HLS_FRAGMENT`, and a section rule opened two
+others. `settings_not_ready` has three reasons instead of one and no null in
+any of them, a legacy row offers no settings page at all, a key the version does
+not declare can be removed from the page, and a masked field asks the browser
+not to save it.
+
+Five mutations were run and reverted. Reading the revision before the lock in
+`saveHostConfigSettings` turns the new deterministic interleave in
+`versionSettingsSave.test.ts` red and leaves the other four green, which is the
+property that file is named for and did not have. Printing `key=value` in
+`describeSettingsSave` turns two of its three cases red. Taking the `finally`
+out of `applySettings` turns the mutex case red. Unanchoring `SETTINGS_PATH_RE`
+and dropping the 64 hex guard in `writeProfileEnv` turn four cases red. Dropping
+the `typeError` messages turns the echo case red.
+
+**Verified, 2026-09-10, after the fixes.** Manager unit 2205 of 2205, forty
+seven more than the round before. The whole `manager/test/database` directory
+497 of 497 with nothing skipped, run the nine-database way, one more than
+before. Common 318, frontend 83, both manager typechecks and the common and
+frontend typechecks clean. The two browser suites on their own: `versions-layout`
+12 of 12 and `version-settings` 23 of 23, ten more than before. Nothing ran
+against the real host, nothing was pushed, and no `.env` of the submodule was
+read.
