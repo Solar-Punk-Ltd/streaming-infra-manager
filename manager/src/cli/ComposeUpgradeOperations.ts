@@ -318,9 +318,22 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     return this.containerIds(project, [...PUBLIC_PROFILE, 'ps', '-q', EDGE_SERVICE]).then((ids) => ids.length > 0);
   }
 
+  /**
+   * Whether the project's database volume is there.
+   *
+   * Read from a listing rather than from an inspection, because an inspection
+   * answers the same non zero exit for a volume that is not there and for a
+   * daemon that could not be asked, and calling the second one an empty host
+   * is how a database gets treated as new.
+   */
   private async hasPostgresVolume(project: string): Promise<boolean> {
-    const result = await this.run(['docker', 'volume', 'inspect', `${project}_${POSTGRES_VOLUME}`], { timeoutMs: this.timeouts.command });
-    return result.code === 0;
+    const name = `${project}_${POSTGRES_VOLUME}`;
+    const argv = ['docker', 'volume', 'ls', '-q', '--filter', `name=^${name}$`];
+    const result = await this.run(argv, { timeoutMs: this.timeouts.command });
+    if (result.code !== 0) {
+      throw new Error(commandFailure(`volume ls ${name}`, project, 'docker', result, this.timeouts.command));
+    }
+    return idsOf(result.stdout).length > 0;
   }
 
   /**
