@@ -1,11 +1,14 @@
 import { Request, Response, Router } from 'express';
 
+import type { StackSettingsSave } from '@streaming-infra-manager/common';
+
 import { StackVersionService } from '../../domain/versions/StackVersionService.js';
 import {
   CreateVersionBody,
   PatchVersionBody,
   createVersionSchema,
   patchVersionSchema,
+  saveVersionSettingsSchema,
   versionIdSchema,
 } from '../../schemas/version.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -70,6 +73,15 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     validateParams(versionIdSchema),
     asyncHandler(async (req: Request, res: Response) => {
       res.json(await versions.settingsOf(versionIdOf(req)));
+    }),
+  );
+
+  router.put(
+    '/:id/settings',
+    validateParams(versionIdSchema),
+    validateBody(saveVersionSettingsSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await versions.saveSettings(versionIdOf(req), req.body as StackSettingsSave));
     }),
   );
 

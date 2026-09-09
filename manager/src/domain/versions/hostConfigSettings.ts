@@ -42,7 +42,8 @@ export interface HostConfigSettingsSources {
   lockWaitMs?: number;
 }
 
-const NO_BUILD =
+/** Why a version can have no settings: the files are seeded by its first build. */
+export const SETTINGS_NEED_A_BUILD =
   'They are seeded from the stack samples by the first build of a version, and this one has none.';
 
 /** The version's settings, or why it has none to show. */
@@ -52,13 +53,13 @@ export async function readHostConfigSettings(
 ): Promise<StackSettings> {
   const { configRoot, buildRoot } = sources;
   if (buildRoot === null || !existsSync(configRoot)) {
-    throw new StackSettingsNotReadyError(versionName, NO_BUILD);
+    throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
   }
 
   const release = await holdHostConfigLock(configRoot, sources.lockWaitMs);
   try {
     const revision = await readHostConfigRevision(configRoot);
-    if (!revision) throw new StackSettingsNotReadyError(versionName, NO_BUILD);
+    if (!revision) throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
 
     const files: StackSettingsFile[] = [];
     for (const relative of hostConfigFilesOf(configRoot)) {

@@ -10,6 +10,8 @@ import {
   stackRefProblem,
   stackVersionNameProblem,
   type StackSettings,
+  type StackSettingsSave,
+  type StackSettingsSaved,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -17,6 +19,7 @@ import {
   BundledVersionError,
   InvalidStackVersionError,
   StackBuildBusyError,
+  StackSettingsNotReadyError,
   StackVersionChangedError,
   StackVersionExistsError,
   StackVersionNotFoundError,
@@ -45,8 +48,10 @@ import {
 } from './hostConfigCapture.js';
 import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
 import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import { describeSettingsSave, saveHostConfigSettings } from './hostConfigSave.js';
 import {
   readHostConfigSettings,
+  SETTINGS_NEED_A_BUILD,
   type HostConfigSettingsSources,
 } from './hostConfigSettings.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
@@ -396,6 +401,20 @@ export class StackVersionService {
   async settingsOf(id: number): Promise<StackSettings> {
     const version = await this.require(id);
     return readHostConfigSettings(version.name, this.settingsSourcesOf(version));
+  }
+
+  /** Commits an edit of those files as one revision, and answers the new generation. */
+  async saveSettings(id: number, save: StackSettingsSave): Promise<StackSettingsSaved> {
+    const version = await this.require(id);
+    const sources = this.settingsSourcesOf(version);
+    if (sources.buildRoot === null) {
+      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_BUILD);
+    }
+    const generation = await saveHostConfigSettings(version.name, sources.configRoot, save);
+    logger.info(
+      `[Versions] ${version.name} settings saved as revision ${generation}: ${describeSettingsSave(save)}`,
+    );
+    return { generation };
   }
 
   private settingsSourcesOf(version: StackVersionRecord): HostConfigSettingsSources {
