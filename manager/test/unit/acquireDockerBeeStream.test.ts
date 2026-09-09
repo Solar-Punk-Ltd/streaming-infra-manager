@@ -291,18 +291,26 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
   it('clears the acquisition timer on handoff but keeps a total lifetime on the returned stream', async t => {
     const docker = syntheticDocker(t);
     const result = await acquireDockerBeeStream(docker.transport, expected,
-      { acquisitionTimeoutMs: 30, preflightTimeoutMs: 40, postTimeoutMs: 40, cleanupGraceMs: 10 }, qualified);
+      { acquisitionTimeoutMs: 200, preflightTimeoutMs: 200, postTimeoutMs: 200, cleanupGraceMs: 50 }, qualified);
     result.stream.on('error', () => {}); t.after(() => result.stream.destroy());
-    await pause(45); assert.equal(result.stream.destroyed, false); assert.equal(docker.transport.destroyed, false);
-    await pause(100); assert.equal(result.stream.destroyed, true); assert.equal(docker.transport.destroyed, true);
+    await pause(250); assert.equal(result.stream.destroyed, false); assert.equal(docker.transport.destroyed, false);
+    await pause(500); assert.equal(result.stream.destroyed, true); assert.equal(docker.transport.destroyed, true);
   });
 
-  for (const stage of ['before', 'held', 'upgrade', 'after'] as const) {
+  for (const stage of ['before', 'held', 'upgrade', 'native-upgrade', 'after'] as const) {
     it(`contains cancellation ${stage} handoff and disposes exactly once`, async t => {
       const controller = new AbortController();
       if (stage === 'before') controller.abort();
       const docker = syntheticDocker(t, { holdAt: stage === 'held' ? 'info' : undefined,
         afterUpgrade: stage === 'upgrade' ? () => controller.abort() : undefined });
+      if (stage === 'native-upgrade') {
+        const original = http.request;
+        t.mock.method(http, 'request', (...args: unknown[]) => {
+          const request: http.ClientRequest = Reflect.apply(original, http, args);
+          request.prependListener('upgrade', () => queueMicrotask(() => controller.abort()));
+          return request;
+        });
+      }
       const acquiring = acquireDockerBeeStream(docker.transport, expected, {}, qualified, controller.signal);
       if (stage === 'held') { while (!docker.held.length) await pause(0); controller.abort(); }
       if (stage === 'after') {
