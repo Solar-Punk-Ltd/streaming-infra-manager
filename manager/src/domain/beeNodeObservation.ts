@@ -5,19 +5,36 @@ const MAX_PROBE_TIMEOUT_MS = 3_000;
 
 type ProbeResult = { kind: 'response'; status: number; body: Record<string, unknown> | null } | { kind: 'unreachable' };
 
+/**
+ * Rejects once the signal aborts. Raced against the transport's own promises,
+ * because the bound is the probe's: on the CI runner a body read outlived the
+ * abort by five minutes, until the server's request timeout closed the socket.
+ */
+function abortOf(signal: AbortSignal): Promise<never> {
+  const aborted = new Promise<never>((_, reject) => {
+    const fail = () => reject(new Error('probe aborted'));
+    if (signal.aborted) fail();
+    else signal.addEventListener('abort', fail, { once: true });
+  });
+  aborted.catch(() => undefined);
+  return aborted;
+}
+
 async function readProbe(baseUrl: string, path: string, timeoutMs: number): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(Math.max(timeoutMs, 1), MAX_PROBE_TIMEOUT_MS));
+  const aborted = abortOf(controller.signal);
   let responded = false;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   try {
-    const response = await fetch(`${baseUrl}${path}`, { signal: controller.signal, redirect: 'error' });
+    const response = await Promise.race([fetch(`${baseUrl}${path}`, { signal: controller.signal, redirect: 'error' }), aborted]);
     responded = true;
     if (!response.body) return { kind: 'response', status: response.status, body: null };
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
     for (;;) {
-      const chunk = await reader.read();
+      const chunk = await Promise.race([reader.read(), aborted]);
       if (chunk.done) break;
       length += chunk.value.byteLength;
       if (length > MAX_PROBE_BYTES) return { kind: 'response', status: response.status, body: null };
@@ -30,6 +47,8 @@ async function readProbe(baseUrl: string, path: string, timeoutMs: number): Prom
   } finally {
     clearTimeout(timer);
     controller.abort();
+    // Not awaited: a transport that ignored the abort may never answer this either.
+    void reader?.cancel().catch(() => undefined);
   }
 }
 
