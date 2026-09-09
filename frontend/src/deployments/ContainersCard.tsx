@@ -13,14 +13,17 @@ import {
 
 import { STREAM_UPLOADER_SERVICE } from '@streaming-infra-manager/common';
 
+import { MONO_STACK } from '../app/theme';
 import { EmptyState } from '../components/EmptyState';
 import { SectionCard } from '../components/SectionCard';
 import { ServiceChip } from '../components/ServiceChip';
+import { CopyButton } from '../CopyButton';
 import { formatBytes, formatCores, formatSharePercent } from '../format';
 import type { ContainerMetrics, MetricsSnapshot, Profile } from '../types';
-import { componentUrl, hostFor } from '../urls';
+import { hostFor } from '../urls';
 import { LogsDialog } from './LogsDialog';
 import { engineOf, isRunning, isTransitional, SERVICE_DESCRIPTIONS } from './shape';
+import { endpointAddress, endpointKindOf } from './endpoints';
 
 export function ContainersCard({
   profile,
@@ -87,16 +90,12 @@ export function ContainersCard({
                       </Typography>
                     ) : (
                       ports.map(([key, port]) => (
-                        <Box key={key} sx={{ fontSize: 12 }}>
-                          {key}{' '}
-                          <Link
-                            href={componentUrl(hostFor(profile, host), port)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {port}
-                          </Link>
-                        </Box>
+                        <PortCell
+                          key={key}
+                          portKey={key}
+                          port={port}
+                          host={hostFor(profile, host)}
+                        />
                       ))
                     )}
                   </TableCell>
@@ -151,6 +150,49 @@ export function ContainersCard({
     </SectionCard>
     {logService && <LogsDialog profile={profile} engine={engineOf(profile)} initialService={logService} onClose={() => setLogService(null)} />}
     </>
+  );
+}
+
+/**
+ * One port on two lines: the key, the number and a copy of the address in
+ * the form its tool takes, then who it is for. The number is a link only when
+ * a browser is meant to open it.
+ */
+function PortCell({
+  portKey,
+  port,
+  host,
+}: {
+  portKey: string;
+  port: number;
+  host: string;
+}) {
+  const kind = endpointKindOf(portKey);
+  const address = endpointAddress(kind, host, port);
+  return (
+    <Box sx={{ fontSize: 12, mb: 0.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <span>{portKey}</span>
+        {kind.opensInBrowser ? (
+          <Link
+            href={address}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${address}, the ${kind.label}`}
+          >
+            {port}
+          </Link>
+        ) : (
+          <Box component="span" sx={{ fontFamily: MONO_STACK }}>
+            {port}
+          </Box>
+        )}
+        <CopyButton value={address} label={address} />
+      </Box>
+      <Typography variant="caption" color="text.secondary" component="div">
+        {kind.label}
+      </Typography>
+    </Box>
   );
 }
 
