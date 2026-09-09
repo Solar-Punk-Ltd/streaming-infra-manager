@@ -116,6 +116,17 @@ describe('deploy/deploy.sh', () => {
     assert.match(script, /IMAGE_ID="\\\$\(docker image inspect --format '\{\{\.Id\}\}' manager-api\)"/);
   });
 
+  it('feeds both remote docker commands from /dev/null, so neither reads the rest of the script', () => {
+    // The remote block arrives on the stdin of one bash, and `run` and `exec` keep stdin open,
+    // so without this the lines below them are swallowed instead of run.
+    const run = script.slice(script.indexOf('docker compose run --rm --no-deps -T api'));
+    const closed = run.indexOf(')"');
+    assert.notEqual(closed, -1, 'the substitution that captures the receipt ends somewhere');
+    assert.match(run.slice(0, closed + 2), /--toolchain '\$\{TOOLCHAIN\}' \$\{PUBLIC_EDGE_FLAG\} < \/dev\/null\)"$/,
+      'the upgrade takes the toolchain, the edge decision and no standard input');
+    assert.match(script, /docker compose exec -T api [^\n]* < \/dev\/null/, 'and neither does the check that follows it');
+  });
+
   it('asks for the public edge only where the domain says so', () => {
     const branch = script.indexOf('COMPOSE_PROFILE_FLAG=""');
     assert.equal(script.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
