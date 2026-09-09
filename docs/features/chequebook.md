@@ -7,11 +7,13 @@ checked from transaction evidence. A balance change cannot confirm a transfer.
 
 This page describes accepted T09 behavior and its local implementation on
 `codex/t09-money-by-transaction`, with the T12 readiness integration. As checked
-on 2026-09-08, `main-v2` is still at `d046ebf`. The transaction backend is
-implemented locally. The durable browser workflow, deployment-instance guard
-and T06 target-ownership integration are being completed. Do not assume the
-current live dialog implements the behavior below. No live transfer was made
-to verify this remediation.
+on 2026-09-09, `main-v2` is still at `d046ebf`. The journal, receipt recovery,
+durable browser workflow, history and account/instance guards are implemented
+locally. T06's SQL target proof and synthetic single-connection preparation are
+reviewed. The physical connector, exact-image qualification and runtime wiring
+remain incomplete. New PostgreSQL submissions currently refuse without that
+target proof. Do not assume the live dialog implements the behavior below.
+No live transfer was made to verify this remediation.
 
 ## Balances and new uploader starts
 
@@ -51,6 +53,11 @@ prove that an earlier POST can never reach the manager. Preserve the UUID.
 Any explicit resend uses the same UUID and immutable payload under the same
 account and deployment instance. There is no automatic resend. Deleting and
 recreating a deployment under the same name must not retarget an old intent.
+
+Submission and recovery writes carry the account that the page expects. The
+server compares it with the current signed-in account before doing the work.
+An account change in another tab therefore cannot silently send a reviewed
+request as a different user. The authenticated user remains the recorded actor.
 
 The server stores the operation before dispatch. Its immutable identity includes
 chain, node address, chequebook, token, amount, direction, actor, deployment
@@ -114,19 +121,22 @@ or conflicting evidence. The assertion does not submit a replacement transfer.
 All routes require the existing session and write-request protections. The
 server derives the actor from the authenticated user, not request JSON. Amounts
 are positive integer PLUR strings. New submissions require both `requestId`
-and `profileInstanceId` UUIDs. Existing exact-request replay is checked before
-looking up the current deployment, so deletion does not break recovery.
+and `profileInstanceId` UUIDs plus the positive integer `expectedAccountId`.
+Existing exact-request replay is checked before looking up the current
+deployment, so deletion does not break recovery. Recovery writes also require
+`expectedAccountId`. An assertion additionally requires the reviewed journal
+revision as a decimal string. A later journal change invalidates that assertion.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/profiles/:name/chequebook` | Read node balances and chequebook summary. |
-| POST | `/profiles/:name/chequebook/deposit` or `/withdraw` | Submit `{ requestId, profileInstanceId, amount }`. An accepted or replayed result returns 202. Busy or conflicting identity returns 409 with the relevant operation. |
+| POST | `/profiles/:name/chequebook/deposit` or `/withdraw` | Submit `{ requestId, profileInstanceId, amount, expectedAccountId }`. An accepted or replayed result returns 202. Busy or conflicting identity returns 409 with the relevant operation. |
 | GET | `/chequebook/operations` | Bounded history with optional profile filter and cursor. |
 | GET | `/chequebook/operations/by-request/:requestId` | Recover the exact original request. |
 | GET | `/chequebook/operations/:id` | Read the operation and its response evidence together. |
-| POST | `/chequebook/operations/:id/check` | Request another evidence check with an empty body. |
-| POST | `/chequebook/operations/:id/resolve` | Supply `{ transactionHash }` for verification. |
-| POST | `/chequebook/operations/:id/assert` | Submit the recorded amount and exact duplicate-risk confirmation under D10. |
+| POST | `/chequebook/operations/:id/check` | Request another evidence check with `{ expectedAccountId }`. |
+| POST | `/chequebook/operations/:id/resolve` | Supply `{ transactionHash, expectedAccountId }` for verification. |
+| POST | `/chequebook/operations/:id/assert` | Submit `{ amountPlur, confirmation, expectedAccountId, expectedRevision }` using the recorded amount, exact duplicate-risk confirmation and reviewed revision under D10. |
 
 A busy response can name another operation. The browser must not attach that
 operation to its own saved intent as though its submission succeeded. History
@@ -134,16 +144,22 @@ is available independently of the deployment page.
 
 ## Evidence and remaining acceptance
 
-The local backend checkpoint `960c378` passed 634 manager tests, 261 shared
-tests and workspace types. All 39 SQL regressions at that checkpoint subsequently
-passed against a disposable PostgreSQL database, including retained response
-evidence, pagination and atomic reads. These counts do not cover later edits.
+The journal and target-ownership checkpoint `16fd7b3` passed 78 actual SQL
+checks and types. The preceding combined branch passed 1002 manager, 289 common,
+18 frontend and 48 browser checks plus types. Native browser regressions cover
+durable intents, competing tabs, reload, account changes, lost responses,
+deleted-deployment history, conflicting evidence and explicit recovery actions.
 
-Completion still requires deployment-instance regressions, durable browser
-storage and two-tab tests, lost-response and account-change recovery, deleted
-profile history, conflict display, T06 target ownership, T12 readiness integration
-and final combined verification. Real-money testing is a separately authorized
-T22 activity with Levi's pending D05 inputs and strict ownership of cleanup.
+Synthetic Docker/Bee preparation is reviewed through `3cd3443`, with 211 focused
+checks and types. The separate step-deadline correction `3d66035` passed 88
+focused checks and types. These results exercise protocol and ownership code
+without qualifying an actual Bee image or making a live transfer.
+
+Completion still requires the physical connector, exact immutable-image bridge
+qualification, runtime wiring and final combined verification. Qualification
+defaults to refusal until its recorded binary/disconnect harness succeeds.
+Real-money testing is a separately authorized T22 activity with Levi's pending
+D05 inputs and strict ownership of cleanup.
 
 The historical 0.5 BZZ fill on the funded `review-20260907` deployment remains
 unverified. Without transaction evidence, this document does not establish
