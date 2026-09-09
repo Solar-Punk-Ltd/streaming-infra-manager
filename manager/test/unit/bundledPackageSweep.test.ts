@@ -172,14 +172,15 @@ describe('sweeping the packages a deploy left on the host', () => {
     assert.deepEqual(swept.kept, [`bundled.materializations/${materializationId}`]);
   });
 
-  it('keeps a private copy the journal knows nothing about', async () => {
+  it('keeps a private copy the journal knows nothing about, and reports it so it is not kept forever', async () => {
     const materializationId = randomUUID();
     await directory(materialization(materializationId));
 
     const swept = await sweepBundledPackages(versionsRoot, journal());
 
     assert.equal(existsSync(materialization(materializationId)), true);
-    assert.deepEqual(swept.kept, [`bundled.materializations/${materializationId}`]);
+    assert.deepEqual(swept.unknown, [`bundled.materializations/${materializationId}`]);
+    assert.deepEqual(swept.kept, []);
   });
 
   it('refuses to remove through a symbolic link standing where a package should be', async () => {
