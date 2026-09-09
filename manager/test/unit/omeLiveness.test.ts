@@ -12,10 +12,10 @@
  * never a reason to put the previous file back.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 
 import {
   OME_SERVICE,
@@ -27,8 +27,10 @@ import type { ContainerState } from '../../src/domain/ContainerControl.js';
 import type { EngineWatcher } from '../../src/domain/engineConfig/EngineConfigService.js';
 import { omePortsFor, portTableOf } from '../../src/domain/versions/portTable.js';
 import { OME_TEMPLATE } from '../support/omeTemplate.js';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'ome-liveness-'));
+after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'engines', 'ome'), { recursive: true });
@@ -53,9 +55,11 @@ const { profileRow, profileServiceHarness } = await import(
 const { InMemoryEngineConfigOperations } = await import(
   '../support/InMemoryEngineConfigOperations.js'
 );
+const { configureEngineConfigAdmission } = await import('../support/engineConfigAdmissionFixture.js');
 
 const V3_CONTRACT: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
+  portAliases: ALLOCATION_CONTRACT.portAliases,
   maxSlot: 99,
   allocationProblem: null,
   requiredSecrets: [],
@@ -110,6 +114,7 @@ async function setup() {
   ]);
   await harness.versions.setContract(1, V3_CONTRACT);
   const operations = new InMemoryEngineConfigOperations(harness.profiles);
+  await configureEngineConfigAdmission(harness, operations, root);
   const watcher = new ScriptedWatcher();
   const service = new EngineConfigService(
     harness.profiles.asRepository(),
@@ -166,17 +171,18 @@ describe('the HLS port after an OvenMediaEngine file applied', () => {
     assert.equal(harness.profiles.engineConfigs.get('ome1'), EDITED, 'the file stays');
   });
 
-  it('is not tried on a version whose port table publishes no HLS port, and leaves no note', async () => {
+  it('refuses an incomplete OME port contract before recreation or a liveness probe', async () => {
     const { service, harness, watcher, states, row } = await setup();
     await harness.versions.setContract(1, {
       ...V3_CONTRACT,
       ports: [{ name: 'SRS_SRT_PORT', slotBase: 10000, defaultPort: 10080, protocol: 'udp', service: 'srs' }],
     });
 
-    await service.apply('ome1', EDITED);
-    await until('the rollout to end', () => states()[0] === 'applied');
+    await assert.rejects(service.apply('ome1', EDITED), /OME alias .* has no compatible Compose port mapping/);
 
     assert.deepEqual(watcher.probed, []);
+    assert.deepEqual(states(), []);
+    assert.equal(harness.orchestrator.deploys.length, 0);
     assert.equal(row('ome1').engine_config_error, null);
   });
 
