@@ -16,6 +16,8 @@ const uploader = {
 const group: DeploymentGroup = { id: 79, name: 'chosen-pool', size: ABR_LADDER_SIZE, kind: ABR_NODE_POOL_GROUP_KIND, created_at: '2026-09-08T00:00:00Z' };
 const profiles = ladderMemberNames(group.name).map(name => ({ name, group_id: group.id, kind: 'custom', status: 'RUNNING',
   port_slot: 1, notes: null, engine_settings: {}, has_engine_config: false, engine_config_error: null,
+  notes_revision: 0, engine_config_state: null, instance_id: '00000000-0000-4000-8000-000000000001',
+  engine_config_revision: 0, intent_revision: 0,
   last_error: null, last_error_at: null, last_full_deploy_commit: null,
   components: ['bee-uploader'], containers: [], created_at: group.created_at, updated_at: group.created_at } as Profile));
 

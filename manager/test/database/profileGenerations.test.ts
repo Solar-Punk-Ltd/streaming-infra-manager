@@ -40,8 +40,10 @@ describe('profile lifetime generation in isolated PostgreSQL schemas', { skip: !
     return (await profiles.findByName(profile.name))!;
   }
   async function removeProfile(name: string) {
-    await pool.query("UPDATE profiles SET status = 'REMOVING' WHERE name = $1", [name]);
-    await profiles.deleteByName(name);
+    const current = (await profiles.findByName(name))!;
+    const claim = await profiles.claimRemoval(name, current.instance_id);
+    assert.ok(claim);
+    assert.ok(await profiles.completeRemoval(claim, async () => {}));
   }
   function submission(prepareHook: () => Promise<void> = async () => {}) {
     let posts = 0;

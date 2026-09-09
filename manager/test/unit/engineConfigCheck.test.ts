@@ -104,7 +104,7 @@ function gate(): { opened: Promise<void>; open: () => void } {
   return { opened, open };
 }
 
-const SRS_INPUT = { engine: 'srs' as const, image: null, filled: [] };
+const SRS_INPUT = { engine: 'srs' as const, image: null, filled: [], template: SRS_TEMPLATE };
 
 describe('substituteForCheck', () => {
   it('fills every placeholder with a parseable dummy and drops the line placeholders', () => {

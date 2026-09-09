@@ -122,7 +122,7 @@ describe('build approval in isolated PostgreSQL schemas', { skip: !Number.isInte
           return read;
         }
       }
-      const service = new StackVersionService(new PublishAfterRead(pool), new FakeScriptSpawner(), new EventBus(), scratchVersionsRoot(), { openReferences: async () => [] });
+      const service = new StackVersionService(new PublishAfterRead(pool), new FakeScriptSpawner(), new EventBus(), scratchVersionsRoot(), { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
       await assert.rejects(service.setTested(id, true, COMMIT, legacy ? null : BUILD), /changed since this page loaded/);
       assert.equal((await repository.findById(id))?.tested, false);
     });

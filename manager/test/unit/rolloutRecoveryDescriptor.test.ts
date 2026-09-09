@@ -28,7 +28,7 @@ describe('captured config rollback artifact evidence', () => {
     await writeFile(join(artifact, 'source.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     await symlink('source.sh', join(artifact, 'internal-link'));
     version = { id: 9, name: 'source-stack', gitRef: 'synthetic', rootPath: join(parent, 'source-stack'), layout: 'builds', buildId: A,
-      previousBuildId: null, commitSha: A, contract: ALLOCATION_CONTRACT, status: 'ready', isDefault: false, tested: false,
+      previousBuildId: null, commitSha: A, contract: ALLOCATION_CONTRACT, status: 'ready', isDefault: false, tested: false, testedInvalidatedAt: null,
       createdAt: new Date(0), builtAt: new Date(0), lastError: null };
   });
   afterEach(async () => { if (parent) await rm(parent, { recursive: true, force: true }); });

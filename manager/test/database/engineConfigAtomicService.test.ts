@@ -178,9 +178,9 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
     };
     const checker = new EngineConfigChecker(async () => ({ code: 0, stdout: '', stderr: '' }));
     checker.problem = async () => null;
-    const watcher = { inspect: async () => null, logs: async () => '' };
+    const watcher = { inspect: async () => null, logs: async () => '', reachable: async () => false };
     const service = new EngineConfigService(profiles, containers, orchestrator, versions, watcher, checker, events, operations,
-      { intervalMs: 1, durationMs: 1 });
+      { intervalMs: 1, durationMs: 1, probeBudgetMs: 1 });
     return { service, launches, daemon, checker, orchestrator };
   }
 
