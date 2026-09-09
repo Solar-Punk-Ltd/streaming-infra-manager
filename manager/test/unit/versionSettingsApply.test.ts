@@ -337,6 +337,20 @@ describe('POST /versions/:id/settings/apply', () => {
     await settled;
   });
 
+  it('refuses a version that deploys from a flat checkout rather than from a build', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    app.repository.markLegacy(id);
+
+    const answer = await callJson('POST', `/versions/${id}/settings/apply`);
+
+    assert.equal(answer.status, 409);
+    assert.equal((answer.body as { error: string }).error, 'settings_not_ready');
+    assert.match((answer.body as { message: string }).message, /flat checkout/);
+    assert.match((answer.body as { message: string }).message, /Update it/);
+    assert.equal(JSON.stringify(answer.body).includes('null'), false);
+  });
+
   it('refuses a version whose first build has not happened', async () => {
     const rows = (await callJson('GET', '/versions')).body as StackVersion[];
     const bundled = rows.find((row) => row.name === 'bundled')!;

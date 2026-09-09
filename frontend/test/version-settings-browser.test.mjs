@@ -375,6 +375,19 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
   });
 
+  await t.test('a version deploying from a flat checkout offers no settings page', async () => {
+    await call('Page.navigate', { url: `${origin}/#/versions` });
+    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="bundled tested"]'))`));
+
+    const button = await evaluate(`(() => {
+      const card = document.querySelector('input[aria-label="bundled tested"]').closest('article');
+      const element = [...card.querySelectorAll('button')].find(b => b.textContent.trim() === 'Settings');
+      return { found: Boolean(element), disabled: element?.disabled ?? null };
+    })()`);
+
+    assert.deepEqual(button, { found: true, disabled: true });
+  });
+
   await t.test('the Versions page opens this page from the card', async () => {
     await call('Page.navigate', { url: `${origin}/#/versions` });
     await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`));
