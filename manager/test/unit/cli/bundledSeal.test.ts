@@ -52,11 +52,11 @@ describe('bundled:seal', () => {
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-  async function seal(options: { dist?: string; out?: string; adoptInputs?: boolean } = {}): Promise<{ stdout: string[]; stderr: string[] }> {
+  async function seal(options: { dist?: string; out?: string; adoptInputs?: boolean; toolchain?: string } = {}): Promise<{ stdout: string[]; stderr: string[] }> {
     const stdout: string[] = []; const stderr: string[] = [];
     await runBundledSeal(
       ['--source', source, '--out', options.out ?? out, '--shipment-id', SHIPMENT_ID, '--dist', options.dist ?? DIST,
-        '--toolchain', TOOLCHAIN, ...(options.adoptInputs === false ? [] : ['--adopt-inputs'])],
+        '--toolchain', options.toolchain ?? TOOLCHAIN, ...(options.adoptInputs === false ? [] : ['--adopt-inputs'])],
       { out: (line) => stdout.push(line), err: (line) => stderr.push(line) },
     );
     return { stdout, stderr };
@@ -130,6 +130,20 @@ describe('bundled:seal', () => {
       },
     );
   });
+
+  for (const [shape, toolchain] of [
+    ['a quote', "node v22.9.0' rm -rf /"],
+    ['a semicolon', 'node v22.9.0; rm -rf /'],
+    ['a control character', 'node v22.9.0\nrm -rf /'],
+  ] as const) {
+    it(`refuses a toolchain carrying ${shape}, which the deploy would put in a host shell`, async () => {
+      await assert.rejects(seal({ toolchain }), (error: Error) => {
+        assert.match(error.message, /--toolchain/);
+        return true;
+      });
+      assert.equal(existsSync(join(out, `sealed-${SHIPMENT_ID}`)), false, 'nothing was sealed under it');
+    });
+  }
 
   it('refuses an output directory inside the checkout it seals', async () => {
     await assert.rejects(seal({ out: join(source, 'shipment') }), (error: Error) => {

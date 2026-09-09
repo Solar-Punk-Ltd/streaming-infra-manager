@@ -141,6 +141,20 @@ describe('manager:upgrade', () => {
     assert.equal(settings?.firstUse, false);
   });
 
+  for (const [shape, toolchain] of [
+    ['a quote', "node v22.9.0' rm -rf /"],
+    ['a semicolon', 'node v22.9.0; rm -rf /'],
+    ['a control character', 'node v22.9.0\nrm -rf /'],
+  ] as const) {
+    it(`refuses a toolchain carrying ${shape}, before it owns anything`, async () => {
+      const run = await upgrade(argvWith({ '--toolchain': toolchain }));
+
+      assert.match(run.error?.message ?? '', /--toolchain/);
+      assert.equal(existsSync(managerUpgradeGuardRootFor(versionsRoot)), false, 'no guard directory was left behind');
+      assert.equal(opened, 0, 'nothing on the host was opened');
+    });
+  }
+
   it('names the retained directory and the phase it stopped in when an earlier upgrade still holds the host', async () => {
     const guard = managerUpgradeGuardRootFor(versionsRoot);
     await mkdir(guard, { mode: 0o700 });
