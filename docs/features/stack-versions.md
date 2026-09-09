@@ -22,7 +22,7 @@ The Versions page shows the bundled version and registered versions. Each card e
 - Update fetches and builds the selected ref. A failed update keeps a previously usable build available and records the failure. A version without a usable build remains failed.
 - Tested records an operator's approval of the displayed artifact. It does not run a test suite or prove live playback.
 - Set as default controls the wizard's initial choice. A version must be Tested before it can become the default.
-- Remove refuses a version that deployments still use.
+- Remove refuses the bundled version, the default, a building version, any version assigned to a deployment, and any version retained by jobs, observations, operations, execution roots or shipment records. The refusal explains what still retains it.
 
 Adding a version executes that repository's build and deployment code with the manager's capabilities. The operator must trust the selected source.
 
@@ -54,6 +54,10 @@ The database row is the active reference. Publication updates it atomically and 
 A deployment captures its build before running scripts. The agreed admission rule validates the selected snapshot under the version-row lock and records a job reference before the build can be pruned. A changed, missing or incomplete selected artifact causes a refusal. It must not silently switch to a newer build or fall back to the bundled checkout. A legitimate legacy bundled row remains distinct from a missing version row.
 
 Pruning protects the current and previous builds, unresolved jobs, observed service references and open operations that still need a build. A failed script or unavailable container observation does not prove that a reference can be released. The legacy root is retained and is not an ancestor of the immutable build directories.
+
+Removing a registered version rechecks its exact identity and every hold while locking its database row. File cleanup starts only after those checks pass. Before deleting payloads, the manager durably writes a sibling `<name>.removal.json` marker. A crash or partial cleanup leaves that marker in place, so a retained database row cannot make a partially deleted build deployable again. Updates, deployment admission and execution registration refuse that marked version.
+
+Retrying removal of the same version can finish the cleanup. The marker remains after successful removal. A later registration of the same name is allowed only when the marker is valid and belongs to an older version ID. Unreadable, malformed, active or future-ID markers cause a refusal. Configured paths must remain inside the verified physical versions directory.
 
 ## Host configuration and runtime files
 
@@ -89,6 +93,8 @@ A version's current commit does not prove which code every service is using. Ser
 
 T08's approval and wizard behavior passed unit, browser and type checks. Its eight real PostgreSQL regressions passed at `347c7dd`, including publication between read and write and a competing row lock. T18 carries those semantics into the reviewed responsive cards at `5f835ca`.
 
-T04a's additional stale-snapshot, missing-version, initial-preparation and malformed-path corrections passed36 real PostgreSQL tests at `5577c94`. Integration into T06 passed53 combined SQL tests at `4e3f53b`. The separate successful no-op reference cleanup correction passed800 manager tests at `b65f8d9`. T12's direct ledger phase integration is still in progress. T06's Linux firewall checks and T05a's matching Engine 29.1.3 / Compose v5.1.4 harness remain separate acceptance items.
+T04a's guarded removal and durable markers are locally reviewed through `c55c9d9`. The complete compatibility checkpoint passed 194 SQL and 999 manager tests plus shared/frontend checks and types. The final missing-directory removal correction passed 45 removal SQL and 70 focused checks plus types. Later T01/T11 dependency merges preserve the marker and active-job guards, with 47 removal SQL cases each.
+
+T06's no-op reference cleanup is reviewed at `b65f8d9`. T12's direct ledger phase correction is committed at `2966ab3`. T01's operation holds and successful-completion integration, and T04b's private runtime-copy integration, remain in progress. Those open boundaries must close before the whole retention model is accepted. T06's Linux firewall checks and T05a's matching Engine 29.1.3 / Compose v5.1.4 harness remain separate acceptance items.
 
 No local unit, database or browser result proves the live deployment or playback path. T22 retains that acceptance work and its separately agreed resource and spending limits.
