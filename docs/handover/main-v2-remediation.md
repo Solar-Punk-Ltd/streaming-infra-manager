@@ -413,12 +413,14 @@ the submodule was read.
 **The two reviews, 2026-09-10.** Two reviewers went over the slice at `637d758`
 with probes and mutations, and a third pass looked at it against the design. The
 correctness review found five high and eight medium problems, the security
-review two high, five medium and four low, and the design pass one high gap and
-one page nit. Five low correctness findings and two low security ones were
-looked at and left alone, and one question goes to Levi rather than into code:
-any signed-in account can read and set these values, which is what every other
-route does today, and whether version settings become admin-only is his to
-decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is in.
+review two high, five medium and eight low, and the design pass one high gap and
+one page nit. Four of those low security findings became fixes of their own, two
+were folded into the items beside them, and two were looked at and left alone,
+as were five low correctness findings. One question goes to Levi rather than
+into code: any signed-in account can read and set these values, which is what
+every other route does today, and whether version settings become admin-only is
+his to decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is
+in.
 
 The gap against D12 was that a version added in the UI never got
 `engines/<engine>/.env` at all, so its page had no engine section and half the
