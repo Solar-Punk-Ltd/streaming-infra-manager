@@ -210,7 +210,7 @@ export class EngineConfigService {
     });
     if (!begun) throw new ProfileConfigError(name, 'The interrupted rollout changed. Reload and try again.');
     await this.publish(begun.profile);
-    await this.runRecovery(begun, 'reverted', 'The requested previous config file could not be recreated.');
+    await this.runRecovery(begun, 'reverted', 'The requested previous config file could not be recreated.', true);
     return this.containers.withContainers(begun.profile);
   }
 
@@ -306,11 +306,16 @@ export class EngineConfigService {
     );
     await this.publish(started.profile);
 
-    await this.orchestrator.runReserved(reservationOf(started), started.profile, {
-      afterRunning: () => this.afterRecreate(started.operation),
-      afterFailure: (message) =>
-        this.revertOwned(started.operation, 'ERROR', null, 'failed', message),
-    });
+    try {
+      await this.orchestrator.runReserved(reservationOf(started), started.profile, {
+        afterRunning: () => this.afterRecreate(started.operation),
+        afterFailure: (message) =>
+          this.revertOwned(started.operation, 'ERROR', null, 'failed', message),
+      });
+    } catch (err) {
+      await this.interruptPreparation(started, getErrorMessage(err));
+      throw err;
+    }
     return this.containers.withContainers(started.profile);
   }
 
@@ -473,7 +478,7 @@ export class EngineConfigService {
     await this.runRecovery(begun, terminal, message);
   }
 
-  private async runRecovery(begun: ClaimedRolloutDeploy, terminal: 'reverted' | 'failed', message: string): Promise<void> {
+  private async runRecovery(begun: ClaimedRolloutDeploy, terminal: 'reverted' | 'failed', message: string, propagateError = false): Promise<void> {
     const reverting = ownershipOf(begun.operation);
     try {
       await this.orchestrator.runReserved(reservationOf(begun), begun.profile, {
@@ -489,10 +494,17 @@ export class EngineConfigService {
         },
       });
     } catch (err) {
-      await this.operations.transition(reverting, ['reverting'], 'failed', {
-        message: `${message} The previous file could not be recreated on: ${getErrorMessage(err)}`,
-      });
+      await this.interruptPreparation(begun, `${message} The previous file could not be recreated on: ${getErrorMessage(err)}`);
+      if (propagateError) throw err;
     }
+  }
+
+  private async interruptPreparation(claimed: ClaimedRolloutDeploy, message: string): Promise<void> {
+    const referenceId = claimed.descriptor.referenceId;
+    if (referenceId === null) return;
+    await this.operations.transition(ownershipOf(claimed.operation), ['applying', 'reverting'], 'interrupted', {
+      message: `Deployment preparation interrupted: ${message}`,
+    }, referenceId);
   }
 
   // ---------------------------------------------------------- the plumbing

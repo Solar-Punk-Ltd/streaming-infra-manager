@@ -239,9 +239,15 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
     from: readonly EngineConfigOperationState[],
     to: EngineConfigOperationState,
     patch: Partial<EngineConfigOperation> = {},
+    expectedPreparationJobReferenceId?: number,
   ): Promise<EngineConfigOperation | null> {
     const operation = this.owned(ownership);
     if (!operation || !from.includes(operation.state)) return null;
+    if (expectedPreparationJobReferenceId !== undefined && (
+      !['DEPLOYING', 'ERROR'].includes(this.profiles.statusOf(operation.profileName) ?? '') ||
+      this.profiles.activeDeployJobs.get(operation.profileName) !== expectedPreparationJobReferenceId ||
+      operation.deploymentJobReferenceId !== expectedPreparationJobReferenceId
+    )) return null;
     // As the SQL does with COALESCE: a patch field left out or null keeps the column.
     const given = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined && value !== null),

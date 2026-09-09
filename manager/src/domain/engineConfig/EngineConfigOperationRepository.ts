@@ -61,6 +61,8 @@ export interface EngineConfigOperationRepository {
         'message' | 'containerId' | 'containerStartedAt' | 'recreateFinishedAt' | 'watchStartedAt'
       >
     >,
+    /** A preparation outcome also requires this active job and DEPLOYING or ERROR. */
+    expectedPreparationJobReferenceId?: number,
   ): Promise<EngineConfigOperation | null>;
   /**
    * One transaction: while the rollout still owns the deployment, the

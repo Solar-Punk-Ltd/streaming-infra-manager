@@ -560,7 +560,9 @@ export class DeploymentOrchestrator {
       // That is a refusal, not a failure: a claimed deployment gets its
       // status back. One that exists for this deploy alone has no status to
       // go back to and is marked failed with the reason, like any failure.
-      if (err instanceof DeployAttemptRefusedError && prepared.transitioned) {
+      // A config rollout committed its attempt with its file. Cancelling only
+      // its job would discard the owner needed to recover that file.
+      if (err instanceof DeployAttemptRefusedError && prepared.transitioned && !prepared.attempt) {
         await this.cancelReservation(prepared);
         throw err;
       }

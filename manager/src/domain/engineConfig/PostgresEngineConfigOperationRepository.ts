@@ -441,9 +441,10 @@ export class PostgresEngineConfigOperationRepository
         'message' | 'containerId' | 'containerStartedAt' | 'recreateFinishedAt' | 'watchStartedAt'
       >
     > = {},
+    expectedPreparationJobReferenceId?: number,
   ): Promise<EngineConfigOperation | null> {
     return this.inTransaction(async (client) => {
-      const owned = await lockOwned(client, ownership);
+      const owned = await lockOwned(client, ownership, expectedPreparationJobReferenceId);
       if (!owned || !from.includes(owned.operation.state)) return null;
       const updated = await client.query<OperationRow>(
         `UPDATE engine_config_operations
@@ -529,9 +530,9 @@ export class PostgresEngineConfigOperationRepository
   }
 }
 
-async function lockProfile(client: PoolClient, name: string): Promise<Profile | null> {
-  const result = await client.query<Profile>(
-    `SELECT ${PROFILE_COLUMNS} FROM profiles WHERE name = $1 FOR UPDATE`,
+async function lockProfile(client: PoolClient, name: string): Promise<RecoveryProfile | null> {
+  const result = await client.query<RecoveryProfile>(
+    `SELECT ${PROFILE_COLUMNS}, deploy_job_reference_id FROM profiles WHERE name = $1 FOR UPDATE`,
     [name],
   );
   return result.rows[0] ?? null;
@@ -545,6 +546,7 @@ async function lockProfile(client: PoolClient, name: string): Promise<Profile | 
 async function lockOwned(
   client: PoolClient,
   ownership: RolloutOwnership,
+  expectedPreparationJobReferenceId?: number,
 ): Promise<{ profile: Profile; operation: EngineConfigOperation } | null> {
   const named = await client.query<{ profile_name: string }>(
     'SELECT profile_name FROM engine_config_operations WHERE id = $1',
@@ -565,7 +567,15 @@ async function lockOwned(
     `SELECT ${OPERATION_COLUMNS} FROM engine_config_operations WHERE id = $1 FOR UPDATE`,
     [ownership.operationId],
   );
-  return locked.rows[0] ? { profile, operation: toOperation(locked.rows[0]) } : null;
+  const operation = locked.rows[0] ? toOperation(locked.rows[0]) : null;
+  if (!operation) return null;
+  if (expectedPreparationJobReferenceId !== undefined && (
+    !Number.isSafeInteger(expectedPreparationJobReferenceId) || expectedPreparationJobReferenceId < 1 ||
+    !['DEPLOYING', 'ERROR'].includes(profile.status) ||
+    profile.deploy_job_reference_id !== expectedPreparationJobReferenceId ||
+    operation.deploymentJobReferenceId !== expectedPreparationJobReferenceId
+  )) return null;
+  return { profile, operation };
 }
 
 function recoveryOwnerMatches(input: PreparedRecoveryDeploy, profile: RecoveryProfile, row: OperationRow, states = AUTOMATIC_RECOVERY_STATES): boolean {

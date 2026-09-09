@@ -326,20 +326,24 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
     });
   }
 
-  it('preparation failure cannot interrupt a successor job with the same instance and intent', async () => {
-    const h = serviceHarness();
-    let successor: unknown;
-    h.orchestrator.runReserved = async (reservation, profile) => {
-      const next = (await pool.query(`INSERT INTO build_references
-        (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision)
-        SELECT version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision
-          FROM build_references WHERE id = $1 RETURNING id`, [reservation.build!.referenceId])).rows[0].id;
-      await pool.query('UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = $2', [next, profile.name]);
-      successor = (await pool.query('SELECT * FROM profiles WHERE name = $1', [profile.name])).rows[0];
-      throw new Error('synthetic preparation lost ownership');
-    };
-    await assert.rejects(h.service.apply(initial.name, 'listen 1935; # synthetic candidate'), /synthetic preparation lost ownership/);
-    assert.deepEqual((await pool.query('SELECT * FROM profiles WHERE name = $1', [initial.name])).rows[0], successor);
-    assert.equal((await operations.findOpen(initial.instance_id))!.state, 'applying');
-  });
+  for (const changed of ['profile job', 'operation job', 'stopped status'] as const) {
+    it(`preparation failure cannot interrupt a changed ${changed} with the same instance and intent`, async () => {
+      const h = serviceHarness();
+      let successor: unknown;
+      h.orchestrator.runReserved = async (reservation, profile) => {
+        const next = (await pool.query(`INSERT INTO build_references
+          (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision)
+          SELECT version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision
+            FROM build_references WHERE id = $1 RETURNING id`, [reservation.build!.referenceId])).rows[0].id;
+        if (changed === 'profile job') await pool.query('UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = $2', [next, profile.name]);
+        else if (changed === 'operation job') await pool.query('UPDATE engine_config_operations SET deployment_job_reference_id = $1', [next]);
+        else await pool.query("UPDATE profiles SET status = 'STOPPED' WHERE name = $1", [profile.name]);
+        successor = (await pool.query('SELECT * FROM profiles WHERE name = $1', [profile.name])).rows[0];
+        throw new Error('synthetic preparation lost ownership');
+      };
+      await assert.rejects(h.service.apply(initial.name, 'listen 1935; # synthetic candidate'), /synthetic preparation lost ownership/);
+      assert.deepEqual((await pool.query('SELECT * FROM profiles WHERE name = $1', [initial.name])).rows[0], successor);
+      assert.equal((await operations.findOpen(initial.instance_id))!.state, 'applying');
+    });
+  }
 });
