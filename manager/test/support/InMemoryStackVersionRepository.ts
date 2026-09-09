@@ -100,6 +100,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       lastError: null,
       createdAt: new Date(),
     };
+    if (versionRemovalProblem(row)) throw new StackVersionRemovalHeldError(row.name, 'marker');
     this.rows = [...this.rows, row];
     return row;
   }

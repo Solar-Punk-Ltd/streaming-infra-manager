@@ -89,16 +89,21 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   }
 
   async insert(version: NewStackVersion): Promise<StackVersionRecord> {
-    const inserted = await this.one(
-      `INSERT INTO stack_versions (name, git_ref, root_path, status)
-       VALUES ($1, $2, $3, 'building')
-       RETURNING ${VERSION_COLUMNS}`,
-      [version.name, version.gitRef, version.rootPath],
-    );
-    if (!inserted) {
-      throw new Error(`could not insert stack version ${version.name}`);
-    }
-    return inserted;
+    const captured = structuredClone(version);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<StackVersionDbRow>(
+        `INSERT INTO stack_versions (name, git_ref, root_path, status)
+         VALUES ($1, $2, $3, 'building') RETURNING ${VERSION_COLUMNS}`,
+        [captured.name, captured.gitRef, captured.rootPath],
+      );
+      const inserted = toRecord(result.rows[0]!);
+      if (versionRemovalProblem(inserted)) throw new StackVersionRemovalHeldError(inserted.name, 'marker');
+      await client.query('COMMIT');
+      return inserted;
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+    finally { client.release(); }
   }
 
   async markBuilding(id: number): Promise<StackVersionRecord | null> {
