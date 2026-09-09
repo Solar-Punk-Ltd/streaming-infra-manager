@@ -291,22 +291,49 @@ export async function commitHostConfig(
   files: Record<string, Buffer>,
   options: CommitOptions = {},
 ): Promise<ConfigRevision> {
-  const release = await holdHostConfigLock(root, options.lockWaitMs);
+  return withHostConfigLock(root, (commit) => commit(files, options), options.lockWaitMs);
+}
+
+/** Commits a set of files into a root whose lock the caller already holds. */
+export type CommitUnderLock = (files: Record<string, Buffer>, options?: CommitOptions) => Promise<ConfigRevision>;
+
+/**
+ * Runs one edit under one acquisition of the lock.
+ *
+ * A caller that reads a file and then commits what it read has to hold the
+ * lock across both, because an editor that got in between leaves it writing
+ * back bytes that are already stale, and the manifest carries no expected
+ * generation to catch that.
+ */
+export async function withHostConfigLock<T>(
+  root: string,
+  body: (commit: CommitUnderLock) => Promise<T>,
+  waitMs?: number,
+): Promise<T> {
+  const release = await holdHostConfigLock(root, waitMs);
   try {
-    const current = await readRevision(root);
-    for (const [relative, bytes] of Object.entries(files)) {
-      await mkdir(join(root, relative, '..'), { recursive: true });
-      await replaceAtomically(join(root, relative), bytes);
-    }
-    for (const relative of options.remove ?? []) {
-      await rm(join(root, relative), { force: true });
-    }
-    const revision = await revisionOfPresentFiles(root, (current?.generation ?? 0) + 1);
-    await writeRevision(root, revision);
-    return revision;
+    return await body((files, options = {}) => commitHeldHostConfig(root, files, options));
   } finally {
     await release();
   }
+}
+
+async function commitHeldHostConfig(
+  root: string,
+  files: Record<string, Buffer>,
+  options: CommitOptions,
+): Promise<ConfigRevision> {
+  const current = await readRevision(root);
+  for (const [relative, bytes] of Object.entries(files)) {
+    await mkdir(join(root, relative, '..'), { recursive: true });
+    await replaceAtomically(join(root, relative), bytes);
+  }
+  for (const relative of options.remove ?? []) {
+    await rm(join(root, relative), { force: true });
+  }
+  const revision = await revisionOfPresentFiles(root, (current?.generation ?? 0) + 1);
+  await writeRevision(root, revision);
+  return revision;
 }
 
 async function revisionOfPresentFiles(root: string, generation: number): Promise<ConfigRevision> {

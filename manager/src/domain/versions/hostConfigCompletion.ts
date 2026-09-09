@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { commitHostConfig, envKeyIn } from './hostConfigCapture.js';
+import { envKeyIn, withHostConfigLock } from './hostConfigCapture.js';
 
 /**
  * Settings a version declares that the host's own files do not carry yet.
@@ -85,18 +85,22 @@ export async function completeHostConfigFromSamples(
   configRoot: string,
   staging: string,
 ): Promise<CompletedSettings> {
-  const completed: CompletedSettings = {};
-  const files: Record<string, Buffer> = {};
-  for (const { live, sample } of samplePairsIn(staging)) {
-    const livePath = join(configRoot, live);
-    const samplePath = join(staging, sample);
-    if (!existsSync(livePath) || !existsSync(samplePath)) continue;
-    const current = await readFile(livePath);
-    const missing = missingFrom(current.toString('utf8'), await readFile(samplePath, 'utf8'));
-    if (missing.keys.length === 0) continue;
-    completed[live] = missing.keys;
-    files[live] = withLines(current, missing.lines);
-  }
-  if (Object.keys(files).length > 0) await commitHostConfig(configRoot, files);
-  return completed;
+  // The live files are read and written back under one acquisition of the
+  // lock, so an edit that lands between the two is not overwritten.
+  return withHostConfigLock(configRoot, async (commit) => {
+    const completed: CompletedSettings = {};
+    const files: Record<string, Buffer> = {};
+    for (const { live, sample } of samplePairsIn(staging)) {
+      const livePath = join(configRoot, live);
+      const samplePath = join(staging, sample);
+      if (!existsSync(livePath) || !existsSync(samplePath)) continue;
+      const current = await readFile(livePath);
+      const missing = missingFrom(current.toString('utf8'), await readFile(samplePath, 'utf8'));
+      if (missing.keys.length === 0) continue;
+      completed[live] = missing.keys;
+      files[live] = withLines(current, missing.lines);
+    }
+    if (Object.keys(files).length > 0) await commit(files);
+    return completed;
+  });
 }

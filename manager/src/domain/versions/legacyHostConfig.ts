@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { commitHostConfig, hostConfigFilesOf } from './hostConfigCapture.js';
+import { hostConfigFilesOf, withHostConfigLock } from './hostConfigCapture.js';
 
 /**
  * The bundled version's settings, from the tree the manager used to ship them
@@ -16,19 +16,22 @@ import { commitHostConfig, hostConfigFilesOf } from './hostConfigCapture.js';
  *
  * Read only, once. The legacy tree is what the engines of existing deployments
  * still mount, so nothing is written back into it, and a config root that
- * already holds settings is left alone.
+ * already holds settings is left alone. Whether it holds any is asked under
+ * the edit lock, so a root an operator filled while this waited stays theirs.
  */
 export async function carryOverLegacyHostConfig(
   configRoot: string,
   legacyRoot: string,
 ): Promise<string[]> {
   await mkdir(configRoot, { recursive: true });
-  if (hostConfigFilesOf(configRoot).length > 0) return [];
-  const carried = hostConfigFilesOf(legacyRoot);
-  if (carried.length === 0) return [];
+  return withHostConfigLock(configRoot, async (commit) => {
+    if (hostConfigFilesOf(configRoot).length > 0) return [];
+    const carried = hostConfigFilesOf(legacyRoot);
+    if (carried.length === 0) return [];
 
-  const files: Record<string, Buffer> = {};
-  for (const relative of carried) files[relative] = await readFile(join(legacyRoot, relative));
-  await commitHostConfig(configRoot, files);
-  return carried;
+    const files: Record<string, Buffer> = {};
+    for (const relative of carried) files[relative] = await readFile(join(legacyRoot, relative));
+    await commit(files);
+    return carried;
+  });
 }
