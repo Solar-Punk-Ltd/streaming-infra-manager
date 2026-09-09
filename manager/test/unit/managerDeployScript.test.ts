@@ -137,9 +137,12 @@ describe('deploy/deploy.sh', () => {
     assert.equal(branch, -1, 'the old compose profile flag is gone');
   });
 
-  it('prints the receipt the upgrade returned', () => {
-    assert.match(script, /RECEIPT/);
-    assert.ok(script.indexOf('RECEIPT') > script.indexOf('manager:upgrade') - 400, 'the receipt comes from the upgrade');
+  it('prints the receipt the upgrade returned, after the command that returned it', () => {
+    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    assert.notEqual(captured, -1, 'the receipt is the one line the upgrade printed');
+    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
+    assert.notEqual(printed, -1, 'and the deploy prints it as it stands');
+    assert.ok(printed > captured, 'after the command that returned it, never before');
   });
 
   it('checks the seal output and every identity it interpolates, before any of it reaches the host', () => {
