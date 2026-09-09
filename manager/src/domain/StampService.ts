@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 
 import {
   classifyPublishUrl,
@@ -31,6 +30,7 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { LOCAL_PUBLISHED_HOST } from './localHost.js';
 
 const logger = Logger.getInstance();
 
@@ -43,13 +43,9 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
-// Local profiles publish their bee API on a host port. The manager reaches it
-// via host.docker.internal when it runs inside its own container (see
-// manager/docker-compose.yml extra_hosts); running natively (dev/e2e) that name
-// doesn't resolve, so fall back to 127.0.0.1. Override with BEE_LOCAL_HOST.
-const LOCAL_BEE_HOST =
-  process.env.BEE_LOCAL_HOST ??
-  (existsSync('/.dockerenv') ? 'host.docker.internal' : '127.0.0.1');
+// Local profiles publish their bee API on a host port, reached the way every
+// published port is.
+const LOCAL_BEE_HOST = LOCAL_PUBLISHED_HOST;
 
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;

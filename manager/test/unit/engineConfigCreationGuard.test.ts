@@ -38,10 +38,10 @@ async function setup() {
   await publishEngineConfigFixture(h.versions, root);
   h.profiles.engineConfigs.set('stage', OLD);
   h.daemon.autoRecreate = false;
-  const watcher: EngineWatcher = { inspect: async () => null, logs: async () => '' };
+  const watcher: EngineWatcher = { inspect: async () => null, logs: async () => '', reachable: async () => false };
   const service = new EngineConfigService(h.profiles.asRepository(), h.containers.asRepository(), h.orchestrator,
     h.versions, watcher, new EngineConfigChecker(async () => ({ code: 0, stdout: '', stderr: '' })), h.events, h.operations,
-    { intervalMs: 5, durationMs: 25 });
+    { intervalMs: 5, durationMs: 25, probeBudgetMs: 5 });
   return { h, service, watcher, row: () => h.profiles.rows.get('stage')! };
 }
 
@@ -65,7 +65,7 @@ it('keeps a failed config rollout interrupted when unchanged containers still ho
   assert.doesNotMatch(operation.message ?? '', /previous one is back/);
   assert.equal(row().engine_config_error, operation.message);
   assert.match(row().last_error ?? '', /exited with code 17/);
-  assert.ok(rolloutNotice(row().engine_config_state, { engine: 'SRS', hasConfig: true })?.offers.includes('previous'));
+  assert.ok(rolloutNotice(row().engine_config_state, { engine: 'SRS', hasConfig: true }, null)?.offers.includes('previous'));
   await service.reconcileAtBoot();
   await new Promise(resolve => setTimeout(resolve, 35));
   assert.equal(h.runner.runs.length, 1, 'Neither failure handling nor reconciliation retries the script');

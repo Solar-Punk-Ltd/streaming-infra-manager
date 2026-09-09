@@ -10,7 +10,7 @@
  * The dataset it starts from is in `mock-seed.mjs` and the metrics generator is
  * in `mock-metrics.mjs`. This file is the transitions and the routes.
  *
- *   node frontend/dev/mock-manager.mjs        (or: pnpm -C frontend dev:mock)
+ *   pnpm -C frontend dev:mock
  *
  * Signing in is real here too: every route but /health and the two sign-in
  * routes needs the session cookie, so the frontend's 401 handling can be
@@ -27,7 +27,6 @@ import {
   depositOverWalletReason,
   NO_XDAI_FOR_GAS_REASON,
   plurToBzz,
-  uncheckedChequebookNotice,
   uploaderUnfundedReason,
   withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
@@ -48,7 +47,7 @@ import {
 } from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
-import { closeRollout, engineConfigRoutes } from './mock-engine-config.mjs';
+import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -157,6 +156,7 @@ function remove(profile) {
   profile.status = 'REMOVING';
   changed(profile);
   setTimeout(() => {
+    forgetEngineConfig(profile);
     state.profiles = state.profiles.filter((entry) => entry.name !== profile.name);
     state.nodes.delete(profile.name);
     publish({ type: 'profile.deleted', name: profile.name });
@@ -243,23 +243,19 @@ function moveBzz(name, amountPlur, direction) {
 }
 
 /**
- * The uploader gate, refusing on the same rule and with the same 409 body.
- *
- * A deployment that publishes to a pool has no node of its own to ask, which in
- * the real manager is a failed probe and never a refusal.
+ * The uploader gate uses the manager's funding refusal and unknown-node bodies.
+ * A deployment without a local Bee node keeps its external or pool path.
  */
 function chequebookRefusal(profile) {
   if (!servicesOf(profile).includes('bee-uploader')) return null;
 
   const entry = nodeIfKnown(profile.name);
   if (!entry) {
-    publish({
-      type: 'profile.notice',
-      profile: profile.name,
-      text: uncheckedChequebookNotice(profile.name),
-      tone: 'warn',
-    });
-    return null;
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} did not answer the chequebook check, so the uploader was not started. Try again once the node answers.`,
+    };
   }
 
   const health = chequebookHealthFrom(
@@ -269,6 +265,13 @@ function chequebookRefusal(profile) {
     },
     CHEQUEBOOK_FLOOR_PLUR,
   );
+  if (health.state === 'unknown') {
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
+    };
+  }
   if (health.state !== 'low' && health.state !== 'empty') return null;
 
   return {
@@ -498,7 +501,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/deploy-uploader$/,
     withProfile((_req, res, profile) => {
       const refusal = chequebookRefusal(profile);
-      if (refusal) return send(res, 409, refusal);
+      if (refusal) return send(res, refusal.error === 'bee_node_unreachable' ? 502 : 409, refusal);
       deploy(profile, { withUploader: true });
       send(res, 202, { status: 'accepted' });
     }),
@@ -712,7 +715,7 @@ const ROUTES = [
   ],
   ...attemptRoutes(readBody, publish),
   ...createTargetRoutes(readBody),
-  ...engineRoutes({ readBody, withProfile, deploy, publish }),
+  ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],

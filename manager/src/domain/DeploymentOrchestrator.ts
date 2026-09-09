@@ -34,7 +34,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileConfigError, ProfileInstanceChangedError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
@@ -424,8 +424,9 @@ export class DeploymentOrchestrator {
   async reserveDeploy(
     profile: Profile,
     requested: string[] | undefined,
+    capturedVersion?: StackVersionRecord,
   ): Promise<DeployReservation> {
-    return this.claim(profile, requested, 'advance');
+    return this.claim(profile, requested, 'advance', capturedVersion);
   }
 
   /**
@@ -446,25 +447,30 @@ export class DeploymentOrchestrator {
    * operation closes with the reason. After the claim, never before it, so a
    * refused action moves nothing.
    */
-  private async operatorActed(profile: Profile, reason: string): Promise<void> {
-    await this.profiles.bumpIntent(profile.name);
-    await this.operations.supersedeOpen(profile.instance_id, reason);
+  private async operatorActed(profile: Profile, reason: string): Promise<Profile> {
+    const updated = await this.profiles.bumpIntent(profile.name, profile.instance_id);
+    if (!updated) throw new ProfileInstanceChangedError(profile.name);
+    await this.operations.supersedeOpen(updated.instance_id, reason);
+    return updated;
   }
 
   private async claim(
     profile: Profile,
     requested: string[] | undefined,
     intent: DeployClaimOwnership['intent'],
+    capturedVersion?: StackVersionRecord,
   ): Promise<DeployReservation> {
+    const version = capturedVersion === undefined
+      ? structuredClone(await this.versionForDeploy(profile))
+      : structuredClone(capturedVersion);
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
-    await this.assertAttemptAdmissible(profile, this.attemptKindOf(await this.versionFor(profile)));
+    await this.assertAttemptAdmissible(profile, this.attemptKindOf(version));
 
     // What the deploy will run is decided here, once. A version whose build
     // is missing is refused before anything is claimed, naming the build,
     // and never falls back to another root.
-    const version = await this.versionForDeploy(profile);
     const problem = deployRootProblem(version);
     if (problem) throw new ProfileConfigError(profile.name, problem);
 
@@ -477,7 +483,9 @@ export class DeploymentOrchestrator {
     );
     if (!claimed) {
       const current = await this.profiles.findByName(profile.name);
-      throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
+      if (!current) throw new ProfileNotFoundError(profile.name);
+      if (current.instance_id !== profile.instance_id) throw new ProfileInstanceChangedError(profile.name);
+      throw new ProfileBusyError(profile.name, current.status);
     }
     const reservation = { ...planned, previousStatus: claimed.previousStatus, transitioned: true,
       claimedProfile: claimed.profile, build: claimed.descriptor };
@@ -824,11 +832,12 @@ export class DeploymentOrchestrator {
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
-      afterClaim: () =>
-        this.operatorActed(
+      afterClaim: async () => {
+        await this.operatorActed(
           profile,
           'Stopped by the operator before the file was verified.',
-        ),
+        );
+      },
       onSuccess: async () => {
         const updated = await this.profiles.markTerminal(
           profile.name,

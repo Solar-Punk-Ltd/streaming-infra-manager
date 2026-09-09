@@ -29,6 +29,7 @@ import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
 import type { EngineOverview } from './engineApi';
 import { ENGINE_LABEL } from './engineText';
+import { engineObservationText } from './engineObservationText';
 import { LogsDialog } from './LogsDialog';
 import { isTransitional } from './shape';
 
@@ -53,10 +54,6 @@ function whyRestartIsOff(engineRunning: boolean, deploying: boolean): string {
   if (deploying) return 'Wait for the current deploy to finish.';
   return '';
 }
-
-/** What a setting shows when the deployment's own config file dropped its placeholder. */
-const NOT_READ_BY_FILE =
-  'Not read by the config file this deployment runs on, so what the engine runs with is unverified. The running config under Logs has it.';
 
 /**
  * Why the two ways out of a rollout are greyed out, or an empty string.
@@ -103,10 +100,11 @@ export function EngineCard({
     engineRunning,
     actions.isBusy(profile.name),
   );
-  const notice = rolloutNotice(profile.engine_config_state, {
-    engine: ENGINE_LABEL[engine],
-    hasConfig: profile.has_engine_config,
-  });
+  const notice = rolloutNotice(
+    profile.engine_config_state,
+    { engine: ENGINE_LABEL[engine], hasConfig: profile.has_engine_config },
+    profile.engine_config_error,
+  );
   const rolloutActionsOffBecause = whyRolloutActionsAreOff(
     profile,
     actions.isBusy(profile.name),
@@ -268,34 +266,21 @@ function SettingsList({
   overview: EngineOverview;
 }) {
   const entries: KeyValueEntry[] = fields.map((field) => {
-    const stored = overview.settings[field.key];
-    const value = overview.effective[field.key];
-    const source = overview.defaultSources[field.key] ?? 'stack';
-    if (value === undefined) {
-      return {
-        key: field.label,
-        value: (
-          <Typography variant="caption" color="text.secondary">
-            {NOT_READ_BY_FILE}
-          </Typography>
-        ),
-      };
-    }
+    const observation = overview.observations[field.key];
+    const text = engineObservationText(observation, field.unit ?? '');
     return {
       key: field.label,
       value: (
-        <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap">
-          <Box component="span" sx={{ fontFamily: MONO_STACK }}>
-            {value}
-          </Box>
-          {field.unit && (
+        <Stack spacing={0.5}>
+          <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap">
+            <Box component="span" sx={{ fontFamily: MONO_STACK }}>{text.value}</Box>
+            {observation?.status === 'known' && (
+              <Typography variant="caption" color="text.secondary">{text.source}</Typography>
+            )}
+          </Stack>
+          {text.detail && (
             <Typography variant="caption" color="text.secondary">
-              {field.unit}
-            </Typography>
-          )}
-          {!stored && (
-            <Typography variant="caption" color="text.secondary">
-              {source === 'host' ? 'host default' : 'stack default'}
+              {text.detail}
             </Typography>
           )}
         </Stack>

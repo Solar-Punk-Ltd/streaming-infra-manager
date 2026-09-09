@@ -9,6 +9,8 @@ import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
+  EngineOverviewSnapshot,
+  EngineSettingsWriteOwner,
   NewProfilePlacement,
   ProfileRepository,
   type ProfileRemovalClaim,
@@ -121,6 +123,12 @@ export class InMemoryProfiles {
     return this.rows.get(name) ?? null;
   }
 
+  async engineOverviewSnapshot(name: string): Promise<EngineOverviewSnapshot | null> {
+    const profile = this.rows.get(name);
+    if (!profile) return null;
+    return { profile: structuredClone(profile), engineConfig: this.engineConfigs.get(name) ?? null };
+  }
+
   async list(): Promise<Profile[]> {
     return [...this.rows.values()];
   }
@@ -157,9 +165,11 @@ export class InMemoryProfiles {
     name: string,
     next: ProfileStatus,
     allowedFrom: readonly ProfileStatus[],
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
     const row = this.rows.get(name);
     if (!row || this.claimsRefused.has(name)) return null;
+    if (expectedInstanceId !== undefined && row.instance_id !== expectedInstanceId) return null;
     if (!allowedFrom.includes(row.status)) return null;
     return this.write(name, {
       status: next,
@@ -171,7 +181,9 @@ export class InMemoryProfiles {
   async markTerminal(
     name: string,
     status: ProfileStatus,
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
+    if (expectedInstanceId !== undefined && this.rows.get(name)?.instance_id !== expectedInstanceId) return null;
     return this.write(name, {
       status,
       last_error: null,
@@ -256,7 +268,12 @@ export class InMemoryProfiles {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
+    owner: EngineSettingsWriteOwner,
   ): Promise<Profile | null> {
+    const profile = this.rows.get(name);
+    if (!profile || profile.instance_id !== owner.instanceId || profile.intent_revision !== owner.intentRevision ||
+        profile.engine_config_revision !== owner.configRevision || profile.stack_version_id !== owner.stackVersionId ||
+        profile.status !== 'DEPLOYING' || this.activeDeployJobs.get(name) !== owner.jobReferenceId) return null;
     return this.write(name, { engine_settings: settings });
   }
 
@@ -290,9 +307,10 @@ export class InMemoryProfiles {
   }
 
   /** Stop, start, edit, remove, apply and reset each move the intent, so an older rollout ends. */
-  async bumpIntent(name: string): Promise<Profile | null> {
+  async bumpIntent(name: string, expectedInstanceId?: string): Promise<Profile | null> {
     const row = this.rows.get(name);
     if (!row) return null;
+    if (expectedInstanceId !== undefined && row.instance_id !== expectedInstanceId) return null;
     return this.write(name, { intent_revision: row.intent_revision + 1 });
   }
 

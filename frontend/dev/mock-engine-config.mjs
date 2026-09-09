@@ -12,7 +12,8 @@
  * them: applying while the engine is recreated, watching for a few seconds
  * after, then applied. A file containing the word `crash` is reverted from
  * the watch, one containing `fail` cannot be recreated on and ends failed
- * with the previous file back, and one containing `interrupt` is left
+ * with the previous file back, one containing `note` applies with the note
+ * an unanswered HLS port leaves, and one containing `interrupt` is left
  * interrupted, the way a manager restart leaves one, with the two ways out
  * the card offers.
  */
@@ -43,6 +44,11 @@ const NO_INTERRUPTED_ROLLOUT = 'There is no interrupted rollout to go back from.
 
 function failReason(engine) {
   return `${ENGINE_DISPLAY_NAMES[engine]} could not be recreated on the new config file (deploy.sh exited with code 1), so the previous one is back.`;
+}
+
+/** The note an applied OvenMediaEngine file carries when its HLS port did not answer the manager. */
+function portNote(engine) {
+  return `The HLS port 8091 did not answer from the manager within 10 s after the watch. ${ENGINE_DISPLAY_NAMES[engine]} is running, so this is a diagnosis and not a verdict on the file: check its logs and the port.`;
 }
 
 function crashReason(engine) {
@@ -145,8 +151,21 @@ const TEMPLATES = { srs: SRS_TEMPLATE, [OME_SERVICE]: OME_TEMPLATE };
 /** The stored files, by deployment name. The profile only knows whether it has one. */
 const configs = new Map();
 
+/** The editor and overview read the same stored input. No generated or cached observation copy. */
+export function engineConfigSource(profileName, engine) {
+  return { template: TEMPLATES[engine] ?? null, config: configs.get(profileName) ?? null };
+}
+
 /** The file the latest rollout replaced, by deployment name, for back to the previous file. */
 const previousOf = new Map();
+const retiredProfiles = new WeakSet();
+
+/** Retire the object too, so its pending callbacks cannot write through a reused name. */
+export function forgetEngineConfig(profile) {
+  retiredProfiles.add(profile);
+  configs.delete(profile.name);
+  previousOf.delete(profile.name);
+}
 
 function setRolloutState(profile, state, error = null) {
   profile.engine_config_state = state;
@@ -232,9 +251,14 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
   /** The watch, played: `crash` takes the engine down and is reverted, anything else applies. */
   const watch = (profile, engine, previous, config) => {
     setTimeout(() => {
+      if (retiredProfiles.has(profile)) return;
       if (profile.engine_config_state !== 'watching') return;
       if (!/crash/.test(config)) {
-        setRolloutState(profile, 'applied');
+        setRolloutState(
+          profile,
+          'applied',
+          engine === OME_SERVICE && /note/.test(config) ? portNote(engine) : null,
+        );
         changed(profile);
         return;
       }
@@ -254,6 +278,7 @@ export function engineConfigRoutes({ readBody, withProfile, deploy, publish }) {
     setRolloutState(profile, 'applying');
     deploy(profile, {
       onRunning: () => {
+        if (retiredProfiles.has(profile)) return;
         if (config === null) {
           setRolloutState(profile, 'applied');
         } else if (/fail/.test(config)) {

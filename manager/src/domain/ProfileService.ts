@@ -3,6 +3,7 @@ import {
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
   applicableEngineSettings,
+  assembleEngineSettingObservations,
   assembleBeePublishers,
   type BeePublishersResult,
   beeTargetProblem,
@@ -11,9 +12,11 @@ import {
   type EngineDefaults,
   type EngineName,
   engineOfServices,
-  engineForComponents,
+  engineOverviewIdentity,
   type EngineSettings,
-  effectiveEngineSettings,
+  environmentSettingReadings,
+  OME_SERVICE,
+  engineForComponents,
   engineSettingsFieldsFor,
   type EngineSettingsOverview,
   engineSettingsProblem,
@@ -27,7 +30,6 @@ import {
   type PublishUrlState,
   rungFromMemberName,
   rungOrder,
-  settingsNotInConfig,
   type StackContract,
   type StampHealth,
   stampHealthFrom,
@@ -69,15 +71,23 @@ import {
   InvalidStackVersionError,
   LadderGroupError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
+  EngineSettingsChangedError,
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
+  StackVersionNotFoundError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { engineTemplateIn } from './engineConfig/engineConfigTemplates.js';
+import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
+import { srsSettingReadings } from './engineConfig/srsSettingReadings.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
+import { stackRootOf } from './versions/stackPaths.js';
+import { deployOwnerOf } from './versions/buildLedger.js';
 import { portTableOf } from './versions/portTable.js';
 import type { NewProfilePlacement } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
@@ -486,12 +496,7 @@ export class ProfileService {
    * the container starts with. Naming the stack's own value instead would
    * describe a deployment nobody is running.
    */
-  private async engineDefaults(
-    profile: Profile,
-    engine: EngineName,
-  ): Promise<EngineDefaults> {
-    const root = await this.orchestrator.stackRootFor(profile);
-    const contract = await this.contractFor(profile);
+  private engineDefaultsAt(root: string, engine: EngineName, contract: StackContract | null): EngineDefaults {
     const defaults = effectiveEngineDefaults(
       engine,
       parseBaseEnv(root),
@@ -506,38 +511,41 @@ export class ProfileService {
     return defaults;
   }
 
-  /** The deploy contract of the version this deployment runs, or null. */
-  private async contractFor(profile: Profile): Promise<StackContract | null> {
-    const version = await this.versions.findById(profile.stack_version_id);
-    return version?.contract ?? null;
-  }
-
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
-  async engineOverview(profile: Profile): Promise<EngineSettingsOverview> {
+  async engineOverview(name: string): Promise<EngineSettingsOverview> {
+    const snapshot = await this.repo.engineOverviewSnapshot(name);
+    if (!snapshot) throw new ProfileNotFoundError(name);
+    const { profile, engineConfig } = snapshot;
     const { engine, abr } = this.engineFacts(profile);
-    const defaults = await this.engineDefaults(profile, engine);
-    const contract = await this.contractFor(profile);
-    const notInConfig = profile.has_engine_config
-      ? settingsNotInConfig(
-          engine,
-          (await this.repo.engineConfigOf(profile.name)) ?? '',
-        )
-      : [];
+    const identity = engineOverviewIdentity(profile);
+    const version = await this.versions.findById(profile.stack_version_id);
+    if (!version) throw new StackVersionNotFoundError(profile.stack_version_id);
+    const root = stackRootOf(version);
+    const contract = version.contract;
+    const defaults = this.engineDefaultsAt(root, engine, contract);
+    const fields = engineSettingsFieldsFor(engine, { abr });
+    let readings = environmentSettingReadings(fields);
+    if (profile.has_engine_config) {
+      let template: string | null = null;
+      try {
+        template = engineTemplateIn(root, engine).text;
+      } catch {
+        // Missing or unreadable metadata is represented in each affected observation.
+      }
+      readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
+        : srsSettingReadings(template, engineConfig, fields, { abr });
+    }
+    const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
+      identity,
       engine,
       abr,
       settings: profile.engine_settings,
       defaults: defaults.values,
       defaultSources: defaults.sources,
-      effective: effectiveEngineSettings(
-        engine,
-        profile.engine_settings,
-        defaults.values,
-        notInConfig,
-      ),
-      fields: engineSettingsFieldsFor(engine, { abr }),
+      ...observed,
+      fields,
       liveUnavailableReason: liveUnavailableReason(engine, contract?.features),
-      notInConfig,
     };
   }
 
@@ -554,8 +562,12 @@ export class ProfileService {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
+    expectedInstanceId?: string,
   ): Promise<ProfileWithContainers> {
     const existing = await this.getByName(name);
+    if (expectedInstanceId !== undefined && existing.instance_id !== expectedInstanceId) {
+      throw new ProfileInstanceChangedError(name);
+    }
     if (
       (TRANSITIONAL_STATUSES as readonly string[]).includes(existing.status)
     ) {
@@ -563,9 +575,14 @@ export class ProfileService {
     }
 
     const { engine, abr } = this.engineFacts(existing);
+    const version = structuredClone(await this.versions.findById(existing.stack_version_id));
+    if (!version) {
+      throw new ProfileConfigError(name, `Stack version ${existing.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
+    }
+    const defaults = this.engineDefaultsAt(stackRootOf(version), engine, version.contract);
     const problem = engineSettingsProblem(engine, settings, {
       abr,
-      defaults: (await this.engineDefaults(existing, engine)).values,
+      defaults: defaults.values,
     });
     if (problem) {
       throw new ProfileConfigError(name, problem);
@@ -584,11 +601,21 @@ export class ProfileService {
     const reservation = await this.orchestrator.reserveDeploy(
       existing,
       services,
+      version,
     );
 
     const row = await this.writeOrCancel([reservation], async () => {
-      const written = await this.repo.updateEngineSettings(name, settings);
-      if (!written) throw new ProfileNotFoundError(name);
+      const claimed = reservation.claimedProfile;
+      const referenceId = reservation.build?.referenceId;
+      if (!claimed || referenceId == null) throw new Error('An engine settings save has no claimed job.');
+      const written = await this.repo.updateEngineSettings(name, settings, {
+        ...deployOwnerOf(claimed), jobReferenceId: referenceId,
+      });
+      if (!written) {
+        const current = await this.repo.findByName(name);
+        if (current && current.instance_id !== claimed.instance_id) throw new ProfileInstanceChangedError(name);
+        throw new EngineSettingsChangedError(name);
+      }
       return written;
     });
 

@@ -23,6 +23,7 @@ import {
   placeholdersFilledBy,
   substituteForCheck,
 } from '../../src/domain/engineConfig/placeholders.js';
+import { OME_TEMPLATE } from '../support/omeTemplate.js';
 
 const SRS_FILLS = [
   'PASSPHRASE_PLACEHOLDER',
@@ -31,6 +32,8 @@ const SRS_FILLS = [
   'TRANSCODE_PLACEHOLDER',
   'ABR_VHOST_PLACEHOLDER',
 ];
+
+const SRS_TEMPLATE = 'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n';
 
 const SRS_OK: CommandResult = {
   code: 0,
@@ -100,6 +103,7 @@ describe('the SRS check', () => {
       config: 'hls_fragment HLS_FRAGMENT_PLACEHOLDER;\n',
       image: 'ossrs/srs:6.0.184',
       filled: SRS_FILLS,
+      template: SRS_TEMPLATE,
       scratchDir,
     });
 
@@ -125,6 +129,7 @@ describe('the SRS check', () => {
       config: 'hls_fragmnt 1.5;\n',
       image: null,
       filled: SRS_FILLS,
+      template: SRS_TEMPLATE,
       scratchDir: scratch(),
     });
 
@@ -142,6 +147,7 @@ describe('the SRS check', () => {
       config: 'listen HLS_FRAGMENT_PLACEHOLDER;\nlatency SRT_LATENCY_PLACEHOLDER;\n',
       image: null,
       filled: SRS_FILLS,
+      template: SRS_TEMPLATE,
       scratchDir: scratch(),
     });
 
@@ -157,6 +163,7 @@ describe('the SRS check', () => {
       config: 'listen 1935;\n',
       image: null,
       filled: [],
+      template: SRS_TEMPLATE,
       scratchDir: scratch(),
     });
 
@@ -165,53 +172,94 @@ describe('the SRS check', () => {
 });
 
 describe('the OvenMediaEngine check', () => {
-  const GOOD =
-    '<?xml version="1.0"?>\n<Server version="8">\n  <AdmissionWebhooks>\n    <SecretKey>OME_ADMISSION_SECRET_PLACEHOLDER</SecretKey>\n  </AdmissionWebhooks>\n  <Bind><Providers><SRT /></Providers></Bind>\n</Server>\n';
+  const OME_FILLS = [
+    'OME_ADAPTER_HOST_PLACEHOLDER',
+    'OME_ADAPTER_PORT_PLACEHOLDER',
+    'OME_ADMISSION_SECRET_PLACEHOLDER',
+    'SEGMENT_DURATION_PLACEHOLDER',
+    'SEGMENT_COUNT_PLACEHOLDER',
+  ];
 
-  it('passes a well formed file with the admission element', () => {
-    assert.equal(omeXmlProblem(GOOD), null);
+  async function omeProblem(config: string) {
+    const { checker, calls } = checkerAnswering(SRS_OK);
+    const problem = await checker.problem({
+      engine: 'ome',
+      config,
+      image: null,
+      filled: OME_FILLS,
+      template: OME_TEMPLATE,
+      scratchDir: scratch(),
+    });
+    return { problem, calls };
+  }
+
+  it("passes the version's own template without asking a command runner", async () => {
+    const { problem, calls } = await omeProblem(OME_TEMPLATE);
+
+    assert.equal(problem, null);
+    assert.deepEqual(calls, []);
   });
 
-  it('names the line of a tag closed by the wrong one', () => {
-    assert.equal(
-      omeXmlProblem('<Server>\n  <Bind>\n  </Server>\n'),
-      'Line 3: </Server> closes <Bind> opened on line 2.',
+  it('refuses a second root element, naming its line', () => {
+    assert.match(
+      omeXmlProblem('<Server>\n  <Name>a</Name>\n</Server>\n<Server/>\n') ?? '',
+      /^Line 4: .*one root/,
+    );
+  });
+
+  it('refuses an entity XML does not define', () => {
+    assert.match(
+      omeXmlProblem('<Server>\n  <Name>a &nope; b</Name>\n</Server>\n') ?? '',
+      /^Line 2: .*entity/,
+    );
+  });
+
+  it('refuses an attribute without quotes', () => {
+    assert.match(
+      omeXmlProblem('<Server version=8>\n</Server>\n') ?? '',
+      /^Line 1: .*attribute/,
+    );
+  });
+
+  it('names the line of a tag closed by the wrong one, and the tag still open', () => {
+    assert.match(
+      omeXmlProblem('<Server>\n  <Bind>\n  </Server>\n') ?? '',
+      /^Line 3: .*<Bind> opened on line 2/,
     );
   });
 
   it('names an element left open', () => {
-    assert.equal(
-      omeXmlProblem('<Server>\n  <AdmissionWebhooks></AdmissionWebhooks>\n'),
-      '<Server> opened on line 1 is never closed.',
+    assert.match(
+      omeXmlProblem('<Server>\n  <AdmissionWebhooks></AdmissionWebhooks>\n') ?? '',
+      /<Server> opened on line 1 is never closed/,
     );
   });
 
-  it('ignores comments and the declaration when it counts tags', () => {
+  it('accepts comments, CDATA and the declaration', () => {
     assert.equal(
-      omeXmlProblem('<!-- <Open> -->\n' + GOOD),
+      omeXmlProblem('<?xml version="1.0"?>\n<!-- <Open> -->\n<Server><Name><![CDATA[<a>]]></Name></Server>\n'),
       null,
     );
   });
 
-  it('refuses a file with no admission element, saying why', () => {
-    assert.match(
-      omeXmlProblem('<Server><Bind /></Server>') ?? '',
-      /no <AdmissionWebhooks> element/,
-    );
+  it('refuses a bare < in text, saying how to write one', () => {
+    assert.match(omeXmlProblem('<Server>1 < 2</Server>') ?? '', /Write &lt;/);
   });
 
-  it('runs through the checker without a command runner being asked', async () => {
-    const { checker, calls } = checkerAnswering(SRS_OK);
+  it('refuses a file that keeps every placeholder but changes the admission route, before running anything', async () => {
+    const { problem, calls } = await omeProblem(
+      OME_TEMPLATE.replace('/engines/ome/admission', '/engines/ome/admit'),
+    );
 
-    const problem = await checker.problem({
-      engine: 'ome',
-      config: GOOD,
-      image: null,
-      filled: ['OME_ADMISSION_SECRET_PLACEHOLDER'],
-      scratchDir: scratch(),
-    });
+    assert.match(problem ?? '', /ControlServerUrl/);
+    assert.deepEqual(calls, []);
+  });
+
+  it('accepts the template with only the segment duration made a literal', async () => {
+    const { problem } = await omeProblem(
+      OME_TEMPLATE.split('SEGMENT_DURATION_PLACEHOLDER').join('4'),
+    );
 
     assert.equal(problem, null);
-    assert.deepEqual(calls, []);
   });
 });

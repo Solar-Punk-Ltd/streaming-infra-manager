@@ -27,6 +27,15 @@ export interface ProfileWriteData {
   group_id?: number | null;
 }
 
+export interface EngineOverviewSnapshot {
+  profile: Profile;
+  engineConfig: string | null;
+}
+
+export interface EngineSettingsWriteOwner extends ExpectedDeployOwner {
+  jobReferenceId: number;
+}
+
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
@@ -64,6 +73,17 @@ export class ProfileRepository {
 
   async completeRemoval(claim: ProfileRemovalClaim, cleanFiles: () => Promise<void>): Promise<{ port_slot: number } | null> {
     return this.deleteProfile(claim.name, claim, cleanFiles);
+  }
+
+  /** One statement keeps revision identity, settings and the config in the same database snapshot. */
+  async engineOverviewSnapshot(name: string): Promise<EngineOverviewSnapshot | null> {
+    const result = await this.pool.query<Profile & { engine_config: string | null }>(
+      `SELECT ${PROFILE_COLUMNS}, engine_config FROM profiles WHERE name = $1`, [name],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const { engine_config, ...profile } = row;
+    return { profile, engineConfig: engine_config };
   }
 
   async findByName(name: string): Promise<Profile | null> {
@@ -201,14 +221,18 @@ export class ProfileRepository {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
+    owner: EngineSettingsWriteOwner,
   ): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET engine_settings = $2::jsonb,
              updated_at = NOW()
-       WHERE name = $1
+       WHERE name = $1 AND instance_id = $3 AND intent_revision = $4
+         AND engine_config_revision = $5 AND stack_version_id = $6
+         AND status = 'DEPLOYING' AND deploy_job_reference_id = $7
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, JSON.stringify(settings)],
+      [name, JSON.stringify(settings), owner.instanceId, owner.intentRevision,
+        owner.configRevision, owner.stackVersionId, owner.jobReferenceId],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
@@ -336,13 +360,13 @@ export class ProfileRepository {
    * conditional write of a config rollout names the intent it started under,
    * so this ends an older rollout durably, a manager restart included.
    */
-  async bumpIntent(name: string): Promise<Profile | null> {
+  async bumpIntent(name: string, expectedInstanceId?: string): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET intent_revision = intent_revision + 1, updated_at = NOW()
-       WHERE name = $1
+       WHERE name = $1 AND ($2::uuid IS NULL OR instance_id = $2)
        RETURNING ${PROFILE_COLUMNS}`,
-      [name],
+      [name, expectedInstanceId ?? null],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
@@ -351,6 +375,7 @@ export class ProfileRepository {
     name: string,
     next: ProfileStatus,
     allowedFrom: readonly ProfileStatus[],
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
@@ -361,9 +386,9 @@ export class ProfileRepository {
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
-       WHERE name = $1 AND status = ANY($3::text[])
+       WHERE name = $1 AND status = ANY($3::text[]) AND ($4::uuid IS NULL OR instance_id = $4)
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, next, allowedFrom],
+      [name, next, allowedFrom, expectedInstanceId ?? null],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
@@ -407,6 +432,7 @@ export class ProfileRepository {
   async markTerminal(
     name: string,
     status: ProfileStatus,
+    expectedInstanceId?: string,
   ): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
@@ -415,9 +441,9 @@ export class ProfileRepository {
              last_error = NULL,
              last_error_at = NULL,
              updated_at = NOW()
-       WHERE name = $1
+       WHERE name = $1 AND ($3::uuid IS NULL OR instance_id = $3)
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, status],
+      [name, status, expectedInstanceId ?? null],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }

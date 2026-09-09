@@ -35,8 +35,7 @@ export function createEngineRouter(
     '/profiles/:name/engine',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const profile = await profileService.getByName(req.params.name as string);
-      const overview = await profileService.engineOverview(profile);
+      const overview = await profileService.engineOverview(req.params.name as string);
       res.json({ ...overview, live: null });
     }),
   );
@@ -46,10 +45,11 @@ export function createEngineRouter(
     validateParams(profileNameSchema),
     validateBody(engineSettingsSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const settings = req.body as EngineSettingsBody;
+      const { expectedInstanceId, ...settings } = req.body as EngineSettingsBody;
       const profile = await profileService.updateEngineSettings(
         req.params.name as string,
         definedValues(settings),
+        expectedInstanceId,
       );
       res.status(202).json(profile);
     }),
@@ -98,9 +98,9 @@ export function createEngineRouter(
     '/profiles/:name/engine/config',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const profile = await profileService.getByName(req.params.name as string);
-      const { engine } = await profileService.engineOverview(profile);
-      const text = await containers.effectiveConfig(profile.name, engine);
+      const name = req.params.name as string;
+      const { engine } = await profileService.engineOverview(name);
+      const text = await containers.effectiveConfig(name, engine);
       // The generated config carries the SRT passphrase in clear. The profile
       // JSON already does, so nothing new is exposed, but there is no reason
       // for it to sit in a browser or proxy cache.
