@@ -16,12 +16,12 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
 import { ComposeUpgradeOperations } from '../../src/cli/ComposeUpgradeOperations.js';
-import type { CommandRunner } from '../../src/cli/commandRunner.js';
+import type { CommandResult, CommandRunner } from '../../src/cli/commandRunner.js';
 import { PostgresManagerUpgradeDatabase } from '../../src/cli/managerUpgradeDatabase.js';
-import type { ManagerUpgradeRequest } from '../../src/domain/versions/ManagerUpgrade.js';
+import { runManagerUpgrade, type ManagerUpgradeRequest } from '../../src/domain/versions/ManagerUpgrade.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
-import { buildsRootFor, bundledPackageClaimsRootFor, bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../src/domain/versions/stackPaths.js';
+import { buildsRootFor, bundledPackageClaimsRootFor, bundledPackagesRootFor, managerUpgradeGuardRootFor, sealedBundledPackagePathFor } from '../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../support/bundledArtifactFixture.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
@@ -29,8 +29,27 @@ const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't04b_
 const COMMIT = 'a'.repeat(40);
 const COMPOSE_FILE = '/synthetic-main-v2/manager/docker-compose.yml';
 const TOOLCHAIN = 'synthetic-build-toolchain';
+const API_CONTAINER = 'c0ffee';
 /** Publishing runs no command and probes nothing, so both seams refuse to be used. */
 const noRunner: CommandRunner = async (argv) => { throw new Error(`publishing ran a command: ${argv.join(' ')}`); };
+
+/**
+ * A host that answers a whole upgrade: a database that is already healthy, an
+ * api that is gone once it is stopped and back once the project is started, and
+ * no edge.
+ */
+function hostRunner(imageId: string): CommandRunner {
+  const postgres = JSON.stringify({ Name: 'manager-postgres-1', Service: 'postgres', State: 'running', Health: 'healthy' });
+  const answer = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '', killed: false, signal: null });
+  let apiAsked = 0;
+  return async (argv) => {
+    const line = argv.join(' ');
+    if (line.endsWith('ps -a --format json postgres')) return answer(`${postgres}\n`);
+    if (line.endsWith('ps -q api')) return answer(apiAsked++ === 0 ? '' : `${API_CONTAINER}\n`);
+    if (line.startsWith('docker inspect')) return answer(`${imageId}\n`);
+    return answer('');
+  };
+}
 
 describe('the manager upgrade publishing what the deploy shipped', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535, timeout: 60000,
@@ -104,6 +123,28 @@ describe('the manager upgrade publishing what the deploy shipped', {
     assert.equal(existsSync(join(buildsRootFor(versionsRoot, 'bundled'), receipt.buildId)), true, 'the build it published stays');
     // The package is renamed into the claim when publication takes it over, so the claim is the one copy left to remove.
     assert.deepEqual(said.filter(line => line.includes(shipmentId)), [`[cli] removed bundled.packages/claims/${shipmentId}`]);
+  });
+
+  it('carries a whole first use run through, although its own migration turns the schema it read', async () => {
+    await shipped();
+    // The empty database is only empty until this run migrates it, and every later read of the
+    // same run sees the journal that migration made.
+    const host = new ComposeUpgradeOperations(
+      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false, firstUse: true,
+        postgresVolume: MANAGER_POSTGRES_VOLUME, apiHealthUrl: 'http://api:9876/health' },
+      database, hostRunner(request.manager.imageId), async () => ({ status: 200 }),
+      { out: () => assert.fail('the operations write no machine-read line'), err: (line) => said.push(line) },
+    );
+    const mutableRoot = join(root, 'manager');
+    await mkdir(mutableRoot);
+
+    const result = await runManagerUpgrade({ guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot }, request, host);
+
+    assert.equal(result.state, 'completed');
+    const bundled = (await versions.findByName('bundled'))!;
+    assert.equal(bundled.layout, 'builds');
+    assert.equal(bundled.buildId, result.receipt.buildId);
+    assert.equal(existsSync(managerUpgradeGuardRootFor(versionsRoot)), false, 'and holds nothing afterwards');
   });
 
   it('answers the same receipt on a second run of the same shipment, without building again', async () => {

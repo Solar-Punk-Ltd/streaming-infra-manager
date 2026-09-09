@@ -1,6 +1,7 @@
 /**
  * What the manager upgrade actually does to the host: the Compose commands it
- * runs, in what order, and what it refuses to do.
+ * runs, in what order, what it refuses to do, and what one whole run of it
+ * looks like from the first read to the receipt.
  *
  * Unit test with a scripted command runner and a scripted health probe, so no
  * Docker daemon, no network and no database are touched. `pnpm test` in
@@ -20,9 +21,9 @@ import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunne
 import { BUNDLED_PACKAGE_MANIFEST } from '../../../src/domain/versions/bundledShipmentPackage.js';
 import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import type { BundledActivation, BundledShipmentReceipt, BundledShipmentRecord } from '../../../src/domain/versions/BundledShipment.js';
-import type { ManagerPublication, ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
+import { runManagerUpgrade, type ManagerPublication, type ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
-import { bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../../src/domain/versions/stackPaths.js';
+import { bundledPackagesRootFor, managerUpgradeGuardRootFor, sealedBundledPackagePathFor } from '../../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../../support/bundledArtifactFixture.js';
 
 const PROJECT = 'manager';
@@ -543,6 +544,39 @@ describe('the manager upgrade against one Compose project', () => {
     }
 
     assert.equal(cancelled, true, 'the answer body is never read into this process');
+  });
+
+  describe('one whole run of it', () => {
+    /** Everything the host answers a run on a machine that has never had the manager on it. */
+    function scriptFirstUseRun(): void {
+      runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
+      runner.answer(VOLUME_PROBE, { stdout: '' });
+      runner.answer(API_CONTAINERS, { stdout: '' });
+      runner.answer('ps -q api', { stdout: '' }, { stdout: `${API_CONTAINER}\n` });
+      runner.answer(`docker inspect --format {{.Image}} ${API_CONTAINER}`, { stdout: `${IMAGE_ID}\n` });
+      runner.answer('--profile public ps -q edge', { stdout: '' });
+    }
+
+    it('finishes a first use run, whose own migration turns the empty schema into a journal', async () => {
+      await sealPackage();
+      scriptFirstUseRun();
+      shipment = published();
+      const afterPublication: ManagerPublication = {
+        schema: 'journal', revision: receipt.publicationRevision, buildId: receipt.buildId, receipt: null, pending: null,
+      };
+      // Only the read before the migration can find an empty database, and this run does the migrating.
+      readPublication = async () => (steps.includes('publish') ? afterPublication : FRESH);
+      const mutableRoot = join(root, 'manager');
+      await mkdir(mutableRoot);
+
+      const result = await runManagerUpgrade(
+        { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot }, request, operations({ firstUse: true }),
+      );
+
+      assert.equal(result.state, 'completed');
+      assert.deepEqual(result.receipt, receipt);
+      assert.equal(existsSync(managerUpgradeGuardRootFor(versionsRoot)), false, 'and holds nothing afterwards');
+    });
   });
 
   it('names the project, the compose file and its directory on every Compose call', async () => {
