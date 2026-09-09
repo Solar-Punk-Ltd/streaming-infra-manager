@@ -69,6 +69,7 @@ const ENGINE_ENTRIES = [
 export function seedSettings() {
   return {
     generation: 4,
+    buildGeneration: 4,
     buildId: '3333333333333333333333333333333333333333-r2',
     files: [
       { path: '.env', kind: 'env', entries: structuredClone(BASE_ENTRIES) },

@@ -71,6 +71,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
             writes.push({ method: req.method, path, body: text ? JSON.parse(text) : null });
             if (path.endsWith('/apply')) {
               if (applyBusy) return json({ error: 'stack_build_busy', name: 'other-version', message: 'other-version is building. Wait for it to finish, then try again.' }, 409);
+              settings = { ...settings, buildGeneration: settings.generation };
               return json({ buildId: '3333333333333333333333333333333333333333-r3' });
             }
             if (saveConflict) {
@@ -132,6 +133,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     assert.ok(headings.includes('engines/srs/.env'), headings.join(' '));
     assert.ok(headings.indexOf('.env') < headings.indexOf('deploy/config.json'));
     assert.ok(headings.indexOf('deploy/config.json') < headings.indexOf('engines/srs/.env'));
+  });
+
+  await t.test('the header says applied while the current build carries the saved revision', async () => {
+    assert.match(await evaluate('document.body.innerText'), /revision 4/);
+    assert.match(await evaluate('document.body.innerText'), /applied/);
+    assert.equal((await evaluate('document.body.innerText')).includes('do not have these changes yet'), false);
   });
 
   await t.test('a secret is masked until it is revealed, and hidden again after', async () => {
@@ -211,6 +218,19 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
       (text) => text.includes('Nothing changed yet'),
       'the reload after the save',
     );
+  });
+
+  await t.test('a saved revision no build carries says new deployments do not have it', async () => {
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('The current build carries revision 4'),
+      'the lagging build message',
+    );
+
+    const text = await evaluate('document.body.innerText');
+    assert.match(text, /Saved as revision 5\./);
+    assert.match(text, /new deployments do not have these changes yet/);
+    assert.match(text, /Apply makes a build that does\./);
   });
 
   await t.test('Discard puts the loaded values back', async () => {

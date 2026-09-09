@@ -284,6 +284,27 @@ describe('GET /versions/:id/settings', () => {
     assert.equal((config as StackSettingsJsonFile).sampleText, CONFIG_SAMPLE);
   });
 
+  it('says which revision the current build carries, so a saved change that no build has is visible', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const carried = ((await callJson('GET', `/versions/${id}/settings`)).body as StackSettings);
+    await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+    const lagging = ((await callJson('GET', `/versions/${id}/settings`)).body as StackSettings);
+
+    assert.deepEqual(
+      { generation: carried.generation, buildGeneration: carried.buildGeneration },
+      { generation: 2, buildGeneration: 2 },
+    );
+    assert.deepEqual(
+      { generation: lagging.generation, buildGeneration: lagging.buildGeneration },
+      { generation: 3, buildGeneration: 2 },
+    );
+  });
+
   it('refuses a version whose first build has not happened', async () => {
     const answer = await callJson('GET', `/versions/${await bundledId()}/settings`);
 
