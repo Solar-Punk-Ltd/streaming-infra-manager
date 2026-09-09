@@ -42,6 +42,11 @@
 set -euo pipefail
 
 SSH_TARGET="${1:-viewer}"
+# It is handed to ssh as the destination, where a leading dash is an option.
+if [[ "$SSH_TARGET" == -* ]]; then
+    echo "ERROR: the ssh target must not start with a dash (got: $SSH_TARGET)" >&2
+    exit 1
+fi
 REMOTE_PATH="/home/solarpunk/streaming-infra-manager"
 # How long the upgrade waits for the host to fetch and build the pinned stack
 # commit before it reports a failure. A first build on a cold host pulls the
