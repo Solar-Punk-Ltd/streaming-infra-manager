@@ -111,7 +111,7 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     finally { client.release(); }
   }
 
-  async markBuilding(id: number): Promise<StackVersionRecord | null> {
+  async markBuilding(id: number, gitRef?: string): Promise<StackVersionRecord | null> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -121,7 +121,8 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       const problem = versionRemovalProblem(current);
       if (problem) throw new StackVersionRemovalHeldError(current.name, 'marker');
       const result = await client.query<StackVersionDbRow>(
-        `UPDATE stack_versions SET status = 'building', last_error = NULL WHERE id = $1 RETURNING ${VERSION_COLUMNS}`, [id],
+        `UPDATE stack_versions SET status = 'building', last_error = NULL, git_ref = COALESCE($2, git_ref)
+         WHERE id = $1 RETURNING ${VERSION_COLUMNS}`, [id, gitRef ?? null],
       );
       await client.query('COMMIT');
       return toRecord(result.rows[0]!);

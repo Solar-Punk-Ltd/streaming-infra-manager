@@ -42,12 +42,14 @@ import {
   commitHostConfig,
   envKeysIn,
 } from './hostConfigCapture.js';
+import { readBundledPin } from './bundledCommit.js';
 import { readStackContract } from './stackContract.js';
 import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import {
   buildDirFor,
   buildsRootFor,
   configRootFor,
+  deployRootProblem,
   repoRootFor,
   stackRootOf,
   stagingDirFor,
@@ -226,23 +228,72 @@ export class StackVersionService {
     }
   }
 
+  /**
+   * Builds the version again. For the bundled one that means the stack commit
+   * this manager pins, which is also the ref its row is moved onto, so a
+   * rebuild after a manager deploy follows the new pin rather than the old one.
+   */
   async update(id: number): Promise<StackBuild> {
     this.reserveBuild(`version ${id}`);
     try {
       const version = await this.require(id);
-      if (version.name === BUNDLED_VERSION_NAME) {
-        throw new BundledVersionError(
-          'The bundled version comes with the manager. Deploy the manager to move it, or add another version to follow a branch.',
-        );
-      }
+      const gitRef = version.name === BUNDLED_VERSION_NAME ? this.pinnedStackCommit() : undefined;
 
-      const building = await this.versions.markBuilding(id);
+      const building = await this.versions.markBuilding(id, gitRef);
       if (!building) throw new StackVersionNotFoundError(id);
       return this.startBuild(building);
     } catch (err) {
       this.buildingName = null;
       throw err;
     }
+  }
+
+  /**
+   * Builds the pinned stack commit when the bundled version is not already on
+   * a complete build of it, which is what boot calls.
+   *
+   * Nothing runs when this manager pins no commit, which is a developer
+   * machine: there the row stays legacy on the tree in the checkout. Nothing
+   * runs either while another version is building, because one build at a time
+   * is the rule and the next restart tries again. A build that fails leaves a
+   * failed version row on the Versions page, and the api starts either way.
+   */
+  async ensureBundledBuild(): Promise<StackBuild | null> {
+    const pin = readBundledPin(this.bundledRoot);
+    if (!pin) {
+      logger.info('[Versions] this manager pins no stack commit, so the bundled version stays on the tree it ships with');
+      return null;
+    }
+    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
+    if (!bundled) {
+      logger.warn(`[Versions] there is no ${BUNDLED_VERSION_NAME} row to build the pinned stack commit ${pin} into`);
+      return null;
+    }
+    if (deploysBuildOf(bundled, pin)) {
+      logger.info(`[Versions] the bundled version deploys from build ${bundled.buildId} of the pinned commit ${pin}`);
+      return null;
+    }
+    logger.info(`[Versions] building the pinned stack commit ${pin} for the bundled version`);
+    try {
+      return await this.update(bundled.id);
+    } catch (err) {
+      if (err instanceof StackBuildBusyError) {
+        logger.info(`[Versions] the pinned stack commit was not built because ${err.message} Update the bundled version when it is done.`);
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  /** The commit this manager pins, or a refusal saying there is none to rebuild from. */
+  private pinnedStackCommit(): string {
+    const pin = readBundledPin(this.bundledRoot);
+    if (!pin) {
+      throw new BundledVersionError(
+        'This manager pins no stack commit, so there is nothing to rebuild the bundled version from. Deploy the manager, or add another version to follow a branch.',
+      );
+    }
+    return pin;
   }
 
   async setDefault(id: number): Promise<void> {
@@ -461,6 +512,8 @@ export class StackVersionService {
     }
     const contract = readStackContract(staging);
 
+    // The bundled row carries no root until its first build publishes one, and
+    // the outcome anchors it there so it deploys from its builds from then on.
     const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
     await this.seedHostConfig(configRoot, staging);
     const capture = await captureHostConfig(configRoot, {
@@ -473,7 +526,7 @@ export class StackVersionService {
     await mkdir(buildsRoot, { recursive: true });
     const existing = await this.completeBuildOf(version.name, commit, inputs.generation);
     if (existing) {
-      return { buildId: existing.buildId, commitSha: commit, contract, reused: true };
+      return { buildId: existing.buildId, commitSha: commit, contract, rootPath: configRoot, reused: true };
     }
 
     for (const [relative, bytes] of inputs.files) {
@@ -492,7 +545,7 @@ export class StackVersionService {
     await writeFile(join(staging, BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
     await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
     await rename(staging, buildDirFor(this.versionsRoot, version.name, buildId));
-    return { buildId, commitSha: commit, contract, reused: false };
+    return { buildId, commitSha: commit, contract, rootPath: configRoot, reused: false };
   }
 
   /**
@@ -697,6 +750,12 @@ function toApiVersion(
     buildId: version.buildId,
     previousBuildId: version.previousBuildId,
   };
+}
+
+/** Whether the version deploys from a complete build of this commit right now. */
+function deploysBuildOf(version: StackVersionRecord, commit: string): boolean {
+  return version.layout === 'builds' && version.status === 'ready' &&
+    version.commitSha === commit && deployRootProblem(version) === null;
 }
 
 function refuse(problem: string | null): void {

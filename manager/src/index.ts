@@ -212,6 +212,14 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
+  // The stack commit this manager pins, built here on the host. A build that
+  // cannot start or cannot finish leaves a failed version row the Versions page
+  // shows and an Update button retries, never an api that refuses to start.
+  try {
+    await stackVersionService.ensureBundledBuild();
+  } catch (err) {
+    logger.warn(`[Boot] the pinned stack commit was not built: ${getErrorMessage(err)}. The api starts either way.`);
+  }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {

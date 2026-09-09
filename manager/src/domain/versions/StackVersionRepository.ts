@@ -91,7 +91,8 @@ export interface StackVersionRepository {
   findDefault(): Promise<StackVersionRecord | null>;
   insert(version: NewStackVersion): Promise<StackVersionRecord>;
   /** Back to `building`, for an update of a version already on disk. */
-  markBuilding(id: number): Promise<StackVersionRecord | null>;
+  /** `gitRef` moves the row onto another ref, which is what the bundled version's pin does. */
+  markBuilding(id: number, gitRef?: string): Promise<StackVersionRecord | null>;
   /**
    * Ready, on the commit and contract the build landed on. `tested` survives
    * only when that is the commit the row already carried: the approval is a
