@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { versionRemovalProblem } from './versionRemovalMarker.js';
 import type { Pool, PoolClient } from 'pg';
 import { targetAlias } from '../ports/DeployTargets.js';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord, type ExecutionRootRegistration, type ExecutionRootState } from './ExecutionRoot.js';
@@ -143,6 +144,8 @@ export class PostgresExecutionRootRepository {
     )).rows[0];
     if (!version || version.layout !== 'builds' || !version.root_path ||
         buildDirFor(dirname(version.root_path), basename(version.root_path), input.source.buildId) !== input.source.root) throw new Error('Execution source version or artifact root changed.');
+    const removalProblem = versionRemovalProblem({ id: input.source.versionId, rootPath: version.root_path });
+    if (removalProblem) throw new Error(removalProblem);
     const profile = (await client.query<{ instance_id: string; intent_revision: number; status: string; host: string | null; stack_version_id: number; deploy_job_reference_id: number | null }>(
       'SELECT instance_id, intent_revision, status, host, stack_version_id, deploy_job_reference_id FROM profiles WHERE name = $1 FOR UPDATE', [input.profile.name],
     )).rows[0];

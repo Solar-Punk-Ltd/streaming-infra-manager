@@ -202,7 +202,7 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
 
     it(`${method} refuses a version row removed after its read`, async () => {
       await pool.query('UPDATE profiles SET stack_version_id = 1 WHERE name = $1', ['test-profile']);
-      await refusalAfter(() => versions.remove(selected.id));
+      await refusalAfter(() => versions.removeGuarded(selected, async () => {}));
     });
 
     for (const missing of [BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, 'directory'] as const) {

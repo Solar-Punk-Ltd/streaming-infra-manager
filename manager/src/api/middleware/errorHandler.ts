@@ -51,6 +51,7 @@ import {
   DeployAttemptRefusedError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
+import { StackVersionRemovalHeldError } from '../../domain/errors/StackVersionRemovalHeldError.js';
 
 const logger = Logger.getInstance();
 
@@ -274,6 +275,10 @@ export function errorHandler(
       deployments: err.deployments,
       message: err.message,
     });
+    return;
+  }
+  if (err instanceof StackVersionRemovalHeldError) {
+    res.status(409).json({ error: 'stack_version_removal_held', name: err.versionName, reason: err.reason, message: err.message });
     return;
   }
   if (err instanceof BundledVersionError) {

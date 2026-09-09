@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -22,7 +22,8 @@ import { missingStackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
 
-const root = mkdtempSync(join(tmpdir(), 'stack-secrets-'));
+const root = join(mkdtempSync(join(tmpdir(), 'stack-secrets-')), 'main-v3');
+mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
 const { orchestratorHarness, untilRunning } = await import(
