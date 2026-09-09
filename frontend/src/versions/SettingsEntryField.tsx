@@ -86,6 +86,10 @@ export function SettingsEntryField({
           inputProps={{
             'aria-label': entry.key,
             spellCheck: false,
+            // A masked field is a password field to a browser, and the manager
+            // is not the place these values belong: a password manager that
+            // offers to save one puts it somewhere nobody rotated it from.
+            autoComplete: 'off',
             autoCapitalize: 'off',
             autoCorrect: 'off',
             style: { fontFamily: MONO_STACK, fontSize: 13 },
