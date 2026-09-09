@@ -213,3 +213,63 @@ brief lists it among the removed modules but also says `readPublication` keeps
 the first-use rule and the schema state, and something has to read the schema.
 Its database test was rewritten rather than removed, and it is where the
 migration-030 assertions live.
+
+**After the reviews, 2026-09-10.** A security review and a correctness review
+ran in parallel over the slice and found fourteen things, all now fixed on
+`feat/bundled-on-host`, one test-first commit pair each. The two that mattered
+were the same leftover from both sides: `removeGuarded` still asked
+`bundled_shipments` whether a version was held, and migration 030 drops that
+table, so the first version removal after an upgrade would have failed on the
+host and eleven database tests failed on the branch. The other one that could
+have reached the host is the guard: the twenty minute bundled wait did not catch
+its own read errors, so one failed query after the api was verified left
+`.manager-upgrade` behind and refused every later deploy. It now releases before
+it rethrows.
+
+Three findings were about the settings files, which hold the stream passphrase,
+the api token, the webhook token and the bee passphrase. They were being written
+at 0644 under a versions root anyone on the host can enter, because the atomic
+replacement wrote its temporary file with no mode. A file a commit creates is now
+owner only and a file it replaces keeps the mode an operator gave it. The
+completion and the legacy carry over both read a file and then took the lock only
+for the write, so an edit made in between was overwritten: `withHostConfigLock`
+now takes the lock once and hands the body a commit. And the set of settings
+files was built with calls that follow symbolic links, so a link planted in the
+legacy tree would have had its target read in the api container and committed as
+generation one. Every path of the set is now lstat checked, the `deploy` and
+`engines` directories included, and what was passed by is logged.
+
+The build script fetched from whatever `remote.origin.url` the clone on disk
+carried, so the https only check held for the first build alone. It repoints
+origin at the checked url before every fetch. The deploy refuses a
+`BUNDLED_TIMEOUT` that is not whole seconds and an ssh target starting with a
+dash, keeps the exit status of the upgrade so the receipt reaches the deployer
+before the failure, and `--bundled-timeout` is now optional with the twenty
+minute default the operations already carried. `deploysBuildOf` moved next to
+`deployRootProblem` so boot and the upgrade decide ready by the same rule, and
+the wait counts a `lastError` as its own only when the row has moved since it
+started the api, which is what tells this build's failure from one an earlier
+boot left standing. That baseline is read in `startProject`, which is the last
+moment before the new api can run its own boot.
+
+Two gaps in the tests were closed by mutation rather than by a code change.
+"Existing lines byte for byte untouched" had no fixture with a comment, a blank
+line, trailing spaces or a CRLF line, so stripping every comment and trimming the
+leading blank both passed. Both now go red. The bundled card's enabled Update
+button was asserted nowhere, and putting the old disable back passed every test;
+`frontend/test/versions-layout.test.mjs`, which renders the real page in headless
+Chrome, now asserts the button is enabled and the commit is on the card. That
+file is not part of `pnpm test`, which reads `src/**/*.test.ts` only, so it was
+run on its own: 12 of 12. The live build script test also set only `HOME`, which
+`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_COUNT` outrank, so a developer with either
+set would have sent that fetch to github.com. It answers all of them now.
+
+**Verified, 2026-09-10.** Manager unit 2081 of 2081. The whole
+`manager/test/database` directory 492 of 492 with nothing skipped, against a
+disposable Postgres holding the nine databases the files name, every
+`*_TEST_PG_PORT` set. That is five fewer than the base commit, which is exactly
+the four shipment cases and the one dropped table this round removed. Common 300,
+frontend 68, both manager typechecks and the common and frontend typechecks
+clean, `bash -n deploy/deploy.sh` clean, and the remote heredoc body parses as
+bash on its own. Nothing ran against the real host, nothing was pushed, and no
+`.env` of the submodule was read.
