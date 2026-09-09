@@ -71,6 +71,37 @@ describe('read-only registered execution attribution', () => {
     assert.deepEqual(result.containers[0]!.dependencies.map(d => d.executionId), [EXECUTION_A, EXECUTION_B]);
   });
 
+  for (const source of [EXECUTIONS_PARENT, '/synthetic']) {
+    it(`retains every execution accessible through an ancestor bind of ${source}`, async () => {
+      const b = executionRecord(EXECUTION_B, { jobReferenceId: 6, referenceId: 8 });
+      const result = await observeExecutionMounts(reader([inspected(CONTAINER_A, { Config: {},
+        Mounts: [{ Type: 'bind', Source: source, Destination: '/input' }],
+      })]), registry([executionRecord(), b]));
+      assert.equal(result.state, 'complete');
+      if (result.state !== 'complete') return;
+      assert.deepEqual(result.containers[0]!.dependencies.map(d => d.executionId), [EXECUTION_A, EXECUTION_B]);
+      assert.equal(result.containers[0]!.dependencyState, 'multiple');
+      assert.equal(result.containers[0]!.attribution.state, 'unknown');
+      assert.deepEqual(result.containers[0]!.unmatchedBindSources, []);
+      assert.equal(result.cleanupAuthorized, false);
+    });
+  }
+
+  for (const source of ['/disjoint/data', executionRecord().source.root]) {
+    it(`does not label a direct non-execution bind of ${source} as an execution-copy dependency`, async () => {
+      const result = await observeExecutionMounts(reader([inspected(CONTAINER_A, { Config: {},
+        Mounts: [{ Type: 'bind', Source: source, Destination: '/input' }],
+      })]), registry());
+      assert.equal(result.state, 'complete');
+      if (result.state !== 'complete') return;
+      assert.deepEqual(result.containers[0]!.dependencies, []);
+      assert.equal(result.containers[0]!.dependencyState, 'none');
+      assert.deepEqual(result.containers[0]!.unmatchedBindSources, [source]);
+      assert.equal(result.containers[0]!.attribution.state, 'unknown');
+      assert.equal(result.cleanupAuthorized, false);
+    });
+  }
+
   for (const path of [`${executionRecord().root}-other`, `${EXECUTIONS_PARENT}/99999999-9999-4999-8999-999999999999/tree`]) {
     it('does not derive identity from an unregistered path or prefix lookalike', async () => {
       const result = await observeExecutionMounts(reader([inspected(CONTAINER_A, { Config: labels(path), Mounts: mount(path) })]), registry());
