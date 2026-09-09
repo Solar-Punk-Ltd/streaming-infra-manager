@@ -78,7 +78,7 @@ beforeEach(() => {
     runner,
     new EventBus(),
     versionsRoot,
-    { openReferences: async () => [], pendingShipmentBuildIds: async () => [] },
+    { openReferences: async () => [] },
     legacyRoot,
   );
 });

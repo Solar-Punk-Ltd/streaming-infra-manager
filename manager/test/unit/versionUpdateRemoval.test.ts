@@ -15,7 +15,7 @@ it('an update whose version disappears during markBuilding refuses before filesy
   versions.seedBundled();
   const selected = await versions.insert({ name: 'review-stack', gitRef: 'review', rootPath: join(root, 'review-stack') });
   const runner = new FakeScriptSpawner();
-  const service = new StackVersionService(versions, runner, new EventBus(), root, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
+  const service = new StackVersionService(versions, runner, new EventBus(), root, { openReferences: async () => [] });
   let entered!: () => void;
   let release!: () => void;
   const arrived = new Promise<void>(resolve => { entered = resolve; });

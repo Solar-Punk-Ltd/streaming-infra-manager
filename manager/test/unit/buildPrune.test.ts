@@ -76,7 +76,7 @@ beforeEach(async () => {
     new FakeScriptSpawner(),
     new EventBus(),
     versionsRoot,
-    { openReferences: async (id) => references.filter((r) => r.versionId === id && r.resolvedAt === null), pendingShipmentBuildIds: async () => [] },
+    { openReferences: async (id) => references.filter((r) => r.versionId === id && r.resolvedAt === null) },
   );
   const v3 = await repository.insert({ name: 'v3', gitRef: 'main-v3', rootPath: join(versionsRoot, 'v3') });
   versionId = v3.id;

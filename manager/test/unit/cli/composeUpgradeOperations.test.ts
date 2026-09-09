@@ -101,7 +101,7 @@ describe('the manager upgrade against one Compose project', () => {
   let publication: ManagerPublication; let migrated: number;
   let readPublication: () => Promise<ManagerPublication>;
   let bundledStates: BundledVersionState[];
-  let steps: string[]; let errors: string[];
+  let steps: string[];
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-compose-'));
@@ -120,7 +120,7 @@ describe('the manager upgrade against one Compose project', () => {
     migrated = 0;
     readPublication = async () => publication;
     bundledStates = [bundledRow()];
-    steps = []; errors = [];
+    steps = [];
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -144,7 +144,6 @@ describe('the manager upgrade against one Compose project', () => {
       database(),
       runner.run,
       async () => ({ status: statuses.length > 1 ? statuses.shift()! : statuses[0]! }),
-      { out: () => assert.fail('the operations write no machine-read line'), err: (line) => errors.push(line) },
     );
   }
 
@@ -311,7 +310,7 @@ describe('the manager upgrade against one Compose project', () => {
 
   describe('migrating', () => {
     it('migrates the database, which is safe because the old api is stopped by now', async () => {
-      await operations().migrate(request);
+      await operations().migrate();
 
       assert.deepEqual(steps, ['migrate']);
       assert.equal(migrated, 1);
@@ -320,7 +319,7 @@ describe('the manager upgrade against one Compose project', () => {
 
   describe('waiting for the bundled build the api starts at boot', () => {
     it('answers the build once the row is on the pinned commit', async () => {
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.deepEqual(outcome, { state: 'ready', commit: PIN, buildId: PIN, problem: null });
     });
@@ -328,7 +327,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('waits through the build the api is still running', async () => {
       bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null }), bundledRow()];
 
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.equal(outcome.state, 'ready');
       assert.ok(steps.filter((step) => step === 'read-bundled').length >= 2, 'it asked again');
@@ -337,7 +336,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('answers a build that failed with what the row says went wrong', async () => {
       bundledStates = [bundledRow({ status: 'failed', layout: 'legacy', commitSha: null, buildId: null, lastError: 'could not reach github' })];
 
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.deepEqual(outcome, { state: 'failed', commit: PIN, buildId: null, problem: 'could not reach github' });
     });
@@ -345,7 +344,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('answers a rebuild that failed over a build the version keeps', async () => {
       bundledStates = [bundledRow({ commitSha: 'b'.repeat(40), buildId: 'b'.repeat(40), lastError: 'the build exited with code 1' })];
 
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.equal(outcome.state, 'failed');
       assert.equal(outcome.problem, 'the build exited with code 1');
@@ -354,7 +353,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('gives up after its own bound, saying which commit it waited for', async () => {
       bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null })];
 
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.equal(outcome.state, 'timed-out');
       assert.equal(outcome.commit, PIN);
@@ -363,7 +362,7 @@ describe('the manager upgrade against one Compose project', () => {
     it('waits for nothing on a manager that pins no commit', async () => {
       await rm(join(root, 'manager', '.stack-commit'));
 
-      const outcome = await operations().awaitBundledBuild(request);
+      const outcome = await operations().awaitBundledBuild();
 
       assert.deepEqual(outcome, { state: 'unpinned', commit: null, buildId: null, problem: null });
       assert.deepEqual(steps, [], 'and asks the database nothing');

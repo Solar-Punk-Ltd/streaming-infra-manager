@@ -110,7 +110,6 @@ export interface BuildLedger {
  */
 export interface BuildReferenceReader {
   openReferences(versionId: number): Promise<BuildReference[]>;
-  pendingShipmentBuildIds(versionId: number): Promise<string[]>;
   /** Runs `work` while the version row is locked for update. */
   lockVersion?<T>(versionId: number, work: () => Promise<T>): Promise<T>;
 }

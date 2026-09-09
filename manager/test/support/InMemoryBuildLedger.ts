@@ -161,10 +161,6 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     return this.references.filter((r) => r.versionId === versionId && r.resolvedAt === null);
   }
 
-  async pendingShipmentBuildIds(_versionId: number): Promise<string[]> {
-    return [];
-  }
-
   openJobReferences(profileName: string): BuildReference[] {
     return this.references.filter((r) => r.holderKind === 'job' && r.holderId === profileName && r.resolvedAt === null);
   }

@@ -66,7 +66,7 @@ beforeEach(() => {
   repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
   runner = new FakeScriptSpawner();
-  service = new StackVersionService(repository, runner, new EventBus(), versionsRoot, { openReferences: async () => [], pendingShipmentBuildIds: async () => [] });
+  service = new StackVersionService(repository, runner, new EventBus(), versionsRoot, { openReferences: async () => [] });
 });
 
 const settle = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
