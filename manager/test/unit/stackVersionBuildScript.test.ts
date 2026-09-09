@@ -108,6 +108,13 @@ describe('stack-version-build.sh refs', () => {
     assert.match(script, /\^\[0-9a-f\]\{40\}\$/, 'a commit is forty hex characters');
   });
 
+  it('points the existing clone at the checked url before it fetches anything', () => {
+    const existing = script.slice(script.indexOf('if [ -d "$REPO/.git" ]'), script.indexOf('COMMIT="$(git -C'));
+    const repointed = existing.indexOf('git -C "$REPO" remote set-url origin "$REPO_URL"');
+    assert.notEqual(repointed, -1, 'the url the clone carries is never the one fetched from');
+    assert.ok(repointed < existing.indexOf('git -C "$REPO" fetch'), 'the repoint comes before every fetch');
+  });
+
   it('fetches a commit into an existing clone rather than asking for a branch of that name', () => {
     const existing = script.slice(script.indexOf('if [ -d "$REPO/.git" ]'), script.indexOf('COMMIT="$(git -C'));
     assert.match(existing, /git -C "\$REPO" fetch --prune origin "\$REF"/, 'a commit is fetched without --tags');
@@ -186,6 +193,25 @@ describe('stack-version-build.sh fetches a pinned commit', () => {
       const staging = build(root, repo, pinned, environment);
 
       assert.equal(readFileSync(join(staging, STACK_COMMIT_FILE), 'utf8').trim(), pinned);
+      assert.equal(readFileSync(join(staging, 'package.json'), 'utf8'), '{"name":"pinned"}\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fetches from the url it was given, not the one the clone on disk carries', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stack-build-repointed-'));
+    try {
+      const { pinned, environment } = fixture(root);
+      const repo = join(root, 'stack.repo');
+      execFileSync('git', ['clone', '-q', join(root, 'origin'), repo]);
+      // Anyone who can write into the versions root can do this, and the
+      // versions root is bind mounted read write into the api container.
+      git(repo, 'remote', 'set-url', 'origin', join(root, 'planted'));
+
+      const staging = build(root, repo, pinned, environment);
+
+      assert.equal(git(repo, 'remote', 'get-url', 'origin'), STACK_URL);
       assert.equal(readFileSync(join(staging, 'package.json'), 'utf8'), '{"name":"pinned"}\n');
     } finally {
       rmSync(root, { recursive: true, force: true });
