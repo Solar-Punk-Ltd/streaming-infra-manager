@@ -65,6 +65,12 @@ class ForwardLease extends Duplex {
     this.on('error', ignoreLateError);
     inner.on('error', this.failed); inner.on('close', this.failed); inner.on('end', this.ended); inner.on('readable', this.onReadable);
   }
+  override read(size?: number): Buffer | null {
+    if (!this.usable()) return null;
+    const value: unknown = super.read(size);
+    if (value === null || Buffer.isBuffer(value)) return value;
+    this.failed(); return null;
+  }
   override _read(): void { this.#pressured = false; this.pump(); }
   override _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
     if (!this.usable() || !Buffer.isBuffer(chunk)) { callback(new DockerBeeAcquisitionError()); return; }
