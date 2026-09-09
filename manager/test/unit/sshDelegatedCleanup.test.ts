@@ -50,3 +50,14 @@ it('late verified cleanup does not relabel an already unverified manager outcome
   h.receipt.resolve({ state: 'closed' }); h.child.emit('exited'); await tick();
   assert.equal(await h.acquired.cleanup, prior); assert.equal(h.events.includes('rmdir'), false); assert.equal(h.events.includes('unlink'), false);
 });
+
+it('disposal during start handoff still revokes deletion authority and never connects', async () => {
+  const h = fakeForwardHarness(); const receipt = deferred<SshForwardCleanup | undefined>();
+  const child = Object.assign(h.child, { delegatedCleanup: { leaseId: 'synthetic', receipt: receipt.promise, readySocket: () => socketIdentity } });
+  let acquired!: ReturnType<typeof beginSshDockerBeeAcquisition>;
+  h.dependencies.spawn = (_command, ownership) => { ownership!.delegateCleanup(); acquired.dispose(); return child; };
+  acquired = beginSshDockerBeeAcquisition(syntheticTarget, async () => remoteLocator(), forwardLimits, h.dependencies, () => true);
+  await assert.rejects(acquired.result); receipt.resolve(undefined); await tick();
+  assert.equal((await acquired.cleanup).state, 'unverified');
+  assert.equal(h.events.includes('connect'), false); assert.equal(h.events.includes('rmdir'), false); assert.equal(h.events.includes('unlink'), false);
+});

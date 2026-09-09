@@ -68,6 +68,7 @@ for (const [name, change] of [
   ['wrong directory', (value: any) => { value.directory.identity.ino = '99'; }],
   ['wrong socket path', (value: any) => { value.socket.path = '/synthetic/another.sock'; }],
   ['foreign socket owner', (value: any) => { value.socket.identity.uid = 456; }],
+  ['replaced socket inode', (value: any) => { value.socket.identity.ino = '999'; }],
   ['missing socket after readiness', (value: any) => { value.socket = null; }],
   ['unknown result field', (value: any) => { value.outcome.safeToRetry = true; }],
   ['unlabelled result', (value: any) => { value.outcome = {}; }],
@@ -85,4 +86,11 @@ it('captured start and ready evidence cannot be altered by later caller mutation
   const evidence = structuredClone(ready()); process.emit({ type: 'message', value: evidence }); evidence.socket.identity.ino = '77';
   process.emit({ type: 'message', value: receipt() }); process.emit({ type: 'closed' });
   assert.deepEqual(await child.delegatedCleanup.receipt, { state: 'closed' }); assert.equal(child.delegatedCleanup.readySocket()?.ino, '3');
+});
+
+it('captures the owner uid before delayed supervisor evidence arrives', async () => {
+  const process = new FakeProcess(); const context = { uid: 123, nowNs: () => 0n, delegateCleanup() {} };
+  const child = attachSupervisedForwardChild(start(), process, context); context.uid = 456;
+  process.emit({ type: 'message', value: ready() }); process.emit({ type: 'message', value: receipt() }); process.emit({ type: 'closed' });
+  assert.deepEqual(await child.delegatedCleanup.receipt, { state: 'closed' });
 });
