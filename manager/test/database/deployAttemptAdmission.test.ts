@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 import { PostgresDeployAttemptRepository } from '../../src/domain/PostgresDeployAttemptRepository.js';
+import { openDeployAttempt } from '../../src/domain/deployAttemptSql.js';
 
 const port = Number(process.env.T01_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't01_test', connectionTimeoutMillis: 10000 };
@@ -123,5 +124,52 @@ describe('attempt history protects container snapshot admission in PostgreSQL', 
     const first = await attempts.open(legacy);
     await attempts.resolve(first.id, { state: 'released', reason: 'synthetic legacy complete' });
     await assert.rejects(attempts.open(request('stale-after-legacy')), /snapshot|history|changed/i);
+  });
+
+  it('lets the caller roll back the attempt and releases its daemon lock', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await openDeployAttempt(client, request('uncommitted'));
+      await client.query('ROLLBACK');
+    } finally { client.release(); }
+    assert.deepEqual(await unchangedWrites(), { attempts: 0, jobs: 0, operations: 0 });
+    assert.ok(await attempts.open(request('retry')));
+  });
+
+  it('checks history after waiting for an intervening attempt which commits already released', async () => {
+    const client = await pool.connect();
+    let waiting: Promise<void> | undefined;
+    try {
+      await client.query('BEGIN');
+      const pid = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+      const held = await openDeployAttempt(client, request('intervening-held'));
+      waiting = assert.rejects(attempts.open(request('waiting-stale')), /snapshot|history|changed/i);
+      let blocked = false;
+      for (let tick = 0; tick < 200 && !blocked; tick += 1) {
+        blocked = (await pool.query<{ blocked: boolean }>(
+          'SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS blocked', [pid],
+        )).rows[0]!.blocked;
+        if (!blocked) await new Promise(done => setTimeout(done, 5));
+      }
+      assert.ok(blocked, 'the second admission must wait for the actual daemon lock');
+      await client.query("UPDATE deploy_attempts SET state = 'released', resolved_at = NOW() WHERE id = $1", [held.id]);
+      await client.query('COMMIT');
+      await waiting;
+      assert.deepEqual(await unchangedWrites(), { attempts: 1, jobs: 0, operations: 0 });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+      await waiting;
+    }
+  });
+
+  it('preserves decimal text at the top of the SERIAL identity range', async () => {
+    await pool.query('ALTER SEQUENCE deploy_attempts_id_seq RESTART WITH 2147483646');
+    const first = await attempts.open(request('large-identity'));
+    await attempts.resolve(first.id, { state: 'released', reason: null });
+    const token = await attempts.captureSnapshotToken(daemonId, project);
+    assert.equal(token.latestAttemptId, '2147483646');
+    assert.equal((await attempts.open(request('next-identity', token))).id, 2147483647);
   });
 });

@@ -4,6 +4,13 @@ import type {
   DeployAttemptKind,
 } from './deployAttempts.js';
 
+export interface AttemptSnapshotToken {
+  daemonId: string;
+  project: string;
+  /** Decimal text preserves the database identity without numeric coercion. Null means no retained history. */
+  latestAttemptId: string | null;
+}
+
 export interface NewDeployAttempt {
   daemonId: string;
   target?: string | null;
@@ -12,6 +19,7 @@ export interface NewDeployAttempt {
   kind: DeployAttemptKind;
   services: readonly string[];
   preJobContainerIds: readonly string[];
+  snapshotToken?: AttemptSnapshotToken;
 }
 
 /**
@@ -21,6 +29,7 @@ export interface NewDeployAttempt {
  * `DeployAttemptRefusedError` naming what holds the guard.
  */
 export interface DeployAttemptRepository {
+  captureSnapshotToken(daemonId: string, project: string): Promise<AttemptSnapshotToken>;
   open(attempt: NewDeployAttempt): Promise<DeployAttempt>;
   findByJob(jobId: string): Promise<DeployAttempt | null>;
   listUnresolved(daemonId?: string): Promise<DeployAttempt[]>;

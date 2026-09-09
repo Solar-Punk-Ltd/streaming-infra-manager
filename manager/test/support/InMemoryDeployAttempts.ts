@@ -8,6 +8,7 @@ import type {
   DaemonSnapshot,
   DeployAttemptRepository,
   NewDeployAttempt,
+  AttemptSnapshotToken,
 } from '../../src/domain/DeployAttemptRepository.js';
 import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
 
@@ -25,6 +26,14 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
   private nextId = 1;
 
   async open(attempt: NewDeployAttempt): Promise<DeployAttempt> {
+    if (attempt.snapshotToken) {
+      const current = this.snapshotTokenFor(attempt.daemonId, attempt.project);
+      const expected = attempt.snapshotToken;
+      if (expected.daemonId !== current.daemonId || expected.project !== current.project ||
+          expected.latestAttemptId !== current.latestAttemptId) {
+        throw new DeployAttemptRefusedError(attempt.project, 'Deploy attempt history changed while the container snapshot was read.');
+      }
+    }
     const refusal = whyAdmissionIsRefused(attempt, this.rows);
     if (refusal) throw new DeployAttemptRefusedError(attempt.project, refusal);
     const row: DeployAttempt = {
@@ -41,6 +50,19 @@ export class InMemoryDeployAttempts implements DeployAttemptRepository {
     };
     this.rows.push(row);
     return row;
+  }
+
+  async captureSnapshotToken(daemonId: string, project: string): Promise<AttemptSnapshotToken> {
+    return this.snapshotTokenFor(daemonId, project);
+  }
+
+  private snapshotTokenFor(daemonId: string, project: string): AttemptSnapshotToken {
+    const history = this.rows.filter(row => row.daemonId === daemonId && row.project === project);
+    if (history.some(row => row.state !== 'released')) {
+      throw new DeployAttemptRefusedError(project, 'An unresolved deploy attempt prevents a container snapshot.');
+    }
+    const latest = history.reduce<number | null>((id, row) => id === null || row.id > id ? row.id : id, null);
+    return { daemonId, project, latestAttemptId: latest === null ? null : String(latest) };
   }
 
   async findByJob(jobId: string): Promise<DeployAttempt | null> {

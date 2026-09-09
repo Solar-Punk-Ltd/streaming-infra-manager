@@ -1,51 +1,11 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import {
   type AttemptOutcome,
   type DeployAttempt,
-  whyAdmissionIsRefused,
 } from './deployAttempts.js';
-import type { DeployAttemptRepository, NewDeployAttempt } from './DeployAttemptRepository.js';
-import { DeployAttemptRefusedError } from './errors/index.js';
-
-const COLUMNS = `
-  id, daemon_id, target, project, job_id, kind, services, pre_job_container_ids,
-  state, reason, started_at, resolved_at, released_by
-`;
-
-interface AttemptRow {
-  id: number;
-  daemon_id: string;
-  target: string | null;
-  project: string;
-  job_id: string;
-  kind: DeployAttempt['kind'];
-  services: string[];
-  pre_job_container_ids: string[];
-  state: DeployAttempt['state'];
-  reason: string | null;
-  started_at: Date;
-  resolved_at: Date | null;
-  released_by: string | null;
-}
-
-function toAttempt(row: AttemptRow): DeployAttempt {
-  return {
-    id: row.id,
-    daemonId: row.daemon_id,
-    target: row.target,
-    project: row.project,
-    jobId: row.job_id,
-    kind: row.kind,
-    services: row.services,
-    preJobContainerIds: row.pre_job_container_ids,
-    state: row.state,
-    reason: row.reason,
-    startedAt: row.started_at,
-    resolvedAt: row.resolved_at,
-    releasedBy: row.released_by,
-  };
-}
+import type { AttemptSnapshotToken, DeployAttemptRepository, NewDeployAttempt } from './DeployAttemptRepository.js';
+import { ATTEMPT_COLUMNS as COLUMNS, type AttemptRow, captureAttemptSnapshotToken, openDeployAttempt, toAttempt } from './deployAttemptSql.js';
 
 /**
  * The attempts table. `open` takes an advisory lock keyed by the daemon for
@@ -57,35 +17,21 @@ export class PostgresDeployAttemptRepository implements DeployAttemptRepository 
   constructor(private readonly pool: Pool) {}
 
   async open(attempt: NewDeployAttempt): Promise<DeployAttempt> {
+    const captured = structuredClone(attempt);
+    return this.transaction(client => openDeployAttempt(client, captured));
+  }
+
+  async captureSnapshotToken(daemonId: string, project: string): Promise<AttemptSnapshotToken> {
+    return this.transaction(client => captureAttemptSnapshotToken(client, daemonId, project));
+  }
+
+  private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`deploy-attempts:${attempt.daemonId}`]);
-      const unresolved = await client.query<AttemptRow>(
-        `SELECT ${COLUMNS} FROM deploy_attempts WHERE daemon_id = $1 AND state <> 'released'`,
-        [attempt.daemonId],
-      );
-      const refusal = whyAdmissionIsRefused(attempt, unresolved.rows.map(toAttempt));
-      if (refusal) {
-        await client.query('ROLLBACK');
-        throw new DeployAttemptRefusedError(attempt.project, refusal);
-      }
-      const inserted = await client.query<AttemptRow>(
-        `INSERT INTO deploy_attempts (daemon_id, project, job_id, kind, services, pre_job_container_ids, target)
-         VALUES ($1, $2, $3, $4, $5::text[], $6::text[], $7)
-         RETURNING ${COLUMNS}`,
-        [
-          attempt.daemonId,
-          attempt.project,
-          attempt.jobId,
-          attempt.kind,
-          [...attempt.services],
-          [...attempt.preJobContainerIds],
-          attempt.target ?? null,
-        ],
-      );
+      const result = await work(client);
       await client.query('COMMIT');
-      return toAttempt(inserted.rows[0]!);
+      return result;
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       throw err;
