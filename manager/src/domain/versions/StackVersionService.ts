@@ -43,6 +43,8 @@ import {
   envKeysIn,
 } from './hostConfigCapture.js';
 import { readBundledPin } from './bundledCommit.js';
+import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
 import { readStackContract } from './stackContract.js';
 import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import {
@@ -515,7 +517,9 @@ export class StackVersionService {
     // The bundled row carries no root until its first build publishes one, and
     // the outcome anchors it there so it deploys from its builds from then on.
     const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
+    if (version.name === BUNDLED_VERSION_NAME) await this.adoptLegacyHostConfig(configRoot);
     await this.seedHostConfig(configRoot, staging);
+    await this.completeHostConfig(configRoot, staging);
     const capture = await captureHostConfig(configRoot, {
       sampleEnvKeys: await sampledEnvKeys(staging),
     });
@@ -546,6 +550,25 @@ export class StackVersionService {
     await writeFile(join(staging, BUILD_COMPLETE_MARKER), '');
     await rename(staging, buildDirFor(this.versionsRoot, version.name, buildId));
     return { buildId, commitSha: commit, contract, rootPath: configRoot, reused: false };
+  }
+
+  /**
+   * The settings of the tree the manager used to ship, taken over the first
+   * time the bundled version is built here. Only the bundled version has a
+   * legacy tree, and only a config root with no settings of its own takes it.
+   */
+  private async adoptLegacyHostConfig(configRoot: string): Promise<void> {
+    const carried = await carryOverLegacyHostConfig(configRoot, this.bundledRoot);
+    if (carried.length > 0) {
+      logger.info(`[Versions] took ${carried.join(', ')} over from ${this.bundledRoot} into ${configRoot}, which had none`);
+    }
+  }
+
+  /** The keys this version declares and the host's own files do not have yet. */
+  private async completeHostConfig(configRoot: string, staging: string): Promise<void> {
+    for (const [file, keys] of Object.entries(await completeHostConfigFromSamples(configRoot, staging))) {
+      logger.info(`[Versions] added ${keys.join(', ')} to ${file} in ${configRoot} from this version's sample`);
+    }
   }
 
   /**

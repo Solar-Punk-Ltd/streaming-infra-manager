@@ -283,12 +283,14 @@ describe("where the bundled version's settings come from", () => {
     assert.equal(readBuildManifest(buildDirFor(versionsRoot, 'bundled', PIN)).manifest?.inputGeneration, 2);
   });
 
-  it('carries an engine env over as well', async () => {
+  it('carries an engine env over as well, and completes it from the engine sample', async () => {
     writeFileSync(join(legacyRoot, 'engines', 'srs', '.env'), 'SRS_API_PORT=1985\n');
 
     const configRoot = await buildBundled();
 
-    assert.equal(readFileSync(join(configRoot, 'engines', 'srs', '.env'), 'utf8'), 'SRS_API_PORT=1985\n');
+    const engineEnv = readFileSync(join(configRoot, 'engines', 'srs', '.env'), 'utf8');
+    assert.ok(engineEnv.startsWith('SRS_API_PORT=1985\n'), 'the operator line, unchanged and first');
+    assert.match(engineEnv, /\nSRT_PASSPHRASE=\n/, 'a key the engine sample declares and the legacy tree never had');
   });
 
   it('never writes to the legacy tree, which the running engines still mount', async () => {
