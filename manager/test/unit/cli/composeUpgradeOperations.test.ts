@@ -60,8 +60,13 @@ class ScriptedRunner {
   }
 }
 
+/** What `docker compose ps -a --format json postgres` prints, one line per container. */
+function containerList(...states: readonly (readonly [string, string])[]): string {
+  return states.map(([state, health], index) =>
+    JSON.stringify({ Name: `manager-postgres-${index + 1}`, Service: 'postgres', State: state, Health: health })).join('\n') + '\n';
+}
 function containers(state: string, health: string): string {
-  return `${JSON.stringify({ Name: 'manager-postgres-1', Service: 'postgres', State: state, Health: health })}\n`;
+  return containerList([state, health]);
 }
 
 /** How the upgrade asks whether one service of the project has a container of its own. */
@@ -132,6 +137,13 @@ describe('the manager upgrade against one Compose project', () => {
 
       assert.deepEqual(await operations().readPublication(request), JOURNAL);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres']);
+    });
+
+    it('reads through a healthy Postgres that a container of an earlier run is listed before', async () => {
+      runner.answer('ps -a --format json postgres', { stdout: containerList(['exited', ''], ['running', 'healthy']) });
+
+      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(runner.seen, ['ps -a --format json postgres'], 'nothing is started for a database that is already up');
     });
 
     it('starts a Postgres whose container exists but is stopped, and waits for it to become healthy', async () => {
