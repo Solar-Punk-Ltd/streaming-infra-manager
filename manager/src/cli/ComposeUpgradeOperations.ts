@@ -64,6 +64,11 @@ interface ServiceContainer {
   health: string;
 }
 
+/** Compose lists every container of a service, so a stopped one may come first. */
+function someContainerIsHealthy(containers: readonly ServiceContainer[]): boolean {
+  return containers.some((container) => container.state === RUNNING && container.health === HEALTHY);
+}
+
 /** Compose prints one JSON object per line, and older versions print one array. */
 function parseServiceContainers(stdout: string): ServiceContainer[] {
   const text = stdout.trim();
@@ -234,10 +239,10 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    * api container is new, and only there is an empty schema believable.
    */
   private async startPostgres(project: string): Promise<boolean> {
-    const [container] = await this.serviceContainers(project, POSTGRES_SERVICE);
-    if (container?.state === RUNNING && container.health === HEALTHY) return this.settings.firstUse;
+    const containers = await this.serviceContainers(project, POSTGRES_SERVICE);
+    if (someContainerIsHealthy(containers)) return this.settings.firstUse;
     let firstUse = this.settings.firstUse;
-    if (!container) {
+    if (containers.length === 0) {
       const hasVolume = await this.hasPostgresVolume(project);
       if (!hasVolume) {
         const api = await this.serviceContainerIds(project, API_SERVICE);
@@ -255,8 +260,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   private async waitForHealthyPostgres(project: string): Promise<void> {
     const deadline = Date.now() + this.timeouts.postgresReady;
     for (;;) {
-      const [container] = await this.serviceContainers(project, POSTGRES_SERVICE);
-      if (container?.state === RUNNING && container.health === HEALTHY) return;
+      if (someContainerIsHealthy(await this.serviceContainers(project, POSTGRES_SERVICE))) return;
       if (Date.now() >= deadline) {
         throw new Error(`The ${POSTGRES_SERVICE} container of the ${project} project did not become healthy in ${Math.round(this.timeouts.postgresReady / 1000)} seconds.`);
       }
