@@ -267,6 +267,42 @@ describe('writeProfileEnv — LOCAL_BEE_UPLOADER', () => {
   });
 });
 
+describe('writeProfileEnv — the generated stack secrets', () => {
+  it('writes a value of the shape the manager generates', () => {
+    const path = writeProfileEnv(root, 'secrets', {
+      engine: 'srs',
+      stackSecrets: { API_AUTH_TOKEN: 'a'.repeat(64) },
+    });
+
+    assert.equal(lineFor(path, 'API_AUTH_TOKEN'), `API_AUTH_TOKEN=${'a'.repeat(64)}`);
+  });
+
+  it('refuses a value that is not one, because nothing else may reach this column', () => {
+    for (const value of ['not-a-real-secret', 'A'.repeat(64), 'a'.repeat(63), `${'a'.repeat(64)} `]) {
+      assert.throws(
+        () =>
+          writeProfileEnv(root, 'refused', {
+            engine: 'srs',
+            stackSecrets: { API_AUTH_TOKEN: value },
+          }),
+        /not a secret this manager generated/,
+        `${value.length} characters`,
+      );
+    }
+  });
+
+  it('refuses a key that is not an env name', () => {
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'refused', {
+          engine: 'srs',
+          stackSecrets: { 'not a key': 'a'.repeat(64) },
+        }),
+      /not a secret this manager generated/,
+    );
+  });
+});
+
 /**
  * The file holds every generated secret of the deployment, and the manager's
  * container runs as root, so on the host these bytes are root-owned and
