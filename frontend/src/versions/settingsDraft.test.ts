@@ -104,21 +104,28 @@ describe('settingsRefusal', () => {
   it('says what to do about a revision somebody else moved', () => {
     const refusal = settingsRefusal('settings_changed', 'anything the manager said');
 
-    assert.equal(refusal.reloadable, true);
+    assert.equal(refusal.retry, 'Reload');
     assert.match(refusal.message, /^Somebody changed these settings since you loaded them\./);
+  });
+
+  it('offers another go at a file an ssh session has open, in the manager own words', () => {
+    const refusal = settingsRefusal('settings_locked', 'The host configuration in /srv/x is being edited.');
+
+    assert.equal(refusal.retry, 'Try again');
+    assert.equal(refusal.message, 'The host configuration in /srv/x is being edited.');
   });
 
   it('names what is building when a build holds the slot', () => {
     const refusal = settingsRefusal('stack_build_busy', 'main-v3 is building.');
 
-    assert.equal(refusal.reloadable, false);
+    assert.equal(refusal.retry, null);
     assert.equal(refusal.message, 'main-v3 is building.');
   });
 
   it('passes anything else through as the manager put it', () => {
     assert.deepEqual(settingsRefusal(null, 'the network went away'), {
       message: 'the network went away',
-      reloadable: false,
+      retry: null,
     });
   });
 });

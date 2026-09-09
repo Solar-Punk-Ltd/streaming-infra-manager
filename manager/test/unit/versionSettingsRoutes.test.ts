@@ -23,6 +23,7 @@ import type {
   StackSettingsJsonFile,
 } from '@streaming-infra-manager/common';
 
+import { CONFIG_LOCK_DIR } from '../../src/domain/versions/hostConfigCapture.js';
 import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 import {
   nextVersionChange,
@@ -31,6 +32,9 @@ import {
 } from '../support/versionsTestApp.js';
 
 const ROUTE_COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
+
+/** The routes wait ten seconds for the edit lock in production. Here they wait this. */
+const LOCK_WAIT_MS = 150;
 
 /** The sample of the deploy config, which the cut-down fixture does not carry. */
 const CONFIG_SAMPLE = '{\n  "services": []\n}\n';
@@ -54,7 +58,7 @@ let configRoot: string;
 beforeEach(async () => {
   versionsRoot = scratchVersionsRoot();
   configRoot = join(versionsRoot, 'v3');
-  app = await startVersionsTestApp(versionsRoot);
+  app = await startVersionsTestApp(versionsRoot, undefined, LOCK_WAIT_MS);
 });
 
 afterEach(() => app.close());
@@ -342,6 +346,34 @@ describe('GET /versions/:id/settings', () => {
 
     assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
     assert.equal(dirname(join(configRoot, '.env')), configRoot);
+  });
+});
+
+describe('the edit lock an ssh session holds', () => {
+  /**
+   * `stack-config-edit.sh` holds `.config.lock` for a whole edit, and every one
+   * of these routes waits for it. What the operator must not get is a 500 with
+   * the recovery buried in the manager's own log.
+   */
+  it('refuses every settings route with the lock, what holds it and how to get it back', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    mkdirSync(join(configRoot, CONFIG_LOCK_DIR));
+
+    const calls = [
+      ['GET', `/versions/${id}/settings`, undefined],
+      ['PUT', `/versions/${id}/settings`, { expectedGeneration: 2, files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }] }],
+      ['POST', `/versions/${id}/settings/apply`, undefined],
+    ] as const;
+    for (const [method, path, body] of calls) {
+      const answer = await callJson(method, path, body);
+
+      assert.equal(answer.status, 409, `${method} ${path}`);
+      assert.equal((answer.body as { error: string }).error, 'settings_locked', `${method} ${path}`);
+      assert.match((answer.body as { message: string }).message, /is being edited/);
+      assert.match((answer.body as { message: string }).message, /--unlock/);
+    }
+    rmSync(join(configRoot, CONFIG_LOCK_DIR), { recursive: true });
   });
 });
 

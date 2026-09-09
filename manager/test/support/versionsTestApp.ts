@@ -39,12 +39,14 @@ export interface VersionsTestApp {
 export async function startVersionsTestApp(
   versionsRoot: string,
   bundledRoot: string = join(versionsRoot, 'bundled-tree'),
+  /** How long a settings route waits for the edit lock. Left to the service unless a case holds it. */
+  settingsLockWaitMs?: number,
 ): Promise<VersionsTestApp> {
   const repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
   const runner = new FakeScriptSpawner();
   const bus = new EventBus();
-  const service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] }, bundledRoot);
+  const service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] }, bundledRoot, settingsLockWaitMs);
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
