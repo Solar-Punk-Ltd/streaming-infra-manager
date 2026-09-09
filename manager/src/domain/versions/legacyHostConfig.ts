@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { hostConfigFilesOf, withHostConfigLock } from './hostConfigCapture.js';
+import { hostConfigFilesOf, hostConfigNonFilesOf, withHostConfigLock } from './hostConfigCapture.js';
 
 /**
  * The bundled version's settings, from the tree the manager used to ship them
@@ -19,19 +19,30 @@ import { hostConfigFilesOf, withHostConfigLock } from './hostConfigCapture.js';
  * already holds settings is left alone. Whether it holds any is asked under
  * the edit lock, so a root an operator filled while this waited stays theirs.
  */
+export interface LegacyHostConfigCarryOver {
+  /** Relative posix paths committed into the config root. */
+  carried: string[];
+  /** Paths of the set the legacy tree holds as something other than a regular file. */
+  skipped: string[];
+}
+
+/**
+ * Takes the legacy settings over, and answers what came and what was passed by.
+ */
 export async function carryOverLegacyHostConfig(
   configRoot: string,
   legacyRoot: string,
-): Promise<string[]> {
+): Promise<LegacyHostConfigCarryOver> {
   await mkdir(configRoot, { recursive: true });
   return withHostConfigLock(configRoot, async (commit) => {
-    if (hostConfigFilesOf(configRoot).length > 0) return [];
+    const skipped = hostConfigNonFilesOf(legacyRoot);
+    if (hostConfigFilesOf(configRoot).length > 0) return { carried: [], skipped };
     const carried = hostConfigFilesOf(legacyRoot);
-    if (carried.length === 0) return [];
+    if (carried.length === 0) return { carried: [], skipped };
 
     const files: Record<string, Buffer> = {};
     for (const relative of carried) files[relative] = await readFile(join(legacyRoot, relative));
     await commit(files);
-    return carried;
+    return { carried, skipped };
   });
 }

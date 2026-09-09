@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -33,7 +33,8 @@ export const CONFIG_LOCK_DIR = '.config.lock';
 export const CONFIG_EDIT_SCRIPT = 'stack-config-edit.sh';
 
 const BASE_ENV = '.env';
-const DEPLOY_CONFIG = 'deploy/config.json';
+const DEPLOY_DIR = 'deploy';
+const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
 const ENGINES_DIR = 'engines';
 const ENGINE_ENV = '.env';
 
@@ -73,18 +74,40 @@ export interface CaptureOptions {
 
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
-/** The host-owned files a root has, relative, posix: the base env, the deploy config and every engine env. */
-export function hostConfigFilesOf(root: string): string[] {
-  const files: string[] = [];
-  if (existsSync(join(root, BASE_ENV))) files.push(BASE_ENV);
-  if (existsSync(join(root, DEPLOY_CONFIG))) files.push(DEPLOY_CONFIG);
-  const engines = join(root, ENGINES_DIR);
-  if (existsSync(engines) && statSync(engines).isDirectory()) {
-    for (const engine of readdirSync(engines).sort()) {
-      if (existsSync(join(engines, engine, ENGINE_ENV))) files.push(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
+/**
+ * The paths of the set a root holds, each with whether it is a regular file.
+ *
+ * Nothing here is followed. A link at one of these paths names bytes outside
+ * the root, and the legacy tree they are taken from is writable by anything
+ * that reaches the host, so a link is passed by rather than read.
+ */
+function hostConfigPathsIn(root: string): { relative: string; isFile: boolean }[] {
+  const paths: { relative: string; isFile: boolean }[] = [];
+  const consider = (relative: string): void => {
+    const entry = lstatSync(join(root, relative), { throwIfNoEntry: false });
+    if (entry) paths.push({ relative, isFile: entry.isFile() });
+  };
+  const isPlainDirectory = (relative: string): boolean =>
+    lstatSync(join(root, relative), { throwIfNoEntry: false })?.isDirectory() === true;
+
+  consider(BASE_ENV);
+  if (isPlainDirectory(DEPLOY_DIR)) consider(DEPLOY_CONFIG);
+  if (isPlainDirectory(ENGINES_DIR)) {
+    for (const engine of readdirSync(join(root, ENGINES_DIR)).sort()) {
+      if (isPlainDirectory(`${ENGINES_DIR}/${engine}`)) consider(`${ENGINES_DIR}/${engine}/${ENGINE_ENV}`);
     }
   }
-  return files;
+  return paths;
+}
+
+/** The host-owned files a root has, relative, posix: the base env, the deploy config and every engine env. */
+export function hostConfigFilesOf(root: string): string[] {
+  return hostConfigPathsIn(root).filter((path) => path.isFile).map((path) => path.relative);
+}
+
+/** The paths of the set a root holds that are not regular files, so nothing reads them. */
+export function hostConfigNonFilesOf(root: string): string[] {
+  return hostConfigPathsIn(root).filter((path) => !path.isFile).map((path) => path.relative);
 }
 
 /**

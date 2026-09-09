@@ -558,9 +558,12 @@ export class StackVersionService {
    * legacy tree, and only a config root with no settings of its own takes it.
    */
   private async adoptLegacyHostConfig(configRoot: string): Promise<void> {
-    const carried = await carryOverLegacyHostConfig(configRoot, this.bundledRoot);
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, this.bundledRoot);
     if (carried.length > 0) {
       logger.info(`[Versions] took ${carried.join(', ')} over from ${this.bundledRoot} into ${configRoot}, which had none`);
+    }
+    if (skipped.length > 0) {
+      logger.warn(`[Versions] passed by ${skipped.join(', ')} in ${this.bundledRoot}, which are not regular files. Nothing a link points at becomes a setting of this host.`);
     }
   }
 
