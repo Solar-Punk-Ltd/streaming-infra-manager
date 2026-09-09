@@ -152,6 +152,15 @@ async function readSealedManifest(sealed: string): Promise<Buffer> {
  */
 export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   private readonly timeouts: Required<ComposeUpgradeTimeouts>;
+  /**
+   * Whether the read that decides about an empty database has happened.
+   *
+   * One upgrade reads the publication again after it published and again after
+   * the project is up, and by then its own migration has turned the schema it
+   * found empty into a journal. Only the first read can answer the question, so
+   * only the first read asks it.
+   */
+  private firstUseSettled = false;
 
   constructor(
     private readonly settings: ComposeUpgradeSettings,
@@ -166,9 +175,10 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   async readPublication(request: ManagerUpgradeRequest): Promise<ManagerPublication> {
     const firstUse = await this.startPostgres(request.project);
     const publication = await this.database.readPublication(request.shipment);
-    if (firstUse && publication.schema !== 'fresh') {
+    if (firstUse && !this.firstUseSettled && publication.schema !== 'fresh') {
       throw new Error('This host has no manager database volume, so its database should be empty, and it is not. Look at the host before deploying again.');
     }
+    this.firstUseSettled = true;
     return publication;
   }
 
