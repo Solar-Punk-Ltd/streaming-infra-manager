@@ -125,6 +125,29 @@ describe('version removal before files disappear in isolated PostgreSQL', {
     assert.equal(fake.spawned.length, 1);
     assert.equal(existsSync(missing), false, 'the fake runner creates no files or processes');
   });
+  it('removes a failed first build whose versions directory was never created', async () => {
+    const missing = join(root, 'new-parent', 'versions');
+    const failed = await versions.insert({ name: 'first-stack', gitRef: 'synthetic-ref', rootPath: join(missing, 'first-stack') });
+    await versions.markFailed(failed.id, 'synthetic runner never started');
+    const removing = new StackVersionService(versions, runner, new EventBus(), missing, ledger);
+    await removing.remove(failed.id);
+    assert.equal(await versions.findById(failed.id), null);
+    assert.equal(JSON.parse(await readFile(join(missing, 'first-stack.removal.json'), 'utf8')).versionId, failed.id);
+    assert.deepEqual(await readdir(missing), ['first-stack.removal.json']);
+  });
+
+  it('does not create a missing removal parent through an ancestor symlink', async () => {
+    const missing = join(root, 'new-parent', 'versions');
+    const failed = await versions.insert({ name: 'first-stack', gitRef: 'synthetic-ref', rootPath: join(missing, 'first-stack') });
+    await versions.markFailed(failed.id, 'synthetic runner never started');
+    const elsewhere = join(root, 'unrelated-parent');
+    await mkdir(elsewhere);
+    await symlink(elsewhere, join(root, 'new-parent'));
+    const removing = new StackVersionService(versions, runner, new EventBus(), missing, ledger);
+    await assert.rejects(removing.remove(failed.id));
+    assert.notEqual(await versions.findById(failed.id), null);
+    assert.deepEqual(await readdir(elsewhere), []);
+  });
 
   for (const evidence of ['malformed', 'active', 'future-ID']) {
     it(`new-version creation refuses ${evidence} removal evidence before retaining a row or starting a runner`, async () => {
