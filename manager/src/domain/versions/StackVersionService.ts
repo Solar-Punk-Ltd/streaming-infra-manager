@@ -34,6 +34,7 @@ import {
 } from './buildManifest.js';
 import { protectedBuildIds } from './buildReferences.js';
 import { persistVersionRemoval } from './versionRemovalMarker.js';
+import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
   adoptHostConfig,
   captureHostConfig,
@@ -777,8 +778,7 @@ export class StackVersionService {
       repoRootFor(this.versionsRoot, version.name),
       buildsRootFor(this.versionsRoot, version.name),
     ];
-    const parent = await lstat(this.versionsRoot);
-    if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error('Versions root is not an owned directory.');
+    assertOwnedVersionParent(this.versionsRoot);
     for (const directory of directories) {
       try {
         const info = await lstat(directory);

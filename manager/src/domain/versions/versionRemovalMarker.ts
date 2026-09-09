@@ -4,6 +4,7 @@ import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { stackVersionNameProblem } from '@streaming-infra-manager/common';
+import { assertOwnedVersionParent } from './ownedVersionParent.js';
 
 interface RemovalIdentity { id?: number; rootPath: string | null }
 interface RemovalMarker { schema: 1; versionId: number; name: string; rootPath: string; removalId: string }
@@ -19,6 +20,7 @@ function assertAnchor(rootPath: string): void {
 
 function readMarker(rootPath: string): RemovalMarker | null {
   assertAnchor(rootPath);
+  if (!assertOwnedVersionParent(dirname(rootPath), true)) return null;
   const path = markerPath(rootPath);
   let before;
   try { before = lstatSync(path, { bigint: true }); } catch (error) {
@@ -67,6 +69,7 @@ export function versionRemovalProblem(version: RemovalIdentity): string | null {
 export async function persistVersionRemoval(version: { id: number; name: string; rootPath: string | null }): Promise<void> {
   const anchor = version.rootPath;
   if (!anchor || !Number.isSafeInteger(version.id) || version.id < 1 || version.name !== basename(anchor)) throw new Error(UNVERIFIED);
+  assertOwnedVersionParent(dirname(anchor));
   const previous = readMarker(anchor);
   if (previous && previous.versionId > version.id) throw new Error(UNVERIFIED);
   const marker: RemovalMarker = previous?.versionId === version.id ? previous : {

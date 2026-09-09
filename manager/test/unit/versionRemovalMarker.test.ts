@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { deployRootProblem } from '../../src/domain/versions/stackPaths.js';
 import { persistVersionRemoval } from '../../src/domain/versions/versionRemovalMarker.js';
+import { assertOwnedVersionParent } from '../../src/domain/versions/ownedVersionParent.js';
 
 const BUILD = 'a'.repeat(40);
 describe('persistent removal markers at deployment admission', () => {
@@ -23,6 +24,19 @@ describe('persistent removal markers at deployment admission', () => {
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
   const identity = () => ({ schema: 1, versionId: 2, name: 'test-stack', rootPath: anchor, removalId: randomUUID() });
+  it('accepts normal temporary roots and verified macOS system aliases', async () => {
+    assert.equal(assertOwnedVersionParent(root), true);
+    if (process.platform === 'darwin') {
+      assert.equal(assertOwnedVersionParent('/tmp'), true);
+      assert.equal(assertOwnedVersionParent('/var'), true);
+      const temporary = await mkdtemp('/tmp/t04a-system-alias-');
+      try {
+        const selected = { id: 2, name: 'test-stack', rootPath: join(temporary, 'test-stack') };
+        await persistVersionRemoval(selected);
+        assert.match(deployRootProblem(selected) ?? '', /removal/i);
+      } finally { await rm(temporary, { recursive: true, force: true }); }
+    }
+  });
   it('persists one retryable removal identity and leaves no temporary marker behind', async () => {
     const selected = { id: 2, name: 'test-stack', rootPath: anchor };
     await persistVersionRemoval(selected);
