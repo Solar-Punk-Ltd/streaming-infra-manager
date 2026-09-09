@@ -27,6 +27,7 @@ import {
   fakeDocker,
   frame,
   openStream,
+  RUNNING_AFTER_TWO_RESTARTS,
   type FakeContainer,
 } from '../support/fakeDocker.js';
 
@@ -38,7 +39,7 @@ describe('published port inventory', () => {
     const docker = fakeDocker([{ id: 'paused', labels: labels('outside', 'web') }]);
     const handle = docker.getContainer('paused');
     docker.getContainer = () => ({ ...handle, inspect: async () => ({
-      Id: 'paused', State: { Status: 'paused' },
+      Id: 'paused', RestartCount: 0, State: { Status: 'paused', StartedAt: '2026-09-07T10:00:00Z' },
       Config: { Labels: labels('outside', 'web') },
       HostConfig: { NetworkMode: 'bridge' },
       NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '10012' }] } },
@@ -447,5 +448,39 @@ describe('ContainerControl.effectiveConfig', () => {
     assert.deepEqual(docker.execCommands, [
       ['cat', '/opt/ovenmediaengine/bin/origin_conf/Server.xml'],
     ]);
+  });
+});
+
+describe('ContainerControl.inspect', () => {
+  it('reads the restart count from beside State, where Docker puts it', async () => {
+    // A container that died on its config file and was brought back by its
+    // restart policy is `running` again with a count above zero. Read from
+    // under `State`, where Docker never puts it, the count is always zero, and
+    // the watch after a config change is blind to the one thing it looks for.
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+      {
+        id: 'own-srs',
+        labels: labels('stream1', 'srs'),
+        inspectAnswer: RUNNING_AFTER_TWO_RESTARTS,
+      },
+    ]);
+
+    const state = await control.inspect('stream1', 'srs');
+
+    assert.deepEqual(state, {
+      id: 'own-srs',
+      status: 'running',
+      restartCount: 2,
+      startedAt: '2026-09-07T10:00:09.000000000Z',
+    });
+  });
+
+  it('answers null when the deployment has no container of that service', async () => {
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+    ]);
+
+    assert.equal(await control.inspect('stream1', 'srs'), null);
   });
 });

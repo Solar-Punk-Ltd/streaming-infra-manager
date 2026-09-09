@@ -23,6 +23,11 @@ import type { ContainerState } from '../../src/domain/ContainerControl.js';
 import type { CommandResult } from '../../src/domain/engineConfig/engineConfigCheck.js';
 import type { EngineWatcher } from '../../src/domain/engineConfig/EngineConfigService.js';
 import type { ProfileServiceHarness } from '../support/profileServiceHarness.js';
+import { fakeDocker, frame, RUNNING_AFTER_TWO_RESTARTS } from '../support/fakeDocker.js';
+import {
+  COMPOSE_PROJECT_LABEL,
+  COMPOSE_SERVICE_LABEL,
+} from '../../src/domain/composeLabels.js';
 
 // The scratch checkout stands in for both the bundled root and the main-v3
 // root: what differs between the two here is the contract, not the files.
@@ -47,6 +52,8 @@ const { EngineConfigChecker } = await import(
 const { EngineConfigService } = await import(
   '../../src/domain/engineConfig/EngineConfigService.js'
 );
+const { ContainerControl } = await import('../../src/domain/ContainerControl.js');
+const { EventBus } = await import('../../src/domain/EventBus.js');
 const { ProfileBusyError, ProfileConfigError } = await import(
   '../../src/domain/errors/index.js'
 );
@@ -105,23 +112,25 @@ class ScriptedWatcher implements EngineWatcher {
   }
 }
 
-interface Setup {
+interface Setup<W extends EngineWatcher> {
   harness: ProfileServiceHarness;
   service: InstanceType<typeof EngineConfigService>;
-  watcher: ScriptedWatcher;
+  watcher: W;
   checkerCalls: number;
 }
 
-async function setup(options: {
+async function setup<W extends EngineWatcher = ScriptedWatcher>(options: {
   supported?: boolean;
   check?: CommandResult;
   states?: (ContainerState | null)[];
-} = {}): Promise<Setup> {
+  /** In place of the scripted one: the real adapter over a fake daemon. */
+  watcher?: W;
+} = {}): Promise<Setup<W>> {
   const harness = profileServiceHarness([profileRow()]);
   if (options.supported ?? true) {
     await harness.versions.setContract(1, V3_CONTRACT);
   }
-  const watcher = new ScriptedWatcher(options.states ?? [RUNNING]);
+  const watcher = (options.watcher ?? new ScriptedWatcher(options.states ?? [RUNNING])) as W;
   const state = { checkerCalls: 0 };
   const checker = new EngineConfigChecker(async () => {
     state.checkerCalls += 1;
@@ -278,6 +287,44 @@ describe('an engine that will not stay up on the new file', () => {
   });
 });
 
+describe('the watch over the real Docker adapter', () => {
+  it('sees a container that restarted on the new file and puts the previous one back', async () => {
+    // The scripted watcher hands the watch a count already read out of the
+    // daemon's answer, so it cannot catch the adapter reading that count from
+    // the wrong place. This one runs the real adapter over an answer shaped
+    // the way Docker shapes it: running again, restarted twice, which is the
+    // engine dying on the file and Docker bringing it back between two polls.
+    const docker = fakeDocker([
+      { id: 'other-srs', labels: composeLabels('stream2', 'srs') },
+      {
+        id: 'own-srs',
+        labels: composeLabels('stream1', 'srs'),
+        inspectAnswer: RUNNING_AFTER_TWO_RESTARTS,
+        logBytes: frame('invalid config, exiting\n'),
+      },
+    ]);
+    const { service, harness } = await setup({
+      watcher: new ContainerControl(new EventBus(), docker),
+    });
+    harness.profiles.engineConfigs.set('stream1', 'listen 1935; # the old one\n');
+
+    await service.apply('stream1', 'listen 1935;\nhls_window 5;\n');
+    await settle();
+
+    const row = harness.profiles.rows.get('stream1');
+    assert.equal(harness.profiles.engineConfigs.get('stream1'), 'listen 1935; # the old one\n');
+    assert.match(
+      row?.engine_config_error ?? '',
+      /^SRS restarted 2 times on the new config file, so the previous one is back\./,
+    );
+    assert.match(row?.engine_config_error ?? '', /invalid config, exiting/);
+    assert.deepEqual(
+      harness.orchestrator.deploys.map((d) => d.services),
+      [['srs'], ['srs']],
+    );
+  });
+});
+
 describe('back to the template', () => {
   it('clears the file and the error and recreates the engine', async () => {
     const { service, harness } = await setup();
@@ -305,4 +352,11 @@ function harnessRowOf(harness: ProfileServiceHarness, name: string) {
   const row = harness.profiles.rows.get(name);
   if (!row) throw new Error(`no row ${name}`);
   return row;
+}
+
+function composeLabels(project: string, service: string): Record<string, string> {
+  return {
+    [COMPOSE_PROJECT_LABEL]: project,
+    [COMPOSE_SERVICE_LABEL]: service,
+  };
 }
