@@ -39,7 +39,15 @@ import {
   refuseRequest,
   seedAuth,
 } from './mock-auth.mjs';
+import {
+  attemptRefusal,
+  attemptRoutes,
+  openAttempt,
+  resolveAttempt,
+  seedAttempts,
+} from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
+import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
@@ -112,15 +120,24 @@ function deploy(profile, { withUploader, onRunning } = {}) {
   profile.last_error = null;
   profile.last_error_at = null;
   changed(profile);
+  const containers = containersFor(profile, {
+    withUploader:
+      withUploader ??
+      (!needsStamp(profile) ||
+        Boolean(profile.stamp_id) ||
+        Boolean(profile.bee_publishers)),
+  });
+  // The guard the manager takes before anything runs, resolved the way a
+  // deploy that gave every service a new container resolves it.
+  const attempt = openAttempt(
+    profile,
+    containers.map((container) => container.service),
+    publish,
+  );
   setTimeout(() => {
     profile.status = 'RUNNING';
-    profile.containers = containersFor(profile, {
-      withUploader:
-        withUploader ??
-        (!needsStamp(profile) ||
-          Boolean(profile.stamp_id) ||
-          Boolean(profile.bee_publishers)),
-    });
+    profile.containers = containers;
+    resolveAttempt(attempt, publish);
     onRunning?.();
     changed(profile);
   }, DEPLOY_MS);
@@ -441,6 +458,8 @@ const ROUTES = [
     'PUT',
     /^\/profiles\/([^/]+)$/,
     withProfile(async (req, res, profile) => {
+      const refusal = attemptRefusal(profile);
+      if (refusal) return send(res, 409, refusal);
       replaceEditable(profile, await readBody(req));
       closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
@@ -459,6 +478,8 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/deploy$/,
     withProfile((_req, res, profile) => {
+      const refusal = attemptRefusal(profile);
+      if (refusal) return send(res, 409, refusal);
       closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, { status: 'accepted' });
@@ -690,6 +711,8 @@ const ROUTES = [
       send(res, 202, { group, profiles });
     },
   ],
+  ...attemptRoutes(readBody, publish),
+  ...createTargetRoutes(readBody),
   ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
@@ -736,9 +759,13 @@ const server = createServer((req, res) => {
 seed();
 seedAuth();
 seedVersions();
+const held = seedAttempts();
 server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
     `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles, ${state.groups.length} groups and ${state.versions.length} stack versions\n` +
-      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n`,
+      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n` +
+      (held
+        ? `${held.project} has a blocked deploy attempt, ${held.jobId}, holding every deploy of a version with shared image tags, as the manager would. Release it on the Versions page first.\n`
+        : ''),
   );
 });

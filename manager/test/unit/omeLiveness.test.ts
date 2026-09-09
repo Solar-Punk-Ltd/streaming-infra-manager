@@ -57,9 +57,10 @@ const { InMemoryEngineConfigOperations } = await import(
 const V3_CONTRACT: StackContract = {
   ports: [],
   maxSlot: 99,
+  allocationProblem: null,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: false },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
@@ -169,7 +170,7 @@ describe('the HLS port after an OvenMediaEngine file applied', () => {
     const { service, harness, watcher, states, row } = await setup();
     await harness.versions.setContract(1, {
       ...V3_CONTRACT,
-      ports: [{ name: 'SRS_SRT_PORT', slotBase: 10000, defaultPort: 10080 }],
+      ports: [{ name: 'SRS_SRT_PORT', slotBase: 10000, defaultPort: 10080, protocol: 'udp', service: 'srs' }],
     });
 
     await service.apply('ome1', EDITED);

@@ -1,4 +1,7 @@
 export { AllSlotsUsedError } from './AllSlotsUsedError.js';
+export { PortReservedError } from './PortReservedError.js';
+export { ReservationInventoryPendingError } from './ReservationInventoryPendingError.js';
+export { TargetNotVerifiedError } from './TargetNotVerifiedError.js';
 export { ContainerNotRunningError } from './ContainerNotRunningError.js';
 export { DockerUnavailableError } from './DockerUnavailableError.js';
 export { RestartInProgressError } from './RestartInProgressError.js';
@@ -36,6 +39,7 @@ export { StackVersionExistsError } from './StackVersionExistsError.js';
 export { StackVersionInUseError } from './StackVersionInUseError.js';
 export { BundledVersionError } from './BundledVersionError.js';
 export { DefaultVersionError } from './DefaultVersionError.js';
+export { DeployAttemptRefusedError } from './DeployAttemptRefusedError.js';
 export { StackBuildBusyError } from './StackBuildBusyError.js';
 export { InvalidStackVersionError } from './InvalidStackVersionError.js';
 export { UntestedVersionError } from './UntestedVersionError.js';

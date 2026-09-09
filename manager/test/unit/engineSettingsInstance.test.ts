@@ -106,8 +106,12 @@ describe('engine settings saves are bound to the observed instance', { timeout: 
 
   it('cannot bump the replacement intent when the operator action resumes after a claim', async () => {
     const h = await setup(); const gate = hold();
-    const bump = h.profiles.bumpIntent.bind(h.profiles);
-    h.profiles.bumpIntent = async (...args) => { gate.arrive(); await gate.resume; return bump(...args); };
+    const claim = h.ledger.claim.bind(h.ledger);
+    h.ledger.claim = async (...args) => {
+      const claimed = await claim(...args);
+      gate.arrive(); await gate.resume;
+      return claimed;
+    };
     const pending = callEngine(h.app, 'PUT', '/profiles/observed/engine-settings', { HLS_FRAGMENT: '2', expectedInstanceId: originalId });
     try {
       await gate.wait(); const replacement = h.replace(); gate.release();

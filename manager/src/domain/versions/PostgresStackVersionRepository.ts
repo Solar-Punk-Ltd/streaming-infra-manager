@@ -4,16 +4,19 @@ import {
 } from '@streaming-infra-manager/common';
 import type { Pool } from 'pg';
 
+import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
+
 import type {
   BuildOutcome,
   NewStackVersion,
+  PublishOutcome,
   StackVersionRecord,
   StackVersionRepository,
   StackVersionUsage,
 } from './StackVersionRepository.js';
 
 const VERSION_COLUMNS = `
-  id, name, git_ref, commit_sha, status, root_path, contract,
+  id, name, git_ref, commit_sha, status, root_path, layout, build_id, previous_build_id, contract,
   is_default, tested, built_at, last_error, created_at
 `;
 
@@ -29,6 +32,9 @@ interface StackVersionDbRow {
   commit_sha: string | null;
   status: string;
   root_path: string | null;
+  layout: string;
+  build_id: string | null;
+  previous_build_id: string | null;
   contract: unknown;
   is_default: boolean;
   tested: boolean;
@@ -111,6 +117,7 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     return this.one(
       `UPDATE stack_versions
           SET status = 'ready',
+              publication_revision = publication_revision + 1,
               tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
               commit_sha = $2,
               contract = $3::jsonb,
@@ -119,6 +126,43 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
       [id, outcome.commitSha, JSON.stringify(outcome.contract)],
+    );
+  }
+
+  async publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null> {
+    // One statement, so the build, the commit, the contract and the layout
+    // change together and a reader never sees the new build with the old
+    // contract. Every SET expression reads the row as it was, which is what
+    // makes the previous build and the tested rule right.
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM stack_versions WHERE id = $1 FOR UPDATE', [id]);
+      const result = await client.query<StackVersionDbRow>(
+        `UPDATE stack_versions
+            SET ${STACK_PUBLICATION_ASSIGNMENTS}
+          WHERE id = $1
+          RETURNING ${VERSION_COLUMNS}`,
+        [id, outcome.buildId, outcome.commitSha, JSON.stringify(outcome.contract), outcome.rootPath ?? null],
+      );
+      await client.query('COMMIT');
+      const row = result.rows[0];
+      return row ? toRecord(row) : null;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+    return this.one(
+      `UPDATE stack_versions
+          SET status = 'ready', last_error = $2
+        WHERE id = $1
+        RETURNING ${VERSION_COLUMNS}`,
+      [id, lastError],
     );
   }
 
@@ -138,9 +182,13 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   async failInterruptedBuilds(
     lastError: string,
   ): Promise<StackVersionRecord[]> {
+    // A row with a usable build keeps it: failed is for a version that has
+    // nothing to deploy from.
     const result = await this.pool.query<StackVersionDbRow>(
       `UPDATE stack_versions
-          SET status = 'failed', last_error = $1
+          SET status = CASE WHEN build_id IS NULL AND layout = 'builds' THEN 'failed' ELSE
+                        CASE WHEN layout = 'legacy' AND commit_sha IS NULL THEN 'failed' ELSE 'ready' END END,
+              last_error = $1
         WHERE status = 'building'
         RETURNING ${VERSION_COLUMNS}`,
       [lastError],
@@ -228,6 +276,9 @@ function toRecord(row: StackVersionDbRow): StackVersionRecord {
     commitSha: row.commit_sha,
     status: toStatus(row.status),
     rootPath: row.root_path,
+    layout: row.layout === 'builds' ? 'builds' : 'legacy',
+    buildId: row.build_id,
+    previousBuildId: row.previous_build_id,
     contract: parseStackContract(row.contract),
     isDefault: row.is_default,
     tested: row.tested,

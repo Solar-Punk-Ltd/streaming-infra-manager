@@ -1,4 +1,5 @@
 import type {
+  DeploymentPhase,
   EngineConfigState,
   EngineSettings,
 } from '@streaming-infra-manager/common';
@@ -8,6 +9,9 @@ import type { ProfileKind, ProfileStatus } from './types';
 export interface Container {
   service: string;
   ports: Record<string, number>;
+  /** The build the container was seen to be started from, and its commit, or null before an observation. */
+  buildId: string | null;
+  buildCommit: string | null;
 }
 
 export interface Profile {
@@ -46,8 +50,11 @@ export interface Profile {
   /** Moves whenever an operator acts on the deployment. */
   intent_revision: number;
   status: ProfileStatus;
+  deployment_phase?: DeploymentPhase | null;
   last_error: string | null;
   last_error_at: string | null;
+  /** The commit of the last deploy that touched every service and found them agreeing, or null. */
+  last_full_deploy_commit: string | null;
   created_at: string;
   updated_at: string;
   containers: Container[];

@@ -17,9 +17,13 @@ import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
 import { StaleReadings } from '../resources/StaleReadings';
 import { useMetrics } from '../useMetrics';
+import { beeReadinessView } from '../uploaders/beeReadiness';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
 import { clientUrl, srtPublishUrl } from '../urls';
+import { attemptHolding } from '../versions/attemptHold';
+import { ReleaseAttemptDialog } from '../versions/ReleaseAttemptDialog';
+import { useAttemptRelease } from '../versions/useAttemptRelease';
 import { AtAGlanceCard } from './AtAGlanceCard';
 import {
   buildChecklist,
@@ -33,6 +37,7 @@ import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
 import { useEngineOverview } from './useEngineOverview';
+import { HeldAttemptCard } from './HeldAttemptCard';
 import { LastErrorCard } from './LastErrorCard';
 import { NextStepsCard } from './NextStepsCard';
 import { NotesCard } from './NotesCard';
@@ -40,7 +45,7 @@ import { PoolTargetCard } from './PoolTargetCard';
 import { PublishCard } from './PublishCard';
 import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
-import { ownsBeeNode, readinessOf } from './readiness';
+import { ownsBeeNode, readinessFor } from './readiness';
 import { StorageCard } from './StorageCard';
 import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
@@ -111,9 +116,10 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, reload, versions } =
+  const { profiles, groups, serverHost, hostPassphrase, reload, versions, attempts } =
     useDeployments();
   const actions = useActions();
+  const release = useAttemptRelease();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
 
@@ -140,6 +146,7 @@ function DeploymentBody({
       bee?.stamps?.find((stamp) => sameBatchId(stamp.batchID, stampId))) ||
     null;
 
+  const heldBy = attemptHolding(profile.name, attempts, profiles);
   const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
   const watchUrl = clientUrl(profile, serverHost);
   const streamers = streamersOf(profiles ?? []);
@@ -147,6 +154,7 @@ function DeploymentBody({
 
   const checklistInput: ChecklistInput = {
     profile,
+    nodeReadiness: bee ? beeReadinessView(bee.nodeObservation, bee.observationNow, bee.loading || profile.status !== 'RUNNING', bee.observationReceivedAt) : undefined,
     wallet: bee?.wallet ?? null,
     chequebook: chequebookHealth,
     nodeAddress: bee?.address?.ethereum ?? null,
@@ -159,11 +167,14 @@ function DeploymentBody({
 
   const steps = buildChecklist(checklistInput);
   const summary = readySummary(checklistInput, stampHealth);
-  const readiness = readinessOf(profile, stampHealth, chequebookHealth);
+  const readiness = readinessFor(checklistInput);
   const uploaderPending = Boolean(profile.pendingStamp);
 
   const runStepAction = (action: StepAction) => {
     switch (action.kind) {
+      case 'refresh-node':
+        void bee?.reload();
+        return;
       case 'start':
         actions.start(profile.name);
         return;
@@ -210,6 +221,10 @@ function DeploymentBody({
         }}
       >
         <Stack spacing={2}>
+          {heldBy && (
+            <HeldAttemptCard attempt={heldBy} onRelease={() => release.open(heldBy)} />
+          )}
+
           {profile.last_error && (
             <LastErrorCard
               message={profile.last_error}
@@ -295,6 +310,13 @@ function DeploymentBody({
           <NotesCard name={profile.name} notes={profile.notes} />
         </Stack>
       </Box>
+
+      <ReleaseAttemptDialog
+        attempt={release.releasing}
+        onClose={release.close}
+        onReleased={release.released}
+        onGone={release.gone}
+      />
     </Box>
   );
 }

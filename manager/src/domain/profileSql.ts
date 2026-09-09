@@ -18,9 +18,15 @@ export const PROFILE_COLUMNS = `
   bee_publishers, bee_url, srt_passphrase, engine_settings,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error, engine_config_state,
   instance_id, engine_config_revision, intent_revision,
-  status, last_error, last_error_at,
+  status, deployment_phase, last_error, last_error_at, last_full_deploy_commit,
   created_at, updated_at, group_id, stack_version_id
 `;
 
 /** Advisory-lock key guarding port-slot allocation. ASCII "prof". */
 export const PROFILE_SLOT_LOCK_KEY = 0x70726f66;
+
+/** Evaluated in the status UPDATE, against the row that wins the transition. */
+export const DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL = `CASE
+  WHEN status = 'RUNNING' THEN 'restarting'
+  WHEN status = 'STOPPED' THEN 'starting'
+  ELSE NULL END`;

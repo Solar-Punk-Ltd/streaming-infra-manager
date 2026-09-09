@@ -98,6 +98,7 @@ describe('an operator action while a rollout is under way', () => {
     const { harness, row, watching } = setup();
 
     await harness.orchestrator.startRemove(row());
+    harness.daemon.containers.delete('stage');
     harness.runner.finish(0);
     await until('the removal to finish', () => !harness.profiles.rows.has('stage'));
 

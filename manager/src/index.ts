@@ -1,4 +1,6 @@
-import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
+import { getErrorStack, plurToBzz,
+  getErrorMessage,
+} from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { AuthService } from './domain/auth/AuthService.js';
@@ -31,9 +33,19 @@ import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js'
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
+import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
+import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
+import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
+import { FirewallInventoryExporter } from './domain/ports/FirewallInventoryExporter.js';
+import { PostgresFirewallStateSource } from './domain/ports/PostgresFirewallStateSource.js';
+import { ImmutableFirewallContractReader } from './domain/ports/ImmutableFirewallContractReader.js';
+import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
+import { TargetDocker } from './domain/ports/TargetDocker.js';
+import { PortInventory } from './domain/ports/PortInventory.js';
+import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
-import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
+import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -116,11 +128,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 async function main(): Promise<void> {
   logStartupConfig();
 
-  const bootstrapped = await bootstrapStackDefaults(BUNDLED_STACK_ROOT);
-  for (const file of bootstrapped) {
-    logger.info(`[Boot] created missing default: ${file}`);
-  }
-
   database = new Database(config.databaseUrl);
   await database.migrate();
 
@@ -145,15 +152,22 @@ async function main(): Promise<void> {
   const stackVersionRepository = new PostgresStackVersionRepository(
     database.pool,
   );
+  // Ahead of the profiles: the versions are what deployments run on.
+  const containerControl = new ContainerControl(eventBus);
+  // Which build each deployment runs on. The claim writes it, the success
+  // hook and boot observe the containers, and prune keeps what they mount.
+  const buildLedger = new PostgresBuildLedger(
+    database.pool,
+    containerControl,
+    config.stackVersionsRoot,
+  );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,
     scriptRunner,
     eventBus,
     config.stackVersionsRoot,
-  );
-  await stackVersionService.refreshBundled(
+    buildLedger,
     BUNDLED_STACK_ROOT,
-    readBundledCommit(BUNDLED_STACK_ROOT),
   );
 
   const interruptedBuilds = await stackVersionService.failInterruptedBuilds();
@@ -165,6 +179,34 @@ async function main(): Promise<void> {
 
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
+
+  // What a gone manager left: attempts whose builder is gone go, containers
+  // are asked what they mount so a crashed job's reference can resolve, and
+  // then builds nothing protects go. A daemon that does not answer keeps
+  // everything, which is the safe side.
+  try {
+    await stackVersionService.cleanInterruptedAttempts({
+      containerExists: (name) => containerControl.containerExists(name),
+    });
+    await buildLedger.observeAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // After the containers were observed, so a bundled build one still mounts
+  // has its reference before the publication of a shipment prunes.
+  try {
+    await stackVersionService.syncBundled(
+      BUNDLED_STACK_ROOT,
+      readBundledCommit(BUNDLED_STACK_ROOT),
+    );
+  } catch (err) {
+    logger.warn(`[Boot] the bundled version was not synced: ${getErrorMessage(err)}`);
+  }
+  try {
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
@@ -200,6 +242,28 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  // The project guard and the daemon lock: every deploy attempt holds its
+  // project until its containers prove it over, and shared-tag builds wait
+  // for each other on the daemon.
+  const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
+  const portReservations = new PostgresPortReservationRepository(database.pool);
+  const targetDocker = new TargetDocker(containerControl);
+  const deployTargets = new VerifiedDeployTargets(
+    new PostgresDeployTargetRepository(database.pool),
+    targetDocker,
+  );
+  try {
+    await deployTargets.verify('localhost');
+  } catch {
+    logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
+  }
+  const portInventory = new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker);
+  const firewallInventory = new FirewallInventoryExporter(new PostgresFirewallStateSource(database.pool), targetDocker, new ImmutableFirewallContractReader());
+  try {
+    await portInventory.seed();
+  } catch (err) {
+    logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
+  }
   // The rollouts of config files, which the orchestrator closes when an
   // operator acts on the deployment and the config service acts through.
   const engineConfigOperations = new PostgresEngineConfigOperationRepository(
@@ -212,9 +276,24 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    buildLedger,
+    deployAttempts,
+    targetDocker,
     engineConfigOperations,
     new UploaderStartGate(stampService, chequebookService),
+    deployTargets,
+    portReservations,
+    targetDocker,
+    portInventory,
   );
+  try {
+    const judged = await orchestrator.reconcileAttempts();
+    if (judged.released.length > 0 || judged.blocked.length > 0) {
+      logger.info(`[Boot] deploy attempts judged: released ${judged.released.join(', ') || 'none'}, blocked ${judged.blocked.join(', ') || 'none'}`);
+    }
+  } catch (err) {
+    logger.warn(`[Boot] the deploy attempts were not judged: ${getErrorMessage(err)}. They stay as they are.`);
+  }
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -222,12 +301,13 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    portInventory,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
+    portReservations,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
-  const containerControl = new ContainerControl(eventBus);
   const engineConfigService = new EngineConfigService(
     profileRepository,
     containerRepository,
@@ -260,6 +340,11 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       stackVersionService,
+      orchestrator,
+      deployTargets,
+      portInventory,
+      firewallInventory,
+      portReservations,
       eventBus,
       metricsCollector,
     },

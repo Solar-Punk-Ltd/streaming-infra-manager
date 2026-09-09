@@ -144,6 +144,94 @@ The api image gains `git` (one apk line). Two builds never run at once: a mutex 
 `StackVersionService` serialises them, and a version in `building` state cannot be chosen for a
 deployment.
 
+### Immutable builds and an identified running build (T04a, 2026-09-08)
+
+The build described above moved the checkout in place, so a failed update left a mixed tree, a
+deploy admitted during the update ran on it, and a container restart picked up new files under an
+old container. Migration `015_stack_builds.sql` and the code around it change that.
+
+**Layout.** A version with builds keeps three sibling directories under `STACK_VERSIONS_ROOT`.
+`<name>/` is the flat root it always had: the host-owned inputs live there (`.env`,
+`deploy/config.json`, `engines/<engine>/.env`), and a row still on the old layout deploys from it.
+`<name>.repo/` is the clone, which only fetches and is never deployed from. `<name>.builds/<id>/`
+is one immutable directory per build, `<id>` being the commit or `<commit>-r<n>` for the same
+commit published again with other inputs. A dot cannot appear in a version name, so the flat root
+is never an ancestor of a build. A build carries `.stack-manifest.json` (commit, build id, built
+at, toolchain, the generation and hashes of the inputs copied in) and a `.complete` marker written
+last. `stack_versions.layout` is `legacy` for every row that exists when the migration runs and
+`builds` from a row's first publication on. A `builds` row deploys from `build_id` and refuses,
+naming the build, when that directory is missing or incomplete. It never falls back to the flat
+root. `previous_build_id` is the build the current one replaced.
+
+**Building.** `stack-version-build.sh <repo-root> <staging-dir> <ref> <repo-url> <attempt-id>`
+fetches into the clone, exports the commit into the attempt's own staging directory
+(`<name>.builds/tmp-<attempt>`), builds it in a container named `stack-build-<attempt>`, leaves
+the commit in `.stack-commit` and publishes nothing. The manager then captures the version's host
+configuration (below), copies it into the staging tree, writes the manifest and the marker,
+renames the tree under its identity, or adopts a complete build of the same commit and inputs
+untouched, and publishes with one row update under the row's own lock: ready, layout `builds`,
+the previous build kept, `tested` surviving only when the build id did not change. A failed
+update leaves a row with a usable build ready with the reason. Files under a published path are
+never replaced. At boot a staging directory is removed only when Docker says no container of its
+name exists, so a builder that outlived the manager keeps its tree.
+
+**Host configuration.** The inputs are edited through `manager/scripts/stack-config-edit.sh
+<root> set <file> <source>...` or `... commit`, which holds `<root>/.config.lock` (an atomic
+`mkdir`) for the whole edit, replaces each file beside itself and renames over it, and writes
+`.config-revision.json` last, with a generation and every file's hash. Capture takes the same
+lock with a bounded wait, reads every listed file between two stats, checks the base env against
+the build's `.env.sample` keys and the deploy config as JSON, compares every hash to the manifest
+and refuses naming the file on any difference, so a build can never carry one new file and one
+old. An edit outside the script is refused by hash until it is committed with the script. A root
+without a manifest is adopted at generation one from its current bytes, recorded as such.
+`--unlock` removes a lock whose editor is gone, by a person who checked.
+
+**References.** A deploy claim reads the version once, moves the profile to `DEPLOYING` and
+inserts a `job` reference (`build_references`) for the build it will run, in one transaction under
+a share lock on the version row, and hands the run a descriptor: the version as read, the build's
+identity and its root. The run deploys from the descriptor and never reads the version again.
+After the script, the success hook asks Docker which root each service's container was started
+from (the compose working directory label the container carries), writes one `snapshot`
+reference per service and resolves every job reference newer snapshots cover. A daemon that does
+not answer and a script that fails both keep the job reference. Boot observes every profile with
+an open job reference the same way. Prune keeps the current build, the previous one and every
+build an open reference names, deletes the other build directories, and runs under the version
+row's update lock after a publication and at boot. It never touches a staging directory or the
+flat root, which keeps the host-owned inputs.
+
+**What runs.** Each service's container row records the build and the commit it was seen to be
+started from, and a profile records `last_full_deploy_commit` only when a deploy touched every
+service it has and found every one on that commit. The deployment page shows one commit when
+every container agrees and names each service's own when they differ. The Versions page shows
+the layout, the current build and the previous one.
+
+**The bundled version.** The manager's own deploy (`deploy/deploy.sh`) used to rsync the bundled
+stack over `manager/swarm-hls-stream` on the host, the tree the api and the engines mount, so a
+container restart after a manager deploy ran an old container on replacement files. It now leaves
+that tree as it is and ships the built stack into `bundled.incoming.tmp/` under the versions root,
+with its commit, and promotes it to `bundled.incoming/` with one rename once everything arrived,
+so a dropped connection leaves a torn staging directory the next deploy replaces and never a
+shipment the api would read. At boot, after the containers were observed, the api publishes the
+shipment the way an added version's build is published: the shipped `.env`, `deploy/config.json`
+and `engines/<engine>/.env` are committed as the bundled version's host configuration under
+`<versions>/bundled/` when they changed, a file of that set the shipment no longer carries leaves
+it, so the checkout the deploy ran from stays their source of truth, the tree becomes
+`bundled.builds/<commit>/` with its manifest and marker, or a complete build of the same commit and
+inputs is adopted and the shipment dropped, and one row update makes it current and gives the row
+`<versions>/bundled` as its root. The same reference and prune rules apply, so a build a container
+still mounts stays. A shipment that cannot be published is left in place with the reason on the
+row, and the next deploy replaces it. A crash between the rename and the row update leaves a
+complete build the row does not name, which the next boot adopts, the reason on the row saying
+where it is. A bundled row never published stays legacy on the tree the manager ships with, gets
+its samples seeded there as before, and the Versions page says so: `with the manager, legacy tree`
+against `build ee99c36`. The host passphrase the pages show is read from the tree the bundled
+version runs, the legacy tree or its current build. An engine mounted
+from the legacy tree, or from an earlier bundled build, keeps reading it after a publication and
+after a container restart, until its own deployment is deployed again, which is what moves it. A
+deployment whose version row is gone runs the bundled version, with a reference on it, rather than
+the raw tree. The legacy flat root of an added version is never pruned, because it doubles as the
+config root.
+
 ### Reading the contract
 
 `manager/src/domain/stackContract.ts`, tested against fixtures cut from both branches:

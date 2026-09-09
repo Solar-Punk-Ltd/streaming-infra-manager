@@ -2,7 +2,7 @@ import type { StampHealth } from '@streaming-infra-manager/common';
 
 import type { Tone } from '../components/tone';
 import type { ChecklistInput } from './checklist';
-import { isStreamLike, readinessOf } from './readiness';
+import { isStreamLike, readinessFor } from './readiness';
 import { hasService, isRunning, shapeOf } from './shape';
 
 export interface ReadySummary {
@@ -17,25 +17,22 @@ export function readySummary(
   input: ChecklistInput,
   health?: StampHealth,
 ): ReadySummary {
-  const { profile, publishUrl, clientUrl, chequebook } = input;
-  const readiness = readinessOf(profile, health, chequebook);
+  const { profile, publishUrl, clientUrl } = input;
+  const readiness = readinessFor(health ? { ...input, stampHealth: health } : input);
   const shape = shapeOf(profile);
 
   if (isStreamLike(profile, shape) || shape === 'abr-uploader') {
-    if ((readiness.tone === 'ok' || readiness.working) && publishUrl) {
+    if (readiness.tone === 'ok' && publishUrl) {
       return {
         tone: readiness.tone,
-        title:
-          readiness.tone === 'ok'
-            ? 'Ready. Point OBS or FFmpeg at this URL:'
-            : `Ready, but ${readiness.label.toLowerCase()}. Point OBS or FFmpeg at this URL:`,
+        title: 'Prerequisites checked. Receiving and uploading are not verified. Publish to test:',
         url: publishUrl,
       };
     }
     return {
       tone: readiness.tone,
       title:
-        readiness.tone === 'gray'
+        profile.status === 'STOPPED'
           ? 'Stopped. Start it to get a publish URL.'
           : `Not ready yet: ${readiness.label.toLowerCase()}.`,
       url: null,
@@ -46,7 +43,7 @@ export function readySummary(
     if (isRunning(profile) && clientUrl) {
       return {
         tone: 'ok',
-        title: 'Watchable. Open the player:',
+        title: 'Player container running. Playback is not verified. Open the player:',
         url: clientUrl,
         isLink: true,
       };
@@ -54,21 +51,18 @@ export function readySummary(
     return {
       tone: readiness.tone,
       title:
-        readiness.tone === 'gray'
+        profile.status === 'STOPPED'
           ? 'Stopped. Start it to serve the player.'
-          : 'Not watchable right now.',
+          : `Player unavailable: ${readiness.label.toLowerCase()}.`,
       url: null,
     };
   }
 
   if (shape === 'bee-node') {
-    return readiness.tone === 'ok' || readiness.working
+    return readiness.tone === 'ok'
       ? {
           tone: readiness.tone,
-          title:
-            readiness.tone === 'ok'
-              ? 'This node is ready to receive uploads for its rung.'
-              : `This node receives uploads for its rung, but ${readiness.label.toLowerCase()}.`,
+          title: 'Node prerequisites checked. Receiving uploads has not been verified.',
           url: null,
         }
       : {

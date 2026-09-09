@@ -474,8 +474,9 @@ export class EngineConfigService {
   /**
    * The owned revert: ownership checked, the deploy claim taken, then one
    * conditional write that puts the previous file back and marks the
-   * operation reverting, then the recreate. A refused claim or a lost
-   * ownership ends here without a write. `from` is the status the deployment
+   * operation reverting, then the recreate. A refused claim keeps a still-owned
+   * operation interrupted and leaves the file unchanged. Lost ownership changes
+   * neither the operation nor the file. `from` is the status the deployment
    * must still be in, RUNNING for a watch and ERROR for a recreate that
    * failed, so a stopped deployment is never recreated by either. `failure`
    * is the reason when the rollout's own recreate failed, and the operation
@@ -498,14 +499,15 @@ export class EngineConfigService {
     const message = failure
       ? `${ENGINE_DISPLAY_NAMES[operation.engine]} could not be recreated on the new config file (${failure}), so the previous one is back.`
       : revertMessage(operation.engine, state, tail);
-    logger.warn(`[EngineConfig] ${operation.profileName}: ${message.split('\n')[0]}`);
-
     let reservation: DeployReservation;
     try {
       reservation = await this.orchestrator.reserveForRollout(profile, operation.engine);
     } catch (err) {
-      await this.operations.transition(ownershipOf(operation), ['watching', 'applying'], 'superseded', {
-        message: `The revert could not claim the deployment: ${getErrorMessage(err)}`,
+      const reason = failure
+        ? `The original recreate failed: ${failure}`
+        : `${ENGINE_DISPLAY_NAMES[operation.engine]} ${describeState(state)} on the new config file. ${reasonLines(tail)}`.trim();
+      await this.operations.transition(ownershipOf(operation), ['watching', 'applying'], 'interrupted', {
+        message: `Recovery interrupted before the previous config file was restored. ${reason}. The revert could not claim the deployment: ${getErrorMessage(err)}`,
       });
       return;
     }
@@ -514,6 +516,7 @@ export class EngineConfigService {
       await this.orchestrator.cancelReservation(reservation);
       return;
     }
+    logger.warn(`[EngineConfig] ${operation.profileName}: ${message.split('\n')[0]}`);
     await this.publish(begun.profile);
 
     const reverting = ownershipOf(begun.operation);
