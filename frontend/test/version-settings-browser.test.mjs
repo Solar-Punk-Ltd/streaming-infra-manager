@@ -316,21 +316,6 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     applyBusy = false;
   });
 
-  await t.test('an apply that changes nothing says which build already carries the settings', async () => {
-    applyReused = true;
-
-    await clickButton('Save and apply');
-    await waitFor(() => writes.length, (count) => count === 7, 'the apply on its own');
-
-    assert.deepEqual(writes[6], { method: 'POST', path: '/versions/3/settings/apply', body: {} });
-    await waitFor(
-      () => evaluate('document.body.innerText'),
-      (text) => text.includes('Build 3333333333333333333333333333333333333333-r2 already carries these settings.'),
-      'the reused build',
-    );
-    applyReused = false;
-  });
-
   await t.test('a version with no build yet says why and offers no fields', async () => {
     await call('Page.navigate', { url: `${origin}/#/versions/5/settings` });
     await waitFor(
@@ -352,6 +337,25 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
     await waitFor(() => evaluate('window.location.hash'), (hash) => hash === '#/versions/3/settings', 'the settings route');
     await waitFor(() => evaluate(`Boolean(${fieldOf('API_PORT')})`), Boolean, 'the settings fields');
+  });
+
+  // Last, because it needs the page freshly loaded with nothing edited and a
+  // build one revision behind, which is the only state where apply goes out on
+  // its own and can answer that the build already carries these settings.
+  await t.test('an apply that changes nothing says which build already carries the settings', async () => {
+    applyReused = true;
+    const before = writes.length;
+
+    await clickButton('Save and apply');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the apply on its own');
+
+    assert.deepEqual(writes[before], { method: 'POST', path: '/versions/3/settings/apply', body: {} });
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('Build 3333333333333333333333333333333333333333-r2 already carries these settings'),
+      'the reused build',
+    );
+    applyReused = false;
   });
 
   assert.deepEqual(browser.errors, []);

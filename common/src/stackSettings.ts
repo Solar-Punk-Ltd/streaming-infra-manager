@@ -93,6 +93,8 @@ export interface StackSettingsSaved {
 /** What `POST /versions/:id/settings/apply` answers: the build new deployments get. */
 export interface StackSettingsApplied {
   buildId: string;
+  /** Whether that build was already there and carrying this revision, so nothing was published. */
+  reused: boolean;
 }
 
 // ------------------------------------------------------------- the secrets

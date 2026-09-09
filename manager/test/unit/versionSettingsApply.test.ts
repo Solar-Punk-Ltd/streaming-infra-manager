@@ -128,7 +128,7 @@ describe('POST /versions/:id/settings/apply', () => {
     const row = await versionRow('v3');
 
     assert.equal(answer.status, 200);
-    assert.deepEqual(answer.body, { buildId: `${APPLY_COMMIT}-r1` });
+    assert.deepEqual(answer.body, { buildId: `${APPLY_COMMIT}-r1`, reused: false });
     assert.equal(row.buildId, `${APPLY_COMMIT}-r1`);
     assert.equal(row.previousBuildId, APPLY_COMMIT);
     assert.equal(row.commitSha, APPLY_COMMIT);
@@ -314,7 +314,7 @@ describe('POST /versions/:id/settings/apply', () => {
     const second = await saveAndApply(id, 3);
 
     assert.equal(second.status, 200);
-    assert.deepEqual(second.body, { buildId: `${APPLY_COMMIT}-r2` });
+    assert.deepEqual(second.body, { buildId: `${APPLY_COMMIT}-r2`, reused: false });
   });
 
   it('leaves no staging directory behind', async () => {

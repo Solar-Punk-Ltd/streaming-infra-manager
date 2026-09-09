@@ -469,6 +469,13 @@ export class StackVersionService {
     if (capture.problem !== null) throw new Error(capture.problem);
     const inputs = capture.captured;
 
+    // A build of this commit already carrying this revision is the one new
+    // deployments run, because a revision's generation only rises. Publishing
+    // another copy of it would clear the version's approval and push the build
+    // it was made from out of the protected window, for no change at all.
+    const carrying = await this.completeBuildOf(version.name, current.manifest.commit, inputs.generation);
+    if (carrying) return { buildId: carrying.buildId, reused: true };
+
     const attempt = randomBytes(6).toString('hex');
     const staging = stagingDirFor(this.versionsRoot, version.name, attempt);
     await mkdir(buildsRootFor(this.versionsRoot, version.name), { recursive: true });
@@ -520,7 +527,7 @@ export class StackVersionService {
       `[Versions] ${version.name} deploys from build ${buildId}, made from ${version.buildId} with settings revision ${inputs.generation}, tree ${sharing}`,
     );
     await this.pruneBuilds(version.id);
-    return { buildId };
+    return { buildId, reused: false };
   }
 
   /** The revision's own bytes, never a link, owner only whatever the build it was made from had. */

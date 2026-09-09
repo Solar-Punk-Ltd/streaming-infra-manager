@@ -4,6 +4,7 @@ import { Alert, Box, Button, Chip, CircularProgress, Stack, Typography } from '@
 import {
   getErrorMessage,
   type StackSettings,
+  type StackSettingsApplied,
 } from '@streaming-infra-manager/common';
 
 import { navigate, routes } from '../app/router';
@@ -59,7 +60,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
   const [draft, setDraft] = useState<SettingsDraft>({});
   const [loading, setLoading] = useState(true);
   const [refusal, setRefusal] = useState<SettingsRefusal | null>(null);
-  const [applied, setApplied] = useState<string | null>(null);
+  const [applied, setApplied] = useState<StackSettingsApplied | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
 
   const version = versions?.find((row) => row.id === id) ?? null;
@@ -122,11 +123,11 @@ export function VersionSettingsPage({ id }: { id: number }) {
   const saveAndApply = () =>
     run('applying', async () => {
       await saveEdits();
-      const { buildId } = await applyVersionSettings(id);
-      setApplied(buildId);
+      const outcome = await applyVersionSettings(id);
+      setApplied(outcome);
       await load();
       reloadVersions();
-      toast(`New deployments run build ${buildId}`, 'success');
+      toast(`New deployments run build ${outcome.buildId}`, 'success');
     });
 
   return (
@@ -174,8 +175,9 @@ export function VersionSettingsPage({ id }: { id: number }) {
 
       {applied && (
         <Alert severity="success">
-          New deployments run build {applied}. Deployments already running keep the settings they
-          started with until they are deployed again.
+          {applied.reused
+            ? `Build ${applied.buildId} already carries these settings, so nothing was published.`
+            : `New deployments run build ${applied.buildId}. Deployments already running keep the settings they started with until they are deployed again.`}
         </Alert>
       )}
 
@@ -210,7 +212,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
             <Button
               variant="outlined"
               size="small"
-              disabled={busy !== null}
+              disabled={disabled || (edits.length === 0 && isCarriedByTheBuild(settings))}
               onClick={() => void saveAndApply()}
             >
               Save and apply
