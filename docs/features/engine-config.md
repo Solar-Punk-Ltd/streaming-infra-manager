@@ -5,12 +5,12 @@ its selected stack version advertises support. The manager checks the file,
 recreates the engine, then records the outcome of startup verification.
 Recovery can fail. Saving a file is not proof that publishing or playback works.
 
-This page describes the agreed remediation and its local implementation on
-`fix/t01-config-ownership`, `fix/t02-srs-check-isolation`,
-`fix/t03-ome-xml` and `fix/t11-effective-settings`. Those branches still need
-integration. As checked on 2026-09-09, `main-v2` remains at `d046ebf` and does
-not contain these fixes. No deployment of this remediation is claimed here.
-The earlier engine-configuration decisions were accepted on 2026-09-07.
+This page describes the agreed remediation included in the local `main-v2`
+integration checkpoint `4372848` on 2026-09-09. It includes T01's service caller
+integration through `82e2d08`, the isolated SRS checks, OME validation and T11's
+effective settings. Aggregate verification and immutable execution integration
+remain open. No host deployment of this remediation is claimed here. The
+engine-configuration decisions were accepted on 2026-09-07.
 
 ## File editing and effective settings
 
@@ -59,8 +59,8 @@ the exact deployment job that reserved it. Losing that ownership returns a
 conflict and preserves the draft. Validation and job admission use one
 captured published build. Publication of another build before the locked
 claim refuses the save before settings or job state changes. Capturing mutable
-host inputs before execution remains open. These changes have not been
-deployed to `main-v2`.
+host inputs before execution remains open. This checkpoint is included in the
+local merge, without a claim of host deployment.
 
 ## What validation establishes
 
@@ -92,6 +92,14 @@ Every apply or reset has a persisted operation. It records the deployment's
 lifetime identity, configuration and operator-intent revisions, previous file,
 container identity and current state. The deployment lifetime identity changes
 when a deployment is deleted and recreated, even under the same name.
+
+Apply, reset and recovery callers now use the atomic configuration-operation
+and deployment claim. They carry the captured build reference through execution and
+check ownership again when recording completion. A failure during preparation
+keeps the still-owned operation interrupted, its previous file and its original
+failure evidence. A refused recovery claim does not mean the previous file was
+restored. These caller changes do not close the remaining immutable execution
+and build-hold release integration.
 
 Startup verification begins after the engine recreation has finished and
 RUNNING is committed. A stopped engine, a restart or another demonstrated
@@ -143,14 +151,15 @@ outcome. A successful HTTP response does not prove playback.
 Local regressions cover operation ownership, restart reconciliation, isolated
 SRS check files, XML parsing and protected paths, and effective-setting sources.
 The T11 exact-job write checkpoint passed 18 database, 27 focused HTTP and
-13 browser checks, plus workspace types. Its full manager run passed
-1095 of 1097 cases. The two remaining failures exercise the unfinished T01
-integration between configuration operations and deployment claims. The
-later same-build capture correction passed 28 targeted HTTP/unit checks,
-three database cases and manager types. The full suite was not repeated for
-that checkpoint. The
-configured-value UI also has desktop and 390-pixel responsive browser review.
-These are separate from running the real engine containers.
+13 browser checks, plus workspace types. Before T01's service caller integration,
+its full manager run passed 1095 of 1097 cases. Those two failures concerned
+configuration-operation and deployment-claim integration. This is historical
+evidence, not a test result for the merged branch. The later same-build capture
+correction passed 28 targeted HTTP/unit checks, three database cases and manager
+types. The full suite was not repeated for that checkpoint. T01's later
+`82e2d08` includes the atomic service and retained-recovery corrections.
+The configured-value UI also has desktop and 390-pixel responsive browser
+review. These checks are separate from running the real engine containers.
 
 Fable's 2026-09-08 local T03 evidence records OME `v0.21.0` with manifest-list
 digest `sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6`.
@@ -165,7 +174,10 @@ Levi still owns the stack image-pin change. T20 must integrate these regressions
 with the real SRS parser concurrency check and the combined CI workflow. The
 recorded arm64 result is not an amd64 CI run or a funded-host result. T11's
 mutable-input integration remains open as described above.
-T01 still needs the atomic operation claim, retained-build recovery and
-deployment completion checks connected through its service callers. T22
-separately verifies authorized live Swarm delivery. Unit tests do not
-substitute for any of these execution results.
+T01 still needs immutable execution and build-hold release verification across
+the combined paths. T04b's fixed production publication CLI and private runtime
+wiring remain open dependencies. The atomic operation claim, retained recovery
+and deployment-completion service callers are now connected, but their local
+integration still needs combined verification. T22 separately verifies
+authorized live Swarm delivery. Unit tests do not substitute for these
+execution results.

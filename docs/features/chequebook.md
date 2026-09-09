@@ -5,15 +5,16 @@ from the node's wallet into its chequebook. A withdrawal moves it back. The
 manager presents these transfers as recorded operations whose outcome must be
 checked from transaction evidence. A balance change cannot confirm a transfer.
 
-This page describes accepted T09 behavior and its local implementation on
-`codex/t09-money-by-transaction`, with the T12 readiness integration. As checked
-on 2026-09-09, `main-v2` is still at `d046ebf`. The journal, receipt recovery,
-durable browser workflow, history and account/instance guards are implemented
-locally. T06's SQL target proof and synthetic single-connection preparation are
-reviewed. The physical connector, exact-image qualification and runtime wiring
-remain incomplete. New PostgreSQL submissions currently refuse without that
-target proof. Do not assume the live dialog implements the behavior below.
-No live transfer was made to verify this remediation.
+This page describes accepted T09 behavior included in the local `main-v2`
+integration checkpoint `4372848` on 2026-09-09. It includes the journal, receipt
+recovery, durable browser workflow, history, account/instance guards and owned
+transport factory through `b1b1aec`. New submission preparation captures T06's
+SQL target proof and uses one qualified Docker/Bee connection. Local Unix and
+supervised SSH adapters are implemented, but the production qualification
+catalog is empty. Acquisition refuses without a matching qualified record.
+Actual SSH and exact-image qualification, finite receipt polling and final
+connected acceptance remain open. The local merge is not evidence of a host
+deployment or live transfer.
 
 ## Balances and new uploader starts
 
@@ -142,6 +143,15 @@ A busy response can name another operation. The browser must not attach that
 operation to its own saved intent as though its submission succeeded. History
 is available independently of the deployment page.
 
+The factory selects trusted locators and existing qualification IDs from
+`CHEQUEBOOK_DOCKER_TRANSPORTS`. Chain reads use `CHEQUEBOOK_RPC_ENDPOINTS`.
+Runtime configuration cannot create a qualification record, and the factory
+has no direct Bee URL fallback. It no longer uses `CHEQUEBOOK_BEE_ENDPOINT_MODE`.
+History and exact replay do not require current transport configuration.
+Pending Bee reads require the saved deployment instance and matching node
+identity. Missing pending observations remain unavailable, while receipt and
+manual chain recovery can still use the frozen operation after profile deletion.
+
 ## Evidence and remaining acceptance
 
 The journal and target-ownership checkpoint `16fd7b3` passed 78 actual SQL
@@ -155,11 +165,21 @@ checks and types. The separate step-deadline correction `3d66035` passed 88
 focused checks and types. These results exercise protocol and ownership code
 without qualifying an actual Bee image or making a live transfer.
 
-Completion still requires the physical connector, exact immutable-image bridge
-qualification, runtime wiring and final combined verification. Qualification
-defaults to refusal until its recorded binary/disconnect harness succeeds.
-Real-money testing is a separately authorized T22 activity with Levi's pending
-D05 inputs and strict ownership of cleanup.
+The connected factory checkpoint `b1b1aec` passed 42 focused factory, runtime,
+deadline and pending-read checks, 151 compatibility checks and manager types.
+Its synthetic cases include lost-response replay, target changes, deleted-profile
+receipt recovery and shutdown during capture, connection, claim and POST.
+Shutdown retains cleanup promises and reports unverified resource closure.
+These results do not establish aggregate verification of the merged branch.
+
+Completion still requires exact immutable-image bridge and actual SSH
+qualification, finite receipt-only polling, the portable intent-browser harness,
+and the connected authenticated SQL/browser acceptance run on the integrated
+code. Polling must not resend money, scan unknown submissions automatically or
+renew its budget indefinitely on refresh. The production qualification catalog
+remains empty until the recorded binary/disconnect harness succeeds.
+Real-money testing remains a separately authorized T22 activity with Levi's
+pending D05 inputs and strict ownership of cleanup.
 
 The historical 0.5 BZZ fill on the funded `review-20260907` deployment remains
 unverified. Without transaction evidence, this document does not establish
