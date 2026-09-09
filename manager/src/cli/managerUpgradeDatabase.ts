@@ -4,14 +4,18 @@ import { Database } from '../domain/Database.js';
 import type { ManagerPublication } from '../domain/versions/ManagerUpgrade.js';
 import { PostgresStackVersionRepository } from '../domain/versions/PostgresStackVersionRepository.js';
 import { readManagerPublication } from '../domain/versions/readManagerPublication.js';
+import type { StackVersionLayout } from '../domain/versions/StackVersionRepository.js';
 
 /** What the upgrade watches while the api builds the commit the manager pins. */
 export interface BundledVersionState {
+  id: number;
   status: string;
-  layout: string;
+  layout: StackVersionLayout;
   gitRef: string;
   commitSha: string | null;
   buildId: string | null;
+  /** The version root, which with the build id gives the build directory. */
+  rootPath: string | null;
   lastError: string | null;
 }
 

@@ -52,6 +52,7 @@ import {
   buildsRootFor,
   configRootFor,
   deployRootProblem,
+  deploysBuildOf,
   repoRootFor,
   stackRootOf,
   stagingDirFor,
@@ -774,12 +775,6 @@ function toApiVersion(
     buildId: version.buildId,
     previousBuildId: version.previousBuildId,
   };
-}
-
-/** Whether the version deploys from a complete build of this commit right now. */
-function deploysBuildOf(version: StackVersionRecord, commit: string): boolean {
-  return version.layout === 'builds' && version.status === 'ready' &&
-    version.commitSha === commit && deployRootProblem(version) === null;
 }
 
 function refuse(problem: string | null): void {

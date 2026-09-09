@@ -1,7 +1,9 @@
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 
 import { readBundledPin } from '../domain/versions/bundledCommit.js';
+import { deploysBuildOf } from '../domain/versions/stackPaths.js';
 import type {
   BundledBuildOutcome,
   ManagerPublication,
@@ -113,16 +115,21 @@ function commandFailure(what: string, project: string, program: string, result: 
 
 /**
  * What the bundled row says about the pinned commit, or null while it is still
- * being built. A row moved onto the pin that is no longer building and carries
- * an error is that build having failed, whether the version kept an older build
- * to deploy from or has none at all.
+ * being built.
+ *
+ * Ready is the same question boot asks: does the row deploy from a complete
+ * build of this commit. Failed needs the row to have moved since this upgrade
+ * started the new api, because `ensureBundledBuild` can throw before it marks
+ * the row as building, and the boot that swallows that leaves the error of an
+ * earlier one standing.
  */
-function outcomeOf(bundled: BundledVersionState | null, commit: string): BundledBuildOutcome | null {
+function outcomeOf(bundled: BundledVersionState | null, commit: string, before: BundledVersionState | null | undefined): BundledBuildOutcome | null {
   if (!bundled) return { state: 'failed', commit, buildId: null, problem: 'this database holds no bundled version row' };
-  if (bundled.layout === 'builds' && bundled.status === 'ready' && bundled.commitSha === commit) {
+  if (deploysBuildOf(bundled, commit)) {
     return { state: 'ready', commit, buildId: bundled.buildId, problem: null };
   }
-  if (bundled.status !== 'building' && bundled.gitRef === commit && bundled.lastError !== null) {
+  const built = before === undefined || !isDeepStrictEqual(bundled, before);
+  if (built && bundled.status !== 'building' && bundled.gitRef === commit && bundled.lastError !== null) {
     return { state: 'failed', commit, buildId: bundled.buildId, problem: bundled.lastError };
   }
   return null;
@@ -151,6 +158,8 @@ export const httpHealthProbe: HealthProbe = async (url) => {
  */
 export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   private readonly timeouts: Required<ComposeUpgradeTimeouts>;
+  /** The bundled row before this upgrade started the api, or undefined when it has not started it. */
+  private bundledBeforeStart: BundledVersionState | null | undefined;
 
   constructor(
     private readonly settings: ComposeUpgradeSettings,
@@ -202,7 +211,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     const deadline = Date.now() + this.timeouts.bundledBuild;
     for (;;) {
       const bundled = await this.database.readBundledVersion();
-      const outcome = outcomeOf(bundled, commit);
+      const outcome = outcomeOf(bundled, commit, this.bundledBeforeStart);
       if (outcome) return outcome;
       if (Date.now() >= deadline) {
         return { state: 'timed-out', commit, buildId: bundled?.buildId ?? null, problem: bundled?.lastError ?? null };
@@ -212,6 +221,10 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   }
 
   async startProject(request: ManagerUpgradeRequest): Promise<void> {
+    // The row as it stands before the new api exists. Anything it says after
+    // this is the boot this upgrade started, and anything it still says is an
+    // earlier one's.
+    this.bundledBeforeStart = await this.database.readBundledVersion();
     if (this.settings.publicEdge) {
       await this.compose(request.project, [...PUBLIC_PROFILE, 'up', '-d', '--no-build', '--remove-orphans']);
       return;

@@ -66,6 +66,23 @@ export function deployRootProblem(version: StackVersionRoot): string | null {
   return problem ? `Build ${version.buildId} of this version cannot be deployed from. ${problem}` : null;
 }
 
+/** A version root plus what says whether its build is the one wanted. */
+export interface DeployableVersion extends StackVersionRoot {
+  status: string;
+  commitSha: string | null;
+}
+
+/**
+ * Whether the version deploys from a complete build of this commit right now.
+ *
+ * Boot and the manager upgrade both decide from this, so a build the upgrade
+ * calls ready is never one the next boot rebuilds.
+ */
+export function deploysBuildOf(version: DeployableVersion, commit: string): boolean {
+  return version.layout === 'builds' && version.status === 'ready' &&
+    version.commitSha === commit && deployRootProblem(version) === null;
+}
+
 export function stackPaths(version: StackVersionRoot): StackPaths {
   return stackPathsForRoot(stackRootOf(version));
 }
