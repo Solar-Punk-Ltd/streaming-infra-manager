@@ -705,6 +705,65 @@ describe('PUT /versions/:id/settings', () => {
     );
   });
 
+  it('refuses a save carrying more files or more keys than any version has', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, '.env'));
+
+    const manyFiles = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: Array.from({ length: 17 }, (_unused, index) => ({
+        path: `engines/e${index}/.env`,
+        entries: [{ key: 'API_PORT', value: '3100' }],
+      })),
+    });
+    const manyEntries = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [
+        {
+          path: '.env',
+          entries: Array.from({ length: 513 }, (_unused, index) => ({
+            key: `KEY_${index}`,
+            value: 'x',
+          })),
+        },
+      ],
+    });
+
+    assert.equal(manyFiles.status, 400);
+    assert.equal(manyEntries.status, 400);
+    assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
+  });
+
+  it('refuses a save that names one file twice, where the first edit would be lost', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [
+        { path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] },
+        { path: '.env', entries: [{ key: 'ENGINE', value: 'ome' }] },
+      ],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.match(readFileSync(join(configRoot, '.env'), 'utf8'), /^API_PORT=3000$/m);
+  });
+
+  it('answers a body over the request limit as too large rather than as a fault', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: 'x'.repeat(300_000) }] }],
+    });
+
+    assert.equal(answer.status, 413);
+    assert.equal((answer.body as { error: string }).error, 'payload_too_large');
+  });
+
   it('refuses a version whose first build has not happened', async () => {
     const answer = await callJson('PUT', `/versions/${await bundledId()}/settings`, {
       expectedGeneration: 1,
