@@ -318,12 +318,14 @@ describe("where the bundled version's settings come from", () => {
     before(() => { umask = process.umask(0o022); });
     after(() => { process.umask(umask); });
 
-    it('carries the mode of the legacy file over, and the completion keeps it', async () => {
-      chmodSync(join(legacyRoot, '.env'), 0o600);
+    it('leaves every file of the set owner only, whatever the legacy tree allowed', async () => {
+      chmodSync(join(legacyRoot, '.env'), 0o644);
+      chmodSync(join(legacyRoot, 'deploy', 'config.json'), 0o644);
 
       const configRoot = await buildBundled();
 
       assert.equal(statSync(join(configRoot, '.env')).mode & 0o777, 0o600, 'only the owner reads the passphrase and the stream key');
+      assert.equal(statSync(join(configRoot, 'deploy', 'config.json')).mode & 0o777, 0o600);
     });
   });
 

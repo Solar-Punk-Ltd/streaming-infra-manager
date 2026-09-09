@@ -13,10 +13,10 @@
  * Unit test over a scratch directory. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import {
@@ -205,4 +205,25 @@ describe('completing an engine env from the engine sample', () => {
     assert.deepEqual(added, {});
     assert.equal(existsSync(join(configRoot, 'engines', 'srs', '.env')), false);
   });
+});
+
+describe('the modes completion leaves behind', () => {
+  // The base env holds the stream passphrase and the api token, and appending
+  // a key the version declares is no reason to widen it. The umask is fixed
+  // here so the answer is the manager's rather than the machine's.
+  let umask: number;
+  before(() => { umask = process.umask(0o022); });
+  after(() => { process.umask(umask); });
+
+  for (const mode of [0o600, 0o640]) {
+    it(`keeps the ${mode.toString(8)} the base env it completes already had`, async () => {
+      await committedEnv('STAMP=paid-for\n');
+      chmodSync(join(configRoot, '.env'), mode);
+
+      const completed = await completeHostConfigFromSamples(configRoot, staging);
+
+      assert.deepEqual(completed['.env'], ['STREAM_KEY', 'CHEQUEBOOK_MIN_BZZ', 'API_PORT']);
+      assert.equal(statSync(join(configRoot, '.env')).mode & 0o777, mode);
+    });
+  }
 });

@@ -12,10 +12,10 @@
  * Unit test over a scratch directory. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { holdHostConfigLock, readHostConfigRevision } from '../../src/domain/versions/hostConfigCapture.js';
@@ -103,5 +103,27 @@ describe('a legacy path that is not a regular file', () => {
     assert.deepEqual(carried, ['.env', 'deploy/config.json']);
     assert.deepEqual(skipped, ['engines']);
     assert.equal(existsSync(join(configRoot, 'engines')), false);
+  });
+});
+
+describe('the modes the carried files land at', () => {
+  // A carried file goes where the config root has nothing, so it takes the
+  // mode a new settings file gets rather than the legacy tree's, which is
+  // never wider than what the host already allowed. The umask is fixed here
+  // so the answer is the manager's rather than the machine's.
+  let umask: number;
+  before(() => { umask = process.umask(0o022); });
+  after(() => { process.umask(umask); });
+
+  it('gives every one of them the owner only mode, whatever the legacy tree allowed', async () => {
+    chmodSync(join(legacyRoot, '.env'), 0o644);
+    chmodSync(join(legacyRoot, 'deploy', 'config.json'), 0o640);
+
+    const { carried } = await carryOverLegacyHostConfig(configRoot, legacyRoot);
+
+    assert.deepEqual(carried, ['.env', 'deploy/config.json']);
+    for (const relative of carried) {
+      assert.equal(statSync(join(configRoot, relative)).mode & 0o777, 0o600, relative);
+    }
   });
 });
