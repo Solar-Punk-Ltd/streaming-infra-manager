@@ -10,7 +10,7 @@
  * deploy script then refuses it.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -28,7 +28,8 @@ import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
 import { profileServiceHarness } from '../support/profileServiceHarness.js';
 
-const root = mkdtempSync(join(tmpdir(), 'port-table-'));
+const root = join(mkdtempSync(join(tmpdir(), 'port-table-')), 'main-v3');
+mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
 const { orchestratorHarness, untilRunning } = await import(

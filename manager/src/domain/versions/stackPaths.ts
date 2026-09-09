@@ -8,6 +8,7 @@ import {
 
 import { buildIdProblem, readBuildManifest } from './buildManifest.js';
 import type { StackVersionLayout } from './StackVersionRepository.js';
+import { versionRemovalProblem } from './versionRemovalMarker.js';
 
 /**
  * Where one version's checkout keeps everything the manager runs against it.
@@ -18,6 +19,7 @@ import type { StackVersionLayout } from './StackVersionRepository.js';
  * only the running manager knows where its own checkout is.
  */
 export interface StackVersionRoot {
+  id?: number;
   rootPath: string | null;
   /** Legacy when left out: a caller that names only a root means the flat one. */
   layout?: StackVersionLayout;
@@ -55,6 +57,8 @@ export function stackRootOf(version: StackVersionRoot): string {
 
 /** Why a version cannot be deployed from right now, naming what is missing, or null. */
 export function deployRootProblem(version: StackVersionRoot): string | null {
+  const removalProblem = versionRemovalProblem(version);
+  if (removalProblem) return removalProblem;
   if ((version.layout ?? 'legacy') !== 'builds') return null;
   if (version.rootPath === null) return MISSING_BUILD_ROOT;
   if (!version.buildId) return MISSING_BUILD_ID;
