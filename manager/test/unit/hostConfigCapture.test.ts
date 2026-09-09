@@ -27,6 +27,7 @@ import {
   CONFIG_LOCK_DIR,
   CONFIG_REVISION_FILE,
   holdHostConfigLock,
+  withHostConfigLock,
 } from '../../src/domain/versions/hostConfigCapture.js';
 
 const SAMPLE_KEYS = ['ENGINE', 'API_PORT'];
@@ -231,12 +232,12 @@ describe('adoptHostConfig', () => {
     const fresh = root();
     rmSync(join(fresh, CONFIG_REVISION_FILE));
 
-    const adopted = await adoptHostConfig(fresh);
+    const adopted = await withHostConfigLock(fresh, (commit) => adoptHostConfig(fresh, commit));
     assert.equal(adopted?.generation, 1);
     assert.equal(JSON.parse(readFileSync(join(fresh, CONFIG_REVISION_FILE), 'utf8')).files['.env'], sha('ENGINE=srs\nAPI_PORT=3000\n'));
 
     const committed = root({ generation: 7 });
-    assert.equal(await adoptHostConfig(committed), null);
+    assert.equal(await withHostConfigLock(committed, (commit) => adoptHostConfig(committed, commit)), null);
     assert.equal(JSON.parse(readFileSync(join(committed, CONFIG_REVISION_FILE), 'utf8')).generation, 7);
   });
 });

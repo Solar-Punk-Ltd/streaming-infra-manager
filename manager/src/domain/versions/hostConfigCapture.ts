@@ -370,15 +370,15 @@ async function revisionOfPresentFiles(root: string, generation: number): Promise
  * The migration: a root without a manifest gets generation one from its
  * current bytes, because nothing older exists to compare against. Answers
  * the revision written, or null for a root that already has one.
+ *
+ * Commits through the lock its caller holds, because a caller that already
+ * decided something about the root under that lock would otherwise decide it
+ * again against a root an editor changed in between.
  */
-export async function adoptHostConfig(root: string): Promise<ConfigRevision | null> {
-  const release = await holdHostConfigLock(root);
-  try {
-    if (await readRevision(root)) return null;
-    const revision = await revisionOfPresentFiles(root, 1);
-    await writeRevision(root, revision);
-    return revision;
-  } finally {
-    await release();
-  }
+export async function adoptHostConfig(
+  root: string,
+  commit: CommitUnderLock,
+): Promise<ConfigRevision | null> {
+  if (await readRevision(root)) return null;
+  return commit({});
 }

@@ -39,8 +39,8 @@ import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
   adoptHostConfig,
   captureHostConfig,
-  commitHostConfig,
   envKeysIn,
+  withHostConfigLock,
 } from './hostConfigCapture.js';
 import { readBundledPin } from './bundledCommit.js';
 import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
@@ -583,21 +583,26 @@ export class StackVersionService {
    */
   private async seedHostConfig(configRoot: string, staging: string): Promise<void> {
     await mkdir(configRoot, { recursive: true });
-    const seeds: Record<string, Buffer> = {};
-    for (const { sample, live } of CONFIG_SEEDS) {
-      if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
-        seeds[live] = await readFile(join(staging, sample));
+    // Which files the root already has is read under the acquisition of the
+    // lock that writes, so a file an operator created while the build ran is
+    // theirs rather than a sample written over it.
+    await withHostConfigLock(configRoot, async (commit) => {
+      const seeds: Record<string, Buffer> = {};
+      for (const { sample, live } of CONFIG_SEEDS) {
+        if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
+          seeds[live] = await readFile(join(staging, sample));
+        }
       }
-    }
-    if (Object.keys(seeds).length > 0) {
-      await commitHostConfig(configRoot, seeds);
-      logger.info(`[Versions] seeded ${Object.keys(seeds).join(', ')} in ${configRoot} from the build's samples`);
-      return;
-    }
-    const adopted = await adoptHostConfig(configRoot);
-    if (adopted) {
-      logger.info(`[Versions] adopted the host configuration in ${configRoot} as generation 1`);
-    }
+      if (Object.keys(seeds).length > 0) {
+        await commit(seeds);
+        logger.info(`[Versions] seeded ${Object.keys(seeds).join(', ')} in ${configRoot} from the build's samples`);
+        return;
+      }
+      const adopted = await adoptHostConfig(configRoot, commit);
+      if (adopted) {
+        logger.info(`[Versions] adopted the host configuration in ${configRoot} as generation 1`);
+      }
+    });
   }
 
   /** A complete build of this commit whose inputs are the same generation, or null. */
