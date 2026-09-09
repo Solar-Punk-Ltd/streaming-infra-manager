@@ -47,6 +47,12 @@ REMOTE_PATH="/home/solarpunk/streaming-infra-manager"
 # commit before it reports a failure. A first build on a cold host pulls the
 # node image and installs the whole workspace.
 BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-1200}"
+# It is interpolated into a single quoted word of the remote heredoc, so a
+# value carrying a quote would close that quoting on the host.
+if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: BUNDLED_TIMEOUT must be a whole number of seconds (got: $BUNDLED_TIMEOUT)" >&2
+    exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
