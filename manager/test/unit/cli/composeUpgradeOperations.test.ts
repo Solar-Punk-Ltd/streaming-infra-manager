@@ -44,7 +44,7 @@ class ScriptedRunner {
   private readonly answers = new Map<string, CommandResult[]>();
 
   answer(call: string, ...results: Partial<CommandResult>[]): this {
-    this.answers.set(call, results.map((result) => ({ code: 0, stdout: '', stderr: '', ...result })));
+    this.answers.set(call, results.map((result) => ({ code: 0, stdout: '', stderr: '', killed: false, signal: null, ...result })));
     return this;
   }
 
@@ -52,7 +52,7 @@ class ScriptedRunner {
   readonly run: CommandRunner = async (argv) => {
     this.calls.push([...argv]);
     const queue = this.answers.get(key(argv));
-    if (!queue) return { code: 0, stdout: '', stderr: '' };
+    if (!queue) return { code: 0, stdout: '', stderr: '', killed: false, signal: null };
     return queue.length > 1 ? queue.shift()! : queue[0]!;
   };
 
@@ -334,6 +334,34 @@ describe('the manager upgrade against one Compose project', () => {
       activation = { status: 'superseded', shipmentId };
 
       await assert.rejects(operations().publish(request), /newer publication/i);
+    });
+  });
+
+  describe('reporting a command that failed', () => {
+    /** A resolved Compose configuration carries DATABASE_URL, so its output never reaches a log. */
+    const RESOLVED_CONFIGURATION = 'DATABASE_URL: postgres://manager:synthetic-password@postgres:5432/manager';
+
+    it('names the subcommand, the project and the exit code, and quotes nothing the command printed', async () => {
+      runner.answer('up -d --no-build --remove-orphans', { code: 17, stderr: RESOLVED_CONFIGURATION });
+
+      await assert.rejects(operations().startProject(request), (error: Error) => {
+        assert.match(error.message, /up -d --no-build --remove-orphans/);
+        assert.match(error.message, new RegExp(`\\b${PROJECT}\\b`));
+        assert.match(error.message, /17/);
+        assert.equal(error.message.includes('synthetic-password'), false, 'what Compose printed never reaches the deploy log');
+        assert.match(error.message, /Run the same docker compose command on the host to see its output\./);
+        return true;
+      });
+    });
+
+    it('says a command was killed rather than calling that an exit code', async () => {
+      runner.answer('up -d --no-build --remove-orphans', { code: -1, killed: true, signal: 'SIGTERM' });
+
+      await assert.rejects(operations().startProject(request), (error: Error) => {
+        assert.match(error.message, /killed after/);
+        assert.equal(error.message.includes('-1'), false, 'a killed command never exited with anything');
+        return true;
+      });
     });
   });
 
