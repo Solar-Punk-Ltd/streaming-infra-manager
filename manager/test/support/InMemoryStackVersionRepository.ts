@@ -169,15 +169,16 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     });
   }
 
-  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
-    return this.patch(id, { status: 'ready', lastError });
+  async markUpdateFailed(id: number, lastError: string, gitRef: string | null = null): Promise<StackVersionRecord | null> {
+    return this.patch(id, { status: 'ready', lastError, ...(gitRef ? { gitRef } : {}) });
   }
 
   async markFailed(
     id: number,
     lastError: string,
+    gitRef: string | null = null,
   ): Promise<StackVersionRecord | null> {
-    return this.patch(id, { status: 'failed', lastError });
+    return this.patch(id, { status: 'failed', lastError, ...(gitRef ? { gitRef } : {}) });
   }
 
   async failInterruptedBuilds(

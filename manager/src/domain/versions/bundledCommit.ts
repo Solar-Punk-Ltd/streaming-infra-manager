@@ -67,3 +67,18 @@ export function readBundledPin(bundledRoot: string): string | null {
   const sha = fromCommitFile(bundledRoot);
   return sha !== null && PIN_SHA_RE.test(sha) ? sha : null;
 }
+
+/**
+ * Why the file beside a checkout names no commit to build, or null when it
+ * names one or when there is no file at all.
+ *
+ * A machine with no file is a developer laptop, which is not a problem. A file
+ * that is there and holds something else is a deploy that went wrong, and this
+ * is the only thing that tells the two apart. What it holds is never repeated
+ * back, because a broken file can hold anything.
+ */
+export function bundledPinProblem(bundledRoot: string): string | null {
+  if (!existsSync(join(dirname(bundledRoot), COMMIT_FILE))) return null;
+  if (readBundledPin(bundledRoot)) return null;
+  return `${COMMIT_FILE} beside ${bundledRoot} does not hold a whole commit, so there is nothing to build the bundled version from. Deploy the manager again.`;
+}

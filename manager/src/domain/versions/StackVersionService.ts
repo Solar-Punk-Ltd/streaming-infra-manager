@@ -42,7 +42,7 @@ import {
   envKeysIn,
   withHostConfigLock,
 } from './hostConfigCapture.js';
-import { readBundledPin } from './bundledCommit.js';
+import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
 import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
 import { readStackContract } from './stackContract.js';
@@ -263,11 +263,17 @@ export class StackVersionService {
    */
   async ensureBundledBuild(): Promise<StackBuild | null> {
     const pin = readBundledPin(this.bundledRoot);
+    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
     if (!pin) {
-      logger.info('[Versions] this manager pins no stack commit, so the bundled version stays on the tree it ships with');
+      const problem = bundledPinProblem(this.bundledRoot);
+      if (!problem) {
+        logger.info('[Versions] this manager pins no stack commit, so the bundled version stays on the tree it ships with');
+        return null;
+      }
+      logger.warn(`[Versions] ${problem}`);
+      if (bundled && bundled.buildId === null) await this.recordUnstartedBuild(bundled, null, problem);
       return null;
     }
-    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
     if (!bundled) {
       logger.warn(`[Versions] there is no ${BUNDLED_VERSION_NAME} row to build the pinned stack commit ${pin} into`);
       return null;
@@ -280,12 +286,32 @@ export class StackVersionService {
     try {
       return await this.update(bundled.id);
     } catch (err) {
-      if (err instanceof StackBuildBusyError) {
-        logger.info(`[Versions] the pinned stack commit was not built because ${err.message} Update the bundled version when it is done.`);
-        return null;
-      }
-      throw err;
+      const hint = err instanceof StackBuildBusyError ? ' Update the bundled version when it is done.' : '';
+      const reason = `The pinned stack commit ${pin} was not built: ${getErrorMessage(err)}${hint}`;
+      logger.warn(`[Versions] ${reason}`);
+      await this.recordUnstartedBuild(bundled, pin, reason);
+      return null;
     }
+  }
+
+  /**
+   * Why a boot did not build the pin, written into the row it could not build.
+   *
+   * The deploy that started this manager watches that row and tells this
+   * boot's answer from an earlier one's by the row having moved, so a boot
+   * that starts nothing has to move it or the deploy waits out its whole
+   * bound for a build that was never going to run. The row is moved onto the
+   * pin for the same reason, and a version that still has a build keeps
+   * deploying from it.
+   */
+  private async recordUnstartedBuild(
+    bundled: StackVersionRecord,
+    gitRef: string | null,
+    reason: string,
+  ): Promise<void> {
+    if (bundled.buildId === null) await this.versions.markFailed(bundled.id, reason, gitRef);
+    else await this.versions.markUpdateFailed(bundled.id, reason, gitRef);
+    this.publishChanged();
   }
 
   /** The commit this manager pins, or a refusal saying there is none to rebuild from. */

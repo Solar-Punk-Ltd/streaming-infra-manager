@@ -181,26 +181,27 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     }
   }
 
-  async markUpdateFailed(id: number, lastError: string): Promise<StackVersionRecord | null> {
+  async markUpdateFailed(id: number, lastError: string, gitRef: string | null = null): Promise<StackVersionRecord | null> {
     return this.one(
       `UPDATE stack_versions
-          SET status = 'ready', last_error = $2
+          SET status = 'ready', last_error = $2, git_ref = COALESCE($3, git_ref)
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
-      [id, lastError],
+      [id, lastError, gitRef],
     );
   }
 
   async markFailed(
     id: number,
     lastError: string,
+    gitRef: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
       `UPDATE stack_versions
-          SET status = 'failed', last_error = $2
+          SET status = 'failed', last_error = $2, git_ref = COALESCE($3, git_ref)
         WHERE id = $1
         RETURNING ${VERSION_COLUMNS}`,
-      [id, lastError],
+      [id, lastError, gitRef],
     );
   }
 
