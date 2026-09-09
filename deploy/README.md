@@ -152,6 +152,10 @@ superseded, printing one `[cli] removed ...` line for each. What it leaves is
 what may still be needed: a package whose shipment is still registered or
 prepared.
 
+The same sweep looks into `~/streaming-infra-manager-versions/bundled.materializations/`,
+which is where a publication makes its private copy of a package before renaming
+it into a build, and it removes or names what it finds there by the same rule.
+
 Two kinds of leftover it will not touch, because it cannot tell where they came
 from:
 
