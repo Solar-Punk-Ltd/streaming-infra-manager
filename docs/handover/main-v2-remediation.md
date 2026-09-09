@@ -516,3 +516,5 @@ browser suites on their own: `versions-layout` 12 of 12 and `version-settings`
 round and was not run. Nothing ran against the real host, nothing was pushed,
 and the only `.env` of the submodule read was the `.env.sample` the fixture's
 block was copied from.
+
+Merged into `feat/ai-remediation` as 7d9af23 on 2026-09-10, after three rounds: the implementation, the two reviews with their fixes, and the targeted re-review with its fixes. Verified by Fable at 8bf512d before the merge: manager unit 2207 of 2207, the whole database directory 497 of 497 the nine-database way, common 318, frontend 88, the browser suites 12 and 24 on their own, every typecheck clean, the deploy script parses, no em-dash or semicolon in any doc, commit message or added comment, and the submodule pointer unchanged. One accident on the task branch, a scratch directory picked up by a `git add -A`, was replayed out of the history before the merge, and `.scratch/` is ignored from now on. The runbook for the first real deploy and the signed-in live test is `../consensus/FIRST-DEPLOY-SESSION.md`. D14, whether version settings become admin-only, is open for Levi.
