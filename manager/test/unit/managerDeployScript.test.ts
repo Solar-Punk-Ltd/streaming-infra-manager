@@ -126,6 +126,14 @@ describe('deploy/deploy.sh', () => {
     assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
   });
 
+  it('refuses an ssh target that would read as an option to ssh', () => {
+    const taken = script.indexOf('SSH_TARGET="${1:-');
+    const checked = script.indexOf('if [[ "$SSH_TARGET" == -* ]]');
+    assert.notEqual(checked, -1, 'a leading dash makes the target an ssh flag');
+    assert.ok(checked > taken, 'after the argument is taken');
+    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before ssh is given it');
+  });
+
   it('refuses a bundled timeout that is not whole seconds, before it reaches the remote quoting', () => {
     const assignment = script.indexOf('BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-');
     const checked = script.indexOf('if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]');
