@@ -115,3 +115,13 @@ On resume, read this file first, inspect main-v2's actual HEAD and working tree,
 ## Where the record lives, 2026-09-09
 
 The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stays as the home of the originals, the logs and the browser evidence.
+
+## After the merge: the publication command slice, 2026-09-09
+
+Fable (Anthropic), with Opus agents implementing and reviewing. Levi decided to keep the durable publication design and build the command, opened PR #40 from `feat/ai-remediation` into `main-v2`, and authorised pushing every finished slice to that branch.
+
+What landed: `bundled:seal` on the laptop, `manager:upgrade` from the new image on the host, the deploy script wired to both, the twelve red boot-publication tests replaced by tests through the new path, and a sweep that removes every shipped package and claimed copy a finished publication made unreadable, so the host does not keep a copy of every secret every deploy shipped. Two reviews of the slice and one targeted review of the fixes found and closed, among others, the first-use probe counting the upgrade's own one-off container, `docker compose run` swallowing the rest of the remote script, the first-use rule firing again after the migration, the started api never being checked against the image the upgrade built, and the repository's `.dockerignore` letting `manager/.env` into the image build context. The briefs are `../consensus/T04B-COMMAND-BRIEF.md` and `../consensus/T04B-COMMAND-FIXES.md`.
+
+Verified at the merge: manager 2146 unit tests green, common 300, frontend 62, the three typechecks clean, the database test directory 159 green against a disposable local Postgres, and the manager image build context clean of the env file. Nothing has run against the real host. The first deploy with this flow needs Levi's word.
+
+Still open from the list above, in this order: exact execution and recovery completion (T01 with T04b private execution copies, so deploys stop writing into the immutable build), T09 receipt polling and its harness, T20 and T21, then T14 and T22 on Levi's numbers. The D09 stack commits are prepared on a branch of the stack repository and wait for Levi's choice of base and his push.
