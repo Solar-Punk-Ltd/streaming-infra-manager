@@ -38,7 +38,7 @@ export function parseFlags(argv: readonly string[], spec: FlagSpec): Flags {
     }
     if (!valued.has(flag)) throw new Error(`${flag} is not an option this command takes.`);
     const value = argv[index + 1];
-    if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value.`);
+    if (value === undefined || value === '' || value.startsWith('--')) throw new Error(`${flag} needs a value.`);
     index += 1;
     const given = values.get(flag);
     if (given && !repeated.has(flag)) throw new Error(`${flag} was given more than once.`);
