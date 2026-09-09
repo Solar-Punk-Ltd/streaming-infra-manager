@@ -61,9 +61,9 @@ A suite that cannot start fails in its first hook, in words, and creates nothing
 Requested resources are named `itest-<run>-<what>-<random>`. Teardown refuses
 names outside that run prefix. The prefix alone is not deletion authority.
 Successful creation responses register validated deployment instance identities
-before test assertions run. A refused, lost or malformed creation response
-cannot put a requested name into the deletion inventory. Uncertain creation
-is reported for operator inspection.
+before test assertions run. A refused or lost response grants no cleanup
+authority. Malformed responses grant authority only for independently validated
+identities, and unresolved coverage is reported for operator inspection.
 
 Every profile removal sends its confirmed instance ID. The manager compares
 that identity atomically when claiming removal, before scripts or file cleanup.
