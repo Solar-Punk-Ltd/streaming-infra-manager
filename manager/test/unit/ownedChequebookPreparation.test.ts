@@ -9,6 +9,7 @@ import { InMemoryChequebookOperations, transferContext, transferIntent } from '.
 import { syntheticDockerBee, syntheticImageId, syntheticTarget, type SyntheticBeeHandler } from '../support/syntheticDockerBee.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const blockTurn = (ms: number) => { const until = performance.now() + ms; while (performance.now() < until) {} };
 function harness(t: TestContext, options: OwnedTransferPreparationOptions = {}, intercept?: SyntheticBeeHandler) {
   const docker = syntheticDockerBee(t, intercept);
   const target = structuredClone(syntheticTarget);
@@ -40,6 +41,46 @@ function harness(t: TestContext, options: OwnedTransferPreparationOptions = {}, 
 }
 
 describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 }, () => {
+  it('checks the monotonic step deadline after a blocking capture before any acquisition', async t => {
+    const h = harness(t, { timeoutMs: 20 });
+    h.onCapture(async () => blockTurn(35));
+    const outcome = await h.preparation.prepare(transferIntent()).then(value => { value.dispose(); return 'completed'; }, () => 'refused');
+    assert.equal(h.counts().acquisitions, 0);
+    assert.equal(outcome, 'refused'); assert.equal(h.docker.dockerRequests.length, 0); assert.equal(h.docker.counts().networkCalls, 0);
+  });
+
+  it('checks the monotonic step deadline after a blocking preflight recheck before another Bee read or claim', async t => {
+    const h = harness(t, { timeoutMs: 100 });
+    const intent = transferIntent();
+    const prepared = await h.preparation.prepare(intent);
+    h.onCapture(async () => blockTurn(120));
+    const beforeReads = h.docker.beeRequests.length;
+    let claims = 0; const claim = h.repository.claimDispatch.bind(h.repository);
+    h.repository.claimDispatch = async id => { claims++; return claim(id); };
+    const result = await new ChequebookSubmission(h.repository, async () => prepared).submit(intent);
+    assert.equal(h.docker.beeRequests.length, beforeReads);
+    assert.equal(claims, 0); assert.equal(result.operation.state, 'rejected');
+    assert.equal(h.docker.transport.destroyed, true); assert.equal(h.signals[0]!.aborted, true);
+  });
+
+  it('checks the monotonic step deadline after a blocking chain read before the next RPC', async t => {
+    const h = harness(t, { timeoutMs: 100 });
+    h.reader.chainId = async () => { blockTurn(120); return 100; };
+    let headers = 0; const blockHeader = h.reader.blockHeader.bind(h.reader);
+    h.reader.blockHeader = async () => { headers++; return blockHeader(); };
+    const outcome = await h.preparation.prepare(transferIntent()).then(value => { value.dispose(); return 'completed'; }, () => 'refused');
+    assert.equal(headers, 0); assert.equal(outcome, 'refused');
+    assert.equal(h.docker.counts().posts, 0); assert.equal(h.docker.transport.destroyed, true); assert.equal(h.signals[0]!.aborted, true);
+  });
+
+  it('checks the monotonic step deadline after acquisition and disposes the returned stream before Bee reads', async t => {
+    const h = harness(t, { timeoutMs: 100 });
+    h.onAcquired(async value => { blockTurn(120); return value; });
+    const outcome = await h.preparation.prepare(transferIntent()).then(value => { value.dispose(); return 'completed'; }, () => 'refused');
+    assert.equal(h.docker.beeRequests.length, 0); assert.equal(outcome, 'refused');
+    assert.equal(h.docker.transport.destroyed, true); assert.equal(h.counts().acquisitions, 1); assert.equal(h.signals[0]!.aborted, true);
+  });
+
   it('keeps the successful preparation lease alive until explicitly disposed', async t => {
     const h = harness(t);
     const prepared = await h.preparation.prepare(transferIntent());
