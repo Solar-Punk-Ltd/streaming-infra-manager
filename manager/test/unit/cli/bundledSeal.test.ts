@@ -7,12 +7,13 @@
  * in manager/.
  */
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { BUNDLED_SEAL_USAGE, runBundledSeal } from '../../../src/cli/bundledSeal.js';
 import { CONFIG_REVISION_FILE, readHostConfigRevision } from '../../../src/domain/versions/hostConfigCapture.js';
@@ -26,6 +27,8 @@ const DIRECTORY_MODE = 0o755;
 const FILE_MODE = 0o644;
 const EXECUTABLE_MODE = 0o755;
 const INPUT_MODE = 0o600;
+const MANAGER_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const COMMAND_TIMEOUT_MS = 60_000;
 /** A synthetic value, so a test can prove the command never echoes an input file's contents. */
 const TOKEN_VALUE = 'synthetic-token-value';
 
@@ -147,6 +150,24 @@ describe('bundled:seal', () => {
     assert.equal(await mode(join(sealed, 'deploy', 'docker-compose.yml')), FILE_MODE, 'a plain file');
     assert.equal(await mode(join(sealed, DIST, 'tool.sh')), EXECUTABLE_MODE, 'an executable of a built directory');
     assert.equal(await mode(join(sealed, '.env')), INPUT_MODE, 'and the host inputs stay to their owner');
+  });
+
+  it('runs from the command line on a machine with no database, ending on its own', () => {
+    // The whole command as a deploy runs it: no DATABASE_URL in the environment, one line on
+    // standard output, everything a person reads beside it, and a process that ends by itself.
+    const { DATABASE_URL, ...environment } = process.env;
+    const run = spawnSync(join(MANAGER_ROOT, 'node_modules', '.bin', 'tsx'), [
+      '--conditions=development', join(MANAGER_ROOT, 'src', 'cli.ts'), 'bundled:seal',
+      '--source', source, '--out', out, '--shipment-id', SHIPMENT_ID,
+      '--dist', DIST, '--dist', SECOND_DIST, '--toolchain', TOOLCHAIN, '--adopt-inputs',
+    ], { encoding: 'utf8', env: environment, timeout: COMMAND_TIMEOUT_MS });
+
+    assert.equal(run.error, undefined, 'the command ended without being killed');
+    assert.equal(run.status, 0, run.stderr);
+    const printed = run.stdout.split('\n').filter(Boolean);
+    assert.equal(printed.length, 1, `standard output carries one line only, got: ${run.stdout}`);
+    assert.equal(JSON.parse(printed[0]!).shipmentId, SHIPMENT_ID);
+    assert.match(run.stderr, /adopted the host inputs/, 'what a person reads went beside it');
   });
 
   it('answers a missing option with what the command takes', async () => {
