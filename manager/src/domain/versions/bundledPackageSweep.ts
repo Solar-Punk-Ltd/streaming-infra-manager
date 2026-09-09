@@ -108,8 +108,12 @@ export async function sweepBundledPackages(versionsRoot: string, journal: Bundle
     const materializationId = shipmentIdOf(entry);
     if (!materializationId) continue;
     const record = await journal.findByMaterialization(materializationId);
+    if (!record) {
+      swept.unknown.push(name(copiesRoot, entry));
+      continue;
+    }
     // A published shipment's copy was renamed into its build, so what is left here under that id is not it.
-    if (!record || record.state !== 'superseded' || record.candidateKind !== 'new') {
+    if (record.state !== 'superseded' || record.candidateKind !== 'new') {
       swept.kept.push(name(copiesRoot, entry));
       continue;
     }
