@@ -133,9 +133,13 @@ describe('captureHostConfig', () => {
     const release = await holdHostConfigLock(dir);
     writeFileSync(join(dir, '.env'), 'ENGINE=srs\nAPI_PORT=4000\n');
 
-    const during = await captureHostConfig(dir, QUICK);
-    assert.equal(during.captured, null);
-    assert.match(during.problem ?? '', /being edited/);
+    // The lock being held travels as itself, so a settings request can answer
+    // it as a refusal rather than as an unhandled error. A build records the
+    // same message either way.
+    await assert.rejects(
+      () => captureHostConfig(dir, QUICK),
+      (err: Error) => err.name === 'HostConfigLockHeldError' && /being edited/.test(err.message),
+    );
 
     // The editor finishes: the second file and the manifest land, the lock goes.
     writeFileSync(join(dir, 'deploy', 'config.json'), '{"revision":"B"}\n');

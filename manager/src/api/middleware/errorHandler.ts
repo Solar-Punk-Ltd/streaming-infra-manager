@@ -37,6 +37,7 @@ import {
   GroupNotFoundError,
   GroupBusyError,
   GroupRemovalRefusedError,
+  HostConfigLockHeldError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
@@ -379,6 +380,12 @@ export function errorHandler(
       name: err.versionName,
       message: err.message,
     });
+    return;
+  }
+  if (err instanceof HostConfigLockHeldError) {
+    // An ordinary outcome: the editing script holds this lock for a whole ssh
+    // edit, and the message says what to do about it.
+    res.status(409).json({ error: 'settings_locked', message: err.message });
     return;
   }
   if (err instanceof StackSettingsChangedError) {

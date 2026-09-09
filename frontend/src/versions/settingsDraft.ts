@@ -78,8 +78,8 @@ export function isAtSampleValue(entry: { value: string; sampleValue: string | nu
 
 export interface SettingsRefusal {
   message: string;
-  /** Whether reloading the page is what fixes it. */
-  reloadable: boolean;
+  /** The label of the action that fixes it, which reloads the settings, or null. */
+  retry: string | null;
 }
 
 const CHANGED =
@@ -87,6 +87,9 @@ const CHANGED =
 
 /** What a refused save or apply says, from the manager's own error code. */
 export function settingsRefusal(code: string | null, message: string): SettingsRefusal {
-  if (code === 'settings_changed') return { message: CHANGED, reloadable: true };
-  return { message, reloadable: false };
+  if (code === 'settings_changed') return { message: CHANGED, retry: 'Reload' };
+  // The manager's own words: they name the lock, what holds it and how to get
+  // it back if the editing session that took it is gone.
+  if (code === 'settings_locked') return { message, retry: 'Try again' };
+  return { message, retry: null };
 }

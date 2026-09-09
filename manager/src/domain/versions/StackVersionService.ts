@@ -181,6 +181,12 @@ export class StackVersionService {
     private readonly references: BuildReferenceReader,
     /** The tree the manager ships with, what a legacy bundled row runs. */
     private bundledRoot: string = BUNDLED_STACK_ROOT,
+    /**
+     * How long a settings request waits for the config root's edit lock. Left
+     * to `holdHostConfigLock` unless a caller wants a shorter one, which the
+     * route tests do so a held lock does not cost them ten seconds.
+     */
+    private readonly settingsLockWaitMs: number | undefined = undefined,
   ) {}
 
   async list(): Promise<StackVersion[]> {
@@ -422,7 +428,12 @@ export class StackVersionService {
   async saveSettings(id: number, save: StackSettingsSave): Promise<StackSettingsSaved> {
     const version = await this.require(id);
     const sources = readySettingsSources(version.name, this.settingsSourcesOf(version));
-    const generation = await saveHostConfigSettings(version.name, sources.configRoot, save);
+    const generation = await saveHostConfigSettings(
+      version.name,
+      sources.configRoot,
+      save,
+      this.settingsLockWaitMs,
+    );
     logger.info(
       `[Versions] ${version.name} settings saved as revision ${generation}: ${describeSettingsSave(save)}`,
     );
@@ -465,7 +476,10 @@ export class StackVersionService {
       );
     }
 
-    const capture = await captureHostConfig(configRoot, { sampleEnvKeys: await sampledEnvKeys(from) });
+    const capture = await captureHostConfig(configRoot, {
+      sampleEnvKeys: await sampledEnvKeys(from),
+      lockWaitMs: this.settingsLockWaitMs,
+    });
     if (capture.problem !== null) throw new Error(capture.problem);
     const inputs = capture.captured;
 
@@ -548,6 +562,7 @@ export class StackVersionService {
       buildRoot: settingsTreeOf(version),
       buildId: version.buildId,
       requiredSecrets: version.contract?.requiredSecrets ?? [],
+      lockWaitMs: this.settingsLockWaitMs,
     };
   }
 

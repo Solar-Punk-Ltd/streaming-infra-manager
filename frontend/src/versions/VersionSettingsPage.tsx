@@ -77,7 +77,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
       setRefusal(
         caught instanceof ApiError
           ? settingsRefusal(caught.code, caught.message)
-          : { message: getErrorMessage(caught), reloadable: false },
+          : { message: getErrorMessage(caught), retry: null },
       );
     } finally {
       setLoading(false);
@@ -100,7 +100,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
       setRefusal(
         caught instanceof ApiError
           ? settingsRefusal(caught.code, caught.message)
-          : { message: getErrorMessage(caught), reloadable: false },
+          : { message: getErrorMessage(caught), retry: null },
       );
     } finally {
       setBusy(null);
@@ -168,9 +168,9 @@ export function VersionSettingsPage({ id }: { id: number }) {
         <Alert
           severity="warning"
           action={
-            refusal.reloadable && (
+            refusal.retry && (
               <Button color="inherit" size="small" onClick={() => void load()}>
-                Reload
+                {refusal.retry}
               </Button>
             )
           }
