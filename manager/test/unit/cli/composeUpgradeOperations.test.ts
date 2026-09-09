@@ -19,7 +19,8 @@ import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunne
 import type { BundledVersionState, ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import { runManagerUpgrade, type ManagerPublication, type ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
-import { managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
+import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../../src/domain/versions/buildManifest.js';
+import { buildDirFor, managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
 
 const PROJECT = 'manager';
 const COMPOSE_FILE = '/home/solarpunk/streaming-infra-manager/manager/docker-compose.yml';
@@ -92,7 +93,7 @@ const FRESH: ManagerPublication = { schema: 'fresh' };
 
 /** The bundled row as the api's boot leaves it while it builds, and once it is done. */
 function bundledRow(over: Partial<BundledVersionState> = {}): BundledVersionState {
-  return { status: 'ready', layout: 'builds', gitRef: PIN, commitSha: PIN, buildId: PIN, lastError: null, ...over };
+  return { id: 1, status: 'ready', layout: 'builds', gitRef: PIN, commitSha: PIN, buildId: PIN, rootPath: null, lastError: null, ...over };
 }
 
 describe('the manager upgrade against one Compose project', () => {
@@ -101,6 +102,7 @@ describe('the manager upgrade against one Compose project', () => {
   let publication: ManagerPublication; let migrated: number;
   let readPublication: () => Promise<ManagerPublication>;
   let bundledStates: BundledVersionState[];
+  let readyBundled: BundledVersionState;
   let steps: string[];
 
   beforeEach(async () => {
@@ -119,10 +121,22 @@ describe('the manager upgrade against one Compose project', () => {
     publication = CURRENT;
     migrated = 0;
     readPublication = async () => publication;
-    bundledStates = [bundledRow()];
+    readyBundled = await publishedBundledBuild();
+    bundledStates = [readyBundled];
     steps = [];
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+
+  /** A complete build of the pin on disk, and the row that deploys from it. */
+  async function publishedBundledBuild(): Promise<BundledVersionState> {
+    const build = buildDirFor(versionsRoot, 'bundled', PIN);
+    await mkdir(build, { recursive: true });
+    await writeFile(join(build, BUILD_COMPLETE_MARKER), '');
+    await writeFile(join(build, BUILD_MANIFEST_FILE), JSON.stringify({
+      buildId: PIN, commit: PIN, builtAt: '2026-09-09T00:00:00.000Z', toolchain: 'synthetic',
+    }));
+    return bundledRow({ rootPath: join(versionsRoot, 'bundled') });
+  }
 
   function database(): ManagerUpgradeDatabase {
     return {
@@ -325,7 +339,7 @@ describe('the manager upgrade against one Compose project', () => {
     });
 
     it('waits through the build the api is still running', async () => {
-      bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null }), bundledRow()];
+      bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null }), readyBundled];
 
       const outcome = await operations().awaitBundledBuild();
 
@@ -348,6 +362,26 @@ describe('the manager upgrade against one Compose project', () => {
 
       assert.equal(outcome.state, 'failed');
       assert.equal(outcome.problem, 'the build exited with code 1');
+    });
+
+    it('does not call a row ready while its build is one the next boot would rebuild', async () => {
+      await rm(join(buildDirFor(versionsRoot, 'bundled', PIN), BUILD_COMPLETE_MARKER));
+
+      const outcome = await operations().awaitBundledBuild();
+
+      assert.equal(outcome.state, 'timed-out', 'the row says ready and the build on disk is not one to deploy from');
+    });
+
+    it('does not report an error the row already carried before this upgrade started the api', async () => {
+      const stale = bundledRow({ status: 'failed', layout: 'legacy', commitSha: null, buildId: null, rootPath: null, lastError: 'an earlier boot could not reach github' });
+      bundledStates = [stale];
+      const upgrade = operations();
+      await upgrade.startProject(request);
+
+      const outcome = await upgrade.awaitBundledBuild();
+
+      assert.equal(outcome.state, 'timed-out', 'a row that never moved was never built by this upgrade');
+      assert.equal(outcome.problem, 'an earlier boot could not reach github', 'and what it does say is still shown');
     });
 
     it('gives up after its own bound, saying which commit it waited for', async () => {
