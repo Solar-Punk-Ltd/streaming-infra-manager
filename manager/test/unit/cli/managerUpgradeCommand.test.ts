@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
+import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
 import type { BundledShipmentReceipt } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerUpgradeOperations } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
@@ -117,10 +117,11 @@ describe('manager:upgrade', () => {
     });
   }
 
-  it('refuses an option it does not take rather than guessing at it', async () => {
+  it('refuses an option it does not take rather than guessing at it, and says what it does take', async () => {
     const run = await upgrade([...argvWith(), '--profile', 'public']);
 
     assert.match(run.error?.message ?? '', /--profile/);
+    assert.ok((run.error?.message ?? '').includes(MANAGER_UPGRADE_USAGE), 'the usage of this command comes with the refusal');
     assert.equal(opened, 0);
   });
 

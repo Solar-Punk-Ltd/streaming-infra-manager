@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { runBundledSeal } from '../../../src/cli/bundledSeal.js';
+import { BUNDLED_SEAL_USAGE, runBundledSeal } from '../../../src/cli/bundledSeal.js';
 import { CONFIG_REVISION_FILE, readHostConfigRevision } from '../../../src/domain/versions/hostConfigCapture.js';
 import { verifyBundledPackage } from '../../../src/domain/versions/bundledShipmentPackage.js';
 
@@ -117,6 +117,18 @@ describe('bundled:seal', () => {
     assert.match(said, /\.env/);
     assert.match(said, /deploy\/config\.json/);
     assert.equal(said.includes(TOKEN_VALUE), false, 'an input value never reaches the output');
+  });
+
+  it('answers a missing option with what the command takes', async () => {
+    const stderr: string[] = [];
+    await assert.rejects(
+      runBundledSeal(['--source', source], { out: () => {}, err: (line) => stderr.push(line) }),
+      (error: Error) => {
+        assert.match(error.message, /--out/);
+        assert.ok(error.message.includes(BUNDLED_SEAL_USAGE), 'the usage of this command comes with the refusal');
+        return true;
+      },
+    );
   });
 
   it('refuses an output directory inside the checkout it seals', async () => {
