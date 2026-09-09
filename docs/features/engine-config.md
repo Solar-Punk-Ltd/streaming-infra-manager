@@ -48,8 +48,8 @@ fields they control. OME's uploader poll interval is read independently of
 the XML file. These observations describe configured input, not proof of what
 the running engine loaded. Inspect its running configuration under Logs.
 
-When the deployment or its configuration changes, the card and open drawer
-hide old observations immediately. Failed or timed-out refreshes keep the
+When the page receives a changed deployment or configuration revision, the
+card and open drawer hide old observations immediately. Failed or timed-out refreshes keep the
 draft text but do not restore stale values. A draft for a deleted and
 recreated deployment cannot be applied to the replacement. Close and reopen
 Settings to review that deployment.
