@@ -194,4 +194,18 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
     assert.throws(() => openUnixDockerConnection('/synthetic/only.sock', () => socket), error => error instanceof Error && !error.message.includes('synthetic-sensitive'));
     assert.equal(destroys, 1); assert.equal(socket.destroyed, true);
   });
+
+  for (const event of ['connect', 'error', 'close'] as const) {
+    it(`observes native readiness ${event} without leaving readiness listeners or exposing diagnostics`, async t => {
+      const socket = new PassThrough(); t.after(() => socket.destroy());
+      const connection = openUnixDockerConnection('/synthetic/only.sock', options => {
+        assert.deepEqual(options, { path: '/synthetic/only.sock' }); return socket;
+      });
+      const checked = event === 'connect' ? connection.connected : assert.rejects(connection.connected,
+        error => error instanceof Error && !error.message.includes('synthetic-sensitive'));
+      socket.emit(event, new Error('synthetic-sensitive-native')); await checked;
+      assert.equal(socket.listenerCount('connect'), 0); assert.equal(socket.listenerCount('close'), 0);
+      socket.emit('error', new Error('synthetic-sensitive-late')); socket.destroy();
+    });
+  }
 });
