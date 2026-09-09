@@ -28,6 +28,7 @@ export interface StackVersionRecord {
   contract: StackContract | null;
   isDefault: boolean;
   tested: boolean;
+  testedInvalidatedAt: Date | null;
   builtAt: Date | null;
   lastError: string | null;
   createdAt: Date;
@@ -116,11 +117,25 @@ export interface StackVersionRepository {
   captureLegacyMetadata(): Promise<LegacyMetadataSnapshot | null>;
   /** Mutable legacy metadata is applied only to the exact still-legacy snapshot. */
   refreshLegacyMetadata(expected: LegacyMetadataSnapshot, metadata: LegacyMetadata): Promise<boolean>;
+  /** Updating a commit invalidates approval given for a different commit. */
   setCommitSha(id: number, commitSha: string | null): Promise<void>;
   /** Updates contract metadata alone. Boot refresh uses the captured legacy snapshot instead. */
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
-  setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;
+  /**
+   * Turns approval on for the build the caller looked at, or off. Turning it
+   * on is conditioned in the write itself on the row being ready at
+   * the shown commit and build identity. Legacy rows retain commit approval
+   * only while they remain explicitly legacy with no build id. Null comes
+   * back when the identity changed, or when the row
+   * is gone, which the caller tells apart with a read.
+   */
+  setTested(
+    id: number,
+    tested: boolean,
+    forCommit?: string | null,
+    forBuild?: string | null,
+  ): Promise<StackVersionRecord | null>;
   /** All ownership guards and file cleanup share the version row lock. Cleanup failure retains the row. */
   removeGuarded(expected: StackVersionRecord, removeOwnedFiles: (locked: StackVersionRecord) => Promise<void>): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */

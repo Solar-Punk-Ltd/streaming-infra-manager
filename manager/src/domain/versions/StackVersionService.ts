@@ -16,6 +16,7 @@ import {
   BundledVersionError,
   InvalidStackVersionError,
   StackBuildBusyError,
+  StackVersionChangedError,
   StackVersionExistsError,
   StackVersionNotFoundError,
   UntestedVersionError,
@@ -259,16 +260,44 @@ export class StackVersionService {
     this.publishChanged();
   }
 
-  async setTested(id: number, tested: boolean): Promise<StackVersion> {
+  /**
+   * Approval names the immutable build the page showed. A legacy row keeps
+   * commit-bound approval until publication gives it a build identity.
+   * A click from a page rendered before an Update or a refresh
+   * is refused rather than applied to whatever arrived since.
+   */
+  async setTested(
+    id: number,
+    tested: boolean,
+    forCommit: string | null = null,
+    forBuild: string | null = null,
+  ): Promise<StackVersion> {
     const version = await this.require(id);
-    if (tested && version.status !== 'ready') {
-      throw new InvalidStackVersionError(
-        `${version.name} is ${version.status}. Only a version that finished building can be marked as tested.`,
-      );
+    if (tested) {
+      if (version.status !== 'ready') {
+        throw new InvalidStackVersionError(
+          `${version.name} is ${version.status}. Only a version that finished building can be marked as tested.`,
+        );
+      }
+      if (version.commitSha === null) {
+        throw new InvalidStackVersionError(
+          `${version.name} is at a commit this host cannot tell, so there is no build to mark as tested.`,
+        );
+      }
+      const identityMatches = version.layout === 'builds'
+        ? version.buildId !== null && version.buildId === forBuild
+        : version.buildId === null && forBuild === null;
+      if (forCommit !== version.commitSha || !identityMatches) {
+        throw new StackVersionChangedError(version.name, version.commitSha, version.status, version.buildId);
+      }
     }
 
-    const updated = await this.versions.setTested(id, tested);
-    if (!updated) throw new StackVersionNotFoundError(id);
+    const updated = await this.versions.setTested(id, tested, forCommit, forBuild);
+    if (!updated) {
+      const current = await this.versions.findById(id);
+      if (!current) throw new StackVersionNotFoundError(id);
+      throw new StackVersionChangedError(current.name, current.commitSha, current.status, current.buildId);
+    }
 
     this.publishChanged();
     const deployments = await this.versions.deploymentNames(id);
@@ -659,6 +688,7 @@ function toApiVersion(
     status: version.status,
     isDefault: version.isDefault,
     tested: version.tested,
+    testedInvalidatedAt: version.testedInvalidatedAt?.toISOString() ?? null,
     builtAt: version.builtAt ? version.builtAt.toISOString() : null,
     lastError: version.lastError,
     contract: version.contract,

@@ -39,6 +39,7 @@ export { InvalidUsernameError } from './InvalidUsernameError.js';
 export { StackVersionNotFoundError } from './StackVersionNotFoundError.js';
 export { StackVersionExistsError } from './StackVersionExistsError.js';
 export { StackVersionInUseError } from './StackVersionInUseError.js';
+export { StackVersionChangedError } from './StackVersionChangedError.js';
 export { BundledVersionError } from './BundledVersionError.js';
 export { DefaultVersionError } from './DefaultVersionError.js';
 export { DeployAttemptRefusedError } from './DeployAttemptRefusedError.js';

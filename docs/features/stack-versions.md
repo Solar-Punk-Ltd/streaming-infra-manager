@@ -257,11 +257,19 @@ The contract is stored as JSON and shown on the Versions page in plain words: `1
 a **Tested** toggle Levi sets by hand after one real deployment on that version, because static
 reading of scripts proves the shape and not the behaviour.
 
-The approval belongs to the commit that was deployed, not to the row. An **Update** that fetches
-a moved branch clears **Tested** again, and one that lands on the commit the row already carried
-leaves it alone. The toggle can only be turned on while the version is Ready, because a building
-or failed version has no build anybody could have deployed. Turning it off works in any state, so
-an approval can always be withdrawn.
+Approval belongs to the immutable build that was deployed. Reusing that build keeps **Tested**.
+Publishing a different build clears it, including a rebuild at the same commit. An explicitly
+legacy version has no immutable build id and keeps its earlier commit-bound approval behavior.
+The approval request names the commit and build shown by the page. The database write requires
+that exact identity and a Ready row, so a concurrent publication cannot inherit a stale click.
+Turning Tested off works in any state and needs no identity.
+
+An update that removes approval records `testedInvalidatedAt`. Later unapproved updates retain
+the first date. Reapproval or manual withdrawal clears it. Migration leaves historical dates
+unknown rather than guessing. A default that loses approval stays the default. The wizard keeps
+it selected and shows "Not tested since the update on <date>" in Basics and Review. When there
+is no recorded date, it says the version is not currently marked as tested. With no Ready default,
+the wizard requires an explicit choice, even when only one version is available.
 
 ### Per version images (decision D9)
 
@@ -320,12 +328,15 @@ that deployment, falling back to the manager's own floor.
 | POST | `/versions` | `{ name, ref }` | SSE build log, then `version.changed` |
 | POST | `/versions/:id/update` | | SSE build log |
 | POST | `/versions/:id/default` | | 204, 409 while the version is not marked tested |
-| PATCH | `/versions/:id` | `{ tested }` | 200, 400 for `{ tested: true }` while the version is not Ready |
+| PATCH | `/versions/:id` | On: `{ tested: true, commitSha, buildId }`. Off: `{ tested: false }` | 200, 400 when not Ready or commit unknown, 409 when the shown identity changed |
 | DELETE | `/versions/:id` | | 204, 409 with deployment names |
 | POST | `/profiles/:name/move-version` | `{ version_id }` | 202, the profile |
 | POST | `/groups/:id/move-version` | `{ version_id }` | 202, the members |
 
 `POST /profiles` and `POST /groups` accept `stack_version_id`, default to the default version.
+The wizard always sends its selected version id. `GET /versions` also returns `layout`, `buildId`,
+`previousBuildId` and `testedInvalidatedAt`. Approval of a `builds` row requires its non-null
+build id. A legacy row accepts a missing or null build id only while it remains explicitly legacy.
 
 ## Frontend
 

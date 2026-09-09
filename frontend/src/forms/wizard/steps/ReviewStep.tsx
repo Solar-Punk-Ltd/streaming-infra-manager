@@ -1,4 +1,4 @@
-import { Box, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Paper, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 import { DEFAULT_ABR_RUNGS } from '@streaming-infra-manager/common';
@@ -7,7 +7,7 @@ import { MONO_STACK } from '../../../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../../../components/KeyValueList';
 import { ServiceChip } from '../../../components/ServiceChip';
 import { shortHex } from '../../../format';
-import { describeVersion } from '../../../versions/versionText';
+import { describeVersion, lostApprovalWarning } from '../../../versions/versionText';
 import { GOALS } from '../wizardGoals';
 import {
   chosenComponents,
@@ -42,6 +42,7 @@ export function ReviewStep({ state, context }: WizardStepProps) {
   if (!goal || !state.goal) return null;
 
   const version = chosenVersion(state, context);
+  const approvalWarning = version ? lostApprovalWarning(version) : null;
   const entries: KeyValueEntry[] = [
     { key: 'What', value: goal.title },
     { key: 'Name', value: <NameSummary state={state} /> },
@@ -140,6 +141,7 @@ export function ReviewStep({ state, context }: WizardStepProps) {
           Check it, then deploy.
         </Typography>
       </Box>
+      {approvalWarning && <Alert severity="warning">{approvalWarning}</Alert>}
       <Paper sx={{ p: 2 }}>
         <KeyValueList entries={entries} labelWidth={150} />
       </Paper>

@@ -8,6 +8,8 @@ export const STACK_PUBLICATION_ASSIGNMENTS = `
     ELSE previous_build_id
   END,
   tested = tested AND build_id IS NOT DISTINCT FROM $2,
+  tested_invalidated_at = CASE WHEN tested AND build_id IS DISTINCT FROM $2
+    THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
   build_id = $2,
   commit_sha = $3,
   contract = $4::jsonb,

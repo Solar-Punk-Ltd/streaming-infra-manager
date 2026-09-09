@@ -45,6 +45,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       contract: null,
       isDefault: true,
       tested: true,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(0),
@@ -100,6 +101,7 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       contract: null,
       isDefault: false,
       tested: false,
+      testedInvalidatedAt: null,
       builtAt: null,
       lastError: null,
       createdAt: new Date(),
@@ -133,6 +135,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.commitSha === outcome.commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== outcome.commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
       builtAt: new Date(),
       lastError: null,
     });
@@ -158,6 +162,8 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
       commitSha: outcome.commitSha,
       contract: outcome.contract,
       tested: before.tested && before.buildId === outcome.buildId,
+      testedInvalidatedAt: before.tested && before.buildId !== outcome.buildId
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
       builtAt: new Date(),
       lastError: null,
     });
@@ -186,8 +192,15 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return;
     this.metadataRevisions.set(id, (this.metadataRevisions.get(id) ?? 0n) + 1n);
-    await this.patch(id, { commitSha });
+    await this.patch(id, {
+      commitSha,
+      tested: before.tested && before.commitSha === commitSha,
+      testedInvalidatedAt: before.tested && before.commitSha !== commitSha
+        ? before.testedInvalidatedAt ?? new Date() : before.testedInvalidatedAt,
+    });
   }
 
   async setContract(id: number, contract: StackContract): Promise<void> {
@@ -205,7 +218,12 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     if (!row || row.layout !== 'legacy' || !isDeepStrictEqual(row, expected.version) ||
         String(this.metadataRevisions.get(row.id) ?? 0n) !== expected.publicationRevision) return false;
     this.metadataRevisions.set(row.id, (this.metadataRevisions.get(row.id) ?? 0n) + 1n);
-    await this.patch(row.id, structuredClone(metadata));
+    await this.patch(row.id, {
+      ...structuredClone(metadata),
+      tested: row.tested && row.commitSha === metadata.commitSha,
+      testedInvalidatedAt: row.tested && row.commitSha !== metadata.commitSha
+        ? row.testedInvalidatedAt ?? new Date() : row.testedInvalidatedAt,
+    });
     return true;
   }
 
@@ -216,8 +234,18 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   async setTested(
     id: number,
     tested: boolean,
+    forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
-    return this.patch(id, { tested });
+    const before = this.rows.find((row) => row.id === id);
+    if (!before) return null;
+    const identityMatches = before.layout === 'builds'
+      ? before.buildId !== null && before.buildId === forBuild
+      : before.buildId === null && forBuild === null;
+    if (tested && (before.status !== 'ready' || forCommit === null || before.commitSha !== forCommit || !identityMatches)) {
+      return null;
+    }
+    return this.patch(id, { tested, testedInvalidatedAt: null });
   }
 
   async removeGuarded(expected: StackVersionRecord, removeOwnedFiles: (locked: StackVersionRecord) => Promise<void>): Promise<boolean> {

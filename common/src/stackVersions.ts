@@ -121,6 +121,8 @@ export interface StackVersion {
   isDefault: boolean;
   /** Set by hand after one real deployment has run on this version. */
   tested: boolean;
+  /** First observed update that invalidated approval, or null when none is recorded. */
+  testedInvalidatedAt: string | null;
   /** ISO, or null for a version that has never finished a build. */
   builtAt: string | null;
   /** Why the last build failed, or null. */

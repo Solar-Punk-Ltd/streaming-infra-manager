@@ -25,7 +25,7 @@ import type {
 
 const VERSION_COLUMNS = `
   id, name, git_ref, commit_sha, status, root_path, layout, build_id, previous_build_id, contract,
-  is_default, tested, built_at, last_error, created_at
+  is_default, tested, tested_invalidated_at, built_at, last_error, created_at
 `;
 
 /**
@@ -46,6 +46,7 @@ interface StackVersionDbRow {
   contract: unknown;
   is_default: boolean;
   tested: boolean;
+  tested_invalidated_at: Date | null;
   built_at: Date | null;
   last_error: string | null;
   created_at: Date;
@@ -140,6 +141,8 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
           SET status = 'ready',
               publication_revision = publication_revision + 1,
               tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+              tested_invalidated_at = CASE WHEN tested AND commit_sha IS DISTINCT FROM $2
+                THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
               commit_sha = $2,
               contract = $3::jsonb,
               built_at = NOW(),
@@ -218,8 +221,16 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
+    // The same rule as `markBuilt`: approval names a commit, and the row is
+    // read before the update, so the comparison is against the commit the
+    // approval was given for.
     await this.pool.query(
-      'UPDATE stack_versions SET commit_sha = $2 WHERE id = $1',
+      `UPDATE stack_versions
+          SET tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+              tested_invalidated_at = CASE WHEN tested AND commit_sha IS DISTINCT FROM $2
+                THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
+              commit_sha = $2
+        WHERE id = $1`,
       [id, commitSha],
     );
   }
@@ -249,7 +260,11 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
           !isDeepStrictEqual(toRecord(row), selected.expected.version)) { await client.query('COMMIT'); return false; }
       const problem = versionRemovalProblem(selected.expected.version);
       if (problem) throw new Error(problem);
-      await client.query('UPDATE stack_versions SET commit_sha = $2, contract = $3::jsonb WHERE id = $1',
+      await client.query(`UPDATE stack_versions
+        SET tested = tested AND commit_sha IS NOT DISTINCT FROM $2,
+            tested_invalidated_at = CASE WHEN tested AND commit_sha IS DISTINCT FROM $2
+              THEN COALESCE(tested_invalidated_at, NOW()) ELSE tested_invalidated_at END,
+            commit_sha = $2, contract = $3::jsonb WHERE id = $1`,
         [row.id, selected.metadata.commitSha, JSON.stringify(selected.metadata.contract)]);
       await client.query('COMMIT');
       return true;
@@ -288,11 +303,21 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   async setTested(
     id: number,
     tested: boolean,
+    forCommit: string | null = null,
+    forBuild: string | null = null,
   ): Promise<StackVersionRecord | null> {
     return this.one(
-      `UPDATE stack_versions SET tested = $2 WHERE id = $1
-       RETURNING ${VERSION_COLUMNS}`,
-      [id, tested],
+      `UPDATE stack_versions
+          SET tested = $2, tested_invalidated_at = NULL
+        WHERE id = $1
+          AND (NOT $2 OR (
+            status = 'ready' AND commit_sha = $3::text AND (
+              (layout = 'builds' AND build_id = $4::text)
+              OR (layout = 'legacy' AND build_id IS NULL AND $4::text IS NULL)
+            )
+          ))
+        RETURNING ${VERSION_COLUMNS}`,
+      [id, tested, forCommit, forBuild],
     );
   }
 
@@ -356,6 +381,7 @@ function toRecord(row: StackVersionDbRow): StackVersionRecord {
     contract: parseStackContract(row.contract),
     isDefault: row.is_default,
     tested: row.tested,
+    testedInvalidatedAt: row.tested_invalidated_at,
     builtAt: row.built_at,
     lastError: row.last_error,
     createdAt: row.created_at,
