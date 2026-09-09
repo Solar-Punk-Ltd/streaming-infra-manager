@@ -71,6 +71,7 @@ import {
   LadderGroupError,
   ProfileBusyError,
   ProfileInstanceChangedError,
+  EngineSettingsChangedError,
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
@@ -85,6 +86,7 @@ import { ProfileRepository } from './ProfileRepository.js';
 import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
+import { deployOwnerOf } from './versions/buildLedger.js';
 import { portTableOf } from './versions/portTable.js';
 import type { NewProfilePlacement } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
@@ -611,9 +613,17 @@ export class ProfileService {
     );
 
     const row = await this.writeOrCancel([reservation], async () => {
-      if (!reservation.claimedProfile) throw new Error('An engine settings save has no claimed instance.');
-      const written = await this.repo.updateEngineSettings(name, settings, reservation.claimedProfile.instance_id);
-      if (!written) throw new ProfileInstanceChangedError(name);
+      const claimed = reservation.claimedProfile;
+      const referenceId = reservation.build?.referenceId;
+      if (!claimed || referenceId == null) throw new Error('An engine settings save has no claimed job.');
+      const written = await this.repo.updateEngineSettings(name, settings, {
+        ...deployOwnerOf(claimed), jobReferenceId: referenceId,
+      });
+      if (!written) {
+        const current = await this.repo.findByName(name);
+        if (current && current.instance_id !== claimed.instance_id) throw new ProfileInstanceChangedError(name);
+        throw new EngineSettingsChangedError(name);
+      }
       return written;
     });
 

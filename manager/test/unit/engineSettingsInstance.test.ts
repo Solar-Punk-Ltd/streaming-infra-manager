@@ -151,6 +151,7 @@ describe('engine settings saves are bound to the observed instance', { timeout: 
         const successor = (await h.ledger.claim('observed', ['RUNNING'], version, ['srs'], { ...deployOwnerOf(reset), intent }))!;
         const before = structuredClone(successor.profile);
         const references = structuredClone(h.ledger.references);
+        const events = structuredClone(h.events);
         gate.release();
         const result = await pending;
         assert.deepEqual(h.profiles.rows.get('observed'), before, 'the old draft must not mutate the successor');
@@ -159,7 +160,7 @@ describe('engine settings saves are bound to the observed instance', { timeout: 
         assert.equal(h.profiles.activeDeployJobs.get('observed'), successor.descriptor.referenceId);
         assert.deepEqual(h.ledger.references, references, 'cancellation must leave successor and independent holds intact');
         assert.deepEqual(h.runner.runs, []);
-        assert.equal(h.events.filter(event => event.type === 'profile.changed').length, 0);
+        assert.deepEqual(h.events, events, 'refused settings must not publish another change');
       } finally { gate.release(); await pending; await h.app.close(); }
     });
   }

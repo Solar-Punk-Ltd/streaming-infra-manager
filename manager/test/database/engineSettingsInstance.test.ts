@@ -3,8 +3,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
+import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
+import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 
 const port = Number(process.env.T11_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't11_test', connectionTimeoutMillis: 5_000 };
@@ -43,6 +48,14 @@ describe('engine settings instance fences in isolated PostgreSQL', { skip: !Numb
     return profiles.findByName('observed');
   }
 
+  async function claimSettings() {
+    const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => { throw new Error('No Docker observation in settings tests'); } }, join(tmpdir(), schema));
+    const version = await new PostgresStackVersionRepository(pool).findById(1);
+    const profile = (await profiles.findByName('observed'))!;
+    const claim = (await ledger.claim('observed', ['RUNNING'], version, ['srs'], { ...deployOwnerOf(profile), intent: 'advance' }))!;
+    return { profile: claim.profile, owner: { ...deployOwnerOf(claim.profile), jobReferenceId: claim.descriptor.referenceId! } };
+  }
+
   it('refuses a changed instance in the atomic status claim', async () => {
     const replacement = await replace();
     assert.equal(await profiles.transitionStatus('observed', 'DEPLOYING', ['ERROR'], instanceId), null);
@@ -73,8 +86,9 @@ describe('engine settings instance fences in isolated PostgreSQL', { skip: !Numb
   });
 
   it('cannot write settings to a replacement after admission', async () => {
+    const claim = await claimSettings();
     const replacement = await replace();
-    assert.equal(await profiles.updateEngineSettings('observed', { HLS_FRAGMENT: '2' }, instanceId), null);
+    assert.equal(await profiles.updateEngineSettings('observed', { HLS_FRAGMENT: '2' }, claim.owner), null);
     assert.deepEqual(await profiles.findByName('observed'), replacement);
   });
 
@@ -91,11 +105,11 @@ describe('engine settings instance fences in isolated PostgreSQL', { skip: !Numb
   });
 
   it('keeps the current instance claim, settings write, intent bump and cancellation available', async () => {
-    const claimed = await profiles.transitionStatus('observed', 'DEPLOYING', ['RUNNING'], instanceId);
-    assert.equal(claimed?.instance_id, instanceId);
-    assert.equal(claimed?.status, 'DEPLOYING');
-    assert.equal((await profiles.bumpIntent('observed', instanceId))?.intent_revision, 5);
-    assert.deepEqual((await profiles.updateEngineSettings('observed', { HLS_FRAGMENT: '2' }, instanceId))?.engine_settings, { HLS_FRAGMENT: '2' });
+    const claimed = await claimSettings();
+    assert.equal(claimed.profile.instance_id, instanceId);
+    assert.equal(claimed.profile.status, 'DEPLOYING');
+    assert.equal(claimed.profile.intent_revision, 5);
+    assert.deepEqual((await profiles.updateEngineSettings('observed', { HLS_FRAGMENT: '2' }, claimed.owner))?.engine_settings, { HLS_FRAGMENT: '2' });
     assert.equal((await profiles.markTerminal('observed', 'RUNNING', instanceId))?.status, 'RUNNING');
   });
 });

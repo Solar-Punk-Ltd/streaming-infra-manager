@@ -58,6 +58,7 @@ export interface RecordedDeploy {
  * ERROR through the repository.
  */
 export class FakeOrchestrator {
+  private nextJobReference = 1;
   readonly reserved: string[] = [];
 
   readonly cancelled: string[] = [];
@@ -112,6 +113,8 @@ export class FakeOrchestrator {
       throw new ProfileBusyError(profile.name, current.status);
     }
     this.reserved.push(profile.name);
+    const referenceId = this.nextJobReference++;
+    this.profiles.activeDeployJobs.set(profile.name, referenceId);
     return {
       profileName: profile.name,
       claimedProfile: claimed,
@@ -119,7 +122,7 @@ export class FakeOrchestrator {
       heldBackForStamp: [],
       previousStatus: profile.status,
       transitioned: true,
-      build: null,
+      build: { version: null, buildId: 'bundled', root: BUNDLED_STACK_ROOT, referenceId },
     };
   }
 
@@ -130,7 +133,13 @@ export class FakeOrchestrator {
 
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     this.cancelled.push(reservation.profileName);
-    if (reservation.transitioned) {
+    const claimed = reservation.claimedProfile;
+    const current = this.profiles.rows.get(reservation.profileName);
+    const referenceId = reservation.build?.referenceId;
+    if (reservation.transitioned && claimed && current && referenceId != null && current.status === 'DEPLOYING' &&
+        current.instance_id === claimed.instance_id && current.intent_revision === claimed.intent_revision &&
+        this.profiles.activeDeployJobs.get(current.name) === referenceId) {
+      this.profiles.activeDeployJobs.delete(current.name);
       await this.profiles.markTerminal(
         reservation.profileName,
         reservation.previousStatus,

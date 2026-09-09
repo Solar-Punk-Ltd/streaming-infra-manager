@@ -10,6 +10,7 @@ import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
   EngineOverviewSnapshot,
+  EngineSettingsWriteOwner,
   NewProfilePlacement,
   ProfileRepository,
   ProfileWriteData,
@@ -242,9 +243,12 @@ export class InMemoryProfiles {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
-    expectedInstanceId?: string,
+    owner: EngineSettingsWriteOwner,
   ): Promise<Profile | null> {
-    if (expectedInstanceId !== undefined && this.rows.get(name)?.instance_id !== expectedInstanceId) return null;
+    const profile = this.rows.get(name);
+    if (!profile || profile.instance_id !== owner.instanceId || profile.intent_revision !== owner.intentRevision ||
+        profile.engine_config_revision !== owner.configRevision || profile.stack_version_id !== owner.stackVersionId ||
+        profile.status !== 'DEPLOYING' || this.activeDeployJobs.get(name) !== owner.jobReferenceId) return null;
     return this.write(name, { engine_settings: settings });
   }
 

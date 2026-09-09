@@ -44,6 +44,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const held = [], writes = [], events = new Set(), reads = [];
   const heldSaves = [];
   let holdSave = false;
+  let saveRefusal = null;
   const server = await createServer({ root: frontend, configFile: false,
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
@@ -59,6 +60,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
             const settings = JSON.parse(body);
             writes.push({ path, method: req.method, body: settings });
             const apply = () => {
+              if (saveRefusal) return json(saveRefusal, 409);
               const { expectedInstanceId, ...values } = settings;
               if (expectedInstanceId !== undefined && expectedInstanceId !== profile.instance_id) {
                 return json({ error: 'profile_instance_changed', message: 'This deployment instance changed. Refresh before changing it.' }, 409);
@@ -305,7 +307,22 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.equal('expectedInstanceId' in profile.engine_settings, false);
   });
 
-  assert.equal(writes.length, 2);
+  await t.test('a lost active-job409 keeps the same-instance draft and does not report success', async () => {
+    await reset(); await openDraft();
+    const before = structuredClone(profile);
+    saveRefusal = { error: 'engine_settings_changed', name: profile.name,
+      message: 'The deployment changed before these settings could be saved. Refresh and review before applying again.' };
+    try {
+      await click('Apply and recreate engine');
+      await waitFor(drawer, text => text.includes(saveRefusal.message), 'active job save refusal');
+      assert.equal(await typed(), '9');
+      assert.deepEqual(profile, before);
+      assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
+      assert.doesNotMatch(await body(), /Saved\. Recreating/);
+    } finally { saveRefusal = null; }
+  });
+
+  assert.equal(writes.length, 3);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
   await mkdir('/private/tmp/t11-browser-evidence', { recursive: true });

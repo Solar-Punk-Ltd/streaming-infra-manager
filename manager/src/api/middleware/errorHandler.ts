@@ -24,6 +24,7 @@ import {
   DefaultVersionError,
   ProfileBusyError,
   ProfileInstanceChangedError,
+  EngineSettingsChangedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
@@ -123,6 +124,10 @@ export function errorHandler(
   }
   if (err instanceof UserNotFoundError) {
     res.status(404).json({ error: 'user_not_found', id: err.userId });
+    return;
+  }
+  if (err instanceof EngineSettingsChangedError) {
+    res.status(409).json({ error: 'engine_settings_changed', name: err.profileName, message: err.message });
     return;
   }
   if (err instanceof ProfileConfigError) {

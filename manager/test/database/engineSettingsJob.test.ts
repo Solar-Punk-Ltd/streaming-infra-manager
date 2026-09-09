@@ -6,16 +6,15 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
-import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { ProfileRepository, type EngineSettingsWriteOwner } from '../../src/domain/ProfileRepository.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
-import { deployOwnerOf, type ClaimedDeploy, type ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
+import { deployOwnerOf, type ClaimedDeploy } from '../../src/domain/versions/buildLedger.js';
 import type { EngineSettings } from '@streaming-infra-manager/common';
 import type { Profile } from '../../src/types/index.js';
 
 const port = Number(process.env.T11_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't11_test', connectionTimeoutMillis: 5000 };
-type WriteOwner = ExpectedDeployOwner & { jobReferenceId: number };
 
 describe('engine settings writes own the exact active job in isolated PostgreSQL', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535,
@@ -53,11 +52,10 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  const ownerOf = (job: ClaimedDeploy): WriteOwner => ({ ...deployOwnerOf(job.profile), jobReferenceId: job.descriptor.referenceId! });
+  const ownerOf = (job: ClaimedDeploy): EngineSettingsWriteOwner => ({ ...deployOwnerOf(job.profile), jobReferenceId: job.descriptor.referenceId! });
   const state = async () => (await pool.query("SELECT * FROM profiles WHERE name = 'observed'")).rows[0];
   const write = (owner = ownerOf(claim), settings: EngineSettings = { HLS_FRAGMENT: '2' }) =>
-    (profiles as unknown as { updateEngineSettings(name: string, settings: EngineSettings, owner: WriteOwner): Promise<Profile | null> })
-      .updateEngineSettings('observed', settings, owner);
+    profiles.updateEngineSettings('observed', settings, owner);
 
   async function blocked() {
     const deadline = Date.now() + 2500;
@@ -120,8 +118,13 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
         pending = write();
         pending.catch(() => {});
         await blocked();
-        if (change === 'replacement') await writer.query("UPDATE profiles SET instance_id = $1, engine_settings = '{\"HLS_FRAGMENT\":\"6\"}' WHERE name = 'observed'", [randomUUID()]);
-        else {
+        if (change === 'replacement') {
+          const instanceId = randomUUID();
+          await writer.query("DELETE FROM profiles WHERE name = 'observed'");
+          const job = (await writer.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, profile_instance_id, intent_revision) VALUES (1,'bundled','job','observed',$1,$2) RETURNING id", [instanceId, claim.profile.intent_revision])).rows[0].id;
+          await writer.query(`INSERT INTO profiles (name, kind, port_slot, status, stack_version_id, instance_id, intent_revision, deploy_job_reference_id, engine_settings)
+            VALUES ('observed','streamer',1,'DEPLOYING',1,$1,$2,$3,'{"HLS_FRAGMENT":"6"}')`, [instanceId, claim.profile.intent_revision, job]);
+        } else {
           const job = (await writer.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, profile_instance_id, intent_revision) VALUES (1,'bundled','job','observed',$1,$2) RETURNING id", [claim.profile.instance_id, claim.profile.intent_revision])).rows[0].id;
           await writer.query("UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = 'observed'", [job]);
         }

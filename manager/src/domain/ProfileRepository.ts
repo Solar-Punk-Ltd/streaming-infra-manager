@@ -32,6 +32,10 @@ export interface EngineOverviewSnapshot {
   engineConfig: string | null;
 }
 
+export interface EngineSettingsWriteOwner extends ExpectedDeployOwner {
+  jobReferenceId: number;
+}
+
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
@@ -192,15 +196,18 @@ export class ProfileRepository {
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
-    expectedInstanceId?: string,
+    owner: EngineSettingsWriteOwner,
   ): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET engine_settings = $2::jsonb,
              updated_at = NOW()
-       WHERE name = $1 AND ($3::uuid IS NULL OR instance_id = $3)
+       WHERE name = $1 AND instance_id = $3 AND intent_revision = $4
+         AND engine_config_revision = $5 AND stack_version_id = $6
+         AND status = 'DEPLOYING' AND deploy_job_reference_id = $7
        RETURNING ${PROFILE_COLUMNS}`,
-      [name, JSON.stringify(settings), expectedInstanceId ?? null],
+      [name, JSON.stringify(settings), owner.instanceId, owner.intentRevision,
+        owner.configRevision, owner.stackVersionId, owner.jobReferenceId],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
