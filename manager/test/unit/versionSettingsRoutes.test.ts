@@ -161,10 +161,13 @@ describe('GET /versions/:id/settings', () => {
       'CHEQUEBOOK_MIN_BZZ',
       'STAMP_MIN_TTL_HOURS',
       'STAMP_MAX_UTILIZATION',
+      'ORPHAN_REAP_MS',
       'API_PORT',
       'ENGINE',
       'BEE_UPLOADER_API_PORT',
       'BEE_GATEWAY_API_PORT',
+      'BEE_PUBLISHERS',
+      'LOG_LEVEL',
       'EXTRA_LOCAL_KEY',
     ]);
   });

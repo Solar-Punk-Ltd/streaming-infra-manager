@@ -1,7 +1,9 @@
 /**
  * Reading a version's env sample and rewriting the operator's own env file.
  *
- * Unit test, no filesystem beyond the strings below. `pnpm test` in manager/.
+ * Unit test. The shapes are the strings below, and the last group reads the v3
+ * fixture's own samples, because what the descriptions have to survive is the
+ * way upstream actually writes these files. `pnpm test` in manager/.
  *
  * The settings page shows what each key is for, which is the comment block the
  * sample carries above it, and saves a value back into the operator's file.
@@ -10,6 +12,8 @@
  * the host, and a reflowed file is a diff nobody can review over ssh.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
@@ -17,6 +21,7 @@ import {
   rewriteEnvText,
   sampleSettingsOf,
 } from '../../src/domain/versions/envSettingsText.js';
+import { V3_FIXTURE } from '../support/stackFixtures.js';
 
 const SAMPLE = [
   '# The section this file opens with, which no key follows directly.',
@@ -195,5 +200,45 @@ describe('rewriteEnvText', () => {
 
   it('returns the text unchanged when it is asked for nothing', () => {
     assert.equal(rewriteEnvText(LIVE, []), LIVE);
+  });
+});
+
+/**
+ * The samples upstream ships, rather than the shapes above.
+ *
+ * A description that absorbs the block above a commented out assignment
+ * documents the wrong key, and a section rule at the top of a run is a row of
+ * dashes where a sentence should be.
+ */
+describe('sampleSettingsOf over the version samples themselves', () => {
+  const settingsIn = (relative: string) =>
+    sampleSettingsOf(readFileSync(join(V3_FIXTURE, `${relative}.sample`), 'utf8'));
+  const describedAs = (relative: string, key: string): string =>
+    settingsIn(relative).find((setting) => setting.key === key)?.description ?? '';
+
+  it('gives a key its own sentences and not the ones above a commented out other key', () => {
+    const orphan = describedAs('.env', 'ORPHAN_REAP_MS');
+
+    assert.match(orphan, /^How long a live stream may receive nothing/);
+    assert.match(orphan, /RECOVERY_TIMEOUT rather than SEGMENT_STALL_MS\.$/);
+    assert.equal(orphan.includes('HLS_FRAGMENT'), false, 'it took the block documenting another key');
+  });
+
+  it('keeps a commented out assignment of the key itself, which is the example', () => {
+    const publishers = describedAs('.env', 'BEE_PUBLISHERS');
+
+    assert.match(publishers, /^One Bee node per ABR rung/);
+    assert.match(publishers, /BEE_PUBLISHERS=360p@/);
+  });
+
+  it('opens a description with a sentence rather than with a section rule', () => {
+    assert.match(describedAs('.env', 'LOG_LEVEL'), /^How much the stream-uploader prints/);
+    assert.match(describedAs('engines/srs/.env', 'ABR_ENABLED'), /^Off by default/);
+    assert.equal(describedAs('.env', 'LOG_LEVEL').includes('---'), false);
+    assert.equal(describedAs('engines/srs/.env', 'ABR_ENABLED').includes('==='), false);
+  });
+
+  it('leaves the key that follows a commented out assignment of another key undescribed', () => {
+    assert.equal(describedAs('.env', 'API_PORT'), '');
   });
 });
