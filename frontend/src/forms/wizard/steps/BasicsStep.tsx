@@ -16,8 +16,9 @@ import {
 import { MONO_STACK } from '../../../app/theme';
 import { approvalStatusText, describeVersion } from '../../../versions/versionText';
 import { ChoiceGroup } from '../../ChoiceGroup';
-import { FormField } from '../../FormField';
-import { NOTES_MAX } from '../../validation';
+import { FormField, messageIdFor } from '../../FormField';
+import { NOTES_MAX, notesProblem } from '../../validation';
+import { nameError } from '../wizardError';
 import { GOALS } from '../wizardGoals';
 import {
   allowsGroup,
@@ -40,6 +41,9 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
   const version = chosenVersion(state, context);
   const nameLabel =
     state.goal === 'abr-pool' ? 'Pool name' : state.group ? 'Group name' : 'Name';
+  // An empty field shows the naming rule as its hint. The footer asks for a name.
+  const nameFieldError = state.name ? nameError(state, context) : null;
+  const notesFieldError = notesProblem(state.notes);
 
   return (
     <Stack spacing={2.5}>
@@ -52,15 +56,25 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
         </Typography>
       </Box>
 
-      <FormField label={nameLabel} hint={namePreview(state)}>
+      <FormField
+        label={nameLabel}
+        hint={namePreview(state)}
+        error={nameFieldError}
+        htmlFor="wizard-name"
+      >
         <TextField
+          id="wizard-name"
           size="small"
           fullWidth
           autoFocus
+          error={nameFieldError !== null}
           value={state.name}
           onChange={(event) => update({ name: event.target.value })}
           placeholder={NAME_PLACEHOLDERS[state.goal ?? ''] ?? 'main-stage'}
-          inputProps={{ style: { fontFamily: MONO_STACK } }}
+          inputProps={{
+            style: { fontFamily: MONO_STACK },
+            'aria-describedby': messageIdFor('wizard-name'),
+          }}
         />
       </FormField>
 
@@ -156,16 +170,21 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
         </Box>
       )}
 
-      <FormField label="Notes" aside="optional">
+      <FormField label="Notes" aside="optional" error={notesFieldError} htmlFor="wizard-notes">
         <TextField
+          id="wizard-notes"
           size="small"
           fullWidth
           multiline
           minRows={2}
+          error={notesFieldError !== null}
           value={state.notes}
           onChange={(event) => update({ notes: event.target.value })}
           placeholder="What is this for?"
-          inputProps={{ maxLength: NOTES_MAX }}
+          inputProps={{
+            maxLength: NOTES_MAX,
+            'aria-describedby': messageIdFor('wizard-notes'),
+          }}
         />
       </FormField>
     </Stack>

@@ -89,6 +89,7 @@ export function NewDeploymentWizard({
   );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitFailures, setSubmitFailures] = useState(0);
   const [poolSetup, setPoolSetup] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [uncertainSubmission, setUncertainSubmission] = useState(false);
@@ -210,6 +211,7 @@ export function NewDeploymentWizard({
       } else {
         setSubmitError(getErrorMessage(caught, 'failed to create the deployment'));
       }
+      setSubmitFailures((count) => count + 1);
     } finally {
       if (current()) {
         inFlight.current = false;
@@ -217,6 +219,22 @@ export function NewDeploymentWizard({
       }
     }
   };
+
+  // A keyboard user arrives on each step at its content, not left on the
+  // button they pressed, unless the step already put focus in a field of its
+  // own.
+  const stepRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const step = stepRef.current;
+    if (step && !step.contains(document.activeElement)) step.focus();
+  }, [state.step]);
+
+  // A failed submission is reached and read out, not only painted. Counted,
+  // so a second failure with the same words is reached again.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (submitFailures > 0) errorRef.current?.focus();
+  }, [submitFailures]);
 
   const blocked =
     state.step === 1 ? state.goal === null : stepError !== null;
@@ -232,14 +250,23 @@ export function NewDeploymentWizard({
       <DialogContent dividers>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <StepRail step={state.step} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box
+            ref={stepRef}
+            tabIndex={-1}
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              borderRadius: 1,
+              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '4px' },
+            }}
+          >
             {notice && <Alert severity="info" sx={{ mb: 2 }}>{notice}</Alert>}
             {state.step === 1 && <GoalStep {...stepProps} />}
             {state.step === 2 && <BasicsStep {...stepProps} />}
             {state.step === 3 && <SettingsStep {...stepProps} />}
             {state.step === LAST_STEP && <ReviewStep {...stepProps} />}
             {submitError && (
-              <Alert severity="error" sx={{ mt: 2 }}>
+              <Alert ref={errorRef} tabIndex={-1} severity="error" sx={{ mt: 2 }}>
                 {submitError}
               </Alert>
             )}
