@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -15,6 +15,7 @@ import { StackVersionService } from '../../src/domain/versions/StackVersionServi
 import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
 import { deployRootProblem, stackRootOf } from '../../src/domain/versions/stackPaths.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
+import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
 
 const port = Number(process.env.T04A_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't04a_test', connectionTimeoutMillis: 5000 };
@@ -100,6 +101,30 @@ describe('version removal before files disappear in isolated PostgreSQL', {
   async function simulatedRemovalMarker() {
     await writeFile(`${selected.rootPath}.removal.json`, JSON.stringify({ schema: 1, versionId: selected.id, name: selected.name, rootPath: selected.rootPath, removalId: randomUUID() }));
   }
+
+  it('refuses cleanup through a configured ancestor symlink before touching payload or marker', async () => {
+    const physical = join(root, 'physical', 'versions');
+    await mkdir(physical, { recursive: true });
+    await symlink(join(root, 'physical'), join(root, 'alias'));
+    for (const name of ['review-stack', 'review-stack.repo', 'review-stack.builds']) await rename(join(root, name), join(physical, name));
+    const aliased = join(root, 'alias', 'versions');
+    await pool.query('UPDATE stack_versions SET root_path = $2 WHERE id = $1', [selected.id, join(aliased, selected.name)]);
+    const removing = new StackVersionService(versions, runner, new EventBus(), aliased, ledger);
+    await assert.rejects(removing.remove(selected.id), /owned|physical|ancestor|symbolic/i);
+    for (const name of ['review-stack', 'review-stack.repo', 'review-stack.builds']) assert.equal(existsSync(join(physical, name, 'synthetic-sentinel')), true);
+    assert.equal(existsSync(join(physical, 'review-stack.removal.json')), false);
+    assert.notEqual(await versions.findById(selected.id), null);
+  });
+
+  it('new-version creation permits a missing versions directory under a validated existing parent', async () => {
+    const missing = join(root, 'new-parent', 'versions');
+    const fake = new FakeScriptSpawner();
+    const creating = new StackVersionService(versions, fake, new EventBus(), missing, ledger);
+    const added = await creating.add('first-stack', 'synthetic-ref');
+    assert.equal(added.version.rootPath, join(missing, 'first-stack'));
+    assert.equal(fake.spawned.length, 1);
+    assert.equal(existsSync(missing), false, 'the fake runner creates no files or processes');
+  });
 
   for (const evidence of ['malformed', 'active', 'future-ID']) {
     it(`new-version creation refuses ${evidence} removal evidence before retaining a row or starting a runner`, async () => {

@@ -48,6 +48,17 @@ describe('persistent removal markers at deployment admission', () => {
     await assert.rejects(persistVersionRemoval({ id: 2, name: 'test-stack', rootPath: anchor }));
     assert.equal(await readFile(path, 'utf8'), future);
   });
+  for (const existing of [false, true]) {
+    it(`refuses an ancestor symlink with a ${existing ? 'present' : 'missing'} marker`, async () => {
+      await mkdir(join(root, 'physical', 'versions'), { recursive: true });
+      await symlink(join(root, 'physical'), join(root, 'alias'));
+      const aliasedAnchor = join(root, 'alias', 'versions', 'test-stack');
+      if (existing) await writeFile(`${aliasedAnchor}.removal.json`, JSON.stringify({ ...identity(), versionId: 1, rootPath: aliasedAnchor }));
+      assert.match(deployRootProblem({ id: 2, rootPath: aliasedAnchor }) ?? '', /removal/i);
+      await assert.rejects(persistVersionRemoval({ id: 2, name: 'test-stack', rootPath: aliasedAnchor }));
+      assert.deepEqual(await readdir(join(root, 'physical', 'versions')), existing ? ['test-stack.removal.json'] : []);
+    });
+  }
   for (const layout of ['legacy', 'builds'] as const) {
     const version = () => ({ id: 2, rootPath: anchor, layout, buildId: BUILD });
     it(`${layout} refuses a marked version even with complete and manifest intact`, async () => {
