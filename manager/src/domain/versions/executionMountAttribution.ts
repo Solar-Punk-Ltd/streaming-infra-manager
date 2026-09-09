@@ -58,15 +58,31 @@ function containingRecord(path: string, roots: Map<string, ExecutionRootRecord>)
     ancestor = next;
   }
 }
+function descendantRecords(records: ExecutionRootRecord[]): Map<string, ExecutionRootRecord[]> {
+  const descendants = new Map<string, ExecutionRootRecord[]>();
+  for (const record of records) {
+    let ancestor = posix.dirname(record.root);
+    while (true) {
+      const rows = descendants.get(ancestor) ?? [];
+      rows.push(record);
+      descendants.set(ancestor, rows);
+      const next = posix.dirname(ancestor);
+      if (next === ancestor) break;
+      ancestor = next;
+    }
+  }
+  return descendants;
+}
 function attribute(container: ExecutionContainerObservation, roots: Map<string, ExecutionRootRecord>,
-  workingDirectories: Map<string, ExecutionRootRecord>, parent: string): AttributedExecutionContainer {
+  descendants: Map<string, ExecutionRootRecord[]>, workingDirectories: Map<string, ExecutionRootRecord>, parent: string): AttributedExecutionContainer {
   const dependencies = new Map<string, ExecutionDependency>();
   const unmatched = new Set<string>();
   for (const mount of container.mounts) {
     if (mount.type !== 'bind' || mount.source === null) continue;
     const record = containingRecord(mount.source, roots);
-    if (record) dependencies.set(record.executionId, { executionId: record.executionId, source: record.source });
-    else unmatched.add(mount.source);
+    const matches = record ? [record] : descendants.get(mount.source) ?? [];
+    for (const match of matches) dependencies.set(match.executionId, { executionId: match.executionId, source: match.source });
+    if (matches.length === 0) unmatched.add(mount.source);
   }
   const working = container.workingDirectory === null ? undefined : workingDirectories.get(container.workingDirectory);
   const unknownExecutionMount = [...unmatched].some(path => contains(parent, path));
@@ -85,6 +101,8 @@ function attribute(container: ExecutionContainerObservation, roots: Map<string, 
 
 /** Matching a registered working directory and Compose identity attributes the
  * recorded execution. Bind dependencies are independent of that provenance.
+ * They cover registered execution copies, including copies below a mounted
+ * ancestor. Direct mounts of source artifacts remain unmatched evidence here.
  * Neither result proves launcher termination, runtime configuration or permission
  * to retire a source/copy. No registered match is not evidence of safe removal. */
 export async function observeExecutionMounts(
@@ -96,7 +114,8 @@ export async function observeExecutionMounts(
   const captured = await captureExecutionMounts(reader, { daemonId: input.daemonId }, options);
   if (captured.state !== 'complete') return captured;
   const roots = new Map(records.map(record => [record.root, record]));
+  const descendants = descendantRecords(records);
   const workingDirectories = new Map(records.map(record => [posix.join(record.root, 'deploy'), record]));
   return { state: 'complete', daemonId: captured.daemonId,
-    containers: captured.containers.map(container => attribute(container, roots, workingDirectories, input.executionsParent)), cleanupAuthorized: false };
+    containers: captured.containers.map(container => attribute(container, roots, descendants, workingDirectories, input.executionsParent)), cleanupAuthorized: false };
 }
