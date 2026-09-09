@@ -1,6 +1,7 @@
-import type {
-  StackSettings,
-  StackSettingsFileEdit,
+import {
+  settingValueProblem,
+  type StackSettings,
+  type StackSettingsFileEdit,
 } from '@streaming-infra-manager/common';
 
 /**
@@ -90,6 +91,25 @@ export function editedFiles(
     if (entries.length > 0) edits.push({ path: file.path, entries });
   }
   return edits;
+}
+
+/**
+ * The edited keys whose value the manager would refuse, by the same rule the
+ * field already shows under itself. The footer stops on these rather than
+ * spending a round trip on a save that comes back a 400 having written
+ * nothing. A removal carries no value, and a json file is text rather than
+ * keys, so neither has one.
+ */
+export function keysWithAValueProblem(edits: readonly StackSettingsFileEdit[]): string[] {
+  const keys: string[] = [];
+  for (const edit of edits) {
+    if (!('entries' in edit)) continue;
+    for (const entry of edit.entries) {
+      if (entry.remove) continue;
+      if (settingValueProblem(entry.key, entry.value) !== null) keys.push(entry.key);
+    }
+  }
+  return keys;
 }
 
 /** Whether this key still holds what the version's own sample assigns it. */

@@ -5,6 +5,7 @@ import {
   getErrorMessage,
   type StackSettings,
   type StackSettingsApplied,
+  type StackSettingsFileEdit,
 } from '@streaming-infra-manager/common';
 
 import { navigate, routes } from '../app/router';
@@ -23,6 +24,7 @@ import {
 import {
   draftOf,
   editedFiles,
+  keysWithAValueProblem,
   settingsRefusal,
   withEntry,
   withRemoval,
@@ -42,6 +44,19 @@ function isCarriedByTheBuild(settings: StackSettings): boolean {
 function unappliedRevisionNote(settings: StackSettings): string | null {
   if (settings.buildGeneration === null || isCarriedByTheBuild(settings)) return null;
   return `Saved as revision ${settings.generation}. The current build carries revision ${settings.buildGeneration}, so new deployments do not have these changes yet. Apply makes a build that does.`;
+}
+
+/**
+ * What the footer says about the edit in progress. A value the manager would
+ * refuse comes first, because that is what the two save actions are off for.
+ */
+function footerNote(edits: readonly StackSettingsFileEdit[], refused: readonly string[]): string {
+  if (refused.length > 0) {
+    const count = refused.length === 1 ? 'One value' : `${refused.length} values`;
+    return `${count} cannot be saved as written: ${refused.join(', ')}`;
+  }
+  if (edits.length === 0) return 'Nothing changed yet';
+  return `${edits.length} ${edits.length === 1 ? 'file' : 'files'} changed`;
 }
 
 type Busy = 'saving' | 'applying' | null;
@@ -90,7 +105,12 @@ export function VersionSettingsPage({ id }: { id: number }) {
   }, [load]);
 
   const edits = settings ? editedFiles(settings, draft) : [];
+  const refusedKeys = keysWithAValueProblem(edits);
   const disabled = busy !== null || settings === null;
+  // A save carrying one of these comes back a 400 having written nothing, so
+  // the round trip buys the operator only the wait. Discard stays on, because
+  // it is the way back out of the value.
+  const saveDisabled = disabled || refusedKeys.length > 0;
 
   const run = async (kind: Busy, action: () => Promise<void>) => {
     setBusy(kind);
@@ -224,7 +244,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
             <Button
               variant="contained"
               size="small"
-              disabled={disabled || edits.length === 0}
+              disabled={saveDisabled || edits.length === 0}
               onClick={() => void save()}
             >
               Save
@@ -232,7 +252,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
             <Button
               variant="outlined"
               size="small"
-              disabled={disabled || (edits.length === 0 && isCarriedByTheBuild(settings))}
+              disabled={saveDisabled || (edits.length === 0 && isCarriedByTheBuild(settings))}
               onClick={() => void saveAndApply()}
             >
               Save and apply
@@ -245,10 +265,11 @@ export function VersionSettingsPage({ id }: { id: number }) {
               Discard
             </Button>
             <Box sx={{ flex: '1 1 auto' }} />
-            <Typography variant="caption" color="text.secondary">
-              {edits.length === 0
-                ? 'Nothing changed yet'
-                : `${edits.length} ${edits.length === 1 ? 'file' : 'files'} changed`}
+            <Typography
+              variant="caption"
+              color={refusedKeys.length > 0 ? 'error.main' : 'text.secondary'}
+            >
+              {footerNote(edits, refusedKeys)}
             </Typography>
           </Stack>
         </SectionCard>
