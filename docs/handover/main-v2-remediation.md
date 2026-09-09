@@ -487,3 +487,32 @@ frontend typechecks clean. The two browser suites on their own: `versions-layout
 12 of 12 and `version-settings` 23 of 23, ten more than before. Nothing ran
 against the real host, nothing was pushed, and no `.env` of the submodule was
 read.
+
+**The targeted re-review, 2026-09-10.** A third reviewer went back over the
+fixes, confirmed every one of them and had thirty one of thirty three mutations
+go red. Six small things came out of it, section R of
+`docs/consensus/VERSION-SETTINGS-FIXES.md`, and two of them mattered. A key's
+description ended at any comment that looked like an assignment, and a wrapped
+sentence looks like one: the block above `BEE_PUBLISHERS` in the stack's own
+sample ends on a line reading `# ABR_ENABLED=true, since with no ladder there is
+nothing to map onto.`, so the key lost the five lines that say what it is. A
+comment ends the run now only when it is a key, an equals sign and a value with
+no whitespace, and the fixture carries that real block rather than a shortened
+cut of it. The sixteen file bound on a save was pinned by a test sending
+seventeen paths no version keeps, so the service refused them as absent and the
+bound was never what answered. Both mutations were made, seen red and reverted.
+The rest are smaller. Save and Save and apply go off while a field holds a value
+the shared rule refuses and the footer names those keys, so a refused value
+costs no round trip. The page takes its revision from the reload rather than
+from the save the reload was overwriting. Two README sentences wrap where their
+neighbours do, a doubled blank line is gone, and the paragraph above now says
+eight low security findings rather than four.
+
+**Verified, 2026-09-10, after the third round.** Manager unit 2207 of 2207, two
+more than the round before. Common 318, unchanged, and frontend 88, five more.
+Both manager typechecks and the common and frontend typechecks clean. The two
+browser suites on their own: `versions-layout` 12 of 12 and `version-settings`
+24 of 24, one more than before. The database directory was not touched by this
+round and was not run. Nothing ran against the real host, nothing was pushed,
+and the only `.env` of the submodule read was the `.env.sample` the fixture's
+block was copied from.
