@@ -31,6 +31,8 @@ const HEALTH_URL = 'http://api:9876/health';
 const POSTGRES_VOLUME = 'manager_manager-pg';
 const COMMIT = 'a'.repeat(40);
 const DIGEST = 'd'.repeat(64);
+const IMAGE_ID = `sha256:${'f'.repeat(64)}`;
+const API_CONTAINER = 'c0ffee';
 const TIMEOUTS = { command: 1000, postgresReady: 300, apiHealthy: 300, pollPause: 10 };
 
 /** The words of a Compose call after its project and file flags, which is what a test cares about. */
@@ -95,7 +97,7 @@ describe('the manager upgrade against one Compose project', () => {
     shipmentId = randomUUID();
     request = {
       shipment: { shipmentId, commit: COMMIT, digest: DIGEST },
-      manager: { sourceCommit: 'b'.repeat(40), sourceDigest: 'e'.repeat(64), imageId: `sha256:${'f'.repeat(64)}` },
+      manager: { sourceCommit: 'b'.repeat(40), sourceDigest: 'e'.repeat(64), imageId: IMAGE_ID },
       project: PROJECT,
     };
     runner = new ScriptedRunner();
@@ -388,12 +390,38 @@ describe('the manager upgrade against one Compose project', () => {
   });
 
   describe('verifying the project', () => {
+    const INSPECT_API = `docker inspect --format {{.Image}} ${API_CONTAINER}`;
+
+    /** The api container the project brought up, running the image this upgrade built. */
+    function scriptApiOfThisUpgrade(): void {
+      runner.answer('ps -q api', { stdout: `${API_CONTAINER}\n` });
+      runner.answer(INSPECT_API, { stdout: `${IMAGE_ID}\n` });
+    }
+
     it('waits for the api to answer its health check and for the edge to match the deploy', async () => {
+      scriptApiOfThisUpgrade();
       runner.answer('--profile public ps -q edge', { stdout: '' });
 
       await operations({ health: [503, 200] }).verifyProject(request);
 
-      assert.deepEqual(runner.seen, ['--profile public ps -q edge']);
+      assert.deepEqual(runner.seen, ['ps -q api', INSPECT_API, '--profile public ps -q edge']);
+    });
+
+    it('refuses when another deploy retagged the image between this build and this start', async () => {
+      runner.answer('ps -q api', { stdout: `${API_CONTAINER}\n` });
+      runner.answer(INSPECT_API, { stdout: `sha256:${'9'.repeat(64)}\n` });
+
+      await assert.rejects(operations().verifyProject(request), (error: Error) => {
+        assert.match(error.message, /image/i);
+        assert.ok(error.message.includes(IMAGE_ID), 'the image this upgrade built is named');
+        return true;
+      });
+    });
+
+    it('refuses when nothing of the api service is running although it answered', async () => {
+      runner.answer('ps -q api', { stdout: '' });
+
+      await assert.rejects(operations().verifyProject(request), /api/i);
     });
 
     it('refuses when the api never answers, which keeps the guard held', async () => {
@@ -404,12 +432,14 @@ describe('the manager upgrade against one Compose project', () => {
     });
 
     it('refuses when the edge is running and the deploy did not ask for it', async () => {
-      runner.answer('--profile public ps -q edge', { stdout: 'c0ffee\n' });
+      scriptApiOfThisUpgrade();
+      runner.answer('--profile public ps -q edge', { stdout: 'deadbeef\n' });
 
       await assert.rejects(operations().verifyProject(request), /edge/i);
     });
 
     it('refuses when the deploy asked for the edge and it is not running', async () => {
+      scriptApiOfThisUpgrade();
       runner.answer('--profile public ps -q edge', { stdout: '' });
 
       await assert.rejects(operations({ publicEdge: true }).verifyProject(request), /edge/i);
