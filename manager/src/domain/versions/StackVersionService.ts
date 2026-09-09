@@ -53,7 +53,11 @@ import {
   withHostConfigLock,
 } from './hostConfigCapture.js';
 import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
-import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import {
+  completeHostConfigFromSamples,
+  samplePairsIn,
+  type SamplePair,
+} from './hostConfigCompletion.js';
 import { describeSettingsSave, saveHostConfigSettings } from './hostConfigSave.js';
 import {
   readHostConfigSettings,
@@ -115,11 +119,11 @@ const STAGING_PREFIX = 'tmp-';
 const BUILDS_SUFFIX = '.builds';
 const COMMIT_RE = /^[0-9a-f]{7,40}$/;
 
-/** The samples a build ships and the host-owned files seeded from them when the version has none yet. */
-const CONFIG_SEEDS: readonly { sample: string; live: string }[] = [
-  { sample: '.env.sample', live: '.env' },
-  { sample: 'deploy/config.sample.json', live: 'deploy/config.json' },
-];
+/** The deploy config's own seed. The env files come from `samplePairsIn`, which completion walks too. */
+const DEPLOY_CONFIG_SEED: SamplePair = {
+  sample: 'deploy/config.sample.json',
+  live: 'deploy/config.json',
+};
 
 /** Whether a build container still runs, asked of Docker at boot. */
 export interface BuildAttemptFence {
@@ -763,6 +767,11 @@ export class StackVersionService {
    * committed as generation one when the version has none of its own yet, so
    * an added version deploys with the stack's defaults the way it always did.
    * A root that has the files but no manifest is adopted as it stands.
+   *
+   * Every engine the version ships a sample for gets its env here, so the
+   * engine half of a version's settings exists to be shown and edited. The
+   * stack's own `ensure_engine_env` copies the same sample when the file is
+   * missing, so seeding it changes nothing a deploy reads.
    */
   private async seedHostConfig(configRoot: string, staging: string): Promise<void> {
     await mkdir(configRoot, { recursive: true });
@@ -771,7 +780,7 @@ export class StackVersionService {
     // theirs rather than a sample written over it.
     await withHostConfigLock(configRoot, async (commit) => {
       const seeds: Record<string, Buffer> = {};
-      for (const { sample, live } of CONFIG_SEEDS) {
+      for (const { sample, live } of [...samplePairsIn(staging), DEPLOY_CONFIG_SEED]) {
         if (!existsSync(join(configRoot, live)) && existsSync(join(staging, sample))) {
           seeds[live] = await readFile(join(staging, sample));
         }

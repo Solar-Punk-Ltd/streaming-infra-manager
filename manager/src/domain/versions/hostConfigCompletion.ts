@@ -25,13 +25,20 @@ const SAMPLE_SUFFIX = '.sample';
 const ENGINES_DIR = 'engines';
 
 /** Live file to the sample it is completed from, both relative posix paths. */
-interface SamplePair {
+export interface SamplePair {
   live: string;
   sample: string;
 }
 
-/** The base env and every engine env this version ships a sample for. */
-function samplePairsIn(staging: string): SamplePair[] {
+/**
+ * The base env and every engine env this version ships a sample for.
+ *
+ * Seeding and completion walk the same pairs on purpose: a version whose
+ * engine env is never seeded has no engine section on its settings page, and
+ * one whose engine env is seeded but never completed loses the keys a later
+ * version of the stack adds.
+ */
+export function samplePairsIn(staging: string): SamplePair[] {
   const pairs: SamplePair[] = [{ live: BASE_ENV, sample: `${BASE_ENV}${SAMPLE_SUFFIX}` }];
   const engines = join(staging, ENGINES_DIR);
   if (existsSync(engines) && statSync(engines).isDirectory()) {

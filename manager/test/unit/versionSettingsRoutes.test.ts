@@ -475,11 +475,11 @@ describe('PUT /versions/:id/settings', () => {
 
     const answer = await callJson('PUT', `/versions/${id}/settings`, {
       expectedGeneration: 2,
-      files: [{ path: 'engines/ome/.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+      files: [{ path: 'engines/nosuchengine/.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
     });
 
     assert.equal(answer.status, 400);
-    assert.match(JSON.stringify(answer.body), /engines\/ome\/\.env/);
+    assert.match(JSON.stringify(answer.body), /engines\/nosuchengine\/\.env/);
   });
 
   it('refuses text where the file takes keys, and keys where it takes text', async () => {
