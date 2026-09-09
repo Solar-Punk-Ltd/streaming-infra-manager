@@ -201,10 +201,22 @@ describe('the manager upgrade against one Compose project', () => {
     it('starts a Postgres whose container exists but is stopped, and waits for it to become healthy', async () => {
       runner.answer('ps -a --format json postgres',
         { stdout: containers('exited', '') }, { stdout: containers('running', 'starting') }, { stdout: containers('running', 'healthy') });
+      runner.answer(VOLUME_PROBE, { stdout: `${POSTGRES_VOLUME}\n` });
 
       assert.deepEqual(await operations().readPublication(request), JOURNAL);
-      assert.deepEqual(runner.seen, ['ps -a --format json postgres', 'up -d --no-build postgres',
+      assert.deepEqual(runner.seen, ['ps -a --format json postgres', VOLUME_PROBE, 'up -d --no-build postgres',
         'ps -a --format json postgres', 'ps -a --format json postgres']);
+    });
+
+    it('refuses a stopped Postgres whose data volume went missing under an installed api', async () => {
+      // Compose would start this container against a volume it creates on the spot, and the empty
+      // database that comes up looks exactly like a host that never had one.
+      runner.answer('ps -a --format json postgres', { stdout: containers('exited', '') });
+      runner.answer(VOLUME_PROBE, { stdout: '' });
+      runner.answer(API_CONTAINERS, { stdout: 'c0ffee\n' });
+
+      await assert.rejects(operations().readPublication(request), /volume/i);
+      assert.equal(runner.seen.includes('up -d --no-build postgres'), false, 'and starts nothing');
     });
 
     /** No container, no data volume and no api container: nothing has ever run here. */
