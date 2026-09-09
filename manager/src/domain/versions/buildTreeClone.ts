@@ -97,13 +97,3 @@ async function shareFile(source: string, target: string, cloned: ClonedBuildTree
   await chmod(target, (await lstat(source)).mode & 0o777);
   cloned.sharing = 'copied';
 }
-
-/** The mode of a file, or null when there is none at that path. */
-export async function fileModeOf(path: string): Promise<number | null> {
-  try {
-    return (await lstat(path)).mode & 0o777;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
-}

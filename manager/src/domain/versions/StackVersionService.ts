@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,11 +39,7 @@ import {
   readBuildManifest,
 } from './buildManifest.js';
 import { protectedBuildIds } from './buildReferences.js';
-import {
-  cloneBuildTree,
-  fileModeOf,
-  type BuildTreeSharing,
-} from './buildTreeClone.js';
+import { cloneBuildTree, type BuildTreeSharing } from './buildTreeClone.js';
 import { persistVersionRemoval } from './versionRemovalMarker.js';
 import { assertOwnedVersionParent } from './ownedVersionParent.js';
 import {
@@ -145,8 +141,14 @@ export interface PrunedBuilds {
   kept: string[];
 }
 
-/** A settings file a build did not have before lands owner only, as the config root's own does. */
-const NEW_SETTINGS_FILE_MODE = 0o600;
+/**
+ * Every build's copy of a settings file, owner only.
+ *
+ * These are the same bytes as the config root's own files, secrets included,
+ * and the api container runs as root, so a mode left to the umask is a file
+ * every account on the host can read.
+ */
+const SETTINGS_FILE_MODE = 0o600;
 
 /** What a version left mid-build by a restart says when the manager comes back. */
 const INTERRUPTED_BUILD =
@@ -485,7 +487,7 @@ export class StackVersionService {
           `[Versions] ${version.name}: passed by ${cloned.passedBy.join(', ')} in ${from}, which is neither a file, a directory nor a link`,
         );
       }
-      await this.writeSettingsInto(staging, from, inputs.files);
+      await this.writeSettingsInto(staging, inputs.files);
       await writeFile(
         join(staging, BUILD_MANIFEST_FILE),
         `${JSON.stringify(
@@ -521,18 +523,15 @@ export class StackVersionService {
     return { buildId };
   }
 
-  /** The revision's own bytes, never a link, at the mode the build they replace had. */
+  /** The revision's own bytes, never a link, owner only whatever the build it was made from had. */
   private async writeSettingsInto(
     staging: string,
-    from: string,
     files: ReadonlyMap<string, Buffer>,
   ): Promise<void> {
     for (const [relative, bytes] of files) {
       const target = join(staging, relative);
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, bytes, { mode: NEW_SETTINGS_FILE_MODE });
-      const mode = await fileModeOf(join(from, relative));
-      if (mode !== null) await chmod(target, mode);
+      await writeFile(target, bytes, { mode: SETTINGS_FILE_MODE });
     }
   }
 
@@ -721,10 +720,7 @@ export class StackVersionService {
       return { buildId: existing.buildId, commitSha: commit, contract, rootPath: configRoot, reused: true };
     }
 
-    for (const [relative, bytes] of inputs.files) {
-      await mkdir(dirname(join(staging, relative)), { recursive: true });
-      await writeFile(join(staging, relative), bytes);
-    }
+    await this.writeSettingsInto(staging, inputs.files);
     const buildId = await this.freeBuildId(version.name, commit);
     const manifest: BuildManifest = {
       commit,

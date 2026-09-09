@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +44,15 @@ export const ENGINE_CONFIG_ENV_KEYS: Record<EngineName, string> = {
 };
 
 const ENGINE_CONFIG_FILE_RE = /^\/[A-Za-z0-9._\/-]+$/;
+
+/**
+ * The deployment's own env file, owner only.
+ *
+ * It holds every secret the deployment was given, generated or otherwise, and
+ * the api container runs as root, so a mode left to the umask is a file every
+ * account on the host can read.
+ */
+const DEPLOYMENT_ENV_MODE = 0o600;
 
 export function profileEnvPath(root: string, name: string): string {
   return join(root, `.env.${name}`);
@@ -413,7 +422,12 @@ export function writeProfileEnv(
   }
 
   const path = profileEnvPath(root, name);
-  writeFileSync(path, contents, 'utf8');
+  writeFileSync(path, contents, { encoding: 'utf8', mode: DEPLOYMENT_ENV_MODE });
+  // The mode argument applies only to a file this call creates, and every
+  // deploy after the first one rewrites a file that is already there, so a
+  // deployment first written by an older manager keeps its wider mode without
+  // this.
+  chmodSync(path, DEPLOYMENT_ENV_MODE);
   return path;
 }
 
