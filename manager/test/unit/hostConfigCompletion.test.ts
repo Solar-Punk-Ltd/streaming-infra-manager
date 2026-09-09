@@ -87,6 +87,26 @@ describe("completing a base env from the version's sample", () => {
     assert.equal(baseEnv(), 'STAMP=paid-for\nAPI_PORT=3000\nSTREAM_KEY=\nCHEQUEBOOK_MIN_BZZ=0.5\n');
   });
 
+  it('leaves every byte the operator wrote where it was, comments, blanks, spaces and all', async () => {
+    const written = [
+      '',
+      '# A note the operator left about the stamp.',
+      'STAMP=paid-for',
+      '',
+      'API_PORT=3000   ',
+      'LEGACY_ONLY=kept\r',
+      '',
+    ].join('\n');
+    await committedEnv(written);
+
+    await completeHostConfigFromSamples(configRoot, staging);
+
+    assert.deepEqual(
+      readFileSync(join(configRoot, '.env')),
+      Buffer.from(`${written}STREAM_KEY=\nCHEQUEBOOK_MIN_BZZ=0.5\n`, 'utf8'),
+    );
+  });
+
   it('answers which keys it added to which file', async () => {
     await committedEnv('STAMP=paid-for\nAPI_PORT=3000\n');
 
