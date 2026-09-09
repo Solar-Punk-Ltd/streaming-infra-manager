@@ -20,7 +20,7 @@ import {
 } from '../../src/domain/versions/stackPaths.js';
 import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 
-const VERSIONS_ROOT = '/home/solarpunk/streaming-infra-manager-versions';
+const VERSIONS_ROOT = '/synthetic-main-v2-stack-versions';
 const ADDED_ROOT = join(VERSIONS_ROOT, 'main-v3');
 
 describe('stackPaths for the bundled version', () => {
