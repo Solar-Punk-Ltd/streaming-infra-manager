@@ -62,6 +62,17 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     }),
   );
 
+  // The values come back in the clear, secrets included: the page is behind
+  // the session gate, the operator is the only reader, and a value they cannot
+  // see is one they cannot check. Never logged, here or anywhere below.
+  router.get(
+    '/:id/settings',
+    validateParams(versionIdSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await versions.settingsOf(versionIdOf(req)));
+    }),
+  );
+
   router.post(
     '/:id/default',
     validateParams(versionIdSchema),

@@ -55,6 +55,19 @@ export function stackRootOf(version: StackVersionRoot): string {
   return buildDirFor(dirname(version.rootPath), basename(version.rootPath), version.buildId);
 }
 
+/**
+ * The tree a version's samples and descriptions are read from, or null when it
+ * has none yet.
+ *
+ * Never the tree the manager ships with. A bundled row that has not been built
+ * on this host has no settings of its own to show, and answering from the
+ * manager's own checkout would put a page over files no version owns.
+ */
+export function settingsTreeOf(version: StackVersionRoot): string | null {
+  if ((version.layout ?? 'legacy') !== 'builds') return version.rootPath;
+  return version.rootPath !== null && version.buildId ? stackRootOf(version) : null;
+}
+
 /** Why a version cannot be deployed from right now, naming what is missing, or null. */
 export function deployRootProblem(version: StackVersionRoot): string | null {
   const removalProblem = versionRemovalProblem(version);

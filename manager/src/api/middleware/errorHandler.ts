@@ -50,6 +50,8 @@ import {
   ProfileNotFoundError,
   RestartInProgressError,
   StackBuildBusyError,
+  StackSettingsChangedError,
+  StackSettingsNotReadyError,
   StackVersionExistsError,
   StackVersionChangedError,
   StackVersionInUseError,
@@ -367,6 +369,23 @@ export function errorHandler(
     res.status(409).json({
       error: 'stack_version_untested',
       name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof StackSettingsNotReadyError) {
+    res.status(409).json({
+      error: 'settings_not_ready',
+      name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof StackSettingsChangedError) {
+    res.status(409).json({
+      error: 'settings_changed',
+      name: err.versionName,
+      generation: err.generation,
       message: err.message,
     });
     return;

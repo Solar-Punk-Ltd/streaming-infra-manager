@@ -47,3 +47,5 @@ export { DeployAttemptRefusedError } from './DeployAttemptRefusedError.js';
 export { StackBuildBusyError } from './StackBuildBusyError.js';
 export { InvalidStackVersionError } from './InvalidStackVersionError.js';
 export { UntestedVersionError } from './UntestedVersionError.js';
+export { StackSettingsNotReadyError } from './StackSettingsNotReadyError.js';
+export { StackSettingsChangedError } from './StackSettingsChangedError.js';

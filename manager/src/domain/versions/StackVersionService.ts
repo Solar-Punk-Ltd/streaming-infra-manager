@@ -9,6 +9,7 @@ import {
   getErrorMessage,
   stackRefProblem,
   stackVersionNameProblem,
+  type StackSettings,
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
@@ -44,6 +45,10 @@ import {
 } from './hostConfigCapture.js';
 import { bundledPinProblem, readBundledPin } from './bundledCommit.js';
 import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
+import {
+  readHostConfigSettings,
+  type HostConfigSettingsSources,
+} from './hostConfigSettings.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
 import { readStackContract } from './stackContract.js';
 import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
@@ -54,6 +59,7 @@ import {
   deployRootProblem,
   deploysBuildOf,
   repoRootFor,
+  settingsTreeOf,
   stackRootOf,
   stagingDirFor,
   versionRootFor,
@@ -382,6 +388,23 @@ export class StackVersionService {
     this.publishChanged();
     const deployments = await this.versions.deploymentNames(id);
     return toApiVersion(updated, deployments.length);
+  }
+
+  // ---------------------------------------------------------- the settings
+
+  /** The host-owned files of one version, against the samples its build ships. */
+  async settingsOf(id: number): Promise<StackSettings> {
+    const version = await this.require(id);
+    return readHostConfigSettings(version.name, this.settingsSourcesOf(version));
+  }
+
+  private settingsSourcesOf(version: StackVersionRecord): HostConfigSettingsSources {
+    return {
+      configRoot: version.rootPath ?? configRootFor(this.versionsRoot, version.name),
+      buildRoot: settingsTreeOf(version),
+      buildId: version.buildId,
+      requiredSecrets: version.contract?.requiredSecrets ?? [],
+    };
   }
 
   async remove(id: number): Promise<void> {

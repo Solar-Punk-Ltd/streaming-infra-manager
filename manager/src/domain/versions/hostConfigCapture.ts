@@ -31,9 +31,11 @@ export const CONFIG_LOCK_DIR = '.config.lock';
 /** The name of the manager's editing script, for the refusals that point at it. */
 export const CONFIG_EDIT_SCRIPT = 'stack-config-edit.sh';
 
-const BASE_ENV = '.env';
+export const BASE_ENV = '.env';
 const DEPLOY_DIR = 'deploy';
-const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
+export const DEPLOY_CONFIG = `${DEPLOY_DIR}/config.json`;
+/** The version's own default for the deploy config, which the page resets to. */
+export const DEPLOY_CONFIG_SAMPLE = `${DEPLOY_DIR}/config.sample.json`;
 const ENGINES_DIR = 'engines';
 const ENGINE_ENV = '.env';
 
