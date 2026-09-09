@@ -313,3 +313,6 @@ before and nothing else moved. The whole `manager/test/database` directory 492 o
 both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
 clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
 the submodule was read.
+
+Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, runs in neither `pnpm test` nor the checks workflow yet.
+
