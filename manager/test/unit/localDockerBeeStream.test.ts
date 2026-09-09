@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { describe, it, type TestContext } from 'node:test';
 import { acquireLocalDockerBeeStream, openUnixDockerConnection, type LocalDockerLocator } from '../../src/domain/chequebook/acquireLocalDockerBeeStream.js';
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
+import type { BeeBridgeExecution } from '../../src/domain/chequebook/beeBridgeQualification.js';
 import { PinnedBeeSession } from '../../src/domain/chequebook/PinnedBeeSession.js';
 import { syntheticDockerBee, syntheticImageId, syntheticTarget } from '../support/syntheticDockerBee.js';
 import { transactionHash, transferContext } from '../support/chequebookOperations.js';
@@ -10,7 +11,7 @@ import { transactionHash, transferContext } from '../support/chequebookOperation
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const block = (ms: number) => { const end = performance.now() + ms; while (performance.now() < end) {} };
 const locator = (): LocalDockerLocator => ({ kind: 'unix', alias: syntheticTarget.alias, socketPath: '/synthetic/only.sock' });
-const qualified = (image: string) => image === syntheticImageId;
+const qualified = (execution: BeeBridgeExecution) => execution.imageId === syntheticImageId;
 const limits = { acquisitionTimeoutMs: 200, preflightTimeoutMs: 200, postTimeoutMs: 200, cleanupGraceMs: 20 };
 function harness(t: TestContext) {
   const docker = syntheticDockerBee(t);
@@ -57,7 +58,7 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
     assert.deepEqual(await session.depositChequebook(1n), { transactionHash });
     await assert.rejects(session.depositChequebook(1n));
     assert.equal(h.opens(), 1); assert.equal(h.docker.counts().posts, 1); assert.equal(h.docker.counts().networkCalls, 0);
-    assert.equal(h.docker.dockerRequests.length, 5); session.dispose();
+    assert.equal(h.docker.dockerRequests.length, 6); session.dispose();
     await pause(0); assert.equal(h.docker.counts().closes, 1);
   });
 
@@ -166,7 +167,7 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
   it('defaults to qualification refusal and never sends an exec POST', async t => {
     const h = harness(t);
     await assert.rejects(acquireLocalDockerBeeStream(syntheticTarget, async () => locator(), limits, undefined, undefined, h.connect));
-    assert.equal(h.docker.dockerRequests.length, 3); assert.equal(h.docker.transport.destroyed, true);
+    assert.equal(h.docker.dockerRequests.length, 4); assert.equal(h.docker.transport.destroyed, true);
   });
 
   for (const phase of ['resolver', 'constructor', 'readiness', 'closed', 'late-error'] as const) {

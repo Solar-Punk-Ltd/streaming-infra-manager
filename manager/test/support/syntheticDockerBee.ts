@@ -48,8 +48,8 @@ export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandl
       dockerRequests.push({ method: request.method!, url: request.url! });
       const path = new URL(request.url!, 'http://docker.invalid').pathname;
       response.statusCode = path.endsWith('/exec') ? 201 : 200;
-      response.end(JSON.stringify(path === '/info' ? { ID: syntheticTarget.daemonId } : path === '/containers/json' ? [{ Id: containerId, Labels: labels }] :
-        path.endsWith('/exec') ? { Id: execId } : { Id: containerId, Image: syntheticImageId, Config: { Labels: labels },
+      response.end(JSON.stringify(path === '/info' ? { ID: syntheticTarget.daemonId, ServerVersion: '29.1.3' } : path === '/containers/json' ? [{ Id: containerId, Labels: labels }] :
+        path.startsWith('/images/') ? { Id: syntheticImageId, Os: 'linux', Architecture: 'amd64' } : path.endsWith('/exec') ? { Id: execId } : { Id: containerId, Image: syntheticImageId, Config: { Labels: labels },
           State: { Running: true, Paused: false, Restarting: false, Dead: false }, HostConfig: { NetworkMode: 'test-deployment_default' },
           NetworkSettings: { Ports: { '1633/tcp': [{ HostIp: '0.0.0.0', HostPort: '11633' }] } } }));
     });

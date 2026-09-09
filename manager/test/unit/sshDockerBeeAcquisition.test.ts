@@ -290,7 +290,7 @@ describe('in-memory SSH lifecycle composition', { timeout: 10000 }, () => {
     const handle = beginSshDockerBeeAcquisition(syntheticTarget, async () => remoteLocator(),
       { acquisitionTimeoutMs: 2500, preflightTimeoutMs: 2500, postTimeoutMs: 2500, cleanupGraceMs: 100 }, h.dependencies);
     t.after(() => handle.dispose()); await assert.rejects(handle.result); assert.deepEqual(await handle.cleanup, { state: 'closed' });
-    assert.equal(docker.dockerRequests.length, 3); assert.equal(docker.dockerRequests.some(request => request.method === 'POST'), false);
+    assert.equal(docker.dockerRequests.length, 4); assert.equal(docker.dockerRequests.some(request => request.method === 'POST'), false);
   });
 
   it('uses the actual Docker handshake and one Bee connection without any physical acquisition', async t => {
@@ -299,7 +299,7 @@ describe('in-memory SSH lifecycle composition', { timeout: 10000 }, () => {
     h.dependencies.connect = path => { calls.push(path); return { stream: docker.transport, connected: Promise.resolve() }; };
     h.dependencies.acquire = acquireDockerBeeStream;
     const handle = beginSshDockerBeeAcquisition(syntheticTarget, async () => remoteLocator(),
-      { acquisitionTimeoutMs: 2500, preflightTimeoutMs: 2500, postTimeoutMs: 2500, cleanupGraceMs: 100 }, h.dependencies, image => image === syntheticImageId);
+      { acquisitionTimeoutMs: 2500, preflightTimeoutMs: 2500, postTimeoutMs: 2500, cleanupGraceMs: 100 }, h.dependencies, execution => execution.imageId === syntheticImageId);
     t.after(() => handle.dispose()); const result = await handle.result; const session = PinnedBeeSession.fromStream(result.stream); t.after(() => session.dispose());
     await session.getAddresses(); await session.getWallet(); assert.deepEqual(await session.depositChequebook(1n), { transactionHash });
     await assert.rejects(session.depositChequebook(1n)); assert.deepEqual(calls, [socketPath]); assert.equal(docker.counts().networkCalls, 0); assert.equal(docker.counts().posts, 1);

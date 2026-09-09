@@ -30,7 +30,7 @@ function harness(t: TestContext, options: OwnedTransferPreparationOptions = {}, 
     captures++; await captureHook?.(); return target;
   }, async (proof, budgets, signal) => {
     acquisitions++; signals.push(signal); seenProofs.push(proof); seenBudgets.push(budgets);
-    const acquired = await acquireDockerBeeStream(docker.transport, proof, budgets, image => image === syntheticImageId, ignoreLifetime ? undefined : signal);
+    const acquired = await acquireDockerBeeStream(docker.transport, proof, budgets, execution => execution.imageId === syntheticImageId, ignoreLifetime ? undefined : signal);
     return acquiredHook ? acquiredHook(acquired) : acquired;
   }, new ChequebookChainRegistry('{"100":"https://rpc.example.invalid"}', () => reader), options);
   const repository = new InMemoryChequebookOperations();
@@ -102,7 +102,7 @@ describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 },
       assert.deepEqual(journalProof, syntheticTarget);
       assert.ok(Object.isFrozen(journalProof) && Object.isFrozen(journalProof!.profile) && Object.isFrozen(journalProof!.reservation));
       assert.equal(h.docker.counts().posts, 1); assert.equal(h.counts().acquisitions, 1); assert.equal(h.docker.counts().networkCalls, 0);
-      assert.equal(h.docker.dockerRequests.length, 5);
+      assert.equal(h.docker.dockerRequests.length, 6);
       assert.ok(h.docker.beeRequests.filter(request => request.url === '/addresses').length >= 2);
       assert.equal(h.docker.beeRequests.at(-1)!.url, `/chequebook/${direction}?amount=5000000000000000`);
       assert.equal(h.signals[0]!.aborted, true);

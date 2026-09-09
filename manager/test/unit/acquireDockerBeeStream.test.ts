@@ -6,6 +6,8 @@ import { syncBuiltinESMExports } from 'node:module';
 import { Duplex, PassThrough, getDefaultHighWaterMark, setDefaultHighWaterMark } from 'node:stream';
 import { describe, it, type TestContext } from 'node:test';
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
+import { createBeeBridgeQualifier, DOCKER_BEE_STREAM_BOUNDS, type BeeBridgeExecution } from '../../src/domain/chequebook/beeBridgeQualification.js';
+import { DOCKER_BEE_BRIDGE_REVISION } from '../../src/domain/chequebook/dockerBeeBridge.js';
 import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -23,7 +25,7 @@ const labels = { 'com.docker.compose.project': expected.profile.name, 'com.docke
 const inspection = () => ({ Id: containerId, Image: imageId, Config: { Labels: { ...labels }, Env: ['SYNTHETIC_PRIVATE=do-not-surface'] },
   State: { Running: true, Paused: false, Restarting: false, Dead: false }, HostConfig: { NetworkMode: 'synthetic-project_default' },
   NetworkSettings: { Ports: { '1633/tcp': [{ HostIp: '0.0.0.0', HostPort: '11633' }, { HostIp: '::', HostPort: '11633' }] } } });
-const qualified = (image: string) => image === imageId;
+const qualified = (execution: BeeBridgeExecution) => execution.imageId === imageId;
 function frame(bytes: Buffer): Buffer {
   const header = Buffer.alloc(8); header[0] = 1; header.writeUInt32BE(bytes.length, 4);
   return Buffer.concat([header, bytes]);
@@ -111,11 +113,30 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
       assert.equal(docker.creates(), 0); assert.equal(docker.transport.destroyed, true);
     });
   }
-  for (const image of [{ Id: imageId, Os: 'linux' }, { Id: imageId, Architecture: 'amd64' }, { Id: `sha256:${'f'.repeat(64)}`, Os: 'linux', Architecture: 'amd64' }]) {
+  for (const image of [{ Id: imageId, Os: 'linux' }, { Id: imageId, Architecture: 'amd64' }, { Id: `sha256:${'f'.repeat(64)}`, Os: 'linux', Architecture: 'amd64' },
+    { Id: imageId, Os: 'linux', Architecture: 'amd64', Variant: null }]) {
     it(`requires the exact immutable image and its own platform ${JSON.stringify(image)}`, async t => {
       const docker = syntheticDocker(t, { image });
       await assert.rejects(acquireDockerBeeStream(docker.transport, expected, {}, () => true), safeFailure);
       assert.equal(docker.creates(), 0); assert.equal(docker.transport.destroyed, true);
+    });
+  }
+
+  for (const changed of ['none', 'engine', 'platform', 'bridge', 'bounds'] as const) {
+    it(`gates real same-connection execution with the selected complete qualification record, changed ${changed}`, async t => {
+      const docker = syntheticDocker(t, changed === 'engine' ? { info: { ID: expected.daemonId, ServerVersion: '29.1.4' } } :
+        changed === 'platform' ? { image: { Id: imageId, Os: 'linux', Architecture: 'arm64', Variant: 'v8' } } : {});
+      const record = { id: 'fixture', imageId, engineVersion: '29.1.3', platform: { os: 'linux', architecture: 'amd64', variant: '' },
+        bridgeRevision: changed === 'bridge' ? `sha256:${'e'.repeat(64)}` : DOCKER_BEE_BRIDGE_REVISION, harnessRevision: 'a'.repeat(40), evidenceDigest: `sha256:${'b'.repeat(64)}`,
+        bridgeLifetimeSeconds: { min: 1, max: changed === 'bounds' ? 1 : 270 }, cleanupGraceMs: { min: 1, max: 10_000 }, streamBounds: DOCKER_BEE_STREAM_BOUNDS };
+      const qualify = createBeeBridgeQualifier([record], ['fixture']); let observed: BeeBridgeExecution | undefined;
+      const pending = acquireDockerBeeStream(docker.transport, expected, {}, execution => { observed = execution; return qualify(execution); });
+      if (changed === 'none') { const result = await pending; result.stream.destroy(); assert.equal(docker.creates(), 1); }
+      else { await assert.rejects(pending, safeFailure); assert.equal(docker.creates(), 0); assert.equal(docker.starts(), 0); }
+      assert.ok(observed); assert.equal(observed.engineVersion, changed === 'engine' ? '29.1.4' : '29.1.3');
+      assert.ok(Object.isFrozen(observed)); assert.ok(Object.isFrozen(observed.platform)); assert.ok(Object.isFrozen(observed.streamBounds));
+      assert.ok(docker.requests.some(request => request.url === `/images/${imageId}/json`)); assert.equal(docker.counts().connects, 0);
+      assert.equal(JSON.stringify(observed).includes('SYNTHETIC_PRIVATE'), false);
     });
   }
 
@@ -127,7 +148,7 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     result.stream.write(Buffer.from([1, 0, 254])); await pause(0);
     assert.deepEqual(Buffer.concat(docker.input), Buffer.from([1, 0, 254]));
     assert.deepEqual(docker.requests.map(request => new URL(request.url, 'http://docker.invalid').pathname),
-      ['/info', '/containers/json', `/containers/${containerId}/json`, `/containers/${containerId}/exec`, `/exec/${execId}/start`]);
+      ['/info', '/containers/json', `/containers/${containerId}/json`, `/images/${imageId}/json`, `/containers/${containerId}/exec`, `/exec/${execId}/start`]);
     const listUrl = new URL(docker.requests[1]!.url, 'http://docker.invalid');
     assert.equal(listUrl.searchParams.get('all'), '0');
     assert.deepEqual(JSON.parse(listUrl.searchParams.get('filters')!), { label: [`com.docker.compose.project=${expected.profile.name}`, 'com.docker.compose.service=bee-uploader'] });
@@ -182,11 +203,11 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     Object.assign(target.profile, { name: 'changed-profile' }); Object.assign(target.reservation, { port: 9999 }); Object.assign(target, { daemonId: 'changed-daemon' });
     Object.assign(options, { acquisitionTimeoutMs: 1, preflightTimeoutMs: 60_000, postTimeoutMs: 180_000 });
     while (!docker.held.length) await pause(0);
-    await pause(5); docker.held[0]!.response.end(JSON.stringify({ ID: expected.daemonId }));
+    await pause(5); docker.held[0]!.response.end(JSON.stringify({ ID: expected.daemonId, ServerVersion: '29.1.3' }));
     const result = await acquiring; result.stream.on('error', () => {}); t.after(() => result.stream.destroy());
     assert.equal(result.binding.project, expected.profile.name);
     assert.equal(result.binding.publishedBindings[0]!.hostPort, 11633);
-    const creation = docker.requests[3]!.body as { Cmd: string[] };
+    const creation = docker.requests[4]!.body as { Cmd: string[] };
     assert.ok(!creation.Cmd.join(' ').includes('changed'));
     assert.ok(creation.Cmd.includes('2s'));
   });
@@ -196,14 +217,14 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     const result = await acquireDockerBeeStream(docker.transport, expected,
       { acquisitionTimeoutMs: 30_000, preflightTimeoutMs: 60_000, postTimeoutMs: 180_000, cleanupGraceMs: 5000 }, qualified);
     result.stream.on('error', () => {}); t.after(() => result.stream.destroy());
-    const body = docker.requests[3]!.body as { Cmd: string[]; [key: string]: unknown };
+    const body = docker.requests[4]!.body as { Cmd: string[]; [key: string]: unknown };
     assert.equal(body.AttachStdin, true); assert.equal(body.AttachStdout, true); assert.equal(body.AttachStderr, true); assert.equal(body.Tty, false);
     assert.equal(body.Privileged, false);
     assert.deepEqual(body.Cmd.slice(0, 10), ['/usr/bin/env', '-i', 'PATH=/usr/bin:/bin', '/usr/bin/timeout', '--signal=TERM', '--kill-after=5s', '270s', '/bin/bash', '--noprofile', '--norc']);
     assert.deepEqual(body.Cmd.slice(-2), ['bee-byte-bridge', '1633']);
     assert.ok(!JSON.stringify(body).includes(expected.alias)); assert.ok(!JSON.stringify(body).includes(expected.profile.name));
-    assert.deepEqual(docker.requests[4]!.body, { Detach: false, Tty: false });
-    assert.equal(docker.requests[4]!.headers.upgrade, 'tcp');
+    assert.deepEqual(docker.requests[5]!.body, { Detach: false, Tty: false });
+    assert.equal(docker.requests[5]!.headers.upgrade, 'tcp');
   });
 
   for (const mode of ['missing', 'refused', 'throws', 'async'] as const) {
@@ -246,7 +267,7 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     });
   }
 
-  for (const stage of ['info', 'list', 'inspect', 'create', 'start'] as const) {
+  for (const stage of ['info', 'list', 'inspect', 'image', 'create', 'start'] as const) {
     it(`never reconnects or repeats an exec POST after response loss at ${stage}`, async t => {
       const docker = syntheticDocker(t, { stopAt: stage });
       await assert.rejects(acquireDockerBeeStream(docker.transport, expected, {}, qualified), safeFailure);
