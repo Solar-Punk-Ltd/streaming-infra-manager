@@ -38,6 +38,15 @@ export interface StackVersionUsage extends StackVersionRecord {
   deployments: number;
 }
 
+export interface LegacyMetadataSnapshot {
+  version: StackVersionRecord;
+  publicationRevision: string;
+}
+export interface LegacyMetadata {
+  commitSha: string | null;
+  contract: StackContract | null;
+}
+
 export interface NewStackVersion {
   name: string;
   gitRef: string;
@@ -101,8 +110,11 @@ export interface StackVersionRepository {
    * is gone and nothing will ever finish it.
    */
   failInterruptedBuilds(lastError: string): Promise<StackVersionRecord[]>;
+  captureLegacyMetadata(): Promise<LegacyMetadataSnapshot | null>;
+  /** Mutable legacy metadata is applied only to the exact still-legacy snapshot. */
+  refreshLegacyMetadata(expected: LegacyMetadataSnapshot, metadata: LegacyMetadata): Promise<boolean>;
   setCommitSha(id: number, commitSha: string | null): Promise<void>;
-  /** The contract alone, for the bundled version read at every boot. */
+  /** Updates contract metadata alone. Boot refresh uses the captured legacy snapshot instead. */
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
   setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;

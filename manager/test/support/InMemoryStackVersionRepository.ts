@@ -1,4 +1,5 @@
 import type { StackContract } from '@streaming-infra-manager/common';
+import { isDeepStrictEqual } from 'node:util';
 import { StackVersionInUseError } from '../../src/domain/errors/StackVersionInUseError.js';
 import { StackVersionRemovalHeldError } from '../../src/domain/errors/StackVersionRemovalHeldError.js';
 import { assertVersionRemovable } from '../../src/domain/versions/versionRemovalGuard.js';
@@ -6,6 +7,8 @@ import { versionRemovalProblem } from '../../src/domain/versions/versionRemovalM
 
 import type {
   BuildOutcome,
+  LegacyMetadata,
+  LegacyMetadataSnapshot,
   NewStackVersion,
   PublishOutcome,
   StackVersionRecord,
@@ -24,6 +27,7 @@ import type {
 export class InMemoryStackVersionRepository implements StackVersionRepository {
   private rows: StackVersionRecord[] = [];
   private nextId = 1;
+  private readonly metadataRevisions = new Map<number, bigint>();
   private readonly deployments = new Map<number, string[]>();
 
   /** Seeds the row migration 010 inserts, so a test starts where a host does. */
@@ -182,11 +186,27 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   }
 
   async setCommitSha(id: number, commitSha: string | null): Promise<void> {
+    this.metadataRevisions.set(id, (this.metadataRevisions.get(id) ?? 0n) + 1n);
     await this.patch(id, { commitSha });
   }
 
   async setContract(id: number, contract: StackContract): Promise<void> {
+    this.metadataRevisions.set(id, (this.metadataRevisions.get(id) ?? 0n) + 1n);
     await this.patch(id, { contract });
+  }
+
+  async captureLegacyMetadata(): Promise<LegacyMetadataSnapshot | null> {
+    const version = this.rows.find(row => row.name === 'bundled' && row.layout === 'legacy');
+    return version ? { version: structuredClone(version), publicationRevision: String(this.metadataRevisions.get(version.id) ?? 0n) } : null;
+  }
+
+  async refreshLegacyMetadata(expected: LegacyMetadataSnapshot, metadata: LegacyMetadata): Promise<boolean> {
+    const row = this.rows.find(item => item.id === expected.version.id);
+    if (!row || row.layout !== 'legacy' || !isDeepStrictEqual(row, expected.version) ||
+        String(this.metadataRevisions.get(row.id) ?? 0n) !== expected.publicationRevision) return false;
+    this.metadataRevisions.set(row.id, (this.metadataRevisions.get(row.id) ?? 0n) + 1n);
+    await this.patch(row.id, structuredClone(metadata));
+    return true;
   }
 
   async setDefault(id: number): Promise<void> {

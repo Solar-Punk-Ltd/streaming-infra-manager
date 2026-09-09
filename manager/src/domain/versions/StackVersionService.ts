@@ -40,16 +40,12 @@ import {
   captureHostConfig,
   commitHostConfig,
   envKeysIn,
-  hostConfigFilesOf,
-  hostConfigHash,
-  readHostConfigRevision,
 } from './hostConfigCapture.js';
 import { readStackContract } from './stackContract.js';
-import { bootstrapStackDefaults, BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
+import { BUNDLED_STACK_ROOT, parseBaseEnv } from '../../utils/envUtils.js';
 import {
   buildDirFor,
   buildsRootFor,
-  bundledIncomingRootFor,
   configRootFor,
   repoRootFor,
   stackRootOf,
@@ -160,58 +156,21 @@ export class StackVersionService {
     return rows.map((row) => toApiVersion(row, row.deployments));
   }
 
-  /**
-   * What the manager's own deploy shipped, published as a build of the
-   * bundled version, and what the row says otherwise. Called once at boot.
-   *
-   * The deploy leaves the built stack in `bundled.incoming/` under the
-   * versions root, with its commit, and never writes into the tree the
-   * engines mount again. A shipment is published the way an added version's
-   * build is: its base env, deploy config and engine envs are committed as
-   * the bundled version's host configuration when they changed, the tree
-   * becomes `bundled.builds/<id>/` with manifest and marker, or a complete
-   * build of the same commit and inputs is adopted and the shipment dropped,
-   * and one row update makes it current, with the config root as the row's
-   * root from then on. A shipment that cannot be published is left where it
-   * is for a look, with the reason on the row, and the next deploy replaces
-   * it.
-   *
-   * A row never published stays legacy on the tree the manager ships with:
-   * its commit is what the deploy wrote next to that tree, and its contract
-   * is read from it, as before.
-   */
+  /** Refreshes metadata only for an explicit legacy row. Artifact publication
+   * belongs to the guarded shipment flow, never a timestamp or incoming path. */
   async syncBundled(bundledRoot: string, legacyCommit: string | null): Promise<void> {
     this.bundledRoot = bundledRoot;
-    const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
-    if (!bundled) return;
-
-    const incoming = bundledIncomingRootFor(this.versionsRoot);
-    if (existsSync(incoming)) await this.publishShipment(bundled, incoming);
-    else await this.adoptOrphanedShipment(bundled);
-
-    const current = await this.versions.findByName(BUNDLED_VERSION_NAME);
-    if (!current) return;
-    if (current.layout === 'builds') {
-      logger.info(`[Versions] bundled deploys from build ${current.buildId ?? 'unknown'}`);
+    const snapshot = await this.versions.captureLegacyMetadata();
+    if (!snapshot) {
+      const current = await this.versions.findByName(BUNDLED_VERSION_NAME);
+      if (current?.layout === 'builds') logger.info(`[Versions] bundled deploys from build ${current.buildId ?? 'unknown'}`);
       return;
     }
-
-    await this.versions.setCommitSha(current.id, legacyCommit);
-    logger.info(
-      `[Versions] bundled is at ${legacyCommit ?? 'a commit unknown on this host'}, on the tree the manager ships with`,
-    );
-    // A legacy host gets its defaults from the samples, as it always did.
-    // Only here: once published, nothing writes into the tree the engines
-    // of existing deployments mount.
-    for (const file of await bootstrapStackDefaults(bundledRoot)) {
-      logger.info(`[Versions] created missing default: ${file}`);
-    }
-    try {
-      await this.versions.setContract(current.id, readStackContract(bundledRoot));
-    } catch (err) {
-      logger.warn(
-        `[Versions] could not read the bundled version's contract: ${getErrorMessage(err)}`,
-      );
+    let contract: StackVersionRecord['contract'] = null;
+    try { contract = readStackContract(snapshot.version.rootPath ?? bundledRoot); }
+    catch { logger.warn('[Versions] legacy bundled contract could not be read. No files were changed.'); }
+    if (!await this.versions.refreshLegacyMetadata(snapshot, { commitSha: legacyCommit, contract })) {
+      logger.info('[Versions] bundled changed while legacy metadata was read. The newer row was preserved.');
     }
   }
 
@@ -224,120 +183,6 @@ export class StackVersionService {
     const bundled = await this.versions.findByName(BUNDLED_VERSION_NAME);
     const root = bundled && bundled.layout === 'builds' ? stackRootOf(bundled) : this.bundledRoot;
     return parseBaseEnv(root).SRT_PASSPHRASE?.trim() || null;
-  }
-
-  private async publishShipment(bundled: StackVersionRecord, incoming: string): Promise<void> {
-    const configRoot = bundled.rootPath ?? configRootFor(this.versionsRoot, bundled.name);
-    let outcome: PublishedBuild | null = null;
-    try {
-      await this.commitShippedInputs(configRoot, incoming);
-      outcome = await this.publishStaging(bundled, incoming);
-      if (outcome.reused) await rm(incoming, { recursive: true, force: true });
-      await this.versions.publish(bundled.id, { ...outcome, rootPath: configRoot });
-      logger.info(
-        `[Versions] bundled is ready on build ${outcome.buildId}${outcome.reused ? ', the complete build it already had' : ''}, from the deploy's shipment`,
-      );
-      await this.pruneBuilds(bundled.id);
-    } catch (err) {
-      await this.recordShipmentFailure(bundled, incoming, outcome, getErrorMessage(err));
-    }
-    this.publishChanged();
-  }
-
-  /**
-   * Where the shipment is after a failure, said truthfully: still in the
-   * incoming directory when nothing moved it, or already renamed into the
-   * builds directory when the row update after the rename is what failed,
-   * in which case the next boot adopts it.
-   */
-  private async recordShipmentFailure(
-    bundled: StackVersionRecord,
-    incoming: string,
-    outcome: PublishedBuild | null,
-    failure: string,
-  ): Promise<void> {
-    const standing = bundled.buildId
-      ? `Still on build ${bundled.buildId}.`
-      : 'Still on the tree the manager ships with.';
-    const where = outcome
-      ? `The build is complete in ${buildDirFor(this.versionsRoot, bundled.name, outcome.buildId)}, and the next boot adopts it.`
-      : existsSync(incoming)
-        ? `The shipment is left in ${incoming} for a look, and the next deploy replaces it.`
-        : 'The shipment is gone.';
-    logger.warn(`[Versions] the shipped bundled stack was not published: ${failure} ${where}`);
-    try {
-      await this.versions.markUpdateFailed(
-        bundled.id,
-        `The shipped bundled stack was not published: ${failure} ${standing} ${where}`,
-      );
-    } catch (writeErr) {
-      logger.error(`[Versions] could not record the failed bundled publication: ${getErrorMessage(writeErr)}`);
-    }
-  }
-
-  /**
-   * A complete bundled build the row does not name and nothing mounts is
-   * the shipment a crash between its rename and the row update left behind:
-   * prune would have removed anything else. The newest is adopted as the
-   * current build, as the row update would have made it.
-   */
-  private async adoptOrphanedShipment(bundled: StackVersionRecord): Promise<void> {
-    const buildsRoot = buildsRootFor(this.versionsRoot, bundled.name);
-    if (!existsSync(buildsRoot)) return;
-    const referenced = new Set((await this.references.openReferences(bundled.id)).map((reference) => reference.buildId));
-    let newest: { buildId: string; manifest: BuildManifest } | null = null;
-    for (const entry of await readdir(buildsRoot)) {
-      if (buildIdProblem(entry) !== null) continue;
-      if (entry === bundled.buildId || entry === bundled.previousBuildId || referenced.has(entry)) continue;
-      const read = readBuildManifest(join(buildsRoot, entry));
-      if (!read.manifest) continue;
-      if (!newest || read.manifest.builtAt > newest.manifest.builtAt) newest = { buildId: entry, manifest: read.manifest };
-    }
-    if (!newest) return;
-    const configRoot = bundled.rootPath ?? configRootFor(this.versionsRoot, bundled.name);
-    try {
-      const contract = readStackContract(join(buildsRoot, newest.buildId));
-      await this.versions.publish(bundled.id, {
-        buildId: newest.buildId,
-        commitSha: newest.manifest.commit,
-        contract,
-        rootPath: configRoot,
-      });
-      logger.warn(
-        `[Versions] bundled adopted build ${newest.buildId}, which a crash before the row update left unreferenced`,
-      );
-      await this.pruneBuilds(bundled.id);
-      this.publishChanged();
-    } catch (err) {
-      logger.warn(`[Versions] could not adopt the unreferenced bundled build ${newest.buildId}: ${getErrorMessage(err)}`);
-    }
-  }
-
-  /**
-   * The base env, the deploy config and the engine envs the deploy shipped,
-   * committed as the bundled version's host configuration when they differ
-   * from what is committed, and a file of the set the shipment no longer
-   * carries taken out of it. The deploy is the supported editor of these
-   * files for the bundled version, so the checkout it ran from stays their
-   * source of truth, and an unchanged shipment bumps no generation.
-   */
-  private async commitShippedInputs(configRoot: string, incoming: string): Promise<void> {
-    const shipped = hostConfigFilesOf(incoming);
-    const gone = hostConfigFilesOf(configRoot).filter((relative) => !shipped.includes(relative));
-    if (shipped.length === 0 && gone.length === 0) return;
-    const contents = await Promise.all(shipped.map((relative) => readFile(join(incoming, relative))));
-    const files = Object.fromEntries(shipped.map((relative, index) => [relative, contents[index]!]));
-    const committed = await readHostConfigRevision(configRoot);
-    const unchanged =
-      committed !== null &&
-      gone.length === 0 &&
-      shipped.every((relative) => committed.files[relative] === hostConfigHash(files[relative]!));
-    if (unchanged) return;
-    await mkdir(configRoot, { recursive: true });
-    const revision = await commitHostConfig(configRoot, files, { remove: gone });
-    logger.info(
-      `[Versions] committed the shipped ${shipped.join(', ')}${gone.length > 0 ? `, without ${gone.join(', ')},` : ''} as bundled's host configuration, generation ${revision.generation}`,
-    );
   }
 
   /**
