@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { captureBundledInputs, exportPinnedBundledSource } from '../domain/versions/bundledSourceCapture.js';
@@ -21,6 +21,14 @@ const ADOPT_INPUTS = '--adopt-inputs';
 const EXPORT_DIR = 'export';
 const FILE_MODE = 0o644;
 const EXECUTABLE_MODE = 0o755;
+/**
+ * What the sealed package is written under, so the modes it records are the
+ * ones the host needs rather than the ones this laptop happens to default to.
+ * Directories become 0755 and the engine containers of the host can read the
+ * build the package becomes. The captured host inputs stay 0600, because they
+ * are written with that mode explicitly.
+ */
+const SEALING_UMASK = 0o022;
 
 export const BUNDLED_SEAL_USAGE = [
   'Usage:',
@@ -59,8 +67,9 @@ async function copyOwnedTree(source: string, destination: string, path: string):
     if (info.isDirectory()) {
       await copyOwnedTree(source, destination, child);
     } else if (info.isFile()) {
-      await writeFile(join(destination, child), await readFile(join(source, child)),
-        { flag: 'wx', mode: info.mode & 0o111 ? EXECUTABLE_MODE : FILE_MODE });
+      const mode = info.mode & 0o111 ? EXECUTABLE_MODE : FILE_MODE;
+      await writeFile(join(destination, child), await readFile(join(source, child)), { flag: 'wx', mode });
+      await chmod(join(destination, child), mode);
     } else {
       throw new Error(`${child} is neither a regular file nor a directory, so it cannot be packaged.`);
     }
@@ -86,6 +95,7 @@ async function addBuiltDirectory(source: string, exported: string, path: string,
  * deploy runs from. It opens no database, so it runs on a laptop.
  */
 export async function runBundledSeal(argv: readonly string[], streams: CommandStreams): Promise<void> {
+  process.umask(SEALING_UMASK);
   const { source, out, shipmentId, built, adoptInputs } = withUsage(BUNDLED_SEAL_USAGE, () => {
     const flags = parseFlags(argv, { valued: [SOURCE, OUT, SHIPMENT_ID, TOOLCHAIN_FLAG], repeated: [DIST], switches: [ADOPT_INPUTS] });
     const selected = {
