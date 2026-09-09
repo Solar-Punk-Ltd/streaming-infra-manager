@@ -10,6 +10,7 @@ import { OverviewPage } from '../overview/OverviewPage';
 import { HostPage } from '../resources/HostPage';
 import { TransferHistoryPage } from '../transfers/TransferHistoryPage';
 import { TransferDetailPage } from '../transfers/TransferDetailPage';
+import { VersionSettingsPage } from '../versions/VersionSettingsPage';
 import { VersionsPage } from '../versions/VersionsPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -26,6 +27,7 @@ const PAGE_TITLES: Record<Route['page'], string> = {
   group: 'Deployments',
   host: 'Host',
   versions: 'Versions',
+  versionSettings: 'Versions',
   access: 'Access',
   transfers: 'Transfers',
   transfer: 'Transfers',
@@ -128,6 +130,8 @@ function Page({ route, search }: { route: Route; search: string }) {
       return <HostPage />;
     case 'versions':
       return <VersionsPage />;
+    case 'versionSettings':
+      return <VersionSettingsPage key={route.id} id={route.id} />;
     case 'access':
       return <AccessPage />;
     case 'transfers':
