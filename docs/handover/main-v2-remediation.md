@@ -111,3 +111,7 @@ The funded `review-20260907` deployment was not touched. The historical 0.5 BZZ 
 - Integration SQL review tree: `/private/tmp/integration-approval-sql-codex`. Documentation review tree: `/private/tmp/t21-handover-codex`. Read-only UI review: `/private/tmp/t04b-merge-review-4372848`. These are separate from the original task trees.
 
 On resume, read this file first, inspect main-v2's actual HEAD and working tree, then choose one remaining complete flow. Verify any retained resource by its exact recorded identity before use. Never infer cleanup authority from a name prefix or a stopped test runner.
+
+## Where the record lives, 2026-09-09
+
+The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stays as the home of the originals, the logs and the browser evidence.
