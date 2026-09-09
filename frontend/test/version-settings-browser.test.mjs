@@ -212,6 +212,25 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     }
   });
 
+  await t.test('a value the stack would read differently says so under the field', async () => {
+    await typeInto('API_PORT', '3000 #notacomment');
+    await waitFor(
+      () => evaluate(`(${rowOf('API_PORT')}).innerText`),
+      (text) => text.includes('#'),
+      'the value problem under the field',
+    );
+
+    const row = await evaluate(`(${rowOf('API_PORT')}).innerText`);
+    assert.match(row, /comment/);
+
+    await typeInto('API_PORT', '3000');
+    await waitFor(
+      () => evaluate(`(${rowOf('API_PORT')}).innerText`),
+      (text) => !text.includes('comment'),
+      'the problem clearing once the value is writable',
+    );
+  });
+
   await t.test('a save sends the key that moved and no other', async () => {
     await typeInto('API_PORT', '3100');
     await waitFor(() => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`), (off) => off === false, 'an enabled Save');

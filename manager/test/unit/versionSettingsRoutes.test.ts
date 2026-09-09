@@ -463,6 +463,69 @@ describe('PUT /versions/:id/settings', () => {
     assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
   });
 
+  it('refuses a value the stack and the manager would read differently, naming the key only', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, '.env'));
+
+    for (const value of ['abc #notacomment', '  padded  ', '"unclosed', 'ab\u0000cd']) {
+      const answer = await callJson('PUT', `/versions/${id}/settings`, {
+        expectedGeneration: 2,
+        files: [{ path: '.env', entries: [{ key: 'STREAM_LIST_TOPIC', value }] }],
+      });
+
+      assert.equal(answer.status, 400, value);
+      const body = JSON.stringify(answer.body);
+      assert.match(body, /STREAM_LIST_TOPIC/, value);
+      assert.equal(body.includes('padded'), false, 'the refusal never repeats the value');
+      assert.equal(body.includes('notacomment'), false, 'the refusal never repeats the value');
+    }
+    assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
+  });
+
+  it('refuses an engine config file that is not a plain absolute path', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'SRS_CONF_FILE', value: '$(whoami)' }] }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.match(JSON.stringify(answer.body), /SRS_CONF_FILE/);
+    assert.equal(readFileSync(join(configRoot, '.env'), 'utf8').includes('SRS_CONF_FILE'), false);
+  });
+
+  it('takes an absolute path for an engine config file', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'OME_CONF_FILE', value: '/srv/stack/engines/ome/Server.xml' }] }],
+    });
+
+    assert.equal(answer.status, 200);
+    assert.match(readFileSync(join(configRoot, '.env'), 'utf8'), /^OME_CONF_FILE=\/srv\/stack\/engines\/ome\/Server\.xml$/m);
+  });
+
+  it('refuses a body whose key or value is not text, without echoing what it was', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    for (const entry of [{ key: 'API_PORT', value: 3100 }, { key: 12345, value: 'x' }]) {
+      const answer = await callJson('PUT', `/versions/${id}/settings`, {
+        expectedGeneration: 2,
+        files: [{ path: '.env', entries: [entry] }],
+      });
+
+      assert.equal(answer.status, 400, JSON.stringify(entry));
+      assert.equal(JSON.stringify(answer.body).includes('3100'), false, 'the refusal never repeats the value');
+      assert.equal(JSON.stringify(answer.body).includes('12345'), false, 'the refusal never repeats the value');
+    }
+  });
+
   it('refuses a deploy config that does not parse', async () => {
     seedHostFiles();
     const id = await buildV3();
