@@ -305,6 +305,48 @@ answered by the API.
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
 | PATCH  | `/versions/:id`         | `{ tested }`    | 200 and the row.                                                 |
 | DELETE | `/versions/:id`         |                 | 204, or 409 with the deployment names when it is in use.         |
+| GET    | `/versions/:id/settings` |                | `{ generation, buildId, files }`, or 409 `settings_not_ready`.   |
+| PUT    | `/versions/:id/settings` | `{ expectedGeneration, files }` | `{ generation }`, or 409 `settings_changed`.   |
+| POST   | `/versions/:id/settings/apply` |          | `{ buildId }`, or 409 `stack_build_busy`.                        |
+
+#### The settings page
+
+Every version keeps three kinds of file the operator owns, beside its checkout:
+the base `.env`, `deploy/config.json` and one `.env` per engine. They are seeded
+from the version's own samples by its first build and no build ever writes over
+them. **Settings** on a version card opens `#/versions/<id>/settings`, one
+section per file, in the order base env, deploy config, engines.
+
+Each key of an env file shows what the version's `.env.sample` says about it,
+which is the comment block directly above the key in that sample. A value that
+still equals the sample's is marked `default`. A secret-like key is masked until
+**Reveal** is pressed: the values do come back in the clear, because the routes
+are behind the session gate and a value the operator cannot see is one they
+cannot check, and nothing logs one. A key the manager fills per deployment says
+so.
+
+**Save** writes the files as one revision, and refuses with 409
+`settings_changed` when anything moved since the page loaded, so a page and an
+`ssh` editing session cannot write over each other. An env file is rewritten
+from its own current bytes: the named lines get the new value, and every
+comment, blank line and spacing survives byte for byte.
+
+**Save and apply** saves and then publishes another build of the same commit
+carrying the new revision, rather than fetching and building the stack again for
+one changed line. The new build is the current build's tree with the settings
+files replaced, its unchanged files hard linked to the build it was made from
+where the filesystem allows and copied otherwise, which the manifest records as
+`treeSharing`. It takes the build mutex for its whole run and refuses with 409
+`stack_build_busy` while a build runs. New deployments run the new build.
+Deployments already running keep the settings they started with until they are
+deployed again.
+
+A generated secret the version's own base or engine env already sets is neither
+generated nor written per deployment, so the version's line is what the
+containers read. An empty one is generated per deployment as before, and a value
+already in `profiles.stack_secrets` still wins over both, because rotating the
+token a running container was started with is a decision rather than a side
+effect.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
 <repo-url>`, which clones or fetches, exports the fetched commit into a staging
