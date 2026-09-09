@@ -13,6 +13,15 @@ export interface ObservedBeeContainer {
   readonly publishedBindings: readonly { readonly hostIp: string; readonly hostPort: number }[];
 }
 
+export function requireBeeBindingTarget(binding: ObservedBeeContainer, expected: FrozenChequebookTarget): void {
+  if (!binding || binding.daemonId !== expected.daemonId || binding.project !== expected.profile.name || binding.service !== expected.reservation.service ||
+      typeof binding.containerId !== 'string' || !/^[a-f0-9]{64}$/.test(binding.containerId) || typeof binding.imageId !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(binding.imageId) ||
+      !Number.isSafeInteger(binding.internalPort) || binding.internalPort < 1 || binding.internalPort > 65535 ||
+      typeof binding.networkMode !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(binding.networkMode) || ['host', 'none'].includes(binding.networkMode) ||
+      !Array.isArray(binding.publishedBindings) || !binding.publishedBindings.length || binding.publishedBindings.some(value =>
+        !value || value.hostPort !== expected.reservation.port || typeof value.hostIp !== 'string' || !/^[a-fA-F0-9:.]+$/.test(value.hostIp) || !isIP(value.hostIp))) throw new DockerBeeAcquisitionError();
+}
+
 export function dockerObject(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new DockerBeeAcquisitionError();
   return input as Record<string, unknown>;

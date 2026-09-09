@@ -28,7 +28,7 @@ export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandl
   let networkCalls = 0; let closes = 0;
   const forbidden = () => { networkCalls++; throw new Error('No network acquisition allowed in synthetic fixture'); };
   t.mock.method(net, 'createConnection', forbidden); t.mock.method(net, 'connect', forbidden); syncBuiltinESMExports();
-  transport.on('close', () => { closes++; }); peer.on('error', () => {});
+  transport.on('close', () => { closes++; }); transport.on('error', () => {}); peer.on('error', () => {});
   const bee = http.createServer((request, response) => {
     beeRequests.push({ method: request.method!, url: request.url! });
     if (intercept?.(request, response)) return;

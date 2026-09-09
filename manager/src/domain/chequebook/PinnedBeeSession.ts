@@ -25,6 +25,16 @@ export interface PinnedBeeSessionOptions {
   maxResponseBytes?: number;
 }
 
+export function normalizePinnedBeeSessionOptions(options: PinnedBeeSessionOptions): Readonly<Required<PinnedBeeSessionOptions>> {
+  if (!options || typeof options !== 'object') throw new BeeConnectionError();
+  const value = { readTimeoutMs: options.readTimeoutMs ?? 10_000, postTimeoutMs: options.postTimeoutMs ?? 180_000,
+    maxResponseBytes: options.maxResponseBytes ?? 64 * 1024, preflightTimeoutMs: options.preflightTimeoutMs ?? 30_000 };
+  for (const [amount, maximum] of [[value.readTimeoutMs, 30_000], [value.postTimeoutMs, 180_000], [value.preflightTimeoutMs, 60_000], [value.maxResponseBytes, 1024 * 1024]]) {
+    if (!Number.isInteger(amount) || amount! < 1 || amount! > maximum!) throw new BeeConnectionError();
+  }
+  return Object.freeze(value);
+}
+
 type ConnectionSource = { kind: 'url'; hostname: string; port: number } | { kind: 'owned'; stream: OwnedHttpStream };
 
 class OneConnectionAgent extends http.Agent {
@@ -75,14 +85,11 @@ class HttpBeeSession implements BeeTransferSession {
 
   constructor(target: URL, source: ConnectionSource, options: PinnedBeeSessionOptions) {
     this.#target = target;
-    if (!options || typeof options !== 'object') throw new BeeConnectionError();
-    this.#readTimeoutMs = options.readTimeoutMs ?? 10_000;
-    this.#postTimeoutMs = options.postTimeoutMs ?? 180_000;
-    this.#maxResponseBytes = options.maxResponseBytes ?? 64 * 1024;
-    const preflightTimeoutMs = options.preflightTimeoutMs ?? 30_000;
-    for (const [value, maximum] of [[this.#readTimeoutMs, 30_000], [this.#postTimeoutMs, 180_000], [preflightTimeoutMs, 60_000], [this.#maxResponseBytes, 1024 * 1024]]) {
-      if (!Number.isInteger(value) || value! < 1 || value! > maximum!) throw new BeeConnectionError();
-    }
+    const normalized = normalizePinnedBeeSessionOptions(options);
+    this.#readTimeoutMs = normalized.readTimeoutMs;
+    this.#postTimeoutMs = normalized.postTimeoutMs;
+    this.#maxResponseBytes = normalized.maxResponseBytes;
+    const preflightTimeoutMs = normalized.preflightTimeoutMs;
     this.#agent = new OneConnectionAgent(source, () => { this.#unusable = true; });
     this.#preflightDeadline = performance.now() + preflightTimeoutMs;
     this.#preflightTimer = setTimeout(() => this.dispose(), preflightTimeoutMs);

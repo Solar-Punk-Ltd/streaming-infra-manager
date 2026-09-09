@@ -24,14 +24,14 @@ type Budgets = Required<DockerBeeAcquisitionOptions>;
 const MAX_JSON_BYTES = 1024 * 1024;
 const ignoreLateError = () => {};
 
-function budgets(input: DockerBeeAcquisitionOptions): Budgets {
+export function normalizeDockerBeeAcquisitionOptions(input: DockerBeeAcquisitionOptions): Readonly<Budgets> {
   if (!input || typeof input !== 'object') throw new DockerBeeAcquisitionError();
   const value = { acquisitionTimeoutMs: input.acquisitionTimeoutMs ?? 15_000, preflightTimeoutMs: input.preflightTimeoutMs ?? 30_000,
     postTimeoutMs: input.postTimeoutMs ?? 180_000, cleanupGraceMs: input.cleanupGraceMs ?? 5000 };
   for (const [amount, maximum] of [[value.acquisitionTimeoutMs, 30_000], [value.preflightTimeoutMs, 60_000], [value.postTimeoutMs, 180_000], [value.cleanupGraceMs, 10_000]]) {
     if (!Number.isSafeInteger(amount) || amount! < 1 || amount! > maximum!) throw new DockerBeeAcquisitionError();
   }
-  return value;
+  return Object.freeze(value);
 }
 
 function requireTarget(target: FrozenChequebookTarget): void {
@@ -160,7 +160,7 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     owned = new OwnedHttpStream(transport);
     owned.on('error', ignoreLateError);
     const target = structuredClone(expected);
-    const limits = budgets(structuredClone(options));
+    const limits = normalizeDockerBeeAcquisitionOptions(structuredClone(options));
     requireTarget(target);
     const startedAt = performance.now();
     const bridgeLifetimeMs = limits.acquisitionTimeoutMs + limits.preflightTimeoutMs + limits.postTimeoutMs;
