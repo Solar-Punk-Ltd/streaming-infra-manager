@@ -69,7 +69,7 @@ Per-profile runtime files are written atomically for the deployment. They are di
 
 ## The bundled version
 
-T04b applies the same publication model to the stack shipped with the manager. A manager deployment supplies a separate incoming tree. The durable shipment command publishes or reuses a complete bundled build and updates the bundled version's database reference. Publication is no longer authorized by ordinary API boot. Boot only refreshes an exact still-legacy metadata snapshot. The fixed production command and upgrade adapters remain unfinished. Published application files already used by running containers must not be overwritten.
+T04b applies the same publication model to the stack shipped with the manager. A manager deploy seals the checked out stack into one package on the machine it runs from, ships that package to the host under a staging name and renames it once every file arrived. The host then builds its images and runs `manager:upgrade` in a one-off container of the image just built. That command holds one directory under the stack versions root for its whole run, stops the old API, checks the package against the identity it was given, migrates, publishes or reuses a complete bundled build, updates the bundled version's database reference, starts the project and waits for the API to answer. Publication is no longer authorized by ordinary API boot. Boot only refreshes an exact still-legacy metadata snapshot. Published application files already used by running containers must not be overwritten.
 
 The legacy bundled checkout remains available while existing deployments reference it. Updating the manager is not an instruction to restart those deployments or discard their data.
 
