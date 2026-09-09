@@ -347,6 +347,27 @@ describe('POST /versions/:id/settings/apply', () => {
     assert.equal((answer.body as { error: string }).error, 'settings_not_ready');
   });
 
+  it('leaves the mutex free after a refusal, so the next build still starts', async () => {
+    const rows = (await callJson('GET', '/versions')).body as StackVersion[];
+    const bundled = rows.find((row) => row.name === 'bundled')!;
+
+    assert.equal((await callJson('POST', `/versions/${bundled.id}/settings/apply`)).status, 409);
+
+    const settled = nextVersionChange(app);
+    const res = await fetch(`${app.url}/versions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'v3', ref: 'main-v3' }),
+    });
+    await untilSpawned(1);
+    builtInStaging(app.runner.last.args);
+    app.runner.finish(0, 'built\n');
+    await res.text();
+    await settled;
+
+    assert.equal((await versionRow('v3')).status, 'ready');
+  });
+
   it('leaves the mutex free for the next build after it has run', async () => {
     seedHostFiles();
     const id = await buildV3();
