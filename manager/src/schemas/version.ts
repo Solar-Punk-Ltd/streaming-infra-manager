@@ -59,6 +59,15 @@ export type PatchVersionBody = InferType<typeof patchVersionSchema>;
 const SETTINGS_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * What one save may carry. The set is the base env, the deploy config and one
+ * env per engine, and the stack ships two engines, so sixteen files is already
+ * far past any version. The largest sample the stack has declares under a
+ * hundred keys.
+ */
+const MAX_SETTINGS_FILES = 16;
+const MAX_SETTINGS_ENTRIES = 512;
+
+/**
  * The paths a save may name: the base env, the deploy config, one env per
  * engine. Checked as a shape here and against the version's own files by the
  * service, because these become paths under the version's config root.
@@ -104,7 +113,7 @@ const settingsFileSchema = object({
   path: string()
     .required()
     .matches(SETTINGS_PATH_RE, 'that is not a settings file of a stack version'),
-  entries: array().of(settingsEntrySchema).notRequired(),
+  entries: array().of(settingsEntrySchema).max(MAX_SETTINGS_ENTRIES).notRequired(),
   text: string().typeError(`${DEPLOY_CONFIG} is text`).notRequired(),
 })
   .noUnknown(true)
@@ -125,5 +134,13 @@ const settingsFileSchema = object({
 export const saveVersionSettingsSchema = object({
   /** The revision the page loaded. A save is refused once anything has moved past it. */
   expectedGeneration: number().integer().min(1).required(),
-  files: array().of(settingsFileSchema).required().min(1),
-}).noUnknown(true);
+  files: array().of(settingsFileSchema).required().min(1).max(MAX_SETTINGS_FILES),
+})
+  .noUnknown(true)
+  // Each file is rewritten from its own bytes on disk, so a second edit of one
+  // path would be made against the file as it was and the first edit would be
+  // gone from the result without anything saying so.
+  .test('one-edit-per-file', 'a save names each settings file once', (save) => {
+    const paths = (save.files ?? []).map((file) => file?.path);
+    return new Set(paths).size === paths.length;
+  });

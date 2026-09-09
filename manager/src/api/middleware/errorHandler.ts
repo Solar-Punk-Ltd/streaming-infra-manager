@@ -71,6 +71,22 @@ import { StackVersionRemovalHeldError } from '../../domain/errors/StackVersionRe
 
 const logger = Logger.getInstance();
 
+const BODY_TOO_LARGE =
+  'That request is larger than this manager accepts. Save fewer files or fewer keys at once.';
+
+/**
+ * A body over `express.json`'s limit. body-parser marks it with `entity.too.large`
+ * rather than a class of its own, and without this branch it reached the
+ * unhandled case below and came back as a fault.
+ */
+function isPayloadTooLarge(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { type?: unknown }).type === 'entity.too.large'
+  );
+}
+
 /**
  * Centralised error → HTTP mapping. Domain errors get specific status codes;
  * everything else becomes a 500 with the message logged but not echoed back.
@@ -112,6 +128,10 @@ export function errorHandler(
   }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (isPayloadTooLarge(err)) {
+    res.status(413).json({ error: 'payload_too_large', message: BODY_TOO_LARGE });
     return;
   }
   if (
