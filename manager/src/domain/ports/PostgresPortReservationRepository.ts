@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
+import { OPERATION_HOLD_FOR_OWNER_SQL, PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
 import { type PortKey, type PortPlanEntry, type PortReconciliation, type PortReservation, type ReservationState, ownersAfterHandover, portKeyOf } from './portReservations.js';
 import { RESERVATION_COLUMNS, type ReservationRow, planPortReservations, toReservation } from './reservationSql.js';
@@ -85,11 +85,11 @@ export class PostgresPortReservationRepository implements PortReservationReposit
       const planned = new Set(observation.planned.map(portKeyOf));
       const active = rows.rows.filter(row => bound.has(portKeyOf(row))).map(row => row.id);
       await client.query("UPDATE port_reservations SET state = 'active', updated_at = NOW() WHERE id = ANY($1::int[])", [active]);
-      // Operation references do not yet carry a profile owner. Any open rollback hold conservatively blocks release.
       const blocked = await client.query<{ held: boolean }>(
         `SELECT EXISTS (SELECT 1 FROM build_references WHERE resolved_at IS NULL
-           AND ((holder_kind = 'job' AND holder_id = $1) OR holder_kind = 'operation'))
-         OR EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released') AS held`,
+           AND ((holder_kind = 'job' AND holder_id = $1) OR (${OPERATION_HOLD_FOR_OWNER_SQL})))
+         OR EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released') AS held
+         FROM profiles owner WHERE owner.name = $1`,
         [observation.profileName],
       );
       if (!blocked.rows[0]?.held) {
@@ -116,7 +116,8 @@ export class PostgresPortReservationRepository implements PortReservationReposit
   async hasRemovalHold(profileName: string): Promise<boolean> {
     const result = await this.pool.query<{ held: boolean }>(
       `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
-        OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS held`, [profileName],
+        OR EXISTS (SELECT 1 FROM build_references WHERE ${OPERATION_HOLD_FOR_OWNER_SQL}) AS held
+        FROM profiles owner WHERE owner.name = $1`, [profileName],
     );
     return result.rows[0]?.held ?? true;
   }

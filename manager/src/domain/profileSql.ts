@@ -25,6 +25,10 @@ export const PROFILE_COLUMNS = `
 /** Advisory-lock key guarding port-slot allocation. ASCII "prof". */
 export const PROFILE_SLOT_LOCK_KEY = 0x70726f66;
 
+/** The enclosing query names its profile `owner`. Partial historical ownership cannot prove an unrelated instance. */
+export const OPERATION_HOLD_FOR_OWNER_SQL = `holder_kind = 'operation' AND resolved_at IS NULL
+  AND (profile_instance_id IS NULL OR intent_revision IS NULL OR profile_instance_id = owner.instance_id)`;
+
 /** Evaluated in the status UPDATE, against the row that wins the transition. */
 export const DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL = `CASE
   WHEN status = 'RUNNING' THEN 'restarting'

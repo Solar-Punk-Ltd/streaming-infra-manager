@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
-import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, OPERATION_HOLD_FOR_OWNER_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from './versions/buildLedger.js';
@@ -303,7 +303,8 @@ export class ProfileRepository {
       if (row.status !== 'REMOVING') throw new ProfileConfigError(name, 'The deployment has not completed removal.');
       const held = await client.query<{ blocked: boolean }>(
         `SELECT EXISTS (SELECT 1 FROM deploy_attempts WHERE project = $1 AND state <> 'released')
-          OR EXISTS (SELECT 1 FROM build_references WHERE holder_kind = 'operation' AND resolved_at IS NULL) AS blocked`, [name],
+          OR EXISTS (SELECT 1 FROM build_references WHERE ${OPERATION_HOLD_FOR_OWNER_SQL}) AS blocked
+          FROM profiles owner WHERE owner.name = $1`, [name],
       );
       if (held.rows[0]?.blocked) throw new ProfileConfigError(name, 'An unresolved deploy attempt or rollback operation still holds this deployment.');
       // Keep the row locked and its name occupied until all name-owned files are gone.
