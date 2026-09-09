@@ -12,7 +12,7 @@ import { EventBus } from '../../src/domain/EventBus.js';
 import { ProfileConfigError } from '../../src/domain/errors/index.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
-import type { BuildDescriptor, ClaimedDeploy } from '../../src/domain/versions/buildLedger.js';
+import { deployOwnerOf, type ExpectedDeployOwner, type BuildDescriptor, type ClaimedDeploy } from '../../src/domain/versions/buildLedger.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { buildDirFor, deployRootProblem } from '../../src/domain/versions/stackPaths.js';
@@ -65,6 +65,7 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
   let ledger: PostgresBuildLedger;
   let service: StackVersionService;
   let selected: StackVersionRecord;
+  let initialOwner: ExpectedDeployOwner;
 
   beforeEach(async () => {
     schema = `t04a_${randomBytes(8).toString('hex')}`;
@@ -89,6 +90,7 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
     await profiles.insertWithFreeSlot('test-profile', 'streamer', 'RUNNING', {}, {
       stackVersionId: selected.id, slotCap: 99, daemonId: 'synthetic-daemon', table: CONTRACT.ports,
     });
+    initialOwner = deployOwnerOf((await profiles.findByName('test-profile'))!);
     await pool.query("UPDATE profiles SET last_error = 'previous failure', last_error_at = '2026-01-01' WHERE name = 'test-profile'");
   });
 
@@ -123,10 +125,14 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
   }
 
   for (const method of ['claim', 'describe'] as const) {
+    describe(method, () => {
+      beforeEach(async () => {
+        if (method === 'describe') await pool.query("UPDATE profiles SET status = 'DEPLOYING' WHERE name = 'test-profile'");
+      });
     function capture(version = selected): Promise<ClaimedDeploy | BuildDescriptor | null> {
       return method === 'claim'
-        ? ledger.claim('test-profile', ['RUNNING'], version, ['srs'])
-        : ledger.describe('test-profile', version, ['srs']);
+        ? ledger.claim('test-profile', ['RUNNING'], version, ['srs'], { ...initialOwner, intent: 'preserve' })
+        : ledger.describe('test-profile', version, ['srs'], initialOwner);
     }
 
     async function refusalAfter(change: () => Promise<unknown>, reason = /changed|no longer exists/): Promise<void> {
@@ -244,5 +250,6 @@ describe('build snapshot claims in isolated PostgreSQL', { skip: !Number.isInteg
         assert.deepEqual(await profiles.findByName('test-profile'), before);
       });
     }
+    });
   }
 });

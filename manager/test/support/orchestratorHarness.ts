@@ -74,7 +74,8 @@ export function orchestratorHarness(
   versions.seedBundled().contract = structuredClone(ALLOCATION_CONTRACT);
   profiles.reservations.seededAt = new Date(0);
   const containers = new FakeContainers();
-  const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot);
+  const operations = new InMemoryEngineConfigOperations(profiles);
+  const ledger = new InMemoryBuildLedger(profiles, versions, versionsRoot, operations);
   const attempts = new InMemoryDeployAttempts();
   profiles.onDeleted = name => {
     for (const reference of ledger.references) {
@@ -106,8 +107,6 @@ export function orchestratorHarness(
       daemon.set(project, service, [`${project}-${service}-${run.args.length}-${Date.now()}`]);
     }
   };
-  const operations = new InMemoryEngineConfigOperations(profiles);
-
   const orchestrator = new DeploymentOrchestrator(
     profiles.asRepository(),
     containers.asRepository(),

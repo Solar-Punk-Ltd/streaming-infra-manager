@@ -7,6 +7,7 @@ import {
   plurToBzz,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
+  ownsBeeNode,
 } from '@streaming-infra-manager/common';
 
 import { canDeployUploader } from '../data';
@@ -18,8 +19,10 @@ import {
   XDAI_DECIMALS,
 } from '../format';
 import type { Profile } from '../types';
+import type { BeeReadinessView } from '../uploaders/beeReadiness';
 import type { BeeStamp, BeeWallet } from '../uploaders/stampApi';
-import { isStreamLike, ownsBeeNode } from './readiness';
+import { isStreamLike, statusLabelOf } from './shape';
+import { deploymentProgressText } from './deploymentPhase';
 import { hasService, isRunning, isTransitional, shapeOf } from './shape';
 
 export type StepState = 'ok' | 'warn' | 'err' | 'busy' | 'off';
@@ -31,7 +34,8 @@ export type StepActionKind =
   | 'fill-chequebook'
   | 'deploy-uploader'
   | 'edit'
-  | 'open-stream';
+  | 'open-stream'
+  | 'refresh-node';
 
 export interface StepAction {
   label: string;
@@ -43,6 +47,7 @@ export interface StepAction {
 
 export interface ChecklistStep {
   title: string;
+  problem?: string;
   state: StepState;
   detail: string;
   action?: StepAction;
@@ -50,6 +55,7 @@ export interface ChecklistStep {
 
 export interface ChecklistInput {
   profile: Profile;
+  nodeReadiness?: BeeReadinessView;
   /** What this deployment's own Bee node holds, when the page asked it. */
   wallet: BeeWallet | null;
   /** What the same node can still pay peers with, null when it did not say. */
@@ -70,6 +76,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
   const steps: ChecklistStep[] = [containersStep(profile)];
 
   if (ownsBeeNode(profile)) {
+    if (input.nodeReadiness) steps.push(nodeStep(input.nodeReadiness));
     steps.push(fundingStep(input));
     steps.push(stampStep(input));
   }
@@ -79,7 +86,22 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
     steps.push(followingStep(input));
   }
 
-  return steps;
+  const first = firstBlocker(steps);
+  return steps.map((step) => ({
+    ...step,
+    action: step.action ? { ...step.action, primary: step === first } : undefined,
+  }));
+}
+
+export function firstBlocker(steps: readonly ChecklistStep[]): ChecklistStep | null {
+  return steps.find((step) => step.state !== 'ok') ?? null;
+}
+
+function nodeStep(observed: BeeReadinessView): ChecklistStep {
+  return { title: 'Bee API observation', problem: observed.label,
+    state: observed.state === 'ready' ? 'ok' : observed.state === 'unhealthy' ? 'err' : observed.state === 'initializing' ? 'busy' : 'warn',
+    detail: observed.detail,
+    action: observed.state === 'ready' ? undefined : { label: 'Retry node checks', kind: 'refresh-node' } };
 }
 
 function containersStep(profile: Profile): ChecklistStep {
@@ -96,13 +118,12 @@ function containersStep(profile: Profile): ChecklistStep {
     ? services.join(', ') || 'Running with no containers reported.'
     : profile.status === 'ERROR'
       ? 'Last deploy failed, see the error above.'
-      : profile.status === 'DEPLOYING'
-        ? 'Starting containers…'
-        : 'Stopped.';
+      : deploymentProgressText(profile);
 
   const canAct = !isRunning(profile) && !isTransitional(profile);
   return {
     title: 'Containers running',
+    problem: profile.status === 'ERROR' ? 'Last deployment failed' : profile.status === 'DEPLOYING' ? statusLabelOf(profile).label : profile.status === 'STOPPING' ? 'Stopping' : profile.status === 'REMOVING' ? 'Removing' : 'Stopped',
     state,
     detail,
     action: canAct
@@ -145,11 +166,12 @@ function fundingStep({
   if (!wallet) {
     return {
       title: FUNDING_TITLE,
+      problem: 'Funding not checked',
       state: isRunning(profile) ? 'warn' : 'off',
       detail: isRunning(profile)
         ? 'Waiting for the node to report its balances.'
         : 'Start the deployment to read its balances.',
-      action,
+      action: { label: 'Retry node checks', kind: 'refresh-node' },
     };
   }
 
@@ -162,6 +184,7 @@ function fundingStep({
   if (!funded) {
     return {
       title: FUNDING_TITLE,
+      problem: 'Node needs funding',
       state: isRunning(profile) ? 'warn' : 'off',
       detail:
         bzz <= 0n && xdai > 0n
@@ -178,11 +201,18 @@ function fundingStep({
     if (shortfall) {
       return {
         title: FUNDING_TITLE,
+        problem: chequebook.state === 'empty' ? 'Chequebook empty' : 'Chequebook low',
         state: chequebook.state === 'empty' ? 'err' : 'warn',
         detail: shortfall,
         action: FILL_CHEQUEBOOK,
       };
     }
+  }
+
+  if (!chequebook || chequebook.state === 'unknown') {
+    return { title: FUNDING_TITLE, problem: 'Funding not checked', state: 'warn',
+      detail: 'The node has not confirmed its chequebook balance. Retry the node checks before starting an uploader.',
+      action: { label: 'Retry node checks', kind: 'refresh-node' } };
   }
 
   return {
@@ -223,6 +253,7 @@ function stampStep({
     case 'none':
       return {
         title,
+        problem: 'Needs a stamp',
         state: funded && isRunning(profile) ? 'warn' : 'off',
         detail:
           'A stamp is prepaid Swarm storage. Buy one below once the node has BZZ.',
@@ -232,6 +263,7 @@ function stampStep({
     case 'gone':
       return {
         title,
+        problem: stampHealth.state === 'expired' ? 'Stamp expired' : 'Stamp not on node',
         state: 'err',
         detail:
           stampHealth.state === 'expired'
@@ -242,6 +274,7 @@ function stampStep({
     case 'pending':
       return {
         title,
+        problem: 'Stamp settling',
         state: 'busy',
         detail:
           'Bought, waiting for the network to confirm it. It is set automatically.',
@@ -249,12 +282,15 @@ function stampStep({
     case 'unknown':
       return {
         title,
+        problem: 'Stamp not checked',
+        action: { label: 'Retry node checks', kind: 'refresh-node' },
         state: isRunning(profile) ? 'warn' : 'off',
         detail: `A batch is recorded (${shortHex(profile.stamp_id ?? '')}) but its node could not be asked whether it still pays.`,
       };
     case 'active':
       return {
         title,
+        problem: 'Stamp ends soon',
         state: isStampExpiringSoon(stampHealth.ttl) ? 'warn' : 'ok',
         detail: activeStampDetail(profile, stampHealth, currentStamp),
         action: isStampExpiringSoon(stampHealth.ttl)
@@ -275,7 +311,8 @@ function activeStampDetail(
   return parts.join(' · ');
 }
 
-function uploaderStep({ profile, stampHealth }: ChecklistInput): ChecklistStep {
+function uploaderStep(input: ChecklistInput): ChecklistStep {
+  const { profile, stampHealth } = input;
   const title = 'Uploader running';
   const deployed = profile.containers.some(
     (c) => c.service === STREAM_UPLOADER_SERVICE,
@@ -285,17 +322,18 @@ function uploaderStep({ profile, stampHealth }: ChecklistInput): ChecklistStep {
       title,
       state: 'ok',
       detail:
-        'stream-uploader is running. It publishes segments while a stream is being sent.',
+        'The uploader container is reported running. Receiving and uploading have not been verified.',
     };
   }
 
-  const ready = canDeployUploader(profile) && stampHealth.ok;
+  const ready = isRunning(profile) && canDeployUploader(profile) && stampHealth.ok && fundingStep(input).state === 'ok' && (!input.nodeReadiness || input.nodeReadiness.state === 'ready');
   return {
     title,
+    problem: 'Uploader not started',
     state: ready ? 'warn' : 'off',
     detail: ready
       ? 'Stamp is set. Start the uploader to complete the stack.'
-      : 'Held back until a stamp is set. The rest of the stack runs meanwhile.',
+      : 'Start is held until the earlier readiness checks pass. Existing containers are left running.',
     action: ready
       ? { label: 'Start uploader', kind: 'deploy-uploader', primary: true }
       : undefined,
@@ -303,7 +341,7 @@ function uploaderStep({ profile, stampHealth }: ChecklistInput): ChecklistStep {
 }
 
 function poolStep(profile: Profile): ChecklistStep {
-  const title = 'Node pool reachable';
+  const title = 'Node pool configured';
   const problem = beePublishersProblem(profile.bee_publishers);
   if (problem) {
     return {
@@ -320,7 +358,7 @@ function poolStep(profile: Profile): ChecklistStep {
   return {
     title,
     state: 'ok',
-    detail: `${entries.length} rungs · ${host} and ${Math.max(0, entries.length - 1)} more`,
+    detail: `${entries.length} rungs · ${host} and ${Math.max(0, entries.length - 1)} more. Reachability and publishing have not been verified.`,
   };
 }
 

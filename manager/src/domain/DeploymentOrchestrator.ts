@@ -61,7 +61,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
 import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
-import type { BuildDescriptor, BuildLedger, Observation } from './versions/buildLedger.js';
+import { deployOwnerOf, type BuildDescriptor, type BuildLedger, type DeployClaimOwnership, type ExpectedDeployOwner, type Observation } from './versions/buildLedger.js';
 import {
   deployRootProblem,
   stackPaths,
@@ -131,10 +131,16 @@ export interface DeployHooks {
   afterFailure?: (message: string) => Promise<void>;
 }
 
+interface DeployFailureOwner {
+  owner: ExpectedDeployOwner;
+  referenceId: number | null;
+}
+
 interface JobConfig {
   profileName: string;
   target: string;
   reservedDaemonId?: string;
+  deployFailure?: DeployFailureOwner;
   paths: StackPaths;
   script: string;
   args: string[];
@@ -176,6 +182,7 @@ const REDEPLOYABLE_FROM: readonly ProfileStatus[] = [
  */
 export interface DeployReservation {
   readonly profileName: string;
+  readonly claimedProfile?: Profile;
   /** What the run will start, after the stamp hold-back. */
   readonly services: readonly string[];
   readonly heldBackForStamp: readonly string[];
@@ -400,12 +407,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
-    const reservation = await this.claim(profile, requested);
-    await this.operatorActed(
-      profile,
-      'Redeployed by the operator before the file was verified.',
-    );
-    return reservation;
+    return this.claim(profile, requested, 'advance');
   }
 
   /**
@@ -417,7 +419,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     engine: EngineName,
   ): Promise<DeployReservation> {
-    return this.claim(profile, [engine]);
+    return this.claim(profile, [engine], 'preserve');
   }
 
   /**
@@ -434,6 +436,7 @@ export class DeploymentOrchestrator {
   private async claim(
     profile: Profile,
     requested: string[] | undefined,
+    intent: DeployClaimOwnership['intent'],
   ): Promise<DeployReservation> {
     const planned = this.planDeploy(profile, requested);
 
@@ -452,14 +455,16 @@ export class DeploymentOrchestrator {
       REDEPLOYABLE_FROM,
       version,
       planned.services,
+      { ...deployOwnerOf(profile), intent, supersedeReason: 'Redeployed by the operator before the file was verified.' },
     );
     if (!claimed) {
       const current = await this.profiles.findByName(profile.name);
       throw new ProfileBusyError(profile.name, current?.status ?? 'REMOVING');
     }
-    const reservation = { ...planned, transitioned: true, build: claimed.descriptor };
+    const reservation = { ...planned, previousStatus: claimed.previousStatus, transitioned: true,
+      claimedProfile: claimed.profile, build: claimed.descriptor };
     try {
-      const daemonId = await this.reservePorts(profile, reservation);
+      const daemonId = await this.reservePorts(claimed.profile, reservation);
       await this.publishChanged(claimed.profile);
       return { ...reservation, daemonId };
     } catch (err) {
@@ -498,13 +503,8 @@ export class DeploymentOrchestrator {
   /** Gives the profile its status back, for a claim that will not be run. */
   async cancelReservation(reservation: DeployReservation): Promise<void> {
     if (!reservation.transitioned) return;
-    if (reservation.build?.referenceId != null) {
-      await this.ledger.cancelUnstarted(reservation.profileName, reservation.build.referenceId);
-    }
-    const restored = await this.profiles.markTerminal(
-      reservation.profileName,
-      reservation.previousStatus,
-    );
+    if (!reservation.claimedProfile || reservation.build?.referenceId == null) return;
+    const restored = await this.ledger.cancelClaim(reservation.claimedProfile, reservation.build.referenceId, reservation.previousStatus);
     if (restored) {
       await this.publishChanged(restored);
     }
@@ -513,8 +513,7 @@ export class DeploymentOrchestrator {
   /**
    * Writes the profile's env file and starts the deploy script.
    *
-   * Every failure from here on marks the profile ERROR, because the claim taken
-   * by `reserveDeploy` left it DEPLOYING and only this call can end that.
+   * A failure marks ERROR only while the captured claim still owns the row.
    */
   async runReserved(
     reservation: DeployReservation,
@@ -522,14 +521,21 @@ export class DeploymentOrchestrator {
     hooks: DeployHooks = {},
   ): Promise<RunHandle> {
     let prepared = reservation;
+    let failure: DeployFailureOwner = {
+      owner: deployOwnerOf(reservation.claimedProfile ?? profile),
+      referenceId: reservation.build?.referenceId ?? null,
+    };
     try {
       const build = reservation.build ?? await this.ledger.describe(
-        profile.name, await this.versionForDeploy(profile), [...reservation.services],
+        profile.name, await this.versionForDeploy(profile), [...reservation.services], failure.owner,
       );
+      failure = { ...failure, referenceId: build.referenceId };
       const version = this.deployVersionOrThrow(profile, build.version);
-      const captured: CapturedDeployReservation = { ...reservation, build: { ...build, version } };
+      const captured: CapturedDeployReservation = { ...reservation,
+        claimedProfile: reservation.claimedProfile ?? (reservation.build === null ? profile : undefined),
+        build: { ...build, version } };
       prepared = captured;
-      return await this.startReservedJob(captured, profile, hooks);
+      return await this.startReservedJob(captured, profile, hooks, failure);
     } catch (err) {
       // The guard is taken under the daemon's lock when the job starts, and
       // a deploy that passed the check a moment earlier can lose it there.
@@ -540,7 +546,7 @@ export class DeploymentOrchestrator {
         await this.cancelReservation(prepared);
         throw err;
       }
-      await this.markFailed(prepared.profileName, getErrorMessage(err));
+      await this.markFailed(prepared.profileName, getErrorMessage(err), failure);
       throw err;
     }
   }
@@ -550,7 +556,7 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
   ): Promise<RunHandle> {
     const reservation = await this.reserveDeploy(profile, requested);
-    return this.runReserved(reservation, profile);
+    return this.runReserved(reservation, reservation.claimedProfile ?? profile);
   }
 
   async startInitialDeploy(
@@ -558,23 +564,21 @@ export class DeploymentOrchestrator {
     requested: string[] | undefined,
     opts: { host?: string } = {},
   ): Promise<RunHandle> {
-    // The row was inserted DEPLOYING for this call, so there is no status to
-    // claim: nothing else can be deploying a profile that did not exist yet.
-    // The build is still captured here, with its reference, for the same
-    // reason a claim captures it.
+    const capturedProfile = structuredClone(profile);
+    const owner = deployOwnerOf(capturedProfile);
     let reservation: DeployReservation;
     try {
-      const planned = this.planDeploy(profile, requested, opts.host);
-      const version = await this.versionForDeploy(profile);
+      const planned = this.planDeploy(capturedProfile, requested, opts.host);
+      const version = await this.versionForDeploy(capturedProfile);
       const problem = deployRootProblem(version);
-      if (problem) throw new ProfileConfigError(profile.name, problem);
-      const build = await this.ledger.describe(profile.name, version, planned.services);
-      reservation = { ...planned, build };
+      if (problem) throw new ProfileConfigError(capturedProfile.name, problem);
+      const build = await this.ledger.describe(capturedProfile.name, version, planned.services, owner);
+      reservation = { ...planned, claimedProfile: capturedProfile, build };
     } catch (err) {
-      await this.markFailed(profile.name, getErrorMessage(err));
+      await this.markFailed(capturedProfile.name, getErrorMessage(err), { owner, referenceId: null });
       throw err;
     }
-    return this.runReserved(reservation, profile);
+    return this.runReserved(reservation, capturedProfile);
   }
 
   async startDeployUploader(profile: Profile): Promise<RunHandle> {
@@ -585,7 +589,7 @@ export class DeploymentOrchestrator {
     const reservation = await this.reserveDeploy(profile, [
       STREAM_UPLOADER_SERVICE,
     ]);
-    return this.runReserved(reservation, profile);
+    return this.runReserved(reservation, reservation.claimedProfile ?? profile);
   }
 
   private servicesToDeploy(
@@ -638,16 +642,21 @@ export class DeploymentOrchestrator {
   private async markFailed(
     profileName: string,
     message: string,
-  ): Promise<void> {
+    deployFailure?: DeployFailureOwner,
+  ): Promise<boolean> {
     try {
-      const errored = await this.profiles.markError(profileName, message);
+      const errored = deployFailure
+        ? await this.profiles.markDeployError(profileName, deployFailure.owner, deployFailure.referenceId, message)
+        : await this.profiles.markError(profileName, message);
       if (errored) {
         await this.publishChanged(errored);
       }
+      return errored !== null;
     } catch (err) {
       logger.error(
         `[Orchestrator] failed to mark ${profileName} ERROR: ${getErrorMessage(err)}`,
       );
+      return false;
     }
   }
 
@@ -655,12 +664,14 @@ export class DeploymentOrchestrator {
     reservation: CapturedDeployReservation,
     profile: Profile,
     hooks: DeployHooks,
+    failure: DeployFailureOwner,
   ): Promise<RunHandle> {
     let launchPossible = false;
     try {
-      return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; }, hooks);
+      return await this.prepareReservedJob(reservation, profile, () => { launchPossible = true; }, hooks, failure);
     } catch (err) {
-      if (!launchPossible && reservation.build?.referenceId != null) {
+      if (!launchPossible && reservation.build?.referenceId != null &&
+          !(err instanceof DeployAttemptRefusedError && reservation.transitioned)) {
         await this.ledger.cancelUnstarted(profile.name, reservation.build.referenceId);
       }
       throw err;
@@ -672,6 +683,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     onLaunch: () => void,
     hooks: DeployHooks,
+    failure: DeployFailureOwner,
   ): Promise<RunHandle> {
     const daemonId = await this.reservePorts(profile, reservation);
     if (reservation.heldBackForStamp.length > 0) {
@@ -723,6 +735,7 @@ export class DeploymentOrchestrator {
       profileName: profile.name,
       target: targetAlias(reservation.host ?? profile.host),
       reservedDaemonId: daemonId,
+      deployFailure: failure,
       onLaunch,
       paths,
       script: paths.deploy,
@@ -953,7 +966,7 @@ export class DeploymentOrchestrator {
     try {
       await cfg.beforeRun?.();
     } catch (err) {
-      if (cfg.transitionTo) await this.markFailed(cfg.profileName, getErrorMessage(err));
+      if (cfg.transitionTo) await this.markFailed(cfg.profileName, getErrorMessage(err), cfg.deployFailure);
       throw err;
     }
 
@@ -1061,12 +1074,12 @@ export class DeploymentOrchestrator {
         stdoutTail.trim() ||
         stderrTail.trim() ||
         `${cfg.script} exited with code ${code}`;
-      if (cfg.markFailure) await cfg.markFailure(message);
-      else {
-        const errored = await this.profiles.markError(cfg.profileName, message);
-        if (errored) await this.publishChanged(errored);
+      if (cfg.markFailure) {
+        await cfg.markFailure(message);
+        await cfg.onFailure?.(message);
+      } else if (await this.markFailed(cfg.profileName, message, cfg.deployFailure)) {
+        await cfg.onFailure?.(message);
       }
-      await cfg.onFailure?.(message);
       logger.warn(
         `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
       );
@@ -1078,7 +1091,7 @@ export class DeploymentOrchestrator {
       if (cfg.markFailure) {
         try { await cfg.markFailure(message); }
         catch (failure) { logger.error(`[Orchestrator] failed to record owned removal failure: ${getErrorMessage(failure)}`); }
-      } else await this.markFailed(cfg.profileName, message);
+      } else await this.markFailed(cfg.profileName, message, cfg.deployFailure);
     }
   }
 

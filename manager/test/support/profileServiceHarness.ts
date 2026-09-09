@@ -70,6 +70,18 @@ export class FakeOrchestrator {
   /** The exit code the next deploy script of a profile ends with. Zero when absent. */
   readonly exitCodes = new Map<string, number>();
 
+  /**
+   * Asked about the row `reserveDeploy` is handed, before the claim, the way
+   * the real orchestrator asks the uploader gate. Null asks nothing.
+   */
+  gate: ((profile: Profile) => Promise<void>) | null = null;
+
+  /** The rows `reserveDeploy` was handed, so a test can see which state was judged. */
+  readonly judged: Profile[] = [];
+
+  /** The rows `runReserved` was handed. */
+  readonly deployedRows: Profile[] = [];
+
   constructor(private readonly profiles: InMemoryProfiles) {}
 
   asOrchestrator(): DeploymentOrchestrator {
@@ -85,6 +97,8 @@ export class FakeOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
   ): Promise<DeployReservation> {
+    this.judged.push(profile);
+    if (this.gate) await this.gate(profile);
     const claimed = await this.profiles.transitionStatus(
       profile.name,
       'DEPLOYING',
@@ -125,6 +139,7 @@ export class FakeOrchestrator {
     profile: Profile,
     hooks: DeployHooks = {},
   ): Promise<RunHandle> {
+    this.deployedRows.push(profile);
     this.deploys.push({
       profileName: profile.name,
       services: reservation.services,

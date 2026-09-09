@@ -6,6 +6,7 @@ import {
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
+import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import {
   NewProfilePlacement,
@@ -77,6 +78,8 @@ export class InMemoryProfiles {
   readonly rows = new Map<string, Profile>();
 
   readonly markErrorCalls: string[] = [];
+
+  readonly activeDeployJobs = new Map<string, number>();
 
   readonly updateEditableCalls: string[] = [];
 
@@ -214,9 +217,23 @@ export class InMemoryProfiles {
     this.markErrorCalls.push(name);
     return this.write(name, {
       status: 'ERROR',
+      deployment_phase: null,
       last_error: message,
       last_error_at: new Date(),
     });
+  }
+
+  async markDeployError(
+    name: string,
+    owner: ExpectedDeployOwner,
+    referenceId: number | null,
+    message: string,
+  ): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || row.status !== 'DEPLOYING' || row.instance_id !== owner.instanceId ||
+        row.intent_revision !== owner.intentRevision || row.engine_config_revision !== owner.configRevision ||
+        row.stack_version_id !== owner.stackVersionId || (this.activeDeployJobs.get(name) ?? null) !== referenceId) return null;
+    return this.markError(name, message);
   }
 
   async updateEditable(

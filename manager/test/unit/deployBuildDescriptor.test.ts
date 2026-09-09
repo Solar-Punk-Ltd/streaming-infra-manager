@@ -33,6 +33,7 @@ mkdirSync(join(root, 'bundled'), { recursive: true });
 writeFileSync(join(root, 'bundled', '.env'), 'ENGINE=srs\n');
 
 const { buildDirFor } = await import('../../src/domain/versions/stackPaths.js');
+const { BUNDLED_STACK_ROOT } = await import('../../src/utils/envUtils.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
@@ -134,6 +135,48 @@ describe('the build a deploy runs', () => {
     assert.equal(reservation.build?.root, join(versionsRoot, 'v3'));
     assert.equal(reservation.build?.buildId, 'legacy');
     await harness.orchestrator.cancelReservation(reservation);
+  });
+});
+
+describe('a deployment on the bundled version', () => {
+  it('runs the legacy tree until the bundled version is published, and its build after, each by its own deploy', async () => {
+    const { harness, versionsRoot } = await setup(null);
+    harness.profiles.write('stage', { stack_version_id: 1 });
+    const row = () => harness.profiles.rows.get('stage')!;
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+    assert.equal(harness.runner.runs[0]?.options.cwd, BUNDLED_STACK_ROOT, 'the legacy tree, as before');
+
+    // The manager's deploy published the bundled stack as a build. Nothing
+    // moved the deployment, so what it runs is unchanged until the next deploy.
+    buildOnDisk(versionsRoot, COMMIT_B, 'bundled');
+    await harness.versions.publish(1, {
+      buildId: COMMIT_B,
+      commitSha: COMMIT_B,
+      contract: CONTRACT,
+      rootPath: join(versionsRoot, 'bundled'),
+    });
+    assert.equal(harness.ledger.openJobReferences('stage').length, 1, 'the deploy on the legacy tree keeps its reference');
+
+    await harness.orchestrator.startDeploy(row(), undefined);
+    harness.runner.finish(1, 0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.equal(harness.runner.runs[1]?.options.cwd, buildDirFor(versionsRoot, 'bundled', COMMIT_B));
+    const job = harness.ledger.references.filter((r) => r.holderKind === 'job' && r.holderId === 'stage');
+    assert.deepEqual(job.map((r) => [r.versionId, r.buildId]), [[1, 'bundled'], [1, COMMIT_B]]);
+  });
+
+  it('refuses a missing version without taking a bundled reference or starting a script', async () => {
+    const { harness } = await setup(null);
+    harness.profiles.write('stage', { stack_version_id: 99 });
+    const row = () => harness.profiles.rows.get('stage')!;
+
+    await assert.rejects(harness.orchestrator.startDeploy(row(), undefined), /Stack version 99 no longer exists/);
+    assert.equal(harness.runner.runs.length, 0);
+    assert.deepEqual(harness.ledger.references, []);
   });
 });
 

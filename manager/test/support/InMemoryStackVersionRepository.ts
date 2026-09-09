@@ -126,13 +126,21 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     });
   }
 
+  /** When set, the next publication throws after nothing was written, the way a database that went away would. */
+  failNextPublish = false;
+
   async publish(id: number, outcome: PublishOutcome): Promise<StackVersionRecord | null> {
+    if (this.failNextPublish) {
+      this.failNextPublish = false;
+      throw new Error('the database went away');
+    }
     const before = this.rows.find((row) => row.id === id);
     if (!before) return null;
     const replaced = before.buildId !== null && before.buildId !== outcome.buildId;
     return this.patch(id, {
       status: 'ready',
       layout: 'builds',
+      rootPath: outcome.rootPath ?? before.rootPath,
       buildId: outcome.buildId,
       previousBuildId: replaced ? before.buildId : before.previousBuildId,
       commitSha: outcome.commitSha,

@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import {
   Box,
+  Button,
   Link,
   Table,
   TableBody,
@@ -17,7 +19,8 @@ import { ServiceChip } from '../components/ServiceChip';
 import { formatBytes, formatCores, formatSharePercent } from '../format';
 import type { ContainerMetrics, MetricsSnapshot, Profile } from '../types';
 import { componentUrl, hostFor } from '../urls';
-import { isRunning, SERVICE_DESCRIPTIONS } from './shape';
+import { LogsDialog } from './LogsDialog';
+import { engineOf, isRunning, isTransitional, SERVICE_DESCRIPTIONS } from './shape';
 
 export function ContainersCard({
   profile,
@@ -32,6 +35,7 @@ export function ContainersCard({
   uploaderPending: boolean;
 }) {
   const containers = profile.containers;
+  const [logService, setLogService] = useState<string | null>(null);
 
   const metricsFor = (service: string): ContainerMetrics | null =>
     snapshot?.containers.find(
@@ -39,15 +43,16 @@ export function ContainersCard({
     ) ?? null;
 
   return (
+    <>
     <SectionCard
       title="Containers"
-      sub={containers.length ? `${containers.length} running` : 'none running'}
+      sub={isTransitional(profile) ? 'Previous container records, current state not yet verified' : containers.length ? `${containers.length} container records` : 'no container records'}
       flush
     >
       {containers.length === 0 ? (
         <EmptyState
-          title="Start the deployment to see its containers."
-          hint="Nothing is running for it right now."
+          title={isTransitional(profile) ? "Waiting for container observations." : "No containers reported."}
+          hint="Open logs or refresh the deployment to check its current state."
         />
       ) : (
         <Table>
@@ -58,6 +63,7 @@ export function ContainersCard({
               <TableCell>Ports</TableCell>
               <TableCell>CPU</TableCell>
               <TableCell>Memory</TableCell>
+              <TableCell>Diagnostics</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -121,6 +127,9 @@ export function ContainersCard({
                       <Dash />
                     )}
                   </TableCell>
+                  <TableCell>
+                    <Button size="small" aria-label={`View ${container.service} logs`} onClick={() => setLogService(container.service)}>Logs</Button>
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -129,7 +138,7 @@ export function ContainersCard({
                 <TableCell>
                   <ServiceChip service={STREAM_UPLOADER_SERVICE} />
                 </TableCell>
-                <TableCell colSpan={4}>
+                <TableCell colSpan={5}>
                   <Typography variant="body2" color="text.secondary">
                     not started yet, waiting for a stamp
                   </Typography>
@@ -140,6 +149,8 @@ export function ContainersCard({
         </Table>
       )}
     </SectionCard>
+    {logService && <LogsDialog profile={profile} engine={engineOf(profile)} initialService={logService} onClose={() => setLogService(null)} />}
+    </>
   );
 }
 

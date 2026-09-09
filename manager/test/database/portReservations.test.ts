@@ -8,6 +8,7 @@ import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { DeploymentGroupRepository, type SharedProfileParams } from '../../src/domain/DeploymentGroupRepository.js';
 import { AllSlotsUsedError, PortReservedError } from '../../src/domain/errors/index.js';
 import { PostgresPortReservationRepository } from '../../src/domain/ports/PostgresPortReservationRepository.js';
+import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { stackRootOf } from '../../src/domain/versions/stackPaths.js';
@@ -103,7 +104,7 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     await profiles.insertWithFreeSlot('a', 'viewer', 'RUNNING', {}, { stackVersionId: 1, slotCap: 100, daemonId: 'daemon', table });
     const version = (await new PostgresStackVersionRepository(pool).findById(1))!;
     const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => stackRootOf(version) }, '/fake/versions');
-    await ledger.claim('a', ['RUNNING'], version, ['srs']);
+    await ledger.claim('a', ['RUNNING'], version, ['srs'], { ...deployOwnerOf((await profiles.findByName('a'))!), intent: 'preserve' });
     await ledger.observe('a', ['srs']);
     const open = await ledger.openReferences(1);
     assert.equal(open.filter(reference => reference.holderKind === 'job').length, 0);
@@ -113,8 +114,11 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
   it('cancels only the exact unstarted job reference belonging to the profile', async () => {
     const version = (await new PostgresStackVersionRepository(pool).findById(1))!;
     const ledger = new PostgresBuildLedger(pool, { mountedRootOf: async () => null }, '/fake/versions');
-    const older = await ledger.describe('a', version, ['srs', 'stream-uploader']);
-    const current = await ledger.describe('a', version, ['srs']);
+    const seed = async (services: string[]) => ({ referenceId: (await pool.query<{ id: number }>(
+      "INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services) VALUES ($1, 'bundled', 'job', 'a', $2) RETURNING id", [version.id, services],
+    )).rows[0]!.id });
+    const older = await seed(['srs', 'stream-uploader']);
+    const current = await seed(['srs']);
     await ledger.cancelUnstarted('other', current.referenceId!);
     assert.equal((await ledger.openReferences(1)).length, 2);
     await ledger.cancelUnstarted('a', current.referenceId!);

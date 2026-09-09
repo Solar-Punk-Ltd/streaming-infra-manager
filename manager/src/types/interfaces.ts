@@ -1,4 +1,5 @@
 import type {
+  DeploymentPhase,
   EngineConfigState,
   EngineSettings,
 } from '@streaming-infra-manager/common';
@@ -53,6 +54,7 @@ export interface Profile {
   /** Moves with every operator action on the deployment, so an older rollout ends. */
   intent_revision: number;
   status: ProfileStatus;
+  deployment_phase?: DeploymentPhase | null;
   last_error: string | null;
   last_error_at: Date | null;
   /** The commit of the last deploy that touched every service and found them agreeing, or null. */

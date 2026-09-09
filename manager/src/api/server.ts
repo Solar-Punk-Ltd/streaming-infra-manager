@@ -95,7 +95,10 @@ export function startApiServer(
   app.use('/auth', createAuthRouter(deps.authService, requireSession));
   app.use(requireSession);
 
-  app.use('/config', createConfigRouter(deps.chequebookService.floorBzz));
+  app.use(
+    '/config',
+    createConfigRouter(deps.chequebookService.floorBzz, () => deps.stackVersionService.hostPassphrase()),
+  );
   app.use('/metrics', metrics);
   app.use('/events', events.router);
   // Before /versions, whose /:id route would otherwise take "attempts" for an id.

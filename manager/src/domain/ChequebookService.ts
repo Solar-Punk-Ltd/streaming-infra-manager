@@ -10,13 +10,13 @@ import {
   NO_XDAI_FOR_GAS_REASON,
   parsePlur,
   plurToBzz,
-  uncheckedChequebookNotice,
   withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
 
 import { BeeClient } from './BeeClient.js';
 import { beeCallFailed } from './beeFailure.js';
 import {
+  BeeNodeError,
   ChequebookBusyError,
   ChequebookFundsError,
   ChequebookUnfundedError,
@@ -139,14 +139,11 @@ export class ChequebookService {
   /**
    * The uploader gate: refuse to start one whose node cannot pay for uploads.
    *
-   * A node that cannot be asked lets the deploy through, exactly as the stamp
-   * check does. Blocking on a failed probe would mean one unreachable node
-   * stopping work that has nothing wrong with it, and the operator has no way
-   * to tell that apart from a real refusal.
-   *
-   * That branch says so on screen. An uploader started with its funding
-   * unverified looks exactly like one that was checked, right up until nothing
-   * it uploads lands.
+   * A node that does not answer is a refusal too. An uploader started with
+   * its funding unverified looks exactly like one that was checked, right up
+   * until nothing it uploads lands. The refusal says how to try again, and
+   * a stopped deployment's start does not ask, so the operator always has a
+   * way through.
    */
   async assertFunded(name: string): Promise<void> {
     const client = await this.clientFor(name);
@@ -155,19 +152,19 @@ export class ChequebookService {
     try {
       balance = await client.getChequebookBalance();
     } catch (err) {
-      logger.warn(
-        `[ChequebookService] ${name}: could not read the chequebook, proceeding: ${getErrorMessage(err)}`,
+      throw new BeeNodeError(
+        name,
+        `The Bee node of ${name} did not answer the chequebook check (${getErrorMessage(err)}), so the uploader was not started. Try again once the node answers.`,
       );
-      this.events.publish({
-        type: 'profile.notice',
-        profile: name,
-        text: uncheckedChequebookNotice(name),
-        tone: 'warn',
-      });
-      return;
     }
 
     const health = chequebookHealthFrom(balance, this.floorPlur);
+    if (health.state === 'unknown') {
+      throw new BeeNodeError(
+        name,
+        `The Bee node of ${name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
+      );
+    }
     if (isChequebookShort(health.state)) {
       throw new ChequebookUnfundedError(name, health);
     }

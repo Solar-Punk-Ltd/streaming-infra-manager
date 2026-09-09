@@ -45,7 +45,7 @@ import { PortInventory } from './domain/ports/PortInventory.js';
 import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { config } from './utils/config.js';
-import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
+import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -128,11 +128,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 async function main(): Promise<void> {
   logStartupConfig();
 
-  const bootstrapped = await bootstrapStackDefaults(BUNDLED_STACK_ROOT);
-  for (const file of bootstrapped) {
-    logger.info(`[Boot] created missing default: ${file}`);
-  }
-
   database = new Database(config.databaseUrl);
   await database.migrate();
 
@@ -172,10 +167,7 @@ async function main(): Promise<void> {
     eventBus,
     config.stackVersionsRoot,
     buildLedger,
-  );
-  await stackVersionService.refreshBundled(
     BUNDLED_STACK_ROOT,
-    readBundledCommit(BUNDLED_STACK_ROOT),
   );
 
   const interruptedBuilds = await stackVersionService.failInterruptedBuilds();
@@ -197,9 +189,23 @@ async function main(): Promise<void> {
       containerExists: (name) => containerControl.containerExists(name),
     });
     await buildLedger.observeAll();
-    await stackVersionService.pruneAll();
   } catch (err) {
     logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // After the containers were observed, so a bundled build one still mounts
+  // has its reference before the publication of a shipment prunes.
+  try {
+    await stackVersionService.syncBundled(
+      BUNDLED_STACK_ROOT,
+      readBundledCommit(BUNDLED_STACK_ROOT),
+    );
+  } catch (err) {
+    logger.warn(`[Boot] the bundled version was not synced: ${getErrorMessage(err)}`);
+  }
+  try {
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
 
   const orphans = await profileRepository.resetOrphanedTransitions();

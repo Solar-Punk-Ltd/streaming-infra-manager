@@ -56,7 +56,7 @@ describe('captured contract port admission', () => {
 
   it('cancels only the current unstarted build reference when port admission is refused', async () => {
     const h = await setup();
-    const old = await h.ledger.describe('a', await h.versions.findById(1), ['srs', 'stream-uploader']);
+    const old = await h.ledger.seedJob('a', await h.versions.findById(1), ['srs', 'stream-uploader']);
     await h.versions.markBuilt(1, { commitSha: 'new', contract: contract(13000) });
     await h.ports.plan('daemon-1', 'b', portPlanFor(contract(13000).ports, 1), 'conflict');
     await assert.rejects(h.orchestrator.reserveDeploy(h.row(), undefined), /b holds/);
