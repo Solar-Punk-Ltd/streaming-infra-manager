@@ -206,7 +206,10 @@ ssh "$SSH_TARGET" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_PATH}/manager
 
-PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}')"
+# The || true is what keeps this line from ending the whole remote block: it runs
+# under pipefail, so a host without ip, or a route that cannot be read, would
+# fail the substitution and none of the lines below would run.
+PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}' || true)"
 echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}' (default-route src IP)"
 if [ -z "\${PUBLIC_HOST}" ]; then
     echo "[deploy] WARNING: PUBLIC_HOST is empty, so component URLs will fall back to localhost" >&2
