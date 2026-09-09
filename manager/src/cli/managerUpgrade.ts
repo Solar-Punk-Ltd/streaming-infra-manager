@@ -7,7 +7,7 @@ import { config } from '../utils/config.js';
 import { ComposeUpgradeOperations, type ComposeUpgradeSettings } from './ComposeUpgradeOperations.js';
 import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
 import { execFileCommandRunner } from './commandRunner.js';
-import { parseFlags } from './flags.js';
+import { parseFlags, withUsage } from './flags.js';
 import { PostgresManagerUpgradeDatabase } from './managerUpgradeDatabase.js';
 
 export const MANAGER_UPGRADE = 'manager:upgrade';
@@ -87,24 +87,28 @@ export async function runManagerUpgradeCommand(
   streams: CommandStreams,
   dependencies: ManagerUpgradeDependencies = {},
 ): Promise<void> {
-  const flags = parseFlags(argv, {
-    valued: [SHIPMENT_ID, COMMIT, DIGEST, MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, TOOLCHAIN],
-    switches: [PUBLIC_EDGE],
-  });
-  // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
-  const request = captureManagerUpgradeRequest({
-    shipment: { shipmentId: flags.required(SHIPMENT_ID), commit: flags.required(COMMIT), digest: flags.required(DIGEST) },
-    manager: { sourceCommit: flags.required(MANAGER_COMMIT), sourceDigest: flags.required(MANAGER_DIGEST), imageId: flags.required(IMAGE_ID) },
-    project: flags.required(PROJECT),
-  });
   const versionsRoot = dependencies.versionsRoot ?? config.stackVersionsRoot;
-  const settings: ComposeUpgradeSettings = {
-    versionsRoot,
-    composeFile: flags.required(COMPOSE_FILE),
-    toolchain: flags.required(TOOLCHAIN),
-    publicEdge: flags.has(PUBLIC_EDGE),
-  };
-  const environment = { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) };
+  const { request, settings, environment } = withUsage(MANAGER_UPGRADE_USAGE, () => {
+    const flags = parseFlags(argv, {
+      valued: [SHIPMENT_ID, COMMIT, DIGEST, MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, TOOLCHAIN],
+      switches: [PUBLIC_EDGE],
+    });
+    return {
+      // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
+      request: captureManagerUpgradeRequest({
+        shipment: { shipmentId: flags.required(SHIPMENT_ID), commit: flags.required(COMMIT), digest: flags.required(DIGEST) },
+        manager: { sourceCommit: flags.required(MANAGER_COMMIT), sourceDigest: flags.required(MANAGER_DIGEST), imageId: flags.required(IMAGE_ID) },
+        project: flags.required(PROJECT),
+      }),
+      settings: {
+        versionsRoot,
+        composeFile: flags.required(COMPOSE_FILE),
+        toolchain: flags.required(TOOLCHAIN),
+        publicEdge: flags.has(PUBLIC_EDGE),
+      } satisfies ComposeUpgradeSettings,
+      environment: { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) },
+    };
+  });
   const host = (dependencies.operations ?? composeOperations)(settings);
 
   try {

@@ -6,7 +6,7 @@ import { sealBundledPackage, validateBundledShipmentId } from '../domain/version
 import { adoptHostConfig, readHostConfigRevision } from '../domain/versions/hostConfigCapture.js';
 import { assertOwnedDirectory, assertRelativeTreePath, assertSeparateOwnedTrees } from '../domain/versions/ownedTreePaths.js';
 import { CLI_PREFIX, type CommandStreams } from './commandStreams.js';
-import { parseFlags } from './flags.js';
+import { parseFlags, withUsage } from './flags.js';
 
 export const BUNDLED_SEAL = 'bundled:seal';
 
@@ -95,13 +95,19 @@ async function addBuiltDirectory(source: string, exported: string, path: string,
  * deploy runs from. It opens no database, so it runs on a laptop.
  */
 export async function runBundledSeal(argv: readonly string[], streams: CommandStreams): Promise<void> {
-  const flags = parseFlags(argv, { valued: [SOURCE, OUT, SHIPMENT_ID, TOOLCHAIN], repeated: [DIST], switches: [ADOPT_INPUTS] });
-  const source = flags.required(SOURCE);
-  const out = flags.required(OUT);
-  const shipmentId = validateBundledShipmentId(flags.required(SHIPMENT_ID));
-  assertToolchain(flags.required(TOOLCHAIN));
-  const built = flags.list(DIST);
-  if (built.length === 0) throw new Error(`${DIST} names a built directory to ship and is needed at least once.`);
+  const { source, out, shipmentId, built, adoptInputs } = withUsage(BUNDLED_SEAL_USAGE, () => {
+    const flags = parseFlags(argv, { valued: [SOURCE, OUT, SHIPMENT_ID, TOOLCHAIN], repeated: [DIST], switches: [ADOPT_INPUTS] });
+    const selected = {
+      source: flags.required(SOURCE),
+      out: flags.required(OUT),
+      shipmentId: validateBundledShipmentId(flags.required(SHIPMENT_ID)),
+      built: flags.list(DIST),
+      adoptInputs: flags.has(ADOPT_INPUTS),
+    };
+    assertToolchain(flags.required(TOOLCHAIN));
+    if (selected.built.length === 0) throw new Error(`${DIST} names a built directory to ship and is needed at least once.`);
+    return selected;
+  });
 
   try {
     await assertSeparateOwnedTrees(source, out);
@@ -115,7 +121,7 @@ export async function runBundledSeal(argv: readonly string[], streams: CommandSt
   try {
     for (const path of built) await addBuiltDirectory(source, exported, path, `pnpm -C ${source} -r build`);
     if (!(await readHostConfigRevision(source))) {
-      if (!flags.has(ADOPT_INPUTS)) {
+      if (!adoptInputs) {
         throw new Error(`${source} has no committed revision of its host inputs. Pass ${ADOPT_INPUTS} to commit the ones it has now as generation one.`);
       }
       const adopted = await adoptHostConfig(source);

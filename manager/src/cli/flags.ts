@@ -55,3 +55,16 @@ export function parseFlags(argv: readonly string[], spec: FlagSpec): Flags {
     has: (name) => present.has(name),
   };
 }
+
+/**
+ * Runs the argument reading of one command, so a refusal arrives with what
+ * that command takes. Only the reading, because a failure later on is about
+ * the host or the checkout rather than about how the command was called.
+ */
+export function withUsage<T>(usage: string, read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n\n${usage}`);
+  }
+}
