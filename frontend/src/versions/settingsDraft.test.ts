@@ -26,6 +26,7 @@ const SETTINGS: StackSettings = {
   generation: 4,
   buildId: 'abc1234',
   buildGeneration: 4,
+  leftAlone: [],
   files: [
     {
       path: '.env',

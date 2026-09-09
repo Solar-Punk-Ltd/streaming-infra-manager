@@ -179,6 +179,14 @@ export function VersionSettingsPage({ id }: { id: number }) {
         </Alert>
       )}
 
+      {settings && settings.leftAlone.length > 0 && (
+        <Alert severity="warning">
+          Nothing here reads {settings.leftAlone.join(', ')}: there is a link or a directory at each
+          of those paths rather than a file. Put a regular file there on the host if it is meant to
+          be a setting of this version.
+        </Alert>
+      )}
+
       {settings && unappliedRevisionNote(settings) && (
         <Alert severity="info">{unappliedRevisionNote(settings)}</Alert>
       )}

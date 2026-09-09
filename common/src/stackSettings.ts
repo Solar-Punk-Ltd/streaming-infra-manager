@@ -58,6 +58,13 @@ export interface StackSettings {
    */
   buildGeneration: number | null;
   files: StackSettingsFile[];
+  /**
+   * Paths of the set that hold something other than a regular file, a link or
+   * a directory, so nothing here reads or writes them. Named rather than
+   * dropped, because a set with a hole in it looks like a version that has no
+   * such setting.
+   */
+  leftAlone: string[];
 }
 
 export interface StackSettingsEntryEdit {

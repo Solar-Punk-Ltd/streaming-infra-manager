@@ -19,6 +19,7 @@ import {
   DEPLOY_CONFIG_SAMPLE,
   holdHostConfigLock,
   hostConfigFilesOf,
+  hostConfigNonFilesOf,
   readHostConfigRevision,
 } from './hostConfigCapture.js';
 
@@ -89,6 +90,7 @@ export async function readHostConfigSettings(
       buildId: sources.buildId,
       buildGeneration: readBuildManifest(buildRoot).manifest?.inputGeneration ?? null,
       files,
+      leftAlone: hostConfigNonFilesOf(configRoot),
     };
   } finally {
     await release();

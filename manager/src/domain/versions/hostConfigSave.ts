@@ -13,6 +13,7 @@ import { StackSettingsNotReadyError } from '../errors/StackSettingsNotReadyError
 import { rewriteEnvText, type EnvEdit } from './envSettingsText.js';
 import {
   hostConfigFilesOf,
+  hostConfigNonFilesOf,
   readHostConfigRevision,
   withHostConfigLock,
 } from './hostConfigCapture.js';
@@ -35,6 +36,10 @@ import { SETTINGS_NEED_A_BUILD } from './hostConfigSettings.js';
 const NOT_A_FILE_HERE =
   'This version keeps no settings file at that path. Reload the settings and save again.';
 
+/** Nothing under a versions root is followed, so a link at one of these paths is passed by. */
+const NOT_A_PLAIN_FILE =
+  'There is a link or a directory at that path and nothing here reads it. Put a regular file there on the host, then reload the settings.';
+
 /** Commits the save and answers the revision the files are at now. */
 export async function saveHostConfigSettings(
   versionName: string,
@@ -54,10 +59,12 @@ export async function saveHostConfigSettings(
       }
 
       const present = new Set(hostConfigFilesOf(configRoot));
+      const leftAlone = new Set(hostConfigNonFilesOf(configRoot));
       const files: Record<string, Buffer> = {};
       for (const edit of save.files) {
         if (!present.has(edit.path)) {
-          throw new InvalidStackVersionError(`${edit.path}: ${NOT_A_FILE_HERE}`);
+          const why = leftAlone.has(edit.path) ? NOT_A_PLAIN_FILE : NOT_A_FILE_HERE;
+          throw new InvalidStackVersionError(`${edit.path}: ${why}`);
         }
         files[edit.path] = await editedBytes(join(configRoot, edit.path), edit);
       }
