@@ -54,11 +54,12 @@ draft text but do not restore stale values. A draft for a deleted and
 recreated deployment cannot be applied to the replacement. Close and reopen
 Settings to review that deployment.
 
-The accepted local T11 checkpoint `1684131` also binds the settings write to
+The accepted local T11 checkpoint `ef269a8` also binds the settings write to
 the exact deployment job that reserved it. Losing that ownership returns a
-conflict and preserves the draft. Two integration boundaries remain open:
-binding validation and job admission to the same published build, and
-capturing mutable host inputs before execution. These changes have not been
+conflict and preserves the draft. Validation and job admission use one
+captured published build. Publication of another build before the locked
+claim refuses the save before settings or job state changes. Capturing mutable
+host inputs before execution remains open. These changes have not been
 deployed to `main-v2`.
 
 ## What validation establishes
@@ -145,6 +146,9 @@ The T11 exact-job write checkpoint passed 18 database, 27 focused HTTP and
 13 browser checks, plus workspace types. Its full manager run passed
 1095 of 1097 cases. The two remaining failures exercise the unfinished T01
 integration between configuration operations and deployment claims. The
+later same-build capture correction passed 28 targeted HTTP/unit checks,
+three database cases and manager types. The full suite was not repeated for
+that checkpoint. The
 configured-value UI also has desktop and 390-pixel responsive browser review.
 These are separate from running the real engine containers.
 
@@ -160,7 +164,7 @@ container evidence in this continuation.
 Levi still owns the stack image-pin change. T20 must integrate these regressions
 with the real SRS parser concurrency check and the combined CI workflow. The
 recorded arm64 result is not an amd64 CI run or a funded-host result. T11's
-published-build and mutable-input integration remain open as described above.
+mutable-input integration remains open as described above.
 T01 still needs the atomic operation claim, retained-build recovery and
 deployment completion checks connected through its service callers. T22
 separately verifies authorized live Swarm delivery. Unit tests do not
