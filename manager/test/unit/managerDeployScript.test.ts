@@ -1,6 +1,6 @@
 /**
- * That the manager's own deploy no longer writes over the tree the engines
- * mount, and ships the bundled stack where the api publishes it from.
+ * That the manager's own deploy seals what it ships, ships it where the host
+ * publishes it from, and lets the host command decide the rest.
  *
  * Read from the file, the way the build script is read: the deploy needs a
  * host, a network and a signing key. `pnpm test` in manager/.
@@ -12,11 +12,12 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { BUNDLED_INCOMING_DIR } from '../../src/domain/versions/stackPaths.js';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const PACKAGES_DIR = 'bundled.packages';
+const SEALED = 'sealed-${SHIPMENT_ID}';
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
 
@@ -37,27 +38,80 @@ describe('deploy/deploy.sh', () => {
     assert.match(repo, /--exclude 'manager\/swarm-hls-stream\/'/);
   });
 
-  it('ships the built stack into a staging directory under the versions root, without the runtime files', () => {
-    const stack = rsyncs().find((block) => block.includes(`${BUNDLED_INCOMING_DIR}.tmp`) && block.includes('manager/swarm-hls-stream/'));
-    assert.ok(stack, 'the rsync of the stack into the staging directory');
-    assert.match(stack, /--delete/);
-    assert.match(stack, /--exclude '\.git\/'/);
-    assert.match(stack, /--exclude 'node_modules\/'/);
-    assert.match(stack, /--exclude 'deploy\/data\/'/);
-    assert.ok(stack.indexOf("--include '.env.sample'") < stack.indexOf("--exclude '.env.*'"), 'the sample is kept, the per deployment envs are not');
-    assert.match(stack, /\$\{REMOTE_VERSIONS_ROOT\}\/bundled\.incoming\.tmp\//, 'under the versions root the host side exports');
+  it('has nothing left of the staging tree the api used to publish at boot', () => {
+    assert.equal(script.includes('bundled.incoming'), false);
   });
 
-  it('writes the commit into the staging directory, where the api reads it once promoted', () => {
-    assert.match(script, new RegExp(`${BUNDLED_INCOMING_DIR}\\.tmp[^\\n]*${STACK_COMMIT_FILE.replace('.', '\\.')}`));
+  it('still writes the stack commit next to the checkout, which a row never published reads', () => {
+    assert.match(script, new RegExp(`${STACK_COMMIT_FILE.replace('.', '\\.')}`));
   });
 
-  it('promotes the staging directory to the incoming one with a single rename, after everything arrived', () => {
-    const promote = script.indexOf(`mv '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}.tmp' '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}'`);
-    assert.notEqual(promote, -1, 'the rename that makes the shipment visible');
-    const lastRsync = script.lastIndexOf('\nrsync ');
-    assert.ok(promote > lastRsync, 'nothing is visible to the api before the last rsync finished');
-    assert.ok(script.indexOf(`rm -rf '\${REMOTE_VERSIONS_ROOT}/${BUNDLED_INCOMING_DIR}.tmp'`) < lastRsync, 'a torn staging directory from an earlier deploy goes first');
+  it('seals the built stack into a package, adopting the host inputs and taking both built directories', () => {
+    const called = script.indexOf('cli.js bundled:seal');
+    assert.notEqual(called, -1, 'the deploy seals what it ships');
+    const seal = script.slice(called, called + 600);
+    assert.match(seal, /--source manager\/swarm-hls-stream/);
+    assert.match(seal, /--shipment-id "\$SHIPMENT_ID"/);
+    assert.match(seal, /--dist packages\/client\/dist/);
+    assert.match(seal, /--dist packages\/stream-uploader\/dist/);
+    assert.match(seal, /--adopt-inputs/);
+    assert.match(seal, /--toolchain/);
+  });
+
+  it('makes one shipment id per deploy rather than replaying an old one', () => {
+    assert.match(script, /SHIPMENT_ID="\$\(uuidgen/);
+  });
+
+  it('ships the sealed package into a staging name under the packages root, keeping modes and links', () => {
+    assert.match(script, new RegExp(`REMOTE_PACKAGES="\\$\\{REMOTE_VERSIONS_ROOT\\}/${PACKAGES_DIR}"`), 'the packages root is one directory of its own');
+    const shipment = rsyncs().find((block) => block.includes(`\${REMOTE_PACKAGES}/${SEALED}.tmp/`));
+    assert.ok(shipment, 'the rsync of the sealed package');
+    assert.match(shipment, /rsync -a /, 'archive mode, so modes and symbolic links survive');
+    assert.match(shipment, /--delete/);
+  });
+
+  it('renames the staging name to the sealed one after the last rsync, so the host never reads a torn package', () => {
+    const promote = script.indexOf(`mv '\${REMOTE_PACKAGES}/${SEALED}.tmp' '\${REMOTE_PACKAGES}/${SEALED}'`);
+    assert.notEqual(promote, -1, 'the rename that makes the package visible');
+    assert.ok(promote > script.lastIndexOf('\nrsync '), 'nothing is visible to the host before the last rsync finished');
+  });
+
+  it('builds the image on the host and then runs the upgrade from it, not from the running api', () => {
+    const build = script.indexOf('docker compose build');
+    const upgrade = script.indexOf('docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    assert.notEqual(build, -1, 'the image is built on the host');
+    assert.notEqual(upgrade, -1, 'the upgrade runs in a container of the image just built');
+    assert.ok(build < upgrade, 'the image exists before the upgrade runs from it');
+  });
+
+  it('gives the upgrade the identity of the shipment, of the manager and of the image', () => {
+    const upgrade = script.slice(script.indexOf('manager:upgrade'));
+    for (const flag of ['--shipment-id', '--commit', '--digest', '--manager-commit', '--manager-digest',
+      '--image-id', '--project manager', '--compose-file', '--mutable-root', '--toolchain']) {
+      assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
+    }
+    assert.match(script, /IMAGE_ID="\\\$\(docker image inspect --format '\{\{\.Id\}\}' manager-api\)"/);
+  });
+
+  it('asks for the public edge only where the domain says so', () => {
+    const branch = script.indexOf('COMPOSE_PROFILE_FLAG=""');
+    assert.equal(script.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
+    const decision = script.indexOf('PUBLIC_EDGE_FLAG="--public-edge"');
+    assert.notEqual(decision, -1, 'the public branch sets it');
+    assert.ok(decision > script.indexOf('elif [[ "$MANAGER_DOMAIN" =~ $HOSTNAME_PATTERN ]]'), 'inside the branch that saw a host name');
+    assert.ok(decision < script.indexOf('\nelse\n', script.indexOf('elif [[ "$MANAGER_DOMAIN"')), 'and not below it');
+    assert.equal(branch, -1, 'the old compose profile flag is gone');
+  });
+
+  it('prints the receipt the upgrade returned', () => {
+    assert.match(script, /RECEIPT/);
+    assert.ok(script.indexOf('RECEIPT') > script.indexOf('manager:upgrade') - 400, 'the receipt comes from the upgrade');
+  });
+
+  it('never asks compose to print a rendered configuration', () => {
+    for (const match of script.matchAll(/docker compose[^\n]*\bconfig\b[^\n]*/g)) {
+      assert.match(match[0], /--quiet/, 'a rendered compose file would carry the values of every secret');
+    }
   });
 
   it('names one versions root on both sides', () => {
