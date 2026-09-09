@@ -198,7 +198,7 @@ async function main(): Promise<void> {
     logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
   // After the containers were observed, so a bundled build one still mounts
-  // has its reference before the publication of a shipment prunes.
+  // has its reference before anything prunes.
   try {
     await stackVersionService.syncBundled(
       BUNDLED_STACK_ROOT,

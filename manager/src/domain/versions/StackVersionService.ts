@@ -162,8 +162,8 @@ export class StackVersionService {
     return rows.map((row) => toApiVersion(row, row.deployments));
   }
 
-  /** Refreshes metadata only for an explicit legacy row. Artifact publication
-   * belongs to the guarded shipment flow, never a timestamp or incoming path. */
+  /** Refreshes metadata only for an explicit legacy row. A build is published
+   * by the build that produced it, never by a timestamp or an incoming path. */
   async syncBundled(bundledRoot: string, legacyCommit: string | null): Promise<void> {
     this.bundledRoot = bundledRoot;
     const snapshot = await this.versions.captureLegacyMetadata();

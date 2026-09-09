@@ -215,7 +215,6 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
     }
   }
 
-
   /** The version a root belongs to, by the version name in its path, or null for the bundled checkout and anything else. */
   private async versionOfRoot(client: PoolClient, root: string): Promise<number | null> {
     if (root === stackRootOf({ rootPath: null })) {

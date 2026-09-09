@@ -6,7 +6,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
-
 /**
  * The host-owned inputs of a version root, captured for a build as one
  * committed revision.
