@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
@@ -91,8 +92,9 @@ const composeOperations: UpgradeOperationsFactory = (settings) => {
 };
 
 /** Everything a retained guard can tell a person, without removing anything. */
-function reportRetainedGuard(guardRoot: string, streams: CommandStreams): void {
-  streams.err(`${CLI_PREFIX} an earlier manager upgrade still holds ${guardRoot}`);
+function reportRetainedGuard(guardRoot: string, streams: CommandStreams, heldByAnEarlierRun: boolean): void {
+  const holder = heldByAnEarlierRun ? 'an earlier manager upgrade still holds' : 'this manager upgrade stopped and still holds';
+  streams.err(`${CLI_PREFIX} ${holder} ${guardRoot}`);
   let phase: string | null = null;
   try {
     phase = retainedUpgradePhase(guardRoot);
@@ -139,15 +141,21 @@ export async function runManagerUpgradeCommand(
       environment: { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) },
     };
   });
-  const host = (dependencies.operations ?? composeOperations)(settings);
+  let host: ReturnType<UpgradeOperationsFactory> | null = null;
 
   try {
+    host = (dependencies.operations ?? composeOperations)(settings);
     const result = await runManagerUpgrade(environment, request, host.operations);
     streams.out(JSON.stringify({ state: result.state, receipt: result.receipt }));
   } catch (error) {
-    if (getErrorMessage(error) === UPGRADE_ALREADY_OWNED) reportRetainedGuard(environment.guardRoot, streams);
+    // A directory still there after a failure is the first thing a person has to look at,
+    // whether this run left it or found it.
+    const heldByAnEarlierRun = getErrorMessage(error) === UPGRADE_ALREADY_OWNED;
+    if (heldByAnEarlierRun || existsSync(environment.guardRoot)) {
+      reportRetainedGuard(environment.guardRoot, streams, heldByAnEarlierRun);
+    }
     throw error;
   } finally {
-    await host.close();
+    await host?.close();
   }
 }
