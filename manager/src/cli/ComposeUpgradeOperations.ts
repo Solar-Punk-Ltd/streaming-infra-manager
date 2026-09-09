@@ -46,6 +46,10 @@ const API_HEALTH_URL = 'http://api:9876/health';
 const HEALTHY = 'healthy';
 const RUNNING = 'running';
 const PROBE_TIMEOUT_MS = 10_000;
+const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
+const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
+/** Compose sets this to True on the container a `docker compose run` starts. */
+const COMPOSE_ONE_OFF_LABEL = 'com.docker.compose.oneoff';
 
 interface ServiceContainer {
   state: string;
@@ -67,6 +71,10 @@ function parseServiceContainers(stdout: string): ServiceContainer[] {
     const record = (item ?? {}) as Record<string, unknown>;
     return { state: String(record.State ?? '').toLowerCase(), health: String(record.Health ?? '').toLowerCase() };
   });
+}
+
+function idsOf(stdout: string): string[] {
+  return stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
 export const httpHealthProbe: HealthProbe = async (url) => {
@@ -177,7 +185,25 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
 
   private async containerIds(project: string, args: readonly string[]): Promise<string[]> {
     const result = await this.compose(project, args);
-    return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    return idsOf(result.stdout);
+  }
+
+  /**
+   * The containers one service of this project has, whether they run or not.
+   *
+   * Asked of Docker with a label filter rather than of Compose, because
+   * `docker compose ps -a` counts the one-off container the deploy runs this
+   * upgrade in. A host that has never run the manager would otherwise look
+   * like one that already has an api container.
+   */
+  private async serviceContainerIds(project: string, service: string): Promise<string[]> {
+    const argv = ['docker', 'ps', '-aq',
+      '--filter', `label=${COMPOSE_PROJECT_LABEL}=${project}`,
+      '--filter', `label=${COMPOSE_SERVICE_LABEL}=${service}`,
+      '--filter', `label=${COMPOSE_ONE_OFF_LABEL}=False`];
+    const result = await this.run(argv, { timeoutMs: this.timeouts.command });
+    if (result.code !== 0) throw new Error(`The containers of the ${service} service could not be listed. Docker exited with ${result.code}.`);
+    return idsOf(result.stdout);
   }
 
   private async serviceContainers(project: string, service: string): Promise<ServiceContainer[]> {
@@ -206,7 +232,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     if (!container) {
       const hasVolume = await this.hasPostgresVolume(project);
       if (!hasVolume) {
-        const api = await this.containerIds(project, ['ps', '-aq', API_SERVICE]);
+        const api = await this.serviceContainerIds(project, API_SERVICE);
         if (api.length > 0) {
           throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
         }
