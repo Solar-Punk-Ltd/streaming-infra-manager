@@ -15,13 +15,14 @@
  * laptop, and there the row stays legacy on the tree the manager ships with.
  */
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 
 import { EventBus } from '../../src/domain/EventBus.js';
-import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
+import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from '../../src/domain/versions/buildManifest.js';
+import { readHostConfigRevision } from '../../src/domain/versions/hostConfigCapture.js';
 import { readStackContract } from '../../src/domain/versions/stackContract.js';
 import {
   buildDirFor,
@@ -124,12 +125,12 @@ async function until(what: string, condition: () => Promise<boolean> | boolean, 
 }
 
 /** What the build script leaves behind when it succeeds, then the run ending. */
-async function buildSucceeds(commit: string): Promise<void> {
-  const staging = stagingDirFor(versionsRoot, 'bundled', runner.last.args[4]!);
+async function buildSucceeds(commit: string, name = 'bundled'): Promise<void> {
+  const staging = stagingDirFor(versionsRoot, name, runner.last.args[4]!);
   cpSync(V3_FIXTURE, staging, { recursive: true });
   writeFileSync(join(staging, '.stack-commit'), `${commit}\n`);
   runner.finish(0);
-  await until('the bundled row to settle', async () => (await bundled()).status !== 'building');
+  await until(`the ${name} row to settle`, async () => (await repository.findByName(name))?.status !== 'building');
 }
 
 describe('what boot does about the pinned stack commit', () => {
@@ -245,5 +246,77 @@ describe('what boot does about the legacy bundled metadata', () => {
     await publishBuild(COMMIT_A, baseEnv('one'));
 
     assert.equal(await service.hostPassphrase(), 'pass-one');
+  });
+});
+
+describe("where the bundled version's settings come from", () => {
+  /** The base env an older stack left in the tree the engines mount. */
+  const LEGACY_ENV = 'STAMP=paid-for\nSTREAM_KEY=the-key\nENGINE=srs\n';
+
+  beforeEach(() => {
+    pinned(PIN);
+    writeFileSync(join(legacyRoot, '.env'), LEGACY_ENV);
+    writeFileSync(join(legacyRoot, 'deploy', 'config.json'), '{"slots":3}\n');
+  });
+
+  async function buildBundled(): Promise<string> {
+    await service.ensureBundledBuild();
+    await buildSucceeds(PIN);
+    return configRootFor(versionsRoot, 'bundled');
+  }
+
+  it('takes them from the legacy tree the first time, byte for byte', async () => {
+    const configRoot = await buildBundled();
+
+    assert.ok(readFileSync(join(configRoot, '.env'), 'utf8').startsWith(LEGACY_ENV), 'the operator lines, unchanged and first');
+    assert.equal(readFileSync(join(configRoot, 'deploy', 'config.json'), 'utf8'), '{"slots":3}\n');
+  });
+
+  it('completes them from the sample of the version being built, and captures that revision', async () => {
+    const configRoot = await buildBundled();
+
+    const env = readFileSync(join(configRoot, '.env'), 'utf8');
+    assert.match(env, /\nAPI_AUTH_TOKEN=\n/, 'a key the sample declares and the legacy tree never had');
+    assert.match(env, /\nCHEQUEBOOK_MIN_BZZ=0\.5\n/, 'with the sample value where it has one');
+    const revision = await readHostConfigRevision(configRoot);
+    assert.equal(revision?.generation, 2, 'one revision for the carry over, one for the completion');
+    assert.equal(readBuildManifest(buildDirFor(versionsRoot, 'bundled', PIN)).manifest?.inputGeneration, 2);
+  });
+
+  it('carries an engine env over as well', async () => {
+    writeFileSync(join(legacyRoot, 'engines', 'srs', '.env'), 'SRS_API_PORT=1985\n');
+
+    const configRoot = await buildBundled();
+
+    assert.equal(readFileSync(join(configRoot, 'engines', 'srs', '.env'), 'utf8'), 'SRS_API_PORT=1985\n');
+  });
+
+  it('never writes to the legacy tree, which the running engines still mount', async () => {
+    const before = legacyBytes();
+
+    await buildBundled();
+
+    assert.equal(legacyBytes(), before);
+    assert.equal(readFileSync(join(legacyRoot, '.env'), 'utf8'), LEGACY_ENV);
+    assert.equal(existsSync(join(legacyRoot, '.config-revision.json')), false);
+  });
+
+  it('takes them from the legacy tree once, and leaves later builds with what the host has', async () => {
+    const configRoot = await buildBundled();
+    writeFileSync(join(legacyRoot, '.env'), 'STAMP=someone-edited-the-old-tree\n');
+
+    await service.update((await bundled()).id);
+    await buildSucceeds(PIN);
+
+    assert.ok(readFileSync(join(configRoot, '.env'), 'utf8').startsWith(LEGACY_ENV), 'the settings the host already had');
+  });
+
+  it('never reads the legacy tree for a version an operator added', async () => {
+    await service.add('review-stack', 'main-v3');
+    await buildSucceeds(COMMIT_A, 'review-stack');
+
+    const env = readFileSync(join(configRootFor(versionsRoot, 'review-stack'), '.env'), 'utf8');
+    assert.equal(env, readFileSync(join(V3_FIXTURE, '.env.sample'), 'utf8'), 'seeded from the sample the version ships');
+    assert.equal(env.includes('paid-for'), false, 'and never from the tree the bundled version came with');
   });
 });
