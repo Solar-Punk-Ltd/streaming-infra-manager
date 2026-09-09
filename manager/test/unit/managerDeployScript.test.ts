@@ -126,6 +126,14 @@ describe('deploy/deploy.sh', () => {
     assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
   });
 
+  it('refuses a bundled timeout that is not whole seconds, before it reaches the remote quoting', () => {
+    const assignment = script.indexOf('BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-');
+    const checked = script.indexOf('if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]');
+    assert.notEqual(checked, -1, 'the value lands inside single quotes in the remote heredoc');
+    assert.ok(checked > assignment, 'after the value is settled');
+    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before anything runs on the host');
+  });
+
   it('feeds both remote docker commands from /dev/null, so neither reads the rest of the script', () => {
     // The remote block arrives on the stdin of one bash, and `run` and `exec` keep stdin open,
     // so without this the lines below them are swallowed instead of run.
