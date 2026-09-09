@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -52,7 +52,8 @@ class ScriptedRunner {
   }
 
   /** Each call keeps answering with its last scripted result, so a poll needs no repeats. */
-  readonly run: CommandRunner = async (argv) => {
+  readonly run: CommandRunner = async (argv, options) => {
+    assert.equal(options.timeoutMs, TIMEOUTS.command, `${key(argv)} ran without the bound the settings gave`);
     this.calls.push([...argv]);
     const queue = this.answers.get(key(argv));
     if (!queue) return { code: 0, stdout: '', stderr: '', killed: false, signal: null };
@@ -176,6 +177,20 @@ describe('the manager upgrade against one Compose project', () => {
 
       assert.deepEqual(await operations().readPublication(request), JOURNAL);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres'], 'nothing is started for a database that is already up');
+    });
+
+    it('reads a container listing an older Compose printed as one JSON array', async () => {
+      runner.answer('ps -a --format json postgres',
+        { stdout: '[{"Name":"manager-postgres-1","Service":"postgres","State":"running","Health":"healthy"}]' });
+
+      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(runner.seen, ['ps -a --format json postgres']);
+    });
+
+    it('refuses a container listing that is not JSON, rather than reading it as no containers at all', async () => {
+      runner.answer('ps -a --format json postgres', { stdout: 'Cannot connect to the Docker daemon.\n' });
+
+      await assert.rejects(operations().readPublication(request), /JSON/);
     });
 
     it('starts a Postgres whose container exists but is stopped, and waits for it to become healthy', async () => {
@@ -304,6 +319,22 @@ describe('the manager upgrade against one Compose project', () => {
       const altered = { ...request, shipment: { ...request.shipment, digest: 'c'.repeat(64) } };
 
       await assert.rejects(operations().installSources(altered), /digest|identity/i);
+    });
+
+    it('refuses a package whose manifest names another commit', async () => {
+      await sealPackage();
+      const altered = { ...request, shipment: { ...request.shipment, commit: 'b'.repeat(40) } };
+
+      await assert.rejects(operations().installSources(altered), /identity/i);
+    });
+
+    it('refuses a package whose manifest names another shipment, however it got to that path', async () => {
+      await mkdir(bundledPackagesRootFor(versionsRoot), { recursive: true });
+      const other = await bundledArtifactFixture(bundledPackagesRootFor(versionsRoot), { commit: COMMIT });
+      await rename(other.sealed.root, sealedBundledPackagePathFor(versionsRoot, shipmentId));
+      request = { ...request, shipment: { ...request.shipment, digest: other.sealed.identity.digest } };
+
+      await assert.rejects(operations().installSources(request), /identity/i);
     });
 
     it('refuses when the shipped package is not where the deploy leaves it', async () => {
@@ -457,7 +488,7 @@ describe('the manager upgrade against one Compose project', () => {
       await assert.rejects(operations().verifyProject(request), /api/i);
     });
 
-    it('refuses when the api never answers, which keeps the guard held', async () => {
+    it('refuses when the api never answers, naming the address it kept asking', async () => {
       await assert.rejects(operations({ health: [503] }).verifyProject(request), (error: Error) => {
         assert.match(error.message, new RegExp(HEALTH_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
         return true;
