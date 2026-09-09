@@ -1,0 +1,54 @@
+# The checks main-v2 requires before a merge, D06. What they prove and what
+# they do not: docs/ci.md.
+name: checks
+
+on:
+  pull_request:
+    branches: [main-v2]
+  push:
+    branches: [main-v2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Pinned by commit, the tag in the comment. Each was released more than
+      # two weeks before it was pinned here. pnpm comes from packageManager.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build common, which the other packages type against
+        run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: Type checks, every package, tests included
+        run: pnpm -r typecheck
+
+      - name: Unit tests, common
+        run: pnpm --filter @streaming-infra-manager/common test
+
+      - name: Unit tests, manager
+        # The tests never open a database. The config module requires the
+        # variable at load, so it gets a value that names nothing.
+        env:
+          DATABASE_URL: postgres://unused@localhost/unused
+        run: pnpm --filter @streaming-infra-manager/api test
+
+      - name: Unit tests, frontend
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype test
+
+      - name: Frontend build
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype build

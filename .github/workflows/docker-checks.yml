@@ -1,0 +1,94 @@
+# The Docker-backed run: the manager on the runner with Postgres beside it, the
+# integration suite signed in against it, real containers built and started
+# here and nowhere else. By hand, since it takes minutes and builds images. Not
+# a required check. What it proves and what it does not: docs/ci.md.
+name: docker-backed checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: manager
+          POSTGRES_PASSWORD: manager
+          POSTGRES_DB: manager
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U manager"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://manager:manager@localhost:5432/manager
+      SHLS_ROOT: ${{ github.workspace }}/manager/swarm-hls-stream
+      BEE_DATA_ROOT: ${{ runner.temp }}/streaming-infra-manager-data
+      STACK_VERSIONS_ROOT: ${{ runner.temp }}/streaming-infra-manager-versions
+      MANAGER_URL: http://localhost:9876
+    steps:
+      - name: Refuse to start without the sign-in secret
+        # The suite signs in as the user created below. A missing secret fails
+        # here, in words, rather than as a refused login minutes in. Only
+        # whether it is set is looked at, never the value.
+        env:
+          ITEST_PASSWORD: ${{ secrets.ITEST_PASSWORD }}
+        run: |
+          if [ -z "$ITEST_PASSWORD" ]; then
+            echo "The repository secret ITEST_PASSWORD is not set. It is the password of the user the suite signs in as." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @streaming-infra-manager/common build
+      - run: pnpm --filter @streaming-infra-manager/api build
+
+      - name: Start the manager, which runs the migrations
+        working-directory: manager
+        run: |
+          mkdir -p "$BEE_DATA_ROOT" "$STACK_VERSIONS_ROOT"
+          nohup node dist/index.js > "$RUNNER_TEMP/manager.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS "$MANAGER_URL/health" > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "the manager did not answer /health within 30 s" >&2
+          cat "$RUNNER_TEMP/manager.log" >&2
+          exit 1
+
+      - name: Create the user the suite signs in as
+        # The CLI takes the password on stdin and nowhere else. Node hands it
+        # over from the step's own environment, so no shell writes it out.
+        env:
+          ITEST_PASSWORD: ${{ secrets.ITEST_PASSWORD }}
+        working-directory: manager
+        run: node -e "process.stdout.write(process.env.ITEST_PASSWORD ?? '')" | node dist/cli.js user:add itest --password-stdin
+
+      - name: Integration suite, signed in, against the manager on this runner
+        env:
+          MANAGER_TEST_TARGET: http://localhost:9876
+          MANAGER_TEST_USERNAME: itest
+          MANAGER_TEST_PASSWORD: ${{ secrets.ITEST_PASSWORD }}
+          MANAGER_TEST_RUN: ci${{ github.run_number }}
+        run: pnpm --filter @streaming-infra-manager/api test:integration
+
+      - name: Manager log
+        if: always()
+        run: cat "$RUNNER_TEMP/manager.log"
