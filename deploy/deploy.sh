@@ -26,8 +26,12 @@
 #      the host under a staging name and renamed once every file arrived, so
 #      the host never reads a package a dropped connection left half copied.
 #      Nothing about it is published yet.
-#   4. Builds the images on the server, then runs `manager:upgrade` in a
-#      one-off container of the image just built. That command owns the rest:
+#   4. Builds the images on the server, decides there whether this host has
+#      ever run the manager, and then runs `manager:upgrade` in a one-off
+#      container of the image just built. The first use question is answered
+#      before that container exists, because preparing it can create the
+#      project's volumes, and it stops the deploy when the data volume is gone
+#      from under an installed manager. The command owns the rest:
 #      it holds one directory for the whole run so a second upgrade cannot
 #      start beside it, stops the old api, checks the package against the
 #      identity it was given, migrates, publishes the package as an immutable
