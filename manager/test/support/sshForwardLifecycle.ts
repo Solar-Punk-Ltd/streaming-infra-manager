@@ -53,7 +53,7 @@ export function fakeForwardHarness() {
   raw.destroy = (...args) => { if (!raw.destroyed) events.push('raw-dispose'); return originalDestroy(...args); };
   const dependencies: SshDockerDependencies = {
     clock, uid: 123,
-    async createDirectory() { events.push('mkdir'); paths.set(directoryPath, { ...dirIdentity }); return { path: directoryPath, identity: { ...dirIdentity } }; },
+    async createDirectory() { events.push('mkdir'); paths.set(directoryPath, { ...dirIdentity }); return directoryPath; },
     async lstat(path) { events.push(`stat:${path}`); return paths.get(path) ?? null; },
     async unlink(path) { events.push('unlink'); paths.delete(path); },
     async rmdir(path) { events.push('rmdir'); if (paths.has(socketPath)) throw new Error('nonempty'); paths.delete(path); },

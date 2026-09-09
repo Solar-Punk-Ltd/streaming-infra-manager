@@ -47,21 +47,21 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
   });
 
   it('owns a directory that resolves after the cleanup deadline without relabeling the unverified snapshot', async () => {
-    const h = fakeForwardHarness(); const created = deferred<{ path: string; identity: ForwardPathIdentity }>();
+    const h = fakeForwardHarness(); const created = deferred<string>();
     h.dependencies.createDirectory = () => created.promise;
     const { handle } = start(h); await tick(); handle.dispose(); await assert.rejects(handle.result);
     await h.clock.advance(20); const outcome = await handle.cleanup;
     assert.deepEqual(outcome, { state: 'unverified', reason: 'pending_resource', remaining: ['directory'] }); assert.ok(Object.isFrozen(outcome));
-    h.paths.set(directoryPath, { ...dirIdentity }); created.resolve({ path: directoryPath, identity: { ...dirIdentity } }); await tick();
+    h.paths.set(directoryPath, { ...dirIdentity }); created.resolve(directoryPath); await tick();
     assert.equal(h.paths.size, 0); assert.equal(h.events.includes('spawn'), false); assert.equal(await handle.cleanup, outcome);
     assert.equal(outcome.state, 'unverified'); assert.ok(Object.isFrozen(outcome.remaining));
   });
 
-  it('late directory replacement is never deleted', async () => {
-    const h = fakeForwardHarness(); const created = deferred<{ path: string; identity: ForwardPathIdentity }>();
+  it('late directory with unproven ownership is never deleted', async () => {
+    const h = fakeForwardHarness(); const created = deferred<string>();
     h.dependencies.createDirectory = () => created.promise; const { handle } = start(h); await tick(); handle.dispose();
     await h.clock.advance(20); await assert.rejects(handle.result); await handle.cleanup;
-    h.paths.set(directoryPath, { ...dirIdentity, ino: 'replacement' }); created.resolve({ path: directoryPath, identity: { ...dirIdentity } }); await tick();
+    h.paths.set(directoryPath, { ...dirIdentity, uid: 456 }); created.resolve(directoryPath); await tick();
     assert.equal(h.events.includes('rmdir'), false); assert.equal(h.paths.size, 1);
   });
 
@@ -99,7 +99,8 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
 
   for (const identity of [{ ...dirIdentity, kind: 'socket' }, { ...dirIdentity, mode: 0o777 }, { ...dirIdentity, uid: 456 }, { ...dirIdentity, ino: 'replacement' }]) {
     it(`refuses unsafe directory metadata ${JSON.stringify(identity)} without spawning`, async () => {
-      const h = fakeForwardHarness(); h.dependencies.lstat = async path => path === directoryPath ? identity as ForwardPathIdentity : null;
+      const h = fakeForwardHarness(); let reads = 0;
+      h.dependencies.lstat = async path => path === directoryPath ? (++reads === 1 ? { ...dirIdentity } : identity as ForwardPathIdentity) : null;
       const { handle } = start(h); await assert.rejects(handle.result); assert.equal(h.events.includes('spawn'), false);
       await h.clock.advance(20); assert.equal((await handle.cleanup).state, 'unverified');
     });
@@ -118,6 +119,67 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
     h.paths.set(socketPath, { ...socketIdentity, ino: 'replacement' }); handle.dispose(); await h.clock.advance(20);
     const outcome = await handle.cleanup; assert.equal(outcome.state, 'unverified'); assert.equal(h.events.includes('unlink'), false);
     assert.equal(h.events.filter(e => e === 'connect').length, 1);
+  });
+
+  it('waits for the owned child running observation even when its socket is already visible', async () => {
+    const h = fakeForwardHarness(); h.child.state = 'starting'; const { handle } = start(h);
+    let finished = false; void handle.result.then(() => { finished = true; }, () => { finished = true; });
+    await tick(); assert.equal(finished, false); assert.equal(h.events.includes('connect'), false);
+    h.child.emit('running'); await h.clock.advance(10); await handle.result;
+    handle.dispose(); assert.deepEqual(await handle.cleanup, { state: 'closed' });
+  });
+
+  it('an exit after result publication destroys the returned lease without changing its settled promise', async () => {
+    const { h, handle } = start();
+    void handle.result.then(() => h.child.emit('exited'));
+    const result = await handle.result; assert.equal(result.stream.destroyed, true);
+    assert.equal(await handle.result, result); assert.deepEqual(await handle.cleanup, { state: 'closed' });
+  });
+
+  it('a failed child needs a confirmed exit before any socket or directory is removed', async () => {
+    const h = fakeForwardHarness(); h.child.exitOn = null; const { handle } = start(h); await handle.result;
+    h.child.emit('failed'); await h.clock.advance(20);
+    assert.equal((await handle.cleanup).state, 'unverified'); assert.equal(h.events.includes('unlink'), false);
+    h.child.emit('exited'); await tick(); assert.equal(h.paths.size, 0);
+  });
+
+  for (const phase of ['resolve', 'metadata', 'connect', 'handshake'] as const) {
+    it(`bounds a pending ${phase}, contains its late rejection and never reconnects`, async () => {
+      const h = fakeForwardHarness(); const stalled = deferred<never>();
+      let resolve = async () => remoteLocator();
+      if (phase === 'resolve') resolve = () => stalled.promise;
+      if (phase === 'metadata') h.dependencies.lstat = () => stalled.promise;
+      if (phase === 'connect') h.dependencies.connect = () => { h.events.push('connect'); return { stream: h.raw, connected: stalled.promise }; };
+      if (phase === 'handshake') h.dependencies.acquire = () => { h.events.push('handshake'); return stalled.promise; };
+      const handle = beginSshDockerBeeAcquisition(syntheticTarget, resolve, forwardLimits, h.dependencies, () => true);
+      await tick(); await h.clock.advance(100); await assert.rejects(handle.result, fixedFailure); await h.clock.advance(20);
+      const outcome = await handle.cleanup; stalled.reject(new Error('private late error')); await tick();
+      assert.equal(await handle.cleanup, outcome); assert.ok(h.events.filter(e => e === 'connect').length <= 1);
+      if (phase === 'metadata') assert.equal(outcome.state, 'unverified');
+      if (phase === 'connect' || phase === 'handshake') assert.equal(h.raw.destroyed, true);
+    });
+  }
+
+  for (const step of ['unlink', 'rmdir'] as const) {
+    it(`reports a ${step} failure without claiming removal or retrying it`, async () => {
+      const h = fakeForwardHarness(); let attempts = 0;
+      h.dependencies[step] = async () => { attempts++; throw new Error('private filesystem error'); };
+      const { handle } = start(h); await handle.result; handle.dispose(); await tick(); await h.clock.advance(20);
+      const outcome = await handle.cleanup; assert.equal(outcome.state, 'unverified');
+      assert.equal(outcome.reason, 'cleanup_failed'); assert.ok(outcome.remaining.includes('directory'));
+      handle.dispose(); await tick(); assert.equal(attempts, 1);
+    });
+  }
+
+  it('refuses an untrusted locator before creating a directory', async () => {
+    const h = fakeForwardHarness(); const handle = beginSshDockerBeeAcquisition(syntheticTarget,
+      async () => ({ ...remoteLocator(), alias: 'replacement' }), forwardLimits, h.dependencies);
+    await assert.rejects(handle.result, fixedFailure); assert.deepEqual(await handle.cleanup, { state: 'closed' }); assert.deepEqual(h.events, []);
+  });
+
+  it('aborts before work without consulting routing or resources', async () => {
+    const controller = new AbortController(); controller.abort(); const { h, handle } = start(undefined, controller.signal);
+    await assert.rejects(handle.result); assert.deepEqual(await handle.cleanup, { state: 'closed' }); assert.deepEqual(h.events, []);
   });
 
   for (const phase of ['synchronous spawn', 'readiness', 'connection', 'handshake', 'handoff'] as const) {
@@ -193,6 +255,16 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
 });
 
 describe('in-memory SSH lifecycle composition', { timeout: 10000 }, () => {
+  it('defaults to qualification refusal before an exec request', async t => {
+    const h = fakeForwardHarness(); const docker = syntheticDockerBee(t);
+    h.dependencies.clock = { now: () => performance.now(), schedule: (call, ms) => { const timer = setTimeout(call, ms); return () => clearTimeout(timer); } };
+    h.dependencies.connect = () => ({ stream: docker.transport, connected: Promise.resolve() }); h.dependencies.acquire = acquireDockerBeeStream;
+    const handle = beginSshDockerBeeAcquisition(syntheticTarget, async () => remoteLocator(),
+      { acquisitionTimeoutMs: 2500, preflightTimeoutMs: 2500, postTimeoutMs: 2500, cleanupGraceMs: 100 }, h.dependencies);
+    t.after(() => handle.dispose()); await assert.rejects(handle.result); assert.deepEqual(await handle.cleanup, { state: 'closed' });
+    assert.equal(docker.dockerRequests.length, 3); assert.equal(docker.dockerRequests.some(request => request.method === 'POST'), false);
+  });
+
   it('uses the actual Docker handshake and one Bee connection without any physical acquisition', async t => {
     const h = fakeForwardHarness(); const docker = syntheticDockerBee(t); const calls: string[] = [];
     h.dependencies.clock = { now: () => performance.now(), schedule: (call, ms) => { const timer = setTimeout(call, ms); return () => clearTimeout(timer); } };
