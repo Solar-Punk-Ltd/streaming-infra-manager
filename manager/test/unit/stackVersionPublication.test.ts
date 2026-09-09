@@ -20,6 +20,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -149,6 +150,15 @@ describe('adding a version', () => {
     assert.equal(manifest.manifest?.buildId, COMMIT_A);
     assert.equal(existsSync(stagingDirFor(versionsRoot, 'v3', attemptOf())), false, 'the staging directory is gone');
     assert.equal(stackRootOf(row), build);
+  });
+
+  it('copies the settings into the build owner only, whatever the umask is', async () => {
+    await addBuilt('v3', COMMIT_A);
+
+    const build = buildDirFor(versionsRoot, 'v3', COMMIT_A);
+    for (const relative of ['.env', 'engines/srs/.env']) {
+      assert.equal((statSync(join(build, relative)).mode & 0o777).toString(8), '600', relative);
+    }
   });
 
   it('seeds the host configuration from the samples as generation one, and copies it into the build', async () => {

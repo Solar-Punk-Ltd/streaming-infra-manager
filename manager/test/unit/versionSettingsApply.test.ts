@@ -13,7 +13,7 @@
  * hard links because a build is never written to once it is published.
  */
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { readdirSync, readlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -206,6 +206,30 @@ describe('POST /versions/:id/settings/apply', () => {
     assert.deepEqual(Object.keys(after).sort(), ['.env', 'engines/ome/.env', 'engines/srs/.env']);
     assert.notEqual(after['.env'], before['.env']);
     assert.notEqual(after['engines/srs/.env'], before['engines/srs/.env']);
+  });
+
+  it('writes the settings of the new build owner only', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    await saveAndApply(id, 2);
+
+    const applied = join(buildsRoot, `${APPLY_COMMIT}-r1`);
+    for (const relative of ['.env', 'engines/srs/.env', 'engines/ome/.env']) {
+      assert.equal((statSync(join(applied, relative)).mode & 0o777).toString(8), '600', relative);
+    }
+  });
+
+  it('writes a settings file the build it was made from never had owner only', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    writeFileSync(join(configRoot, 'deploy', 'config.json'), '{"services":["srs"]}\n');
+
+    await saveAndApply(id, 2);
+
+    const applied = join(buildsRoot, `${APPLY_COMMIT}-r1`);
+    assert.equal(existsSync(join(buildsRoot, APPLY_COMMIT, 'deploy', 'config.json')), false);
+    assert.equal((statSync(join(applied, 'deploy', 'config.json')).mode & 0o777).toString(8), '600');
   });
 
   it('prunes the builds nothing protects', async () => {
