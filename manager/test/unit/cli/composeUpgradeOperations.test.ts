@@ -21,6 +21,7 @@ import { BUNDLED_PACKAGE_MANIFEST } from '../../../src/domain/versions/bundledSh
 import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import type { BundledActivation, BundledShipmentReceipt, BundledShipmentRecord } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerPublication, ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
+import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
 import { bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../../support/bundledArtifactFixture.js';
 
@@ -28,8 +29,9 @@ const PROJECT = 'manager';
 const COMPOSE_FILE = '/home/solarpunk/streaming-infra-manager/manager/docker-compose.yml';
 const COMPOSE_DIRECTORY = '/home/solarpunk/streaming-infra-manager/manager';
 const TOOLCHAIN = 'node v22.9.0 pnpm 9.0.0 Linux/x86_64';
-const HEALTH_URL = 'http://api:9876/health';
-const POSTGRES_VOLUME = 'manager_manager-pg';
+/** A port no default would produce, so a URL built anywhere but from these settings would not match. */
+const HEALTH_URL = 'http://api:19876/health';
+const POSTGRES_VOLUME = `${PROJECT}_${MANAGER_POSTGRES_VOLUME}`;
 const COMMIT = 'a'.repeat(40);
 const DIGEST = 'd'.repeat(64);
 const IMAGE_ID = `sha256:${'f'.repeat(64)}`;
@@ -152,7 +154,7 @@ describe('the manager upgrade against one Compose project', () => {
     const statuses = [...(options.health ?? [200])];
     return new ComposeUpgradeOperations(
       { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: options.publicEdge ?? false,
-        firstUse: options.firstUse ?? false, timeouts: TIMEOUTS },
+        firstUse: options.firstUse ?? false, postgresVolume: MANAGER_POSTGRES_VOLUME, apiHealthUrl: HEALTH_URL, timeouts: TIMEOUTS },
       database(),
       runner.run,
       async () => ({ status: statuses.length > 1 ? statuses.shift()! : statuses[0]! }),

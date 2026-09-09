@@ -20,6 +20,7 @@ import type { CommandRunner } from '../../src/cli/commandRunner.js';
 import { PostgresManagerUpgradeDatabase } from '../../src/cli/managerUpgradeDatabase.js';
 import type { ManagerUpgradeRequest } from '../../src/domain/versions/ManagerUpgrade.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
+import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
 import { buildsRootFor, bundledPackageClaimsRootFor, bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../support/bundledArtifactFixture.js';
 
@@ -53,7 +54,8 @@ describe('the manager upgrade publishing what the deploy shipped', {
     versions = new PostgresStackVersionRepository(reader);
     database = new PostgresManagerUpgradeDatabase(url, versionsRoot);
     operations = new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false, firstUse: false },
+      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false, firstUse: false,
+        postgresVolume: MANAGER_POSTGRES_VOLUME, apiHealthUrl: 'http://api:9876/health' },
       database, noRunner, async () => { throw new Error('publishing probed the api'); },
       { out: () => assert.fail('publishing writes no machine-read line'), err: (line) => said.push(line) },
     );

@@ -18,9 +18,11 @@ import type { ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOper
 import { processStreams } from '../../../src/cli/commandStreams.js';
 import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
 import { Logger } from '../../../src/domain/Logger.js';
+import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
 import type { BundledShipmentReceipt } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerUpgradeOperations } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
+import { config } from '../../../src/utils/config.js';
 
 const SHIPMENT_ID = '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71';
 const COMMIT = 'a'.repeat(40);
@@ -234,6 +236,8 @@ describe('manager:upgrade', () => {
     assert.equal(run.error, null);
     assert.deepEqual(settings, {
       versionsRoot, composeFile, toolchain: TOOLCHAIN, publicEdge: true, firstUse: false,
+      postgresVolume: MANAGER_POSTGRES_VOLUME,
+      apiHealthUrl: `http://api:${config.port}/health`,
     });
   });
 });
