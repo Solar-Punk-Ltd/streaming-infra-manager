@@ -19,7 +19,7 @@ const labels = { 'com.docker.compose.project': syntheticTarget.profile.name, 'co
 export type SyntheticBeeHandler = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
 
 /** Docker upgrade and Bee HTTP share only in-memory duplexes. The bridge command is never executed. */
-export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandler) {
+export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandler, guardNetwork = true) {
   const inbound = new PassThrough(); const outbound = new PassThrough();
   const transport = Duplex.from({ readable: inbound, writable: outbound });
   const peer = Duplex.from({ readable: outbound, writable: inbound });
@@ -27,7 +27,9 @@ export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandl
   const beeRequests: { method: string; url: string }[] = [];
   let networkCalls = 0; let closes = 0;
   const forbidden = () => { networkCalls++; throw new Error('No network acquisition allowed in synthetic fixture'); };
-  t.mock.method(net, 'createConnection', forbidden); t.mock.method(net, 'connect', forbidden); syncBuiltinESMExports();
+  if (guardNetwork) {
+    t.mock.method(net, 'createConnection', forbidden); t.mock.method(net, 'connect', forbidden); syncBuiltinESMExports();
+  }
   transport.on('close', () => { closes++; }); transport.on('error', () => {}); peer.on('error', () => {});
   const bee = http.createServer((request, response) => {
     beeRequests.push({ method: request.method!, url: request.url! });
