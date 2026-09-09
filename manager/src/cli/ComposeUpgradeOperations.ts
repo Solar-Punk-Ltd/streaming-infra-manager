@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -8,6 +8,7 @@ import type { BundledShipmentReceipt } from '../domain/versions/BundledShipment.
 import { sweepBundledPackages } from '../domain/versions/bundledPackageSweep.js';
 import { BUNDLED_PACKAGE_MANIFEST, parseBundledPackageManifest } from '../domain/versions/bundledShipmentPackage.js';
 import type { ManagerPublication, ManagerUpgradeOperations, ManagerUpgradeRequest } from '../domain/versions/ManagerUpgrade.js';
+import { readOwnedFile } from '../domain/versions/ownedTreePaths.js';
 import { sealedBundledPackagePathFor } from '../domain/versions/stackPaths.js';
 import type { CommandResult, CommandRunner } from './commandRunner.js';
 import { CLI_PREFIX, processStreams, type CommandStreams } from './commandStreams.js';
@@ -58,6 +59,8 @@ const API_HEALTH_URL = 'http://api:9876/health';
 const HEALTHY = 'healthy';
 const RUNNING = 'running';
 const PROBE_TIMEOUT_MS = 10_000;
+/** Far above any manifest of a package, and far below what reading a wrong file would cost. */
+const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
 /** Compose sets this to True on the container a `docker compose run` starts. */
@@ -115,6 +118,22 @@ export const httpHealthProbe: HealthProbe = async (url) => {
 };
 
 /**
+ * The manifest of a shipped package, read as a file of a tree this host owns.
+ *
+ * Never through a link, because the path is under a directory an rsync from
+ * another machine writes into, and never beyond a size a manifest can have,
+ * because what sits at that path may be something else entirely.
+ */
+async function readSealedManifest(sealed: string): Promise<Buffer> {
+  const path = join(sealed, BUNDLED_PACKAGE_MANIFEST);
+  const info = await lstat(path);
+  if (info.size > MAX_MANIFEST_BYTES) {
+    throw new Error(`${path} holds more than ${MAX_MANIFEST_BYTES} bytes, which no package manifest does.`);
+  }
+  return readOwnedFile(sealed, BUNDLED_PACKAGE_MANIFEST);
+}
+
+/**
  * What one manager upgrade does to the host, as Compose commands against one
  * project.
  *
@@ -156,9 +175,9 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     const sealed = sealedBundledPackagePathFor(this.settings.versionsRoot, request.shipment.shipmentId);
     let manifest;
     try {
-      manifest = parseBundledPackageManifest(await readFile(join(sealed, BUNDLED_PACKAGE_MANIFEST)));
+      manifest = parseBundledPackageManifest(await readSealedManifest(sealed));
     } catch (error) {
-      throw new Error(`The package this upgrade publishes cannot be read at ${sealed}. ${(error as Error).message}`);
+      throw new Error(`The package this upgrade publishes cannot be read at ${sealed}. ${getErrorMessage(error)}`);
     }
     if (manifest.shipmentId !== request.shipment.shipmentId || manifest.commit !== request.shipment.commit ||
       manifest.digest !== request.shipment.digest) {
