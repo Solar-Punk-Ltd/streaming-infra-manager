@@ -245,6 +245,35 @@ describe('POST /versions/:id/settings/apply', () => {
     ]);
   });
 
+  it('answers the build that already carries the settings rather than publishing another', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const first = await saveAndApply(id, 2);
+
+    const second = await callJson('POST', `/versions/${id}/settings/apply`);
+
+    assert.equal(second.status, 200);
+    assert.deepEqual(second.body, { buildId: `${APPLY_COMMIT}-r1`, reused: true });
+    assert.deepEqual(first.body, { buildId: `${APPLY_COMMIT}-r1`, reused: false });
+    assert.deepEqual(readdirSync(buildsRoot).sort(), [APPLY_COMMIT, `${APPLY_COMMIT}-r1`]);
+  });
+
+  it('leaves the approval of a build it reused where it was', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    await saveAndApply(id, 2);
+    const approved = await callJson('PATCH', `/versions/${id}`, {
+      tested: true,
+      commitSha: APPLY_COMMIT,
+      buildId: `${APPLY_COMMIT}-r1`,
+    });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+    await callJson('POST', `/versions/${id}/settings/apply`);
+
+    assert.equal((await versionRow('v3')).tested, true);
+  });
+
   it('refuses while another build of this manager is running', async () => {
     seedHostFiles();
     const id = await buildV3();

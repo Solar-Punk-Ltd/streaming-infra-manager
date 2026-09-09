@@ -32,6 +32,8 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   /** The generation the next save is told to expect, so a stale save can be staged. */
   let saveConflict = false;
   let applyBusy = false;
+  /** Whether apply answers the build that already carries the settings rather than a new one. */
+  let applyReused = false;
 
   const server = await createServer({
     root: frontend,
@@ -72,7 +74,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
             if (path.endsWith('/apply')) {
               if (applyBusy) return json({ error: 'stack_build_busy', name: 'other-version', message: 'other-version is building. Wait for it to finish, then try again.' }, 409);
               settings = { ...settings, buildGeneration: settings.generation };
-              return json({ buildId: '3333333333333333333333333333333333333333-r3' });
+              return json({
+                buildId: applyReused
+                  ? '3333333333333333333333333333333333333333-r2'
+                  : '3333333333333333333333333333333333333333-r3',
+                reused: applyReused,
+              });
             }
             if (saveConflict) {
               return json({ error: 'settings_changed', name: 'candidate', generation: 9, message: 'candidate settings changed since this page loaded.' }, 409);
@@ -171,6 +178,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`), true);
     assert.ok((await evaluate('document.body.innerText')).includes('Nothing changed yet'));
     assert.equal(writes.length, 0);
+  });
+
+  await t.test('apply is offered only where it would change something', async () => {
+    const disabled = await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save and apply').disabled`);
+
+    assert.equal(disabled, true, 'nothing is edited and the build already carries the revision');
   });
 
   await t.test('the page fits the narrow viewport it was measured at', async () => {
@@ -301,6 +314,21 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
       'the busy message',
     );
     applyBusy = false;
+  });
+
+  await t.test('an apply that changes nothing says which build already carries the settings', async () => {
+    applyReused = true;
+
+    await clickButton('Save and apply');
+    await waitFor(() => writes.length, (count) => count === 7, 'the apply on its own');
+
+    assert.deepEqual(writes[6], { method: 'POST', path: '/versions/3/settings/apply', body: {} });
+    await waitFor(
+      () => evaluate('document.body.innerText'),
+      (text) => text.includes('Build 3333333333333333333333333333333333333333-r2 already carries these settings.'),
+      'the reused build',
+    );
+    applyReused = false;
   });
 
   await t.test('a version with no build yet says why and offers no fields', async () => {
