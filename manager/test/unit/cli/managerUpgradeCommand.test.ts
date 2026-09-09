@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import type { ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOperations.js';
+import { DEFAULT_BUNDLED_BUILD_MS, type ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOperations.js';
 import { processStreams } from '../../../src/cli/commandStreams.js';
 import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
 import { Logger } from '../../../src/domain/Logger.js';
@@ -133,6 +133,17 @@ describe('manager:upgrade', () => {
       assert.equal(opened, 0, 'nothing on the host was opened');
     });
   }
+
+  it('waits the default when the deploy names no bundled timeout', async () => {
+    const named = argvWith().indexOf('--bundled-timeout');
+    const argv = argvWith();
+    argv.splice(named, 2);
+
+    const run = await upgrade(argv);
+
+    assert.equal(run.error, null);
+    assert.equal(settings?.timeouts?.bundledBuild, DEFAULT_BUNDLED_BUILD_MS);
+  });
 
   it('takes no shipment, because the host builds the stack itself', async () => {
     const run = await upgrade([...argvWith(), '--shipment-id', '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71']);

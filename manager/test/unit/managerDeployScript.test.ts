@@ -171,6 +171,17 @@ describe('deploy/deploy.sh', () => {
     assert.ok(printed > captured, 'after the command that returned it, never before');
   });
 
+  it('prints the receipt of an upgrade that failed, and only then fails the deploy', () => {
+    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    const kept = script.indexOf('|| UPGRADE_STATUS=\\$?');
+    assert.notEqual(kept, -1, 'the capture runs under set -e, where a failing substitution would end the block');
+    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
+    const failed = script.indexOf('exit "\\${UPGRADE_STATUS}"');
+    assert.ok(kept > captured, 'the status of the command is taken');
+    assert.ok(printed > kept, 'the receipt is printed with it in hand');
+    assert.ok(failed > printed, 'and the deploy fails after the deployer has read it');
+  });
+
   it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
     // The remote block runs under set -e with pipefail, so a failing pipe inside this
     // substitution would end it here and the warning, the upgrade and the receipt would never run.
