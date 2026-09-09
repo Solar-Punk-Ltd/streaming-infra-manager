@@ -233,6 +233,13 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
     assert.equal(h.events.filter(e => e === 'rmdir').length, 1); assert.deepEqual(h.child.signals, ['SIGTERM']);
   });
 
+  it('repeated disposal after cleanup does not accumulate child error listeners', async () => {
+    const { h, handle } = start(); await handle.result; handle.dispose(); await handle.cleanup;
+    const listeners = h.child.stderr.listenerCount('error');
+    for (let i = 0; i < 4; i++) { handle.dispose(); await tick(); }
+    assert.equal(h.child.stderr.listenerCount('error'), listeners); assert.equal(h.child.listeners.size, 0); assert.equal(h.clock.tasks.size, 0);
+  });
+
   it('bounds and discards stderr bytes and never surfaces their content', async () => {
     const { h, handle } = start(); await handle.result;
     h.child.stderr.write(Buffer.alloc(65537, 'x')); await tick(); assert.deepEqual(await handle.cleanup, { state: 'closed' });
