@@ -2,12 +2,9 @@
 **/dist
 **/.tsbuildinfo
 npm-debug.log
-.env
-.env.*
+**/.env
+**/.env.*
 *.log
 .DS_Store
 
-!manager/swarm-hls-stream/.env
-!manager/swarm-hls-stream/.env.*
-
-swarm-hls-stream
+manager/swarm-hls-stream
