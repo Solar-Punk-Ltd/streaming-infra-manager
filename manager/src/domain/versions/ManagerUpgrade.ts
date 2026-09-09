@@ -31,10 +31,15 @@ const REVISION = /^(0|[1-9][0-9]{0,18})$/;
 
 function captureRequest(input: ManagerUpgradeRequest): ManagerUpgradeRequest {
   const request = structuredClone(input);
-  if (!request || !UUID.test(request.shipment?.shipmentId) || !COMMIT.test(request.shipment?.commit) ||
-    !DIGEST.test(request.shipment?.digest) || !COMMIT.test(request.manager?.sourceCommit) ||
-    !DIGEST.test(request.manager?.sourceDigest) || !/^sha256:[a-f0-9]{64}$/.test(request.manager?.imageId) ||
-    !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(request.project)) throw new Error('Invalid manager upgrade identity.');
+  const fields = (value: unknown, keys: string[]) => value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    isDeepStrictEqual(Object.keys(value).sort(), keys.sort());
+  const matches = (value: unknown, pattern: RegExp) => typeof value === 'string' && pattern.test(value);
+  if (!fields(request, ['shipment', 'manager', 'project']) || !fields(request.shipment, ['shipmentId', 'commit', 'digest']) ||
+    !fields(request.manager, ['sourceCommit', 'sourceDigest', 'imageId']) ||
+    !matches(request.shipment.shipmentId, UUID) || !matches(request.shipment.commit, COMMIT) ||
+    !matches(request.shipment.digest, DIGEST) || !matches(request.manager.sourceCommit, COMMIT) ||
+    !matches(request.manager.sourceDigest, DIGEST) || !matches(request.manager.imageId, /^sha256:[a-f0-9]{64}$/) ||
+    !matches(request.project, /^[a-z0-9][a-z0-9_-]{0,62}$/)) throw new Error('Invalid manager upgrade identity fields.');
   Object.freeze(request.shipment); Object.freeze(request.manager); return Object.freeze(request);
 }
 function receiptOf(value: unknown, request: ManagerUpgradeRequest): BundledShipmentReceipt {
