@@ -273,3 +273,43 @@ frontend 68, both manager typechecks and the common and frontend typechecks
 clean, `bash -n deploy/deploy.sh` clean, and the remote heredoc body parses as
 bash on its own. Nothing ran against the real host, nothing was pushed, and no
 `.env` of the submodule was read.
+
+**Third round, 2026-09-10.** A targeted re-review of those fixes found six more,
+all now in, one test-first commit each. Two were the same two shapes again, in
+places the first round missed. `manager/scripts/stack-config-edit.sh`, the
+supported way to edit a version's settings by hand, created its temporary file
+at whatever the umask allowed, so one `set` widened a 0600 `.env` back to 0644
+and undid the mode fix through the one door an operator is told to use. It now
+creates that file owner only and gives it the mode the target already has, and
+the revision manifest goes the same way. `seedHostConfig` asked whether a file
+was there outside the lock and committed under a fresh one, so a file an
+operator created while a build ran was written over by the sample. It holds the
+lock across both now, and `adoptHostConfig` commits through the caller's hold
+rather than taking its own.
+
+A legacy tree whose `deploy` or `engines` is a symbolic link was reported as
+holding nothing at all, so nothing was carried and no log said why. Those two
+paths are now named the same way a linked file is. The modes were asserted only
+where a file already existed, so the rule that a carried file lands owner only
+and a completed file keeps the mode it had was not held by anything. It is now,
+proven by a mutation that drops the mode handling and turns three suites red.
+
+The last one is the twenty minute wait a deploy does for the bundled build. It
+told this boot's answer from an earlier one's by the row having changed, and a
+boot that never started the build left the row byte identical, so the deploy sat
+out its whole bound and then printed an error from an earlier boot. Every path
+in `ensureBundledBuild` that does not start the build now writes the reason into
+the row and moves it onto the pin: the mutex refusing while another version
+builds, a `.stack-commit` that holds something that is not a commit, and a build
+whose script could not be started at all. A version that still has a build stays
+ready with the reason beside it, a version with nothing to deploy from is
+failed, and a machine with no pin file, which is a laptop rather than a broken
+deploy, is still left alone. `docs/features/stack-versions.md` lost the last
+mention of shipment records among the removal holds.
+
+**Verified, 2026-09-10.** Manager unit 2096 of 2096, fifteen more than the round
+before and nothing else moved. The whole `manager/test/database` directory 492 of
+492 with nothing skipped, run the nine-database way. Common 300, frontend 68,
+both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
+clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
+the submodule was read.
