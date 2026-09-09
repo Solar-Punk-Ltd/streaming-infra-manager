@@ -225,11 +225,11 @@ RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:up
     --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
     --mutable-root ${REMOTE_PATH} \
     \${FIRST_USE_FLAG} \
-    --toolchain '${TOOLCHAIN}' ${PUBLIC_EDGE_FLAG})"
+    --toolchain '${TOOLCHAIN}' ${PUBLIC_EDGE_FLAG} < /dev/null)"
 echo "[deploy] upgrade receipt: \${RECEIPT}"
 
 echo "[deploy] PUBLIC_HOST seen inside api container:"
-docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' || \
+docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' < /dev/null || \
     echo "[deploy] (could not exec into api container to verify)"
 REMOTE
 
