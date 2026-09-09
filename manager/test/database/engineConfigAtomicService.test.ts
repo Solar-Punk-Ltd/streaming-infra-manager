@@ -181,7 +181,7 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
     const watcher = { inspect: async () => null, logs: async () => '' };
     const service = new EngineConfigService(profiles, containers, orchestrator, versions, watcher, checker, events, operations,
       { intervalMs: 1, durationMs: 1 });
-    return { service, launches, daemon, checker };
+    return { service, launches, daemon, checker, orchestrator };
   }
 
   for (const action of ['apply', 'reset'] as const) {
@@ -297,5 +297,49 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
     assert.equal(current.deploymentJobReferenceId, h.launches[0]!.reservation.build?.referenceId);
     assert.notEqual(current.deploymentJobReferenceId, original.operation.deploymentJobReferenceId);
     assert.equal(current.recoveryReferenceId, original.operation.recoveryReferenceId);
+  });
+
+  for (const action of ['apply', 'restore'] as const) {
+    it(`${action} reports a preparation failure and retains interrupted recovery authority`, async () => {
+      if (action === 'restore') {
+        const original = await apply();
+        await operations.transition(ownershipOf(original.operation), ['watching'], 'interrupted');
+        await publishLater();
+      }
+      const h = serviceHarness();
+      h.orchestrator.runReserved = async (reservation, profile) => {
+        await profiles.markDeployError(profile.name, deployOwnerOf(profile), reservation.build!.referenceId,
+          'synthetic launch preparation refused');
+        throw new Error('synthetic launch preparation refused');
+      };
+      await assert.rejects(action === 'apply'
+        ? h.service.apply(initial.name, 'listen 1935; # synthetic candidate')
+        : h.service.recreateOnPrevious(initial.name), /synthetic launch preparation refused/);
+      const operation = (await operations.findOpen(initial.instance_id))!;
+      assert.equal(operation.state, 'interrupted');
+      assert.match(operation.message ?? '', /synthetic launch preparation refused/);
+      assert.equal((await profiles.findByName(initial.name))!.status, 'ERROR');
+      const reference = (await pool.query('SELECT * FROM build_references WHERE id = $1', [operation.recoveryReferenceId])).rows[0];
+      assert.equal(reference.resolved_at, null);
+      assert.equal((await pool.query('SELECT deploy_job_reference_id FROM profiles')).rows[0].deploy_job_reference_id,
+        operation.deploymentJobReferenceId);
+    });
+  }
+
+  it('preparation failure cannot interrupt a successor job with the same instance and intent', async () => {
+    const h = serviceHarness();
+    let successor: unknown;
+    h.orchestrator.runReserved = async (reservation, profile) => {
+      const next = (await pool.query(`INSERT INTO build_references
+        (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision)
+        SELECT version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision
+          FROM build_references WHERE id = $1 RETURNING id`, [reservation.build!.referenceId])).rows[0].id;
+      await pool.query('UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = $2', [next, profile.name]);
+      successor = (await pool.query('SELECT * FROM profiles WHERE name = $1', [profile.name])).rows[0];
+      throw new Error('synthetic preparation lost ownership');
+    };
+    await assert.rejects(h.service.apply(initial.name, 'listen 1935; # synthetic candidate'), /synthetic preparation lost ownership/);
+    assert.deepEqual((await pool.query('SELECT * FROM profiles WHERE name = $1', [initial.name])).rows[0], successor);
+    assert.equal((await operations.findOpen(initial.instance_id))!.state, 'applying');
   });
 });

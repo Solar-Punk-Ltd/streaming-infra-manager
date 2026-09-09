@@ -48,6 +48,9 @@ for (const changed of ['target', 'services', 'released'] as const) {
     assert.equal(h.runner.runs.length, 0);
     assert.equal(h.attempts.rows.length, 1);
     assert.equal(h.attempts.rows[0]!.state, changed === 'released' ? 'released' : 'open');
+    assert.equal(h.profiles.statusOf('prepared-owner'), 'ERROR');
+    assert.equal(h.profiles.activeDeployJobs.get('prepared-owner'), reservation.build!.referenceId);
+    assert.equal(h.ledger.references.find(row => row.id === reservation.build!.referenceId)!.resolvedAt, null);
   });
 }
 
