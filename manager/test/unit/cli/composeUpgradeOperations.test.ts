@@ -10,13 +10,14 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { ComposeUpgradeOperations } from '../../../src/cli/ComposeUpgradeOperations.js';
 import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunner.js';
+import { BUNDLED_PACKAGE_MANIFEST } from '../../../src/domain/versions/bundledShipmentPackage.js';
 import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import type { BundledActivation, BundledShipmentReceipt, BundledShipmentRecord } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerPublication, ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
@@ -299,6 +300,30 @@ describe('the manager upgrade against one Compose project', () => {
 
     it('refuses when the shipped package is not where the deploy leaves it', async () => {
       await assert.rejects(operations().installSources(request), /package/i);
+    });
+
+    it('refuses a manifest that is a symbolic link, instead of reading what it points at', async () => {
+      await sealPackage();
+      const manifest = join(sealedBundledPackagePathFor(versionsRoot, shipmentId), BUNDLED_PACKAGE_MANIFEST);
+      // The link points at the very bytes the check would accept, so only refusing the link can fail this.
+      const elsewhere = join(root, 'elsewhere.json');
+      await writeFile(elsewhere, await readFile(manifest));
+      await rm(manifest);
+      await symlink(elsewhere, manifest);
+
+      await assert.rejects(operations().installSources(request), /symbolic link/i);
+    });
+
+    it('refuses a manifest bigger than any manifest is, before it reads one byte of it', async () => {
+      await sealPackage();
+      const manifest = join(sealedBundledPackagePathFor(versionsRoot, shipmentId), BUNDLED_PACKAGE_MANIFEST);
+      await truncate(manifest, 64 * 1024 * 1024 + 1);
+
+      await assert.rejects(operations().installSources(request), (error: Error) => {
+        assert.match(error.message, /bytes/i);
+        assert.ok(error.message.includes(manifest), 'the file a person has to look at is named');
+        return true;
+      });
     });
   });
 
