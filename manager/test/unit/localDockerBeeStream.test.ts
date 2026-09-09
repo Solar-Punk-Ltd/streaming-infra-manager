@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, it, type TestContext } from 'node:test';
 import { acquireLocalDockerBeeStream, openUnixDockerConnection, type LocalDockerLocator } from '../../src/domain/chequebook/acquireLocalDockerBeeStream.js';
+import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
 import { PinnedBeeSession } from '../../src/domain/chequebook/PinnedBeeSession.js';
 import { syntheticDockerBee, syntheticImageId, syntheticTarget } from '../support/syntheticDockerBee.js';
-import { transactionHash } from '../support/chequebookOperations.js';
+import { transactionHash, transferContext } from '../support/chequebookOperations.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const block = (ms: number) => { const end = performance.now() + ms; while (performance.now() < end) {} };
@@ -21,6 +21,30 @@ function harness(t: TestContext) {
 }
 
 describe('local owned Docker connection', { timeout: 5000 }, () => {
+  it('preserves an absolute acquisition cap across handshake cloning delay before protocol I/O', async t => {
+    const h = harness(t); const original = structuredClone;
+    t.mock.method(globalThis, 'structuredClone', (value: unknown) => { block(35); return original(value); });
+    const cap = performance.now() + 20;
+    const result = await acquireDockerBeeStream(h.docker.transport, syntheticTarget, limits, qualified, undefined, cap)
+      .then(value => { value.stream.destroy(); return 'completed'; }, () => 'refused');
+    assert.equal(result, 'refused'); assert.equal(h.docker.dockerRequests.length, 0); assert.equal(h.docker.transport.destroyed, true);
+  });
+
+  for (const cap of [NaN, Infinity, -Infinity, performance.now() - 1000, '20000']) {
+    it(`disposes before protocol I/O for invalid or expired absolute acquisition cap ${String(cap)}`, async t => {
+      const h = harness(t);
+      await assert.rejects(acquireDockerBeeStream(h.docker.transport, syntheticTarget, limits, qualified, undefined, cap as number));
+      assert.equal(h.docker.dockerRequests.length, 0); assert.equal(h.docker.transport.destroyed, true);
+    });
+  }
+
+  it('does not allow a later absolute cap to extend the handshake normalized acquisition allowance', async t => {
+    const h = harness(t); h.docker.peer.pause();
+    const began = performance.now();
+    await assert.rejects(acquireDockerBeeStream(h.docker.transport, syntheticTarget, { ...limits, acquisitionTimeoutMs: 20 }, qualified, undefined, began + 1000));
+    assert.ok(performance.now() - began < 250); assert.equal(h.docker.transport.destroyed, true);
+  });
+
   it('performs the accepted handshake and successive Bee reads then one POST over one supplied connection', async t => {
     const h = harness(t);
     const acquired = await acquireLocalDockerBeeStream(syntheticTarget, async alias => {
@@ -28,10 +52,10 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
     }, limits, qualified, undefined, h.connect);
     const session = PinnedBeeSession.fromStream(acquired.stream);
     t.after(() => session.dispose());
-    assert.equal((await session.getAddresses()).ethereum, '0x1111111111111111111111111111111111111111');
+    assert.equal((await session.getAddresses()).ethereum, transferContext.nodeAddress);
     await session.getWallet(); await session.getChequebookAddress();
-    assert.deepEqual(await session.deposit('1'), { transactionHash });
-    await assert.rejects(session.deposit('1'));
+    assert.deepEqual(await session.depositChequebook(1n), { transactionHash });
+    await assert.rejects(session.depositChequebook(1n));
     assert.equal(h.opens(), 1); assert.equal(h.docker.counts().posts, 1); assert.equal(h.docker.counts().networkCalls, 0);
     assert.equal(h.docker.dockerRequests.length, 5); session.dispose();
     await pause(0); assert.equal(h.docker.counts().closes, 1);
@@ -65,7 +89,7 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
     let resolve!: (value: LocalDockerLocator) => void;
     const pending = acquireLocalDockerBeeStream(proof, () => new Promise(done => { resolve = done; }), options, qualified, undefined, h.connect);
     Object.assign(proof, { alias: 'other', daemonId: 'other' }); options.acquisitionTimeoutMs = 1;
-    h.onReady(async () => { found.alias = 'other'; found.socketPath = '/other.sock'; });
+    h.onReady(async () => { Object.assign(found, { alias: 'other', socketPath: '/other.sock' }); });
     resolve(found);
     const result = await pending; result.stream.destroy();
     assert.equal(h.opens(), 1); assert.equal(result.binding.daemonId, syntheticTarget.daemonId);
@@ -134,7 +158,7 @@ describe('local owned Docker connection', { timeout: 5000 }, () => {
     const h = harness(t); const started = performance.now();
     const result = await acquireLocalDockerBeeStream(syntheticTarget, async () => { await pause(120); return locator(); },
       { acquisitionTimeoutMs: 250, preflightTimeoutMs: 20, postTimeoutMs: 20, cleanupGraceMs: 10 }, qualified, undefined, h.connect);
-    await once(result.stream, 'close');
+    await new Promise<void>(resolve => result.stream.once('close', resolve));
     assert.ok(performance.now() - started < 400, 'Resetting the total allowance after resolution would permit420ms');
     assert.equal(h.docker.transport.destroyed, true);
   });
