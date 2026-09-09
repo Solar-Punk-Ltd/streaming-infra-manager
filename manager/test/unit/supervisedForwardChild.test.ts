@@ -52,6 +52,13 @@ it('supervisor death without a receipt remains unverified even if a receipt arri
   const h = attach(); h.process.emit({ type: 'message', value: ready() }); h.process.emit({ type: 'closed' });
   const result = await h.child.delegatedCleanup.receipt; assert.equal(result, undefined);
   h.process.emit({ type: 'message', value: receipt() }); assert.equal(await h.child.delegatedCleanup.receipt, result);
+  assert.notEqual(h.states.at(-1), 'exited', 'Supervisor close alone does not prove the forwarding child exited');
+});
+
+it('an unverified cleanup receipt plus supervisor close does not claim the forwarding child exited', async () => {
+  const h = attach(); h.process.emit({ type: 'message', value: { ...receipt(), outcome: { state: 'unverified', reason: 'child_exit_unconfirmed', remaining: ['child', 'directory', 'socket'] } } });
+  h.process.emit({ type: 'closed' }); assert.equal((await h.child.delegatedCleanup.receipt)?.state, 'unverified');
+  assert.notEqual(h.states.at(-1), 'exited');
 });
 
 it('repeated identical receipt is harmless, but a contradictory second receipt prevents closed', async () => {
@@ -83,7 +90,7 @@ it('captured start and ready evidence cannot be altered by later caller mutation
   const process = new FakeProcess(); const input = structuredClone(start());
   const child = attachSupervisedForwardChild(input, process, { uid: 123, nowNs: () => 0n, delegateCleanup() {} });
   Object.assign(input.directory.identity, { ino: '88' });
-  const evidence = structuredClone(ready()); process.emit({ type: 'message', value: evidence }); evidence.socket.identity.ino = '77';
+  const evidence = structuredClone(ready()); process.emit({ type: 'message', value: evidence }); Object.assign(evidence.socket.identity, { ino: '77' });
   process.emit({ type: 'message', value: receipt() }); process.emit({ type: 'closed' });
   assert.deepEqual(await child.delegatedCleanup.receipt, { state: 'closed' }); assert.equal(child.delegatedCleanup.readySocket()?.ino, '3');
 });
