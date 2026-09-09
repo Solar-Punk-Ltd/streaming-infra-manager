@@ -14,6 +14,7 @@ import {
   type StackVersion,
 } from '@streaming-infra-manager/common';
 
+import { navigate, routes } from '../app/router';
 import { MONO_STACK } from '../app/theme';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { ShapePill } from '../components/ShapePill';
@@ -32,8 +33,18 @@ const STATUS_TONES: Record<StackVersion['status'], Tone> = {
   ready: 'ok',
   failed: 'err',
 };
+const SETTINGS_MEANS =
+  'The base environment, the deploy config and the engine environments this host gives this version. Editable here, and applied to new deployments by a build that carries them.';
+
 const TESTED_MEANS =
   'Set by hand once one real deployment has run on this build. A different build clears approval, even at the same commit. Legacy versions without immutable builds keep approval only while their commit is unchanged.';
+
+/** Why this version has no settings page yet, or empty. They come with its first build. */
+function settingsBlockedBecause(version: StackVersion): string {
+  if (version.layout === 'builds' && version.buildId) return '';
+  if (version.layout === 'legacy' && version.commitSha) return '';
+  return 'Settings appear after this version has finished its first build on this host.';
+}
 
 function defaultBlockedBecause(version: StackVersion): string {
   if (version.status !== 'ready') {
@@ -103,6 +114,7 @@ export function VersionCard({
   const acting = busy || buildingElsewhere;
   const defaultBlocked = defaultBlockedBecause(version);
   const removalBlocked = removalBlockedBecause(version);
+  const settingsBlocked = settingsBlockedBecause(version);
   const previousBuild = describePreviousBuild(version);
   const approvalWarning = lostApprovalWarning(version);
   const headingId = `version-${version.id}-heading`;
@@ -201,6 +213,18 @@ export function VersionCard({
               onClick={onSetDefault}
             >
               Set as default
+            </Button>
+          </Box>
+        </Tooltip>
+        <Tooltip title={settingsBlocked || SETTINGS_MEANS}>
+          <Box component="span">
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={settingsBlocked !== ''}
+              onClick={() => navigate(routes.versionSettings(version.id))}
+            >
+              Settings
             </Button>
           </Box>
         </Tooltip>
