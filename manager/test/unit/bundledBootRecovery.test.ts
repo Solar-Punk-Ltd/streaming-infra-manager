@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
+import { readStackContract } from '../../src/domain/versions/stackContract.js';
 import { FakeScriptSpawner } from '../support/FakeScriptSpawner.js';
 import { InMemoryStackVersionRepository } from '../support/InMemoryStackVersionRepository.js';
 import { V3_FIXTURE } from '../support/stackFixtures.js';
@@ -35,7 +36,7 @@ describe('bundled boot never invents shipment publication authority', () => {
   async function activeC() {
     await artifact(C);
     const bundled = (await versions.findByName('bundled'))!;
-    await versions.publish(bundled.id, { buildId: C, commitSha: C, rootPath: join(versionsRoot, 'bundled'), contract: null });
+    await versions.publish(bundled.id, { buildId: C, commitSha: C, rootPath: join(versionsRoot, 'bundled'), contract: readStackContract(legacyRoot) });
     return (await versions.findByName('bundled'))!;
   }
   it('does not adopt an unreferenced artifact with a newer timestamp after C is active', async () => {
