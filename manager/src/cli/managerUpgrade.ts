@@ -1,3 +1,5 @@
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { captureManagerUpgradeRequest, runManagerUpgrade, type ManagerUpgradeOperations } from '../domain/versions/ManagerUpgrade.js';
@@ -26,6 +28,22 @@ const PUBLIC_EDGE = '--public-edge';
 const FIRST_USE = '--first-use';
 
 const RETAINED_GUARD_ADVICE = 'A person checks the host before removing that directory.';
+
+/** Every path this command takes is one the host reads, so each is absolute and written out in full. */
+function assertPlainPath(flag: string, value: string): void {
+  if (!isAbsolute(value) || resolve(value) !== value) {
+    throw new Error(`${flag} must be an absolute path written out in full, with no "." or ".." step in it.`);
+  }
+}
+
+function assertComposeFileInside(composeFile: string, mutableRoot: string): void {
+  assertPlainPath(MUTABLE_ROOT, mutableRoot);
+  assertPlainPath(COMPOSE_FILE, composeFile);
+  const step = relative(mutableRoot, composeFile);
+  if (!step || step === '..' || step.startsWith(`..${sep}`) || isAbsolute(step)) {
+    throw new Error(`${COMPOSE_FILE} must name a file inside the tree given by ${MUTABLE_ROOT}.`);
+  }
+}
 
 export const MANAGER_UPGRADE_USAGE = [
   'Usage:',
@@ -100,6 +118,7 @@ export async function runManagerUpgradeCommand(
       switches: [PUBLIC_EDGE, FIRST_USE],
     });
     assertToolchain(flags.required(TOOLCHAIN_FLAG));
+    assertComposeFileInside(flags.required(COMPOSE_FILE), flags.required(MUTABLE_ROOT));
     return {
       // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
       request: captureManagerUpgradeRequest({
