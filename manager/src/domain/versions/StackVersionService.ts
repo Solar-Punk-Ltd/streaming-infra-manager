@@ -58,6 +58,7 @@ import { describeSettingsSave, saveHostConfigSettings } from './hostConfigSave.j
 import {
   readHostConfigSettings,
   readySettingsSources,
+  SETTINGS_NEED_A_MANAGED_BUILD,
   type HostConfigSettingsSources,
 } from './hostConfigSettings.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
@@ -464,6 +465,12 @@ export class StackVersionService {
   }
 
   private async publishSettingsBuild(version: StackVersionRecord): Promise<StackSettingsApplied> {
+    // A legacy row's settings tree is its flat checkout, which no build made
+    // and none can be made from, so this is refused before anything reads a
+    // manifest that is not there.
+    if (version.layout !== 'builds') {
+      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_MANAGED_BUILD);
+    }
     const { configRoot, buildRoot: from } = readySettingsSources(
       version.name,
       this.settingsSourcesOf(version),

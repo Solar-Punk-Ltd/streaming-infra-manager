@@ -57,6 +57,10 @@ export const SETTINGS_NEED_A_REVISION =
   `Its files are here but there is no committed revision of them, so nothing can say which bytes a save was made against. Commit them with ${CONFIG_EDIT_SCRIPT} <root> commit, or Update the version, which commits them as it builds.`;
 
 
+/** Only a build this manager made has a tree of its own to publish another one from. */
+export const SETTINGS_NEED_A_MANAGED_BUILD =
+  'It deploys from a flat checkout rather than from a build this manager made, so there is no build to make another one from. Update it, and its settings can be applied once that build has finished.';
+
 /** Sources of a version that has settings: it has been built, so it has a tree. */
 export interface ReadyHostConfigSettings extends HostConfigSettingsSources {
   buildRoot: string;

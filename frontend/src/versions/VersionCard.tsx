@@ -39,10 +39,18 @@ const SETTINGS_MEANS =
 const TESTED_MEANS =
   'Set by hand once one real deployment has run on this build. A different build clears approval, even at the same commit. Legacy versions without immutable builds keep approval only while their commit is unchanged.';
 
-/** Why this version has no settings page yet, or empty. They come with its first build. */
+/**
+ * Why this version has no settings page yet, or empty.
+ *
+ * Only a build this manager made carries the samples the page reads and can be
+ * rebuilt around a changed setting. A row still deploying from a flat checkout
+ * has neither until Update has built it here.
+ */
 function settingsBlockedBecause(version: StackVersion): string {
   if (version.layout === 'builds' && version.buildId) return '';
-  if (version.layout === 'legacy' && version.commitSha) return '';
+  if (version.layout === 'legacy') {
+    return 'This version still deploys from a flat checkout. Its settings appear once Update has built it on this host.';
+  }
   return 'Settings appear after this version has finished its first build on this host.';
 }
 
