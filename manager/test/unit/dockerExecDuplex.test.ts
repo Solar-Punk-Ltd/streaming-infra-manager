@@ -176,6 +176,51 @@ describe('strict binary Docker exec duplex', { timeout: 5000 }, () => {
     assert.equal(raw.destroyedCount, 1);
   });
   it('enforces its total lifetime without traffic', () => refuses(() => {}, { ...bounds, totalTimeoutMs: 15 }, false));
+  for (const boundary of ['write', 'read', 'final', 'eof'] as const) {
+    it(`refuses ${boundary} after monotonic expiry before its timer can run`, async () => {
+      const raw = new SyntheticTransport();
+      const stream = createDockerExecDuplex(raw, { ...bounds, totalTimeoutMs: 20 });
+      const outcome = assert.rejects(finished(stream), DockerExecStreamError);
+      let reads = 0;
+      const read = raw.read.bind(raw);
+      raw.read = size => { reads++; return read(size); };
+      const until = performance.now() + 30;
+      while (performance.now() < until) { /* Delay the timer without yielding this turn. */ }
+      assert.equal(raw.destroyed, false);
+      if (boundary === 'write') stream.write(Buffer.from([255]));
+      if (boundary === 'final') stream.end();
+      if (boundary === 'eof') raw.emit('end');
+      if (boundary === 'read') { raw.push(frame(Buffer.from([255]))); assert.equal(stream.read(), null); }
+      assert.equal(raw.input.length, 0);
+      assert.equal(raw.finishedInput, false);
+      assert.equal(reads, 0);
+      await outcome;
+      assert.equal(raw.destroyedCount, 1);
+      raw.emit('error', new Error('sensitive late diagnostic'));
+    });
+  }
+  it('allows bytes and a normal half-close within the total lifetime', async () => {
+    const raw = new SyntheticTransport();
+    const stream = createDockerExecDuplex(raw, { ...bounds, totalTimeoutMs: 500 });
+    const output = collect(stream);
+    stream.end(Buffer.from([0, 255]));
+    raw.push(frame(Buffer.from([128, 1]))); raw.push(null);
+    assert.deepEqual(await output, Buffer.from([128, 1]));
+    assert.deepEqual(Buffer.concat(raw.input), Buffer.from([0, 255]));
+    assert.equal(raw.finishedInput, true); assert.equal(raw.destroyedCount, 1);
+  });
+  it('does not flush a queued write after an earlier in-budget write completes beyond expiry', async () => {
+    const raw = new SyntheticTransport(); raw.holdWrites = true;
+    const stream = createDockerExecDuplex(raw, { ...bounds, totalTimeoutMs: 20 });
+    const outcome = assert.rejects(finished(stream), DockerExecStreamError);
+    stream.write(Buffer.from([1])); stream.write(Buffer.from([2]));
+    const until = performance.now() + 30;
+    while (performance.now() < until) { /* Keep the expiry callback pending. */ }
+    raw.holdWrites = false; raw.pendingWrite!();
+    assert.deepEqual(Buffer.concat(raw.input), Buffer.from([1]));
+    await outcome;
+    assert.equal(raw.destroyedCount, 1);
+  });
   it('handles cancellation that already happened before acquisition without exposing its reason', async () => {
     const raw = new SyntheticTransport();
     const controller = new AbortController(); controller.abort(new Error('sensitive old reason'));
