@@ -6,7 +6,7 @@ import type { Profile, ProfileStatus } from '../../types/index.js';
 import { ProfileConfigError } from '../errors/index.js';
 import { OPEN_OPERATION_STATES } from '../engineConfig/operations.js';
 import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS } from '../profileSql.js';
-import type { ClaimedDeploy, DeployClaimOwnership, ExpectedDeployOwner } from './buildLedger.js';
+import type { BuildDescriptor, ClaimedDeploy, DeployClaimOwnership, ExpectedDeployOwner } from './buildLedger.js';
 import { readBuildManifest } from './buildManifest.js';
 import { buildIdOfRoot } from './buildReferences.js';
 import { deployRootProblem, stackRootOf } from './stackPaths.js';
@@ -60,8 +60,8 @@ async function lockDeploySnapshot(client: PoolClient, profileName: string, versi
   }
 }
 
-/** The caller owns the transaction. Version, profile and reference ownership commit or roll back together. */
-export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, versionsRoot: string): Promise<ClaimedDeploy | null> {
+/** Validate the captured version and profile while retaining their locks in the caller's transaction. */
+export async function lockBuildJobProfile(client: PoolClient, input: BuildJobRequest): Promise<Profile | null> {
   const request = structuredClone(input);
   const { profileName, version, ownership, transition } = request;
   if (!version) throw new ProfileConfigError(profileName, 'The selected stack version no longer exists. No deployment was started.');
@@ -69,9 +69,18 @@ export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, 
   const selected = await client.query<Profile & { deploy_job_reference_id: number | null }>(
     `SELECT ${PROFILE_COLUMNS}, deploy_job_reference_id FROM profiles WHERE name = $1 FOR UPDATE`, [profileName],
   );
-  let profile: Profile | undefined = selected.rows[0];
+  const profile = selected.rows[0];
   if (!profile || !sameOwner(profile, ownership) || version.id !== ownership.stackVersionId ||
       (transition ? !transition.from.includes(profile.status) : profile.status !== 'DEPLOYING' || selected.rows[0]!.deploy_job_reference_id !== null)) return null;
+  return profile;
+}
+
+/** The caller owns the transaction. Version, profile and reference ownership commit or roll back together. */
+export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, versionsRoot: string): Promise<ClaimedDeploy | null> {
+  const request = structuredClone(input);
+  const { profileName, version, ownership, transition } = request;
+  let profile = await lockBuildJobProfile(client, request);
+  if (!profile || !version) return null;
   const previousStatus = profile.status;
   if (transition) {
     const updated = await client.query<Profile>(
@@ -85,7 +94,7 @@ export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, 
       [profileName, transition.intent === 'advance' ? 1 : 0, ownership.instanceId, ownership.intentRevision,
         ownership.configRevision, ownership.stackVersionId, transition.from],
     );
-    profile = updated.rows[0];
+    profile = updated.rows[0] ?? null;
     if (!profile) return null;
     if (transition.intent === 'advance') {
       const reason = transition.supersedeReason ?? 'Superseded by a new deployment action.';
@@ -102,16 +111,24 @@ export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, 
       }
     }
   }
+  const descriptor = await insertOwnedBuildJob(client, profile, version, request.services, versionsRoot);
+  return { profile, previousStatus, descriptor };
+}
+
+/** The version and profile are already locked. Record only the final profile identity produced by this transaction. */
+export async function insertOwnedBuildJob(
+  client: PoolClient, profile: Profile, version: StackVersionRecord, services: readonly string[], versionsRoot: string,
+): Promise<BuildDescriptor> {
   const root = stackRootOf(version);
   const buildId = buildIdOfRoot(versionsRoot, root);
   const inserted = await client.query<{ id: number }>(
     `INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision)
      VALUES ($1, $2, 'job', $3, $4::text[], $5, $6) RETURNING id`,
-    [version.id, buildId, profileName, [...request.services], profile.instance_id, profile.intent_revision],
+    [version.id, buildId, profile.name, [...services], profile.instance_id, profile.intent_revision],
   );
   const referenceId = inserted.rows[0]!.id;
-  await client.query('UPDATE profiles SET deploy_job_reference_id = $2 WHERE name = $1', [profileName, referenceId]);
-  return { profile, previousStatus, descriptor: { version, buildId, root, referenceId } };
+  await client.query('UPDATE profiles SET deploy_job_reference_id = $2 WHERE name = $1', [profile.name, referenceId]);
+  return { version, buildId, root, referenceId };
 }
 
 /** The active reference makes even same-intent recovery claims distinct. Clearing it never retires another hold. */

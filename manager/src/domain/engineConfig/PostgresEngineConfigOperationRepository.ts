@@ -1,8 +1,13 @@
 import type { EngineName } from '@streaming-infra-manager/common';
+import { randomUUID } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 
 import { Profile } from '../../types/index.js';
-import { PROFILE_COLUMNS } from '../profileSql.js';
+import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS } from '../profileSql.js';
+import { ProfileConfigError } from '../errors/index.js';
+import { insertOwnedBuildJob } from '../versions/buildJobClaim.js';
+import { captureRolloutAdmission, lockRolloutDeploy, reserveRolloutDeploy,
+  type ClaimedRolloutDeploy, type PreparedRolloutDeploy, type RolloutAdmissionProof } from './rolloutDeployAdmission.js';
 
 import type {
   BeginRollout,
@@ -82,7 +87,81 @@ function closes(state: EngineConfigOperationState): boolean {
 export class PostgresEngineConfigOperationRepository
   implements EngineConfigOperationRepository
 {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly versionsRoot?: string) {}
+
+  async captureDeployAdmission(profile: Profile): Promise<RolloutAdmissionProof> {
+    const expected = structuredClone(profile);
+    return this.inTransaction(client => captureRolloutAdmission(client, expected));
+  }
+
+  async beginDeploy(input: PreparedRolloutDeploy & { kind: EngineConfigOperationKind; config: string | null }): Promise<ClaimedRolloutDeploy | null> {
+    const request = structuredClone(input);
+    const versionsRoot = this.requireVersionsRoot(request.profile.name);
+    if (request.kind === 'reset' && request.config !== null) throw new ProfileConfigError(request.profile.name, 'A reset must select the engine template.');
+    return this.inTransaction(async client => {
+      const locked = await lockRolloutDeploy(client, request, `config-${randomUUID()}`);
+      if (!locked) return null;
+      const previous = (await client.query<{ engine_config: string | null }>('SELECT engine_config FROM profiles WHERE name = $1', [locked.profile.name])).rows[0]!.engine_config;
+      const attempt = await reserveRolloutDeploy(client, locked);
+      await client.query(
+        `UPDATE engine_config_operations SET state = 'superseded', finished_at = NOW(), message = $2
+          WHERE profile_instance_id = $1 AND state = ANY($3::text[])`,
+        [locked.profile.instance_id, `Superseded by a new ${request.kind}.`, OPEN_OPERATION_STATES],
+      );
+      const profile = (await client.query<Profile>(
+        `UPDATE profiles SET status = 'DEPLOYING', deployment_phase = ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL},
+            engine_config = $2, engine_config_error = NULL, engine_config_revision = engine_config_revision + 1,
+            intent_revision = intent_revision + 1, engine_config_state = 'applying',
+            last_error = NULL, last_error_at = NULL, updated_at = NOW()
+          WHERE name = $1 RETURNING ${PROFILE_COLUMNS}`, [locked.profile.name, request.config],
+      )).rows[0]!;
+      const operation = toOperation((await client.query<OperationRow>(
+        `INSERT INTO engine_config_operations (profile_name, profile_instance_id, engine, kind,
+           previous_config, previous_is_template, applied_revision, intent_revision, state)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'applying') RETURNING ${OPERATION_COLUMNS}`,
+        [profile.name, profile.instance_id, request.engine, request.kind, previous, previous === null,
+          profile.engine_config_revision, profile.intent_revision],
+      )).rows[0]!);
+      const descriptor = await insertOwnedBuildJob(client, profile, request.version, [request.engine], versionsRoot);
+      return { profile, operation, descriptor, previousStatus: locked.profile.status, attempt };
+    });
+  }
+
+  async beginRevertDeploy(input: PreparedRolloutDeploy & { ownership: RolloutOwnership; message: string }): Promise<ClaimedRolloutDeploy | null> {
+    const request = structuredClone(input);
+    const versionsRoot = this.requireVersionsRoot(request.profile.name);
+    if (!['RUNNING', 'ERROR'].includes(request.profile.status)) return null;
+    return this.inTransaction(async client => {
+      const locked = await lockRolloutDeploy(client, request, `config-revert-${randomUUID()}`);
+      if (!locked) return null;
+      const row = (await client.query<OperationRow>(`SELECT ${OPERATION_COLUMNS} FROM engine_config_operations WHERE id = $1 FOR UPDATE`, [request.ownership.operationId])).rows[0];
+      const owner = request.ownership;
+      if (!row || row.profile_name !== locked.profile.name || row.profile_instance_id !== locked.profile.instance_id ||
+          row.profile_instance_id !== owner.profileInstanceId || row.intent_revision !== locked.profile.intent_revision ||
+          row.intent_revision !== owner.intentRevision || row.applied_revision !== locked.profile.engine_config_revision ||
+          row.applied_revision !== owner.appliedRevision || row.engine !== request.engine ||
+          !['watching', 'applying', 'reverting'].includes(row.state)) return null;
+      const attempt = await reserveRolloutDeploy(client, locked);
+      const previous = row.previous_is_template ? null : row.previous_config;
+      const profile = (await client.query<Profile>(
+        `UPDATE profiles SET status = 'DEPLOYING', deployment_phase = ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL},
+            engine_config = $2, engine_config_error = $3, engine_config_revision = engine_config_revision + 1,
+            engine_config_state = 'reverting', last_error = NULL, last_error_at = NULL, updated_at = NOW()
+          WHERE name = $1 RETURNING ${PROFILE_COLUMNS}`, [locked.profile.name, previous, request.message],
+      )).rows[0]!;
+      const operation = toOperation((await client.query<OperationRow>(
+        `UPDATE engine_config_operations SET state = 'reverting', message = $2, applied_revision = $3
+          WHERE id = $1 RETURNING ${OPERATION_COLUMNS}`, [row.id, request.message, profile.engine_config_revision],
+      )).rows[0]!);
+      const descriptor = await insertOwnedBuildJob(client, profile, request.version, [request.engine], versionsRoot);
+      return { profile, operation, descriptor, previousStatus: locked.profile.status, attempt };
+    });
+  }
+
+  private requireVersionsRoot(profileName: string): string {
+    if (!this.versionsRoot) throw new ProfileConfigError(profileName, 'Rollout build ownership is not configured.');
+    return this.versionsRoot;
+  }
 
   async begin(input: BeginRollout): Promise<RolloutStarted | null> {
     return this.inTransaction(async (client) => {
