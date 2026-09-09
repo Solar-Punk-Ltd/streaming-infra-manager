@@ -35,7 +35,7 @@ describe('bundled boot never invents shipment publication authority', () => {
   async function activeC() {
     await artifact(C);
     const bundled = (await versions.findByName('bundled'))!;
-    await versions.publish(bundled.id, { buildId: C, commitSha: C, rootPath: join(versionsRoot, 'bundled') });
+    await versions.publish(bundled.id, { buildId: C, commitSha: C, rootPath: join(versionsRoot, 'bundled'), contract: null });
     return (await versions.findByName('bundled'))!;
   }
   it('does not adopt an unreferenced artifact with a newer timestamp after C is active', async () => {

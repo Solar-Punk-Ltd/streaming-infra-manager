@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -44,11 +44,11 @@ describe('one manager upgrade owns every active project mutation', () => {
     for (const [method, phase] of [['stopApi', 'stopping'], ['installSources', 'installing'], ['publish', 'publishing'],
       ['startProject', 'starting'], ['verifyProject', 'verifying']] as const) {
       const original = ops[method];
-      ops[method] = (async (captured: ManagerUpgradeRequest) => {
+      Object.assign(ops, { [method]: async (captured: ManagerUpgradeRequest) => {
         const recorded = JSON.parse(await readFile(join(environment.guardRoot, 'owner.json'), 'utf8'));
         assert.deepEqual(recorded.request, input); assert.equal(recorded.phase, phase);
         return original(captured);
-      }) as typeof ops[typeof method];
+      } });
     }
     const result = await runManagerUpgrade(environment, input, ops);
     assert.equal(result.state, 'completed');
@@ -116,5 +116,26 @@ describe('one manager upgrade owns every active project mutation', () => {
   it('refuses a guard placed within the mutable installation destination', async () => {
     await assert.rejects(runManagerUpgrade({ ...environment, guardRoot: join(environment.mutableRoot, '.upgrade') }, request(), operations()), /outside|overlap/i);
     assert.deepEqual(actions, []);
+  });
+
+  it('rejects unexpected request fields before persisting any record', async () => {
+    const input = { ...request(), unexpectedPrivateInput: 'synthetic-do-not-record' };
+    await assert.rejects(runManagerUpgrade(environment, input, operations()), /identity|fields/i);
+    assert.deepEqual(actions, []); assert.deepEqual(await readdir(root), []);
+  });
+
+  it('rejects unexpected nested identity fields before acquiring ownership', async () => {
+    const input = request(); Object.assign(input.manager, { unexpectedPrivateInput: 'synthetic-do-not-record' });
+    await assert.rejects(runManagerUpgrade(environment, input, operations()), /identity|fields/i);
+    assert.deepEqual(actions, []); assert.deepEqual(await readdir(root), []);
+  });
+
+  it('refuses ancestor aliases and a linked completion archive without touching their targets', async () => {
+    const outside = join(root, 'outside'); await mkdir(outside); const alias = join(root, 'alias'); await symlink(outside, alias);
+    await assert.rejects(runManagerUpgrade({ ...environment, guardRoot: join(alias, 'guard') }, request(), operations()));
+    assert.deepEqual(await readdir(outside), []); assert.deepEqual(actions, []);
+    await symlink(outside, `${environment.guardRoot}.completed`);
+    await assert.rejects(runManagerUpgrade(environment, request(), operations()));
+    assert.deepEqual(await readdir(outside), []); assert.deepEqual(actions, []);
   });
 });
