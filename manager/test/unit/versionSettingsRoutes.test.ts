@@ -324,6 +324,15 @@ describe('GET /versions/:id/settings', () => {
     assert.equal((await callJson('GET', '/versions/not-an-id/settings')).status, 400);
   });
 
+  it('tells every cache on the way back not to store the answer', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const res = await fetch(`${app.url}/versions/${id}/settings`);
+
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+  });
+
   it('reads the files without changing a byte of them', async () => {
     seedHostFiles();
     const id = await buildV3();
