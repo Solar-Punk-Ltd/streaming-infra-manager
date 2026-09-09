@@ -17,10 +17,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import {
   commitHostConfig,
   CONFIG_REVISION_FILE,
+  holdHostConfigLock,
   readHostConfigRevision,
 } from '../../src/domain/versions/hostConfigCapture.js';
 import { completeHostConfigFromSamples } from '../../src/domain/versions/hostConfigCompletion.js';
@@ -58,6 +60,23 @@ async function committedEnv(text: string): Promise<void> {
 function baseEnv(): string {
   return readFileSync(join(configRoot, '.env'), 'utf8');
 }
+
+describe('completion against an edit under way', () => {
+  const EDITED = 'STAMP=the-operator-just-changed-this\nAPI_PORT=3000\n';
+
+  it('waits for the edit lock and completes the bytes the editor left', async () => {
+    await committedEnv('STAMP=paid-for\nAPI_PORT=3000\n');
+    const release = await holdHostConfigLock(configRoot);
+
+    const completing = completeHostConfigFromSamples(configRoot, staging);
+    await sleep(50);
+    writeFileSync(join(configRoot, '.env'), EDITED);
+    await release();
+    await completing;
+
+    assert.equal(baseEnv(), `${EDITED}STREAM_KEY=\nCHEQUEBOOK_MIN_BZZ=0.5\n`);
+  });
+});
 
 describe("completing a base env from the version's sample", () => {
   it('appends the sample lines for the keys it lacks, in the sample order, and leaves its own lines alone', async () => {
