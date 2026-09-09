@@ -1,48 +1,62 @@
+/**
+ * One manager upgrade owns the host for its whole run: it stops the old api,
+ * migrates, starts the project, verifies it, and then waits for the api's own
+ * boot to build the stack commit the manager pins.
+ *
+ * There is no shipment any more. The deploy carries the manager and one pinned
+ * commit, and the host fetches and builds that commit itself, so there is
+ * nothing for this command to publish and nothing to replay. What it still owns
+ * is the directory that stops a second upgrade starting beside it.
+ *
+ * Unit test with the host operations replaced. `pnpm test` in manager/.
+ */
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { runManagerUpgrade, type ManagerUpgradeOperations, type ManagerUpgradeRequest } from '../../src/domain/versions/ManagerUpgrade.js';
-import type { BundledShipmentReceipt } from '../../src/domain/versions/BundledShipment.js';
+import {
+  runManagerUpgrade,
+  type BundledBuildOutcome,
+  type ManagerPublication,
+  type ManagerUpgradeOperations,
+  type ManagerUpgradeRequest,
+} from '../../src/domain/versions/ManagerUpgrade.js';
 
-const A = 'a'.repeat(40); const B = 'b'.repeat(40);
-function request(id = '11111111-1111-4111-8111-111111111111', commit = A): ManagerUpgradeRequest {
-  return { shipment: { shipmentId: id, commit, digest: 'd'.repeat(64) },
-    manager: { sourceCommit: commit, sourceDigest: 'e'.repeat(64), imageId: `sha256:${'f'.repeat(64)}` }, project: 'manager' };
+const A = 'a'.repeat(40);
+const PIN = 'c'.repeat(40);
+function request(commit = A): ManagerUpgradeRequest {
+  return { manager: { sourceCommit: commit, sourceDigest: 'e'.repeat(64), imageId: `sha256:${'f'.repeat(64)}` }, project: 'manager' };
 }
 function signal() { let resolve!: () => void; return { promise: new Promise<void>(done => { resolve = done; }), resolve: () => resolve() }; }
 
 describe('one manager upgrade owns every active project mutation', () => {
   let root: string; let environment: { guardRoot: string; mutableRoot: string };
-  let current: { revision: string; buildId: string | null }; let receipts: Map<string, BundledShipmentReceipt>;
+  let publication: ManagerPublication; let bundled: BundledBuildOutcome;
   let actions: string[];
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-upgrade-')); environment = { guardRoot: join(root, 'upgrade-owner'), mutableRoot: join(root, 'manager') };
-    current = { revision: '0', buildId: null }; receipts = new Map(); actions = [];
+    publication = { schema: 'current' };
+    bundled = { state: 'ready', commit: PIN, buildId: PIN, problem: null };
+    actions = [];
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
   function operations(): ManagerUpgradeOperations {
     return {
-      readPublication: async input => ({ ...current, schema: 'journal', pending: null, receipt: receipts.get(input.shipment.shipmentId) ?? null }),
+      readPublication: async () => publication,
       stopApi: async () => { actions.push('stop-api'); },
-      installSources: async () => { actions.push('install-source-and-config'); },
-      publish: async input => {
-        actions.push('publish');
-        const receipt = { shipmentId: input.shipment.shipmentId, versionId: 1, buildId: input.shipment.commit,
-          publicationRevision: String(BigInt(current.revision) + 1n), publishedAt: new Date(0) };
-        receipts.set(receipt.shipmentId, receipt); current = { revision: receipt.publicationRevision, buildId: receipt.buildId };
-        return receipt;
-      },
+      migrate: async () => { actions.push('migrate'); },
       startProject: async () => { actions.push('start-api-web-edge'); },
       verifyProject: async () => { actions.push('verify-project'); },
+      awaitBundledBuild: async () => { actions.push('await-bundled-build'); return bundled; },
     };
   }
-  it('persists exact identity and the phase before each effect, then releases only after verification', async () => {
+
+  it('persists exact identity and the phase before each effect, then releases only after the bundled build', async () => {
     const input = request(); const ops = operations();
-    for (const [method, phase] of [['stopApi', 'stopping'], ['installSources', 'installing'], ['publish', 'publishing'],
-      ['startProject', 'starting'], ['verifyProject', 'verifying']] as const) {
+    for (const [method, phase] of [['stopApi', 'stopping'], ['migrate', 'migrating'],
+      ['startProject', 'starting'], ['verifyProject', 'verifying'], ['awaitBundledBuild', 'bundled']] as const) {
       const original = ops[method];
       Object.assign(ops, { [method]: async (captured: ManagerUpgradeRequest) => {
         const recorded = JSON.parse(await readFile(join(environment.guardRoot, 'owner.json'), 'utf8'));
@@ -52,37 +66,32 @@ describe('one manager upgrade owns every active project mutation', () => {
     }
     const result = await runManagerUpgrade(environment, input, ops);
     assert.equal(result.state, 'completed');
-    assert.deepEqual(actions, ['stop-api', 'install-source-and-config', 'publish', 'start-api-web-edge', 'verify-project']);
+    assert.deepEqual(result.bundled, bundled);
+    assert.deepEqual(actions, ['stop-api', 'migrate', 'start-api-web-edge', 'verify-project', 'await-bundled-build']);
     assert.equal((await readdir(root)).includes('upgrade-owner'), false);
   });
 
-  it('keeps A ownership through startup so C cannot install sources, publish or change any service', async () => {
+  it('answers a bundled build that failed, and still lets go of the host it holds', async () => {
+    bundled = { state: 'failed', commit: PIN, buildId: null, problem: 'could not reach github' };
+
+    const result = await runManagerUpgrade(environment, request(), operations());
+
+    assert.deepEqual(result.bundled, bundled);
+    assert.equal((await readdir(root)).includes('upgrade-owner'), false, 'the manager is up, so nothing is held for a person');
+  });
+
+  it('keeps ownership through startup so a second upgrade cannot start or change any service', async () => {
     const entered = signal(); const release = signal(); const aOps = operations();
     aOps.startProject = async () => { actions.push('A-start-held'); entered.resolve(); await release.promise; };
     const running = runManagerUpgrade(environment, request(), aOps);
     try {
       await entered.promise; const before = [...actions];
-      await assert.rejects(runManagerUpgrade(environment, request('22222222-2222-4222-8222-222222222222', B), operations()), /upgrade.*owned|upgrade.*progress/i);
+      await assert.rejects(runManagerUpgrade(environment, request(), operations()), /upgrade.*owned|upgrade.*progress/i);
       assert.deepEqual(actions, before);
     } finally { release.resolve(); await running; }
   });
 
-  it('refuses stale A after C completed and released its guard, before any manager mutation', async () => {
-    const a = request(); const c = request('22222222-2222-4222-8222-222222222222', B);
-    await runManagerUpgrade(environment, a, operations());
-    await runManagerUpgrade(environment, c, operations());
-    actions = [];
-    await assert.rejects(runManagerUpgrade(environment, a, operations()), /stale|current publication/i);
-    assert.deepEqual(actions, []); assert.equal(current.buildId, B);
-  });
-
-  it('returns an already verified current upgrade without reinstalling or restarting it', async () => {
-    const input = request(); await runManagerUpgrade(environment, input, operations()); actions = [];
-    assert.equal((await runManagerUpgrade(environment, input, operations())).state, 'already-completed');
-    assert.deepEqual(actions, []);
-  });
-
-  it('does not release or steal uncertain ownership on a same-ID retry, even with an old timestamp', async () => {
+  it('does not release or steal uncertain ownership on a retry, even with an old timestamp', async () => {
     const input = request(); const ops = operations();
     ops.startProject = async () => { actions.push('uncertain-start'); throw new Error('synthetic command response loss'); };
     await assert.rejects(runManagerUpgrade(environment, input, ops), /response loss/);
@@ -92,18 +101,11 @@ describe('one manager upgrade owns every active project mutation', () => {
     assert.deepEqual(actions, []); assert.deepEqual(await readFile(join(environment.guardRoot, 'owner.json')), before);
   });
 
-  it('refuses a changed exact manager identity on replay of a completed shipment', async () => {
-    const input = request(); await runManagerUpgrade(environment, input, operations()); actions = [];
-    input.manager.imageId = `sha256:${'0'.repeat(64)}`;
-    await assert.rejects(runManagerUpgrade(environment, input, operations()), /identity/i);
-    assert.deepEqual(actions, []);
-  });
-
-  it('allows a fresh explicitly requested shipment after a completed upgrade', async () => {
+  it('runs again after a completed upgrade, because a deploy is not a shipment to replay', async () => {
     await runManagerUpgrade(environment, request(), operations()); actions = [];
-    const next = request('22222222-2222-4222-8222-222222222222', B);
-    assert.equal((await runManagerUpgrade(environment, next, operations())).state, 'completed');
-    assert.equal(current.buildId, B); assert.equal(actions.length, 5);
+
+    assert.equal((await runManagerUpgrade(environment, request('b'.repeat(40)), operations())).state, 'completed');
+    assert.equal(actions.length, 5);
   });
 
   it('freezes caller identity before asynchronous publication reads', async () => {
@@ -124,34 +126,22 @@ describe('one manager upgrade owns every active project mutation', () => {
     assert.deepEqual(actions, []); assert.deepEqual(await readdir(root), []);
   });
 
-  it('refuses a stale registered request before stopping or installing anything', async () => {
-    const ops = operations();
-    ops.readPublication = async () => ({ schema: 'journal', revision: '3', buildId: B, receipt: null,
-      pending: { state: 'registered', expectedRevision: '1' } });
-    await assert.rejects(runManagerUpgrade(environment, request(), ops), /stale|superseded/i);
-    assert.deepEqual(actions, []);
-  });
-
-  it('refuses an explicitly superseded request even if its old revision is presented again', async () => {
-    const ops = operations();
-    ops.readPublication = async () => ({ schema: 'journal', revision: '1', buildId: B, receipt: null,
-      pending: { state: 'superseded', expectedRevision: '1' } });
-    await assert.rejects(runManagerUpgrade(environment, request(), ops), /stale|superseded/i);
-    assert.deepEqual(actions, []);
-  });
-
   it('rejects unexpected nested identity fields before acquiring ownership', async () => {
     const input = request(); Object.assign(input.manager, { unexpectedPrivateInput: 'synthetic-do-not-record' });
     await assert.rejects(runManagerUpgrade(environment, input, operations()), /identity|fields/i);
     assert.deepEqual(actions, []); assert.deepEqual(await readdir(root), []);
   });
 
-  it('refuses ancestor aliases and a linked completion archive without touching their targets', async () => {
+  it('refuses a schema state it cannot verify, before stopping anything', async () => {
+    const ops = operations();
+    ops.readPublication = async () => ({ schema: 'something-else' } as unknown as ManagerPublication);
+    await assert.rejects(runManagerUpgrade(environment, request(), ops), /cannot be verified/i);
+    assert.deepEqual(actions, []);
+  });
+
+  it('refuses an ancestor alias without touching what it points at', async () => {
     const outside = join(root, 'outside'); await mkdir(outside); const alias = join(root, 'alias'); await symlink(outside, alias);
     await assert.rejects(runManagerUpgrade({ ...environment, guardRoot: join(alias, 'guard') }, request(), operations()));
-    assert.deepEqual(await readdir(outside), []); assert.deepEqual(actions, []);
-    await symlink(outside, `${environment.guardRoot}.completed`);
-    await assert.rejects(runManagerUpgrade(environment, request(), operations()));
     assert.deepEqual(await readdir(outside), []); assert.deepEqual(actions, []);
   });
 });

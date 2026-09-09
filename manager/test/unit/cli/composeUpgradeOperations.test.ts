@@ -1,43 +1,36 @@
 /**
  * What the manager upgrade actually does to the host: the Compose commands it
  * runs, in what order, what it refuses to do, and what one whole run of it
- * looks like from the first read to the receipt.
+ * looks like from the first read to the bundled build it waits for.
  *
  * Unit test with a scripted command runner and a scripted health probe, so no
  * Docker daemon, no network and no database are touched. `pnpm test` in
- * manager/. The one thing that does touch disk is the sealed package the
- * source check reads, built by the shared artifact fixture.
+ * manager/.
  */
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { ComposeUpgradeOperations, httpHealthProbe } from '../../../src/cli/ComposeUpgradeOperations.js';
 import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunner.js';
-import { BUNDLED_PACKAGE_MANIFEST } from '../../../src/domain/versions/bundledShipmentPackage.js';
-import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
-import type { BundledActivation, BundledShipmentReceipt, BundledShipmentRecord } from '../../../src/domain/versions/BundledShipment.js';
+import type { BundledVersionState, ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import { runManagerUpgrade, type ManagerPublication, type ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
 import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
-import { bundledPackagesRootFor, managerUpgradeGuardRootFor, sealedBundledPackagePathFor } from '../../../src/domain/versions/stackPaths.js';
-import { bundledArtifactFixture } from '../../support/bundledArtifactFixture.js';
+import { managerUpgradeGuardRootFor } from '../../../src/domain/versions/stackPaths.js';
 
 const PROJECT = 'manager';
 const COMPOSE_FILE = '/home/solarpunk/streaming-infra-manager/manager/docker-compose.yml';
 const COMPOSE_DIRECTORY = '/home/solarpunk/streaming-infra-manager/manager';
-const TOOLCHAIN = 'node v22.9.0 pnpm 9.0.0 Linux/x86_64';
 /** A port no default would produce, so a URL built anywhere but from these settings would not match. */
 const HEALTH_URL = 'http://api:19876/health';
 const POSTGRES_VOLUME = `${PROJECT}_${MANAGER_POSTGRES_VOLUME}`;
-const COMMIT = 'a'.repeat(40);
-const DIGEST = 'd'.repeat(64);
+const PIN = 'a'.repeat(40);
 const IMAGE_ID = `sha256:${'f'.repeat(64)}`;
 const API_CONTAINER = 'c0ffee';
-const TIMEOUTS = { command: 1000, postgresReady: 300, apiHealthy: 300, pollPause: 10 };
+const TIMEOUTS = { command: 1000, postgresReady: 300, apiHealthy: 300, bundledBuild: 300, pollPause: 10 };
 
 /** The words of a Compose call after its project and file flags, which is what a test cares about. */
 function key(argv: readonly string[]): string {
@@ -94,34 +87,40 @@ function bounded<T>(work: Promise<T>): Promise<T> {
   })]).finally(() => clearTimeout(timer));
 }
 
-const JOURNAL: ManagerPublication = { schema: 'journal', revision: '4', buildId: `${COMMIT}-r7`, receipt: null, pending: null };
-const FRESH: ManagerPublication = { schema: 'fresh', revision: '0', buildId: null, receipt: null, pending: null };
+const CURRENT: ManagerPublication = { schema: 'current' };
+const FRESH: ManagerPublication = { schema: 'fresh' };
+
+/** The bundled row as the api's boot leaves it while it builds, and once it is done. */
+function bundledRow(over: Partial<BundledVersionState> = {}): BundledVersionState {
+  return { status: 'ready', layout: 'builds', gitRef: PIN, commitSha: PIN, buildId: PIN, lastError: null, ...over };
+}
 
 describe('the manager upgrade against one Compose project', () => {
-  let root: string; let versionsRoot: string; let shipmentId: string;
+  let root: string; let versionsRoot: string; let bundledStackRoot: string;
   let request: ManagerUpgradeRequest; let runner: ScriptedRunner;
-  let publication: ManagerPublication; let activation: BundledActivation;
-  let receipt: BundledShipmentReceipt; let migrated: number;
+  let publication: ManagerPublication; let migrated: number;
   let readPublication: () => Promise<ManagerPublication>;
-  let steps: string[]; let errors: string[]; let shipment: BundledShipmentRecord | null; let supersedeFails: boolean;
+  let bundledStates: BundledVersionState[];
+  let steps: string[]; let errors: string[];
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-compose-'));
     versionsRoot = join(root, 'versions');
     await mkdir(versionsRoot);
-    shipmentId = randomUUID();
+    // The tree the manager ships with, whose parent holds the commit the deploy pinned.
+    bundledStackRoot = join(root, 'manager', 'swarm-hls-stream');
+    await mkdir(bundledStackRoot, { recursive: true });
+    await writeFile(join(root, 'manager', '.stack-commit'), `${PIN}\n`);
     request = {
-      shipment: { shipmentId, commit: COMMIT, digest: DIGEST },
       manager: { sourceCommit: 'b'.repeat(40), sourceDigest: 'e'.repeat(64), imageId: IMAGE_ID },
       project: PROJECT,
     };
     runner = new ScriptedRunner();
-    publication = JOURNAL;
-    receipt = { shipmentId, versionId: 1, buildId: `${COMMIT}-r7`, publicationRevision: '5', publishedAt: new Date('2026-09-09T00:00:00.000Z') };
-    activation = { status: 'published', receipt };
+    publication = CURRENT;
     migrated = 0;
     readPublication = async () => publication;
-    steps = []; errors = []; shipment = null; supersedeFails = false;
+    bundledStates = [bundledRow()];
+    steps = []; errors = [];
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -129,32 +128,18 @@ describe('the manager upgrade against one Compose project', () => {
     return {
       readPublication: async () => readPublication(),
       migrate: async () => { migrated += 1; steps.push('migrate'); },
-      publishBundled: async () => { steps.push('publish'); return activation; },
-      supersedeStalePending: async (versionId) => {
-        steps.push(`supersede ${versionId}`);
-        if (supersedeFails) throw new Error('synthetic journal failure');
-        return [];
+      readBundledVersion: async () => {
+        steps.push('read-bundled');
+        return bundledStates.length > 1 ? bundledStates.shift()! : bundledStates[0]!;
       },
-      find: async () => { steps.push('find'); return shipment; },
-      findByMaterialization: async () => null,
       close: async () => {},
-    };
-  }
-
-  /** A shipment the journal answers with, which is what decides whether its package may go. */
-  function published(): BundledShipmentRecord {
-    return {
-      shipmentId, versionId: receipt.versionId, packageDigest: DIGEST, commitSha: COMMIT, expectedRevision: '4',
-      rootPath: join(versionsRoot, 'bundled'), state: 'published', candidateBuildId: receipt.buildId,
-      candidateKind: 'new', candidateManifest: null, candidateMetadata: null, materializationId: null,
-      artifactDigest: null, candidateContract: null, receipt, createdAt: new Date('2026-09-09T00:00:00.000Z'),
     };
   }
 
   function operations(options: { publicEdge?: boolean; firstUse?: boolean; health?: number[] } = {}): ComposeUpgradeOperations {
     const statuses = [...(options.health ?? [200])];
     return new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: options.publicEdge ?? false,
+      { versionsRoot, composeFile: COMPOSE_FILE, bundledStackRoot, publicEdge: options.publicEdge ?? false,
         firstUse: options.firstUse ?? false, postgresVolume: MANAGER_POSTGRES_VOLUME, apiHealthUrl: HEALTH_URL, timeouts: TIMEOUTS },
       database(),
       runner.run,
@@ -163,24 +148,18 @@ describe('the manager upgrade against one Compose project', () => {
     );
   }
 
-  async function sealPackage(): Promise<void> {
-    await mkdir(bundledPackagesRootFor(versionsRoot), { recursive: true });
-    const fixture = await bundledArtifactFixture(bundledPackagesRootFor(versionsRoot), { commit: COMMIT, shipmentId });
-    request = { ...request, shipment: { ...request.shipment, digest: fixture.sealed.identity.digest } };
-  }
-
   describe('deciding about Postgres before it reads anything', () => {
     it('reads through a Postgres that is already running and healthy, starting nothing', async () => {
       runner.answer('ps -a --format json postgres', { stdout: containers('running', 'healthy') });
 
-      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(await operations().readPublication(request), CURRENT);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres']);
     });
 
     it('reads through a healthy Postgres that a container of an earlier run is listed before', async () => {
       runner.answer('ps -a --format json postgres', { stdout: containerList(['exited', ''], ['running', 'healthy']) });
 
-      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(await operations().readPublication(request), CURRENT);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres'], 'nothing is started for a database that is already up');
     });
 
@@ -188,7 +167,7 @@ describe('the manager upgrade against one Compose project', () => {
       runner.answer('ps -a --format json postgres',
         { stdout: '[{"Name":"manager-postgres-1","Service":"postgres","State":"running","Health":"healthy"}]' });
 
-      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(await operations().readPublication(request), CURRENT);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres']);
     });
 
@@ -203,7 +182,7 @@ describe('the manager upgrade against one Compose project', () => {
         { stdout: containers('exited', '') }, { stdout: containers('running', 'starting') }, { stdout: containers('running', 'healthy') });
       runner.answer(VOLUME_PROBE, { stdout: `${POSTGRES_VOLUME}\n` });
 
-      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(await operations().readPublication(request), CURRENT);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres', VOLUME_PROBE, 'up -d --no-build postgres',
         'ps -a --format json postgres', 'ps -a --format json postgres']);
     });
@@ -255,7 +234,7 @@ describe('the manager upgrade against one Compose project', () => {
 
     it('refuses a first use whose database turns out not to be empty', async () => {
       scriptFirstUse();
-      publication = JOURNAL;
+      publication = CURRENT;
 
       await assert.rejects(operations().readPublication(request), /empty/i);
     });
@@ -264,7 +243,7 @@ describe('the manager upgrade against one Compose project', () => {
       runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
       runner.answer(VOLUME_PROBE, { stdout: `${POSTGRES_VOLUME}\n` });
 
-      assert.deepEqual(await operations().readPublication(request), JOURNAL);
+      assert.deepEqual(await operations().readPublication(request), CURRENT);
       assert.deepEqual(runner.seen, ['ps -a --format json postgres', VOLUME_PROBE,
         'up -d --no-build postgres', 'ps -a --format json postgres']);
     });
@@ -287,7 +266,7 @@ describe('the manager upgrade against one Compose project', () => {
       // so the volume its own probe finds proves nothing and the deploy's answer decides.
       runner.answer('ps -a --format json postgres', { stdout: '' }, { stdout: containers('running', 'healthy') });
       runner.answer(VOLUME_PROBE, { stdout: `${POSTGRES_VOLUME}\n` });
-      publication = JOURNAL;
+      publication = CURRENT;
 
       await assert.rejects(operations({ firstUse: true }).readPublication(request), /empty/i);
     });
@@ -330,117 +309,64 @@ describe('the manager upgrade against one Compose project', () => {
     });
   });
 
-  describe('checking the shipped sources', () => {
-    it('accepts the sealed package whose manifest carries the identity of this upgrade', async () => {
-      await sealPackage();
+  describe('migrating', () => {
+    it('migrates the database, which is safe because the old api is stopped by now', async () => {
+      await operations().migrate(request);
 
-      await operations().installSources(request);
-
-      assert.deepEqual(runner.seen, [], 'the image was built before the guard, so nothing is installed here');
-    });
-
-    it('refuses a package whose manifest names another digest, before anything is published', async () => {
-      await sealPackage();
-      const altered = { ...request, shipment: { ...request.shipment, digest: 'c'.repeat(64) } };
-
-      await assert.rejects(operations().installSources(altered), /digest|identity/i);
-    });
-
-    it('refuses a package whose manifest names another commit', async () => {
-      await sealPackage();
-      const altered = { ...request, shipment: { ...request.shipment, commit: 'b'.repeat(40) } };
-
-      await assert.rejects(operations().installSources(altered), /identity/i);
-    });
-
-    it('refuses a package whose manifest names another shipment, however it got to that path', async () => {
-      await mkdir(bundledPackagesRootFor(versionsRoot), { recursive: true });
-      const other = await bundledArtifactFixture(bundledPackagesRootFor(versionsRoot), { commit: COMMIT });
-      await rename(other.sealed.root, sealedBundledPackagePathFor(versionsRoot, shipmentId));
-      request = { ...request, shipment: { ...request.shipment, digest: other.sealed.identity.digest } };
-
-      await assert.rejects(operations().installSources(request), /identity/i);
-    });
-
-    it('refuses when the shipped package is not where the deploy leaves it', async () => {
-      await assert.rejects(operations().installSources(request), /package/i);
-    });
-
-    it('refuses a manifest that is a symbolic link, instead of reading what it points at', async () => {
-      await sealPackage();
-      const manifest = join(sealedBundledPackagePathFor(versionsRoot, shipmentId), BUNDLED_PACKAGE_MANIFEST);
-      // The link points at the very bytes the check would accept, so only refusing the link can fail this.
-      const elsewhere = join(root, 'elsewhere.json');
-      await writeFile(elsewhere, await readFile(manifest));
-      await rm(manifest);
-      await symlink(elsewhere, manifest);
-
-      await assert.rejects(operations().installSources(request), /symbolic link/i);
-    });
-
-    it('refuses a manifest bigger than any manifest is, before it reads one byte of it', async () => {
-      await sealPackage();
-      const manifest = join(sealedBundledPackagePathFor(versionsRoot, shipmentId), BUNDLED_PACKAGE_MANIFEST);
-      await truncate(manifest, 64 * 1024 * 1024 + 1);
-
-      await assert.rejects(operations().installSources(request), (error: Error) => {
-        assert.match(error.message, /bytes/i);
-        assert.ok(error.message.includes(manifest), 'the file a person has to look at is named');
-        return true;
-      });
+      assert.deepEqual(steps, ['migrate']);
+      assert.equal(migrated, 1);
     });
   });
 
-  describe('publishing', () => {
-    it('migrates before it publishes, because the old api is stopped by now', async () => {
-      await sealPackage();
+  describe('waiting for the bundled build the api starts at boot', () => {
+    it('answers the build once the row is on the pinned commit', async () => {
+      const outcome = await operations().awaitBundledBuild(request);
 
-      assert.deepEqual(await operations().publish(request), receipt);
-      assert.equal(migrated, 1);
+      assert.deepEqual(outcome, { state: 'ready', commit: PIN, buildId: PIN, problem: null });
     });
 
-    it('supersedes what it left behind and sweeps the packages, after the publication and never before', async () => {
-      await sealPackage();
-      shipment = published();
+    it('waits through the build the api is still running', async () => {
+      bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null }), bundledRow()];
 
-      assert.deepEqual(await operations().publish(request), receipt);
+      const outcome = await operations().awaitBundledBuild(request);
 
-      assert.deepEqual(steps, ['migrate', 'publish', `supersede ${receipt.versionId}`, 'find']);
-      assert.equal(existsSync(sealedBundledPackagePathFor(versionsRoot, shipmentId)), false, 'the shipped package is gone from the host');
-      assert.deepEqual(errors, [`[cli] removed bundled.packages/sealed-${shipmentId}`]);
+      assert.equal(outcome.state, 'ready');
+      assert.ok(steps.filter((step) => step === 'read-bundled').length >= 2, 'it asked again');
     });
 
-    it('names a package it could not remove and goes on, because the publication above it stands', async () => {
-      await sealPackage();
-      shipment = published();
-      const sealed = sealedBundledPackagePathFor(versionsRoot, shipmentId);
-      const elsewhere = join(root, 'elsewhere');
-      await mkdir(elsewhere);
-      await rm(sealed, { recursive: true });
-      await symlink(elsewhere, sealed);
+    it('answers a build that failed with what the row says went wrong', async () => {
+      bundledStates = [bundledRow({ status: 'failed', layout: 'legacy', commitSha: null, buildId: null, lastError: 'could not reach github' })];
 
-      assert.deepEqual(await operations().publish(request), receipt);
+      const outcome = await operations().awaitBundledBuild(request);
 
-      assert.deepEqual(errors, [`[cli] could not remove bundled.packages/sealed-${shipmentId}: ${sealed} ` +
-        'is not a directory this sweep may remove, because it is a symbolic link or not a directory at all.']);
-      assert.equal(existsSync(elsewhere), true, 'what the link pointed at is untouched');
+      assert.deepEqual(outcome, { state: 'failed', commit: PIN, buildId: null, problem: 'could not reach github' });
     });
 
-    it('keeps the publication when the sweep cannot finish, and says what stopped it', async () => {
-      await sealPackage();
-      supersedeFails = true;
+    it('answers a rebuild that failed over a build the version keeps', async () => {
+      bundledStates = [bundledRow({ commitSha: 'b'.repeat(40), buildId: 'b'.repeat(40), lastError: 'the build exited with code 1' })];
 
-      assert.deepEqual(await operations().publish(request), receipt);
+      const outcome = await operations().awaitBundledBuild(request);
 
-      assert.match(errors.join('\n'), /swept|sweep/i);
-      assert.equal(existsSync(sealedBundledPackagePathFor(versionsRoot, shipmentId)), true, 'and removed nothing');
+      assert.equal(outcome.state, 'failed');
+      assert.equal(outcome.problem, 'the build exited with code 1');
     });
 
-    it('refuses when a newer publication won the race', async () => {
-      await sealPackage();
-      activation = { status: 'superseded', shipmentId };
+    it('gives up after its own bound, saying which commit it waited for', async () => {
+      bundledStates = [bundledRow({ status: 'building', layout: 'legacy', commitSha: null, buildId: null })];
 
-      await assert.rejects(operations().publish(request), /newer publication/i);
+      const outcome = await operations().awaitBundledBuild(request);
+
+      assert.equal(outcome.state, 'timed-out');
+      assert.equal(outcome.commit, PIN);
+    });
+
+    it('waits for nothing on a manager that pins no commit', async () => {
+      await rm(join(root, 'manager', '.stack-commit'));
+
+      const outcome = await operations().awaitBundledBuild(request);
+
+      assert.deepEqual(outcome, { state: 'unpinned', commit: null, buildId: null, problem: null });
+      assert.deepEqual(steps, [], 'and asks the database nothing');
     });
   });
 
@@ -585,24 +511,18 @@ describe('the manager upgrade against one Compose project', () => {
       runner.answer('--profile public ps -q edge', { stdout: '' });
     }
 
-    it('finishes a first use run, whose own migration turns the empty schema into a journal', async () => {
-      await sealPackage();
+    it('finishes a first use run, whose own migration turns the empty schema into the current one', async () => {
       scriptFirstUseRun();
-      shipment = published();
-      const afterPublication: ManagerPublication = {
-        schema: 'journal', revision: receipt.publicationRevision, buildId: receipt.buildId, receipt: null, pending: null,
-      };
       // Only the read before the migration can find an empty database, and this run does the migrating.
-      readPublication = async () => (steps.includes('publish') ? afterPublication : FRESH);
+      readPublication = async () => (migrated > 0 ? CURRENT : FRESH);
       const mutableRoot = join(root, 'manager');
-      await mkdir(mutableRoot);
 
       const result = await runManagerUpgrade(
         { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot }, request, operations({ firstUse: true }),
       );
 
       assert.equal(result.state, 'completed');
-      assert.deepEqual(result.receipt, receipt);
+      assert.deepEqual(result.bundled, { state: 'ready', commit: PIN, buildId: PIN, problem: null });
       assert.equal(existsSync(managerUpgradeGuardRootFor(versionsRoot)), false, 'and holds nothing afterwards');
     });
   });
