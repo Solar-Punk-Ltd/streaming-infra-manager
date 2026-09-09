@@ -155,6 +155,29 @@ describe('manager:upgrade', () => {
     });
   }
 
+  it('refuses a compose file given by a relative path, and says what the command takes', async () => {
+    const run = await upgrade(argvWith({ '--compose-file': 'manager/docker-compose.yml' }));
+
+    assert.match(run.error?.message ?? '', /--compose-file/);
+    assert.ok((run.error?.message ?? '').includes(MANAGER_UPGRADE_USAGE), 'the usage of this command comes with the refusal');
+    assert.equal(opened, 0, 'nothing on the host was opened');
+  });
+
+  it('refuses a compose file whose path walks up through itself', async () => {
+    const run = await upgrade(argvWith({ '--compose-file': join(mutableRoot, 'deploy', '..', 'docker-compose.yml') + '/../docker-compose.yml' }));
+
+    assert.match(run.error?.message ?? '', /--compose-file/);
+    assert.equal(opened, 0);
+  });
+
+  it('refuses a compose file outside the tree this upgrade is allowed to replace', async () => {
+    const run = await upgrade(argvWith({ '--compose-file': join(root, 'elsewhere', 'docker-compose.yml') }));
+
+    assert.match(run.error?.message ?? '', /--compose-file/);
+    assert.match(run.error?.message ?? '', /--mutable-root/);
+    assert.equal(opened, 0);
+  });
+
   it('names the retained directory and the phase it stopped in when an earlier upgrade still holds the host', async () => {
     const guard = managerUpgradeGuardRootFor(versionsRoot);
     await mkdir(guard, { mode: 0o700 });
