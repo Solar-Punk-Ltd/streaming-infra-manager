@@ -25,7 +25,7 @@ describe('one manager upgrade owns every active project mutation', () => {
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
   function operations(): ManagerUpgradeOperations {
     return {
-      readPublication: async input => ({ ...current, receipt: receipts.get(input.shipment.shipmentId) ?? null }),
+      readPublication: async input => ({ ...current, schema: 'journal', pending: null, receipt: receipts.get(input.shipment.shipmentId) ?? null }),
       stopApi: async () => { actions.push('stop-api'); },
       installSources: async () => { actions.push('install-source-and-config'); },
       publish: async input => {
@@ -122,6 +122,22 @@ describe('one manager upgrade owns every active project mutation', () => {
     const input = { ...request(), unexpectedPrivateInput: 'synthetic-do-not-record' };
     await assert.rejects(runManagerUpgrade(environment, input, operations()), /identity|fields/i);
     assert.deepEqual(actions, []); assert.deepEqual(await readdir(root), []);
+  });
+
+  it('refuses a stale registered request before stopping or installing anything', async () => {
+    const ops = operations();
+    ops.readPublication = async () => ({ schema: 'journal', revision: '3', buildId: B, receipt: null,
+      pending: { state: 'registered', expectedRevision: '1' } });
+    await assert.rejects(runManagerUpgrade(environment, request(), ops), /stale|superseded/i);
+    assert.deepEqual(actions, []);
+  });
+
+  it('refuses an explicitly superseded request even if its old revision is presented again', async () => {
+    const ops = operations();
+    ops.readPublication = async () => ({ schema: 'journal', revision: '1', buildId: B, receipt: null,
+      pending: { state: 'superseded', expectedRevision: '1' } });
+    await assert.rejects(runManagerUpgrade(environment, request(), ops), /stale|superseded/i);
+    assert.deepEqual(actions, []);
   });
 
   it('rejects unexpected nested identity fields before acquiring ownership', async () => {
