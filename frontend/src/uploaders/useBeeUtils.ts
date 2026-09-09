@@ -5,9 +5,6 @@ import {
   type BeeNodeObservation,
   hasStampId,
   sameBatchId,
-  type TransferExpectation,
-  transferOutcome,
-  type TransferOutcome,
 } from '@streaming-infra-manager/common';
 
 import { ApiError } from '../http';
@@ -28,18 +25,6 @@ import {
 const STAMP_POLL_INTERVAL_MS = 5_000;
 const STAMP_POLL_MAX_ATTEMPTS = 120;
 
-const BALANCE_POLL_INTERVAL_MS = 3_000;
-
-/**
- * How long to watch for a deposit or withdrawal to land.
- *
- * Bee answers the call once the transaction is submitted, not once it is mined,
- * and a Gnosis block takes about five seconds. Two minutes is far longer than
- * that needs, and short enough that a dialog waiting on a transaction which
- * never confirms gives the operator their page back.
- */
-const BALANCE_WAIT_MS = 120_000;
-
 /** The manager's code for a node that answered 503: up, still syncing. */
 const NODE_NOT_READY_CODE = 'bee_node_not_ready';
 
@@ -49,9 +34,6 @@ function beeLoadError(reason: unknown): string {
   }
   return "This deployment's Bee node did not answer all required checks. Retry the node checks. Existing streams are left running.";
 }
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface BeeUtils {
   nodeObservation: BeeNodeObservation | null;
@@ -85,32 +67,6 @@ export interface BeeUtils {
   reload: () => Promise<void>;
   waitingBatch: string | null;
   waitForStamp: (batchID: string) => void;
-  /**
-   * Watch the chequebook until a submitted transfer has landed, resolving
-   * `settled` when it has and with what the last look said once the wait is
-   * given up on.
-   *
-   * A node that stops answering leaves the wait at `unknown` rather than at a
-   * verdict: the polling keeps going to the deadline, and the caller is told
-   * the transfer could not be judged instead of that it went through.
-   *
-   * Aborting the signal calls the watch off. The transaction is on its way
-   * either way, this only stops the polling and the state it would write.
-   */
-  waitForBalanceChange: (
-    expectation: TransferExpectation,
-    signal?: AbortSignal,
-  ) => Promise<TransferOutcome>;
-  /**
-   * One more look at the chequebook, answering the same question the wait did:
-   * has this transfer landed since it was submitted.
-   *
-   * For an operator asking again after the wait gave up. It reads, it never
-   * submits anything.
-   */
-  recheckBalance: (
-    expectation: TransferExpectation,
-  ) => Promise<TransferOutcome>;
 }
 
 function isRejected(
@@ -146,7 +102,7 @@ export function useBeeUtils(
   { withChequebook = true }: BeeUtilsOptions = {},
 ): BeeUtils {
   const profileName = profile.name;
-  const profileRevision = `${profile.status}:${profile.updated_at}`;
+  const profileRevision = `${profile.instance_id}:${profile.status}:${profile.updated_at}`;
   const [nodeObservation, setNodeObservation] = useState<BeeNodeObservation | null>(null);
   const [observationReceivedAt, setObservationReceivedAt] = useState<number | null>(null);
   const [observationNow, setObservationNow] = useState(() => performance.now());
@@ -164,22 +120,8 @@ export function useBeeUtils(
   const [loadError, setLoadError] = useState<string | null>(null);
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
 
-  // The waiting dialog compares against whatever was on screen when it started,
-  // which a closure over state would read one render too late.
-  const latestChequebook = useRef<ChequebookSummary | null>(null);
-  const applyChequebook = useCallback((next: ChequebookSummary | null) => {
-    latestChequebook.current = next;
-    setChequebook(next);
-  }, []);
-
-  // What the chequebook said before the transfer was submitted. The wait and a
-  // later "check again" answer against the same reading, so an operator who
-  // asks after the wait gave up gets the verdict the wait was looking for.
-  const beforeMove = useRef<ChequebookSummary | null>(null);
-
   // Which reload the answers belong to. Two can be in flight at once, from
-  // StrictMode's double mount or from a balance wait refreshing the card while
-  // the operator presses Refresh, and the slower one must not land last.
+  // StrictMode's double mount or the operator pressing Refresh. The slower one must not land last.
   const latestReload = useRef(0);
 
   const reload = useCallback(async () => {
@@ -189,7 +131,7 @@ export function useBeeUtils(
     setWallet(null);
     setStamps(null);
     setChainState(null);
-    if (withChequebook) applyChequebook(null);
+    if (withChequebook) setChequebook(null);
 
     const [
       observationResult,
@@ -220,7 +162,7 @@ export function useBeeUtils(
     if (chainStateResult.status === 'fulfilled')
       setChainState(chainStateResult.value);
     if (withChequebook) {
-      applyChequebook(
+      setChequebook(
         chequebookResult.status === 'fulfilled' ? chequebookResult.value : null,
       );
     }
@@ -233,52 +175,12 @@ export function useBeeUtils(
     }
 
     setLoading(false);
-  }, [profileName, profileRevision, withChequebook, applyChequebook]);
+  }, [profileName, profileRevision, withChequebook]);
 
   useEffect(() => {
     void reload();
     return () => { latestReload.current += 1; };
   }, [reload]);
-
-  const recheckBalance = useCallback(
-    async (expectation: TransferExpectation): Promise<TransferOutcome> => {
-      let fresh: ChequebookSummary;
-      try {
-        fresh = await fetchChequebook(profileName);
-      } catch {
-        applyChequebook(null);
-        return 'unknown';
-      }
-
-      applyChequebook(fresh);
-      const outcome = transferOutcome(beforeMove.current, fresh, expectation);
-      if (outcome !== 'settled') return outcome;
-
-      // A deposit empties the wallet by the same amount, so the whole card is
-      // refreshed rather than only the half that was watched.
-      await reload();
-      return 'settled';
-    },
-    [profileName, applyChequebook, reload],
-  );
-
-  const waitForBalanceChange = useCallback(
-    async (expectation: TransferExpectation, signal?: AbortSignal) => {
-      beforeMove.current = latestChequebook.current;
-      const deadline = Date.now() + BALANCE_WAIT_MS;
-      let latest: TransferOutcome = 'unknown';
-
-      while (Date.now() < deadline) {
-        await sleep(BALANCE_POLL_INTERVAL_MS);
-        if (signal?.aborted) return latest;
-        latest = await recheckBalance(expectation);
-        if (latest === 'settled') return 'settled';
-        if (signal?.aborted) return latest;
-      }
-      return latest;
-    },
-    [recheckBalance],
-  );
 
   useEffect(() => {
     if (!waitingBatch) return;
@@ -323,7 +225,5 @@ export function useBeeUtils(
     reload,
     waitingBatch,
     waitForStamp: setWaitingBatch,
-    waitForBalanceChange,
-    recheckBalance,
   };
 }

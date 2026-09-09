@@ -243,6 +243,7 @@ export function authRoutes(readBody) {
         const open = signedIn(req);
         if (open) {
           return send(res, 200, {
+            id: open.user.id,
             username: open.user.username,
             isAdmin: open.user.isAdmin,
             expiresAt: new Date(endsAt(open.session)).toISOString(),

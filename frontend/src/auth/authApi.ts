@@ -1,17 +1,10 @@
-import type { UserSummary } from '@streaming-infra-manager/common';
+import type { SessionInfo, UserSummary } from '@streaming-infra-manager/common';
 
 import { apiFetch, failWith, getJson, send } from '../http';
 
 import { SIGN_IN_MESSAGES, tooManyAttempts } from './messages';
 
-/** What `GET /auth/session` says when there is a session. */
-export interface SessionInfo {
-  username: string;
-  /** May add and remove users and sign anyone out. */
-  isAdmin: boolean;
-  /** ISO. When this session stops working if nothing else touches it. */
-  expiresAt: string;
-}
+export type { SessionInfo } from '@streaming-infra-manager/common';
 
 export type SignedOutReason =
   | 'notSignedIn'

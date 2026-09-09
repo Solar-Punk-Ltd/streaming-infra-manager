@@ -589,6 +589,18 @@ describe('who may manage users', () => {
     assert.equal((plain.body as { isAdmin: boolean }).isAdmin, false);
   });
 
+  it('identifies the same account across sessions without exposing session credentials', async () => {
+    const second = await signIn(app, USERNAME, PASSWORD);
+    const first = await call(app, 'GET', '/auth/session', { cookie: adminCookie });
+    const repeated = await call(app, 'GET', '/auth/session', { cookie: second.cookie });
+    const other = await call(app, 'GET', '/auth/session', { cookie: plainCookie });
+    assert.equal((first.body as { id: number }).id, adminId);
+    assert.equal((repeated.body as { id: number }).id, adminId);
+    assert.equal((other.body as { id: number }).id, plainId);
+    assert.notEqual(adminId, plainId);
+    assert.deepEqual(Object.keys(first.body as object).sort(), ['expiresAt', 'id', 'isAdmin', 'username']);
+  });
+
   it('refuses a plain user who tries to add or remove one', async () => {
     const added = await call(app, 'POST', '/auth/users', {
       cookie: plainCookie,

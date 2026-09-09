@@ -9,7 +9,6 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 import {
-  type BeeTransaction,
   type ChequebookHealth,
   getErrorMessage,
   isStampExpiringSoon,
@@ -22,10 +21,6 @@ import { SectionCard } from '../components/SectionCard';
 import { formatTtl, shortHex } from '../format';
 import type { Profile } from '../types';
 import { BuyStampForm } from '../uploaders/BuyStampForm';
-import {
-  depositChequebook,
-  withdrawChequebook,
-} from '../uploaders/chequebookApi';
 import {
   MoveBzzDialog,
   type MoveDirection,
@@ -94,11 +89,6 @@ export function StorageCard({
       ? parsePlur(bee.chequebook?.availableBalance)
       : parsePlur(bee.wallet?.bzzBalance);
 
-  const move = (amountPlur: bigint): Promise<BeeTransaction> =>
-    moving === 'withdraw'
-      ? withdrawChequebook(profile.name, amountPlur)
-      : depositChequebook(profile.name, amountPlur);
-
   return (
     <SectionCard
       id="storage"
@@ -156,6 +146,8 @@ export function StorageCard({
           onWithdraw={() => setMoving('withdraw')}
         />
 
+        <Button sx={{ alignSelf: 'flex-start' }} onClick={() => setMoving('fill')}>Saved transfer</Button>
+
         <Divider />
 
         <StampTable
@@ -181,9 +173,8 @@ export function StorageCard({
         direction={moving ?? 'fill'}
         sourcePlur={moveSourcePlur}
         floorBzz={chequebookFloorBzz}
-        onMove={move}
-        onWait={bee.waitForBalanceChange}
-        onCheck={bee.recheckBalance}
+        profileName={profile.name}
+        profileInstanceId={profile.instance_id}
         onClose={() => setMoving(null)}
       />
     </SectionCard>

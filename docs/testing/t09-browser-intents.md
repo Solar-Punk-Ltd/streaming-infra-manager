@@ -1,0 +1,51 @@
+# T09 browser intent contract
+
+The browser store and injected controller save an immutable transfer intent before any submission is allowed. The production API adapter and money components are not wired yet.
+
+`ConfirmedTransferInput` contains only the request UUID, stable numeric account ID, original profile name, canonical `profileInstanceId`, direction, exact integer PLUR amount and creation time. It never stores a profile object, endpoint, password, private key or session token.
+
+`IndexedDbTransferIntentStore.confirm(input, expectedCurrentRequestId)` reads the active pointer, checks it and writes the intent and pointer in one native IndexedDB transaction with strict durability. All dependent requests stay inside transaction callbacks. Only `transaction.oncomplete` returns `kind: created`, which grants that caller permission to continue toward the initial POST. A losing caller receives `kind: existing` with the winning immutable intent. A successful individual write cannot grant permission if the transaction subsequently aborts.
+
+Pointers are scoped to the current browser origin, account ID and deployment instance. They are retained after terminal transaction evidence. Explicit replacement must compare the current pointer. It retains earlier intents for recovery. A stale tab restores the current intent. A corrupt or missing pointed-to record refuses replacement. There is no unlocked memory or localStorage fallback.
+
+`current(accountId, profileInstanceId)` restores that scope. `find(requestId)` reads the exact saved intent. These methods never send a request to the manager. A controller must recover the server record using exact request-ID GET. A 404 or unavailable response cannot authorize a new UUID or automatic resend.
+
+Version 2 adds optional observation links separately from the immutable intent. `recordExact` checks request, actor, profile name and instance, direction and amount. It retains one frozen operation and node identity and refuses contradictory replacement. `recordBlocking` saves only a separate blocking operation ID. It cannot populate or replace the intent's own link. Related node links are scoped to the original account. A link cannot authorize resend, replacement or settlement. Recording returns `recorded`, `conflict` or `unavailable`. A valid previously proven operation/node identity that contradicts a fresh response is an identity conflict and cannot authorize replacement. Missing or damaged optional links do not block exact request-ID recovery.
+
+The controller requires a fresh exact detail response before an explicit New transfer confirmation. Its API contract requires `cache: no-store` for every exact lookup. The adapter still needs an actual held-response regression. Full response evidence and consistent terminal evidence are required. Settled and reverted records require their matching finalized receipt. A refusal requires `preflight_failed` with no dispatch or transaction evidence. An assertion requires the exact recorded amount and confirmation. Unsupported terminal records have an unresolved headline. Conflict evidence takes precedence over every terminal label. History summaries cannot grant replacement permission.
+
+A new confirmation still checks the pointer atomically. Same-ID explicit retries retain the original account, name, instance, direction and amount and first perform exact lookup. Repeated 404 and lost responses preserve the saved UUID. Busy operations stay separate. Logout, cancellation or a changed profile invalidates an in-flight controller action. A late storage completion retains its saved UUID but cannot dispatch. A fresh profile-instance read occurs before an allowed POST, backed by the server instance guard. The approved server account precondition will close shared-cookie account switching before the production browser adapter is connected.
+
+## Native verification
+
+The harness is `frontend/dev/t09-intent-tests.html`. It uses generated synthetic intents and temporary IndexedDB names. The node runner is `node --test frontend/test/transfer-intent-browser.test.mjs`, with a dedicated local Vite server on 127.0.0.1:54291. The existing Chrome helper creates one temporary profile per run, permits only this test origin, bounds protocol requests, stops its exact child and removes its exact temporary profile.
+
+Chrome 152.0.7977.83 passed nine in-page cases and a separate two-tab case. Coverage includes concurrent confirmations, reload, current-pointer replacement, unrelated account or instance scopes, immutable UUID payloads, invalid input, abort after an individual write succeeds damaged pointer refusal and exact observation-link isolation. Two real tabs confirm concurrently, reload and prove that an old pointer cannot replace the newer intent. Workspace typechecks and `git diff --check` passed. Ten additional controller scenarios use native IndexedDB and an injected synthetic API. They cover durable completion before submit, exact restore, response loss and repeated 404, explicit same-ID retry, busy identity separation, current terminal evidence, logout/cancellation/profile changes during late persistence, target replacement, quota failure and evidence-first headlines. The three native browser tests passed with all workspace source typechecks. No real money request is made. Production API transport, full money UI and the final fixture-owned Vite lifecycle remain open, so this is not completion of T09.
+
+## HTTP adapter checkpoint
+
+`transferApi` connects the controller to the authenticated same-origin API. It sends the saved request ID, canonical profile instance, exact amount and expected account ID. It never sends an actor or a client-selected Bee or RPC endpoint. A 409 busy or conflicting operation stays separate from the saved intent. Account and profile changes have fixed refusal reasons. Network or lost-response failures retain an unknown submission outcome. A 404 exact lookup preserves the saved UUID and does not send anything.
+
+Exact by-request reads and fresh profile reads use `cache: 'no-store'` through the additive `ApiRequest.cache` option. The browser fixture holds an older ordinary GET, returns newer conflict evidence to the controller's distinct lookup, then releases the older terminal response. The original pointer remains and no POST occurs. This is evidence observed during confirmation. The backend must independently refuse admission when conflict is already durable after that read.
+
+Run `node --test frontend/test/transfer-api-browser.test.mjs` from the worktree root. These adapter tests own their synthetic API, Vite and Chrome processes. API and Vite bind dynamic loopback ports, and Vite uses a separate cache. `RUNNER_TEMP` selects the evidence parent directory, otherwise the operating system temporary directory is used. Each run reports its evidence path. The earlier intent-browser suite still requires its local Vite listener and remains scheduled for the final harness portability correction.
+
+This checkpoint does not wire the money dialog or global history. T06 current target ownership integration is still required. The historical 0.5 BZZ fill remains unverified.
+
+## Offline journal mock
+
+`frontend/dev/mock-chequebook.mjs` replaces the offline manager's amount-only money routes. Synthetic operation records retain their permanent request keys for the lifetime of that mock process. Exact replay precedes current profile lookup, and account or profile-instance changes refuse new submissions. Busy operations and historical hash conflicts remain protected. The mock returns the same admission, exact-request and operation-detail shapes as the real API.
+
+A receipt observation changes the recorded outcome. A balance change does not. The ordinary offline manager schedules a synthetic receipt and updates its sample balances separately. Tests can inject an unavailable submission response or later receipt/hash evidence through the JavaScript fixture only. There are no HTTP controls for forcing an outcome.
+
+Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
+
+## Money dialog wiring
+
+The actual StorageCard opens the reviewed durable transfer controller with the current session account and canonical profile instance. Saved transfer remains available when balances fail. Reopening, including through the opposite direction button, restores the original saved amount, direction and request ID. A harmless balance or profile refresh does not erase unfinished amount edits. Account or instance changes invalidate the active confirmation immediately.
+
+An initial transfer has separate amount review and confirmation. A later New transfer action captures the current request ID before amount review. Confirmation compares that captured pointer. The two-dialog regression holds A's reviewed replacement while B creates and settles another intent. A then restores B and sends no third request. Identical-request retry is a separate, explicit two-step action after exact lookup returns no record. Closing or navigating away does not discard the saved UUID.
+
+The dialog displays complete transaction response evidence and retains terminal outcomes on screen. It neither closes automatically nor infers completion from balances. The unused amount-only API functions and balance-settlement polling helpers were removed from this frontend flow. Refresh saved status and focus restoration only read existing journal evidence. Receipt checks, manual recovery, global history and T06 ownership integration remain later slices.
+
+The browser regression mounts actual StorageCard and MoveBzzDialog under React StrictMode. It uses the journal mock, native IndexedDB, isolated Chrome profiles and owned random loopback API/Vite listeners. It captures desktop and phone screenshots and checks horizontal overflow. These synthetic fixtures do not access any live Bee node or RPC endpoint.

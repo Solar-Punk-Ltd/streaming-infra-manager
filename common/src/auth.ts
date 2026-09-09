@@ -12,6 +12,15 @@
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
+/** The authenticated account as returned by `GET /auth/session`. */
+export interface SessionInfo {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+  /** ISO session expiry. No session token is included. */
+  expiresAt: string;
+}
+
 /** One row of the Access page's user table, as `GET /auth/users` answers it. */
 export interface UserSummary {
   id: number;

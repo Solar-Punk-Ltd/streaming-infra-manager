@@ -1,3 +1,4 @@
+import type { ChequebookOperationsService } from '../domain/chequebook/ChequebookOperationsService.js';
 import http from 'node:http';
 
 import express from 'express';
@@ -55,6 +56,7 @@ export interface ApiDeps {
   deployService: DeployService;
   stampService: StampService;
   chequebookService: ChequebookService;
+  chequebookOperations: ChequebookOperationsService;
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   stackVersionService: StackVersionService;
@@ -112,7 +114,7 @@ export function startApiServer(
   app.use('/versions', createVersionsRouter(deps.stackVersionService));
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
-  app.use('/', createChequebookRouter(deps.chequebookService));
+  app.use('/', createChequebookRouter(deps.chequebookService, deps.chequebookOperations));
   app.use('/', createEngineRouter(deps.profileService, deps.containerControl));
   app.use('/', createEngineConfigRouter(deps.engineConfigService));
 

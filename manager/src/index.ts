@@ -1,3 +1,4 @@
+import { createChequebookOperationsService } from './domain/chequebook/createChequebookOperationsService.js';
 import { getErrorStack, plurToBzz,
   getErrorMessage,
 } from '@streaming-infra-manager/common';
@@ -82,6 +83,7 @@ let database: Database | undefined;
 let metricsCollector: MetricsCollector | undefined;
 let sessionSweep: SessionSweep | undefined;
 let streamRevalidation: StreamRevalidation | undefined;
+let chequebookOperations: ReturnType<typeof createChequebookOperationsService> | undefined;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -105,10 +107,13 @@ async function gracefulShutdown(signal: string): Promise<void> {
       metricsCollector.stop();
       metricsCollector = undefined;
     }
-    if (apiServer) {
-      await apiServer.close();
-      apiServer = undefined;
+    const [apiClosed, transferCleanup] = await Promise.allSettled([apiServer?.close(), chequebookOperations?.shutdown()]);
+    if (transferCleanup.status === 'rejected') throw new Error('Transfer transport cleanup could not be verified.');
+    for (const outcome of transferCleanup.value ?? []) {
+      if (outcome.state === 'unverified') logger.warn(`[Shutdown] transfer transport ${outcome.leaseId}: ${outcome.reason} (${outcome.remaining.join(', ')})`);
     }
+    if (apiClosed.status === 'rejected') throw new Error('API shutdown could not be verified.');
+    apiServer = undefined;
     if (database) {
       await database.close();
       database = undefined;
@@ -242,6 +247,10 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  chequebookOperations = createChequebookOperationsService(database.pool, {
+    rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
+    dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
+  });
   // The project guard and the daemon lock: every deploy attempt holds its
   // project until its containers prove it over, and shared-tag builds wait
   // for each other on the daemon.
@@ -338,6 +347,7 @@ async function main(): Promise<void> {
       deployService,
       stampService,
       chequebookService,
+      chequebookOperations,
       containerControl,
       engineConfigService,
       stackVersionService,

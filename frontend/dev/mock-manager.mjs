@@ -24,11 +24,8 @@ import {
   chequebookHealthFrom,
   chequebookHealthPayload,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
-  depositOverWalletReason,
-  NO_XDAI_FOR_GAS_REASON,
   plurToBzz,
   uploaderUnfundedReason,
-  withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -37,6 +34,7 @@ import {
   DEV_USERNAME,
   refuseRequest,
   seedAuth,
+  userFor,
 } from './mock-auth.mjs';
 import {
   attemptRefusal,
@@ -46,6 +44,7 @@ import {
   seedAttempts,
 } from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
+import { createMockChequebookJournal } from './mock-chequebook.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
@@ -84,9 +83,7 @@ const STOP_MS = 1_200;
 const REMOVE_MS = 1_200;
 const STAMP_SETTLE_MS = 4_000;
 
-// Bee answers a deposit once the transaction is submitted, so the balance only
-// moves a few Gnosis blocks later. Short enough to watch, long enough that the
-// dialog's waiting state is a real state and not a flicker.
+// The offline simulator records transaction evidence separately from its balances.
 const CHEQUEBOOK_SETTLE_MS = 3_000;
 
 const CHEQUEBOOK_FLOOR_PLUR = bzzToPlur(DEFAULT_CHEQUEBOOK_FLOOR_BZZ);
@@ -220,27 +217,24 @@ function chequebookSummary(name) {
   };
 }
 
-/** The refusal the manager sends, worded the same way. */
-function chequebookFundsError(res, reason) {
-  return send(res, 400, { error: 'validation_error', errors: [reason] });
-}
-
-/**
- * Move BZZ between a node's two pots, a few seconds after answering, the way
- * bee does: the call returns a submitted transaction and the chain settles it.
- */
-function moveBzz(name, amountPlur, direction) {
-  const entry = node(name);
-  setTimeout(() => {
-    const walletDelta = direction === 'fill' ? -amountPlur : amountPlur;
-    entry.bzz = String(BigInt(entry.bzz) + walletDelta);
-    entry.chequebook.total = String(BigInt(entry.chequebook.total) - walletDelta);
-    entry.chequebook.available = String(
-      BigInt(entry.chequebook.available) - walletDelta,
-    );
-  }, CHEQUEBOOK_SETTLE_MS);
-  return { transactionHash: `0x${hex(32)}` };
-}
+const chequebookJournal = createMockChequebookJournal({
+  profileFor: findProfile,
+  nodeFor: nodeIfKnown,
+  userFor,
+  onSubmitted(operation) {
+    const entry = nodeIfKnown(operation.profileName);
+    setTimeout(() => {
+      chequebookJournal.observeReceipt(operation.id, { kind: 'settled', receiptBlockNumber: '501', receiptBlockHash: `0x${hex(32)}`,
+        finalizedBlockNumber: '510', finalizedBlockHash: `0x${hex(32)}` });
+      if (!entry || entry.ethereum.toLowerCase() !== operation.nodeAddress) return;
+      const amount = BigInt(operation.amountPlur);
+      const walletDelta = operation.direction === 'deposit' ? -amount : amount;
+      entry.bzz = String(BigInt(entry.bzz) + walletDelta);
+      entry.chequebook.total = String(BigInt(entry.chequebook.total) - walletDelta);
+      entry.chequebook.available = String(BigInt(entry.chequebook.available) - walletDelta);
+    }, CHEQUEBOOK_SETTLE_MS);
+  },
+});
 
 /**
  * The uploader gate uses the manager's funding refusal and unknown-node bodies.
@@ -511,58 +505,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/chequebook$/,
     (_req, res, [name]) => send(res, 200, chequebookSummary(name)),
   ],
-  [
-    'POST',
-    /^\/profiles\/([^/]+)\/chequebook\/deposit$/,
-    withProfile(async (req, res, profile) => {
-      const body = await readBody(req);
-      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
-        return chequebookFundsError(
-          res,
-          'amount must be a positive whole number of PLUR',
-        );
-      }
-
-      const amountPlur = BigInt(body.amount);
-      const entry = node(profile.name);
-      const walletBzz = BigInt(entry.bzz);
-      if (walletBzz < amountPlur) {
-        return chequebookFundsError(
-          res,
-          depositOverWalletReason(walletBzz, amountPlur),
-        );
-      }
-      if (BigInt(entry.xdai) === 0n) {
-        return chequebookFundsError(res, NO_XDAI_FOR_GAS_REASON);
-      }
-
-      send(res, 202, moveBzz(profile.name, amountPlur, 'fill'));
-    }),
-  ],
-  [
-    'POST',
-    /^\/profiles\/([^/]+)\/chequebook\/withdraw$/,
-    withProfile(async (req, res, profile) => {
-      const body = await readBody(req);
-      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
-        return chequebookFundsError(
-          res,
-          'amount must be a positive whole number of PLUR',
-        );
-      }
-
-      const amountPlur = BigInt(body.amount);
-      const available = BigInt(node(profile.name).chequebook.available);
-      if (available < amountPlur) {
-        return chequebookFundsError(
-          res,
-          withdrawalOverChequebookReason(available, amountPlur),
-        );
-      }
-
-      send(res, 202, moveBzz(profile.name, amountPlur, 'withdraw'));
-    }),
-  ],
+  ...chequebookJournal.routes,
   [
     'GET',
     /^\/profiles\/([^/]+)\/stamp\/address$/,
