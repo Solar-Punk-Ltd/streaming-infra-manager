@@ -7,7 +7,9 @@
 #               Never deployed from: it only fetches.
 # <staging-dir> where this attempt's built tree goes. The manager turns it into
 #               a build of its own afterwards, so nothing here is published.
-# <ref>         branch or tag to follow. The commit only moves when this runs.
+# <ref>         branch or tag to follow, or the forty character commit the
+#               manager pins for the bundled version. The commit only moves
+#               when this runs.
 # <repo-url>    where the stack comes from. A constant in the manager, never
 #               operator supplied.
 # <attempt-id>  names this attempt's build container, stack-build-<attempt-id>,
@@ -68,8 +70,15 @@ for dir in "$REPO" "$STAGING"; do
     esac
 done
 if ! [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || [[ "$REF" == -* ]] || [[ "$REF" == *..* ]]; then
-    echo "ERROR: <ref> must be a branch or tag of letters, digits, dot, underscore, slash and dash, with no leading dash and no .. (got: $REF)" >&2
+    echo "ERROR: <ref> must be a branch, a tag or a commit of letters, digits, dot, underscore, slash and dash, with no leading dash and no .. (got: $REF)" >&2
     exit 2
+fi
+# A commit is fetched by name and checked out detached. A branch or a tag is
+# what `git clone --branch` and `git fetch --tags` take, and a commit is neither.
+if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+    REF_IS_COMMIT=yes
+else
+    REF_IS_COMMIT=no
 fi
 if ! [[ "$REPO_URL" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\.git$ ]]; then
     echo "ERROR: <repo-url> must be an https github clone url (got: $REPO_URL)" >&2
@@ -91,11 +100,28 @@ trap 'code=$?; if [ "$code" -ne 0 ]; then rm -rf "$STAGING"; fi' EXIT
 # Git only, up to here. Nothing out of the fetched tree has run yet.
 if [ -d "$REPO/.git" ]; then
     echo "==> Fetching $REF into $REPO"
-    git -C "$REPO" fetch --prune --tags origin "$REF"
+    if [ "$REF_IS_COMMIT" = yes ]; then
+        git -C "$REPO" fetch --prune origin "$REF"
+    else
+        git -C "$REPO" fetch --prune --tags origin "$REF"
+    fi
     # FETCH_HEAD rather than origin/<ref>: a tag has no origin/<name>, and this
-    # is the one thing a branch and a tag both leave behind.
+    # is the one thing a branch, a tag and a commit all leave behind.
     git -C "$REPO" checkout --detach --force FETCH_HEAD
     git -C "$REPO" reset --hard FETCH_HEAD
+    ARCHIVE_REV="FETCH_HEAD"
+elif [ "$REF_IS_COMMIT" = yes ]; then
+    echo "==> Fetching commit $REF into a new $REPO"
+    mkdir -p "$(dirname "$REPO")"
+    rm -rf "$REPO"
+    # An empty repository and one fetch, because `git clone --branch` takes a
+    # branch or a tag name and a commit is neither. Not shallow: this clone is
+    # the one every later ref of this version is fetched into, and a shallow
+    # clone stays shallow for all of them.
+    git init -q "$REPO"
+    git -C "$REPO" remote add origin "$REPO_URL"
+    git -C "$REPO" fetch origin "$REF"
+    git -C "$REPO" checkout --detach --force FETCH_HEAD
     ARCHIVE_REV="FETCH_HEAD"
 else
     echo "==> Cloning $REF into $REPO"
