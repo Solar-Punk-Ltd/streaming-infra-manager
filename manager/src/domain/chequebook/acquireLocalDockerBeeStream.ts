@@ -50,7 +50,7 @@ function capturedLocator(value: LocalDockerLocator, alias: string): Readonly<Loc
 /** Inactive adapter. Resolution, one connection and the handshake share one acquisition allowance. */
 export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarget, resolveLocator: ResolveLocalDockerLocator,
   options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeExecution = () => false,
-  signal?: AbortSignal, connectUnix: ConnectUnixDocker = openUnixDockerConnection): Promise<AcquiredDockerBeeStream> {
+  signal?: AbortSignal, connectUnix: ConnectUnixDocker = openUnixDockerConnection, acquisitionDeadlineCap?: number): Promise<AcquiredDockerBeeStream> {
   const startedAt = performance.now();
   let raw: Duplex | undefined;
   let acquired: AcquiredDockerBeeStream | undefined;
@@ -66,7 +66,8 @@ export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarg
     const target = structuredClone(expected);
     const limits = normalizeDockerBeeAcquisitionOptions(structuredClone(options));
     const alias = targetLockIdentity(target).alias;
-    const deadline = startedAt + limits.acquisitionTimeoutMs;
+    if (acquisitionDeadlineCap !== undefined && !Number.isFinite(acquisitionDeadlineCap)) throw new DockerBeeAcquisitionError();
+    const deadline = Math.min(startedAt + limits.acquisitionTimeoutMs, acquisitionDeadlineCap ?? Infinity);
     const requireActive = () => {
       if (failed || signal?.aborted || performance.now() >= deadline) throw new DockerBeeAcquisitionError();
     };

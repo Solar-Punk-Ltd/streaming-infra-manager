@@ -103,7 +103,7 @@ class ForwardLease extends Duplex {
 /** Begins one inactive, fully owned forward. All resource construction is supplied by trusted dependencies. */
 export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, resolveLocator: (alias: string) => Promise<TrustedSshDockerLocator>,
   options: DockerBeeAcquisitionOptions, dependencies: SshDockerDependencies, qualifyImage: QualifiedBeeBridgeExecution = () => false,
-  signal?: AbortSignal): SshDockerAcquisition {
+  signal?: AbortSignal, acquisitionDeadlineCap?: number): SshDockerAcquisition {
   const clock = dependencies.clock;
   const uid = dependencies.uid;
   const startedAt = clock.now();
@@ -324,7 +324,8 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     target = freezeTree(structuredClone(expected)); limits = normalizeDockerBeeAcquisitionOptions(structuredClone(options));
     if (!Number.isSafeInteger(uid) || uid < 0) throw new DockerBeeAcquisitionError();
     targetLockIdentity(target);
-    acquisitionDeadline = startedAt + limits.acquisitionTimeoutMs;
+    if (acquisitionDeadlineCap !== undefined && !Number.isFinite(acquisitionDeadlineCap)) throw new DockerBeeAcquisitionError();
+    acquisitionDeadline = Math.min(startedAt + limits.acquisitionTimeoutMs, acquisitionDeadlineCap ?? Infinity);
     operationalDeadline = acquisitionDeadline + limits.preflightTimeoutMs + limits.postTimeoutMs;
     finalDeadline = operationalDeadline + limits.cleanupGraceMs;
     cancelAcquisition = clock.schedule(close, Math.max(0, acquisitionDeadline - clock.now()));
