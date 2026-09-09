@@ -23,7 +23,10 @@ import type {
   StackSettingsJsonFile,
 } from '@streaming-infra-manager/common';
 
-import { CONFIG_LOCK_DIR } from '../../src/domain/versions/hostConfigCapture.js';
+import {
+  CONFIG_LOCK_DIR,
+  CONFIG_REVISION_FILE,
+} from '../../src/domain/versions/hostConfigCapture.js';
 import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 import {
   nextVersionChange,
@@ -349,6 +352,51 @@ describe('GET /versions/:id/settings', () => {
 
     assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
     assert.equal(dirname(join(configRoot, '.env')), configRoot);
+  });
+});
+
+describe('why a version has no settings to show', () => {
+  it('says a version with no build yet is waiting for its first one', async () => {
+    const answer = await callJson('GET', `/versions/${await bundledId()}/settings`);
+
+    assert.equal(answer.status, 409);
+    assert.match((answer.body as { message: string }).message, /first build/);
+  });
+
+  it('says how to commit a root whose files were never committed as a revision', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    rmSync(join(configRoot, CONFIG_REVISION_FILE));
+
+    const read = await callJson('GET', `/versions/${id}/settings`);
+    const saved = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+
+    for (const answer of [read, saved]) {
+      assert.equal(answer.status, 409);
+      assert.equal((answer.body as { error: string }).error, 'settings_not_ready');
+      assert.match((answer.body as { message: string }).message, /no committed revision/);
+      assert.match((answer.body as { message: string }).message, /stack-config-edit\.sh/);
+      assert.equal((answer.body as { message: string }).message.includes('first build'), false);
+    }
+  });
+
+  it('never says null in a reason', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    rmSync(join(configRoot, CONFIG_REVISION_FILE));
+
+    const answers = [
+      await callJson('GET', `/versions/${await bundledId()}/settings`),
+      await callJson('GET', `/versions/${id}/settings`),
+      await callJson('POST', `/versions/${id}/settings/apply`),
+    ];
+
+    for (const answer of answers) {
+      assert.equal(JSON.stringify(answer.body).includes('null'), false, JSON.stringify(answer.body));
+    }
   });
 });
 
