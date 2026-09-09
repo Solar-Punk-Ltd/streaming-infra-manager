@@ -356,24 +356,25 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    * Brings the database up far enough to be read, and answers whether this
    * host has never run the manager before. A host with no data volume and no
    * api container is new, and only there is an empty schema believable.
+   *
+   * A database that is not up yet is asked about before it is started, whether
+   * it has a container of its own or not, because Compose starts one against a
+   * volume it creates on the spot and an empty database that arrived that way
+   * looks exactly like a host that never had one.
    */
   private async startPostgres(project: string): Promise<boolean> {
     const containers = await this.serviceContainers(project, POSTGRES_SERVICE);
     if (someContainerIsHealthy(containers)) return this.settings.firstUse;
-    let firstUse = this.settings.firstUse;
-    if (containers.length === 0) {
-      const hasVolume = await this.hasPostgresVolume(project);
-      if (!hasVolume) {
-        const api = await this.serviceContainerIds(project, API_SERVICE);
-        if (api.length > 0) {
-          throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${this.settings.postgresVolume} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
-        }
+    const hasVolume = await this.hasPostgresVolume(project);
+    if (!hasVolume) {
+      const api = await this.serviceContainerIds(project, API_SERVICE);
+      if (api.length > 0) {
+        throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${this.settings.postgresVolume} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
       }
-      firstUse = firstUse || !hasVolume;
     }
     await this.compose(project, ['up', '-d', '--no-build', POSTGRES_SERVICE]);
     await this.waitForHealthyPostgres(project);
-    return firstUse;
+    return this.settings.firstUse || !hasVolume;
   }
 
   private async waitForHealthyPostgres(project: string): Promise<void> {
