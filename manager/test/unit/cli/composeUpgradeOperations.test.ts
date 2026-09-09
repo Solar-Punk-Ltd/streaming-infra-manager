@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { ComposeUpgradeOperations } from '../../../src/cli/ComposeUpgradeOperations.js';
+import { ComposeUpgradeOperations, httpHealthProbe } from '../../../src/cli/ComposeUpgradeOperations.js';
 import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunner.js';
 import { BUNDLED_PACKAGE_MANIFEST } from '../../../src/domain/versions/bundledShipmentPackage.js';
 import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
@@ -79,6 +79,14 @@ function serviceProbe(service: string): string {
     '--filter', `label=com.docker.compose.service=${service}`, '--filter', 'label=com.docker.compose.oneoff=False'].join(' ');
 }
 const API_CONTAINERS = serviceProbe('api');
+
+/** Fails a probe that never returns, instead of leaving the suite to time out. */
+function bounded<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([work, new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('the probe is still reading the answer body')), 500);
+  })]).finally(() => clearTimeout(timer));
+}
 
 const JOURNAL: ManagerPublication = { schema: 'journal', revision: '4', buildId: `${COMMIT}-r7`, receipt: null, pending: null };
 const FRESH: ManagerPublication = { schema: 'fresh', revision: '0', buildId: null, receipt: null, pending: null };
@@ -469,6 +477,29 @@ describe('the manager upgrade against one Compose project', () => {
 
       await assert.rejects(operations({ publicEdge: true }).verifyProject(request), /edge/i);
     });
+  });
+
+  it('takes the status of a health answer and lets go of its body instead of reading it', async () => {
+    let cancelled = false;
+    let close!: () => void;
+    // A body with a chunk in it that never ends, so reading it to the end never returns.
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode('{"status":"ok"}'));
+        close = () => controller.close();
+      },
+      cancel: () => { cancelled = true; },
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(body, { status: 200 })) as typeof fetch;
+    try {
+      assert.deepEqual(await bounded(httpHealthProbe(HEALTH_URL)), { status: 200 });
+    } finally {
+      globalThis.fetch = original;
+      if (!cancelled) close();
+    }
+
+    assert.equal(cancelled, true, 'the answer body is never read into this process');
   });
 
   it('names the project, the compose file and its directory on every Compose call', async () => {
