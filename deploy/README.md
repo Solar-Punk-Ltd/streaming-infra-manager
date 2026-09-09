@@ -137,6 +137,42 @@ rm -r ~/streaming-infra-manager-versions/.manager-upgrade
 The next deploy is a new shipment with a new id. It does not resume the one that
 stopped, and it does not need to.
 
+### What a stopped deploy leaves in `bundled.packages/`
+
+The other directory to look at is
+`~/streaming-infra-manager-versions/bundled.packages/`. Every package a deploy
+ships lands there, and a package carries the streaming stack's own `.env`, its
+`deploy/config.json` and its engine envs, so a directory left there is a copy of
+the secrets that deploy shipped.
+
+A finished upgrade cleans this itself. Once it has published, it marks every
+shipment an older publication left behind as superseded and then removes the
+packages and the claimed copies of every shipment that published or was
+superseded, printing one `[cli] removed ...` line for each. What it leaves is
+what may still be needed: a package whose shipment is still registered or
+prepared.
+
+Two kinds of leftover it will not touch, because it cannot tell where they came
+from:
+
+- `sealed-<uuid>.tmp` is a copy that never finished arriving, from a deploy
+  whose connection dropped during the rsync.
+- `sealed-<uuid>` with an id the journal has no shipment for is a package from a
+  deploy that stopped between shipping it and registering it.
+
+The upgrade names the second kind on its own line, saying it kept it because no
+shipment of this journal made it. Both are safe to remove by hand once no deploy
+is running:
+
+```sh
+ssh manager-host
+ls ~/streaming-infra-manager-versions/bundled.packages
+rm -r ~/streaming-infra-manager-versions/bundled.packages/sealed-<the id you saw>
+```
+
+Never remove a package a deploy that is still running shipped, and never remove
+anything under `bundled.builds/`, which is where the published builds live.
+
 ## The first user
 
 The manager has a login, and there is no sign-up. Once, after the first deploy,
