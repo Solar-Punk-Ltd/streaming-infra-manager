@@ -101,6 +101,23 @@ describe('version removal before files disappear in isolated PostgreSQL', {
     await writeFile(`${selected.rootPath}.removal.json`, JSON.stringify({ schema: 1, versionId: selected.id, name: selected.name, rootPath: selected.rootPath, removalId: randomUUID() }));
   }
 
+  for (const evidence of ['malformed', 'active']) {
+    it(`new-version creation refuses ${evidence} removal evidence before retaining a row or starting a runner`, async () => {
+      const name = 'new-stack';
+      const rootPath = join(root, name);
+      const nextId = Number((await pool.query('SELECT last_value + 1 AS id FROM stack_versions_id_seq')).rows[0].id);
+      await writeFile(`${rootPath}.removal.json`, evidence === 'malformed' ? '{' : JSON.stringify({ schema: 1, versionId: nextId, name, rootPath, removalId: randomUUID() }));
+      let started = 0;
+      const creating = new StackVersionService(versions, { run: (): never => { started++; throw new Error('No build may start.'); } }, new EventBus(), root, ledger);
+      await assert.rejects(creating.add(name, 'synthetic-ref'), { name: 'StackVersionRemovalHeldError' });
+      assert.equal(started, 0);
+      assert.equal(await versions.findByName(name), null);
+      assert.equal(existsSync(rootPath), false);
+      assert.equal(existsSync(`${rootPath}.repo`), false);
+      assert.equal(existsSync(`${rootPath}.builds`), false);
+    });
+  }
+
   for (const layout of ['legacy', 'builds'] as const) {
     for (const failure of ['rollback', 'connection-loss']) {
       it(`${layout} refuses admission after partial deletion and ${failure} with metadata surviving`, async () => {
