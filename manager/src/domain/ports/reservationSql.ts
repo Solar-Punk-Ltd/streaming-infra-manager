@@ -1,7 +1,9 @@
 import { MANAGER_SLOT_CAP, PORT_SLOT_STRIDE, portExposureProblem, type StackPortVar } from '@streaming-infra-manager/common';
 import type { PoolClient } from 'pg';
+import { PortReservedError } from '../errors/index.js';
+import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 
-import { type PortPlanEntry, type PortReservation, type ReservationState, portPlanFor } from './portReservations.js';
+import { type PortPlanEntry, type PortReservation, type ReservationState, portKeyOf, portPlanFor } from './portReservations.js';
 
 export const RESERVATION_COLUMNS = `
   id, daemon_id, protocol, port, profile_name, service, held_services, port_var, state, reason, created_at, updated_at
@@ -37,6 +39,44 @@ export function toReservation(row: ReservationRow): PortReservation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** The caller owns the transaction and acquires the allocator lock before any profile or daemon locks. */
+export async function planPortReservations(
+  client: PoolClient,
+  daemonId: string,
+  profileName: string,
+  entries: readonly PortPlanEntry[],
+  reason: string,
+): Promise<PortReservation[]> {
+  const planned = structuredClone(entries);
+  // The allocator takes this lock too. Row locks alone cannot protect a port with no row yet.
+  await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+  const held = await client.query<ReservationRow>(
+    `SELECT r.*
+       FROM port_reservations r
+       JOIN unnest($2::text[], $3::int[]) AS t(protocol, port) ON r.protocol = t.protocol AND r.port = t.port
+      WHERE r.daemon_id = $1
+      FOR UPDATE`,
+    [daemonId, planned.map(entry => entry.protocol), planned.map(entry => entry.port)],
+  );
+  const other = held.rows.find(row => row.profile_name !== profileName);
+  if (other) throw new PortReservedError(profileName, toReservation(other));
+  const mine = new Set(held.rows.map(row => portKeyOf(row)));
+  for (const row of held.rows) {
+    const owners = [...new Set([...row.held_services, ...planned.filter(entry => portKeyOf(entry) === portKeyOf(row)).map(entry => entry.service)])];
+    await client.query('UPDATE port_reservations SET held_services = $2::text[], updated_at = NOW() WHERE id = $1', [row.id, owners]);
+  }
+  const missing = planned.filter(entry => !mine.has(portKeyOf(entry)));
+  const inserted = await client.query<ReservationRow>(
+    `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, held_services, state, reason)
+     SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, ARRAY[t.service], 'planned', $7
+       FROM unnest($3::text[], $4::int[], $5::text[], $6::text[]) AS t(protocol, port, port_var, service)
+     RETURNING ${RESERVATION_COLUMNS}`,
+    [daemonId, profileName, missing.map(entry => entry.protocol), missing.map(entry => entry.port),
+      missing.map(entry => entry.portVar), missing.map(entry => entry.service), reason],
+  );
+  return inserted.rows.map(toReservation);
 }
 
 /** Where a new deployment goes: its version's table, the cap, and the daemon its ports belong to. */

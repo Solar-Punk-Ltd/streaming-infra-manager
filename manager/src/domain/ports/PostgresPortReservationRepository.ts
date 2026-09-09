@@ -1,10 +1,9 @@
 import { Pool } from 'pg';
 
-import { PortReservedError } from '../errors/index.js';
 import { PROFILE_SLOT_LOCK_KEY } from '../profileSql.js';
 import type { PortReservationRepository } from './PortReservationRepository.js';
 import { type PortKey, type PortPlanEntry, type PortReconciliation, type PortReservation, type ReservationState, ownersAfterHandover, portKeyOf } from './portReservations.js';
-import { RESERVATION_COLUMNS, type ReservationRow, toReservation } from './reservationSql.js';
+import { RESERVATION_COLUMNS, type ReservationRow, planPortReservations, toReservation } from './reservationSql.js';
 
 const INVENTORY_ROW = 1;
 
@@ -40,47 +39,13 @@ export class PostgresPortReservationRepository implements PortReservationReposit
   }
 
   async plan(daemonId: string, profileName: string, entries: readonly PortPlanEntry[], reason: string): Promise<PortReservation[]> {
+    const captured = structuredClone(entries);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      // The allocator takes this lock too. Row locks alone cannot protect a port with no row yet.
-      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
-      const held = await client.query<ReservationRow>(
-        `SELECT r.*
-           FROM port_reservations r
-           JOIN unnest($2::text[], $3::int[]) AS t(protocol, port) ON r.protocol = t.protocol AND r.port = t.port
-          WHERE r.daemon_id = $1
-          FOR UPDATE`,
-        [daemonId, entries.map((entry) => entry.protocol), entries.map((entry) => entry.port)],
-      );
-      const other = held.rows.find((row) => row.profile_name !== profileName);
-      if (other) {
-        await client.query('ROLLBACK');
-        throw new PortReservedError(profileName, toReservation(other));
-      }
-      const mine = new Set(held.rows.map((row) => portKeyOf({ protocol: row.protocol, port: row.port })));
-      for (const row of held.rows) {
-        const owners = [...new Set([...row.held_services, ...entries.filter(entry => portKeyOf(entry) === portKeyOf(row)).map(entry => entry.service)])];
-        await client.query('UPDATE port_reservations SET held_services = $2::text[], updated_at = NOW() WHERE id = $1', [row.id, owners]);
-      }
-      const missing = entries.filter((entry) => !mine.has(portKeyOf(entry)));
-      const inserted = await client.query<ReservationRow>(
-        `INSERT INTO port_reservations (daemon_id, profile_name, protocol, port, port_var, service, held_services, state, reason)
-         SELECT $1, $2, t.protocol, t.port, t.port_var, t.service, ARRAY[t.service], 'planned', $7
-           FROM unnest($3::text[], $4::int[], $5::text[], $6::text[]) AS t(protocol, port, port_var, service)
-         RETURNING ${RESERVATION_COLUMNS}`,
-        [
-          daemonId,
-          profileName,
-          missing.map((entry) => entry.protocol),
-          missing.map((entry) => entry.port),
-          missing.map((entry) => entry.portVar),
-          missing.map((entry) => entry.service),
-          reason,
-        ],
-      );
+      const inserted = await planPortReservations(client, daemonId, profileName, captured, reason);
       await client.query('COMMIT');
-      return inserted.rows.map(toReservation);
+      return inserted;
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       throw err;
