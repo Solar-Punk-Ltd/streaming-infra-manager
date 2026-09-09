@@ -23,6 +23,7 @@ const COMPOSE_FILE = '--compose-file';
 const MUTABLE_ROOT = '--mutable-root';
 const TOOLCHAIN = '--toolchain';
 const PUBLIC_EDGE = '--public-edge';
+const FIRST_USE = '--first-use';
 
 const RETAINED_GUARD_ADVICE = 'A person checks the host before removing that directory.';
 
@@ -31,7 +32,7 @@ export const MANAGER_UPGRADE_USAGE = [
   `  node dist/cli.js ${MANAGER_UPGRADE} ${SHIPMENT_ID} <uuid> ${COMMIT} <sha> ${DIGEST} <sha256>`,
   `      ${MANAGER_COMMIT} <sha> ${MANAGER_DIGEST} <sha256> ${IMAGE_ID} sha256:<sha256>`,
   `      ${PROJECT} <compose project> ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path>`,
-  `      ${TOOLCHAIN} <text> [${PUBLIC_EDGE}]`,
+  `      ${TOOLCHAIN} <text> [${PUBLIC_EDGE}] [${FIRST_USE}]`,
   '',
   'Publishes the package the deploy shipped and brings the project back up,',
   'holding one directory under the stack versions root for the whole run so a',
@@ -41,6 +42,11 @@ export const MANAGER_UPGRADE_USAGE = [
   '',
   `${PUBLIC_EDGE} starts the TLS edge with the project. Without it the edge is`,
   'removed by name and the removal is checked.',
+  '',
+  `${FIRST_USE} says the deploy found a host that has never run the manager, so`,
+  'the database this upgrade reads has to be empty. The deploy decides that',
+  'before this container exists, because starting it can create the project',
+  'volumes and a probe from in here would see one nothing has written to.',
   '',
   'Prints one line of JSON on standard output with the state of the upgrade and',
   'the receipt of the publication.',
@@ -91,7 +97,7 @@ export async function runManagerUpgradeCommand(
   const { request, settings, environment } = withUsage(MANAGER_UPGRADE_USAGE, () => {
     const flags = parseFlags(argv, {
       valued: [SHIPMENT_ID, COMMIT, DIGEST, MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, TOOLCHAIN],
-      switches: [PUBLIC_EDGE],
+      switches: [PUBLIC_EDGE, FIRST_USE],
     });
     return {
       // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
@@ -105,6 +111,7 @@ export async function runManagerUpgradeCommand(
         composeFile: flags.required(COMPOSE_FILE),
         toolchain: flags.required(TOOLCHAIN),
         publicEdge: flags.has(PUBLIC_EDGE),
+        firstUse: flags.has(FIRST_USE),
       } satisfies ComposeUpgradeSettings,
       environment: { guardRoot: managerUpgradeGuardRootFor(versionsRoot), mutableRoot: flags.required(MUTABLE_ROOT) },
     };

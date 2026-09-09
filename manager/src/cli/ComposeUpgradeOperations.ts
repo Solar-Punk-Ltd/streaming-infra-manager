@@ -26,6 +26,14 @@ export interface ComposeUpgradeSettings {
   toolchain: string;
   /** Whether this deploy asked for the public HTTPS edge. */
   publicEdge: boolean;
+  /**
+   * Whether the deploy found a host that has never run the manager.
+   *
+   * Decided on the host before this upgrade's own container existed, because
+   * preparing that container can create the project's volumes, and a probe
+   * from inside it would then see a data volume nothing has ever written to.
+   */
+  firstUse: boolean;
   timeouts?: ComposeUpgradeTimeouts;
 }
 
@@ -227,8 +235,8 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    */
   private async startPostgres(project: string): Promise<boolean> {
     const [container] = await this.serviceContainers(project, POSTGRES_SERVICE);
-    if (container?.state === RUNNING && container.health === HEALTHY) return false;
-    let firstUse = false;
+    if (container?.state === RUNNING && container.health === HEALTHY) return this.settings.firstUse;
+    let firstUse = this.settings.firstUse;
     if (!container) {
       const hasVolume = await this.hasPostgresVolume(project);
       if (!hasVolume) {
@@ -237,7 +245,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
           throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
         }
       }
-      firstUse = !hasVolume;
+      firstUse = firstUse || !hasVolume;
     }
     await this.compose(project, ['up', '-d', '--no-build', POSTGRES_SERVICE]);
     await this.waitForHealthyPostgres(project);

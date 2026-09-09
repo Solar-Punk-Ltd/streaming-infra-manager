@@ -51,7 +51,7 @@ describe('the manager upgrade publishing what the deploy shipped', {
     versions = new PostgresStackVersionRepository(reader);
     database = new PostgresManagerUpgradeDatabase(url, versionsRoot);
     operations = new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false },
+      { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false, firstUse: false },
       database, noRunner, async () => { throw new Error('publishing probed the api'); },
     );
     request = {

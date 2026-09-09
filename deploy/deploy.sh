@@ -186,6 +186,29 @@ docker compose build
 IMAGE_ID="\$(docker image inspect --format '{{.Id}}' manager-api)"
 echo "[deploy] built api image \${IMAGE_ID}"
 
+# Whether this host has ever run the manager is decided here, before the one-off
+# container below exists. Preparing that container can create the project's
+# volumes, so the same question asked from inside it would find a data volume
+# nothing has ever written to and call an old database a new one.
+POSTGRES_VOLUME="manager_manager-pg"
+service_containers() {
+    docker ps -aq \
+        --filter "label=com.docker.compose.project=manager" \
+        --filter "label=com.docker.compose.service=\$1" \
+        --filter "label=com.docker.compose.oneoff=False"
+}
+FIRST_USE_FLAG=""
+if [ -z "\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)" ]; then
+    if [ -n "\$(service_containers api)" ]; then
+        echo "[deploy] ERROR: this host has an api container but no \${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again." >&2
+        exit 1
+    fi
+    if [ -z "\$(service_containers postgres)" ]; then
+        FIRST_USE_FLAG="--first-use"
+        echo "[deploy] no data volume and no containers of this project: this host has never run the manager"
+    fi
+fi
+
 # --no-deps is deliberate. This one-off container decides for itself whether
 # Postgres may be started, because a host that has never run the manager and a
 # host whose database was removed are different situations and only one of them
@@ -201,6 +224,7 @@ RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:up
     --project manager \
     --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
     --mutable-root ${REMOTE_PATH} \
+    \${FIRST_USE_FLAG} \
     --toolchain '${TOOLCHAIN}' ${PUBLIC_EDGE_FLAG})"
 echo "[deploy] upgrade receipt: \${RECEIPT}"
 
