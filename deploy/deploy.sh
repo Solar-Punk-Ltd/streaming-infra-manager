@@ -10,42 +10,43 @@
 #     LocalForward 8080 localhost:8080
 #
 # What it does:
-#   1. Builds swarm-hls-stream locally so its dist/ artifacts ship with the
-#      stack (the host docker daemon mounts those into sibling containers
-#      spawned by the manager, so they must exist on the server filesystem).
+#   1. Writes the stack commit this repository pins into manager/.stack-commit,
+#      read from the repository itself rather than from a checkout, so a laptop
+#      that never initialised the submodule still ships the right pin. That file
+#      is the only thing about the streaming stack a deploy carries. The host
+#      fetches that commit from GitHub and builds it there, through the same
+#      path a version added in the UI takes.
 #   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager, without
 #      manager/swarm-hls-stream: the tree the engines of existing deployments
 #      mount is never written over again, so a container restart keeps the
 #      files it was started with. Excludes node_modules, build caches and
 #      .git. The manager's .env DOES ship, and --delete means this checkout
 #      is the only source of truth for it.
-#   3. Seals the streaming stack into one package with `bundled:seal`. The
-#      package holds the files of the commit the checkout is on, the two
-#      built directories, the stack's own .env, deploy config and engine
-#      envs, and a manifest naming every path with its hash. It is copied to
-#      the host under a staging name and renamed once every file arrived, so
-#      the host never reads a package a dropped connection left half copied.
-#      Nothing about it is published yet.
-#   4. Builds the images on the server, decides there whether this host has
+#   3. Builds the images on the server, decides there whether this host has
 #      ever run the manager, and then runs `manager:upgrade` in a one-off
 #      container of the image just built. The first use question is answered
 #      before that container exists, because preparing it can create the
 #      project's volumes, and it stops the deploy when the data volume is gone
 #      from under an installed manager. The command owns the rest:
 #      it holds one directory for the whole run so a second upgrade cannot
-#      start beside it, stops the old api, checks the package against the
-#      identity it was given, migrates, publishes the package as an immutable
-#      build the bundled version deploys from, starts the project and waits
-#      for the api to answer. A container keeps what it mounts until its own
-#      deployment is deployed. With MANAGER_DOMAIN set the upgrade is asked
-#      for the public TLS edge, and without it the edge is removed by name and
-#      the removal is checked, because dropping a profile does not stop a
+#      start beside it, stops the old api, migrates, starts the project, waits
+#      for the api to answer, and then waits for the api's own boot to finish
+#      building the pinned stack commit. With MANAGER_DOMAIN set the upgrade is
+#      asked for the public TLS edge, and without it the edge is removed by name
+#      and the removal is checked, because dropping a profile does not stop a
 #      container already running under it.
+#
+# The streaming stack's own settings live on the server, under the versions
+# root, and no deploy reads or writes them. See deploy/README.md.
 
 set -euo pipefail
 
 SSH_TARGET="${1:-viewer}"
 REMOTE_PATH="/home/solarpunk/streaming-infra-manager"
+# How long the upgrade waits for the host to fetch and build the pinned stack
+# commit before it reports a failure. A first build on a cold host pulls the
+# node image and installs the whole workspace.
+BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-1200}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -90,89 +91,20 @@ else
     exit 1
 fi
 
-echo "==> Building swarm-hls-stream locally (so its dist/ ships inside the package)"
-# swarm-hls-stream has its own pnpm workspace, separate from the parent repo.
-pnpm -C manager/swarm-hls-stream install --frozen-lockfile
-pnpm -C manager/swarm-hls-stream -r build
+echo "==> Recording the stack commit this manager pins"
+# The submodule pin, taken from the repository rather than from the working
+# tree, so it is right whether or not the submodule is checked out here. The
+# host reads this file at boot and builds that commit if it has no complete
+# build of it. Written next to the checkout rather than inside it, because the
+# submodule's own .gitignore does not cover it and a file in there would show
+# up as an untracked change.
+git rev-parse HEAD:manager/swarm-hls-stream > manager/.stack-commit
+echo "[deploy] pinned stack commit: $(cat manager/.stack-commit)"
 
-echo "==> Recording the bundled stack commit"
-# The rsync below excludes .git, so on the server the submodule tree carries no
-# way of saying which commit it is. A bundled row that has never been published
-# reads this file at boot and shows it as its commit. Written next to the
-# checkout rather than inside it, because the submodule's own .gitignore does
-# not cover it and a file in there would show up as an untracked change.
-git -C manager/swarm-hls-stream rev-parse HEAD > manager/.stack-commit
-echo "[deploy] bundled stack commit: $(cat manager/.stack-commit)"
-
-echo "==> Building the manager, so its command line exists here"
-pnpm --filter @streaming-infra-manager/api... build
-
-# One fresh id per deploy run, which is what the host's journal records the
-# shipment under. Replaying an earlier one is not something this script does.
-SHIPMENT_ID="$(uuidgen | tr 'A-Z' 'a-z')"
-TOOLCHAIN="node $(node --version) pnpm $(pnpm --version) $(uname -s)/$(uname -m)"
-SEAL_DIR="$(mktemp -d)"
-trap 'rm -rf "$SEAL_DIR"' EXIT
-
-echo "==> Sealing the bundled stack (shipment ${SHIPMENT_ID})"
-SEAL_JSON="$(node manager/dist/cli.js bundled:seal \
-    --source manager/swarm-hls-stream \
-    --out "$SEAL_DIR" \
-    --shipment-id "$SHIPMENT_ID" \
-    --dist packages/client/dist \
-    --dist packages/stream-uploader/dist \
-    --adopt-inputs \
-    --toolchain "$TOOLCHAIN")"
-# The command prints one JSON line on standard output and nothing else. Read it
-# with one node run that refuses a line missing either field by name, and take
-# the two values from the two lines it writes back.
-SEAL_FIELDS="$(node -e '
-const sealed = JSON.parse(process.argv[1]);
-for (const field of ["commit", "digest"]) {
-    if (typeof sealed[field] !== "string") {
-        process.stderr.write("ERROR: bundled:seal printed no " + field + " for this shipment.\n");
-        process.exit(1);
-    }
-}
-process.stdout.write(sealed.commit + "\n" + sealed.digest + "\n");
-' "$SEAL_JSON")"
-SHIPMENT_COMMIT="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 1p)"
-SHIPMENT_DIGEST="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 2p)"
-
-# Every identity below is interpolated into a command line that runs on the
-# host, so each one is checked here rather than trusted.
-UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-COMMIT_PATTERN='^[a-f0-9]{40}$'
-DIGEST_PATTERN='^[a-f0-9]{64}$'
-HOME_PATTERN='^/[A-Za-z0-9._/-]+$'
-# The same letters, digits, spaces and punctuation the seal command allows.
-TOOLCHAIN_PATTERN='^[A-Za-z0-9 ._/+-]+$'
-check_identity() {
-    local name="$1" value="$2" pattern="$3"
-    if [[ ! "$value" =~ $pattern ]]; then
-        echo "ERROR: ${name} is not the identity it has to be: '${value}'." >&2
-        exit 1
-    fi
-}
-check_identity "SHIPMENT_ID" "$SHIPMENT_ID" "$UUID_PATTERN"
-check_identity "SHIPMENT_COMMIT" "$SHIPMENT_COMMIT" "$COMMIT_PATTERN"
-check_identity "SHIPMENT_DIGEST" "$SHIPMENT_DIGEST" "$DIGEST_PATTERN"
-check_identity "TOOLCHAIN" "$TOOLCHAIN" "$TOOLCHAIN_PATTERN"
-echo "[deploy] sealed ${SHIPMENT_COMMIT} as ${SHIPMENT_DIGEST}"
-
-# The host's versions root, where the upgrade publishes from: the path the
-# remote block below exports and manager/docker-compose.yml bind-mounts, under
-# the home of the user the api runs as.
-REMOTE_HOME="$(ssh "$SSH_TARGET" 'printf %s "$HOME"')"
-if [ -z "$REMOTE_HOME" ]; then
-    echo "ERROR: could not read the home directory on ${SSH_TARGET}." >&2
-    exit 1
-fi
-# The host said this, and every remote path below is built out of it and put
-# into a command line there, so it is checked here like every other identity.
-check_identity "REMOTE_HOME" "$REMOTE_HOME" "$HOME_PATTERN"
-REMOTE_VERSIONS_ROOT="${REMOTE_HOME}/streaming-infra-manager-versions"
-REMOTE_PACKAGES="${REMOTE_VERSIONS_ROOT}/bundled.packages"
+# What the upgrade records as the manager it installed: the commit of this
+# checkout and a digest of the tree that commit names.
+MANAGER_COMMIT="$(git rev-parse HEAD)"
+MANAGER_DIGEST="$(git ls-tree -r --full-tree HEAD | shasum -a 256 | cut -c1-64)"
 
 echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH} (manager/swarm-hls-stream left as it is)"
 rsync -avz --delete \
@@ -183,23 +115,6 @@ rsync -avz --delete \
     --exclude '*.tsbuildinfo' \
     --exclude '.DS_Store' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
-
-echo "==> rsync the sealed package → ${SSH_TARGET}:${REMOTE_PACKAGES}"
-# Archive mode and nothing else: the manifest records every file's mode and
-# every symbolic link, and a copy that dropped either would fail verification
-# on the host. Into a staging name beside the packages already there, never
-# over one, and made visible with one rename once every file arrived.
-ssh "$SSH_TARGET" "mkdir -p '${REMOTE_PACKAGES}' && rm -rf '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp'"
-rsync -a --delete \
-    "${SEAL_DIR}/sealed-${SHIPMENT_ID}/" "${SSH_TARGET}:${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp/"
-ssh "$SSH_TARGET" "mv '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp' '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}'"
-
-# What the upgrade records as the manager it installed: the commit of this
-# checkout and a digest of the tree that commit names.
-MANAGER_COMMIT="$(git rev-parse HEAD)"
-MANAGER_DIGEST="$(git ls-tree -r --full-tree HEAD | shasum -a 256 | cut -c1-64)"
-check_identity "MANAGER_COMMIT" "$MANAGER_COMMIT" "$COMMIT_PATTERN"
-check_identity "MANAGER_DIGEST" "$MANAGER_DIGEST" "$DIGEST_PATTERN"
 
 echo "==> Remote build + upgrade"
 # Detect the server's primary IP on the host (the manager runs in a container,
@@ -222,7 +137,8 @@ export PUBLIC_HOST
 export BEE_DATA_ROOT="\${HOME}/streaming-infra-manager-data"
 
 # Added stack versions live here, a sibling of the data root and outside the
-# tree the rsync above deletes into, so a manager deploy cannot wipe them.
+# tree the rsync above deletes into, so a manager deploy cannot wipe them. The
+# bundled version's own build and its settings live here too.
 export STACK_VERSIONS_ROOT="\${HOME}/streaming-infra-manager-versions"
 mkdir -p "\${STACK_VERSIONS_ROOT}"
 echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
@@ -267,17 +183,14 @@ fi
 # may be treated as an empty database. The container joins the project network,
 # so postgres and api resolve by name inside it.
 RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade \
-    --shipment-id '${SHIPMENT_ID}' \
-    --commit '${SHIPMENT_COMMIT}' \
-    --digest '${SHIPMENT_DIGEST}' \
     --manager-commit '${MANAGER_COMMIT}' \
     --manager-digest '${MANAGER_DIGEST}' \
     --image-id "\${IMAGE_ID}" \
     --project manager \
     --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
     --mutable-root ${REMOTE_PATH} \
-    \${FIRST_USE_FLAG} \
-    --toolchain '${TOOLCHAIN}' ${PUBLIC_EDGE_FLAG} < /dev/null)"
+    --bundled-timeout '${BUNDLED_TIMEOUT}' \
+    \${FIRST_USE_FLAG} ${PUBLIC_EDGE_FLAG} < /dev/null)"
 echo "[deploy] upgrade receipt: \${RECEIPT}"
 
 echo "[deploy] PUBLIC_HOST seen inside api container:"
