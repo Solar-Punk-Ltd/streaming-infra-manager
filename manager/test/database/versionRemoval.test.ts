@@ -101,12 +101,12 @@ describe('version removal before files disappear in isolated PostgreSQL', {
     await writeFile(`${selected.rootPath}.removal.json`, JSON.stringify({ schema: 1, versionId: selected.id, name: selected.name, rootPath: selected.rootPath, removalId: randomUUID() }));
   }
 
-  for (const evidence of ['malformed', 'active']) {
+  for (const evidence of ['malformed', 'active', 'future-ID']) {
     it(`new-version creation refuses ${evidence} removal evidence before retaining a row or starting a runner`, async () => {
       const name = 'new-stack';
       const rootPath = join(root, name);
       const nextId = Number((await pool.query('SELECT last_value + 1 AS id FROM stack_versions_id_seq')).rows[0].id);
-      await writeFile(`${rootPath}.removal.json`, evidence === 'malformed' ? '{' : JSON.stringify({ schema: 1, versionId: nextId, name, rootPath, removalId: randomUUID() }));
+      await writeFile(`${rootPath}.removal.json`, evidence === 'malformed' ? '{' : JSON.stringify({ schema: 1, versionId: nextId + (evidence === 'future-ID' ? 1 : 0), name, rootPath, removalId: randomUUID() }));
       let started = 0;
       const creating = new StackVersionService(versions, { run: (): never => { started++; throw new Error('No build may start.'); } }, new EventBus(), root, ledger);
       await assert.rejects(creating.add(name, 'synthetic-ref'), { name: 'StackVersionRemovalHeldError' });

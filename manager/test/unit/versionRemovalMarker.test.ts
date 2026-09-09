@@ -41,6 +41,13 @@ describe('persistent removal markers at deployment admission', () => {
     assert.equal(await readFile(path, 'utf8'), '{');
     assert.deepEqual((await readdir(root)).filter(name => name.includes('.removal.')), ['test-stack.removal.json']);
   });
+  it('refuses to overwrite a well-formed future-ID marker', async () => {
+    const future = JSON.stringify({ ...identity(), versionId: 3 });
+    await writeFile(path, future);
+    assert.match(deployRootProblem({ id: 2, rootPath: anchor }) ?? '', /removal/i);
+    await assert.rejects(persistVersionRemoval({ id: 2, name: 'test-stack', rootPath: anchor }));
+    assert.equal(await readFile(path, 'utf8'), future);
+  });
   for (const layout of ['legacy', 'builds'] as const) {
     const version = () => ({ id: 2, rootPath: anchor, layout, buildId: BUILD });
     it(`${layout} refuses a marked version even with complete and manifest intact`, async () => {
