@@ -495,15 +495,6 @@ export class ProfileService {
    * the container starts with. Naming the stack's own value instead would
    * describe a deployment nobody is running.
    */
-  private async engineDefaults(
-    profile: Profile,
-    engine: EngineName,
-  ): Promise<EngineDefaults> {
-    const root = await this.orchestrator.stackRootFor(profile);
-    const contract = await this.contractFor(profile);
-    return this.engineDefaultsAt(root, engine, contract);
-  }
-
   private engineDefaultsAt(root: string, engine: EngineName, contract: StackContract | null): EngineDefaults {
     const defaults = effectiveEngineDefaults(
       engine,
@@ -517,12 +508,6 @@ export class ProfileService {
       );
     }
     return defaults;
-  }
-
-  /** The deploy contract of the version this deployment runs, or null. */
-  private async contractFor(profile: Profile): Promise<StackContract | null> {
-    const version = await this.versions.findById(profile.stack_version_id);
-    return version?.contract ?? null;
   }
 
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
@@ -589,9 +574,14 @@ export class ProfileService {
     }
 
     const { engine, abr } = this.engineFacts(existing);
+    const version = structuredClone(await this.versions.findById(existing.stack_version_id));
+    if (!version) {
+      throw new ProfileConfigError(name, `Stack version ${existing.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
+    }
+    const defaults = this.engineDefaultsAt(stackRootOf(version), engine, version.contract);
     const problem = engineSettingsProblem(engine, settings, {
       abr,
-      defaults: (await this.engineDefaults(existing, engine)).values,
+      defaults: defaults.values,
     });
     if (problem) {
       throw new ProfileConfigError(name, problem);
@@ -610,6 +600,7 @@ export class ProfileService {
     const reservation = await this.orchestrator.reserveDeploy(
       existing,
       services,
+      version,
     );
 
     const row = await this.writeOrCancel([reservation], async () => {

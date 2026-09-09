@@ -405,8 +405,9 @@ export class DeploymentOrchestrator {
   async reserveDeploy(
     profile: Profile,
     requested: string[] | undefined,
+    capturedVersion?: StackVersionRecord,
   ): Promise<DeployReservation> {
-    return this.claim(profile, requested, 'advance');
+    return this.claim(profile, requested, 'advance', capturedVersion);
   }
 
   /**
@@ -438,16 +439,19 @@ export class DeploymentOrchestrator {
     profile: Profile,
     requested: string[] | undefined,
     intent: DeployClaimOwnership['intent'],
+    capturedVersion?: StackVersionRecord,
   ): Promise<DeployReservation> {
+    const version = capturedVersion === undefined
+      ? structuredClone(await this.versionForDeploy(profile))
+      : structuredClone(capturedVersion);
     const planned = this.planDeploy(profile, requested);
 
     await this.assertUploaderCanStart(profile, planned.services);
-    await this.assertAttemptAdmissible(profile, this.attemptKindOf(await this.versionFor(profile)));
+    await this.assertAttemptAdmissible(profile, this.attemptKindOf(version));
 
     // What the deploy will run is decided here, once. A version whose build
     // is missing is refused before anything is claimed, naming the build,
     // and never falls back to another root.
-    const version = await this.versionForDeploy(profile);
     const problem = deployRootProblem(version);
     if (problem) throw new ProfileConfigError(profile.name, problem);
 

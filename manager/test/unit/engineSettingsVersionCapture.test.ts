@@ -5,9 +5,7 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import type { DeploymentGroupRepository } from '../../src/domain/DeploymentGroupRepository.js';
-import type { DeployReservation } from '../../src/domain/DeploymentOrchestrator.js';
 import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
-import type { Profile } from '../../src/types/index.js';
 
 const root = mkdtempSync(join(tmpdir(), 't11-version-defaults-'));
 process.env.SHLS_ROOT = root;
@@ -127,9 +125,7 @@ describe('engine settings capture one version for defaults and admission', { tim
     let reads = 0;
     h.versions.findById = async () => { reads += 1; return structuredClone(h.b); };
     const selected = structuredClone(h.a);
-    const reserve = h.orchestrator.reserveDeploy.bind(h.orchestrator) as
-      (profile: Profile, services: string[], captured: StackVersionRecord) => Promise<DeployReservation>;
-    const pending = reserve(initial(), ['srs'], selected);
+    const pending = h.orchestrator.reserveDeploy(initial(), ['srs'], selected);
     pending.catch(() => {});
     try {
       await gate.arrived;
