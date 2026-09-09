@@ -1,3 +1,10 @@
+/**
+ * What the new image may read of an old schema before it stops the old api,
+ * and what the migrations leave behind now that the shipment journal is gone.
+ *
+ * Runs against the disposable Postgres the database suite uses, in a schema of
+ * its own. It never migrates anything it only meant to read.
+ */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
@@ -5,13 +12,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
 import { readManagerPublication } from '../../src/domain/versions/readManagerPublication.js';
-import { PostgresBundledShipmentRepository } from '../../src/domain/versions/PostgresBundledShipmentRepository.js';
-import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
-import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't04b_test', connectionTimeoutMillis: 10000 };
-const identity = { shipmentId: '11111111-1111-4111-8111-111111111111', commit: 'a'.repeat(40), digest: 'd'.repeat(64) };
+
 describe('read-only manager publication admission before migrations', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535, timeout: 60000,
 }, () => {
@@ -27,45 +31,59 @@ describe('read-only manager publication admission before migrations', {
     for (const name of (await readdir(path)).filter(name => name.endsWith('.sql') && name < through).sort()) await pool.query(await readFile(new URL(name, path), 'utf8'));
   }
   async function relations() { return (await pool.query('SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename')).rows; }
+  async function columnCount(name: string): Promise<string> {
+    const rows = await pool.query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name=$1", [name]);
+    return rows.rows[0].count;
+  }
 
   it('recognizes an actually empty schema without creating a migration ledger or tables', async () => {
-    assert.deepEqual(await readManagerPublication(pool, identity), { schema: 'fresh', revision: '0', buildId: null, receipt: null, pending: null });
+    assert.deepEqual(await readManagerPublication(pool), { schema: 'fresh' });
     assert.deepEqual(await relations(), []);
   });
+
   it('reads the original main-v2 schema without build or publication columns and never migrates it', async () => {
     await migrate('013'); const before = await relations();
-    assert.deepEqual(await readManagerPublication(pool, identity), { schema: 'pre-journal', revision: '0', buildId: null, receipt: null, pending: null });
+    assert.deepEqual(await readManagerPublication(pool), { schema: 'pre-journal' });
     assert.deepEqual(await relations(), before);
-    assert.equal((await pool.query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name='publication_revision'")).rows[0].count, '0');
+    assert.equal(await columnCount('publication_revision'), '0');
   });
-  it('preserves a pre-journal build identity without inventing its publication history', async () => {
-    await migrate('024'); await pool.query("UPDATE stack_versions SET layout='builds', build_id=$1 WHERE name='bundled'", [identity.commit]);
-    const actual = await readManagerPublication(pool, identity);
-    assert.equal(actual.schema, 'pre-journal'); assert.equal(actual.buildId, identity.commit); assert.equal(actual.revision, '0');
+
+  it('reads a schema that has every migration as the current one', async () => {
+    await migrate();
+    assert.deepEqual(await readManagerPublication(pool), { schema: 'current' });
   });
-  it('reports a registered request original revision alongside current B, without changing either', async () => {
-    await migrate(); const shipments = new PostgresBundledShipmentRepository(pool, '/synthetic/bundled');
-    const selected = await shipments.register(identity); const versions = new PostgresStackVersionRepository(pool);
-    await versions.publish(selected.versionId, { buildId: 'b'.repeat(40), commitSha: 'b'.repeat(40), rootPath: '/synthetic/bundled', contract: ALLOCATION_CONTRACT });
-    const actual = await readManagerPublication(pool, identity);
-    assert.equal(actual.schema, 'journal'); assert.equal(actual.revision, '1');
-    assert.deepEqual(actual.pending, { state: 'registered', expectedRevision: '0' });
-    assert.deepEqual(await shipments.find(identity.shipmentId), selected);
+
+  it('has no shipment journal after every migration, and keeps the publication revision', async () => {
+    await migrate();
+
+    const tables = (await relations()).map((row) => row.tablename);
+    assert.equal(tables.includes('bundled_shipments'), false, 'the journal the deploy used to write is gone');
+    assert.equal(await columnCount('publication_revision'), '1', 'the revision the version rows still advance is not');
+    const triggers = await pool.query(
+      "SELECT tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND NOT t.tgisinternal ORDER BY tgname",
+    );
+    const names = triggers.rows.map((row) => row.tgname);
+    assert.equal(names.includes('stack_publication_revision'), true, 'and neither is the trigger that advances it');
+    assert.equal(names.includes('bundled_shipment_identity'), false, 'the journal trigger went with its table');
   });
-  it('refuses a journal identity mismatch instead of treating the same UUID as a fresh request', async () => {
-    await migrate(); await new PostgresBundledShipmentRepository(pool, '/synthetic/bundled').register(identity);
-    await assert.rejects(readManagerPublication(pool, { ...identity, digest: 'e'.repeat(64) }), /identity/i);
+
+  it('still advances the publication revision of a version row after the journal was dropped', async () => {
+    await migrate();
+
+    await pool.query("UPDATE stack_versions SET build_id = $1, layout = 'builds' WHERE name = 'bundled'", ['a'.repeat(40)]);
+
+    const rows = await pool.query("SELECT publication_revision::text AS revision FROM stack_versions WHERE name = 'bundled'");
+    assert.equal(rows.rows[0].revision, '1');
   });
-  it('refuses a partial journal schema and an unrelated nonempty schema', async () => {
+
+  it('refuses an unrelated nonempty schema rather than calling it a manager database', async () => {
     await pool.query('CREATE TABLE unrelated (id integer)');
-    await assert.rejects(readManagerPublication(pool, identity), /schema|verified/i);
-    await pool.query('DROP TABLE unrelated'); await migrate('024');
-    await pool.query('ALTER TABLE stack_versions ADD COLUMN publication_revision bigint NOT NULL DEFAULT 0');
-    await assert.rejects(readManagerPublication(pool, identity), /schema|verified/i);
+    await assert.rejects(readManagerPublication(pool), /schema|verified/i);
   });
-  it('propagates unavailable catalogue reads, never inventing revision zero', async () => {
+
+  it('propagates unavailable catalogue reads, never inventing an empty database', async () => {
     const client = { query: async () => { throw new Error('synthetic database unavailable'); }, release: () => {} };
-    await assert.rejects(readManagerPublication({ connect: async () => client } as unknown as Pool, identity), /unavailable/);
+    await assert.rejects(readManagerPublication({ connect: async () => client } as unknown as Pool), /unavailable/);
     assert.deepEqual(await relations(), []);
   });
 });
