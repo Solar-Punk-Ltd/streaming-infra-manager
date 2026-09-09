@@ -8,9 +8,11 @@ export interface ManagerUpgradeRequest {
   project: string;
 }
 export interface ManagerPublication {
+  schema: 'fresh' | 'pre-journal' | 'journal';
   revision: string;
   buildId: string | null;
   receipt: BundledShipmentReceipt | null;
+  pending: { state: 'registered' | 'prepared' | 'superseded'; expectedRevision: string } | null;
 }
 /** Operations use the exact staged image/source and one Compose project. Each command has its own bounded supervisor.
  * readPublication also verifies the shipment journal's commit and digest against the captured request. */
@@ -67,7 +69,12 @@ export async function runManagerUpgrade(environment: { guardRoot: string; mutabl
   let effectStarted = false;
   try {
     const current = await operations.readPublication(request);
-    if (typeof current.revision !== 'string' || !REVISION.test(current.revision)) throw new Error('Current manager publication cannot be verified.');
+    if (!['fresh', 'pre-journal', 'journal'].includes(current.schema) || typeof current.revision !== 'string' ||
+      !REVISION.test(current.revision) || !('pending' in current)) throw new Error('Current manager publication cannot be verified.');
+    if (current.pending && (current.pending.state === 'superseded' ||
+      !['registered', 'prepared'].includes(current.pending.state) || current.pending.expectedRevision !== current.revision)) {
+      throw new Error('This pending manager upgrade is stale or superseded.');
+    }
     const completed = guard.completed(request.shipment.shipmentId) as CompletedUpgrade | null;
     if (completed && (completed.schema !== 1 || !isDeepStrictEqual(completed.request, request))) throw new Error('Completed manager upgrade identity does not match.');
     if (current.receipt) {
