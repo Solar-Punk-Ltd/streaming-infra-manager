@@ -90,6 +90,13 @@ describe('fixed bundled publication command using the actual journal and files',
     assert.equal((await versions.findByName('bundled'))!.layout, 'legacy');
     assert.equal(await readFile(join(root, 'claims', value.record.shipmentId, 'payload', 'unexpected'), 'utf8'), 'partial');
   });
+  it('refuses an arbitrary ready path before registering or moving anything', async () => {
+    const value = await item(); const other = join(root, 'legacy-mounted'); await mkdir(other);
+    await writeFile(join(other, 'keep'), 'original');
+    await assert.rejects(command.publish({ ...request(value), readyPath: other }), /owned package path/i);
+    assert.equal(await shipments.find(value.record.shipmentId), null);
+    assert.equal(await readFile(join(other, 'keep'), 'utf8'), 'original');
+  });
   it('supports reuse only through an exact already-published journal artifact', async () => {
     const a = await published(); const same = await item();
     const result = await command.publish(request(same, a.record.shipmentId)); assert.equal(result.status, 'published');
