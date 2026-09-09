@@ -40,8 +40,13 @@ function hash(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error('Invalid package identity digest.');
   return value;
 }
+const SHIPMENT_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+/** Whether a name found on disk is one of these identities, for a caller that has to decide rather than refuse. */
+export function isBundledShipmentId(value: string): boolean {
+  return SHIPMENT_ID.test(value);
+}
 export function validateBundledShipmentId(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value)) throw new Error('Invalid shipment identity.');
+  if (typeof value !== 'string' || !isBundledShipmentId(value)) throw new Error('Invalid shipment identity.');
   return value;
 }
 function commitId(value: unknown): string {

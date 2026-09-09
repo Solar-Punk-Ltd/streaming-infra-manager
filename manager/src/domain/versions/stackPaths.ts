@@ -139,6 +139,17 @@ export function configRootFor(versionsRoot: string, name: string): string {
   return versionRootFor(versionsRoot, name);
 }
 
+const MATERIALIZATIONS_SUFFIX = '.materializations';
+
+/**
+ * Where a publication makes its private copy of a package before it renames
+ * one into place as a build. A sibling of the version's own root, so a copy
+ * that no publication finished is never inside a tree anything deploys from.
+ */
+export function materializationsRootFor(versionRootPath: string): string {
+  return join(dirname(versionRootPath), `${basename(versionRootPath)}${MATERIALIZATIONS_SUFFIX}`);
+}
+
 const PACKAGES_DIR = 'bundled.packages';
 const CLAIMS_DIR = 'claims';
 const SEALED_PREFIX = 'sealed-';
