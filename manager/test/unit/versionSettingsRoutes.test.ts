@@ -761,10 +761,13 @@ describe('PUT /versions/:id/settings', () => {
     const id = await buildV3();
     const before = readFileSync(join(configRoot, '.env'));
 
+    // Engine names are letters so that no path carries the bound's own digits,
+    // and the refusal has to be the bound rather than the paths being absent,
+    // which is what these seventeen would be refused as without it.
     const manyFiles = await callJson('PUT', `/versions/${id}/settings`, {
       expectedGeneration: 2,
       files: Array.from({ length: 17 }, (_unused, index) => ({
-        path: `engines/e${index}/.env`,
+        path: `engines/${String.fromCharCode(97 + index)}/.env`,
         entries: [{ key: 'API_PORT', value: '3100' }],
       })),
     });
@@ -782,7 +785,14 @@ describe('PUT /versions/:id/settings', () => {
     });
 
     assert.equal(manyFiles.status, 400);
+    assert.match(JSON.stringify(manyFiles.body), /less than or equal to 16 items/);
+    assert.equal(
+      JSON.stringify(manyFiles.body).includes('keeps no settings file'),
+      false,
+      'the paths were reached, so the file bound did not refuse the save',
+    );
     assert.equal(manyEntries.status, 400);
+    assert.match(JSON.stringify(manyEntries.body), /less than or equal to 512 items/);
     assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
   });
 
