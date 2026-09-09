@@ -46,15 +46,33 @@ export interface HostConfigSettingsSources {
 export const SETTINGS_NEED_A_BUILD =
   'They are seeded from the stack samples by the first build of a version, and this one has none.';
 
+/** Sources of a version that has settings: it has been built, so it has a tree. */
+export interface ReadyHostConfigSettings extends HostConfigSettingsSources {
+  buildRoot: string;
+}
+
+/**
+ * The sources as they are once the version has settings at all, or the refusal
+ * saying it has none. A version gets both its files and the samples that
+ * describe them from its first build, so before that there is nothing to read,
+ * save or apply.
+ */
+export function readySettingsSources(
+  versionName: string,
+  sources: HostConfigSettingsSources,
+): ReadyHostConfigSettings {
+  if (sources.buildRoot === null || !existsSync(sources.configRoot)) {
+    throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
+  }
+  return { ...sources, buildRoot: sources.buildRoot };
+}
+
 /** The version's settings, or why it has none to show. */
 export async function readHostConfigSettings(
   versionName: string,
   sources: HostConfigSettingsSources,
 ): Promise<StackSettings> {
-  const { configRoot, buildRoot } = sources;
-  if (buildRoot === null || !existsSync(configRoot)) {
-    throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
-  }
+  const { configRoot, buildRoot } = readySettingsSources(versionName, sources);
 
   const release = await holdHostConfigLock(configRoot, sources.lockWaitMs);
   try {

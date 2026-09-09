@@ -57,7 +57,7 @@ import { completeHostConfigFromSamples } from './hostConfigCompletion.js';
 import { describeSettingsSave, saveHostConfigSettings } from './hostConfigSave.js';
 import {
   readHostConfigSettings,
-  SETTINGS_NEED_A_BUILD,
+  readySettingsSources,
   type HostConfigSettingsSources,
 } from './hostConfigSettings.js';
 import { carryOverLegacyHostConfig } from './legacyHostConfig.js';
@@ -415,10 +415,7 @@ export class StackVersionService {
   /** Commits an edit of those files as one revision, and answers the new generation. */
   async saveSettings(id: number, save: StackSettingsSave): Promise<StackSettingsSaved> {
     const version = await this.require(id);
-    const sources = this.settingsSourcesOf(version);
-    if (sources.buildRoot === null) {
-      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_BUILD);
-    }
+    const sources = readySettingsSources(version.name, this.settingsSourcesOf(version));
     const generation = await saveHostConfigSettings(version.name, sources.configRoot, save);
     logger.info(
       `[Versions] ${version.name} settings saved as revision ${generation}: ${describeSettingsSave(save)}`,
@@ -450,10 +447,10 @@ export class StackVersionService {
   }
 
   private async publishSettingsBuild(version: StackVersionRecord): Promise<StackSettingsApplied> {
-    const from = settingsTreeOf(version);
-    if (from === null || version.layout !== 'builds' || !version.buildId) {
-      throw new StackSettingsNotReadyError(version.name, SETTINGS_NEED_A_BUILD);
-    }
+    const { configRoot, buildRoot: from } = readySettingsSources(
+      version.name,
+      this.settingsSourcesOf(version),
+    );
     const current = readBuildManifest(from);
     if (current.problem !== null) {
       throw new StackSettingsNotReadyError(
@@ -462,7 +459,6 @@ export class StackVersionService {
       );
     }
 
-    const configRoot = version.rootPath ?? configRootFor(this.versionsRoot, version.name);
     const capture = await captureHostConfig(configRoot, { sampleEnvKeys: await sampledEnvKeys(from) });
     if (capture.problem !== null) throw new Error(capture.problem);
     const inputs = capture.captured;
