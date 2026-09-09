@@ -73,6 +73,7 @@ export class InMemoryEngineConfigOperations implements EngineConfigOperationRepo
       recoveryDescriptor: null,
       recoveryReferenceId: null,
       deploymentJobReferenceId: null,
+      sourceOperationId: null,
       containerId: null,
       containerStartedAt: null,
       startedAt: new Date(),

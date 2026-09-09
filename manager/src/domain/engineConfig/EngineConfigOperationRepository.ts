@@ -12,7 +12,7 @@ import type {
 export interface BeginRollout {
   profileName: string;
   engine: EngineName;
-  kind: EngineConfigOperationKind;
+  kind: Exclude<EngineConfigOperationKind, 'restore-previous'>;
   /** The file to store, null for the template. */
   config: string | null;
   /** The config revision the caller read. The write happens only while it is current. */

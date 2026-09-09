@@ -149,6 +149,7 @@ async function setup() {
       recoveryDescriptor: null,
       recoveryReferenceId: null,
       deploymentJobReferenceId: null,
+      sourceOperationId: null,
       containerId: 'c1',
       containerStartedAt: RUNNING.startedAt,
       startedAt: new Date(0),

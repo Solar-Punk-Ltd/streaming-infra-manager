@@ -16,7 +16,7 @@ export const OPEN_OPERATION_STATES: readonly EngineConfigOperationState[] = [
   'interrupted',
 ];
 
-export type EngineConfigOperationKind = 'apply' | 'reset';
+export type EngineConfigOperationKind = 'apply' | 'reset' | 'restore-previous';
 
 export interface EngineConfigOperation {
   id: number;
@@ -36,6 +36,8 @@ export interface EngineConfigOperation {
   recoveryDescriptor: RolloutRecoveryDescriptor | null;
   recoveryReferenceId: number | null;
   deploymentJobReferenceId: number | null;
+  /** The interrupted operation whose saved artifact and restoration target this explicit action preserves. */
+  sourceOperationId: number | null;
   /** The container the watch verified, recorded when the watch started. */
   containerId: string | null;
   containerStartedAt: string | null;

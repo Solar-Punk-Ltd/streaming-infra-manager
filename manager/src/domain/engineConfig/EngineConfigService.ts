@@ -286,7 +286,7 @@ export class EngineConfigService {
   private async rollOut(
     existing: Profile,
     engine: EngineName,
-    kind: EngineConfigOperationKind,
+    kind: Exclude<EngineConfigOperationKind, 'restore-previous'>,
     config: string | null,
   ): Promise<ProfileWithContainers> {
     const reservation = await this.orchestrator.reserveForRollout(existing, engine);

@@ -55,6 +55,7 @@ function setup() {
     recoveryDescriptor: null,
     recoveryReferenceId: null,
     deploymentJobReferenceId: null,
+    sourceOperationId: null,
     appliedRevision: row().engine_config_revision,
     intentRevision: row().intent_revision,
     state: 'watching',
