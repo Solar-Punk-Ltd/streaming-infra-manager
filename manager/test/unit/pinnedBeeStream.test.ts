@@ -2,18 +2,25 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import { syncBuiltinESMExports } from 'node:module';
-import { Duplex, PassThrough } from 'node:stream';
+import { Duplex, PassThrough, Transform } from 'node:stream';
 import { describe, it, type TestContext } from 'node:test';
 import { PinnedBeeSession } from '../../src/domain/chequebook/PinnedBeeSession.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
+import { createDockerExecDuplex } from '../../src/domain/chequebook/createDockerExecDuplex.js';
 import { InMemoryChequebookOperations, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 type Handler = (request: http.IncomingMessage, response: http.ServerResponse) => void;
-function syntheticBee(t: TestContext, handler?: Handler) {
-  const inbound = new PassThrough();
+function syntheticBee(t: TestContext, handler?: Handler, dockerFrames = false) {
+  const inbound = dockerFrames ? new Transform({ transform(chunk: Buffer, _encoding, callback) {
+    const header = Buffer.alloc(8); header[0] = 1; header.writeUInt32BE(chunk.length, 4);
+    callback(null, Buffer.concat([header, chunk]));
+  } }) : new PassThrough();
   const outbound = new PassThrough();
-  const owned = Duplex.from({ readable: inbound, writable: outbound });
+  const transport = Duplex.from({ readable: inbound, writable: outbound });
+  const owned = dockerFrames ? createDockerExecDuplex(transport, {
+    maxFrameBytes: 64 * 1024, maxOutputBytes: 1024 * 1024, maxInputBytes: 64 * 1024, totalTimeoutMs: 2000,
+  }) : transport;
   const peer = Duplex.from({ readable: outbound, writable: inbound });
   const requests: { method: string; url: string; host: string }[] = [];
   let acquisitions = 0;
@@ -66,6 +73,43 @@ describe('Bee HTTP over one already acquired owned byte stream', { timeout: 5000
     assert.equal(bee.counts().acquisitions, 0);
   });
 
+  it('composes with the strict Docker stdout decoder while request bytes remain unframed', async t => {
+    const bee = syntheticBee(t, undefined, true);
+    const session = PinnedBeeSession.fromStream(bee.owned);
+    t.after(() => session.dispose());
+    await session.getAddresses();
+    await session.getWallet();
+    assert.equal((await session.withdrawChequebook(2n)).transactionHash, transactionHash);
+    assert.deepEqual(bee.requests.map(request => request.url), ['/addresses', '/wallet', '/chequebook/withdraw?amount=2']);
+    assert.equal(bee.counts().acquisitions, 0);
+    session.dispose();
+    await pause(0);
+    assert.equal(bee.owned.destroyed, true);
+    assert.equal(bee.counts().closes, 1);
+  });
+
+  for (const mode of ['destroyed', 'encoded', 'read-ended', 'write-ended'] as const) {
+    it(`disposes and refuses a ${mode} acquired stream`, async t => {
+      const bee = syntheticBee(t);
+      bee.owned.on('error', () => {});
+      if (mode === 'destroyed') bee.owned.destroy();
+      if (mode === 'encoded') bee.owned.setEncoding('utf8');
+      if (mode === 'read-ended') { bee.owned.push(null); bee.owned.resume(); await pause(0); }
+      if (mode === 'write-ended') bee.owned.end();
+      assert.throws(() => PinnedBeeSession.fromStream(bee.owned), /Bee connection/i);
+      assert.equal(bee.owned.destroyed, true);
+      assert.equal(bee.counts().acquisitions, 0);
+    });
+  }
+
+  it('disposes the acquired stream for a malformed runtime options object', async t => {
+    const bee = syntheticBee(t);
+    // @ts-expect-error Exercise the runtime boundary used by non-TypeScript callers.
+    assert.throws(() => PinnedBeeSession.fromStream(bee.owned, null), /Bee connection/i);
+    assert.equal(bee.owned.destroyed, true);
+    bee.owned.emit('error', new Error('sensitive late error'));
+  });
+
   it('refuses reuse after the acquired stream closes following a successful GET', async t => {
     const bee = syntheticBee(t);
     const session = PinnedBeeSession.fromStream(bee.owned);
@@ -107,13 +151,14 @@ describe('Bee HTTP over one already acquired owned byte stream', { timeout: 5000
     assert.equal(bee.counts().acquisitions, 0);
   });
 
-  for (const mode of ['slow', 'declared-size', 'streamed-size', 'redirect', 'invalid-json'] as const) {
+  for (const mode of ['slow', 'declared-size', 'streamed-size', 'redirect', 'invalid-json', 'truncated-body'] as const) {
     it(`contains a ${mode} response and permanently refuses further use`, async t => {
       const bee = syntheticBee(t, (_request, response) => {
         if (mode === 'slow') { response.write('{'); return; }
         if (mode === 'declared-size') { response.setHeader('Content-Length', '1024'); response.flushHeaders(); return; }
         if (mode === 'streamed-size') { response.write('x'.repeat(256)); response.end(); return; }
         if (mode === 'redirect') { response.writeHead(302, { Location: 'http://sensitive.invalid' }); response.end(); return; }
+        if (mode === 'truncated-body') { response.setHeader('Content-Length', '12'); response.write('{'); setImmediate(() => response.destroy()); return; }
         response.end('sensitive invalid response');
       });
       const session = PinnedBeeSession.fromStream(bee.owned, { readTimeoutMs: 20, maxResponseBytes: 128 });

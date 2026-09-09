@@ -1,8 +1,10 @@
 import http from 'node:http';
-import { createConnection, type Socket } from 'node:net';
+import { createConnection } from 'node:net';
+import type { Duplex } from 'node:stream';
 import type { BeeTransaction, ChequebookBalance } from '@streaming-infra-manager/common';
 import type { BeeAddresses, BeeChequebookAddress, BeeWallet } from '../BeeClient.js';
 import { BeeConnectionError } from '../errors/BeeConnectionError.js';
+import { OwnedHttpStream } from './OwnedHttpStream.js';
 
 export interface BeeTransferSession {
   getAddresses(): Promise<BeeAddresses>;
@@ -15,34 +17,50 @@ export interface BeeTransferSession {
   dispose(): void;
 }
 
+export interface PinnedBeeSessionOptions {
+  readTimeoutMs?: number;
+  postTimeoutMs?: number;
+  preflightTimeoutMs?: number;
+  maxResponseBytes?: number;
+}
+
+type ConnectionSource = { kind: 'url'; hostname: string; port: number } | { kind: 'owned'; stream: OwnedHttpStream };
+
 class OneConnectionAgent extends http.Agent {
   #opened = false;
-  #socket: Socket | undefined;
+  #socket: Duplex | undefined;
   #closed = false;
 
-  constructor(private readonly hostname: string, private readonly port: number, private readonly unavailable: () => void) {
+  constructor(private readonly source: ConnectionSource, private readonly unavailable: () => void) {
     super({ keepAlive: true, maxSockets: 1, maxTotalSockets: 1, maxFreeSockets: 1 });
+    if (source.kind === 'owned') this.own(source.stream);
   }
 
   // Node's Agent calls this hook for every attempted connection, including replacement sockets.
-  createConnection(_options: http.ClientRequestArgs, callback: (error: Error | null, socket?: Socket) => void): Socket | undefined {
-    if (this.#opened || this.#closed) { queueMicrotask(() => callback(new BeeConnectionError())); return; }
+  createConnection(_options: http.ClientRequestArgs, callback: (error: Error | null, socket?: Duplex) => void): Duplex | undefined {
+    if (this.#opened || this.#closed || this.#socket?.destroyed) { queueMicrotask(() => callback(new BeeConnectionError())); return; }
     this.#opened = true;
-    const socket = createConnection({ host: this.hostname, port: this.port });
+    if (this.source.kind === 'url') this.own(createConnection({ host: this.source.hostname, port: this.source.port }));
+    return this.#socket;
+  }
+
+  private own(socket: Duplex): void {
     this.#socket = socket;
     socket.on('close', this.unavailable);
     socket.on('end', this.unavailable);
     socket.on('error', this.unavailable);
-    return socket;
   }
 
-  accepts(socket: Socket): boolean { return socket === this.#socket && !this.#closed; }
+  accepts(socket: Duplex): boolean { return socket === this.#socket && !this.#closed; }
   isConnected(): boolean { return this.#opened && !this.#closed && !!this.#socket && !this.#socket.destroyed && !this.#socket.readableEnded; }
-  override destroy(): void { this.#closed = true; super.destroy(); }
+  override destroy(): void {
+    this.#closed = true;
+    if (this.#socket && !this.#socket.destroyed) this.#socket.destroy();
+    super.destroy();
+  }
 }
 
-/** Only for a direct Bee listener or connection-preserving Docker port mapping, never a routing proxy. */
-export class PinnedBeeSession implements BeeTransferSession {
+class HttpBeeSession implements BeeTransferSession {
   #target: URL;
   #agent: OneConnectionAgent;
   #unusable = false;
@@ -53,11 +71,9 @@ export class PinnedBeeSession implements BeeTransferSession {
   #maxResponseBytes: number;
   #preflightTimer: ReturnType<typeof setTimeout>;
 
-  constructor(baseUrl: string, options: { readTimeoutMs?: number; postTimeoutMs?: number; preflightTimeoutMs?: number; maxResponseBytes?: number } = {}) {
-    try {
-      this.#target = new URL(baseUrl);
-      if (this.#target.protocol !== 'http:' || this.#target.username || this.#target.password || this.#target.pathname !== '/' || this.#target.search || this.#target.hash) throw new BeeConnectionError();
-    } catch { throw new BeeConnectionError(); }
+  constructor(target: URL, source: ConnectionSource, options: PinnedBeeSessionOptions) {
+    this.#target = target;
+    if (!options || typeof options !== 'object') throw new BeeConnectionError();
     this.#readTimeoutMs = options.readTimeoutMs ?? 10_000;
     this.#postTimeoutMs = options.postTimeoutMs ?? 180_000;
     this.#maxResponseBytes = options.maxResponseBytes ?? 64 * 1024;
@@ -65,7 +81,7 @@ export class PinnedBeeSession implements BeeTransferSession {
     for (const [value, maximum] of [[this.#readTimeoutMs, 30_000], [this.#postTimeoutMs, 180_000], [preflightTimeoutMs, 60_000], [this.#maxResponseBytes, 1024 * 1024]]) {
       if (!Number.isInteger(value) || value! < 1 || value! > maximum!) throw new BeeConnectionError();
     }
-    this.#agent = new OneConnectionAgent(this.#target.hostname.replace(/^\[|\]$/g, ''), Number(this.#target.port || 80), () => { this.#unusable = true; });
+    this.#agent = new OneConnectionAgent(source, () => { this.#unusable = true; });
     this.#preflightTimer = setTimeout(() => this.dispose(), preflightTimeoutMs);
   }
 
@@ -134,5 +150,24 @@ export class PinnedBeeSession implements BeeTransferSession {
       clearTimeout(timer);
       this.#busy = false;
     }
+  }
+}
+
+/** Only for a direct Bee listener or connection-preserving Docker port mapping, never a routing proxy. */
+export class PinnedBeeSession extends HttpBeeSession {
+  constructor(baseUrl: string, options: PinnedBeeSessionOptions = {}) {
+    let target: URL;
+    try {
+      target = new URL(baseUrl);
+      if (target.protocol !== 'http:' || target.username || target.password || target.pathname !== '/' || target.search || target.hash) throw new BeeConnectionError();
+    } catch { throw new BeeConnectionError(); }
+    super(target, { kind: 'url', hostname: target.hostname.replace(/^\[|\]$/g, ''), port: Number(target.port || 80) }, options);
+  }
+
+  /** Takes ownership now. The fixed authority supplies HTTP headers only, never a network destination. */
+  static fromStream(stream: Duplex, options: PinnedBeeSessionOptions = {}): BeeTransferSession & Pick<HttpBeeSession, 'getPendingTransactions'> {
+    const owned = new OwnedHttpStream(stream);
+    try { return new HttpBeeSession(new URL('http://bee.invalid/'), { kind: 'owned', stream: owned }, options); }
+    catch { owned.destroy(); throw new BeeConnectionError(); }
   }
 }
