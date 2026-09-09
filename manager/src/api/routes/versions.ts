@@ -67,11 +67,13 @@ export function createVersionsRouter(versions: StackVersionService): Router {
 
   // The values come back in the clear, secrets included: the page is behind
   // the session gate, the operator is the only reader, and a value they cannot
-  // see is one they cannot check. Never logged, here or anywhere below.
+  // see is one they cannot check. Never logged, here or anywhere below, and
+  // never kept by anything on the way back either.
   router.get(
     '/:id/settings',
     validateParams(versionIdSchema),
     asyncHandler(async (req: Request, res: Response) => {
+      res.setHeader('Cache-Control', 'no-store');
       res.json(await versions.settingsOf(versionIdOf(req)));
     }),
   );
