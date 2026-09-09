@@ -316,3 +316,96 @@ the submodule was read.
 
 Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, runs in neither `pnpm test` nor the checks workflow yet.
 
+
+## The version settings page, 2026-09-10
+
+Every stack version keeps three kinds of file the operator owns, beside its
+checkout on the host: the base `.env`, `deploy/config.json` and one `.env` per
+engine. Until now the only way to change one was `stack-config-edit.sh` over
+ssh. There is a page for them now, one per version, reached from a **Settings**
+button on the version card, and it is what D12 and D13 asked for: a working env
+setup, shown and editable, with the secret-like values revealable and settable
+by hand.
+
+Three routes carry it, all behind the session gate with the other version
+routes. `GET /versions/:id/settings` answers the operator's own files read
+against the samples the version's current build ships, so every key comes with
+the comment block that sample keeps above it, the value the sample assigns, and
+two flags: whether it is secret and whether the manager fills it per deployment.
+`PUT` takes the revision the page loaded and commits the whole edit as one, and
+`POST /versions/:id/settings/apply` publishes the build that carries it. A
+version that has never finished a build answers 409 `settings_not_ready`, and
+says that its settings appear after the first build.
+
+What the save must not do is lose a byte. These files carry the host's own
+documentation in their comments and are still read and edited over ssh, so an
+env file is rewritten from its own current bytes: the lines the save names get
+their value replaced in place, keeping the `export` prefix and the spacing up to
+the equals sign and any carriage return at the end, and every comment, blank
+line and untouched line is copied through. A key the file does not assign is
+appended. The whole save runs under one hold of the edit lock, generation check
+included, so a page and an ssh session cannot write over each other, and a save
+made against a revision that has moved is refused with 409 `settings_changed`
+carrying the generation to reload to.
+
+Apply is the part that makes a saved setting reach anything. A deployment reads
+its settings from the build it runs, and fetching and running `pnpm -r build`
+again for one changed line takes minutes. So apply publishes another build of
+the same commit instead: the current build's tree with the settings files
+replaced by the committed revision, a fresh build id from `freeBuildId`, the old
+manifest's commit and toolchain kept, the revision's generation and hashes
+recorded, and a new `treeSharing` field saying whether the unchanged files were
+hard linked or copied. Builds stay immutable, so nothing is ever written into an
+existing build directory. The unchanged files are hard links, because a
+published build is never written to again and the tree is a `node_modules` and a
+set of bundles that differ in nothing. A link falls back to a copy on EXDEV,
+EPERM or EMLINK, and a symbolic link in the tree is recreated as one rather than
+followed. Apply holds the build mutex for its whole run and refuses with the
+existing 409 `stack_build_busy` while a build is going, rather than inventing a
+second code for the same condition.
+
+The generated secrets rule closes the gap the page would otherwise open. A page
+that shows `API_AUTH_TOKEN` and then lets the manager generate a different value
+per deployment is a page that lies. Now a required secret whose value the
+version's own base or engine env already carries is neither generated nor
+written, so the file's own line reaches the containers, which is exactly how
+`SRT_PASSPHRASE` and `STREAM_KEY` have always behaved when a deployment set
+neither. An empty one is still generated per deployment, and a value already in
+`profiles.stack_secrets` still wins over both, because rotating the token a
+running container was started with is a decision rather than a side effect. The
+rule is one function, `versionSuppliedSecrets`, read by `stackSecretsFor` in the
+orchestrator from the same build root `writeProfileEnv` copies the base env
+from.
+
+The page masks a secret until **Reveal**, marks a value that still equals the
+version's own with `default`, says under a generated key that the manager fills
+it per deployment unless a value is set there, and offers the deploy config as a
+text area with a **Reset to sample** action. **Save**, **Save and apply** and
+**Discard** sit in the footer, a save carries only the keys that moved, and the
+two refusals arrive as what to do rather than as a code. The values do come back
+in the clear, which is D13: the routes are behind the session gate, a value the
+operator cannot see is one they cannot check, and nothing on either side logs
+one. The manager logs key names only.
+
+Two mutations were run against the new tests before the code was committed.
+Stripping comment lines in the env rewrite turns four cases of
+`envSettingsText.test.ts` red. Hard linking the settings files with the rest of
+the tree, which would write the new build's values through into the build every
+deployment is currently running, turns two cases of `versionSettingsApply.test.ts`
+red. The links themselves are checked by inode, both ways: the shared files are
+one inode and the settings files, the manifest and the marker are not.
+
+`frontend/test/versions-layout.test.mjs` moved with the card: it counted four
+controls per row and there are five now, so it asserts five and the same
+everything-fits property at 723, 390 and 1280 pixels. The new browser test is
+`frontend/test/version-settings-browser.test.mjs`, which renders the real page
+against an offline fixture at 390 pixels.
+
+**Verified, 2026-09-10.** Manager unit 2158 of 2158, sixty two more than the
+round before and nothing else moved. The whole `manager/test/database` directory
+496 of 496 with nothing skipped, run the nine-database way, four more than
+before. Common 307, frontend 78, both manager typechecks and the common and
+frontend typechecks clean. The two browser suites were run on their own, as
+neither is in `pnpm test`: `versions-layout` 12 of 12 and `version-settings` 13
+of 13. Nothing ran against the real host, nothing was pushed, and no `.env` of
+the submodule was read.
