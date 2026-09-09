@@ -267,3 +267,215 @@ describe('GET /versions/:id/settings', () => {
     assert.equal(dirname(join(configRoot, '.env')), configRoot);
   });
 });
+
+describe('PUT /versions/:id/settings', () => {
+  it('replaces one value and leaves every other byte of the file where it was', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, '.env'), 'utf8');
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_AUTH_TOKEN', value: 'a'.repeat(64) }] }],
+    });
+
+    assert.equal(answer.status, 200);
+    assert.deepEqual(answer.body, { generation: 3 });
+    assert.equal(
+      readFileSync(join(configRoot, '.env'), 'utf8'),
+      before.replace('API_AUTH_TOKEN=host-token', `API_AUTH_TOKEN=${'a'.repeat(64)}`),
+    );
+  });
+
+  it('appends a key the file does not assign yet', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'BRAND_NEW_KEY', value: 'yes' }] }],
+    });
+
+    assert.match(readFileSync(join(configRoot, '.env'), 'utf8'), /\nBRAND_NEW_KEY=yes\n$/);
+  });
+
+  it('takes a key out of the file when it is asked to remove it', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'EXTRA_LOCAL_KEY', value: '', remove: true }] }],
+    });
+
+    const written = readFileSync(join(configRoot, '.env'), 'utf8');
+    assert.equal(written.includes('EXTRA_LOCAL_KEY'), false);
+    assert.equal(written.includes('# The token this host was given.'), true);
+  });
+
+  it('writes every file of one save under one new generation', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [
+        { path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] },
+        { path: 'engines/srs/.env', entries: [{ key: 'SRS_SRT_PORT', value: '10081' }] },
+        { path: 'deploy/config.json', text: '{\n  "services": ["srs", "ome"]\n}\n' },
+      ],
+    });
+
+    assert.deepEqual(answer.body, { generation: 3 });
+    assert.match(readFileSync(join(configRoot, '.env'), 'utf8'), /^API_PORT=3100$/m);
+    assert.match(readFileSync(join(configRoot, 'engines', 'srs', '.env'), 'utf8'), /^SRS_SRT_PORT=10081$/m);
+    assert.equal(
+      readFileSync(join(configRoot, 'deploy', 'config.json'), 'utf8'),
+      '{\n  "services": ["srs", "ome"]\n}\n',
+    );
+  });
+
+  it('leaves the files the save did not name alone', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const engine = readFileSync(join(configRoot, 'engines', 'srs', '.env'));
+    const config = readFileSync(join(configRoot, 'deploy', 'config.json'));
+
+    await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+
+    assert.deepEqual(readFileSync(join(configRoot, 'engines', 'srs', '.env')), engine);
+    assert.deepEqual(readFileSync(join(configRoot, 'deploy', 'config.json')), config);
+  });
+
+  it('refuses a save made against a revision the version has moved past', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, '.env'));
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 1,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+
+    assert.equal(answer.status, 409);
+    assert.deepEqual(
+      { error: (answer.body as { error: string }).error, generation: (answer.body as { generation: number }).generation },
+      { error: 'settings_changed', generation: 2 },
+    );
+    assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
+  });
+
+  it('refuses a key that is not an env name', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'not a key', value: 'x' }] }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.equal((answer.body as { error: string }).error, 'validation_error');
+  });
+
+  it('refuses a value carrying a line break, which would become a second key', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, '.env'));
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100\nSTAMP=stolen' }] }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
+  });
+
+  it('refuses a deploy config that does not parse', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const before = readFileSync(join(configRoot, 'deploy', 'config.json'));
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: 'deploy/config.json', text: '{ not json' }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.deepEqual(readFileSync(join(configRoot, 'deploy', 'config.json')), before);
+  });
+
+  it('refuses a path outside the set', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    for (const path of ['../outside/.env', 'deploy/scripts/deploy.sh', '.git/config']) {
+      const answer = await callJson('PUT', `/versions/${id}/settings`, {
+        expectedGeneration: 2,
+        files: [{ path, entries: [{ key: 'API_PORT', value: '3100' }] }],
+      });
+      assert.equal(answer.status, 400, path);
+    }
+  });
+
+  it('refuses a path of the set the version does not keep a file at', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: 'engines/ome/.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.match(JSON.stringify(answer.body), /engines\/ome\/\.env/);
+  });
+
+  it('refuses text where the file takes keys, and keys where it takes text', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    assert.equal(
+      (await callJson('PUT', `/versions/${id}/settings`, {
+        expectedGeneration: 2,
+        files: [{ path: '.env', text: 'API_PORT=3100' }],
+      })).status,
+      400,
+    );
+    assert.equal(
+      (await callJson('PUT', `/versions/${id}/settings`, {
+        expectedGeneration: 2,
+        files: [{ path: 'deploy/config.json', entries: [{ key: 'A', value: 'b' }] }],
+      })).status,
+      400,
+    );
+  });
+
+  it('refuses a version whose first build has not happened', async () => {
+    const answer = await callJson('PUT', `/versions/${await bundledId()}/settings`, {
+      expectedGeneration: 1,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+
+    assert.equal(answer.status, 409);
+    assert.equal((answer.body as { error: string }).error, 'settings_not_ready');
+  });
+
+  it('shows the saved value on the next read, at the new generation', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: '.env', entries: [{ key: 'API_PORT', value: '3100' }] }],
+    });
+    const settings = (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings;
+
+    assert.equal(settings.generation, 3);
+    assert.equal(entryFor(envFileAt(settings, '.env'), 'API_PORT').value, '3100');
+  });
+});
