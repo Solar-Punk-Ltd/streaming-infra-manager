@@ -2,6 +2,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 
 import { BUNDLED_SEAL, runBundledSeal } from './cli/bundledSeal.js';
 import { CLI_PREFIX, processStreams } from './cli/commandStreams.js';
+import { Logger } from './domain/Logger.js';
 
 /**
  * The manager's command line.
@@ -32,6 +33,8 @@ const USAGE = [
 ].join('\n');
 
 async function main(): Promise<void> {
+  // Standard output carries the one line a caller parses, so everything logged goes beside it.
+  Logger.getInstance().writeEverythingToStandardError();
   const [command, ...rest] = process.argv.slice(2);
 
   if (command === BUNDLED_SEAL) return runBundledSeal(rest, processStreams);
