@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import { it } from 'node:test';
 import { beginSshDockerBeeAcquisition } from '../../src/domain/chequebook/sshDockerBeeAcquisition.js';
 import { syntheticTarget } from '../support/syntheticDockerBee.js';
-import { fakeForwardHarness, remoteLocator, forwardLimits, tick, deferred, socketIdentity } from '../support/sshForwardLifecycle.js';
+import { fakeForwardHarness, remoteLocator, forwardLimits, tick, deferred, socketIdentity, socketPath } from '../support/sshForwardLifecycle.js';
 import type { SshForwardCleanup } from '../../src/utils/sshForwardResources.js';
+import { attachSupervisedForwardChild, type SupervisorProcessEvent } from '../../src/utils/supervisedForwardChild.js';
 
 function harness() {
   const h = fakeForwardHarness(); const receipt = deferred<SshForwardCleanup | undefined>();
@@ -60,4 +62,23 @@ it('disposal during start handoff still revokes deletion authority and never con
   await assert.rejects(acquired.result); receipt.resolve(undefined); await tick();
   assert.equal((await acquired.cleanup).state, 'unverified');
   assert.equal(h.events.includes('connect'), false); assert.equal(h.events.includes('rmdir'), false); assert.equal(h.events.includes('unlink'), false);
+});
+
+it('actual delegated adapter plus manager retains a possibly surviving forward after supervisor death', async () => {
+  const h = fakeForwardHarness(); let receive!: (event: SupervisorProcessEvent) => void;
+  h.dependencies.spawn = (_command, ownership) => {
+    const owned = ownership!; h.paths.set(socketPath, socketIdentity);
+    return attachSupervisedForwardChild({ type: 'start', leaseId: '9ffaf922-4131-4a8e-80ef-9513033fb47d', locator: remoteLocator(),
+      directory: owned.directory, socketPath: owned.socketPath, acquisitionDeadlineNs: '100000000', operationalDeadlineNs: '300000000', cleanupDeadlineNs: '320000000' },
+    { stderr: new PassThrough(), observe(listener) { receive = listener; return () => {}; }, send(value) {
+      if (value.type === 'start') queueMicrotask(() => receive({ type: 'message', value: { type: 'ready', leaseId: value.leaseId,
+        directory: value.directory, socket: { path: value.socketPath, identity: socketIdentity } } }));
+      else receive({ type: 'closed' });
+    } }, { uid: 123, nowNs: () => 0n, delegateCleanup: () => owned.delegateCleanup() });
+  };
+  const acquired = beginSshDockerBeeAcquisition(syntheticTarget, async () => remoteLocator(), forwardLimits, h.dependencies, () => true);
+  await tick(); await acquired.result; acquired.dispose(); await tick();
+  const result = await acquired.cleanup; assert.equal(result.state, 'unverified');
+  assert.ok(result.state === 'unverified' && result.remaining.includes('child'));
+  assert.equal(h.events.includes('unlink'), false); assert.equal(h.events.includes('rmdir'), false);
 });

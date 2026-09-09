@@ -8,7 +8,7 @@ import { normalizeDockerBeeAcquisitionOptions, type acquireDockerBeeStream, type
 import type { ConnectUnixDocker } from './acquireLocalDockerBeeStream.js';
 import { sshDockerForwardCommand, type SshDockerForwardCommand, type TrustedSshDockerLocator } from './sshDockerForwardCommand.js';
 import type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, ForwardResource as Resource,
-  ForwardCleanupReason as CleanupReason, SshForwardCleanup } from '../../utils/sshForwardResources.js';
+  ForwardCleanupReason as CleanupReason, SshForwardCleanup, ForwardSpawnOwnership } from '../../utils/sshForwardResources.js';
 export type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, SshForwardCleanup } from '../../utils/sshForwardResources.js';
 
 interface OwnedForwardDirectory { readonly path: string; readonly identity?: ForwardPathIdentity }
@@ -21,7 +21,7 @@ export interface SshDockerDependencies {
   lstat(path: string): Promise<ForwardPathIdentity | null>;
   unlink(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
-  spawn(command: SshDockerForwardCommand): ForwardChild;
+  spawn(command: SshDockerForwardCommand, ownership?: ForwardSpawnOwnership): ForwardChild;
   connect: ConnectUnixDocker;
   acquire: typeof acquireDockerBeeStream;
 }
@@ -119,6 +119,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
   let directory: OwnedForwardDirectory | undefined; let socket: ForwardPathIdentity | undefined;
   let path: string | undefined; let initialSocketAbsent = false; let spawnCalled = false;
   let child: ForwardChild | undefined; let childState: ForwardChildState = 'starting'; let unobserve: (() => void) | undefined;
+  let cleanupDelegated = false; let delegatedReceiptReady = false; let delegatedReceipt: SshForwardCleanup | undefined;
   let raw: Duplex | undefined; let acquired: AcquiredDockerBeeStream | undefined; let lease: ForwardLease | undefined;
   let pendingDirectory = false; let pendingHandshake = false;
   let termSent = false; let killSent = false; let cleanupBusy = false; let rerunCleanup = false;
@@ -220,7 +221,16 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
   }
   async function cleanPaths(): Promise<void> {
     disposeStreams(); signalChild(clock.now() >= cleanupDeadline);
+    if (cleanupDelegated && delegatedReceiptReady && delegatedReceipt?.state !== 'closed') {
+      failCleanup(delegatedReceipt?.reason ?? 'cleanup_failed'); report(cleanupFault); return;
+    }
     if (pendingDirectory || pendingHandshake || (child && childState !== 'exited') || !directory || cleanupFault) return;
+    if (cleanupDelegated) {
+      if (!child || !delegatedReceiptReady) return;
+      if (delegatedReceipt?.state !== 'closed') { failCleanup(delegatedReceipt?.reason ?? 'cleanup_failed'); report(cleanupFault); return; }
+      directory = undefined; socket = undefined;
+      return;
+    }
     if (!await checkedDirectory()) return;
     if (path) {
       const current = await dependencies.lstat(path);
@@ -246,7 +256,10 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
       if (value) {
         if (!privateIdentity(value, 'socket', uid)) throw new DockerBeeAcquisitionError();
         socket = Object.freeze({ ...value });
-        if (childState === 'running') return;
+        if (childState === 'running') {
+          if (child?.delegatedCleanup && !sameIdentity(child.delegatedCleanup.readySocket() ?? null, socket)) throw new DockerBeeAcquisitionError();
+          return;
+        }
       }
       await new Promise<void>(resolve => { cancelPoll = clock.schedule(resolve, Math.min(POLL_MS, Math.max(1, acquisitionDeadline - clock.now()))); });
     }
@@ -275,7 +288,14 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     initialSocketAbsent = true; active();
     const command = sshDockerForwardCommand(target.alias, locator, { localSocketPath: path, acquisitionTimeoutMs: Math.max(1, Math.floor(acquisitionDeadline - clock.now())) });
     active(); spawnCalled = true;
-    child = dependencies.spawn(command);
+    child = dependencies.spawn(command, Object.freeze({ directory: Object.freeze({ path: directory.path, identity: directory.identity! }), socketPath: path,
+      acquisitionDeadlineMs: acquisitionDeadline, operationalDeadlineMs: operationalDeadline, cleanupDeadlineMs: finalDeadline,
+      delegateCleanup() { cleanupDelegated = true; } }));
+    if (child.delegatedCleanup) {
+      if (!cleanupDelegated) { cleanupDelegated = true; failCleanup('cleanup_failed'); }
+      void child.delegatedCleanup.receipt.then(value => { delegatedReceipt = value; delegatedReceiptReady = true; requestCleanup(); },
+        () => { delegatedReceiptReady = true; requestCleanup(); });
+    }
     unobserve = child.observe(observeChild);
     child.stderr.on('error', stderrFailed); child.stderr.on('data', stderrData);
     if (closing) { close(); throw new DockerBeeAcquisitionError(); }

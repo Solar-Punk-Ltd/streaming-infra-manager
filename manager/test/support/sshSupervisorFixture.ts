@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { runNativeSshForwardSupervisor, observeNativeForwardChild } from '../../src/utils/nativeSshForward.js';
 
 const mode = process.argv[2];
-if (!['normal', 'ignore-term', 'delay-spawn'].includes(mode)) throw new Error('Invalid synthetic mode');
-const report = (value: { fixture: string; pid?: number }) => { if (process.connected) process.send?.(value, () => {}); };
+if (!['normal', 'ignore-term', 'delay-spawn', 'quiet'].includes(mode)) throw new Error('Invalid synthetic mode');
+const report = (value: { fixture: string; pid?: number }) => { if (mode !== 'quiet' && process.connected) process.send?.(value, () => {}); };
 runNativeSshForwardSupervisor({ spawn(command) {
   const forward = command.args[command.args.indexOf('-L') + 1]; const path = forward.split(':')[0];
   if (mode === 'delay-spawn') {

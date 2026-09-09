@@ -1,9 +1,9 @@
 import { posix } from 'node:path';
 import { DockerBeeAcquisitionError } from '../domain/errors/DockerBeeAcquisitionError.js';
 import { sshDockerForwardCommand, type SshDockerForwardCommand, type TrustedSshDockerLocator } from '../domain/chequebook/sshDockerForwardCommand.js';
-import type { ForwardPathIdentity, SshForwardCleanup } from './sshForwardResources.js';
+import type { ForwardPathIdentity, SshForwardCleanup, OwnedForwardPath } from './sshForwardResources.js';
+export type { OwnedForwardPath } from './sshForwardResources.js';
 
-export interface OwnedForwardPath { readonly path: string; readonly identity: ForwardPathIdentity }
 /** Private parent/supervisor IPC. Absolute hrtime deadlines share the same host clock, never a wall clock or renewed duration. */
 export interface ForwardStart {
   readonly type: 'start';
