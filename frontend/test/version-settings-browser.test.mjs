@@ -404,6 +404,18 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     applyReused = false;
   });
 
+  await t.test('a path of the set nothing here reads is named rather than dropped', async () => {
+    settings = { ...settings, leftAlone: ['engines/ome/.env'] };
+    await call('Page.navigate', { url: `${origin}/#/versions` });
+    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`));
+    await call('Page.navigate', { url: `${origin}/#/versions/3/settings` });
+    await waitFor(() => evaluate(`Boolean(${fieldOf('API_PORT')})`), Boolean, 'the settings fields');
+
+    const text = await evaluate('document.body.innerText');
+    assert.match(text, /engines\/ome\/\.env/);
+    assert.match(text, /link or a directory/);
+  });
+
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
 });

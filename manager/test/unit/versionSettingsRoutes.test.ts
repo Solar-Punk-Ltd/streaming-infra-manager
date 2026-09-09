@@ -12,7 +12,7 @@
  * byte of a file somebody has been maintaining by hand.
  */
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
@@ -333,6 +333,76 @@ describe('GET /versions/:id/settings', () => {
 
     assert.deepEqual(readFileSync(join(configRoot, '.env')), before);
     assert.equal(dirname(join(configRoot, '.env')), configRoot);
+  });
+});
+
+describe('a path of the set that is not a regular file', () => {
+  /**
+   * Nothing under the versions root is followed: a link names bytes outside it,
+   * and the host is writable by anything that reaches it. So the file is passed
+   * by, and the page has to say which path was passed by rather than showing a
+   * set with a hole in it.
+   */
+  function linkOutside(relative: string, contents: string): string {
+    const outside = join(versionsRoot, 'outside');
+    mkdirSync(outside, { recursive: true });
+    const target = join(outside, relative.replace(/\//g, '-'));
+    writeFileSync(target, contents);
+    rmSync(join(configRoot, relative));
+    symlinkSync(target, join(configRoot, relative));
+    return target;
+  }
+
+  it('leaves a linked base env out of the files and names it as left alone', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    linkOutside('.env', 'API_AUTH_TOKEN=outside-the-root\n');
+
+    const settings = (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings;
+
+    assert.equal(settings.files.some((file) => file.path === '.env'), false);
+    assert.deepEqual(settings.leftAlone, ['.env']);
+  });
+
+  it('refuses a save naming a linked path as a link rather than as an absent file', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const target = linkOutside('engines/ome/.env', 'OME_ADMISSION_SECRET=outside-the-root\n');
+    const before = readFileSync(target);
+
+    const answer = await callJson('PUT', `/versions/${id}/settings`, {
+      expectedGeneration: 2,
+      files: [{ path: 'engines/ome/.env', entries: [{ key: 'OME_HLS_PORT', value: '8082' }] }],
+    });
+
+    assert.equal(answer.status, 400);
+    assert.match(JSON.stringify(answer.body), /engines\/ome\/\.env/);
+    assert.match(JSON.stringify(answer.body), /link or a directory/);
+    assert.deepEqual(readFileSync(target), before);
+  });
+
+  it('names a linked engine env as left alone and shows the rest of the set', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    linkOutside('engines/ome/.env', 'OME_ADMISSION_SECRET=outside-the-root\n');
+
+    const settings = (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings;
+
+    assert.deepEqual(settings.leftAlone, ['engines/ome/.env']);
+    assert.deepEqual(settings.files.map((file) => file.path), [
+      '.env',
+      'deploy/config.json',
+      'engines/srs/.env',
+    ]);
+  });
+
+  it('names nothing as left alone where every path of the set is a file', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const settings = (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings;
+
+    assert.deepEqual(settings.leftAlone, []);
   });
 });
 
