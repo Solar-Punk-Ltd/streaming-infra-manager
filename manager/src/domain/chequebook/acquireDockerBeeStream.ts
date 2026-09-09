@@ -150,9 +150,10 @@ class DockerHandshake extends http.Agent {
   }
 }
 
-/** Owns one supplied Docker API connection. No connector, retry or production caller is installed here. */
+/** Owns one supplied Docker API connection. The optional cap is a local monotonic deadline, never an API field. */
 export async function acquireDockerBeeStream(transport: Duplex, expected: FrozenChequebookTarget, options: DockerBeeAcquisitionOptions = {},
-  qualifyImage: QualifiedBeeBridgeImage = () => false, signal?: AbortSignal): Promise<AcquiredDockerBeeStream> {
+  qualifyImage: QualifiedBeeBridgeImage = () => false, signal?: AbortSignal, acquisitionDeadline?: number): Promise<AcquiredDockerBeeStream> {
+  const startedAt = performance.now();
   let owned: OwnedHttpStream | undefined;
   let handshake: DockerHandshake | undefined;
   let stream: Duplex | undefined;
@@ -162,10 +163,11 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     const target = structuredClone(expected);
     const limits = normalizeDockerBeeAcquisitionOptions(structuredClone(options));
     requireTarget(target);
-    const startedAt = performance.now();
-    const bridgeLifetimeMs = limits.acquisitionTimeoutMs + limits.preflightTimeoutMs + limits.postTimeoutMs;
-    const totalDeadline = startedAt + bridgeLifetimeMs + limits.cleanupGraceMs;
-    handshake = new DockerHandshake(owned, startedAt + limits.acquisitionTimeoutMs, signal);
+    if (acquisitionDeadline !== undefined && (typeof acquisitionDeadline !== 'number' || !Number.isFinite(acquisitionDeadline))) throw new DockerBeeAcquisitionError();
+    const deadline = Math.min(startedAt + limits.acquisitionTimeoutMs, acquisitionDeadline ?? Infinity);
+    const bridgeLifetimeMs = deadline - startedAt + limits.preflightTimeoutMs + limits.postTimeoutMs;
+    const totalDeadline = deadline + limits.preflightTimeoutMs + limits.postTimeoutMs + limits.cleanupGraceMs;
+    handshake = new DockerHandshake(owned, deadline, signal);
     const info = dockerObject(await handshake.json('GET', '/info', 200));
     if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError();
     const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
