@@ -119,8 +119,37 @@ SEAL_JSON="$(node manager/dist/cli.js bundled:seal \
     --dist packages/stream-uploader/dist \
     --adopt-inputs \
     --toolchain "$TOOLCHAIN")"
-SHIPMENT_COMMIT="$(node -p 'JSON.parse(process.argv[1]).commit' "$SEAL_JSON")"
-SHIPMENT_DIGEST="$(node -p 'JSON.parse(process.argv[1]).digest' "$SEAL_JSON")"
+# The command prints one JSON line on standard output and nothing else. Read it
+# with one node run that refuses a line missing either field by name, and take
+# the two values from the two lines it writes back.
+SEAL_FIELDS="$(node -e '
+const sealed = JSON.parse(process.argv[1]);
+for (const field of ["commit", "digest"]) {
+    if (typeof sealed[field] !== "string") {
+        process.stderr.write("ERROR: bundled:seal printed no " + field + " for this shipment.\n");
+        process.exit(1);
+    }
+}
+process.stdout.write(sealed.commit + "\n" + sealed.digest + "\n");
+' "$SEAL_JSON")"
+SHIPMENT_COMMIT="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 1p)"
+SHIPMENT_DIGEST="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 2p)"
+
+# Every identity below is interpolated into a command line that runs on the
+# host, so each one is checked here rather than trusted.
+UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+COMMIT_PATTERN='^[a-f0-9]{40}$'
+DIGEST_PATTERN='^[a-f0-9]{64}$'
+check_identity() {
+    local name="$1" value="$2" pattern="$3"
+    if [[ ! "$value" =~ $pattern ]]; then
+        echo "ERROR: ${name} is not the identity it has to be: '${value}'." >&2
+        exit 1
+    fi
+}
+check_identity "SHIPMENT_ID" "$SHIPMENT_ID" "$UUID_PATTERN"
+check_identity "SHIPMENT_COMMIT" "$SHIPMENT_COMMIT" "$COMMIT_PATTERN"
+check_identity "SHIPMENT_DIGEST" "$SHIPMENT_DIGEST" "$DIGEST_PATTERN"
 echo "[deploy] sealed ${SHIPMENT_COMMIT} as ${SHIPMENT_DIGEST}"
 
 # The host's versions root, where the upgrade publishes from: the path the
@@ -158,6 +187,8 @@ ssh "$SSH_TARGET" "mv '${REMOTE_PACKAGES}/sealed-${SHIPMENT_ID}.tmp' '${REMOTE_P
 # checkout and a digest of the tree that commit names.
 MANAGER_COMMIT="$(git rev-parse HEAD)"
 MANAGER_DIGEST="$(git ls-tree -r --full-tree HEAD | shasum -a 256 | cut -c1-64)"
+check_identity "MANAGER_COMMIT" "$MANAGER_COMMIT" "$COMMIT_PATTERN"
+check_identity "MANAGER_DIGEST" "$MANAGER_DIGEST" "$DIGEST_PATTERN"
 
 echo "==> Remote build + upgrade"
 # Detect the server's primary IP on the host (the manager runs in a container,
