@@ -144,6 +144,7 @@ SHIPMENT_DIGEST="$(printf '%s\n' "$SEAL_FIELDS" | sed -n 2p)"
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 COMMIT_PATTERN='^[a-f0-9]{40}$'
 DIGEST_PATTERN='^[a-f0-9]{64}$'
+HOME_PATTERN='^/[A-Za-z0-9._/-]+$'
 check_identity() {
     local name="$1" value="$2" pattern="$3"
     if [[ ! "$value" =~ $pattern ]]; then
@@ -164,6 +165,9 @@ if [ -z "$REMOTE_HOME" ]; then
     echo "ERROR: could not read the home directory on ${SSH_TARGET}." >&2
     exit 1
 fi
+# The host said this, and every remote path below is built out of it and put
+# into a command line there, so it is checked here like every other identity.
+check_identity "REMOTE_HOME" "$REMOTE_HOME" "$HOME_PATTERN"
 REMOTE_VERSIONS_ROOT="${REMOTE_HOME}/streaming-infra-manager-versions"
 REMOTE_PACKAGES="${REMOTE_VERSIONS_ROOT}/bundled.packages"
 
