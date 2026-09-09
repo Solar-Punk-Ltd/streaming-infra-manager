@@ -1,4 +1,4 @@
-import { chmod, lchmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { StackContract } from '@streaming-infra-manager/common';
@@ -85,8 +85,8 @@ export async function copyBundledArtifact(
         await chmod(join(destination, entry.path), entry.mode);
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
+        // No mode is set on a link, because Linux has no call that would and records 0777 either way.
         await symlink(entry.target, join(destination, entry.path));
-        if (((await lstat(join(destination, entry.path))).mode & 0o7777) !== entry.mode) await lchmod(join(destination, entry.path), entry.mode);
       }
     }
     if (!isDeepStrictEqual(await inventoryOwnedTree(source.root), baseline)) throw new Error('Package source changed during artifact copying.');

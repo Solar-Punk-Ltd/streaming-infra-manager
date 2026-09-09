@@ -11,6 +11,15 @@ export type OwnedTreeEntry = { path: string; mode: number } & (
   | { type: 'symlink'; target: string }
 );
 export interface OwnedTreeInventory { rootMode: number; entries: OwnedTreeEntry[]; stamps: Record<string, string> }
+/**
+ * The mode every symbolic link is recorded with.
+ *
+ * Linux gives a symbolic link 0777 and has no call that changes it, while
+ * macOS gives 0755 and can. A tree sealed on one and read on the other would
+ * otherwise never match, so the mode of a link is not read from the filesystem
+ * at all.
+ */
+const SYMLINK_MODE = 0o777;
 export const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
 /** Format 1 is shared by final artifacts, execution sources and rollout recovery evidence. */
 export const ownedTreeDigest = ({ rootMode, entries }: Pick<OwnedTreeInventory, 'rootMode' | 'entries'>): string =>
@@ -40,7 +49,7 @@ export async function inventoryOwnedTree(root: string, excludedRootFile?: string
       } else if (info.isFile()) {
         entries.push({ ...base, type: 'file', sha256: sha256(await readOwnedFile(root, path)) });
       } else if (info.isSymbolicLink()) {
-        entries.push({ ...base, type: 'symlink', target: await readlink(join(root, path)) });
+        entries.push({ ...base, mode: SYMLINK_MODE, type: 'symlink', target: await readlink(join(root, path)) });
       } else throw new Error('Package tree contains an unsupported file type.');
       if (stamp(info) !== stamp(await lstat(join(root, path), { bigint: true }))) throw new Error('Package tree changed during inventory.');
       stamps[path] = stamp(info);

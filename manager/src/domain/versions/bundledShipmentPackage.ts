@@ -1,4 +1,4 @@
-import { chmod, lchmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -157,8 +157,8 @@ export async function sealBundledPackage(
         await chmod(join(destination, item.path), item.mode);
         await options.onProgress?.(++copiedFiles);
       } else if (item.type === 'symlink') {
+        // No mode is set on a link, because Linux has no call that would and records 0777 either way.
         await symlink(item.target, join(destination, item.path));
-        if (((await lstat(join(destination, item.path))).mode & 0o7777) !== item.mode) await lchmod(join(destination, item.path), item.mode);
       }
     }
     if (!isDeepStrictEqual(await inventoryOwnedTree(source), baseline)) throw new Error('Package source changed while sealing.');
