@@ -22,7 +22,7 @@ The Versions page shows the bundled version and registered versions. Each card e
 - Update fetches and builds the selected ref. A failed update keeps a previously usable build available and records the failure. A version without a usable build remains failed.
 - Tested records an operator's approval of the displayed artifact. It does not run a test suite or prove live playback.
 - Set as default controls the wizard's initial choice. A version must be Tested before it can become the default.
-- Remove refuses the bundled version, the default, a building version, any version assigned to a deployment, and any version retained by jobs, observations, operations, execution roots or shipment records. The refusal explains what still retains it.
+- Remove refuses the bundled version, the default, a building version, any version assigned to a deployment, and any version retained by jobs, observations, operations or execution roots. The refusal explains what still retains it.
 
 Adding a version executes that repository's build and deployment code with the manager's capabilities. The operator must trust the selected source.
 
