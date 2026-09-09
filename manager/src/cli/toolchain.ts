@@ -15,7 +15,7 @@ const TOOLCHAIN = /^[A-Za-z0-9 ._/+-]+$/;
  * other looked.
  */
 export function assertToolchain(value: string): void {
-  if (value.length > MAX_TOOLCHAIN_LENGTH || !TOOLCHAIN.test(value)) {
-    throw new Error(`${TOOLCHAIN_FLAG} must be at most ${MAX_TOOLCHAIN_LENGTH} characters naming what built the stack, written with letters, digits, spaces and any of . _ / + and -`);
+  if (!value.trim() || value.length > MAX_TOOLCHAIN_LENGTH || !TOOLCHAIN.test(value)) {
+    throw new Error(`${TOOLCHAIN_FLAG} must name what built the stack in at most ${MAX_TOOLCHAIN_LENGTH} characters, written with letters, digits, spaces and any of . _ / + and -, and spaces alone name nothing`);
   }
 }
