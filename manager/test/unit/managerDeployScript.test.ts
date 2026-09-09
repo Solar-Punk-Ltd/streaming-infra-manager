@@ -170,6 +170,15 @@ describe('deploy/deploy.sh', () => {
     assert.match(before, /\[a-f0-9\]\{64\}\$/, 'a digest is sixty four');
   });
 
+  it('checks the home directory the host answered with, before building remote paths out of it', () => {
+    const read = script.indexOf('REMOTE_HOME="$(ssh');
+    assert.notEqual(read, -1, 'the home directory is read from the host');
+    const checked = script.indexOf('check_identity "REMOTE_HOME"');
+    assert.notEqual(checked, -1, 'and what came back is checked rather than trusted');
+    assert.ok(checked > read, 'after it was read');
+    assert.ok(checked < script.indexOf('REMOTE_VERSIONS_ROOT="'), 'and before anything is built out of it');
+  });
+
   it('never asks compose to print a rendered configuration', () => {
     for (const match of script.matchAll(/docker compose[^\n]*\bconfig\b[^\n]*/g)) {
       assert.match(match[0], /--quiet/, 'a rendered compose file would carry the values of every secret');
