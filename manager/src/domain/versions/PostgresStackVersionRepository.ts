@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import { StackVersionInUseError } from '../errors/StackVersionInUseError.js';
 import { StackVersionRemovalHeldError } from '../errors/StackVersionRemovalHeldError.js';
 import { assertVersionRemovable } from './versionRemovalGuard.js';
+import { versionRemovalProblem } from './versionRemovalMarker.js';
 
 import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
 
@@ -101,13 +102,21 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
   }
 
   async markBuilding(id: number): Promise<StackVersionRecord | null> {
-    return this.one(
-      `UPDATE stack_versions
-          SET status = 'building', last_error = NULL
-        WHERE id = $1
-        RETURNING ${VERSION_COLUMNS}`,
-      [id],
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query<StackVersionDbRow>(`SELECT ${VERSION_COLUMNS} FROM stack_versions WHERE id = $1 FOR UPDATE`, [id]);
+      if (!locked.rows[0]) { await client.query('COMMIT'); return null; }
+      const current = toRecord(locked.rows[0]);
+      const problem = versionRemovalProblem(current);
+      if (problem) throw new StackVersionRemovalHeldError(current.name, 'marker');
+      const result = await client.query<StackVersionDbRow>(
+        `UPDATE stack_versions SET status = 'building', last_error = NULL WHERE id = $1 RETURNING ${VERSION_COLUMNS}`, [id],
+      );
+      await client.query('COMMIT');
+      return toRecord(result.rows[0]!);
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+    finally { client.release(); }
   }
 
   async markBuilt(

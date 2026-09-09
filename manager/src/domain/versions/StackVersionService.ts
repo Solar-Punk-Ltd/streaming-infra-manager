@@ -33,6 +33,7 @@ import {
   readBuildManifest,
 } from './buildManifest.js';
 import { protectedBuildIds } from './buildReferences.js';
+import { persistVersionRemoval } from './versionRemovalMarker.js';
 import {
   adoptHostConfig,
   captureHostConfig,
@@ -786,6 +787,7 @@ export class StackVersionService {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
+    await persistVersionRemoval(version);
     for (const directory of directories) await rm(directory, { recursive: true, force: true });
   }
 

@@ -1,6 +1,8 @@
 import type { StackContract } from '@streaming-infra-manager/common';
 import { StackVersionInUseError } from '../../src/domain/errors/StackVersionInUseError.js';
+import { StackVersionRemovalHeldError } from '../../src/domain/errors/StackVersionRemovalHeldError.js';
 import { assertVersionRemovable } from '../../src/domain/versions/versionRemovalGuard.js';
+import { versionRemovalProblem } from '../../src/domain/versions/versionRemovalMarker.js';
 
 import type {
   BuildOutcome,
@@ -103,6 +105,9 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
   }
 
   async markBuilding(id: number): Promise<StackVersionRecord | null> {
+    const current = this.rows.find(row => row.id === id);
+    const problem = current ? versionRemovalProblem(current) : null;
+    if (problem) throw new StackVersionRemovalHeldError(current!.name, 'marker');
     return this.patch(id, { status: 'building', lastError: null });
   }
 

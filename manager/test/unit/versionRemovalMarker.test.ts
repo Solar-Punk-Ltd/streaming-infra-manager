@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { deployRootProblem } from '../../src/domain/versions/stackPaths.js';
+import { persistVersionRemoval } from '../../src/domain/versions/versionRemovalMarker.js';
 
 const BUILD = 'a'.repeat(40);
 describe('persistent removal markers at deployment admission', () => {
@@ -22,6 +23,24 @@ describe('persistent removal markers at deployment admission', () => {
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
   const identity = () => ({ schema: 1, versionId: 2, name: 'test-stack', rootPath: anchor, removalId: randomUUID() });
+  it('persists one retryable removal identity and leaves no temporary marker behind', async () => {
+    const selected = { id: 2, name: 'test-stack', rootPath: anchor };
+    await persistVersionRemoval(selected);
+    const first = JSON.parse(await readFile(path, 'utf8'));
+    await persistVersionRemoval(selected);
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), first);
+    assert.deepEqual((await readdir(root)).filter(name => name.includes('.removal.')), ['test-stack.removal.json']);
+    await persistVersionRemoval({ ...selected, id: 3 });
+    const next = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(next.versionId, 3);
+    assert.notEqual(next.removalId, first.removalId);
+  });
+  it('refuses to overwrite malformed marker evidence', async () => {
+    await writeFile(path, '{');
+    await assert.rejects(persistVersionRemoval({ id: 2, name: 'test-stack', rootPath: anchor }));
+    assert.equal(await readFile(path, 'utf8'), '{');
+    assert.deepEqual((await readdir(root)).filter(name => name.includes('.removal.')), ['test-stack.removal.json']);
+  });
   for (const layout of ['legacy', 'builds'] as const) {
     const version = () => ({ id: 2, rootPath: anchor, layout, buildId: BUILD });
     it(`${layout} refuses a marked version even with complete and manifest intact`, async () => {
