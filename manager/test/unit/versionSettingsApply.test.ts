@@ -15,11 +15,13 @@
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { readdirSync, readlinkSync, lstatSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import type { StackVersion } from '@streaming-infra-manager/common';
 
+import { writeProfileEnv } from '../../src/utils/envUtils.js';
 import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 import {
   nextVersionChange,
@@ -113,6 +115,24 @@ async function saveAndApply(id: number, generation: number): Promise<JsonAnswer>
   });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   return callJson('POST', `/versions/${id}/settings/apply`);
+}
+
+/** Every file of a directory, by path and bytes, so a write anywhere under it shows. */
+function treeHash(root: string): string {
+  const digest = createHash('sha256');
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(join(root, relative), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      digest.update(path);
+      if (entry.isFile()) digest.update(readFileSync(join(root, path)));
+    }
+  };
+  walk('');
+  return digest.digest('hex');
 }
 
 function manifestOf(buildId: string): Record<string, unknown> {
@@ -230,6 +250,27 @@ describe('POST /versions/:id/settings/apply', () => {
     const applied = join(buildsRoot, `${APPLY_COMMIT}-r1`);
     assert.equal(existsSync(join(buildsRoot, APPLY_COMMIT, 'deploy', 'config.json')), false);
     assert.equal((statSync(join(applied, 'deploy', 'config.json')).mode & 0o777).toString(8), '600');
+  });
+
+  it('never shares a per deployment env, which a deploy truncates in place', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const published = join(buildsRoot, APPLY_COMMIT);
+    writeFileSync(join(published, '.env.stage'), 'API_AUTH_TOKEN=the-old-deployment-value\n');
+    writeFileSync(join(published, 'engines', 'srs', '.env.stage'), 'SRS_SRT_PORT=10080\n');
+    const before = treeHash(published);
+
+    await saveAndApply(id, 2);
+    const applied = join(buildsRoot, `${APPLY_COMMIT}-r1`);
+    assert.deepEqual(
+      readdirSync(applied).filter((entry) => entry.startsWith('.env.') && entry !== '.env.sample'),
+      [],
+    );
+    assert.equal(existsSync(join(applied, 'engines', 'srs', '.env.stage')), false);
+
+    writeProfileEnv(applied, 'stage', { engine: 'srs' });
+
+    assert.equal(treeHash(published), before, 'the build deployments are running was written into');
   });
 
   it('prunes the builds nothing protects', async () => {
