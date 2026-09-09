@@ -7,7 +7,7 @@ const supervisor = fork(fileURLToPath(new URL('./sshSupervisorFixture.ts', impor
 });
 supervisor.stderr!.resume();
 supervisor.on('error', () => { process.exitCode = 1; });
-supervisor.on('message', value => { if (process.connected) process.send?.(value); });
+supervisor.on('message', value => { if (process.connected) process.send?.(value, () => {}); });
 supervisor.on('close', () => { if (process.connected) process.disconnect(); });
-process.on('message', value => { if (supervisor.connected) supervisor.send(value); });
-process.send?.({ fixture: 'supervisor', pid: supervisor.pid });
+process.on('message', value => { if (value && typeof value === 'object' && supervisor.connected) supervisor.send(value, () => {}); });
+process.send?.({ fixture: 'supervisor', pid: supervisor.pid }, () => {});

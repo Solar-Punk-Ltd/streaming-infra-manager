@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { Duplex, type Readable } from 'node:stream';
+import { Duplex } from 'node:stream';
 import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.js';
 import { targetLockIdentity, type FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { requireBeeBindingTarget } from './DockerBeeBinding.js';
@@ -7,17 +7,11 @@ import { normalizeDockerBeeAcquisitionOptions, type acquireDockerBeeStream, type
   type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeExecution } from './acquireDockerBeeStream.js';
 import type { ConnectUnixDocker } from './acquireLocalDockerBeeStream.js';
 import { sshDockerForwardCommand, type SshDockerForwardCommand, type TrustedSshDockerLocator } from './sshDockerForwardCommand.js';
+import type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, ForwardResource as Resource,
+  ForwardCleanupReason as CleanupReason, SshForwardCleanup } from '../../utils/sshForwardResources.js';
+export type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, SshForwardCleanup } from '../../utils/sshForwardResources.js';
 
-export interface ForwardClock { now(): number; schedule(call: () => void, milliseconds: number): () => void }
-export interface ForwardPathIdentity { readonly kind: 'directory' | 'socket' | 'other'; readonly dev: string; readonly ino: string; readonly uid: number; readonly mode: number }
 interface OwnedForwardDirectory { readonly path: string; readonly identity?: ForwardPathIdentity }
-export type ForwardChildState = 'starting' | 'running' | 'failed' | 'exited';
-/** The factory owns errors before returning. Observation immediately replays durable state, including a synchronous exit. */
-export interface ForwardChild {
-  readonly stderr: Readable;
-  observe(listener: (state: ForwardChildState) => void): () => void;
-  signal(signal: 'SIGTERM' | 'SIGKILL'): void;
-}
 /** Injected resources only. No native process, filesystem adapter or production factory is activated here. */
 export interface SshDockerDependencies {
   clock: ForwardClock;
@@ -31,10 +25,6 @@ export interface SshDockerDependencies {
   connect: ConnectUnixDocker;
   acquire: typeof acquireDockerBeeStream;
 }
-type Resource = 'directory' | 'child' | 'socket';
-type CleanupReason = 'pending_resource' | 'child_exit_unconfirmed' | 'path_identity_changed' | 'cleanup_failed';
-export type SshForwardCleanup = Readonly<{ state: 'closed' }> |
-  Readonly<{ state: 'unverified'; reason: CleanupReason; remaining: readonly Resource[] }>;
 export interface SshDockerAcquisition {
   readonly result: Promise<AcquiredDockerBeeStream>;
   /** Resolves once. A returned unverified observation never becomes closed, even if retained late cleanup subsequently succeeds. */
