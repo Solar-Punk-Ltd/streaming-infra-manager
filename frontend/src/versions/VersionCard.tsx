@@ -20,7 +20,7 @@ import { ShapePill } from '../components/ShapePill';
 import type { Tone } from '../components/tone';
 import { formatDateTime, shortCommit } from '../format';
 import { ANOTHER_BUILDING } from './buildSlot';
-import { describeBuild, describePreviousBuild, lostApprovalWarning } from './versionText';
+import { describeBuild, describePreviousBuild, lostApprovalWarning, updateHint } from './versionText';
 
 const STATUS_LABELS: Record<StackVersion['status'], string> = {
   building: 'Building',
@@ -32,8 +32,6 @@ const STATUS_TONES: Record<StackVersion['status'], Tone> = {
   ready: 'ok',
   failed: 'err',
 };
-const CANNOT_UPDATE_BUNDLED =
-  'The bundled version moves when the manager is deployed. Add a version to follow a branch yourself.';
 const TESTED_MEANS =
   'Set by hand once one real deployment has run on this build. A different build clears approval, even at the same commit. Legacy versions without immutable builds keep approval only while their commit is unchanged.';
 
@@ -98,7 +96,6 @@ export function VersionCard({
   onSetTested: (tested: boolean) => void;
   onRemove: () => void;
 }) {
-  const isBundled = version.name === BUNDLED_VERSION_NAME;
   const testBlocked = testedBlockedBecause(version);
   // Withdrawing approval remains available even when a new build cannot be approved.
   const cannotApprove = !version.tested && testBlocked !== '';
@@ -183,12 +180,12 @@ export function VersionCard({
       </Stack>
 
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Tooltip title={waiting || (isBundled ? CANNOT_UPDATE_BUNDLED : '')}>
+        <Tooltip title={waiting || updateHint(version)}>
           <Box component="span">
             <Button
               size="small"
               variant="outlined"
-              disabled={acting || isBundled}
+              disabled={acting}
               onClick={onUpdate}
             >
               Update
