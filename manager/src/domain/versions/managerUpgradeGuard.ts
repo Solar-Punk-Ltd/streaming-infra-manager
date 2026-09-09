@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertOwnedVersionParent } from './ownedVersionParent.js';
@@ -41,7 +41,7 @@ function readRecord(path: string): unknown | null {
   } finally { closeSync(fd); }
 }
 
-function atomicRecord(path: string, record: unknown, exclusive = false): void {
+function atomicRecord(path: string, record: unknown): void {
   const bytes = JSON.stringify(record);
   if (Buffer.byteLength(bytes) > MAX_RECORD_BYTES) throw new Error(UNVERIFIED);
   const temporary = `${path}.${randomUUID()}.tmp`;
@@ -49,8 +49,7 @@ function atomicRecord(path: string, record: unknown, exclusive = false): void {
   const owned = fstatSync(fd, { bigint: true });
   try {
     try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-    if (exclusive) linkSync(temporary, path);
-    else renameSync(temporary, path);
+    renameSync(temporary, path);
     syncDirectory(dirname(path));
   } finally {
     try {
@@ -64,15 +63,13 @@ function atomicRecord(path: string, record: unknown, exclusive = false): void {
 export class ManagerUpgradeGuard {
   private readonly ownerId = randomUUID();
   private record: unknown;
-  private readonly historyRoot: string;
 
   constructor(private readonly root: string, mutableRoot: string) {
-    this.historyRoot = `${root}.completed`;
     for (const path of [root, mutableRoot]) if (!isAbsolute(path) || resolve(path) !== path) throw new Error(UNVERIFIED);
     // All supported paths are physical except verified OS aliases. Compare their canonical lexical form too.
     const physical = (path: string) => process.platform === 'darwin' ? path.replace(/^\/(tmp|var)(?=\/|$)/, '/private/$1') : path;
-    if (inside(physical(mutableRoot), physical(root)) || inside(physical(root), physical(mutableRoot)) ||
-      inside(physical(mutableRoot), physical(this.historyRoot))) throw new Error('Manager upgrade guard must be outside the mutable installation.');
+    if (inside(physical(mutableRoot), physical(root)) ||
+      inside(physical(root), physical(mutableRoot))) throw new Error('Manager upgrade guard must be outside the mutable installation.');
     assertOwnedVersionParent(mutableRoot, true);
     assertOwnedVersionParent(dirname(root), true);
     mkdirSync(dirname(root), { recursive: true, mode: 0o700 });
@@ -96,21 +93,6 @@ export class ManagerUpgradeGuard {
     this.assertOwned();
     this.record = { ...(this.record as object), phase };
     atomicRecord(join(this.root, 'owner.json'), this.record);
-  }
-
-  completed(shipmentId: string): unknown | null {
-    this.assertOwned();
-    if (!assertOwnedVersionParent(this.historyRoot, true)) return null;
-    return readRecord(join(this.historyRoot, `${shipmentId}.json`));
-  }
-
-  complete(shipmentId: string, record: unknown): void {
-    this.assertOwned();
-    assertOwnedVersionParent(this.historyRoot, true);
-    mkdirSync(this.historyRoot, { recursive: true, mode: 0o700 });
-    assertOwnedVersionParent(this.historyRoot);
-    syncDirectory(dirname(this.historyRoot));
-    atomicRecord(join(this.historyRoot, `${shipmentId}.json`), record, true);
   }
 
   release(): void {

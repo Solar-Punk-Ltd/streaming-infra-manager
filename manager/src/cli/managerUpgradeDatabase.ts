@@ -1,62 +1,51 @@
-import { BundledPublicationCommand, type BundledPublicationRequest } from '../domain/versions/BundledPublicationCommand.js';
-import type { BundledShipmentJournal } from '../domain/versions/bundledPackageSweep.js';
-import type { BundledActivation, BundledShipmentRecord } from '../domain/versions/BundledShipment.js';
-import type { BundledShipmentIdentity } from '../domain/versions/bundledShipmentPackage.js';
+import { BUNDLED_VERSION_NAME } from '@streaming-infra-manager/common';
+
 import { Database } from '../domain/Database.js';
 import type { ManagerPublication } from '../domain/versions/ManagerUpgrade.js';
-import { PostgresBundledShipmentRepository } from '../domain/versions/PostgresBundledShipmentRepository.js';
+import { PostgresStackVersionRepository } from '../domain/versions/PostgresStackVersionRepository.js';
 import { readManagerPublication } from '../domain/versions/readManagerPublication.js';
-import { bundledPackageClaimsRootFor, configRootFor } from '../domain/versions/stackPaths.js';
 
-const BUNDLED_VERSION_NAME = 'bundled';
+/** What the upgrade watches while the api builds the commit the manager pins. */
+export interface BundledVersionState {
+  status: string;
+  layout: string;
+  gitRef: string;
+  commitSha: string | null;
+  buildId: string | null;
+  lastError: string | null;
+}
 
 /**
  * The database side of a manager upgrade, kept behind an interface so the
- * Compose adapter can be driven without one. It answers the journal questions
- * of `BundledShipmentJournal` too, because the sweep that follows a
- * publication asks them of the same connection.
+ * Compose adapter can be driven without one.
  */
-export interface ManagerUpgradeDatabase extends BundledShipmentJournal {
-  readPublication(identity: BundledShipmentIdentity): Promise<ManagerPublication>;
+export interface ManagerUpgradeDatabase {
+  readPublication(): Promise<ManagerPublication>;
   migrate(): Promise<void>;
-  publishBundled(request: BundledPublicationRequest): Promise<BundledActivation>;
-  supersedeStalePending(versionId: number): Promise<BundledShipmentRecord[]>;
+  /** The bundled version row, or null on a database that holds none. */
+  readBundledVersion(): Promise<BundledVersionState | null>;
   close(): Promise<void>;
 }
 
 export class PostgresManagerUpgradeDatabase implements ManagerUpgradeDatabase {
   private readonly database: Database;
-  private readonly shipments: PostgresBundledShipmentRepository;
-  private readonly publication: BundledPublicationCommand;
+  private readonly versions: PostgresStackVersionRepository;
 
-  constructor(connectionString: string, versionsRoot: string) {
+  constructor(connectionString: string) {
     this.database = new Database(connectionString);
-    this.shipments = new PostgresBundledShipmentRepository(this.database.pool, configRootFor(versionsRoot, BUNDLED_VERSION_NAME));
-    this.publication = new BundledPublicationCommand(this.shipments, bundledPackageClaimsRootFor(versionsRoot));
+    this.versions = new PostgresStackVersionRepository(this.database.pool);
   }
 
-  readPublication(identity: BundledShipmentIdentity): Promise<ManagerPublication> {
-    return readManagerPublication(this.database.pool, identity);
+  readPublication(): Promise<ManagerPublication> {
+    return readManagerPublication(this.database.pool);
   }
 
   migrate(): Promise<void> {
     return this.database.migrate();
   }
 
-  publishBundled(request: BundledPublicationRequest): Promise<BundledActivation> {
-    return this.publication.publish(request);
-  }
-
-  supersedeStalePending(versionId: number): Promise<BundledShipmentRecord[]> {
-    return this.shipments.supersedeStalePending(versionId);
-  }
-
-  find(shipmentId: string): Promise<BundledShipmentRecord | null> {
-    return this.shipments.find(shipmentId);
-  }
-
-  findByMaterialization(materializationId: string): Promise<BundledShipmentRecord | null> {
-    return this.shipments.findByMaterialization(materializationId);
+  async readBundledVersion(): Promise<BundledVersionState | null> {
+    return this.versions.findByName(BUNDLED_VERSION_NAME);
   }
 
   close(): Promise<void> {
