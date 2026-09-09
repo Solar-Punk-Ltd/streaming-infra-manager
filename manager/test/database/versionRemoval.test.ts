@@ -9,9 +9,11 @@ import pg, { type Pool } from 'pg';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
+import { PostgresExecutionRootRepository } from '../../src/domain/versions/PostgresExecutionRootRepository.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
 import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
 import type { StackVersionRecord } from '../../src/domain/versions/StackVersionRepository.js';
+import { deployRootProblem, stackRootOf } from '../../src/domain/versions/stackPaths.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 const port = Number(process.env.T04A_TEST_PG_PORT);
@@ -94,6 +96,86 @@ describe('version removal before files disappear in isolated PostgreSQL', {
       await new Promise(resolve => setTimeout(resolve, 5));
     }
   }
+
+  async function simulatedRemovalMarker() {
+    await writeFile(`${selected.rootPath}.removal.json`, JSON.stringify({ schema: 1, versionId: selected.id, name: selected.name, rootPath: selected.rootPath, removalId: randomUUID() }));
+  }
+
+  for (const layout of ['legacy', 'builds'] as const) {
+    for (const failure of ['rollback', 'connection-loss']) {
+      it(`${layout} refuses admission after partial deletion and ${failure} with metadata surviving`, async () => {
+        if (layout === 'legacy') {
+          await pool.query("UPDATE stack_versions SET layout = 'legacy', build_id = NULL WHERE id = $1", [selected.id]);
+          selected = (await versions.findById(selected.id))!;
+        }
+        const leaf = join(stackRootOf(selected), 'code.js');
+        await writeFile(leaf, 'synthetic payload');
+        if (failure === 'rollback') {
+          await assert.rejects(versions.removeGuarded(selected, async () => {
+            await simulatedRemovalMarker(); await rm(leaf); throw new Error('synthetic partial deletion');
+          }), /synthetic partial deletion/);
+        } else {
+          const crashed = await pool.connect();
+          await crashed.query('BEGIN');
+          await crashed.query('SELECT id FROM stack_versions WHERE id = $1 FOR UPDATE', [selected.id]);
+          await simulatedRemovalMarker(); await rm(leaf);
+          crashed.release(true);
+        }
+        const restarted = new PostgresStackVersionRepository(pool);
+        assert.notEqual(await restarted.findById(selected.id), null);
+        assert.equal(existsSync(leaf), false);
+        assert.equal(existsSync(join(root, 'review-stack.builds', BUILD, '.complete')), true);
+        assert.equal(existsSync(join(root, 'review-stack.builds', BUILD, '.stack-manifest.json')), true);
+        assert.match(deployRootProblem(selected) ?? '', /removal/i);
+        await assert.rejects(new PostgresBuildLedger(pool, observer, root).describe('after-restart', selected, ['srs']), /removal/i);
+        await assert.rejects(restarted.markBuilding(selected.id), /removal/i);
+        assert.equal((await restarted.findById(selected.id))!.status, 'ready');
+        assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM build_references')).rows[0].count, 0);
+      });
+    }
+  }
+
+  it('a waiting markBuilding sees the deletion marker after removal rolls back', async () => {
+    const entered = signal(); const release = signal();
+    const removal = versions.removeGuarded(selected, async () => {
+      await simulatedRemovalMarker(); entered.resolve(); await release.promise; throw new Error('synthetic deletion failure');
+    });
+    const rejectedRemoval = assert.rejects(removal, /synthetic deletion failure/);
+    let building: Promise<unknown> | undefined;
+    try {
+      await entered.promise;
+      building = versions.markBuilding(selected.id);
+      await assertBlocked(); release.resolve(); await rejectedRemoval;
+      await assert.rejects(building, /removal/i);
+      assert.equal((await versions.findById(selected.id))!.status, 'ready');
+    } finally { release.resolve(); await rejectedRemoval; await building?.catch(() => {}); }
+  });
+
+  it('execution registration refuses a marked version before creating another hold', async () => {
+    const instance = randomUUID();
+    await pool.query("INSERT INTO profiles (name, kind, port_slot, status, stack_version_id, instance_id, intent_revision) VALUES ('owned', 'viewer', 1, 'DEPLOYING', $1, $2, 3)", [selected.id, instance]);
+    await pool.query("INSERT INTO deploy_targets (alias, daemon_id, verified_at) VALUES ('localhost', 'synthetic-daemon', NOW())");
+    const job = (await pool.query("INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision) VALUES ($1,$2,'job','owned',ARRAY['srs'],$3,3) RETURNING id", [selected.id, BUILD, instance])).rows[0].id;
+    await simulatedRemovalMarker();
+    const executions = new PostgresExecutionRootRepository(pool, join(root, '.executions'));
+    await assert.rejects(executions.register({
+      executionId: randomUUID(), source: { versionId: selected.id, buildId: BUILD, commit: BUILD, root: stackRootOf(selected), artifactDigest: 'd'.repeat(64) },
+      profile: { name: 'owned', instanceId: instance, intentRevision: 3, status: 'DEPLOYING' },
+      jobReferenceId: job, target: { alias: 'localhost', daemonId: 'synthetic-daemon' }, action: 'deploy', services: ['srs'],
+    }), /removal/i);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM execution_roots')).rows[0].count, 0);
+    assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM build_references WHERE holder_kind = 'execution'")).rows[0].count, 0);
+  });
+
+  it('successful removal retains its tombstone and a fresh same-name ID can be admitted', async () => {
+    await service.remove(selected.id);
+    const marker = JSON.parse(await readFile(`${selected.rootPath}.removal.json`, 'utf8'));
+    assert.equal(marker.versionId, selected.id);
+    const replacement = await versions.insert({ name: selected.name, gitRef: 'new', rootPath: selected.rootPath! });
+    assert.notEqual(replacement.id, selected.id);
+    assert.equal(deployRootProblem(replacement), null);
+    assert.notEqual(await versions.markBuilding(replacement.id), null);
+  });
 
   for (const table of ['profiles', 'build_references', 'bundled_shipments', 'execution_roots']) {
     it(`a failed ${table} hold read cannot reach cleanup or delete the row`, async () => {
