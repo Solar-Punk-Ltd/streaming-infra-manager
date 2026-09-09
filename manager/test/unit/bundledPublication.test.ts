@@ -22,7 +22,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from '../../src/domain/versions/buildManifest.js';
-import { readHostConfigRevision } from '../../src/domain/versions/hostConfigCapture.js';
+import { holdHostConfigLock, readHostConfigRevision } from '../../src/domain/versions/hostConfigCapture.js';
 import { readStackContract } from '../../src/domain/versions/stackContract.js';
 import {
   buildDirFor,
@@ -334,5 +334,30 @@ describe("where the bundled version's settings come from", () => {
     const env = readFileSync(join(configRootFor(versionsRoot, 'review-stack'), '.env'), 'utf8');
     assert.equal(env, readFileSync(join(V3_FIXTURE, '.env.sample'), 'utf8'), 'seeded from the sample the version ships');
     assert.equal(env.includes('paid-for'), false, 'and never from the tree the bundled version came with');
+  });
+});
+
+describe('seeding a version that is being edited at the same time', () => {
+  it('waits for the edit lock and leaves the file the editor created alone', async () => {
+    const configRoot = configRootFor(versionsRoot, 'review-stack');
+    mkdirSync(configRoot, { recursive: true });
+    const release = await holdHostConfigLock(configRoot);
+    const edited = 'STAMP=the-operator-made-this-while-the-build-ran\n';
+
+    await service.add('review-stack', 'main-v3');
+    const staging = stagingDirFor(versionsRoot, 'review-stack', runner.last.args[4]!);
+    cpSync(V3_FIXTURE, staging, { recursive: true });
+    writeFileSync(join(staging, '.stack-commit'), `${COMMIT_A}\n`);
+    runner.finish(0);
+    await settle(50);
+    writeFileSync(join(configRoot, '.env'), edited);
+    await release();
+    await until('the review-stack row to settle', async () => (await repository.findByName('review-stack'))?.status !== 'building');
+
+    assert.ok(
+      readFileSync(join(configRoot, '.env'), 'utf8').startsWith(edited),
+      "the operator's own file, which the sample never seeds over",
+    );
+    assert.equal((await repository.findByName('review-stack'))?.status, 'ready');
   });
 });
