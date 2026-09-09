@@ -85,7 +85,10 @@ export async function runManagerUpgrade(environment: { guardRoot: string; mutabl
     guard.phase('migrating'); await operations.migrate(request);
     guard.phase('starting'); await operations.startProject(request);
     guard.phase('verifying'); await operations.verifyProject(request);
-    guard.phase('bundled'); const bundled = await operations.awaitBundledBuild(request);
+    guard.phase('bundled');
+    // The api answers by now, so nothing this wait does may keep the host held.
+    let bundled: BundledBuildOutcome;
+    try { bundled = await operations.awaitBundledBuild(request); } catch (error) { guard.release(); throw error; }
     guard.release(); return { state: 'completed', bundled };
   } catch (error) {
     if (!effectStarted) guard.release();
