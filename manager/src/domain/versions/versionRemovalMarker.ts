@@ -43,7 +43,9 @@ function readMarker(rootPath: string): RemovalMarker | null {
     const current = lstatSync(path, { bigint: true });
     if (length > MAX_MARKER_BYTES || [after, current].some(info => info.dev !== before.dev || info.ino !== before.ino ||
       info.size !== before.size || info.mode !== before.mode || info.mtimeNs !== before.mtimeNs || info.ctimeNs !== before.ctimeNs)) throw new Error(UNVERIFIED);
-    const value: unknown = JSON.parse(bytes.subarray(0, length).toString('utf8'));
+    let value: unknown;
+    try { value = JSON.parse(bytes.subarray(0, length).toString('utf8')); }
+    catch { throw new Error(UNVERIFIED); }
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(UNVERIFIED);
     const marker = value as Record<string, unknown>;
     if (!isDeepStrictEqual(Object.keys(marker).sort(), ['name', 'removalId', 'rootPath', 'schema', 'versionId']) ||
