@@ -41,8 +41,6 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
 
   readonly observed: string[] = [];
 
-  private readonly activeJobs = new Map<string, number>();
-
   private nextId = 1;
 
   private clock = 0;
@@ -63,9 +61,9 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
     const profile = this.profiles.rows.get(owner.name);
     const job = this.references.find(row => row.id === referenceId);
     if (!profile || profile.instance_id !== owner.instance_id || profile.intent_revision !== owner.intent_revision ||
-        profile.status !== 'DEPLOYING' || this.activeJobs.get(owner.name) !== referenceId || !job || job.resolvedAt !== null) return null;
+        profile.status !== 'DEPLOYING' || this.profiles.activeDeployJobs.get(owner.name) !== referenceId || !job || job.resolvedAt !== null) return null;
     await this.cancelUnstarted(owner.name, referenceId);
-    this.activeJobs.delete(owner.name);
+    this.profiles.activeDeployJobs.delete(owner.name);
     return this.profiles.markTerminal(owner.name, previousStatus);
   }
 
@@ -87,17 +85,17 @@ export class InMemoryBuildLedger implements BuildLedger, BuildReferenceReader {
       profile = this.profiles.rows.get(profileName)!;
     }
     const descriptor = await this.seedJob(profileName, version, services);
-    if (descriptor.referenceId !== null) this.activeJobs.set(profileName, descriptor.referenceId);
+    if (descriptor.referenceId !== null) this.profiles.activeDeployJobs.set(profileName, descriptor.referenceId);
     return { profile, descriptor, previousStatus };
   }
 
   async describe(profileName: string, version: StackVersionRecord | null, services: readonly string[], ownership: ExpectedDeployOwner): Promise<BuildDescriptor> {
     const profile = this.profiles.rows.get(profileName);
-    if (!profile || profile.status !== 'DEPLOYING' || !this.owns(profile, ownership) || this.activeJobs.has(profileName)) {
+    if (!profile || profile.status !== 'DEPLOYING' || !this.owns(profile, ownership) || this.profiles.activeDeployJobs.has(profileName)) {
       throw new Error('The deployment no longer owns this initial build job.');
     }
     const descriptor = await this.seedJob(profileName, version, services);
-    if (descriptor.referenceId !== null) this.activeJobs.set(profileName, descriptor.referenceId);
+    if (descriptor.referenceId !== null) this.profiles.activeDeployJobs.set(profileName, descriptor.referenceId);
     return descriptor;
   }
 

@@ -10,6 +10,7 @@ import { reserveSlotFor } from './ports/reservationSql.js';
 import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
+import type { ExpectedDeployOwner } from './versions/buildLedger.js';
 
 export interface ProfileWriteData {
   notes?: string | null;
@@ -345,6 +346,27 @@ export class ProfileRepository {
       [name, message],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
+  async markDeployError(
+    name: string,
+    owner: ExpectedDeployOwner,
+    jobReferenceId: number | null,
+    message: string,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+          SET status = 'ERROR', deployment_phase = NULL,
+              last_error = $7, last_error_at = NOW(), updated_at = NOW()
+        WHERE name = $1 AND status = 'DEPLOYING'
+          AND instance_id = $2 AND intent_revision = $3
+          AND engine_config_revision = $4 AND stack_version_id = $5
+          AND deploy_job_reference_id IS NOT DISTINCT FROM $6::integer
+        RETURNING ${PROFILE_COLUMNS}`,
+      [name, owner.instanceId, owner.intentRevision, owner.configRevision,
+        owner.stackVersionId, jobReferenceId, message],
+    );
+    return result.rows[0] ?? null;
   }
 
   async markTerminal(
