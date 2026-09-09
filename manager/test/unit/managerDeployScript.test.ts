@@ -162,7 +162,7 @@ describe('deploy/deploy.sh', () => {
     const before = script.slice(0, remote);
     assert.match(before, /node -e/, 'one node run reads the JSON the seal printed and can refuse it');
     assert.match(before, /printed no/, 'and names the field a line without one is missing');
-    for (const name of ['SHIPMENT_ID', 'SHIPMENT_COMMIT', 'SHIPMENT_DIGEST', 'MANAGER_COMMIT', 'MANAGER_DIGEST']) {
+    for (const name of ['SHIPMENT_ID', 'SHIPMENT_COMMIT', 'SHIPMENT_DIGEST', 'MANAGER_COMMIT', 'MANAGER_DIGEST', 'TOOLCHAIN']) {
       assert.ok(before.includes(`check_identity "${name}"`), `${name} is checked before it is interpolated`);
     }
     assert.match(before, /\[0-9a-f\]\{8\}-/, 'the shipment id is a uuid');
