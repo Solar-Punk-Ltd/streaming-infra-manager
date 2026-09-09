@@ -9,3 +9,6 @@ manager/dist
 node_modules
 *.tsbuildinfo
 manager/test/integration/env.itest
+
+# Session scratch of the AI tools that work in this checkout, never part of the repository
+.scratch/
