@@ -22,6 +22,14 @@ const COMMENT_RE = /^\s*#/;
  */
 const SECTION_RULE_RE = /^[-=]{3,}(?: [A-Za-z0-9][A-Za-z0-9-]*)*(?: *[-=]{3,})?$/;
 
+/**
+ * A comment that is an assignment and nothing else, such as `# HLS_FRAGMENT=0.5`
+ * or `# BEE_RUNG_480P_API_PORT=11001`: upstream's way of showing a key it ships
+ * commented out. The value carries no whitespace, which is what separates it
+ * from a sentence that wraps onto a line opening with a key name.
+ */
+const COMMENTED_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)=\S*$/;
+
 /** The value one line assigns, or null for a line that assigns nothing. */
 export function envValueIn(line: string): string | null {
   return ASSIGNMENT_RE.exec(line)?.[2] ?? null;
@@ -73,16 +81,20 @@ export function sampleSettingsOf(text: string): SampleSetting[] {
  * line ends it, so a section header with a gap under it belongs to the section
  * rather than to the key. A commented out assignment of a different key ends it
  * too, because the lines above that line document that key and not this one:
- * without it `ORPHAN_REAP_MS` took the paragraph explaining `# HLS_FRAGMENT`. A
- * commented out assignment of this same key stays in the run, because that is
- * how upstream shows what a value looks like. And a section rule is dropped, so
- * a description opens with a sentence rather than with a row of dashes.
+ * without it `ORPHAN_REAP_MS` took the paragraph explaining `# HLS_FRAGMENT`.
+ * That line has to be an assignment and nothing else, because prose wraps: the
+ * sentence above `BEE_PUBLISHERS` ends on a line reading `# ABR_ENABLED=true,
+ * since with no ladder there is nothing to map onto.`, and reading that as an
+ * assignment cost the key the five lines that say what it is. A commented out
+ * assignment of this same key stays in the run, because that is how upstream
+ * shows what a value looks like. And a section rule is dropped, so a
+ * description opens with a sentence rather than with a row of dashes.
  */
 function descriptionAbove(lines: readonly string[], index: number, key: string): string {
   const run: string[] = [];
   for (let i = index - 1; i >= 0 && COMMENT_RE.test(lines[i] ?? ''); i -= 1) {
     const text = commentTextIn(lines[i] ?? '');
-    const commentedKey = envKeyIn(text);
+    const commentedKey = COMMENTED_ASSIGNMENT_RE.exec(text)?.[1] ?? null;
     if (commentedKey !== null && commentedKey !== key) break;
     if (text === '' || SECTION_RULE_RE.test(text)) continue;
     run.unshift(text);
