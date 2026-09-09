@@ -4,6 +4,9 @@ export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Whether the command outlived its timeout and was killed rather than exiting on its own. */
+  killed: boolean;
+  signal: NodeJS.Signals | null;
 }
 
 export interface CommandOptions {
@@ -24,6 +27,12 @@ export type CommandRunner = (argv: readonly string[], options: CommandOptions) =
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
+interface ExecFileFailure extends Error {
+  code?: unknown;
+  killed?: boolean;
+  signal?: NodeJS.Signals | null;
+}
+
 export const execFileCommandRunner: CommandRunner = (argv, options) =>
   new Promise((resolve) => {
     const [file, ...args] = argv;
@@ -33,8 +42,15 @@ export const execFileCommandRunner: CommandRunner = (argv, options) =>
       args,
       { cwd: options.cwd, env: options.env, timeout: options.timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, encoding: 'utf8' },
       (error, stdout, stderr) => {
-        const status = error && typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : error ? -1 : 0;
-        resolve({ code: status, stdout: String(stdout), stderr: String(stderr) });
+        const failure = error as ExecFileFailure | null;
+        const status = failure && typeof failure.code === 'number' ? failure.code : failure ? -1 : 0;
+        resolve({
+          code: status,
+          stdout: String(stdout),
+          stderr: String(stderr),
+          killed: Boolean(failure?.killed),
+          signal: failure?.signal ?? null,
+        });
       },
     );
   });

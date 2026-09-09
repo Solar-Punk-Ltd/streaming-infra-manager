@@ -94,6 +94,20 @@ function idsOf(stdout: string): string[] {
   return stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
+/**
+ * Why a command failed, in the only terms that are safe to write down.
+ *
+ * What a failing Compose command prints can be the resolved configuration of
+ * the project, which carries the database password inside DATABASE_URL, so
+ * none of its output belongs in a deploy log a person pastes into a message.
+ */
+function commandFailure(what: string, project: string, program: string, result: CommandResult, timeoutMs: number): string {
+  const outcome = result.killed
+    ? `It was killed after ${Math.round(timeoutMs / 1000)} seconds.`
+    : `It exited with ${result.code}.`;
+  return `"${what}" failed on the ${project} project. ${outcome} Run the same ${program} command on the host to see its output.`;
+}
+
 export const httpHealthProbe: HealthProbe = async (url) => {
   const response = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
   await response.arrayBuffer();
@@ -218,7 +232,9 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   private async compose(project: string, args: readonly string[]): Promise<CommandResult> {
     const argv = this.composeArgv(project, args);
     const result = await this.run(argv, { timeoutMs: this.timeouts.command });
-    if (result.code !== 0) throw new Error(`"${args.join(' ')}" failed on the ${project} project. ${result.stderr.trim() || `It exited with ${result.code}.`}`);
+    if (result.code !== 0) {
+      throw new Error(commandFailure(args.join(' '), project, 'docker compose', result, this.timeouts.command));
+    }
     return result;
   }
 
@@ -241,7 +257,9 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
       '--filter', `label=${COMPOSE_SERVICE_LABEL}=${service}`,
       '--filter', `label=${COMPOSE_ONE_OFF_LABEL}=False`];
     const result = await this.run(argv, { timeoutMs: this.timeouts.command });
-    if (result.code !== 0) throw new Error(`The containers of the ${service} service could not be listed. Docker exited with ${result.code}.`);
+    if (result.code !== 0) {
+      throw new Error(commandFailure(`ps -aq ${service}`, project, 'docker', result, this.timeouts.command));
+    }
     return idsOf(result.stdout);
   }
 
