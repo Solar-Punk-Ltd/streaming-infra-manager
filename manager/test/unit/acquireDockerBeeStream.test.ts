@@ -3,7 +3,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { once } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
-import { Duplex, PassThrough } from 'node:stream';
+import { Duplex, PassThrough, getDefaultHighWaterMark, setDefaultHighWaterMark } from 'node:stream';
 import { describe, it, type TestContext } from 'node:test';
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
 import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
@@ -33,7 +33,7 @@ type Stage = 'info' | 'list' | 'inspect' | 'create' | 'start';
 type FixtureOptions = {
   daemonId?: string; candidates?: unknown; inspect?: unknown; execId?: string; initial?: Buffer;
   stopAt?: Stage; holdAt?: Stage; responseAt?: Stage; status?: number; rawJson?: string; declaredLength?: number;
-  upgradeStatus?: number; upgradeHeader?: string; afterUpgrade?: () => void;
+  upgradeStatus?: number; upgradeHeader?: string; afterUpgrade?: () => void; information?: boolean; largeHeader?: boolean;
 };
 function syntheticDocker(t: TestContext, options: FixtureOptions = {}) {
   const inbound = new PassThrough();
@@ -58,6 +58,8 @@ function syntheticDocker(t: TestContext, options: FixtureOptions = {}) {
       requests.push({ method: request.method!, url: request.url!, body: text ? JSON.parse(text) : null, headers: request.headers });
       const path = new URL(request.url!, 'http://docker.invalid').pathname;
       const stage: Stage = path === '/info' ? 'info' : path === '/containers/json' ? 'list' : path.endsWith('/json') ? 'inspect' : 'create';
+      if (options.information) response.writeProcessing();
+      if (options.largeHeader) response.setHeader('X-Oversized', 'x'.repeat(20_000));
       if (options.stopAt === stage) { peer.destroy(); return; }
       if (options.holdAt === stage) { held.push({ response, stage }); return; }
       if (options.responseAt === stage) {
@@ -126,11 +128,35 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
   it('preserves a combined upgrade head larger than the decoder chunk without losing or duplicating bytes', async t => {
     const bytes = Buffer.alloc(200_000); for (let i = 0; i < bytes.length; i++) bytes[i] = i % 256;
     const docker = syntheticDocker(t, { initial: bytes });
-    const result = await acquireDockerBeeStream(docker.transport, expected, {}, qualified);
+    const original = http.request; const heads: number[] = [];
+    t.mock.method(http, 'request', (...args: unknown[]) => {
+      const request: http.ClientRequest = Reflect.apply(original, http, args);
+      request.prependListener('upgrade', (_response, _socket, head: Buffer) => heads.push(head.length));
+      return request;
+    });
+    const defaultSize = getDefaultHighWaterMark(false);
+    t.after(() => setDefaultHighWaterMark(false, defaultSize));
+    const result = await acquireDockerBeeStream(docker.transport, expected, {}, image => {
+      setDefaultHighWaterMark(false, 4096);
+      return qualified(image);
+    });
+    setDefaultHighWaterMark(false, defaultSize);
     result.stream.on('error', () => {}); t.after(() => result.stream.destroy());
+    assert.ok(heads[0]! > result.stream.readableHighWaterMark);
     const chunks: Buffer[] = []; let size = 0;
     for await (const chunk of result.stream) { chunks.push(chunk); size += chunk.length; if (size === bytes.length) break; }
     assert.deepEqual(Buffer.concat(chunks), bytes);
+  });
+
+  it('accepts two recorded aliases of the same daemon without resolving either alias', async t => {
+    const docker = syntheticDocker(t);
+    const target = structuredClone(expected);
+    Object.assign(target, { alias: 'another-recorded-alias' });
+    Object.assign(target.profile, { host: 'another-recorded-alias' });
+    const result = await acquireDockerBeeStream(docker.transport, target, {}, qualified);
+    result.stream.on('error', () => {}); t.after(() => result.stream.destroy());
+    assert.equal(result.binding.daemonId, expected.daemonId);
+    assert.equal(docker.counts().connects, 0);
   });
 
   it('clones expected ownership and numeric options before the first awaited response', async t => {
@@ -211,6 +237,7 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
       assert.equal(docker.creates(), ['create', 'start'].includes(stage) ? 1 : 0);
       assert.equal(docker.starts(), stage === 'start' ? 1 : 0);
       assert.equal(docker.counts().connects, 0); assert.equal(docker.transport.destroyed, true);
+      await pause(0); assert.equal(docker.counts().closes, 1);
       docker.transport.emit('error', new Error('private diagnostic after failure'));
     });
   }
@@ -224,6 +251,8 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     { name: 'invalid JSON', options: { responseAt: 'info' as const } },
     { name: 'oversized declared JSON', options: { responseAt: 'info' as const, declaredLength: 2_000_000 } },
     { name: 'oversized streamed JSON', options: { responseAt: 'info' as const, rawJson: 'x'.repeat(2_000_000) } },
+    { name: 'oversized headers', options: { largeHeader: true } },
+    { name: 'unexpected informational responses', options: { information: true } },
   ]) {
     it(`contains ${variant.name} with a fixed error and exact cleanup`, async t => {
       const docker = syntheticDocker(t, variant.options);
@@ -238,6 +267,18 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     docker.held[0]!.response.end(JSON.stringify({ ID: expected.daemonId })); await pause(0);
     assert.equal(docker.requests.length, 1); assert.equal(docker.transport.destroyed, true);
   });
+
+  for (const stage of ['create', 'start'] as const) {
+    it(`times out a lost ${stage} response without repeating either Docker POST`, async t => {
+      const docker = syntheticDocker(t, { holdAt: stage });
+      await assert.rejects(acquireDockerBeeStream(docker.transport, expected, { acquisitionTimeoutMs: 30 }, qualified), safeFailure);
+      assert.equal(docker.creates(), 1); assert.equal(docker.starts(), stage === 'start' ? 1 : 0);
+      assert.equal(docker.transport.destroyed, true); assert.equal(docker.counts().connects, 0);
+      const command = (docker.requests.find(request => request.url.endsWith('/exec'))!.body as { Cmd: string[] }).Cmd;
+      assert.ok(command.includes('/usr/bin/timeout'));
+      assert.ok(command.some(argument => argument.startsWith('--kill-after=')));
+    });
+  }
 
   it('rejects a monotonic acquisition expiry even when a trusted qualifier delays the timer', async t => {
     const docker = syntheticDocker(t);
@@ -282,4 +323,18 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
       docker.transport.emit('error', new Error('private diagnostic after invalid options'));
     });
   }
+
+  it('disposes its stream when cloning expected ownership fails', async t => {
+    const docker = syntheticDocker(t);
+    const target = { ...expected, uncloneable: () => {} };
+    await assert.rejects(acquireDockerBeeStream(docker.transport, target, {}, qualified), safeFailure);
+    assert.equal(docker.transport.destroyed, true); assert.equal(docker.requests.length, 0);
+  });
+
+  it('disposes its stream for null options from an untyped caller', async t => {
+    const docker = syntheticDocker(t);
+    // @ts-expect-error Exercise the runtime construction boundary.
+    await assert.rejects(acquireDockerBeeStream(docker.transport, expected, null, qualified), safeFailure);
+    assert.equal(docker.transport.destroyed, true); assert.equal(docker.requests.length, 0);
+  });
 });
