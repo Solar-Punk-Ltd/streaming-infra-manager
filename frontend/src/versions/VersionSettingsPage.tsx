@@ -25,6 +25,7 @@ import {
   editedFiles,
   settingsRefusal,
   withEntry,
+  withRemoval,
   withText,
   type SettingsDraft,
   type SettingsRefusal,
@@ -212,6 +213,7 @@ export function VersionSettingsPage({ id }: { id: number }) {
           draft={draft[file.path]}
           disabled={disabled}
           onEntryChange={(key, value) => setDraft((current) => withEntry(current, file.path, key, value))}
+          onEntryRemove={(key) => setDraft((current) => withRemoval(current, file.path, key))}
           onTextChange={(text) => setDraft((current) => withText(current, file.path, text))}
         />
       ))}

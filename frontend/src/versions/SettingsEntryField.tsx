@@ -10,6 +10,8 @@ import { isAtSampleValue } from './settingsDraft';
 const GENERATED_NOTE =
   'Set per deployment by the manager unless you set a value here.';
 
+const REMOVED_NOTE = 'This line goes out of the file when you save. Discard brings it back.';
+
 /**
  * One key of a version's env file: what it is called, what the version's
  * sample says about it, and the value this host gives it.
@@ -23,18 +25,27 @@ export function SettingsEntryField({
   entry,
   value,
   disabled,
+  removed,
   onChange,
+  onRemove,
 }: {
   entry: StackSettingsEntry;
   value: string;
   disabled: boolean;
+  /** Marked to go out of the file on the next save. */
+  removed: boolean;
   onChange: (value: string) => void;
+  onRemove: () => void;
 }) {
   const [revealed, setRevealed] = useState(false);
   const atSample = isAtSampleValue({ value, sampleValue: entry.sampleValue });
   // The manager's own rule, so the field says what a save would be refused for
   // before the save goes out.
-  const problem = settingValueProblem(entry.key, value);
+  const problem = removed ? null : settingValueProblem(entry.key, value);
+  // Only a key the version's own sample does not declare: taking out one the
+  // version declares would put it straight back on the next build, from that
+  // same sample.
+  const removable = entry.sampleValue === null;
 
   return (
     <Box component="li" sx={{ listStyle: 'none', py: 1.5, borderTop: 1, borderColor: 'divider' }}>
@@ -56,13 +67,18 @@ export function SettingsEntryField({
           {GENERATED_NOTE}
         </Typography>
       )}
+      {removed && (
+        <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 1 }}>
+          {REMOVED_NOTE}
+        </Typography>
+      )}
 
       <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }}>
         <TextField
           size="small"
           fullWidth
           value={value}
-          disabled={disabled}
+          disabled={disabled || removed}
           type={entry.secret && !revealed ? 'password' : 'text'}
           error={problem !== null}
           helperText={problem === null ? undefined : `This value ${problem}`}
@@ -83,6 +99,18 @@ export function SettingsEntryField({
             onClick={() => setRevealed((shown) => !shown)}
           >
             {revealed ? 'Hide' : 'Reveal'}
+          </Button>
+        )}
+        {removable && !removed && (
+          <Button
+            size="small"
+            color="warning"
+            sx={{ flex: 'none', mt: 0.25 }}
+            disabled={disabled}
+            aria-label={`Remove ${entry.key}`}
+            onClick={onRemove}
+          >
+            Remove
           </Button>
         )}
       </Stack>

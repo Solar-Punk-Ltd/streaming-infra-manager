@@ -24,12 +24,14 @@ export function SettingsFileCard({
   draft,
   disabled,
   onEntryChange,
+  onEntryRemove,
   onTextChange,
 }: {
   file: StackSettingsFile;
   draft: SettingsDraftFile | undefined;
   disabled: boolean;
   onEntryChange: (key: string, value: string) => void;
+  onEntryRemove: (key: string) => void;
   onTextChange: (text: string) => void;
 }) {
   if (file.kind === 'json') {
@@ -62,6 +64,7 @@ export function SettingsFileCard({
   }
 
   const values = draft?.kind === 'env' ? draft.values : {};
+  const removed = draft?.kind === 'env' ? draft.removed : [];
   return (
     <SectionCard title={file.path} sub={subFor(file.path)}>
       {file.entries.length === 0 ? (
@@ -76,7 +79,9 @@ export function SettingsFileCard({
               entry={entry}
               value={values[entry.key] ?? entry.value}
               disabled={disabled}
+              removed={removed.includes(entry.key)}
               onChange={(value) => onEntryChange(entry.key, value)}
+              onRemove={() => onEntryRemove(entry.key)}
             />
           ))}
         </Stack>

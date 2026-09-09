@@ -12,7 +12,12 @@ import type {
  */
 
 export type SettingsDraftFile =
-  | { kind: 'env'; values: Record<string, string> }
+  | {
+      kind: 'env';
+      values: Record<string, string>;
+      /** Keys the operator asked to take out of the file, which Discard brings back. */
+      removed: string[];
+    }
   | { kind: 'json'; text: string };
 
 /** By relative path, the same paths the manager answered. */
@@ -26,6 +31,7 @@ export function draftOf(settings: StackSettings): SettingsDraft {
         ? {
             kind: 'env',
             values: Object.fromEntries(file.entries.map((entry) => [entry.key, entry.value])),
+            removed: [],
           }
         : { kind: 'json', text: file.text };
   }
@@ -40,7 +46,14 @@ export function withEntry(
 ): SettingsDraft {
   const file = draft[path];
   if (file?.kind !== 'env') return draft;
-  return { ...draft, [path]: { kind: 'env', values: { ...file.values, [key]: value } } };
+  return { ...draft, [path]: { ...file, values: { ...file.values, [key]: value } } };
+}
+
+/** Marks a key for removal. Only a key the version's sample does not declare is offered one. */
+export function withRemoval(draft: SettingsDraft, path: string, key: string): SettingsDraft {
+  const file = draft[path];
+  if (file?.kind !== 'env' || file.removed.includes(key)) return draft;
+  return { ...draft, [path]: { ...file, removed: [...file.removed, key] } };
 }
 
 export function withText(draft: SettingsDraft, path: string, text: string): SettingsDraft {
@@ -64,8 +77,16 @@ export function editedFiles(
     }
     if (file.kind !== 'env' || edited.kind !== 'env') continue;
     const entries = file.entries
-      .filter((entry) => (edited.values[entry.key] ?? entry.value) !== entry.value)
-      .map((entry) => ({ key: entry.key, value: edited.values[entry.key] ?? entry.value }));
+      .filter(
+        (entry) =>
+          edited.removed.includes(entry.key) ||
+          (edited.values[entry.key] ?? entry.value) !== entry.value,
+      )
+      .map((entry) =>
+        edited.removed.includes(entry.key)
+          ? { key: entry.key, value: '', remove: true }
+          : { key: entry.key, value: edited.values[entry.key] ?? entry.value },
+      );
     if (entries.length > 0) edits.push({ path: file.path, entries });
   }
   return edits;
