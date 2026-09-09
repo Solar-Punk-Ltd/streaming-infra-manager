@@ -472,7 +472,7 @@ export class StackVersionService {
     if (current.problem !== null) {
       throw new StackSettingsNotReadyError(
         version.name,
-        `Build ${version.buildId} cannot be read, so there is nothing to make another one from. ${current.problem}`,
+        `Its current build cannot be read, so there is nothing to make another one from. ${current.problem}`,
       );
     }
 

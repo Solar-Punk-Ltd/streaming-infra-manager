@@ -15,6 +15,7 @@ import { StackSettingsNotReadyError } from '../errors/StackSettingsNotReadyError
 import { readBuildManifest } from './buildManifest.js';
 import { envAssignmentsOf, sampleSettingsOf } from './envSettingsText.js';
 import {
+  CONFIG_EDIT_SCRIPT,
   DEPLOY_CONFIG,
   DEPLOY_CONFIG_SAMPLE,
   holdHostConfigLock,
@@ -48,6 +49,14 @@ export interface HostConfigSettingsSources {
 export const SETTINGS_NEED_A_BUILD =
   'They are seeded from the stack samples by the first build of a version, and this one has none.';
 
+/**
+ * The files are there but nothing committed them as a set. Capture refuses a
+ * root in that state too, so the way out is the same one a build takes.
+ */
+export const SETTINGS_NEED_A_REVISION =
+  `Its files are here but there is no committed revision of them, so nothing can say which bytes a save was made against. Commit them with ${CONFIG_EDIT_SCRIPT} <root> commit, or Update the version, which commits them as it builds.`;
+
+
 /** Sources of a version that has settings: it has been built, so it has a tree. */
 export interface ReadyHostConfigSettings extends HostConfigSettingsSources {
   buildRoot: string;
@@ -79,7 +88,7 @@ export async function readHostConfigSettings(
   const release = await holdHostConfigLock(configRoot, sources.lockWaitMs);
   try {
     const revision = await readHostConfigRevision(configRoot);
-    if (!revision) throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
+    if (!revision) throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_REVISION);
 
     const files: StackSettingsFile[] = [];
     for (const relative of hostConfigFilesOf(configRoot)) {

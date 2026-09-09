@@ -17,7 +17,7 @@ import {
   readHostConfigRevision,
   withHostConfigLock,
 } from './hostConfigCapture.js';
-import { SETTINGS_NEED_A_BUILD } from './hostConfigSettings.js';
+import { SETTINGS_NEED_A_REVISION } from './hostConfigSettings.js';
 
 /**
  * One save of a version's settings, as one revision.
@@ -52,7 +52,7 @@ export async function saveHostConfigSettings(
     async (commit) => {
       const revision = await readHostConfigRevision(configRoot);
       if (!revision) {
-        throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_BUILD);
+        throw new StackSettingsNotReadyError(versionName, SETTINGS_NEED_A_REVISION);
       }
       if (revision.generation !== save.expectedGeneration) {
         throw new StackSettingsChangedError(versionName, revision.generation);
