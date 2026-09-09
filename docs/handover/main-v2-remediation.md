@@ -124,4 +124,14 @@ What landed: `bundled:seal` on the laptop, `manager:upgrade` from the new image 
 
 Verified at the merge: manager 2146 unit tests green, common 300, frontend 62, the three typechecks clean, the database test directory 159 green against a disposable local Postgres, and the manager image build context clean of the env file. Nothing has run against the real host. The first deploy with this flow needs Levi's word.
 
-Still open from the list above, in this order: exact execution and recovery completion (T01 with T04b private execution copies, so deploys stop writing into the immutable build), T09 receipt polling and its harness, T20 and T21, then T14 and T22 on Levi's numbers. The D09 stack commits are prepared on a branch of the stack repository and wait for Levi's choice of base and his push.
+Still open from the list above, in this order: exact execution and recovery completion (T01 with T04b private execution copies, so deploys stop writing into the immutable build), T09 receipt polling and its harness, T20 and T21, then T14 and T22 on Levi's numbers. The D09 stack commits reached the stack's main-v3 the same evening, see the next section.
+
+## The bundled stack is main-v3, 2026-09-09
+
+Levi ruled that the stack's `main-v3` is the stable default and that `main-v2` is obsolete, kept only as a second version to test version selection with. He fast-forwarded the stack's `main-v3` to the four D09 commits (head `9f1255b`, the two built services no longer name their images, a whole-project clean removes the images it built), so no branch of the stack repository is referenced anywhere: the bundled submodule pins the tip of `main-v3`.
+
+What landed on `feat/ai-remediation`: the pin moves from the tip of the stack's `main-v2` (`ee99c36`) to `9f1255b`, the submodule's tracked branch becomes `main-v3`, and the manager README, the deploy README and the engine-control feature page say which version is bundled and what its contract decides (slot ceiling 99, `API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` generated per deployment, the SRS API port published, engines on a config file of their own, chequebook floor 0.5 BZZ). No code changed: the manager reads all of that from the stack's contract.
+
+Verified with the new pin: manager 2146 unit tests green and typecheck clean, the real tree's contract read with no warning and `sharedImageTags` false, the stack installed and built on the laptop with the same two commands `deploy/deploy.sh` runs. A trial seal of the real tree then refused the laptop's stack `.env`, which still follows the `main-v2` sample and lacks twenty keys the `main-v3` sample declares (only the key names were seen). That is the check working as designed, and it means the first deploy after this bump needs those keys added to `manager/swarm-hls-stream/.env` first. The deploy README now says so. The trial's generation-one revision file was removed again, so the laptop checkout is back to never having had one and the deploy's `--adopt-inputs` takes the files as they are.
+
+Nothing has run against the real host. Next, unchanged: exact execution and recovery completion, then T09, T20, T21, T14 and T22.
