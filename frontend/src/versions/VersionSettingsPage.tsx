@@ -107,9 +107,16 @@ export function VersionSettingsPage({ id }: { id: number }) {
     }
   };
 
+  /**
+   * The revision the save landed on is carried into the page state before
+   * anything else can throw. Without it a refused apply left the page naming
+   * the revision it loaded with, and the operator's next save was refused as a
+   * change somebody else had made, which was their own.
+   */
   const saveEdits = async (): Promise<void> => {
     if (!settings || edits.length === 0) return;
-    await saveVersionSettings(id, settings.generation, edits);
+    const saved = await saveVersionSettings(id, settings.generation, edits);
+    setSettings((current) => (current ? { ...current, generation: saved.generation } : current));
   };
 
   const save = () =>
@@ -123,11 +130,14 @@ export function VersionSettingsPage({ id }: { id: number }) {
   const saveAndApply = () =>
     run('applying', async () => {
       await saveEdits();
-      const outcome = await applyVersionSettings(id);
-      setApplied(outcome);
-      await load();
-      reloadVersions();
-      toast(`New deployments run build ${outcome.buildId}`, 'success');
+      try {
+        const outcome = await applyVersionSettings(id);
+        setApplied(outcome);
+        reloadVersions();
+        toast(`New deployments run build ${outcome.buildId}`, 'success');
+      } finally {
+        await load();
+      }
     });
 
   return (
