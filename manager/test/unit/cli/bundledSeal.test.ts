@@ -1,0 +1,128 @@
+/**
+ * The laptop side of a manager deploy: one command turns the checked out
+ * streaming stack into a sealed package the host can verify byte for byte.
+ *
+ * Unit test over a real throwaway git checkout, because the command exports
+ * the git objects of HEAD rather than copying the working tree. `pnpm test`
+ * in manager/.
+ */
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+
+import { runBundledSeal } from '../../../src/cli/bundledSeal.js';
+import { CONFIG_REVISION_FILE, readHostConfigRevision } from '../../../src/domain/versions/hostConfigCapture.js';
+import { verifyBundledPackage } from '../../../src/domain/versions/bundledShipmentPackage.js';
+
+const SHIPMENT_ID = '3f1c2b64-5a2e-4d7b-8c19-6a0f4d2e8b71';
+const TOOLCHAIN = 'node v22.9.0 pnpm 9.0.0 Darwin/arm64';
+const DIST = 'packages/x/dist';
+/** A synthetic value, so a test can prove the command never echoes an input file's contents. */
+const TOKEN_VALUE = 'synthetic-token-value';
+
+function git(cwd: string, args: string[]): void {
+  execFileSync('git', ['-c', 'user.name=seal tests', '-c', 'user.email=seal@example.invalid', '-c', 'commit.gpgsign=false', ...args], {
+    cwd, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+  });
+}
+
+describe('bundled:seal', () => {
+  let root: string; let source: string; let out: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 't04b-seal-'));
+    source = join(root, 'stack'); out = join(root, 'shipment');
+    await mkdir(join(source, 'deploy', 'scripts'), { recursive: true });
+    await mkdir(join(source, DIST), { recursive: true });
+    await mkdir(join(source, 'node_modules'));
+    await writeFile(join(source, '.gitignore'), ['node_modules/', '.env', 'deploy/config.json', 'packages/*/dist/', CONFIG_REVISION_FILE, ''].join('\n'));
+    await writeFile(join(source, 'deploy', 'scripts', '_lib.sh'), 'readonly PORT_VARS=(\n  "RTMP_PORT:1935:19000"\n)\n');
+    await writeFile(join(source, 'deploy', 'docker-compose.yml'), 'services:\n  srs:\n    image: synthetic/srs:fixed\n');
+    await writeFile(join(source, '.env.sample'), 'API_AUTH_TOKEN=\nSRT_PASSPHRASE=\n');
+    git(source, ['init', '--quiet', '--initial-branch=main']);
+    git(source, ['add', '--all']);
+    git(source, ['commit', '--quiet', '--message', 'the checked out stack']);
+    await writeFile(join(source, '.env'), `API_AUTH_TOKEN=${TOKEN_VALUE}\nSRT_PASSPHRASE=synthetic-passphrase\n`);
+    await writeFile(join(source, 'deploy', 'config.json'), '{}\n');
+    await writeFile(join(source, DIST, 'app.js'), 'export const built = true;\n');
+    await writeFile(join(source, 'node_modules', 'installed.js'), 'module.exports = {};\n');
+  });
+  afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+
+  async function seal(options: { dist?: string; out?: string; adoptInputs?: boolean } = {}): Promise<{ stdout: string[]; stderr: string[] }> {
+    const stdout: string[] = []; const stderr: string[] = [];
+    await runBundledSeal(
+      ['--source', source, '--out', options.out ?? out, '--shipment-id', SHIPMENT_ID, '--dist', options.dist ?? DIST,
+        '--toolchain', TOOLCHAIN, ...(options.adoptInputs === false ? [] : ['--adopt-inputs'])],
+      { out: (line) => stdout.push(line), err: (line) => stderr.push(line) },
+    );
+    return { stdout, stderr };
+  }
+
+  it('seals a package the host verifies, carrying the built files and the host inputs and no installed packages', async () => {
+    const { stdout } = await seal();
+
+    const { path, ...identity } = JSON.parse(stdout[0]!) as { shipmentId: string; commit: string; digest: string; path: string };
+    const sealed = join(out, `sealed-${SHIPMENT_ID}`);
+    assert.equal(path, sealed);
+    const verified = await verifyBundledPackage(sealed, identity);
+    assert.equal(verified.manifest.commit, identity.commit);
+    assert.equal(await readFile(join(sealed, DIST, 'app.js'), 'utf8'), 'export const built = true;\n');
+    assert.equal(await readFile(join(sealed, 'deploy', 'config.json'), 'utf8'), '{}\n');
+    assert.match(await readFile(join(sealed, '.env'), 'utf8'), /SRT_PASSPHRASE=/);
+    assert.ok(existsSync(join(sealed, CONFIG_REVISION_FILE)), 'the package carries the input revision it was sealed against');
+    assert.equal(existsSync(join(sealed, 'node_modules')), false, 'installed packages never enter the package');
+    assert.equal(existsSync(join(out, 'export')), false, 'the working tree the seal exported is gone');
+  });
+
+  it('prints one line on stdout and it is the identity the deploy passes on', async () => {
+    const { stdout } = await seal();
+
+    assert.equal(stdout.length, 1);
+    const identity = JSON.parse(stdout[0]!) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(identity).sort(), ['commit', 'digest', 'path', 'shipmentId']);
+    assert.equal(identity.shipmentId, SHIPMENT_ID);
+    assert.match(String(identity.commit), /^[a-f0-9]{40}$/);
+    assert.match(String(identity.digest), /^[a-f0-9]{64}$/);
+  });
+
+  it('refuses a built directory the checkout does not have, naming it and the command that builds it', async () => {
+    await assert.rejects(seal({ dist: 'packages/missing/dist' }), (error: Error) => {
+      assert.match(error.message, /packages\/missing\/dist/);
+      assert.match(error.message, /pnpm/);
+      return true;
+    });
+    assert.equal(existsSync(join(out, `sealed-${SHIPMENT_ID}`)), false);
+  });
+
+  it('refuses a checkout whose host inputs were never committed, and names the flag that adopts them', async () => {
+    await assert.rejects(seal({ adoptInputs: false }), (error: Error) => {
+      assert.match(error.message, /--adopt-inputs/);
+      return true;
+    });
+    assert.equal(await readHostConfigRevision(source), null, 'a refusal commits nothing');
+  });
+
+  it('adopts the present host inputs as generation one and says which files, never their contents', async () => {
+    const { stderr } = await seal();
+
+    const revision = await readHostConfigRevision(source);
+    assert.equal(revision?.generation, 1);
+    assert.deepEqual(Object.keys(revision?.files ?? {}).sort(), ['.env', 'deploy/config.json']);
+    const said = stderr.join('\n');
+    assert.match(said, /generation 1/);
+    assert.match(said, /\.env/);
+    assert.match(said, /deploy\/config\.json/);
+    assert.equal(said.includes(TOKEN_VALUE), false, 'an input value never reaches the output');
+  });
+
+  it('refuses an output directory inside the checkout it seals', async () => {
+    await assert.rejects(seal({ out: join(source, 'shipment') }), (error: Error) => {
+      assert.match(error.message, /--out/);
+      return true;
+    });
+  });
+});
