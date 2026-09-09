@@ -113,7 +113,8 @@ function commandFailure(what: string, project: string, program: string, result: 
 
 export const httpHealthProbe: HealthProbe = async (url) => {
   const response = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-  await response.arrayBuffer();
+  // Only the status is wanted, so the body is let go of rather than read into this process.
+  await response.body?.cancel();
   return { status: response.status };
 };
 
