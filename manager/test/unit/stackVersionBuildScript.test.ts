@@ -174,7 +174,21 @@ describe('stack-version-build.sh fetches a pinned commit', () => {
     mkdirSync(home);
     writeFileSync(join(home, '.gitconfig'), `[url "${origin}"]\n\tinsteadOf = ${STACK_URL}\n`);
 
-    return { pinned, environment: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), PATH: `${bin}:${process.env.PATH ?? ''}` } };
+    // GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and GIT_CONFIG_COUNT all outrank
+    // HOME, so a developer who has any of them set would send this fetch to
+    // github.com. Each is given its answer here rather than inherited.
+    return {
+      pinned,
+      environment: {
+        ...process.env,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        GIT_CONFIG_GLOBAL: join(home, '.gitconfig'),
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_COUNT: '0',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+      },
+    };
   }
 
   function build(root: string, repo: string, ref: string, environment: NodeJS.ProcessEnv): string {
@@ -211,7 +225,7 @@ describe('stack-version-build.sh fetches a pinned commit', () => {
 
       const staging = build(root, repo, pinned, environment);
 
-      assert.equal(git(repo, 'remote', 'get-url', 'origin'), STACK_URL);
+      assert.equal(git(repo, 'config', '--get', 'remote.origin.url'), STACK_URL);
       assert.equal(readFileSync(join(staging, 'package.json'), 'utf8'), '{"name":"pinned"}\n');
     } finally {
       rmSync(root, { recursive: true, force: true });
