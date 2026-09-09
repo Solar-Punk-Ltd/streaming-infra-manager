@@ -2,14 +2,11 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { ChequebookDockerTransports } from '../../src/domain/chequebook/ChequebookDockerTransports.js';
 import { DOCKER_BEE_BRIDGE_REVISION } from '../../src/domain/chequebook/dockerBeeBridge.js';
-import { DOCKER_BEE_STREAM_BOUNDS, type BeeBridgeQualificationRecord } from '../../src/domain/chequebook/beeBridgeQualification.js';
+import { DOCKER_BEE_STREAM_BOUNDS } from '../../src/domain/chequebook/beeBridgeQualification.js';
+import { qualifiedBridge } from '../support/qualifiedBeeBridge.js';
 import { remoteLocator } from '../support/sshForwardLifecycle.js';
 import { syntheticImageId } from '../support/syntheticDockerBee.js';
 
-export const qualifiedBridge = (): BeeBridgeQualificationRecord => ({ id: 'synthetic-only', imageId: syntheticImageId, engineVersion: '29.1.3',
-  platform: { os: 'linux', architecture: 'amd64', variant: '' }, bridgeRevision: DOCKER_BEE_BRIDGE_REVISION,
-  bridgeLifetimeSeconds: { min: 1, max: 270 }, cleanupGraceMs: { min: 1, max: 10000 }, streamBounds: DOCKER_BEE_STREAM_BOUNDS,
-  harnessRevision: 'a'.repeat(40), evidenceDigest: `sha256:${'b'.repeat(64)}` });
 const local = () => ({ localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath: '/synthetic/docker.sock' }, qualificationIds: ['synthetic-only'] } });
 
 it('does not parse missing or malformed transport configuration until acquisition selects an alias', () => {
