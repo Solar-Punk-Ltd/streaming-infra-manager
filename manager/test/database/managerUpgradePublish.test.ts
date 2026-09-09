@@ -8,6 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +20,7 @@ import type { CommandRunner } from '../../src/cli/commandRunner.js';
 import { PostgresManagerUpgradeDatabase } from '../../src/cli/managerUpgradeDatabase.js';
 import type { ManagerUpgradeRequest } from '../../src/domain/versions/ManagerUpgrade.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
-import { buildsRootFor, bundledPackagesRootFor } from '../../src/domain/versions/stackPaths.js';
+import { buildsRootFor, bundledPackageClaimsRootFor, bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../support/bundledArtifactFixture.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
@@ -36,7 +37,7 @@ describe('the manager upgrade publishing what the deploy shipped', {
   let root: string; let versionsRoot: string; let shipmentId: string;
   let admin: Pool; let reader: Pool; let name: string;
   let database: PostgresManagerUpgradeDatabase; let operations: ComposeUpgradeOperations;
-  let versions: PostgresStackVersionRepository; let request: ManagerUpgradeRequest;
+  let versions: PostgresStackVersionRepository; let request: ManagerUpgradeRequest; let said: string[];
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-upgrade-publish-'));
@@ -44,6 +45,7 @@ describe('the manager upgrade publishing what the deploy shipped', {
     await mkdir(bundledPackagesRootFor(versionsRoot), { recursive: true });
     shipmentId = randomUUID();
     name = `t04b_upgrade_${randomBytes(8).toString('hex')}`;
+    said = [];
     admin = new pg.Pool(connection);
     await admin.query(`CREATE DATABASE ${name}`);
     const url = `postgres://postgres@127.0.0.1:${port}/${name}`;
@@ -53,6 +55,7 @@ describe('the manager upgrade publishing what the deploy shipped', {
     operations = new ComposeUpgradeOperations(
       { versionsRoot, composeFile: COMPOSE_FILE, toolchain: TOOLCHAIN, publicEdge: false, firstUse: false },
       database, noRunner, async () => { throw new Error('publishing probed the api'); },
+      { out: () => assert.fail('publishing writes no machine-read line'), err: (line) => said.push(line) },
     );
     request = {
       shipment: { shipmentId, commit: COMMIT, digest: 'd'.repeat(64) },
@@ -87,6 +90,18 @@ describe('the manager upgrade publishing what the deploy shipped', {
     assert.equal(bundled.buildId, receipt.buildId);
     assert.equal(receipt.shipmentId, shipmentId);
     assert.deepEqual(await readdir(buildsRootFor(versionsRoot, 'bundled')), [receipt.buildId]);
+  });
+
+  it('removes the package it published and the copy it claimed, so their secrets do not stay on the host', async () => {
+    await shipped();
+
+    const receipt = await operations.publish(request);
+
+    assert.equal(existsSync(sealedBundledPackagePathFor(versionsRoot, shipmentId)), false);
+    assert.equal(existsSync(join(bundledPackageClaimsRootFor(versionsRoot), shipmentId)), false);
+    assert.equal(existsSync(join(buildsRootFor(versionsRoot, 'bundled'), receipt.buildId)), true, 'the build it published stays');
+    // The package is renamed into the claim when publication takes it over, so the claim is the one copy left to remove.
+    assert.deepEqual(said.filter(line => line.includes(shipmentId)), [`[cli] removed bundled.packages/claims/${shipmentId}`]);
   });
 
   it('answers the same receipt on a second run of the same shipment, without building again', async () => {

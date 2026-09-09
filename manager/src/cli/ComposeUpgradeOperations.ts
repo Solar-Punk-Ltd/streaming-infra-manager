@@ -2,11 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { getErrorMessage } from '@streaming-infra-manager/common';
+
 import type { BundledShipmentReceipt } from '../domain/versions/BundledShipment.js';
+import { sweepBundledPackages } from '../domain/versions/bundledPackageSweep.js';
 import { BUNDLED_PACKAGE_MANIFEST, parseBundledPackageManifest } from '../domain/versions/bundledShipmentPackage.js';
 import type { ManagerPublication, ManagerUpgradeOperations, ManagerUpgradeRequest } from '../domain/versions/ManagerUpgrade.js';
 import { sealedBundledPackagePathFor } from '../domain/versions/stackPaths.js';
 import type { CommandResult, CommandRunner } from './commandRunner.js';
+import { CLI_PREFIX, processStreams, type CommandStreams } from './commandStreams.js';
 import type { ManagerUpgradeDatabase } from './managerUpgradeDatabase.js';
 
 /** The status of one plain GET. Nothing else about the response is used. */
@@ -114,6 +118,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     private readonly database: ManagerUpgradeDatabase,
     private readonly run: CommandRunner,
     private readonly probe: HealthProbe = httpHealthProbe,
+    private readonly streams: CommandStreams = processStreams,
   ) {
     this.timeouts = { ...DEFAULT_TIMEOUTS, ...settings.timeouts };
   }
@@ -158,7 +163,28 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     if (activation.status !== 'published') {
       throw new Error('A newer publication of the bundled stack won, so this upgrade published nothing. Deploy again to ship a new shipment.');
     }
+    await this.sweepShippedPackages(activation.receipt.versionId);
     return activation.receipt;
+  }
+
+  /**
+   * Removes what this publication has just made unreadable.
+   *
+   * Every package a deploy ships carries the streaming stack's own host inputs,
+   * so a host that never removed one keeps a copy of every secret every deploy
+   * ever shipped. A sweep that cannot finish is said out loud and nothing more,
+   * because the publication above it already stands and undoing it to tidy up
+   * would be the worse answer.
+   */
+  private async sweepShippedPackages(versionId: number): Promise<void> {
+    try {
+      await this.database.supersedeStalePending(versionId);
+      const swept = await sweepBundledPackages(this.settings.versionsRoot, this.database);
+      for (const name of swept.removed) this.streams.err(`${CLI_PREFIX} removed ${name}`);
+      for (const name of swept.unknown) this.streams.err(`${CLI_PREFIX} kept ${name}, which no shipment of this journal made`);
+    } catch (error) {
+      this.streams.err(`${CLI_PREFIX} the shipped packages could not be swept: ${getErrorMessage(error)}. The publication stands.`);
+    }
   }
 
   async startProject(request: ManagerUpgradeRequest): Promise<void> {
