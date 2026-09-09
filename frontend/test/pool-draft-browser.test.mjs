@@ -107,6 +107,11 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     await click('New deployment'); await choose('ABR uploader'); await next();
     await fill('input[placeholder="main-stage"]', 'retained-uploader');
     await fill('textarea[placeholder="What is this for?"]', 'retained note');
+    if (await evaluate('document.querySelector("#wizard-version") !== null')) {
+      await evaluate('document.querySelector("#wizard-version").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))');
+      await waitFor(() => evaluate('document.querySelector(\'[role="option"][data-value="7"]\') !== null'), Boolean, 'explicit fixture version');
+      await evaluate('document.querySelector(\'[role="option"][data-value="7"]\').click()');
+    }
     await next();
     await waitFor(body, text => text.includes('Create a storage pool'), 'pool prerequisite action');
     await choose('Type my own'); await fill('input[placeholder="my-stage-passphrase-2026"]', passphrase);

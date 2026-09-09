@@ -35,6 +35,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
         if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
         if (path === '/profiles' && req.method === 'GET') return json({ profiles: [] });
         if (path === '/groups' && req.method === 'GET') return json({ groups: [] });
+        if (path === '/versions/attempts' && req.method === 'GET') return json({ attempts: [] });
         if (path === '/events') {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           if (holdEvents) { heldEvents = res; res.write('retry: 86400000\n\n'); }
@@ -76,6 +77,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     const point = await evaluate(`(() => { const el = ${expression}; if (!el || el.disabled) throw new Error('Missing enabled control'); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   }
   const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
   let visitNumber = 0;

@@ -37,6 +37,7 @@ test('version identity, states and actions fit verified narrow viewports', async
             return;
           }
           if (path === '/versions' && req.method === 'GET') return json(versions);
+          if (path === '/versions/attempts' && req.method === 'GET') return json({ attempts: [] });
           if (path?.startsWith('/versions/')) {
             const chunks = [];
             for await (const chunk of req) chunks.push(chunk);
