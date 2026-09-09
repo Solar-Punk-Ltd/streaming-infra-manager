@@ -25,6 +25,7 @@ import {
 const SETTINGS: StackSettings = {
   generation: 4,
   buildId: 'abc1234',
+  buildGeneration: 4,
   files: [
     {
       path: '.env',

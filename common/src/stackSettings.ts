@@ -51,6 +51,12 @@ export interface StackSettings {
   generation: number;
   /** The build the samples and descriptions were read from, or null. */
   buildId: string | null;
+  /**
+   * The revision that build captured, or null for one built before the manager
+   * recorded it. Below `generation` it means a saved change has reached no
+   * build yet, so no new deployment carries it until Apply makes one.
+   */
+  buildGeneration: number | null;
   files: StackSettingsFile[];
 }
 

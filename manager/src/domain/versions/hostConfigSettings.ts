@@ -12,6 +12,7 @@ import {
 
 import { StackSettingsNotReadyError } from '../errors/StackSettingsNotReadyError.js';
 
+import { readBuildManifest } from './buildManifest.js';
 import { envAssignmentsOf, sampleSettingsOf } from './envSettingsText.js';
 import {
   DEPLOY_CONFIG,
@@ -83,7 +84,12 @@ export async function readHostConfigSettings(
     for (const relative of hostConfigFilesOf(configRoot)) {
       files.push(await settingsFileOf(relative, sources, buildRoot));
     }
-    return { generation: revision.generation, buildId: sources.buildId, files };
+    return {
+      generation: revision.generation,
+      buildId: sources.buildId,
+      buildGeneration: readBuildManifest(buildRoot).manifest?.inputGeneration ?? null,
+      files,
+    };
   } finally {
     await release();
   }

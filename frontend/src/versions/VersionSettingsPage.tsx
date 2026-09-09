@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, Stack, Typography } from '@mui/material';
 
 import {
   getErrorMessage,
@@ -31,6 +31,16 @@ import {
 
 const WHAT_APPLIES_WHEN =
   'Saving writes these files on this host. A deployment reads them from the build it runs, so a saved change reaches new deployments only once Apply has made a build that carries it. Deployments already running keep the settings they started with until they are deployed again.';
+
+/** Whether the build new deployments would run holds the revision that was saved. */
+function isCarriedByTheBuild(settings: StackSettings): boolean {
+  return settings.buildGeneration !== null && settings.buildGeneration === settings.generation;
+}
+
+function unappliedRevisionNote(settings: StackSettings): string | null {
+  if (settings.buildGeneration === null || isCarriedByTheBuild(settings)) return null;
+  return `Saved as revision ${settings.generation}. The current build carries revision ${settings.buildGeneration}, so new deployments do not have these changes yet. Apply makes a build that does.`;
+}
 
 type Busy = 'saving' | 'applying' | null;
 
@@ -134,6 +144,9 @@ export function VersionSettingsPage({ id }: { id: number }) {
             {settings.buildId ? `, build ${settings.buildId.slice(0, 7)}` : ''}
           </Typography>
         )}
+        {settings && isCarriedByTheBuild(settings) && (
+          <Chip size="small" variant="outlined" color="success" label="applied" />
+        )}
       </Stack>
 
       <Typography variant="body2" color="text.secondary">
@@ -153,6 +166,10 @@ export function VersionSettingsPage({ id }: { id: number }) {
         >
           {refusal.message}
         </Alert>
+      )}
+
+      {settings && unappliedRevisionNote(settings) && (
+        <Alert severity="info">{unappliedRevisionNote(settings)}</Alert>
       )}
 
       {applied && (
