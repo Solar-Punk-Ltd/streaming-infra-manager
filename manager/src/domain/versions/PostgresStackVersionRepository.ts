@@ -335,9 +335,6 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       if (deployments.rows.length) throw new StackVersionInUseError(current.name, deployments.rows.map(row => row.name));
       const references = await client.query('SELECT 1 FROM build_references WHERE version_id = $1 AND resolved_at IS NULL LIMIT 1', [current.id]);
       if (references.rowCount) throw new StackVersionRemovalHeldError(current.name, 'references');
-      // Terminal shipment receipts are immutable and their version FK is RESTRICT.
-      const shipments = await client.query('SELECT 1 FROM bundled_shipments WHERE version_id = $1 LIMIT 1', [current.id]);
-      if (shipments.rowCount) throw new StackVersionRemovalHeldError(current.name, 'shipments');
       const executions = await client.query("SELECT 1 FROM execution_roots WHERE version_id = $1 AND state <> 'released' LIMIT 1", [current.id]);
       if (executions.rowCount) throw new StackVersionRemovalHeldError(current.name, 'executions');
       await removeOwnedFiles(current);
