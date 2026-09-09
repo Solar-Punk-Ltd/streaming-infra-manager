@@ -47,7 +47,9 @@ async function main(): Promise<void> {
 }
 
 main()
-  .then(() => process.exit(0))
+  // The exit code is set rather than taken, because ending the process here can
+  // drop the line already written to a standard output that is a pipe.
+  .then(() => { process.exitCode = 0; })
   .catch((err: unknown) => {
     processStreams.err(`${CLI_PREFIX} ${getErrorMessage(err)}`);
     process.exit(1);
