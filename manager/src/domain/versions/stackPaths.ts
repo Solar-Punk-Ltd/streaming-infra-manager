@@ -139,17 +139,6 @@ export function configRootFor(versionsRoot: string, name: string): string {
   return versionRootFor(versionsRoot, name);
 }
 
-/**
- * Where the manager's own deploy leaves the built bundled stack for the api
- * to publish at boot. A sibling of `bundled.builds`, not inside it, so
- * neither prune nor the cleanup of interrupted attempts ever looks at it.
- */
-export const BUNDLED_INCOMING_DIR = 'bundled.incoming';
-
-export function bundledIncomingRootFor(versionsRoot: string): string {
-  return join(versionsRoot, BUNDLED_INCOMING_DIR);
-}
-
 const PACKAGES_DIR = 'bundled.packages';
 const CLAIMS_DIR = 'claims';
 const SEALED_PREFIX = 'sealed-';
