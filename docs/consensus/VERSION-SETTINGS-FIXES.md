@@ -66,7 +66,25 @@ Left as noted, not fixed: L7 (no console call exists in frontend/src, verified b
 
 D14 (from the security review's point 9). Any signed-in user can read and set these values, which matches every other route today: only user management asks for the admin flag, and profiles, deploys, targets and versions have no role check. The base env also decides `BEE_UPLOADER_API_BIND`, the interface the Bee node's unauthenticated API listens on, so this page hands every signed-in account the ability to change that binding for every future deployment. Recommendation: leave it consistent now, and decide later whether version settings and version management become admin-only. Levi decides.
 
+## R. Third round, from the targeted re-review of the fixes (2026-09-10)
+
+The re-review confirmed every item of F, C and S as decided, each with a test that goes red when its fix is removed, and thirty one of thirty three mutations red. What it found on top:
+
+R1 (MEDIUM). The C9 rule ends a description run at any comment line `envKeyIn` reads as an assignment, and on the stack's real `.env.sample` at 9f1255b a wrapped sentence does that: line 59 of the `BEE_PUBLISHERS` block is `# ABR_ENABLED=true, since with no ladder there is nothing to map onto.`, the tail of the sentence above it, so `BEE_PUBLISHERS` loses the five lines that say what it is and the rule that every rung must appear. The fixture had a shortened cut of that block without the wrapped line, which is why the round's test passed. Fix: a comment line ends the run only when its text is an assignment and nothing else, `^[A-Za-z_][A-Za-z0-9_]*=\S*$` on the stripped comment text (a value with no whitespace, as `# HLS_FRAGMENT=0.5` and `# BEE_RUNG_480P_API_PORT=11001` are), so prose that happens to open with a key name stays in the run. The same-key exemption stays. Test against the real lines: put the real `BEE_PUBLISHERS` block of the stack's `.env.sample`, wrapped line included, into the v3 fixture, and assert `BEE_PUBLISHERS` opens with "One Bee node per ABR rung" and still ends with the example line, while `ORPHAN_REAP_MS` keeps its own two sentences. Prove the mutation (the old rule) red.
+
+R2 (MEDIUM, test). The sixteen file bound of S7 is not pinned: the test sends seventeen paths the version does not keep, which are refused as absent, so removing `.max(MAX_SETTINGS_FILES)` leaves the whole suite green. Fix: send seventeen edits of paths the version keeps, or assert the refusal text names the bound, so the test goes red without the bound. Prove it red.
+
+R3 (LOW). `saveEdits` in VersionSettingsPage.tsx writes the PUT's answered generation into page state and the `finally { await load() }` refetches it a moment later, so the line is dead. Drop it.
+
+R4 (LOW). Save and Save and apply stay enabled while a field shows a value problem, so a refused value costs a round trip. Fix: the footer disables both while any edited entry has a `settingValueProblem`, and the count line says so. Test in the draft unit tests and the browser suite.
+
+R5 (LOW, cosmetics). A double blank line in hostConfigSettings.ts between `SETTINGS_NEED_A_REVISION` and `SETTINGS_NEED_A_MANAGED_BUILD`, and two appended prose lines past the wrap, manager/README.md:378 and deploy/README.md:673, to be wrapped at about 80 like their neighbours.
+
+R6 (docs). The handover paragraph "The two reviews, 2026-09-10" says the security review found four low findings. It found eight: four became fixes (S8, S9), two were folded into other items (S1, S7) and two were left as noted. Say that.
+
+Noted, no action: a legacy row's GET and PUT are still mounted and refuse with `settings_not_ready` because a flat checkout has no revision manifest, and the `settings_locked` message carries the config root's absolute path on the host, which a signed-in operator may see (D14 is the open question about who is signed in).
+
 ## Order and done
 
-F1 first, then S1, C5, C2, C1, C4 with S2 and S8, S10, C7, C3, C8, C6 with S5, S6, S3, S4, S7, S9, C9, C10, C12, C11, F4.
+F1 first, then S1, C5, C2, C1, C4 with S2 and S8, S10, C7, C3, C8, C6 with S5, S6, S3, S4, S7, S9, C9, C10, C12, C11, F4. Third round: R1, R2, R4, R3, R5, R6.
 Docs in this round: deploy/README.md says the editing script runs as root on the host (`sudo`), because the files under the versions root are the manager's, whose container runs as root, and manager/README.md's settings paragraph gains the applied revision, the reuse on apply and the value rule. Then the verification the brief lists (manager unit, the database directory the nine-database way, common, frontend, both browser suites on their own, the typechecks, the prose check), a dated paragraph appended to the handover section of this slice naming what the reviews found and what changed, and the report with the counts, the head and the commit list.
