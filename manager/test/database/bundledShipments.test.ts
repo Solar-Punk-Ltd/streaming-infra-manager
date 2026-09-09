@@ -68,6 +68,38 @@ describe('bundled shipment journal in isolated PostgreSQL', { skip: !Number.isIn
     return (await pool.query('SELECT build_id, commit_sha, root_path, previous_build_id, tested, publication_revision FROM stack_versions WHERE id = $1', [versionId])).rows[0]!;
   }
 
+  it('dates journal publication invalidation and replays an old receipt without changing newer approval', async () => {
+    await versions.publish(versionId, { buildId: A, commitSha: A, rootPath: '/synthetic/bundled', contract: ALLOCATION_CONTRACT });
+    await versions.setTested(versionId, true, A, A);
+    const rebuild = identity(A);
+    const buildId = `${A}-r1`;
+    const candidate = proposal(A);
+    await shipments.register(rebuild);
+    await shipments.reserveCandidate(rebuild.shipmentId, {
+      ...candidate, buildId, manifest: { ...candidate.manifest, buildId },
+    });
+    await shipments.markPrepared(rebuild.shipmentId, { artifactDigest, contract: ALLOCATION_CONTRACT, materializationId: randomUUID() });
+    const receipt = await shipments.activate(rebuild.shipmentId, async () => {});
+    assert.equal(receipt.status, 'published');
+    const first = (await versions.findById(versionId))!;
+    assert.equal(first.commitSha, A);
+    assert.equal(first.buildId, buildId);
+    assert.equal(first.tested, false);
+    assert.ok(first.testedInvalidatedAt instanceof Date);
+    assert.equal(first.isDefault, true);
+
+    const later = await prepare(identity(C));
+    assert.equal((await shipments.activate(later.shipmentId, async () => {})).status, 'published');
+    assert.deepEqual((await versions.findById(versionId))!.testedInvalidatedAt, first.testedInvalidatedAt);
+    await versions.setTested(versionId, true, C, C);
+    const approved = (await pool.query('SELECT * FROM stack_versions WHERE id = $1', [versionId])).rows[0]!;
+    assert.equal(approved.tested, true);
+    assert.equal(approved.tested_invalidated_at, null);
+    assert.equal(approved.is_default, true);
+    assert.deepEqual(await shipments.activate(rebuild.shipmentId, async () => assert.fail('receipt replay must not verify files')), receipt);
+    assert.deepEqual((await pool.query('SELECT * FROM stack_versions WHERE id = $1', [versionId])).rows[0], approved);
+  });
+
   it('registers once and preserves the original expected revision across identical replay after C', async () => {
     const item = identity();
     const first = await shipments.register(item);

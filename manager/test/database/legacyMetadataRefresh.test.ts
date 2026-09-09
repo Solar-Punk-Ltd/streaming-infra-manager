@@ -36,6 +36,33 @@ describe('legacy metadata refresh cannot overwrite a publication', {
     assert.equal(after.publication_revision, '1');
   });
 
+  it('dates only the first approved legacy commit change and retains that history across refreshes', async () => {
+    const initial = (await versions.captureLegacyMetadata())!;
+    assert.equal(await versions.refreshLegacyMetadata(initial, { commitSha: A, contract: ALLOCATION_CONTRACT }), true);
+    await versions.setTested(initial.version.id, true, A);
+
+    const unchanged = (await versions.captureLegacyMetadata())!;
+    assert.equal(await versions.refreshLegacyMetadata(unchanged, { commitSha: A, contract: ALLOCATION_CONTRACT }), true);
+    assert.equal((await stored()).tested, true);
+    assert.equal((await stored()).tested_invalidated_at, null);
+
+    const approved = (await versions.captureLegacyMetadata())!;
+    assert.equal(await versions.refreshLegacyMetadata(approved, { commitSha: B, contract: ALLOCATION_CONTRACT }), true);
+    const first = await stored();
+    assert.equal(first.tested, false);
+    assert.ok(first.tested_invalidated_at instanceof Date);
+    assert.equal(first.is_default, true);
+
+    const stale = (await versions.captureLegacyMetadata())!;
+    assert.equal(await versions.refreshLegacyMetadata(stale, { commitSha: 'c'.repeat(40), contract: ALLOCATION_CONTRACT }), true);
+    const latest = await stored();
+    assert.deepEqual(latest.tested_invalidated_at, first.tested_invalidated_at);
+    assert.equal(latest.tested, false);
+    assert.equal(latest.is_default, true);
+    assert.equal(await versions.refreshLegacyMetadata(stale, { commitSha: A, contract: null }), false);
+    assert.deepEqual(await stored(), latest);
+  });
+
   it('refuses a refresh after publication B and leaves every B field unchanged', async () => {
     const snapshot = (await versions.captureLegacyMetadata())!;
     await versions.publish(snapshot.version.id, { buildId: B, commitSha: B, rootPath: '/synthetic/bundled', contract: ALLOCATION_CONTRACT });
