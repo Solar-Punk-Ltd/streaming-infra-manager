@@ -134,12 +134,17 @@ async function readSteady(path: string, relative: string): Promise<Buffer> {
   throw new Error(`${relative} kept changing while it was read.`);
 }
 
+/** The key one line assigns, or null for a comment, a blank line or anything else. */
+export function envKeyIn(line: string): string | null {
+  return /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1] ?? null;
+}
+
 /** The keys an env file assigns, comments and blank lines skipped. */
 export function envKeysIn(text: string): Set<string> {
   const keys = new Set<string>();
   for (const line of text.split('\n')) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    if (match) keys.add(match[1]!);
+    const key = envKeyIn(line);
+    if (key) keys.add(key);
   }
   return keys;
 }
