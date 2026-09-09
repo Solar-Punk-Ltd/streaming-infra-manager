@@ -223,6 +223,22 @@ describe('Bee HTTP over one already acquired owned byte stream', { timeout: 5000
     assert.equal(bee.counts().acquisitions, 0);
   });
 
+  it('refuses POST immediately after monotonic expiry even before the timer callback can run', async t => {
+    const bee = syntheticBee(t);
+    const session = PinnedBeeSession.fromStream(bee.owned, { preflightTimeoutMs: 60 });
+    t.after(() => session.dispose());
+    await session.getAddresses();
+    const write = t.mock.method(bee.owned, 'write');
+    const until = performance.now() + 70;
+    while (performance.now() < until) { /* Hold this turn so no timer callback can run. */ }
+    assert.equal(bee.owned.destroyed, false);
+    await assert.rejects(session.depositChequebook(1n), /Bee connection/i);
+    assert.equal(write.mock.callCount(), 0);
+    assert.equal(bee.counts().posts, 0);
+    assert.equal(bee.owned.destroyed, true);
+    assert.equal(bee.counts().acquisitions, 0);
+  });
+
   it('contains late owned-stream errors before first use and after disposal', async t => {
     const bee = syntheticBee(t);
     const session = PinnedBeeSession.fromStream(bee.owned);
