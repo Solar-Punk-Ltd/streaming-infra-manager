@@ -29,9 +29,9 @@ function frame(bytes: Buffer): Buffer {
   return Buffer.concat([header, bytes]);
 }
 type DockerRequest = { method: string; url: string; body: unknown; headers: http.IncomingHttpHeaders };
-type Stage = 'info' | 'list' | 'inspect' | 'create' | 'start';
+type Stage = 'info' | 'list' | 'inspect' | 'image' | 'create' | 'start';
 type FixtureOptions = {
-  daemonId?: string; candidates?: unknown; inspect?: unknown; execId?: string; initial?: Buffer;
+  daemonId?: string; info?: unknown; image?: unknown; candidates?: unknown; inspect?: unknown; execId?: string; initial?: Buffer;
   stopAt?: Stage; holdAt?: Stage; responseAt?: Stage; status?: number; rawJson?: string; declaredLength?: number;
   upgradeStatus?: number; upgradeHeader?: string; afterUpgrade?: () => void; information?: boolean; largeHeader?: boolean;
 };
@@ -57,7 +57,7 @@ function syntheticDocker(t: TestContext, options: FixtureOptions = {}) {
       const text = Buffer.concat(chunks).toString('utf8');
       requests.push({ method: request.method!, url: request.url!, body: text ? JSON.parse(text) : null, headers: request.headers });
       const path = new URL(request.url!, 'http://docker.invalid').pathname;
-      const stage: Stage = path === '/info' ? 'info' : path === '/containers/json' ? 'list' : path.endsWith('/json') ? 'inspect' : 'create';
+      const stage: Stage = path === '/info' ? 'info' : path === '/containers/json' ? 'list' : path.startsWith('/images/') ? 'image' : path.endsWith('/json') ? 'inspect' : 'create';
       if (options.information) response.writeProcessing();
       if (options.largeHeader) response.setHeader('X-Oversized', 'x'.repeat(20_000));
       if (options.stopAt === stage) { peer.destroy(); return; }
@@ -68,8 +68,9 @@ function syntheticDocker(t: TestContext, options: FixtureOptions = {}) {
         response.end(options.rawJson ?? 'synthetic private diagnostic'); return;
       }
       response.statusCode = stage === 'create' ? 201 : 200;
-      response.end(JSON.stringify(stage === 'info' ? { ID: options.daemonId ?? expected.daemonId } : stage === 'list'
-        ? options.candidates ?? [{ Id: containerId, Labels: labels }] : stage === 'inspect' ? options.inspect ?? inspection() : { Id: options.execId ?? execId }));
+      response.end(JSON.stringify(stage === 'info' ? options.info ?? { ID: options.daemonId ?? expected.daemonId, ServerVersion: '29.1.3' } : stage === 'list'
+        ? options.candidates ?? [{ Id: containerId, Labels: labels }] : stage === 'inspect' ? options.inspect ?? inspection() : stage === 'image'
+          ? options.image ?? { Id: imageId, Os: 'linux', Architecture: 'amd64' } : { Id: options.execId ?? execId }));
     });
   });
   server.keepAliveTimeout = 0; server.headersTimeout = 0; server.requestTimeout = 0;
@@ -103,6 +104,21 @@ const safeFailure = (error: unknown) => error instanceof Error && error.name ===
   !/synthetic|do-not-surface|private diagnostic/.test(error.message);
 
 describe('Docker Bee acquisition over one owned synthetic connection', { timeout: 5000 }, () => {
+  for (const info of [{ ID: expected.daemonId }, { ID: expected.daemonId, ServerVersion: '' }, { ID: expected.daemonId, ServerVersion: '29.1.3\nsecret' }]) {
+    it(`requires an explicit valid Engine version from the owned info response ${JSON.stringify(info)}`, async t => {
+      const docker = syntheticDocker(t, { info });
+      await assert.rejects(acquireDockerBeeStream(docker.transport, expected, {}, () => true), safeFailure);
+      assert.equal(docker.creates(), 0); assert.equal(docker.transport.destroyed, true);
+    });
+  }
+  for (const image of [{ Id: imageId, Os: 'linux' }, { Id: imageId, Architecture: 'amd64' }, { Id: `sha256:${'f'.repeat(64)}`, Os: 'linux', Architecture: 'amd64' }]) {
+    it(`requires the exact immutable image and its own platform ${JSON.stringify(image)}`, async t => {
+      const docker = syntheticDocker(t, { image });
+      await assert.rejects(acquireDockerBeeStream(docker.transport, expected, {}, () => true), safeFailure);
+      assert.equal(docker.creates(), 0); assert.equal(docker.transport.destroyed, true);
+    });
+  }
+
   it('checks daemon, full container and exact reservation before one qualified exec and preserves upgrade head bytes', async t => {
     const docker = syntheticDocker(t);
     const result = await acquireDockerBeeStream(docker.transport, expected, {}, qualified);
