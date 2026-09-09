@@ -183,13 +183,20 @@ describe('sweeping the packages a deploy left on the host', () => {
     assert.deepEqual(swept.kept, []);
   });
 
-  it('refuses to remove through a symbolic link standing where a package should be', async () => {
-    const published = record('published');
+  it('reports the one package it could not remove and removes the others, rather than stopping there', async () => {
+    const linked = record('published');
+    const first = record('published');
+    const second = record('published');
     const elsewhere = await directory(join(root, 'elsewhere'));
-    await symlink(elsewhere, sealed(published));
+    await symlink(elsewhere, sealed(linked));
+    await directory(sealed(first));
+    await directory(sealed(second));
 
-    await assert.rejects(sweepBundledPackages(versionsRoot, journal()), /symbolic link|directory/i);
+    const swept = await sweepBundledPackages(versionsRoot, journal());
 
+    assert.deepEqual(swept.removed.sort(), [`bundled.packages/sealed-${first}`, `bundled.packages/sealed-${second}`].sort());
+    assert.deepEqual(swept.failed.map((failure) => failure.name), [`bundled.packages/sealed-${linked}`]);
+    assert.match(swept.failed[0]!.reason, /symbolic link|directory/i, 'and says what stopped it');
     assert.equal(existsSync(join(elsewhere, '.env')), true, 'what the link pointed at is untouched');
   });
 
@@ -197,6 +204,6 @@ describe('sweeping the packages a deploy left on the host', () => {
     await rm(bundledPackagesRootFor(versionsRoot), { recursive: true, force: true });
     await rm(materializationsRootFor(configRootFor(versionsRoot, BUNDLED)), { recursive: true, force: true });
 
-    assert.deepEqual(await sweepBundledPackages(versionsRoot, journal()), { removed: [], kept: [], unknown: [] });
+    assert.deepEqual(await sweepBundledPackages(versionsRoot, journal()), { removed: [], kept: [], unknown: [], failed: [] });
   });
 });

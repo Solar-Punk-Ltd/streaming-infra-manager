@@ -410,6 +410,22 @@ describe('the manager upgrade against one Compose project', () => {
       assert.deepEqual(errors, [`[cli] removed bundled.packages/sealed-${shipmentId}`]);
     });
 
+    it('names a package it could not remove and goes on, because the publication above it stands', async () => {
+      await sealPackage();
+      shipment = published();
+      const sealed = sealedBundledPackagePathFor(versionsRoot, shipmentId);
+      const elsewhere = join(root, 'elsewhere');
+      await mkdir(elsewhere);
+      await rm(sealed, { recursive: true });
+      await symlink(elsewhere, sealed);
+
+      assert.deepEqual(await operations().publish(request), receipt);
+
+      assert.deepEqual(errors, [`[cli] could not remove bundled.packages/sealed-${shipmentId}: ${sealed} ` +
+        'is not a directory this sweep may remove, because it is a symbolic link or not a directory at all.']);
+      assert.equal(existsSync(elsewhere), true, 'what the link pointed at is untouched');
+    });
+
     it('keeps the publication when the sweep cannot finish, and says what stopped it', async () => {
       await sealPackage();
       supersedeFails = true;
