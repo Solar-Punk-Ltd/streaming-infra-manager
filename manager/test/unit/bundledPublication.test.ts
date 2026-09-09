@@ -15,10 +15,10 @@
  * laptop, and there the row stays legacy on the tree the manager ships with.
  */
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { beforeEach, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from '../../src/domain/versions/buildManifest.js';
@@ -311,6 +311,20 @@ describe("where the bundled version's settings come from", () => {
     await buildSucceeds(PIN);
 
     assert.ok(readFileSync(join(configRoot, '.env'), 'utf8').startsWith(LEGACY_ENV), 'the settings the host already had');
+  });
+
+  describe('the modes those files keep', () => {
+    let umask: number;
+    before(() => { umask = process.umask(0o022); });
+    after(() => { process.umask(umask); });
+
+    it('carries the mode of the legacy file over, and the completion keeps it', async () => {
+      chmodSync(join(legacyRoot, '.env'), 0o600);
+
+      const configRoot = await buildBundled();
+
+      assert.equal(statSync(join(configRoot, '.env')).mode & 0o777, 0o600, 'only the owner reads the passphrase and the stream key');
+    });
   });
 
   it('never reads the legacy tree for a version an operator added', async () => {

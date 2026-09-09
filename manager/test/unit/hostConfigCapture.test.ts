@@ -15,10 +15,10 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 
 import {
   adoptHostConfig,
@@ -194,6 +194,36 @@ describe('commitHostConfig', () => {
     assert.equal(readFileSync(join(dir, '.env'), 'utf8'), 'ENGINE=srs\nAPI_PORT=3000\n');
     await release();
   });
+});
+
+describe('the modes commitHostConfig leaves behind', () => {
+  // These files hold the stream passphrase, the api token and the bee
+  // passphrase, and the versions root above them is world readable.
+  let umask: number;
+  before(() => { umask = process.umask(0o022); });
+  after(() => { process.umask(umask); });
+
+  const modeOf = (path: string): number => statSync(path).mode & 0o777;
+
+  it('gives a file it creates the owner only mode, whatever the umask allows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-config-modes-'));
+
+    await commitHostConfig(dir, { '.env': Buffer.from('ENGINE=srs\n') });
+
+    assert.equal(modeOf(join(dir, '.env')), 0o600);
+    assert.equal(modeOf(join(dir, CONFIG_REVISION_FILE)), 0o600);
+  });
+
+  for (const mode of [0o600, 0o640]) {
+    it(`keeps the ${mode.toString(8)} an operator gave a file it replaces`, async () => {
+      const dir = root();
+      chmodSync(join(dir, '.env'), mode);
+
+      await commitHostConfig(dir, { '.env': Buffer.from('ENGINE=ome\nAPI_PORT=3000\n') });
+
+      assert.equal(modeOf(join(dir, '.env')), mode);
+    });
+  }
 });
 
 describe('adoptHostConfig', () => {
