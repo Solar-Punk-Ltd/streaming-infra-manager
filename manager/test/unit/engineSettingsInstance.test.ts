@@ -21,6 +21,7 @@ const { callEngine, startEngineTestApp } = await import('../support/engineTestAp
 const { fakeDocker } = await import('../support/fakeDocker.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
+const { deployOwnerOf } = await import('../../src/domain/versions/buildLedger.js');
 
 const originalId = '11111111-1111-4111-8111-111111111111';
 const replacementId = '22222222-2222-4222-8222-222222222222';
@@ -133,6 +134,35 @@ describe('engine settings saves are bound to the observed instance', { timeout: 
       assert.deepEqual(h.profiles.rows.get('observed'), replacement);
     } finally { await h.app.close(); }
   });
+
+  for (const intent of ['advance', 'preserve'] as const) {
+    it(`cannot write or cancel a same-instance successor with ${intent} intent after its own write was held`, async () => {
+      const h = await setup(); const gate = hold();
+      const version = (await h.versions.findById(1))!;
+      await h.ledger.seedJob('independent-owner', version, ['srs']);
+      const write = h.profiles.updateEngineSettings.bind(h.profiles);
+      h.profiles.updateEngineSettings = async (...args) => { gate.arrive(); await gate.resume; return write(...args); };
+      const pending = callEngine(h.app, 'PUT', '/profiles/observed/engine-settings', { HLS_FRAGMENT: '2', expectedInstanceId: originalId });
+      try {
+        await gate.wait();
+        const oldClaim = h.profiles.rows.get('observed')!;
+        const oldReference = h.profiles.activeDeployJobs.get('observed')!;
+        const reset = (await h.ledger.cancelClaim(oldClaim, oldReference, 'RUNNING'))!;
+        const successor = (await h.ledger.claim('observed', ['RUNNING'], version, ['srs'], { ...deployOwnerOf(reset), intent }))!;
+        const before = structuredClone(successor.profile);
+        const references = structuredClone(h.ledger.references);
+        gate.release();
+        const result = await pending;
+        assert.deepEqual(h.profiles.rows.get('observed'), before, 'the old draft must not mutate the successor');
+        assert.equal(result.status, 409);
+        assert.equal((result.body as { error: string }).error, 'engine_settings_changed');
+        assert.equal(h.profiles.activeDeployJobs.get('observed'), successor.descriptor.referenceId);
+        assert.deepEqual(h.ledger.references, references, 'cancellation must leave successor and independent holds intact');
+        assert.deepEqual(h.runner.runs, []);
+        assert.equal(h.events.filter(event => event.type === 'profile.changed').length, 0);
+      } finally { gate.release(); await pending; await h.app.close(); }
+    });
+  }
 
   for (const expectedInstanceId of [null, 'not-a-uuid', 12]) {
     it(`rejects invalid expected identity ${JSON.stringify(expectedInstanceId)}`, async () => {
