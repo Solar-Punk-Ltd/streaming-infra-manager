@@ -7,9 +7,7 @@ client. T20 workflow wiring and actual runner execution are separate checks.
 
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
-These are **not** unit tests. They start real containers through the deploy scripts, they take minutes, and they remove what they created. They run only against a manager that was declared a test target, and their intended cleanup boundary is resources created by that run. The current
-T10 ownership limitation below must be corrected before using a target that
-already contains deployments.
+These are **not** unit tests. They start real containers through the deploy scripts, take minutes and remove confirmed resources created by their run. They run only against a manager explicitly declared as a test target. The client and manager must both include the ownership guards described below. A test-target declaration does not replace the agreed capacity, spending and cleanup limits for an actual run.
 
 ## What the suite needs
 
@@ -61,18 +59,27 @@ A suite that cannot start fails in its first hook, in words, and creates nothing
 ## Resource ownership and cleanup
 
 Requested resources are named `itest-<run>-<what>-<random>`. Teardown refuses
-names outside that run prefix. It attempts removal and waits for disappearance,
-but currently catches deletion and polling failures. Successful teardown does
-not prove that every attempted cleanup succeeded. Verify leftovers by the exact
-run-owned identities before calling an integration run clean.
+names outside that run prefix. The prefix alone is not deletion authority.
+Successful creation responses register validated deployment instance identities
+before test assertions run. A refused, lost or malformed creation response
+cannot put a requested name into the deletion inventory. Uncertain creation
+is reported for operator inspection.
 
-There is also an open T10 ownership correction. Some suites add a requested
-name to their cleanup set before creation succeeds. A refused create therefore
-leaves that name eligible for cleanup, and a matching prefix does not prove
-that the run created the current deployment. The accepted fix requires an
-inventory of confirmed created resources and refusal to touch replacements.
-Until that correction is integrated, use only an isolated manager with no
-pre-existing deployments. The funded review deployment is never this target.
+Every profile removal sends its confirmed instance ID. The manager compares
+that identity atomically when claiming removal, before scripts or file cleanup.
+A same-name replacement is retained. Cleanup does not acquire new authority
+from current group membership. An empty-group deletion checks the recorded group
+identity and empty membership together and never cascades to new members.
+
+Cleanup continues across independent resources and reports all failures in an
+aggregate error. Request/header/body work defaults to five seconds per call,
+and accepted deletion is observed for up to 60 seconds with one-second polls.
+Timeouts do not automatically retry a write. Unknown creation coverage is also
+reported. No failed cleanup is silently counted as a clean run.
+
+These guards are locally accepted at T10 `284790c`, including the integration
+after hooks. They have not been exercised against a live deployment by this
+remediation session. The funded review deployment is never a disposable target.
 
 ## What it covers
 
@@ -90,7 +97,8 @@ pre-existing deployments. The funded review deployment is never this target.
 
 - Viewer-group cases use two members. The ABR pool cases create a fixed four-rung pool. Multiple suite files can run concurrently, so two is not a whole-suite resource cap.
 - The waits are generous (`waitForStatus` gives up after about 4 minutes per deploy) so a genuinely stuck deploy fails loudly instead of hanging.
-- Failed cleanup can currently be silent. Record any unresolved run-owned resource explicitly. Cleanup-failure reporting remains an acceptance correction, not a guarantee of the current helper.
+- A lost creation response may leave a resource whose identity was never confirmed. The suite reports that uncertainty and does not search by prefix and delete candidates.
+- T10's final local checks passed 960 manager, 288 common and 31 actual SQL tests plus types. Synthetic HTTP tests exercise the real helper and cleanup reporting. They do not establish that this deployment integration suite ran.
 
 ## Separate local regression suites
 
