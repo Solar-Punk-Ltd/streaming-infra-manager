@@ -204,6 +204,8 @@ describe('version removal before files disappear in isolated PostgreSQL', {
         assert.match(deployRootProblem(selected) ?? '', /removal/i);
         const profile = await insertDeployingProfile('after-restart');
         await assert.rejects(new PostgresBuildLedger(pool, observer, root).describe(profile.name, selected, ['srs'], deployOwnerOf(profile)), /removal/i);
+        const owner = (await pool.query('SELECT instance_id, intent_revision, status, deploy_job_reference_id FROM profiles WHERE name = $1', [profile.name])).rows[0];
+        assert.deepEqual(owner, { instance_id: profile.instance_id, intent_revision: profile.intent_revision, status: 'DEPLOYING', deploy_job_reference_id: null });
         await assert.rejects(restarted.markBuilding(selected.id), /removal/i);
         assert.equal((await restarted.findById(selected.id))!.status, 'ready');
         assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM build_references')).rows[0].count, 0);
@@ -364,7 +366,8 @@ describe('version removal before files disappear in isolated PostgreSQL', {
     try {
       await entered.promise;
       removal = versions.removeGuarded(selected, async () => { called = true; });
-      await assertBlocked(); release.resolve(); await registration;
+      await assertBlocked(); release.resolve(); const descriptor = await registration;
+      assert.equal((await pool.query('SELECT deploy_job_reference_id FROM profiles WHERE name = $1', [profile.name])).rows[0].deploy_job_reference_id, descriptor.referenceId);
       await assert.rejects(removal, { name: 'StackVersionInUseError' });
       assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM build_references WHERE holder_kind = 'job' AND holder_id = $1 AND resolved_at IS NULL", [profile.name])).rows[0].count, 1);
       assert.equal(called, false); await intact();

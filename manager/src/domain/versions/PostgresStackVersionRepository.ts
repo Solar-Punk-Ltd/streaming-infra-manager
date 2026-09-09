@@ -1,7 +1,9 @@
 import {
+  BUNDLED_VERSION_NAME,
   parseStackContract,
   type StackContract,
 } from '@streaming-infra-manager/common';
+import { isDeepStrictEqual } from 'node:util';
 import type { Pool } from 'pg';
 import { StackVersionInUseError } from '../errors/StackVersionInUseError.js';
 import { StackVersionRemovalHeldError } from '../errors/StackVersionRemovalHeldError.js';
@@ -12,6 +14,8 @@ import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
 
 import type {
   BuildOutcome,
+  LegacyMetadata,
+  LegacyMetadataSnapshot,
   NewStackVersion,
   PublishOutcome,
   StackVersionRecord,
@@ -218,6 +222,39 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
       'UPDATE stack_versions SET commit_sha = $2 WHERE id = $1',
       [id, commitSha],
     );
+  }
+
+  async captureLegacyMetadata(): Promise<LegacyMetadataSnapshot | null> {
+    const result = await this.pool.query<StackVersionDbRow & { publication_revision: string }>(
+      `SELECT ${VERSION_COLUMNS}, publication_revision FROM stack_versions WHERE name = $1 AND layout = 'legacy'`, [BUNDLED_VERSION_NAME],
+    );
+    const row = result.rows[0];
+    return row ? { version: toRecord(row), publicationRevision: row.publication_revision } : null;
+  }
+
+  async refreshLegacyMetadata(expected: LegacyMetadataSnapshot, metadata: LegacyMetadata): Promise<boolean> {
+    const selected = structuredClone({ expected, metadata });
+    if (selected.expected.version.name !== BUNDLED_VERSION_NAME || selected.expected.version.layout !== 'legacy' ||
+        typeof selected.expected.publicationRevision !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(selected.expected.publicationRevision) ||
+        (selected.metadata.commitSha !== null && !/^[a-f0-9]{7,40}$/.test(selected.metadata.commitSha)) ||
+        (selected.metadata.contract !== null && parseStackContract(selected.metadata.contract) === null)) throw new Error('Invalid legacy metadata snapshot.');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<StackVersionDbRow & { publication_revision: string }>(
+        `SELECT ${VERSION_COLUMNS}, publication_revision FROM stack_versions WHERE id = $1 FOR UPDATE`, [selected.expected.version.id],
+      );
+      const row = result.rows[0];
+      if (!row || row.layout !== 'legacy' || row.publication_revision !== selected.expected.publicationRevision ||
+          !isDeepStrictEqual(toRecord(row), selected.expected.version)) { await client.query('COMMIT'); return false; }
+      const problem = versionRemovalProblem(selected.expected.version);
+      if (problem) throw new Error(problem);
+      await client.query('UPDATE stack_versions SET commit_sha = $2, contract = $3::jsonb WHERE id = $1',
+        [row.id, selected.metadata.commitSha, JSON.stringify(selected.metadata.contract)]);
+      await client.query('COMMIT');
+      return true;
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+    finally { client.release(); }
   }
 
   async setContract(id: number, contract: StackContract): Promise<void> {

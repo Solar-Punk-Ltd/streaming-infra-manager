@@ -38,6 +38,13 @@ export class PostgresExecutionRootRepository {
     return result.rows[0] ? toRecord(result.rows[0]) : null;
   }
 
+  /** Recovery inventory includes historical owners and missing/resolved holds.
+   * Listing an execution does not change or establish its cleanup authority. */
+  async listUnreleased(): Promise<ExecutionRootRecord[]> {
+    const result = await this.pool.query<ExecutionRow>("SELECT * FROM execution_roots WHERE state <> 'released' ORDER BY execution_id");
+    return result.rows.map(toRecord);
+  }
+
   async register(input: ExecutionRootRegistration): Promise<ExecutionRootRecord> {
     assertExecutionRegistration(input);
     targetAlias(input.target.alias);

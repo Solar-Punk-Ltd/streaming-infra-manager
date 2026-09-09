@@ -10,7 +10,7 @@ import { Logger } from './Logger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(here, '..', 'migrations');
-const MIGRATION_LOCK_KEY = 0x6d696772;
+export const MIGRATION_LOCK_KEY = 0x6d696772;
 const CLEANUP_TIMEOUT_MS = 5000;
 
 const logger = Logger.getInstance();
