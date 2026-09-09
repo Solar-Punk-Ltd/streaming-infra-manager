@@ -45,3 +45,23 @@ C10 (LOW). The bundled card's enabled Update state is asserted nowhere: `version
 ## Order and done
 
 S1 first (it unblocks the database directory), then C3, S2, C4, C5, S3, S4, C6, S5, S6, C7, C8, C9, C10. Each one test first, its own commit. When all are in: the manager unit suite, the whole database directory with the nine databases (C2), common, frontend, the typechecks, `bash -n deploy/deploy.sh`. Append a dated paragraph to the handover section for this slice naming what the reviews found and what changed. Report the counts, the branch head and the commit list.
+
+## R. Third round, from the targeted re-review of the fixes (2026-09-10)
+
+All fourteen items above were confirmed closed, with mutations that turned the new tests red. What remains, one test-first commit each, in this order:
+
+R1. `manager/scripts/stack-config-edit.sh:99-100` and :112: `cp` creates the temporary file at the umask's width and the manifest is created by redirection, so one `set` widens a 0600 `.env` to 0644 and undoes S2 through the supported editor. Fix: create the temporary file with the target's mode when the target exists and 0600 otherwise (`install -m` or a `chmod` before the `mv`), and the manifest 0600. Test in `stackConfigEditScript.test.ts`: a 0600 file stays 0600 after `set`, a new file is 0600, the manifest is 0600.
+
+R2. `StackVersionService.seedHostConfig` (:585-596) checks `existsSync` outside the lock and commits under a fresh acquisition, the C4 shape in a third place: an editor creating `.env` in between has it overwritten by the sample. Fix: one `withHostConfigLock` around the checks and the commit. Test: with the lock held by a simulated editor that creates `.env`, seeding waits and then seeds nothing for that file.
+
+R3. S4's directory case: `isPlainDirectory` (hostConfigCapture.ts:89) is right, but a mutation to `statSync` passes every test, and a legacy tree whose `engines` or `deploy` is a link reports the file set without them and no log names the link. Fix: `hostConfigNonFilesOf` also reports a link at `deploy` or `engines`, the carry-over logs it, and two tests (a file link and a directory link) hold it.
+
+R4. S2's carry-over: a carried file lands where no target exists, so it gets 0600 rather than the legacy file's mode. Decision: keep 0600, it is never wider than the host had, and the design note in `replaceAtomically` says so. Add the missing assertions: after carry-over every carried file is 0600, after completion a 0600 file is still 0600 and a 0640 file still 0640.
+
+R5. `ComposeUpgradeOperations.ts:134` decides "the row moved" by deep equality of the projected fields, so when boot fails before `markBuilding` the row stays byte-identical and the wait runs to the full `--bundled-timeout` before reporting the old error. Fix on the boot side, so every path that does not start the build moves the row: `ensureBundledBuild` writes the reason into the row's `last_error` (through `markUpdateFailed` when the row has a build, `markFailed` otherwise) whenever it cannot start the pinned build and the row is not already on the pin, including the mutex refusal, a bad pin file with a row that is not on a build, and a thrown update. The wait then sees a moved row within one poll. Tests: each of those paths moves the row with a reason naming the cause, the "already on the pin" path leaves the row untouched, and the wait reports failed within two polls instead of timing out.
+
+R6. `docs/features/stack-versions.md:25` still lists "shipment records" among the removal holds. Remove the words.
+
+Recorded for T20 rather than fixed here: `frontend/test/versions-layout.test.mjs` (the browser test that holds C10) is not in `pnpm test` and not in `.github/workflows/checks.yml`, so it does not run on a PR. T20 wires the browser suites into CI.
+
+Done means: the manager unit suite, the whole database directory the nine-database way, common, frontend, the typechecks, `bash -n deploy/deploy.sh`, and the counts in the report.
