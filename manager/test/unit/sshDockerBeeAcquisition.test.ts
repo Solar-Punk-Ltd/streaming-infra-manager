@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Duplex } from 'node:stream';
 import { describe, it } from 'node:test';
 import { beginSshDockerBeeAcquisition, type ForwardPathIdentity } from '../../src/domain/chequebook/sshDockerBeeAcquisition.js';
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
@@ -257,6 +258,26 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
       await tick(); assert.equal(result.stream.destroyed, true); assert.equal(h.raw.destroyed, true);
       if (boundary === 'write') assert.equal(output, '');
       await handle.cleanup;
+    });
+  }
+
+  for (const expired of [false, true]) {
+    it(`${expired ? 'refuses' : 'preserves'} already-buffered bytes after readable EOF ${expired ? 'past' : 'within'} the lease deadline`, async () => {
+      const h = fakeForwardHarness(); const acquire = h.dependencies.acquire;
+      const inner = new Duplex({ allowHalfOpen: true, read() {}, write(_chunk, _encoding, callback) { callback(); } });
+      h.dependencies.acquire = async (...args) => ({ ...await acquire(...args), stream: inner });
+      const { handle } = start(h); const result = await handle.result;
+      inner.push(Buffer.from('saved bytes')); inner.push(null);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(result.stream.readableLength, 11); assert.equal(inner.writableEnded, false);
+      await h.clock.advance(expired ? 301 : 299, false);
+      const bytes: unknown = result.stream.read();
+      if (expired) {
+        assert.equal(bytes, null); assert.equal(result.stream.destroyed, true); assert.equal(h.raw.destroyed, true);
+      } else {
+        assert.deepEqual(bytes, Buffer.from('saved bytes')); assert.equal(h.raw.destroyed, false); handle.dispose();
+      }
+      assert.deepEqual(await handle.cleanup, { state: 'closed' });
     });
   }
 });
