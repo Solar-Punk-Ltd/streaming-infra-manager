@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -186,11 +186,32 @@ async function readRevision(root: string): Promise<ConfigRevision | null> {
   return { generation: record.generation as number, files: record.files as Record<string, string> };
 }
 
-/** Written to a temporary name beside the target, then renamed over it. */
+/** The mode a settings file gets when there is no file yet to take one from. */
+const OWNER_ONLY_MODE = 0o600;
+
+/** The mode of an existing file, or owner only for a file that does not exist yet. */
+async function modeToKeep(path: string): Promise<number> {
+  try {
+    return (await stat(path)).mode & 0o777;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return OWNER_ONLY_MODE;
+    throw err;
+  }
+}
+
+/**
+ * Written to a temporary name beside the target, then renamed over it.
+ *
+ * Every file of the set holds secrets, and the versions root above them is
+ * readable by anyone on the host, so a new file is owner only and a replaced
+ * one keeps the mode it had. The temporary file never exists at a wider mode
+ * than the one it ends at, whatever the umask of the process is.
+ */
 async function replaceAtomically(path: string, bytes: Buffer): Promise<void> {
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, bytes);
+  await writeFile(temp, bytes, { mode: OWNER_ONLY_MODE });
   try {
+    await chmod(temp, await modeToKeep(path));
     await rename(temp, path);
   } catch (err) {
     await rm(temp, { force: true });
