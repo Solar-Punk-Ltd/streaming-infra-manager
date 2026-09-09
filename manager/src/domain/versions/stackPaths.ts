@@ -7,6 +7,7 @@ import {
 } from '../../utils/envUtils.js';
 
 import { buildIdProblem, readBuildManifest } from './buildManifest.js';
+import { validateBundledShipmentId } from './bundledShipmentPackage.js';
 import type { StackVersionLayout } from './StackVersionRepository.js';
 import { versionRemovalProblem } from './versionRemovalMarker.js';
 
@@ -147,4 +148,43 @@ export const BUNDLED_INCOMING_DIR = 'bundled.incoming';
 
 export function bundledIncomingRootFor(versionsRoot: string): string {
   return join(versionsRoot, BUNDLED_INCOMING_DIR);
+}
+
+const PACKAGES_DIR = 'bundled.packages';
+const CLAIMS_DIR = 'claims';
+const SEALED_PREFIX = 'sealed-';
+const MANAGER_UPGRADE_GUARD_DIR = '.manager-upgrade';
+
+/**
+ * Where a manager deploy leaves the sealed packages it ships. A sibling of
+ * `bundled.builds`, so neither prune nor the cleanup of interrupted build
+ * attempts ever looks inside it, and a directory of its own, so the rsync
+ * that brings one package in cannot reach a published build.
+ */
+export function bundledPackagesRootFor(versionsRoot: string): string {
+  return join(versionsRoot, PACKAGES_DIR);
+}
+
+/** One shipment's package, named by the shipment id the deploy made for it. */
+export function sealedBundledPackagePathFor(versionsRoot: string, shipmentId: string): string {
+  return join(bundledPackagesRootFor(versionsRoot), `${SEALED_PREFIX}${validateBundledShipmentId(shipmentId)}`);
+}
+
+/**
+ * Where publication moves a package it has taken ownership of. Inside the
+ * packages root, because the publication command derives the packages root
+ * from this one and so the two can never name different parents.
+ */
+export function bundledPackageClaimsRootFor(versionsRoot: string): string {
+  return join(bundledPackagesRootFor(versionsRoot), CLAIMS_DIR);
+}
+
+/**
+ * The directory one manager upgrade holds while it runs. Outside the
+ * installation the upgrade replaces and outside every published build, so a
+ * half finished upgrade still blocks the next one after the files it was
+ * changing have been replaced.
+ */
+export function managerUpgradeGuardRootFor(versionsRoot: string): string {
+  return join(versionsRoot, MANAGER_UPGRADE_GUARD_DIR);
 }
