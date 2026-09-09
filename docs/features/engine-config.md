@@ -1,121 +1,171 @@
 # Engine configuration
 
-Full control of the media engine's configuration file, per deployment, from the
-manager, with the file checked before the engine is recreated on it and rolled
-back when the engine will not start.
+A deployment can use its own SRS or OvenMediaEngine configuration file when
+its selected stack version advertises support. The manager checks the file,
+recreates the engine, then records the outcome of startup verification.
+Recovery can fail. Saving a file is not proof that publishing or playback works.
 
-Status: decided 2026-09-07, every decision as recommended, and built the same
-day. Manager side on `main-v2` (wizard version select, generated secrets, ports
-and slot cap from the contract, engine defaults per version, contract flag,
-migration 012, the editor with check, watch and revert). Stack side on the
-swarm-hls-stream branch `feat/engine-config-file` off `main-v3`, commit
-`8157390`, to be pushed and either merged into `main-v3` or added to the
-manager as a version of its own. `manager/README.md`, "A config file of the
-deployment's own", is the operator's page.
+This page describes the agreed remediation and its local implementation on
+`fix/t01-config-ownership`, `fix/t02-srs-check-isolation`,
+`fix/t03-ome-xml` and `fix/t11-effective-settings`. Those branches still need
+integration. As checked on 2026-09-09, `main-v2` remains at `d046ebf` and does
+not contain these fixes. No deployment of this remediation is claimed here.
+The earlier engine-configuration decisions were accepted on 2026-09-07.
 
-## Motivation
+## File editing and effective settings
 
-The engine settings drawer edits the handful of values the stack's config
-template leaves open: on a plain stream deployment that is the segment length
-and the playlist window, with the ABR ladder a few more. Everything else SRS or
-OvenMediaEngine can do is fixed in the template. Levi wants every option
-reachable, on 2026-09-07: "I want full customization, supporting all options".
+Open the deployment's engine configuration editor to inspect the selected
+version's template or the stored custom file. Save checks the proposed file
+before storing it and starting the engine recreation. Back to the template
+removes the custom override and recreates the engine from that version's
+normal template. The editor uses a plain text area and accepts at most
+128 KiB of nonempty UTF-8 text.
 
-Neither engine has a configuration website to open instead:
+Support comes from the version contract's `engineConfig` flag for that engine.
+A version name alone does not prove support. New deployments can explicitly
+choose a version in the wizard. Moving an existing deployment to another
+version is outside the accepted D6 scope of the engine-configuration feature.
+See [Stack versions](stack-versions.md).
 
-- **SRS** is configured by `srs.conf` alone. Its HTTP API (port 1985) reports
-  stats and can kick clients, and the separate SRS console is a monitor. Neither
-  writes configuration. The reference is the annotated
-  [`full.conf`](https://github.com/ossrs/srs/blob/develop/trunk/conf/full.conf).
-- **OvenMediaEngine** is configured by `Server.xml`. Its REST API manages
-  virtual hosts, applications and streams at runtime, is off in the stack, and
-  does not replace the file. The reference is the
-  [configuration guide](https://airensoft.gitbook.io/ovenmediaengine/configuration).
+The stack fills recognized placeholders at container startup. Keep placeholders
+for values managed by the stack, including generated credentials, callback
+addresses and ports. Do not paste credentials into documentation or test
+fixtures. A custom file is stored as text, so replacing a placeholder with a
+literal also stores that literal.
 
-So the feature is a config file editor in the manager, and a hook in the stack
-that runs the engine on that file instead of the template.
+The settings drawer and summary show configured values with their source.
+For a setting read from the environment, the manager combines the selected
+version's defaults, valid host overrides and deployment overrides. Clearing
+a deployment override uses the effective default, which can differ between
+versions. A reliably parsed literal is labeled "Set in config file". Changing
+an environment override does not change that literal.
 
-## How the stack renders the config today
+Omitted settings are labeled "Not specified". Conflicting values, unsupported
+syntax and other uncertain readings are "Unverified", with a reason. The
+manager checks relevant sections together instead of choosing the first
+value it finds. Generated SRS sections can prevent a reliable reading of the
+fields they control. OME's uploader poll interval is read independently of
+the XML file. These observations describe configured input, not proof of what
+the running engine loaded. Inspect its running configuration under Logs.
 
-`engines/srs/entrypoint.sh` copies `srs.conf.template` and substitutes tokens:
-`PASSPHRASE_PLACEHOLDER`, `SRS_ADAPTER_HOST_PLACEHOLDER`,
-`SRS_ADAPTER_PORT_PLACEHOLDER`, `HLS_FRAGMENT_PLACEHOLDER`,
-`HLS_WINDOW_PLACEHOLDER`, `INGEST_HLS_PLACEHOLDER`, and the ladder fragments
-`TRANSCODE_PLACEHOLDER` and `ABR_VHOST_PLACEHOLDER`. `engines/ome/entrypoint.sh`
-does the same for `Server.xml.template` with `OME_ADAPTER_HOST_PLACEHOLDER`,
-`OME_ADAPTER_PORT_PLACEHOLDER`, `OME_ADMISSION_SECRET_PLACEHOLDER`,
-`SEGMENT_DURATION_PLACEHOLDER` and `SEGMENT_COUNT_PLACEHOLDER`. The values come
-from `.env.<profile>`, which the manager writes on every deploy.
+When the page receives a changed deployment or configuration revision, the
+card and open drawer hide old observations immediately. Failed or timed-out refreshes keep the
+draft text but do not restore stale values. A draft for a deleted and
+recreated deployment cannot be applied to the replacement. Close and reopen
+Settings to review that deployment.
 
-## The shape
+The accepted local T11 checkpoint `ef269a8` also binds the settings write to
+the exact deployment job that reserved it. Losing that ownership returns a
+conflict and preserves the draft. Validation and job admission use one
+captured published build. Publication of another build before the locked
+claim refuses the save before settings or job state changes. Capturing mutable
+host inputs before execution remains open. These changes have not been
+deployed to `main-v2`.
 
-**A deployment may carry its own config file.** `profiles.engine_config` holds
-the whole file as text, or null for "render the template as today". The editor
-opens on the template of the deployment's stack version with the placeholders
-still in it, the operator edits, and saves.
+## What validation establishes
 
-**Placeholders survive in a custom file.** The entrypoint runs the same
-substitutions on the custom file as on the template. So the passphrase, the
-adapter address, the ladder fragments and the two managed values never sit in
-the stored text, and the engine settings drawer keeps working: it edits the
-values, the file edits the structure. A field whose token the operator removed
-from the file is shown as "not in your config" in the drawer rather than
-silently ignored.
+| Engine | Before recreation | After recreation | What a pass does not establish |
+| --- | --- | --- | --- |
+| SRS | The selected image's `srs -t -c` parses a temporary copy with dummy placeholder values. Each check owns its temporary directory and mounts its file read-only with `--mount`. Cleanup cannot delete another check's file. | The manager watches the recreated container for 20 seconds, checking its identity, running state and restart count. | Successful ingestion, uploader admission, Swarm delivery or playback. |
+| OvenMediaEngine | Strict XML parsing and a comparison against protected paths and values from the selected version's own template. This is manager-side validation, not OME's own parser. | The same startup watch, followed by a TCP reachability check of the mapped HLS port from the manager, with a 10-second budget. | A working admission callback, usable stream or playlist, or end-to-end publishing. |
 
-**Nothing is applied unchecked.** Save runs the check below, and only a file
-that passes is stored and rolled out.
+OME's protected set includes placeholder-bearing elements, bind ports,
+admission providers, application names, provider and publisher element names,
+and output stream mappings. Paths, values and multiplicity must match the
+version's template. Sibling order can differ. A setting mapped to a supported
+engine-settings field, such as segment duration or count, can replace its
+placeholder with a literal that passes the same field validation.
 
-**The engine is recreated on it, the way engine settings already do it.** Claim
-the deployment, write the file to the deployment's own directory on the host,
-point the engine at it through `.env.<profile>`, recreate the engine container
-only. Then watch it for twenty seconds. An engine that exits in that window gets
-the previous file back, is recreated again, and the deployment is marked with
-the error and the last lines of the engine's log, so a bad file costs one
-failed start and nothing else.
+Changing a callback route while retaining every placeholder is refused.
+Malformed XML, duplicate protected structures and a faithful copy beside a
+changed duplicate are refused too. Removing admission callbacks is not an
+access-control measure. It can bypass the uploader's admission workflow.
 
-**Only on a stack version that supports it.** The version's contract advertises
-`engineConfig` for each engine. The bundled `main-v2` does not, so the editor
-says "This stack version renders its config from a template. Deploy on
-`main-v3` to edit it." That makes the wizard's version select a prerequisite,
-the one the stack versions brief already names as its next pull request.
+A failed OME TCP connection is a diagnostic about reachability. If the engine
+stayed running, that failure alone does not prove the file is bad and does not
+trigger a revert. The UI retains the diagnostic. An `applied` rollout means
+these bounded checks completed. It is not a publishing-ready verdict.
 
-## The check
+## Stored operations and recovery
 
-- **SRS**: `srs -t -c <file>` in a throwaway container of the deployment's SRS
-  image, on a copy of the file with every placeholder substituted by a dummy
-  value, so the parser sees a complete file. SRS refuses unknown directives and
-  bad values with a line number, which is shown as is.
-- **OME**: well-formed XML and the presence of the elements the stack relies on
-  (the admission webhook and the LLHLS publisher). OME has no offline check, so
-  the twenty second watch after recreate is the real gate for it.
+Every apply or reset has a persisted operation. It records the deployment's
+lifetime identity, configuration and operator-intent revisions, previous file,
+container identity and current state. The deployment lifetime identity changes
+when a deployment is deleted and recreated, even under the same name.
 
-## Where things go
+Startup verification begins after the engine recreation has finished and
+RUNNING is committed. A stopped engine, a restart or another demonstrated
+startup failure can trigger one recovery attempt with the previous file.
+Every recovery claim and write checks that the operation still owns the same
+deployment and revisions. A newer edit, stop, start, deletion or replacement
+supersedes the old operation. An old watcher must not undo the newer action.
 
-| Piece | Repo and branch | Notes |
-|---|---|---|
-| Wizard version select | manager `main-v2` | The stack versions brief's next PR. New deployments pick their version, the default stays preselected. |
-| Config override hook and contract flag | swarm-hls-stream `main-v3` | `SRS_CONF_SOURCE` and `OME_CONF_SOURCE` in the entrypoints, a `/config` mount in the compose files, `engineConfig` in the contract JSON. |
-| Editor, check, rollout, rollback | manager `main-v2` | Migration 012 adds `engine_config`. Routes `GET`, `PUT`, `DELETE /profiles/:name/engine-config`. The drawer gets an "Engine config" tab beside the settings. |
-| Docs | manager `main-v2` | The drawer links the two references above and a short page in `docs/` on what survives a manager deploy and what does not. |
+| State | Meaning and next action |
+| --- | --- |
+| `applying` | The operation is storing or recreating on the selected file or template. Wait for its outcome. |
+| `watching` | Recreation completed and startup verification is in progress. |
+| `applied` | The configured checks completed. A reset to the template completes after recreation without a custom-file watch. Inspect any OME reachability diagnostic separately. |
+| `reverting` | An owned recovery attempt is restoring the recorded previous file and recreating the engine. |
+| `reverted` | The new file failed startup verification and recreation on the previous file completed. |
+| `failed` | Applying the file failed. Read the recorded reason, which also reports a failed recovery attempt when applicable. Verify now starts another explicit attempt. |
+| `interrupted` | The manager could not finish verification or recovery. Verify now recreates on the stored file. Recreate on previous uses the file saved by the interrupted operation. |
+| `superseded` | A newer action or container replaced the operation's authority. The older operation does no further recovery work. |
 
-The file itself lives in the deployment's data directory on the host, next to
-the Bee node's data: it survives manager deploys, which rsync only the checkout,
-and goes with the deployment when that is removed.
+The engine card and open editor follow the current stored state. Recovery
+actions explain when they are unavailable. They are not offered for a stopped
+deployment. Recreating on the previous file can itself fail and leave ERROR.
+There is no promise of uninterrupted service or guaranteed restoration.
 
-## Order
+After a manager restart, an unfinished apply or recovery becomes interrupted.
+For a saved watch, the manager checks ownership and container identity again.
+The same running container with zero restarts starts a fresh full watch.
+Demonstrated failure can take the owned recovery path. A replacement container
+supersedes the watch. An inspection outage leaves the result interrupted,
+never verified. A stopped deployment is not restarted by this reconciliation.
 
-1. Wizard version select. Small, unblocks running anything on `main-v3` from the UI.
-2. Stack hook on `main-v3`, with the contract flag. The manager reads the flag on the next Update of the version.
-3. Manager editor with check, rollout and rollback, behind the flag.
-4. Docs and the drawer's "not in your config" notes.
+## Persistence and API
 
-## Open decisions
+The database stores the custom text and the operation history. Deployment
+preparation writes the engine override to the deployment's data directory.
+Backing up the manager checkout alone does not back up this state. Removal of
+a deployment also removes its deployment data under the normal removal flow.
 
-| # | Question | Options | Recommendation |
-|---|---|---|---|
-| D1 | The editor's unit. | (a) The whole file, placeholders kept, as above. (b) More template fields in the drawer, no file. (c) Both. | (a), which is (c) in effect because the drawer keeps working through the placeholders. (b) never reaches "all options". |
-| D2 | The editor component. | (a) A plain monospace text area with line numbers, no new dependency. (b) CodeMirror 6 with syntax colouring, a new dependency with the provenance checks that brings. | (a) first. Colouring can come later if the file editing is used enough to want it. |
-| D3 | What happens when the engine will not start on the new file. | (a) Restore the previous file, recreate, mark the deployment with the engine's log tail. (b) Leave it down and mark the error. | (a). A stream deployment that stays down because of a typo is the worst outcome of the feature. |
-| D4 | OME in the same round. | (a) Yes, the same hook and editor, XML well-formedness as its check. (b) SRS only. | (a). The mechanism is the same and no OME deployment exists to break. |
-| D5 | Who may edit engine config. | (a) Anyone signed in, like every other deployment edit. (b) Users who can manage users only. | (a). It changes one deployment, not who can get in. |
-| D6 | Should the wizard's version select also let a running deployment be moved to another version? | (a) Not in this round: new deployments only, as the stack versions brief planned. (b) Add "Deploy on version X" to a running deployment. | (a). Moving a deployment changes its ports and secrets contract and deserves its own brief. |
+All engine-config routes require a signed-in session, like other deployment
+edits. Reading uses `GET /profiles/:name/engine-config`. Saving uses `PUT` with
+`{ "config": "..." }`. `DELETE` resets to the template. Explicit recovery uses
+`POST /profiles/:name/engine-config/verify` and
+`POST /profiles/:name/engine-config/restore-previous`. An accepted recreation returns
+202 with a deployment snapshot. Observe the later operation state for its
+outcome. A successful HTTP response does not prove playback.
+
+## Verification still needed before release
+
+Local regressions cover operation ownership, restart reconciliation, isolated
+SRS check files, XML parsing and protected paths, and effective-setting sources.
+The T11 exact-job write checkpoint passed 18 database, 27 focused HTTP and
+13 browser checks, plus workspace types. Its full manager run passed
+1095 of 1097 cases. The two remaining failures exercise the unfinished T01
+integration between configuration operations and deployment claims. The
+later same-build capture correction passed 28 targeted HTTP/unit checks,
+three database cases and manager types. The full suite was not repeated for
+that checkpoint. The
+configured-value UI also has desktop and 390-pixel responsive browser review.
+These are separate from running the real engine containers.
+
+Fable's 2026-09-08 local T03 evidence records OME `v0.21.0` with manifest-list
+digest `sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6`.
+On arm64, the healthy template started, a second root and an undefined entity
+were tolerated by OME, and an unquoted attribute exited with code 1. This is
+why the manager must reject malformed XML before recreation. The same recorded
+local run passed the isolated SRT-to-admission-to-HLS gate with a signed opening
+callback, a media segment and a closing callback. Codex has not rerun that
+container evidence in this continuation.
+
+Levi still owns the stack image-pin change. T20 must integrate these regressions
+with the real SRS parser concurrency check and the combined CI workflow. The
+recorded arm64 result is not an amd64 CI run or a funded-host result. T11's
+mutable-input integration remains open as described above.
+T01 still needs the atomic operation claim, retained-build recovery and
+deployment completion checks connected through its service callers. T22
+separately verifies authorized live Swarm delivery. Unit tests do not
+substitute for any of these execution results.

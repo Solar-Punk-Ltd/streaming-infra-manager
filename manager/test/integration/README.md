@@ -1,8 +1,13 @@
 # Integration tests
 
+This setup describes the authenticated T10 harness merged into local main-v2
+on 2026-09-09 at Levi's request. These instructions are not authorization for
+a deployment run. T20 workflow completion and actual runner execution remain
+separate checks.
+
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
-They start real containers through the deploy scripts and take minutes. They run only against a manager declared as a test target. Cleanup requires confirmed creation identities.
+These are **not** unit tests. They start real containers through the deploy scripts, take minutes and remove confirmed resources created by their run. They run only against a manager explicitly declared as a test target. The client and manager must both include the ownership guards described below. A test-target declaration does not replace the agreed capacity, spending and cleanup limits for an actual run.
 
 ## What the suite needs
 
@@ -11,15 +16,21 @@ They start real containers through the deploy scripts and take minutes. They run
    ```sh
    # from manager/
    pnpm database:start      # Postgres
-   pnpm dev                 # manager API on :9876 (or `pnpm stack:start` for the dockerized stack)
+   pnpm dev                 # manager API on :9876
    ```
 
    Docker must be running. The deploys start Bee, SRS and client containers.
+   A separately configured Docker manager started by `pnpm stack:start` uses
+   Compose project `streaming-infra-manager`. Its API port9876 is internal.
+   The web proxy publishes `http://127.0.0.1:8080` by default, or the configured
+   `WEB_PORT`. Set both target URL variables to that proxy URL when using it.
+   Do not use the development API URL for an unpublished container port.
 
-2. A user to sign in as. The manager has no sign-up. Create one with the manager's CLI and keep the pair in 1Password (see `docs/features/auth-and-public-access.md`). In the api container:
+2. A user to sign in as. The manager has no sign-up. Create one with the manager's CLI and keep the pair in 1Password (see [Authentication and public access](../../../docs/features/auth-and-public-access.md)). In the api container:
 
    ```sh
-   op read "op://<vault>/<item>/password" | docker compose exec -T api node dist/cli.js user:add itest --password-stdin
+   # from manager/, for the configured Docker stack
+   op read "op://<vault>/<item>/password" | docker compose -p streaming-infra-manager -f ./docker-compose.yml exec -T api node dist/cli.js user:add itest --password-stdin
    ```
 
    Against a manager started with `pnpm dev`, the same CLI runs from `manager/` as `pnpm exec tsx --conditions=development src/cli.ts user:add itest --password-stdin`.
@@ -28,7 +39,7 @@ They start real containers through the deploy scripts and take minutes. They run
 
    | Variable | What it is |
    | --- | --- |
-   | `MANAGER_URL` | Where the manager is. Default `http://localhost:9876`. |
+   | `MANAGER_URL` | Development API URL, default `http://localhost:9876`, or the configured Docker web-proxy URL, default `http://127.0.0.1:8080`. |
    | `MANAGER_TEST_TARGET` | The same URL, written again. It says this manager is a test target the suite may create and remove deployments on. The suite refuses to start when it is missing or names a different manager. |
    | `MANAGER_TEST_USERNAME` | The user to sign in as. |
    | `MANAGER_TEST_PASSWORD` | Its password, as an `op://` reference. |
@@ -45,13 +56,30 @@ op run --env-file test/integration/env.itest -- pnpm test:integration
 
 A suite that cannot start fails in its first hook, in words, and creates nothing. Missing declaration, unreachable manager and a refused sign-in are three different messages. No message ever contains the password.
 
-## How cleanup proves ownership
+## Resource ownership and cleanup
 
-Every requested resource name contains `itest-<run>-<what>-<random>`. A matching prefix is only a filter. The helper records successful response identities before the calling test can fail an assertion. It never adopts a requested name, a later GET result or a group's current members as cleanup authority.
+Requested resources are named `itest-<run>-<what>-<random>`. Teardown refuses
+names outside that run prefix. The prefix alone is not deletion authority.
+Successful creation responses register validated deployment instance identities
+before test assertions run. A refused or lost response grants no cleanup
+authority. Malformed responses grant authority only for independently validated
+identities, and unresolved coverage is reported for operator inspection.
 
-Profile cleanup sends the recorded `instance_id` as `expectedInstanceId`. The manager claims that instance atomically and keeps its name occupied until file cleanup completes. If another instance now has the name, cleanup leaves it alone. Group cleanup requires the recorded group ID and name and an atomic empty-membership check. A newly added member blocks group deletion and is reported, not adopted.
+Every profile removal sends its confirmed instance ID. The manager compares
+that identity atomically when claiming removal, before scripts or file cleanup.
+A same-name replacement is retained. Cleanup does not acquire new authority
+from current group membership. An empty-group deletion checks the recorded group
+identity and empty membership together and never cascades to new members.
 
-Each cleanup request has a 5-second deadline. Accepted removal has a 60-second disappearance deadline. Cleanup attempts independent confirmed resources and reports all failures together. Lost or malformed creation responses and unknown member coverage remain unresolved. They grant no guessed deletion authority. The Node test runner reports cleanup failure separately from the original test failure.
+Cleanup continues across independent resources and reports all failures in an
+aggregate error. Request/header/body work defaults to five seconds per call,
+and accepted deletion is observed for up to 60 seconds with one-second polls.
+Timeouts do not automatically retry a write. Unknown creation coverage is also
+reported. No failed cleanup is silently counted as a clean run.
+
+These guards are locally accepted at T10 `284790c`, including the integration
+after hooks. They have not been exercised against a live deployment by this
+remediation session. The funded review deployment is never a disposable target.
 
 ## What it covers
 
@@ -67,7 +95,26 @@ Each cleanup request has a 5-second deadline. Accepted removal has a 60-second d
 
 ## Notes and limitations
 
-- Viewer group fixtures use 2 members. ABR pool fixtures create 4 rungs.
-- `waitForStatus` gives up after about 4 minutes per deploy. Cleanup has the shorter deadlines above.
-- A lost creation response can leave a resource whose identity was never confirmed. The suite reports the unresolved creation and requires operator inspection. It does not search by prefix and delete candidates.
-- Synthetic unit HTTP tests exercise the real helper and failure reporting. Passing them is not evidence that this live integration suite ran.
+- Viewer-group cases use two members. The ABR pool cases create a fixed four-rung pool. Multiple suite files can run concurrently, so two is not a whole-suite resource cap.
+- The waits are generous (`waitForStatus` gives up after about 4 minutes per deploy) so a genuinely stuck deploy fails loudly instead of hanging.
+- A lost creation response may leave a resource whose identity was never confirmed. The suite reports that uncertainty and does not search by prefix and delete candidates.
+- T10's final local checks passed 960 manager, 288 common and 31 actual SQL tests plus types. Synthetic HTTP tests exercise the real helper and cleanup reporting. They do not establish that this deployment integration suite ran.
+
+## Separate local regression suites
+
+The integration suite above creates deployments. The remediation's SQL suites
+use disposable local PostgreSQL databases with synthetic data instead. Each
+suite checks an explicit task-specific port variable and owns its test schemas.
+Consult the corresponding test header for the database name and user. Setting
+only `DATABASE_URL` does not select these suites' test target. Never point them
+at a deployment database. A skipped SQL suite is not a passing database check.
+
+Offline browser regressions use a mock manager and an isolated browser profile.
+They exercise UI behavior without Bee, chain RPC or funds. Their harness owns
+its browser processes and listeners. Cleanup must target those exact resources,
+not other sessions' browsers, shared development servers or containers.
+
+The SRS, OME and shared-image Docker regressions are separate again. They build
+or start real test containers and require their own execution authorization.
+Neither a unit run nor permission to run a disposable database authorizes them.
+The funded `review-20260907` deployment is never a disposable integration target.
