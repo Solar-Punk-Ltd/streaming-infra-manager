@@ -216,11 +216,37 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
 
   async verifyProject(request: ManagerUpgradeRequest): Promise<void> {
     await this.waitForApi();
+    await this.assertApiRunsTheBuiltImage(request);
     const running = await this.edgeIsRunning(request.project);
     if (running !== this.settings.publicEdge) {
       throw new Error(running
         ? 'The public edge is running although this deploy set no domain, so the host is answering on 80 and 443.'
         : 'This deploy set a domain but the public edge is not running, so the host is not answering on 443.');
+    }
+  }
+
+  /**
+   * That what answered the health check is a container of the image this
+   * upgrade built.
+   *
+   * Two deploys running over each other can retag `manager-api` between one of
+   * them building it and starting the project, and the one that then finds a
+   * healthy api would report a manager it never built. A refusal here keeps
+   * the guard held, which is what stops the next deploy until a person looks.
+   */
+  private async assertApiRunsTheBuiltImage(request: ManagerUpgradeRequest): Promise<void> {
+    const [container] = await this.containerIds(request.project, ['ps', '-q', API_SERVICE]);
+    if (!container) {
+      throw new Error(`Something answered the health check but no ${API_SERVICE} container of the ${request.project} project is running, so what answered cannot be checked.`);
+    }
+    const argv = ['docker', 'inspect', '--format', '{{.Image}}', container];
+    const result = await this.run(argv, { timeoutMs: this.timeouts.command });
+    if (result.code !== 0) {
+      throw new Error(commandFailure(`inspect ${API_SERVICE}`, request.project, 'docker', result, this.timeouts.command));
+    }
+    const image = result.stdout.trim();
+    if (image !== request.manager.imageId) {
+      throw new Error(`The ${API_SERVICE} container that came up runs image ${image} and this upgrade built ${request.manager.imageId}, so another deploy retagged it in between. Look at the host before deploying again.`);
     }
   }
 
