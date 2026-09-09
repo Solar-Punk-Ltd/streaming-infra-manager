@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,11 +14,9 @@ import {
 
 import {
   BundledVersionError,
-  DefaultVersionError,
   InvalidStackVersionError,
   StackBuildBusyError,
   StackVersionExistsError,
-  StackVersionInUseError,
   StackVersionNotFoundError,
   UntestedVersionError,
 } from '../errors/index.js';
@@ -432,30 +430,11 @@ export class StackVersionService {
 
   async remove(id: number): Promise<void> {
     const version = await this.require(id);
-    if (version.name === BUNDLED_VERSION_NAME) {
-      throw new BundledVersionError(
-        'The bundled version comes with the manager and cannot be removed. Set another version as the default instead.',
-      );
-    }
     if (this.buildingName === version.name) {
       throw new StackBuildBusyError(version.name);
     }
-    if (version.isDefault) {
-      throw new DefaultVersionError(version.name);
-    }
-
-    const deployments = await this.versions.deploymentNames(id);
-    if (deployments.length > 0) {
-      throw new StackVersionInUseError(version.name, deployments);
-    }
-
-    // The checkout first. Deleting the row and then failing to delete the
-    // files would leave about a gigabyte on the host that nothing in the
-    // database names any more. The row goes either way, because the version is
-    // meant to be gone, and a failed delete is a warning naming the path so it
-    // can be cleared by hand.
-    await this.removeCheckout(version);
-    await this.versions.remove(id);
+    const removed = await this.versions.removeGuarded(version, locked => this.removeCheckout(locked));
+    if (!removed) throw new StackVersionNotFoundError(id);
     this.publishChanged();
   }
 
@@ -791,28 +770,23 @@ export class StackVersionService {
    */
   private async removeCheckout(version: StackVersionRecord): Promise<void> {
     const expected = versionRootFor(this.versionsRoot, version.name);
-    if (version.rootPath !== expected) {
-      logger.warn(
-        `[Versions] left ${version.rootPath ?? 'the bundled checkout'} in place: it is not ${expected}`,
-      );
-      return;
-    }
-
-    // The flat root, the clone and every build: all three are the version's.
-    for (const dir of [
+    if (stackVersionNameProblem(version.name) || version.rootPath !== expected) throw new Error('Version root is not an owned version directory.');
+    const directories = [
       expected,
       repoRootFor(this.versionsRoot, version.name),
       buildsRootFor(this.versionsRoot, version.name),
-    ]) {
+    ];
+    const parent = await lstat(this.versionsRoot);
+    if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error('Versions root is not an owned directory.');
+    for (const directory of directories) {
       try {
-        await rm(dir, { recursive: true, force: true });
-        logger.info(`[Versions] removed ${dir}`);
-      } catch (err) {
-        logger.warn(
-          `[Versions] could not delete ${dir}: ${getErrorMessage(err)}. The version is gone from the table, so remove that directory by hand.`,
-        );
+        const info = await lstat(directory);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Owned version directory is a symbolic link or is not a directory.');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
+    for (const directory of directories) await rm(directory, { recursive: true, force: true });
   }
 
   /**

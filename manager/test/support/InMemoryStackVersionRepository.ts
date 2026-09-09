@@ -1,4 +1,6 @@
 import type { StackContract } from '@streaming-infra-manager/common';
+import { StackVersionInUseError } from '../../src/domain/errors/StackVersionInUseError.js';
+import { assertVersionRemovable } from '../../src/domain/versions/versionRemovalGuard.js';
 
 import type {
   BuildOutcome,
@@ -192,11 +194,17 @@ export class InMemoryStackVersionRepository implements StackVersionRepository {
     return this.patch(id, { tested });
   }
 
-  async remove(id: number): Promise<boolean> {
-    const before = this.rows.length;
-    this.rows = this.rows.filter((row) => row.id !== id);
-    this.deployments.delete(id);
-    return this.rows.length < before;
+  async removeGuarded(expected: StackVersionRecord, removeOwnedFiles: (locked: StackVersionRecord) => Promise<void>): Promise<boolean> {
+    const captured = structuredClone(expected);
+    const current = this.rows.find(row => row.id === captured.id);
+    if (!current) return false;
+    assertVersionRemovable(captured, current);
+    const deployments = this.deployments.get(current.id) ?? [];
+    if (deployments.length) throw new StackVersionInUseError(current.name, deployments);
+    await removeOwnedFiles(current);
+    this.rows = this.rows.filter(row => row.id !== current.id);
+    this.deployments.delete(current.id);
+    return true;
   }
 
   async deploymentNames(id: number): Promise<string[]> {

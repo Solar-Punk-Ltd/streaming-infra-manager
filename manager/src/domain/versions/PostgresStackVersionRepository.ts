@@ -3,6 +3,9 @@ import {
   type StackContract,
 } from '@streaming-infra-manager/common';
 import type { Pool } from 'pg';
+import { StackVersionInUseError } from '../errors/StackVersionInUseError.js';
+import { StackVersionRemovalHeldError } from '../errors/StackVersionRemovalHeldError.js';
+import { assertVersionRemovable } from './versionRemovalGuard.js';
 
 import { STACK_PUBLICATION_ASSIGNMENTS } from './stackPublicationSql.js';
 
@@ -242,12 +245,32 @@ export class PostgresStackVersionRepository implements StackVersionRepository {
     );
   }
 
-  async remove(id: number): Promise<boolean> {
-    const result = await this.pool.query(
-      'DELETE FROM stack_versions WHERE id = $1',
-      [id],
-    );
-    return (result.rowCount ?? 0) > 0;
+  async removeGuarded(expected: StackVersionRecord, removeOwnedFiles: (locked: StackVersionRecord) => Promise<void>): Promise<boolean> {
+    const captured = structuredClone(expected);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<StackVersionDbRow>(`SELECT ${VERSION_COLUMNS} FROM stack_versions WHERE id = $1 FOR UPDATE`, [captured.id]);
+      if (!result.rows[0]) { await client.query('COMMIT'); return false; }
+      const current = toRecord(result.rows[0]);
+      assertVersionRemovable(captured, current);
+      const deployments = await client.query<{ name: string }>('SELECT name FROM profiles WHERE stack_version_id = $1 ORDER BY name', [current.id]);
+      if (deployments.rows.length) throw new StackVersionInUseError(current.name, deployments.rows.map(row => row.name));
+      const references = await client.query('SELECT 1 FROM build_references WHERE version_id = $1 AND resolved_at IS NULL LIMIT 1', [current.id]);
+      if (references.rowCount) throw new StackVersionRemovalHeldError(current.name, 'references');
+      // Terminal shipment receipts are immutable and their version FK is RESTRICT.
+      const shipments = await client.query('SELECT 1 FROM bundled_shipments WHERE version_id = $1 LIMIT 1', [current.id]);
+      if (shipments.rowCount) throw new StackVersionRemovalHeldError(current.name, 'shipments');
+      const executions = await client.query("SELECT 1 FROM execution_roots WHERE version_id = $1 AND state <> 'released' LIMIT 1", [current.id]);
+      if (executions.rowCount) throw new StackVersionRemovalHeldError(current.name, 'executions');
+      await removeOwnedFiles(current);
+      await client.query('DELETE FROM stack_versions WHERE id = $1', [current.id]);
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally { client.release(); }
   }
 
   async deploymentNames(id: number): Promise<string[]> {

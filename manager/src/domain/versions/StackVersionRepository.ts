@@ -106,7 +106,8 @@ export interface StackVersionRepository {
   setContract(id: number, contract: StackContract): Promise<void>;
   setDefault(id: number): Promise<void>;
   setTested(id: number, tested: boolean): Promise<StackVersionRecord | null>;
-  remove(id: number): Promise<boolean>;
+  /** All ownership guards and file cleanup share the version row lock. Cleanup failure retains the row. */
+  removeGuarded(expected: StackVersionRecord, removeOwnedFiles: (locked: StackVersionRecord) => Promise<void>): Promise<boolean>;
   /** The deployments running this version, by name, for a refusal that says so. */
   deploymentNames(id: number): Promise<string[]>;
 }

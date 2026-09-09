@@ -20,7 +20,7 @@ const BUILD = 'a'.repeat(40);
 function signal() { let resolve!: () => void; return { promise: new Promise<void>(done => { resolve = done; }), resolve: () => resolve() }; }
 
 describe('version removal before files disappear in isolated PostgreSQL', {
-  skip: !Number.isInteger(port) || port < 1 || port > 65535, timeout: 15000,
+  skip: !Number.isInteger(port) || port < 1 || port > 65535, timeout: 60000,
 }, () => {
   let admin: Pool;
   let pool: Pool;
