@@ -345,8 +345,8 @@ describe("where the bundled version's settings come from", () => {
     assert.match(env, /\nAPI_AUTH_TOKEN=\n/, 'a key the sample declares and the legacy tree never had');
     assert.match(env, /\nCHEQUEBOOK_MIN_BZZ=0\.5\n/, 'with the sample value where it has one');
     const revision = await readHostConfigRevision(configRoot);
-    assert.equal(revision?.generation, 2, 'one revision for the carry over, one for the completion');
-    assert.equal(readBuildManifest(buildDirFor(versionsRoot, 'bundled', PIN)).manifest?.inputGeneration, 2);
+    assert.equal(revision?.generation, 3, 'one revision each for the carry over, the engine seeds and the completion');
+    assert.equal(readBuildManifest(buildDirFor(versionsRoot, 'bundled', PIN)).manifest?.inputGeneration, 3);
   });
 
   it('carries an engine env over as well, and completes it from the engine sample', async () => {

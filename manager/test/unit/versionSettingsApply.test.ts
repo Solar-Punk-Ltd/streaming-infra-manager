@@ -203,7 +203,7 @@ describe('POST /versions/:id/settings/apply', () => {
     await saveAndApply(id, 2);
     const after = manifestOf(`${APPLY_COMMIT}-r1`).inputHashes as Record<string, string>;
 
-    assert.deepEqual(Object.keys(after).sort(), ['.env', 'engines/srs/.env']);
+    assert.deepEqual(Object.keys(after).sort(), ['.env', 'engines/ome/.env', 'engines/srs/.env']);
     assert.notEqual(after['.env'], before['.env']);
     assert.notEqual(after['engines/srs/.env'], before['engines/srs/.env']);
   });

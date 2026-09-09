@@ -135,6 +135,7 @@ describe('GET /versions/:id/settings', () => {
     assert.deepEqual(settings.files.map((file) => file.path), [
       '.env',
       'deploy/config.json',
+      'engines/ome/.env',
       'engines/srs/.env',
     ]);
     assert.equal(settings.generation, 2);
@@ -223,6 +224,52 @@ describe('GET /versions/:id/settings', () => {
     assert.equal(entryFor(engine, 'SRT_PASSPHRASE').value, 'host-passphrase');
     assert.match(entryFor(engine, 'SRS_WEBHOOK_TOKEN').description, /^Shared secret SRS carries/);
     assert.equal(entryFor(engine, 'ABR_VHOST').value, 'abr');
+  });
+
+  it('seeds an env for every engine the version ships a sample for', async () => {
+    const id = await buildV3();
+
+    const settings = (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings;
+
+    assert.deepEqual(settings.files.map((file) => file.path), [
+      '.env',
+      'deploy/config.json',
+      'engines/ome/.env',
+      'engines/srs/.env',
+    ]);
+    assert.equal(
+      readFileSync(join(configRoot, 'engines', 'ome', '.env'), 'utf8'),
+      readFileSync(join(V3_FIXTURE, 'engines', 'ome', '.env.sample'), 'utf8'),
+    );
+  });
+
+  it('describes an engine key from that engine own sample', async () => {
+    const id = await buildV3();
+
+    const ome = envFileAt(
+      (await callJson('GET', `/versions/${id}/settings`)).body as StackSettings,
+      'engines/ome/.env',
+    );
+
+    assert.match(entryFor(ome, 'OME_ADMISSION_SECRET').description, /^Shared secret for the admission webhook/);
+    assert.equal(entryFor(ome, 'OME_ADMISSION_SECRET').secret, true);
+    assert.equal(entryFor(ome, 'OME_SRT_PORT').value, '10081');
+  });
+
+  it('leaves an engine env the host already keeps as the host wrote it', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+
+    const engine = readFileSync(join(configRoot, 'engines', 'srs', '.env'), 'utf8');
+
+    assert.equal(engine.startsWith(HOST_ENGINE_ENV), true, engine.slice(0, 40));
+    assert.equal(
+      entryFor(
+        envFileAt((await callJson('GET', `/versions/${id}/settings`)).body as StackSettings, 'engines/srs/.env'),
+        'SRT_PASSPHRASE',
+      ).value,
+      'host-passphrase',
+    );
   });
 
   it('answers the deploy config as text with the sample it can be reset to', async () => {
