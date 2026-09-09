@@ -778,6 +778,7 @@ export class StackVersionService {
       repoRootFor(this.versionsRoot, version.name),
       buildsRootFor(this.versionsRoot, version.name),
     ];
+    if (!assertOwnedVersionParent(this.versionsRoot, true)) await mkdir(this.versionsRoot, { recursive: true });
     assertOwnedVersionParent(this.versionsRoot);
     for (const directory of directories) {
       try {
