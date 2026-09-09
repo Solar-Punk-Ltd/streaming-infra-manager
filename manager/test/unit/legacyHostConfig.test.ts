@@ -77,4 +77,31 @@ describe('a legacy path that is not a regular file', () => {
     assert.deepEqual(skipped, ['.env']);
     assert.equal(existsSync(join(configRoot, '.env')), false, 'nothing a link points at becomes a setting of this host');
   });
+
+  it('reads nothing through a deploy directory that is a link, and names that too', async () => {
+    const outside = join(root, 'somewhere-else');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'config.json'), '{"slots":99}\n');
+    rmSync(join(legacyRoot, 'deploy'), { recursive: true });
+    symlinkSync(outside, join(legacyRoot, 'deploy'));
+
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, legacyRoot);
+
+    assert.deepEqual(carried, ['.env']);
+    assert.deepEqual(skipped, ['deploy']);
+    assert.equal(existsSync(join(configRoot, 'deploy', 'config.json')), false);
+  });
+
+  it('reads no engine env through an engines directory that is a link, and names that too', async () => {
+    const outside = join(root, 'somewhere-else');
+    mkdirSync(join(outside, 'srs'), { recursive: true });
+    writeFileSync(join(outside, 'srs', '.env'), 'SRT_PASSPHRASE=whatever-that-link-points-at\n');
+    symlinkSync(outside, join(legacyRoot, 'engines'));
+
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, legacyRoot);
+
+    assert.deepEqual(carried, ['.env', 'deploy/config.json']);
+    assert.deepEqual(skipped, ['engines']);
+    assert.equal(existsSync(join(configRoot, 'engines')), false);
+  });
 });
