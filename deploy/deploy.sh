@@ -145,6 +145,8 @@ UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 COMMIT_PATTERN='^[a-f0-9]{40}$'
 DIGEST_PATTERN='^[a-f0-9]{64}$'
 HOME_PATTERN='^/[A-Za-z0-9._/-]+$'
+# The same letters, digits, spaces and punctuation the seal command allows.
+TOOLCHAIN_PATTERN='^[A-Za-z0-9 ._/+-]+$'
 check_identity() {
     local name="$1" value="$2" pattern="$3"
     if [[ ! "$value" =~ $pattern ]]; then
@@ -155,6 +157,7 @@ check_identity() {
 check_identity "SHIPMENT_ID" "$SHIPMENT_ID" "$UUID_PATTERN"
 check_identity "SHIPMENT_COMMIT" "$SHIPMENT_COMMIT" "$COMMIT_PATTERN"
 check_identity "SHIPMENT_DIGEST" "$SHIPMENT_DIGEST" "$DIGEST_PATTERN"
+check_identity "TOOLCHAIN" "$TOOLCHAIN" "$TOOLCHAIN_PATTERN"
 echo "[deploy] sealed ${SHIPMENT_COMMIT} as ${SHIPMENT_DIGEST}"
 
 # The host's versions root, where the upgrade publishes from: the path the
