@@ -12,7 +12,7 @@
  * Unit test over a scratch directory. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -40,9 +40,10 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('carrying the legacy settings over', () => {
   it('takes every file of the set as generation one, byte for byte', async () => {
-    const carried = await carryOverLegacyHostConfig(configRoot, legacyRoot);
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, legacyRoot);
 
     assert.deepEqual(carried, ['.env', 'deploy/config.json']);
+    assert.deepEqual(skipped, []);
     assert.equal(readFileSync(join(configRoot, '.env'), 'utf8'), LEGACY_ENV);
     assert.equal((await readHostConfigRevision(configRoot))?.generation, 1);
   });
@@ -57,8 +58,23 @@ describe('carrying the legacy settings over', () => {
     writeFileSync(join(configRoot, '.env'), settled);
     await release();
 
-    assert.deepEqual(await carrying, [], 'a root with settings is past the migration');
+    assert.deepEqual((await carrying).carried, [], 'a root with settings is past the migration');
     assert.equal(readFileSync(join(configRoot, '.env'), 'utf8'), settled);
     assert.equal(existsSync(join(configRoot, 'deploy', 'config.json')), false);
+  });
+});
+
+describe('a legacy path that is not a regular file', () => {
+  it('carries no symbolic link over, and names the one it passed by', async () => {
+    const outside = join(root, 'somewhere-else.env');
+    writeFileSync(outside, 'STAMP=whatever-that-link-points-at\n');
+    rmSync(join(legacyRoot, '.env'));
+    symlinkSync(outside, join(legacyRoot, '.env'));
+
+    const { carried, skipped } = await carryOverLegacyHostConfig(configRoot, legacyRoot);
+
+    assert.deepEqual(carried, ['deploy/config.json'], 'the regular file still comes over');
+    assert.deepEqual(skipped, ['.env']);
+    assert.equal(existsSync(join(configRoot, '.env')), false, 'nothing a link points at becomes a setting of this host');
   });
 });
