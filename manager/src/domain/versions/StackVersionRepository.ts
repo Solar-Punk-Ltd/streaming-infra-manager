@@ -33,6 +33,9 @@ export interface StackVersionRecord {
   createdAt: Date;
 }
 
+/** Artifact-selection facts that remain meaningful after a newer build is published. */
+export type DeployVersionSnapshot = Pick<StackVersionRecord, 'id' | 'name' | 'rootPath' | 'layout' | 'buildId' | 'commitSha' | 'contract'>;
+
 /** A version and how many deployments run it. */
 export interface StackVersionUsage extends StackVersionRecord {
   deployments: number;

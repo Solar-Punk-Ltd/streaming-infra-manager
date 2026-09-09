@@ -10,7 +10,7 @@ import type { BuildDescriptor, ClaimedDeploy, DeployClaimOwnership, ExpectedDepl
 import { readBuildManifest } from './buildManifest.js';
 import { buildIdOfRoot } from './buildReferences.js';
 import { deployRootProblem, stackRootOf } from './stackPaths.js';
-import type { StackVersionRecord } from './StackVersionRepository.js';
+import type { DeployVersionSnapshot, StackVersionRecord } from './StackVersionRepository.js';
 
 interface DeploySnapshotRow {
   id: number;
@@ -117,7 +117,7 @@ export async function claimBuildJob(client: PoolClient, input: BuildJobRequest, 
 
 /** The version and profile are already locked. Record only the final profile identity produced by this transaction. */
 export async function insertOwnedBuildJob(
-  client: PoolClient, profile: Profile, version: StackVersionRecord, services: readonly string[], versionsRoot: string,
+  client: PoolClient, profile: Profile, version: DeployVersionSnapshot, services: readonly string[], versionsRoot: string,
 ): Promise<BuildDescriptor> {
   const root = stackRootOf(version);
   const buildId = buildIdOfRoot(versionsRoot, root);

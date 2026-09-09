@@ -70,6 +70,7 @@ import {
 } from './versions/stackPaths.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
 import type {
+  DeployVersionSnapshot,
   StackVersionRecord,
   StackVersionRepository,
 } from './versions/StackVersionRepository.js';
@@ -203,7 +204,7 @@ export interface DeployReservation {
 }
 
 type CapturedDeployReservation = DeployReservation & {
-  readonly build: BuildDescriptor & { version: StackVersionRecord };
+  readonly build: BuildDescriptor & { version: DeployVersionSnapshot };
 };
 
 /**
@@ -259,7 +260,7 @@ export class DeploymentOrchestrator {
   }
 
   /** Shared tags, unless the version's contract says its built services name no image. Unknown is shared. */
-  private attemptKindOf(version: StackVersionRecord | null): DeployAttemptKind {
+  private attemptKindOf(version: DeployVersionSnapshot | null): DeployAttemptKind {
     return version?.contract?.features?.sharedImageTags === false ? 'fixed' : 'shared';
   }
 
@@ -311,7 +312,7 @@ export class DeploymentOrchestrator {
     return version;
   }
 
-  private deployVersionOrThrow(profile: Profile, version: StackVersionRecord | null): StackVersionRecord {
+  private deployVersionOrThrow<T extends DeployVersionSnapshot>(profile: Profile, version: T | null): T {
     if (!version) {
       throw new ProfileConfigError(profile.name, `Stack version ${profile.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
     }
@@ -341,7 +342,7 @@ export class DeploymentOrchestrator {
    */
   private async stackSecretsFor(
     profile: Profile,
-    version: StackVersionRecord | null,
+    version: DeployVersionSnapshot | null,
   ): Promise<StackSecrets> {
     const required = version?.contract?.requiredSecrets ?? [];
     if (required.length === 0) return {};
@@ -372,7 +373,7 @@ export class DeploymentOrchestrator {
   private async engineConfigFileFor(
     profile: Profile,
     engine: EngineName,
-    version: StackVersionRecord | null,
+    version: DeployVersionSnapshot | null,
   ): Promise<string | null> {
     const supported = version?.contract?.engineConfig[engine] ?? false;
     const config = supported
@@ -1171,7 +1172,7 @@ export class DeploymentOrchestrator {
   private async snapshotContainers(
     profile: Profile,
     paths: StackPaths,
-    version: StackVersionRecord | null,
+    version: DeployVersionSnapshot | null,
     services: string[],
     engineConfigFile: string | null,
   ): Promise<void> {
@@ -1201,7 +1202,7 @@ export class DeploymentOrchestrator {
   private buildEffectiveEnv(
     profile: Profile,
     paths: StackPaths,
-    version: StackVersionRecord | null,
+    version: DeployVersionSnapshot | null,
   ): Record<string, string> {
     const env = parseBaseEnv(paths.root);
 

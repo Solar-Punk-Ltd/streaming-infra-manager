@@ -13,8 +13,9 @@ import { planPortReservations } from '../ports/reservationSql.js';
 import { deployOwnerOf, type BuildDescriptor } from '../versions/buildLedger.js';
 import { lockBuildJobProfile } from '../versions/buildJobClaim.js';
 import { portTableForEngine } from '../versions/enginePortTable.js';
-import type { StackVersionRecord } from '../versions/StackVersionRepository.js';
+import type { DeployVersionSnapshot, StackVersionRecord } from '../versions/StackVersionRepository.js';
 import type { RolloutStarted } from './EngineConfigOperationRepository.js';
+import type { RolloutOwnership } from './operations.js';
 
 export interface RolloutAdmissionProof {
   alias: string;
@@ -33,13 +34,18 @@ export interface PreparedRolloutDeploy {
   snapshot: { daemonId: string; containerIds: readonly string[] };
 }
 
+export interface PreparedRecoveryDeploy extends Omit<PreparedRolloutDeploy, 'version'> {
+  ownership: RolloutOwnership;
+  message: string;
+}
+
 export interface ClaimedRolloutDeploy extends RolloutStarted {
   descriptor: BuildDescriptor;
   previousStatus: ProfileStatus;
   attempt: DeployAttempt;
 }
 
-function identityOf(profile: Profile) {
+export function rolloutProfileIdentity(profile: Profile) {
   return { name: profile.name, ...deployOwnerOf(profile), status: profile.status, host: profile.host,
     portSlot: profile.port_slot, components: profile.components, kind: profile.kind };
 }
@@ -78,7 +84,7 @@ export async function captureRolloutAdmission(client: PoolClient, expected: Prof
     throw new ProfileConfigError(expected.name, 'The selected stack version no longer exists.');
   }
   const profile = (await client.query<Profile>(`SELECT ${PROFILE_COLUMNS} FROM profiles WHERE name = $1 FOR UPDATE`, [expected.name])).rows[0];
-  if (!profile || !isDeepStrictEqual(identityOf(profile), identityOf(expected))) {
+  if (!profile || !isDeepStrictEqual(rolloutProfileIdentity(profile), rolloutProfileIdentity(expected))) {
     throw new ProfileConfigError(expected.name, 'The deployment changed before its target could be captured.');
   }
   const proof = await readTargetProof(client, alias, locator.daemon_id);
@@ -91,17 +97,32 @@ export interface LockedRolloutDeploy {
   attempt: NewDeployAttempt;
 }
 
-/** Locks allocation, daemon, version, profile and target evidence before any final writes. */
-export async function lockRolloutDeploy(client: PoolClient, input: PreparedRolloutDeploy, jobId: string): Promise<LockedRolloutDeploy | null> {
-  const { profile: expected, version, engine, admission, snapshot } = input;
+/** Every admission takes these global locks before version or profile rows. */
+export async function lockRolloutPrefix(client: PoolClient, input: Omit<PreparedRolloutDeploy, 'version'>): Promise<void> {
+  const { profile: expected, admission, snapshot } = input;
   if (!admission?.snapshotToken) throw new DeployAttemptRefusedError(expected.name, 'A captured container snapshot token is required.');
   if (snapshot.daemonId !== admission.daemonId) throw new TargetNotVerifiedError(admission.alias, 'The container snapshot came from another daemon.');
   await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
   await lockAttemptDaemon(client, admission.daemonId);
+}
+
+/** Locks allocation, daemon, version, profile and target evidence before any final writes. */
+export async function lockRolloutDeploy(client: PoolClient, input: PreparedRolloutDeploy, jobId: string): Promise<LockedRolloutDeploy | null> {
+  const { profile: expected, version, engine } = input;
+  await lockRolloutPrefix(client, input);
   const profile = await lockBuildJobProfile(client, { profileName: expected.name, version,
     ownership: deployOwnerOf(expected), services: [engine], transition: { from: [expected.status], intent: 'preserve' } });
+  return planLockedRollout(client, input, profile, version, jobId);
+}
+
+/** The caller has already locked its artifact authority and profile. No ownership or payload is written here. */
+export async function planLockedRollout(
+  client: PoolClient, input: Omit<PreparedRolloutDeploy, 'version'>, profile: Profile | null,
+  version: DeployVersionSnapshot, jobId: string,
+): Promise<LockedRolloutDeploy | null> {
+  const { profile: expected, engine, admission, snapshot } = input;
   if (!profile || !['RUNNING', 'STOPPED', 'ERROR'].includes(profile.status) ||
-      !isDeepStrictEqual(identityOf(profile), identityOf(expected))) return null;
+      !isDeepStrictEqual(rolloutProfileIdentity(profile), rolloutProfileIdentity(expected))) return null;
   if (targetAlias(profile.host) !== admission.alias) return null;
   const current = { ...await readTargetProof(client, admission.alias, admission.daemonId),
     snapshotToken: await captureAttemptSnapshotToken(client, admission.daemonId, profile.name) };

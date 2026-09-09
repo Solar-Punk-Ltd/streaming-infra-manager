@@ -1,7 +1,7 @@
 import type { Profile, ProfileStatus } from '../../types/index.js';
 
 import type { BuildReference } from './buildReferences.js';
-import type { StackVersionRecord } from './StackVersionRepository.js';
+import type { DeployVersionSnapshot, StackVersionRecord } from './StackVersionRepository.js';
 
 /** The reference key of a legacy row's flat root, and of the bundled checkout, which are not builds. */
 export const LEGACY_BUILD_ID = 'legacy';
@@ -15,7 +15,7 @@ export const BUNDLED_BUILD_ID = 'bundled';
  */
 export interface BuildDescriptor {
   /** Deploy admission requires an existing version, including a legitimate bundled legacy row. Null is refused. */
-  version: StackVersionRecord | null;
+  version: DeployVersionSnapshot | null;
   buildId: string;
   root: string;
   /** An admitted deploy has its own job reference. The nullable shape remains for historical descriptors. */

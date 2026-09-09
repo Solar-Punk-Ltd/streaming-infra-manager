@@ -6,9 +6,9 @@ import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, buildIdProblem, parseBuildM
 import { inventoryOwnedTree, ownedTreeDigest, sha256 } from '../versions/ownedTreeInventory.js';
 import { assertOwnedVersionParent } from '../versions/ownedVersionParent.js';
 import { buildDirFor, versionRootFor } from '../versions/stackPaths.js';
-import type { StackVersionRecord } from '../versions/StackVersionRepository.js';
+import type { DeployVersionSnapshot } from '../versions/StackVersionRepository.js';
 
-type RecoveryVersion = Pick<StackVersionRecord, 'id' | 'name' | 'rootPath' | 'layout' | 'buildId' | 'commitSha' | 'contract'>;
+type RecoveryVersion = DeployVersionSnapshot;
 export type RolloutRecoveryDescriptor = {
   format: 1;
   kind: 'immutable-build';
@@ -24,7 +24,7 @@ export type RolloutRecoveryDescriptor = {
   artifactDigest?: never;
 };
 
-export type RolloutRecoveryCapture = (version: StackVersionRecord, versionsRoot: string) => Promise<RolloutRecoveryDescriptor>;
+export type RolloutRecoveryCapture = (version: DeployVersionSnapshot, versionsRoot: string) => Promise<RolloutRecoveryDescriptor>;
 const INVALID = 'Invalid rollout recovery descriptor.';
 const HASH = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{7,40}$/;
@@ -113,7 +113,7 @@ function evidenceOf(version: RecoveryVersion, versionsRoot: string) {
 
 /** The caller guarantees immutable source ownership. Existing mutable runtime callers must not activate this API. */
 export async function captureRolloutRecovery(
-  input: StackVersionRecord,
+  input: DeployVersionSnapshot,
   versionsRoot: string,
   options: { afterInventory?: () => Promise<void> } = {},
 ): Promise<RolloutRecoveryDescriptor> {
@@ -133,7 +133,7 @@ export async function captureRolloutRecovery(
 }
 
 /** The current version/profile locks are held. This checks exact bounded evidence, never scans payload files. */
-export function validateCapturedRecovery(descriptor: RolloutRecoveryDescriptor, version: StackVersionRecord, versionsRoot: string): void {
+export function validateCapturedRecovery(descriptor: RolloutRecoveryDescriptor, version: DeployVersionSnapshot, versionsRoot: string): void {
   const captured = parseRolloutRecoveryDescriptor(descriptor)!;
   if (!isDeepStrictEqual(captured.version, recoveryVersionOf(version))) throw new Error('Recovery selected version identity changed.');
   if (captured.kind === 'immutable-build') {
