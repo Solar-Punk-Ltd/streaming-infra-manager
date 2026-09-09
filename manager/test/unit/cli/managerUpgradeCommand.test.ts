@@ -152,6 +152,7 @@ describe('manager:upgrade', () => {
     ['a quote', "node v22.9.0' rm -rf /"],
     ['a semicolon', 'node v22.9.0; rm -rf /'],
     ['a control character', 'node v22.9.0\nrm -rf /'],
+    ['nothing but spaces', '   '],
   ] as const) {
     it(`refuses a toolchain carrying ${shape}, before it owns anything`, async () => {
       const run = await upgrade(argvWith({ '--toolchain': toolchain }));

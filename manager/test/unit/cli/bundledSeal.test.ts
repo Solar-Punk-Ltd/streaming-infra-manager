@@ -186,6 +186,7 @@ describe('bundled:seal', () => {
     ['a quote', "node v22.9.0' rm -rf /"],
     ['a semicolon', 'node v22.9.0; rm -rf /'],
     ['a control character', 'node v22.9.0\nrm -rf /'],
+    ['nothing but spaces', '   '],
   ] as const) {
     it(`refuses a toolchain carrying ${shape}, which the deploy would put in a host shell`, async () => {
       await assert.rejects(seal({ toolchain }), (error: Error) => {
