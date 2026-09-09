@@ -9,6 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,9 +18,9 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { ComposeUpgradeOperations } from '../../../src/cli/ComposeUpgradeOperations.js';
 import type { CommandResult, CommandRunner } from '../../../src/cli/commandRunner.js';
 import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
-import type { BundledActivation, BundledShipmentReceipt } from '../../../src/domain/versions/BundledShipment.js';
+import type { BundledActivation, BundledShipmentReceipt, BundledShipmentRecord } from '../../../src/domain/versions/BundledShipment.js';
 import type { ManagerPublication, ManagerUpgradeRequest } from '../../../src/domain/versions/ManagerUpgrade.js';
-import { bundledPackagesRootFor } from '../../../src/domain/versions/stackPaths.js';
+import { bundledPackagesRootFor, sealedBundledPackagePathFor } from '../../../src/domain/versions/stackPaths.js';
 import { bundledArtifactFixture } from '../../support/bundledArtifactFixture.js';
 
 const PROJECT = 'manager';
@@ -85,6 +86,7 @@ describe('the manager upgrade against one Compose project', () => {
   let publication: ManagerPublication; let activation: BundledActivation;
   let receipt: BundledShipmentReceipt; let migrated: number;
   let readPublication: () => Promise<ManagerPublication>;
+  let steps: string[]; let errors: string[]; let shipment: BundledShipmentRecord | null; let supersedeFails: boolean;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 't04b-compose-'));
@@ -102,15 +104,33 @@ describe('the manager upgrade against one Compose project', () => {
     activation = { status: 'published', receipt };
     migrated = 0;
     readPublication = async () => publication;
+    steps = []; errors = []; shipment = null; supersedeFails = false;
   });
   afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
   function database(): ManagerUpgradeDatabase {
     return {
       readPublication: async () => readPublication(),
-      migrate: async () => { migrated += 1; },
-      publishBundled: async () => activation,
+      migrate: async () => { migrated += 1; steps.push('migrate'); },
+      publishBundled: async () => { steps.push('publish'); return activation; },
+      supersedeStalePending: async (versionId) => {
+        steps.push(`supersede ${versionId}`);
+        if (supersedeFails) throw new Error('synthetic journal failure');
+        return [];
+      },
+      find: async () => { steps.push('find'); return shipment; },
+      findByMaterialization: async () => null,
       close: async () => {},
+    };
+  }
+
+  /** A shipment the journal answers with, which is what decides whether its package may go. */
+  function published(): BundledShipmentRecord {
+    return {
+      shipmentId, versionId: receipt.versionId, packageDigest: DIGEST, commitSha: COMMIT, expectedRevision: '4',
+      rootPath: join(versionsRoot, 'bundled'), state: 'published', candidateBuildId: receipt.buildId,
+      candidateKind: 'new', candidateManifest: null, candidateMetadata: null, materializationId: null,
+      artifactDigest: null, candidateContract: null, receipt, createdAt: new Date('2026-09-09T00:00:00.000Z'),
     };
   }
 
@@ -122,6 +142,7 @@ describe('the manager upgrade against one Compose project', () => {
       database(),
       runner.run,
       async () => ({ status: statuses.length > 1 ? statuses.shift()! : statuses[0]! }),
+      { out: () => assert.fail('the operations write no machine-read line'), err: (line) => errors.push(line) },
     );
   }
 
@@ -285,6 +306,27 @@ describe('the manager upgrade against one Compose project', () => {
 
       assert.deepEqual(await operations().publish(request), receipt);
       assert.equal(migrated, 1);
+    });
+
+    it('supersedes what it left behind and sweeps the packages, after the publication and never before', async () => {
+      await sealPackage();
+      shipment = published();
+
+      assert.deepEqual(await operations().publish(request), receipt);
+
+      assert.deepEqual(steps, ['migrate', 'publish', `supersede ${receipt.versionId}`, 'find']);
+      assert.equal(existsSync(sealedBundledPackagePathFor(versionsRoot, shipmentId)), false, 'the shipped package is gone from the host');
+      assert.deepEqual(errors, [`[cli] removed bundled.packages/sealed-${shipmentId}`]);
+    });
+
+    it('keeps the publication when the sweep cannot finish, and says what stopped it', async () => {
+      await sealPackage();
+      supersedeFails = true;
+
+      assert.deepEqual(await operations().publish(request), receipt);
+
+      assert.match(errors.join('\n'), /swept|sweep/i);
+      assert.equal(existsSync(sealedBundledPackagePathFor(versionsRoot, shipmentId)), true, 'and removed nothing');
     });
 
     it('refuses when a newer publication won the race', async () => {
