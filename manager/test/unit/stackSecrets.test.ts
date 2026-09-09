@@ -195,6 +195,32 @@ describe('a required secret the version already sets', () => {
     assert.deepEqual(Object.keys(harness.profiles.secrets.get('stage') ?? {}), REQUIRED);
   });
 
+  it('is generated when the base env declares it blank and only the engine env sets it', async () => {
+    // The root env wins in the stack's deploy script, so an empty line there
+    // beats the engine's value. Counting the engine's as supplied would leave
+    // the containers with the empty one and nothing generated.
+    writeVersionEnv(
+      'ENGINE=srs\nAPI_AUTH_TOKEN=\nSRS_WEBHOOK_TOKEN=\n',
+      `SRS_WEBHOOK_TOKEN=${VERSION_TOKEN}\n`,
+    );
+    const harness = orchestratorHarness([]);
+
+    await deployOn(harness);
+
+    assert.match(envLine('stage', 'SRS_WEBHOOK_TOKEN') ?? '', /^SRS_WEBHOOK_TOKEN=[0-9a-f]{64}$/);
+    assert.deepEqual(Object.keys(harness.profiles.secrets.get('stage') ?? {}), REQUIRED);
+  });
+
+  it('is left to the engine env when the base env does not name the key at all', async () => {
+    writeVersionEnv('ENGINE=srs\nAPI_AUTH_TOKEN=\n', `SRS_WEBHOOK_TOKEN=${VERSION_TOKEN}\n`);
+    const harness = orchestratorHarness([]);
+
+    await deployOn(harness);
+
+    assert.equal(envLine('stage', 'SRS_WEBHOOK_TOKEN'), undefined);
+    assert.deepEqual(Object.keys(harness.profiles.secrets.get('stage') ?? {}), ['API_AUTH_TOKEN']);
+  });
+
   it('gives way to a value already stored against the deployment', async () => {
     writeVersionEnv(`ENGINE=srs\nAPI_AUTH_TOKEN=${VERSION_TOKEN}\n`, `SRS_WEBHOOK_TOKEN=${VERSION_TOKEN}\n`);
     const harness = orchestratorHarness([]);
