@@ -135,3 +135,81 @@ What landed on `feat/ai-remediation`: the pin moves from the tip of the stack's 
 Verified with the new pin: manager 2146 unit tests green and typecheck clean, the real tree's contract read with no warning and `sharedImageTags` false, the stack installed and built on the laptop with the same two commands `deploy/deploy.sh` runs. A trial seal of the real tree then refused the laptop's stack `.env`, which still follows the `main-v2` sample and lacks twenty keys the `main-v3` sample declares (only the key names were seen). That is the check working as designed, and it means the first deploy after this bump needs those keys added to `manager/swarm-hls-stream/.env` first. The deploy README now says so. The trial's generation-one revision file was removed again, so the laptop checkout is back to never having had one and the deploy's `--adopt-inputs` takes the files as they are.
 
 Nothing has run against the real host. Next, unchanged: exact execution and recovery completion, then T09, T20, T21, T14 and T22.
+
+## The bundled stack is built on the host, 2026-09-09
+
+Levi's D12: "We run the infra manager on the server. The host should be able to
+checkout and pull the version or tag or branch whatever and build it there.
+Immediately it shows the settings that's needed for that version but filled with
+the working defaults." The bundled version stops arriving with the deploy. The
+brief is `../consensus/BUNDLED-ON-HOST-BRIEF.md`, the work is on
+`feat/bundled-on-host` off `feat/ai-remediation`.
+
+**What changed.** `deploy/deploy.sh` writes `manager/.stack-commit` from the
+repository itself, `git rev-parse HEAD:manager/swarm-hls-stream`, so the pin is
+what the submodule records and not what a laptop has checked out. That file is
+now the only thing about the stack a deploy carries. At boot the api reads the
+pin and, when the bundled row is not already on a complete build of it, builds
+that commit through the same path an added version takes: the same build script,
+the same one-build-at-a-time mutex, the same log on the Versions page. Update on
+the bundled version means rebuild that pin, and refuses with a plain message on a
+machine that pins none. The build script learned to fetch a forty character
+commit, which `git clone --branch` refuses. The upgrade command lost the
+shipment: its phases are checking, stopping, migrating, starting, verifying and
+then a bounded wait, `--bundled-timeout`, for the api's own boot to reach a build
+of the pin. A build that failed or timed out is printed and exits non zero, after
+the guard is released, because the manager is up by then.
+
+**Settings.** The first build on a host deployed the old way takes the bundled
+stack's `.env`, `deploy/config.json` and engine envs out of the legacy tree at
+`SHLS_ROOT`, byte for byte, as the config root's first revision. The legacy tree
+is only ever read, because running engines still mount it, and only the bundled
+version reads it at all. Then every env file is completed from the sample of the
+version being built: the sample's own line for each key the file lacks, in the
+sample's order, appended and committed as one more revision, which the build then
+captures. A file that does not parse, and a base env that is still short after
+completion, are refused with today's messages. That is the settings model the
+version settings page of D13 will read: one set per version on the host,
+committed as revisions in `.config-revision.json` under the same lock the editing
+script takes.
+
+**What went.** `bundled:seal`, the package format, the shipment journal
+(migration 030 drops `bundled_shipments` and its trigger, keeping
+`publication_revision` and its trigger), the publication command, the
+materializer, the package claim and sweep, the toolchain flag, and the strict
+path mode of the host config capture that only the seal used. Their tests went
+with them. The deploy script lost the stack build, the seal, the package rsync,
+the identity checks and the remote home probe those guarded, because with the
+package gone the only values it still interpolates into a remote command line are
+a local `git rev-parse` and a local `shasum`.
+
+**The T04b guarantee still holds and is still tested.** A deployment created
+while the bundled row was legacy keeps running the legacy tree until its own next
+deploy moves it: `manager/test/unit/deployBuildDescriptor.test.ts`, "runs the
+legacy tree until the bundled version is published, and its build after, each by
+its own deploy". `bundledBootRecovery.test.ts` still asserts that boot's metadata
+refresh adopts nothing and writes nothing into the legacy tree, and
+`bundledPublication.test.ts` was reworked around the new boot behaviour rather
+than deleted.
+
+**Verified.** Manager unit 2063 of 2063, manager database 98 of 98 against a
+disposable local Postgres, common 300, frontend 68, both manager typechecks and
+the common and frontend typechecks clean, `bash -n deploy/deploy.sh` clean.
+Earlier runs of the same suites, at load average 34 to 45 on this machine, failed
+a handful of timing-sensitive tests that pass alone, including
+`ownedChequebookPreparation.test.ts` and the pre-existing
+`legacyMetadataRefresh.test.ts` and `acquireDockerBeeStream.test.ts`, which
+nothing in this slice touches. `feat/ai-remediation` failed four of the same
+tests under that load, so the sensitivity is the machine's and not this branch's.
+Nothing ran against the real host, nothing was pushed, and no `.env` of the
+submodule was read.
+
+**Two things the brief asked for that are not here.** The build script's commit
+path is covered by a real run against a repository on this disk, put behind the
+stack's own https url with git's `insteadOf` in a home directory of the test's
+making, so neither the url check nor anything else in the script was relaxed for
+it. `readManagerPublication.ts` was kept and simplified rather than deleted: the
+brief lists it among the removed modules but also says `readPublication` keeps
+the first-use rule and the schema state, and something has to read the schema.
+Its database test was rewritten rather than removed, and it is where the
+migration-030 assertions live.
