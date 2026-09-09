@@ -16,6 +16,7 @@ import { streamersOf } from '../../deployments/shape';
 import type { PoolResults } from '../../groups/useBeePublishers';
 import type { DeploymentGroup, Profile } from '../../types';
 import { DEFAULT_CUSTOM_COMPONENTS, GOALS } from './wizardGoals';
+import { matchingPool } from './poolIdentity';
 
 /** What the operator said they want, which decides every field after it. */
 export type WizardGoal = NonNullable<WizardPrefill['goal']>;
@@ -74,6 +75,7 @@ export interface WizardStepProps {
   state: WizardState;
   context: WizardContext;
   update: (patch: Partial<WizardState>) => void;
+  onCreatePool?: () => void;
 }
 
 /** Everything the wizard reads about what already exists on this manager. */
@@ -133,6 +135,8 @@ export function poolValueIn(
   poolId: number | null,
 ): string | null {
   if (poolId == null) return null;
+  const group = context.groups.find(group => group.id === poolId);
+  if (!group || !matchingPool({ group, profiles: context.profiles.filter(profile => profile.group_id === poolId) }, group.name)) return null;
   return context.poolResults.get(poolId)?.value ?? null;
 }
 

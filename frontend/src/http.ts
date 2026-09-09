@@ -167,8 +167,8 @@ export async function failWith(
   throw new ApiError(failure.message, failure.code, res.status);
 }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const res = await apiFetch(path);
+export async function getJson<T>(path: string, request: Pick<ApiRequest, 'cache' | 'signal'> = {}): Promise<T> {
+  const res = await apiFetch(path, request);
   if (!res.ok) await failWith(res, `request failed (${res.status})`);
   return (await res.json()) as T;
 }
