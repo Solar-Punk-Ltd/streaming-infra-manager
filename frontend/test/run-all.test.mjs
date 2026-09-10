@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 
 import { runProblem } from '../../manager/test/support/tapJudge.mjs';
 
-import { DEFAULT_CHROME, SUITE_ARGS, SUITE_GLOB, chromeFrom, chromeProblem } from './run-all.mjs';
+import { DEFAULT_CHROME, SUITE_ARGS, SUITE_GLOB, chromeFrom, chromeProblem, run } from './run-all.mjs';
 
 const NOTHING_EXECUTABLE = () => false;
 const EVERYTHING_EXECUTABLE = () => true;
@@ -74,5 +74,78 @@ describe('the rules it judges the run by, which are the SQL runner rules', () =>
 
   it('passes a full run', () => {
     assert.equal(runProblem({ code: 0, signal: null, output: summary([144, 144, 0, 0]), glob: SUITE_GLOB }), null);
+  });
+});
+
+describe('the gates it consults, and the order it consults them in', () => {
+  const PROVE_THE_BROWSER = 'prove the browser';
+  const START_THE_SUITES = 'start the suites';
+  const GREEN = { code: 0, signal: null, output: '# tests 3\n# pass 3\n# fail 0\n# skipped 0\n' };
+
+  /**
+   * A run over fakes, and the list of what it actually asked for.
+   *
+   * Both of its decisions are pure functions pinned above. What these cases are
+   * about is that the run still calls them, in this order, and that a browser
+   * it cannot find ends it before a suite is started.
+   */
+  function drive(overrides = {}) {
+    const asked = [];
+    const record = (step, call) => (...args) => {
+      asked.push(step);
+      return call(...args);
+    };
+    const parts = {
+      env: { CHROME_BIN: '/usr/bin/google-chrome' },
+      canExecute: EVERYTHING_EXECUTABLE,
+      spawnSuites: async () => GREEN,
+      ...overrides,
+    };
+    const start = () =>
+      run({
+        env: parts.env,
+        canExecute: record(PROVE_THE_BROWSER, parts.canExecute),
+        spawnSuites: record(START_THE_SUITES, parts.spawnSuites),
+        log: () => undefined,
+      });
+    return { asked, start };
+  }
+
+  it('proves the browser first, then starts the suites', async () => {
+    const { asked, start } = drive();
+
+    assert.deepEqual(await start(), []);
+    assert.deepEqual(asked, [PROVE_THE_BROWSER, START_THE_SUITES]);
+  });
+
+  it('stops at a browser that is not there, before it starts a suite', async () => {
+    const { asked, start } = drive({ canExecute: NOTHING_EXECUTABLE });
+
+    assert.match((await start()).join(' '), /failed check and never a passed one/);
+    assert.deepEqual(asked, [PROVE_THE_BROWSER]);
+  });
+
+  it('keeps the judge verdict rather than discarding it, so a skipped suite is not a pass', async () => {
+    const skipped = [
+      'ok 12 - a real deposit reaches settlement in the dialog without a click # SKIP T09_TEST_PG_PORT is not set',
+      '# tests 141\n# pass 141\n# fail 0\n# skipped 0',
+    ].join('\n');
+    const { start } = drive({ spawnSuites: async () => ({ ...GREEN, output: skipped }) });
+
+    assert.match((await start()).join(' '), /a real deposit reaches settlement/);
+  });
+
+  it('looks for the browser the environment names, and nowhere else', async () => {
+    const looked = [];
+    const { start } = drive({
+      env: { CHROME_BIN: '/opt/chrome/chrome' },
+      canExecute: (path) => {
+        looked.push(path);
+        return true;
+      },
+    });
+
+    await start();
+    assert.deepEqual(looked, ['/opt/chrome/chrome']);
   });
 });
