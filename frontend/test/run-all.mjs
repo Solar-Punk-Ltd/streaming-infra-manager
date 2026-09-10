@@ -40,9 +40,9 @@ const SUITE_SUFFIX = '.test.mjs';
 /**
  * What one file gets before the runner stops waiting for it.
  *
- * The longest of these on this laptop is a Chrome suite at about 40 seconds,
- * and the whole set takes under seven minutes, so ten minutes for a single
- * file is a hang and not a slow runner.
+ * The longest single test on this laptop is a Chrome suite at 43 seconds and
+ * the whole set takes about six minutes, so ten minutes for one file is a hang
+ * and not a slow runner.
  */
 export const SUITE_TIMEOUT_MS = 600_000;
 
