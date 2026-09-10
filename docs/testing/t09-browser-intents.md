@@ -49,3 +49,46 @@ An initial transfer has separate amount review and confirmation. A later New tra
 The dialog displays complete transaction response evidence and retains terminal outcomes on screen. It neither closes automatically nor infers completion from balances. The unused amount-only API functions and balance-settlement polling helpers were removed from this frontend flow. Refresh saved status and focus restoration only read existing journal evidence. Receipt checks, manual recovery, global history and T06 ownership integration remain later slices.
 
 The browser regression mounts actual StorageCard and MoveBzzDialog under React StrictMode. It uses the journal mock, native IndexedDB, isolated Chrome profiles and owned random loopback API/Vite listeners. It captures desktop and phone screenshots and checks horizontal overflow. These synthetic fixtures do not access any live Bee node or RPC endpoint.
+
+## Following the manager without a click
+
+A submitted operation carries `receiptPollUntil`, the moment the manager stops
+checking the chain on its own. While that deadline is ahead, the transfer detail
+page and the Move BZZ dialog re-read the saved record every 10 seconds and say
+so, and when it passes they say that automatic checks ended and leave Check to
+the operator. Both surfaces only read `GET /chequebook/operations/...`. Neither
+asks the chain, because the manager is doing that.
+
+`frontend/src/transfers/receiptPolling.ts` holds the deadline arithmetic and the
+two sentences, tested in `receiptPolling.test.ts`. `transferEvidence.test.ts`
+pins that a record is refused unless its poll deadline is null or a real
+timestamp. `frontend/test/transfer-polling-browser.test.mjs` drives the real
+dialog and the real detail page: a record that becomes settled while nobody
+clicks is shown as settled within one re-read, the GET count proves the re-reads
+happened and no `check` request is sent, and a record whose deadline has already
+passed re-reads nothing while Check still works.
+
+Run `node --test frontend/test/transfer-polling-browser.test.mjs`. The case
+about the spent budget waits out one full re-read interval on purpose, so the
+file takes about a minute.
+
+## Connected browser acceptance
+
+`frontend/test/transfer-connected-browser.test.mjs` runs the same UI against a
+real manager: `manager/test/support/connectedChequebookServer.ts` forked with
+`tsx`, a real PostgreSQL schema, the real router and session gate, the owned
+Docker transport and a synthetic Bee and chain. Vite comes from `launchViteFor`
+in `frontend/test/support/transfer-fixture.mjs`, the variant that puts Vite in
+front of a manager the caller already owns.
+
+The browser signs in through the real login route, moves 0.5 BZZ and watches it
+settle without a click. A dropped Bee response leaves the operation unresolved,
+the fixture reports that no receipt was ever asked for, the detail page's search
+leaves it unresolved, and a second operator's move is refused with the blocking
+explanation. The history and detail pages then read the same journal. The three
+cases need `T09_TEST_PG_PORT`. Without it they skip with that reason printed
+rather than passing quietly.
+
+```
+T09_TEST_PG_PORT=55436 node --test frontend/test/transfer-connected-browser.test.mjs
+```

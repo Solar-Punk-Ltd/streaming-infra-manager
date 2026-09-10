@@ -12,9 +12,8 @@ transport factory through `b1b1aec`. New submission preparation captures T06's
 SQL target proof and uses one qualified Docker/Bee connection. Local Unix and
 supervised SSH adapters are implemented, but the production qualification
 catalog is empty. Acquisition refuses without a matching qualified record.
-Actual SSH and exact-image qualification, finite receipt polling and final
-connected acceptance remain open. The local merge is not evidence of a host
-deployment or live transfer.
+Actual SSH and exact-image qualification remain open. The local merge is not
+evidence of a host deployment or live transfer.
 
 ## Balances and new uploader starts
 
@@ -76,7 +75,7 @@ again automatically after a restart.
 | Stored state | Meaning |
 | --- | --- |
 | `submitting` | The operation was durably admitted. This state alone does not prove whether Bee received the POST. |
-| `submitted` | A transaction hash was recorded. Mining and finality are not yet established. |
+| `submitted` | A transaction hash was recorded. Mining and finality are not yet established. The manager checks the chain for its receipt about every 20 seconds until the operation's `receiptPollUntil` deadline. |
 | `unknown` | Submission or later evidence could not establish an outcome. Keep the original request and inspect recovery evidence. |
 | `settled` | A matching successful receipt and the required canonical, finalized history were verified. |
 | `reverted` | A matching reverted receipt and the required canonical, finalized history were verified. |
@@ -94,6 +93,21 @@ or settles a transfer. An unrelated deposit, withdrawal or cheque settlement
 can move those values.
 
 ## Checking and resolving an unresolved operation
+
+An operation that enters `submitted` gets one polling budget of 30 minutes,
+written to `receiptPollUntil` at that moment. While the budget lasts the manager
+asks the chain for the receipt about every 20 seconds, and the page showing the
+operation re-reads the saved record every 10 seconds so the outcome appears
+without a click. A settled or reverted receipt ends the polling by changing the
+state.
+
+The budget is never renewed. Nothing an operator does extends it, a restart
+resumes only the operations whose budget has not passed, and every operation
+recorded before this behaviour existed keeps an empty deadline and is never
+polled. When the budget ends without a final receipt the operation stays
+`submitted` with its last observation, the page says that automatic checks
+ended, and Check remains the operator's own action, exactly as before. An
+operation in `submitting` or `unknown` is never polled: recovery stays explicit.
 
 Check uses the recorded identity and trusted manager chain configuration.
 It first examines the known hash when available. Receipt verification checks
