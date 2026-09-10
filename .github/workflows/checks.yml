@@ -53,6 +53,10 @@ jobs:
         # Unix sockets and forked Node children of their own, no manager and no
         # Docker socket. They sat in the deployment integration suite, which
         # refuses to start without a declared target, so they ran nowhere.
+        #
+        # These seven need no variable at all, checked with it unset. The
+        # placeholder stays because it costs nothing and keeps this step and
+        # the unit step above alike.
         env:
           DATABASE_URL: postgres://unused@localhost/unused
         run: pnpm --filter @streaming-infra-manager/api test:native

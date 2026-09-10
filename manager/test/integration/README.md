@@ -109,8 +109,10 @@ Three files moved out of this directory on 2026-09-10. `localDockerUnix.test.ts`
 children, and they need no manager, no Docker socket and no target declaration.
 Here they were picked up by `test:integration`, which refuses to start without
 `MANAGER_TEST_TARGET`, so they ran nowhere. Run them from `manager/` with
-`pnpm test:native`, which needs no environment beyond a `DATABASE_URL` that
-names nothing, and the `checks` workflow runs them on every pull request.
+`pnpm test:native`, which needs no environment at all: run on 2026-09-10 with
+`DATABASE_URL` unset, 7 of 7 passed. The `checks` workflow runs them on every
+pull request and still hands them the placeholder the manager unit step gets,
+which costs nothing and keeps the two steps alike.
 
 The integration suite above creates deployments. The remediation's SQL suites
 use disposable local PostgreSQL databases with synthetic data instead. Each
