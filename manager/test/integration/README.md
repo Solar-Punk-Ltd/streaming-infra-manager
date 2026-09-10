@@ -21,7 +21,7 @@ These are **not** unit tests. They start real containers through the deploy scri
 
    Docker must be running. The deploys start Bee, SRS and client containers.
    A separately configured Docker manager started by `pnpm stack:start` uses
-   Compose project `streaming-infra-manager`. Its API port9876 is internal.
+   Compose project `streaming-infra-manager`. Its API port 9876 is internal.
    The web proxy publishes `http://127.0.0.1:8080` by default, or the configured
    `WEB_PORT`. Set both target URL variables to that proxy URL when using it.
    Do not use the development API URL for an unpublished container port.
@@ -94,12 +94,18 @@ remediation session. The funded review deployment is never a disposable target.
 | ABR pool and uploader (`abr-node-pool.test.ts`, `abr-uploader.test.ts`) | the pool's publisher assembly and the uploader's Bee target rules, see each file's header |
 | engine config startup failure (`engine-startup-failure.test.ts`) | a stored SRS file the manager's own check accepts and the engine exits on ends the rollout in `reverted`, the deployment comes back `RUNNING` on the previous file, and the card's notice offers nothing to press |
 
+This whole suite also has a job of its own, `integration`, in the manual
+workflow `.github/workflows/docker-checks.yml`. That workflow is
+`workflow_dispatch` only and no job of it has ever run on a GitHub runner, so
+`engine-startup-failure.test.ts` has never executed anywhere. See
+[../../../docs/ci.md](../../../docs/ci.md).
+
 ## Notes and limitations
 
 - Viewer-group cases use two members. The ABR pool cases create a fixed four-rung pool. Multiple suite files can run concurrently, so two is not a whole-suite resource cap.
 - The waits are generous (`waitForStatus` gives up after about 4 minutes per deploy) so a genuinely stuck deploy fails loudly instead of hanging.
 - A lost creation response may leave a resource whose identity was never confirmed. The suite reports that uncertainty and does not search by prefix and delete candidates.
-- T10's final local checks passed 960 manager, 288 common and 31 actual SQL tests plus types. Synthetic HTTP tests exercise the real helper and cleanup reporting. They do not establish that this deployment integration suite ran.
+- T10's own checks, at `284790c`, passed 960 manager, 288 common and 31 real SQL tests plus types. Those are the numbers of that branch as it was merged, not a rerun of the repository as it stands. Synthetic HTTP tests exercise the real helper and cleanup reporting. None of them establishes that this deployment integration suite ran.
 
 ## Separate local regression suites
 
@@ -117,9 +123,15 @@ which costs nothing and keeps the two steps alike.
 The integration suite above creates deployments. The remediation's SQL suites
 use disposable local PostgreSQL databases with synthetic data instead. Each
 suite checks an explicit task-specific port variable and owns its test schemas.
-Consult the corresponding test header for the database name and user. Setting
-only `DATABASE_URL` does not select these suites' test target. Never point them
-at a deployment database. A skipped SQL suite is not a passing database check.
+`manager/test/database/run-all.mjs` names the nine databases and the nine port
+variables in one table, and `pnpm test:database` from `manager/` runs them all
+through it. That runner refuses in words when a variable is unset or is not a
+port, connects to all nine before anything starts, refuses a suite gated on a
+database the run does not create, and refuses a database whose schema already
+holds the manager's own tables. Setting only `DATABASE_URL` does not select
+these suites' test target. Never point them at a deployment database. A skipped
+SQL suite is not a passing database check, and the runner now enforces that
+rather than only saying it.
 
 Offline browser regressions use a mock manager and an isolated browser profile.
 They exercise UI behavior without Bee, chain RPC or funds. Their harness owns

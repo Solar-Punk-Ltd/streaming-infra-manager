@@ -1,5 +1,9 @@
 # T09 transaction contracts
 
+**Status, 2026-09-10.** This is a source-verification record made on 2026-09-08 and it holds except for one sentence about the journal, corrected below where it appears. The code it describes is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. Durable receipt updates and recovery, named at the end as separate parts of T09, are both in, and the manager now checks for a receipt on its own within a bounded budget. What has not happened is unchanged: no funded node, live chain endpoint or host has been queried from this branch.
+
+The two commits below are the stack's, not this repository's, so `git cat-file` finds them only from inside `manager/swarm-hls-stream`.
+
 The recorded review stack commit `ec3063f` pins Bee 2.8.2 in `nodes/docker-compose.yml`. The older manager baseline submodule `ee99c368` pins 2.8.1. These are local source facts. They do not prove the digest currently running on the host.
 
 Read-only source verification on 2026-09-08 found:
@@ -19,8 +23,8 @@ Receipt confirmation requires a matching transaction and receipt, a canonical fr
 
 Long histories resume from a persisted checkpoint within the receipt observation. It binds the transaction, receipt status and block, originally observed finalized block and last verified parent-linked block. A later check verifies those identities again and continues toward the frozen start block. It does not chase an advancing finalized tip. Timeouts, RPC failures and temporarily absent observations retain only verified progress. Contradictory receipt or chain evidence discards that checkpoint and remains unresolved. A receipt hash is checked before a chunk can record its boundary at that block. The checkpoint comes only from the internal journal, never from operator input.
 
-Each receipt write compares the operation's id, transaction hash, submitted state and revision captured before inspection. Every successful journal update advances the revision, including a failed observation. A late success cannot overwrite a newer failure. Receipt observations and checkpoints are whitelisted before storage. Terminal results release the node guard only after the journal write succeeds.
+Each receipt write compares the operation's id, transaction hash, submitted state and revision captured before inspection. A journal update that changes the observation advances the revision. One that finds exactly what the row already held records only when the check was made, and leaves the revision and the update time alone, so a poll cannot invalidate an operator's in-flight recovery action. A late success cannot overwrite a newer failure. Receipt observations and checkpoints are whitelisted before storage. Terminal results release the node guard only after the journal write succeeds.
 
-The [JSON-RPC reference](https://ethereum.org/developers/docs/apis/json-rpc/) defines the finalized block tag. [Nethermind's RPC reference](https://docs.nethermind.io/interacting/json-rpc-ns/eth/) also lists it for `eth_getBlockByNumber`. This is the client confirmation contract. The configured live RPC's support was not tested. Durable receipt updates and recovery remain separate parts of T09 and must finish before the flow is enabled.
+The [JSON-RPC reference](https://ethereum.org/developers/docs/apis/json-rpc/) defines the finalized block tag. [Nethermind's RPC reference](https://docs.nethermind.io/interacting/json-rpc-ns/eth/) also lists it for `eth_getBlockByNumber`. This is the client confirmation contract. The configured live RPC's support was not tested. Durable receipt updates and recovery were separate parts of T09 when this was written. Both are in.
 
 No funded node, live chain endpoint or host was queried. The 0.5 BZZ chequebook fill's submission remains unverified.

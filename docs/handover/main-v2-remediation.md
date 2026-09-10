@@ -6,7 +6,7 @@ Cross-provider review, OpenAI-hosted Codex, GPT-6 Astra.
 
 Levi requested: "okay merge everything to main-v2 locally and create handover". All 22 remediation task heads are now ancestors of local `main-v2`. Their complete histories, original branches and task worktrees are preserved. This consolidates implementation checkpoints. It does not complete the 25-row roadmap or establish deployment readiness.
 
-The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. The local backup branch `codex/main-v2-before-remediation-20260909` preserves that exact baseline. The frozen source heads are in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
+The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. It is where `main-v2` still points, locally and on the remote, so the baseline is preserved by the branch itself. The local backup branch `codex/main-v2-before-remediation-20260909` this line originally named is gone from this checkout, and so are the 22 task branches, but every head they pointed at is still reachable through the merge commits and every one of them is in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
 
 This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate and historical evidence remain in `.scratch/main-v2-review-consensus/`. Its `PRD.md` comments were not edited. That scratch directory remains untracked. This handover and its manifest are tracked.
 
@@ -37,7 +37,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T06 port reservations | `b65f8d9` | Reservation and target admission are included. Combined execution verification and Linux firewall qualification remain. |
 | T07 proposed deployment row | `24b85bf` | Validation, admission and write use the proposed row. Unknown critical prerequisites refuse. |
 | T08 build approval | `347c7dd` | Approval names the displayed commit/build and the wizard requires an explicit valid choice. Integrated with T18 and both publication writers. |
-| T09 money by transaction | `feat/t09-receipt-polling` | Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and connected SQL and browser acceptance are included, with the two reviews of that slice acted on. Actual SSH and immutable-image qualification remain. Production qualification catalog is empty. |
+| T09 money by transaction | `8f48fb0` | Merged. Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and the connected SQL and browser acceptance suites are all in, with both reviews of that slice acted on. What remains is real SSH and real image qualification, which need a host and have not run. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is a frozen empty list and a synthetic pass never fills it. |
 | T10 authenticated integration client | `284790c` | Confirmed-instance cleanup and atomic profile/group removal are included. Real deployment integration has not run. |
 | T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
 | T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
@@ -48,16 +48,22 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
 | T18 narrow layouts | `5f835ca` | Responsive version cards preserve exact-build approval and attempt-release controls. |
 | T19 notes editing | `6b3c50c` | Separate notes updates and revision conflicts coexist with full deployment edits. |
-| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 166 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
-| T21 documentation | `c640b10` | Reviewed docs plus a new integrated-status correction are included. Update again as remaining flows close. |
+| T20 CI checks | `ab8776c` | Merged. Three jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 166 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job in the manual workflow. What remains is Levi's: dispatch that manual workflow once, and turn the requirement on after the `checks` workflow has run. The T01 startup-failure file and every job of the manual workflow have never run on a runner. |
+| T21 documentation | `docs/t21-reconciliation`, from `6dc33d1` | The reconciliation slice of 2026-09-10, described in its own section at the end of this file. Every page that describes behaviour was checked against the code on the branch, and every status paragraph now names the branch, the date and the commit it is true at. Update again as remaining flows close. |
 | T22 controlled live acceptance | No task branch | Await D05 inputs, completed prerequisites and separate live authorization. |
 
 ## The next work
 
-1. **Close the bundled upgrade and runtime flow, T04b with T01/T11.** Connect the durable shipment command to a fixed production CLI and the ordered upgrade adapters. Ordinary API boot refreshes exact still-legacy metadata only. It must not publish incoming trees, adopt timestamp orphans or recreate missing legacy files. Replace the 12 old boot-publication tests with equivalent coverage through the authorized shipment path as that path is completed. Do not delete or skip the underlying acceptance obligations just to obtain green.
-2. **Finish exact execution and recovery completion.** Carry the final deployment owner, job/build reference and existing attempt into the private execution copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work. A complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
-3. **Close the remaining money flow, T09.** Done on `feat/t09-receipt-polling`, see the dated section below. What remains of T09 is actual SSH and immutable-image qualification. Do not populate production qualification merely because synthetic tests pass.
-4. **Finish T21 after those complete flows, and dispatch T20's manual workflow.** T20's own work is done on `feat/t20-ci-completion`, see the dated section below. What remains of it is Levi's: dispatch the docker-backed workflow so its four jobs run once, and turn the required checks on after the `checks` workflow has run. Update docs and acceptance against the final SHA.
+Rewritten on 2026-09-10, on `feat/ai-remediation` at `6dc33d1`. The four items this list used to hold were written the day of the merge. Three of them are done and are described in the dated sections below. What is left, in order:
+
+1. **Exact execution and recovery completion.** This is the next slice of work, and it is the one thing still blocking T01. Today a deployment runs out of the immutable build directory rather than out of a private execution copy of its own. The decision is recorded in `../consensus/BUNDLED-ON-HOST-BRIEF.md` as D11, one private execution copy per deployment. Carry the final deployment owner, job and build reference and existing attempt into that copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work, and a complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
+2. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
+3. **T14, the guided stamp purchase.** It waits for Levi's D04 numbers: the preset capacities and lifetimes, and the spending ceiling. Nothing else blocks it.
+4. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+
+What remains of T09 is real SSH and real image qualification, both of which need a host. Do not populate the production qualification catalog merely because synthetic tests pass.
+
+D14 is open for Levi: whether the version settings page and version management become admin-only. Today any signed-in account can read and set those values, which is what every other version route does.
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
 
@@ -810,3 +816,67 @@ checks workflow runs on the next push of this branch, the Docker-backed one is
 Levi's dispatch. Two decisions are his: the Actions cost of about 25 minutes a
 push with all three jobs required, and a CODEOWNERS entry over
 `.github/workflows` with code-owner review in branch protection.
+
+## The documentation says what the code does, T21, 2026-09-10
+
+A prose-only slice on `docs/t21-reconciliation`, cut from `feat/ai-remediation`
+at `6dc33d1`. No code, test, workflow or lockfile was touched. The brief is
+`../consensus/T21-COMPLETION-BRIEF.md`. Every sentence describing behaviour was
+checked against the code on that commit before it stayed, and every sentence
+about status now names the branch, the date and the commit it is true at.
+
+**What was wrong, by weight.** Three pages carried a status header naming a
+local `main-v2` integration checkpoint from 2026-09-09 as the place this work
+lives. It lives on `feat/ai-remediation`, pull request #40. The stack versions
+page still described the bundled version as a package sealed on a laptop and
+shipped to the host, a path the bundled-on-host slice deleted, and had no
+section at all for the settings page or for the Apply build. The root README
+said the submodule tracks `main`, that images are built from a pinned commit of
+it, and gave two submodule commands that name the submodule instead of its
+path, so neither would have matched anything. The manager README said Update is
+refused for the bundled version when Update on bundled is precisely how that
+version is rebuilt. The T09 API page said the direct locator does not supply
+the ownership proof, so admissions on a real database fail closed, which the
+owned transport factory closed. Eight further sentences across the testing
+pages named work as still to come that the sections beneath them describe as
+done, and the T18 evidence paths pointed at a scratch directory that no longer
+exists at that prefix.
+
+**What was kept.** The dated checkpoint paragraphs are the record and they
+stay. Where one had gone stale it was dated to its own checkpoint rather than
+deleted, the way the continuation files do it, and the current state was added
+on top. No history was manufactured for a gap.
+
+**Two investigations, both recorded here as the brief asked.** Neither
+`STATE.md` nor `CONTEXT.md` exists at the repository root or anywhere else in
+the tree, `git log --diff-filter=D` records no deletion of either, and the only
+two files that name them as something to read, `AGENTS.md` and
+`docs/agents/domain.md`, describe the convention rather than asserting the
+files are there, and the consensus records that mention them only record this
+same investigation, so nothing was created and nothing is flagged.
+`docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
+T22 with T01a and the a/b splits among them, plus its README, and the README's
+order section names all 25.
+
+**One thing the older sections say that is no longer true.** "Preserved local
+state" above lists three review worktrees under `/private/tmp` and says the
+original task worktrees remain. None of those paths exists on this machine any
+more, and neither do the 22 task branches, checked on 2026-09-10. That section
+is left as the record of the day it was written. What actually preserves the
+work is the git history: every frozen head is reachable through its merge
+commit and named in the merge manifest. The section's own closing rule still
+holds, which is to verify any retained resource by its exact recorded identity
+before using it, and that check now answers no for those trees.
+
+**One thing a document cannot fix.** `.github/workflows/checks.yml` carries a
+comment saying "The twenty-two suites under frontend/test". There are 23, and
+`docs/ci.md` says 23, which is the correct number. The same count is ambiguous
+in the T20 section above, which says twenty. Twenty sit directly in
+`frontend/test`, three more under `frontend/test/support`, and the runner takes
+all 23. Changing a workflow file was out of scope for this slice, so the
+comment is left as it is and recorded here for whoever next touches that file.
+
+**Verified.** `git diff --check` clean against the branch base, no em-dash and
+no prose semicolon in any changed file, and every relative path in every
+changed document resolved from that document's own directory. Nothing ran
+against the host, nothing was pushed, and no credential or `.env` was read.

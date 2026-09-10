@@ -1,5 +1,7 @@
 # T12 readiness evidence
 
+**Status, 2026-09-10.** This work is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. The runs recorded under "Final checks" below are that task branch's own, taken one file at a time before any runner existed. Every suite named there now has a home: the manager unit files run through `manager/test/unit/run.mjs`, `deploymentPhase.test.ts` runs with the other 32 SQL files through `manager/test/database/run-all.mjs`, and `readiness-browser.test.mjs` and `chrome-protocol.test.mjs` run with the other browser suites through `frontend/test/run-all.mjs`. What the checks workflow declares for each of those is in [../ci.md](../ci.md). The counts below are the branch's numbers, not a rerun of the repository as it stands.
+
 The checklist orders container state, the Bee API observation, node funding, postage and uploader prerequisites. Its first incomplete step supplies the detailed headline and the primary action. A running container is not evidence of receiving, uploading or playback.
 
 ## Bee probe contract

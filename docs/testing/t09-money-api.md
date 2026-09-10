@@ -1,6 +1,8 @@
 # T09 transaction API integration contract
 
-The durable transaction journal is connected to authenticated routes and the reviewed saved-intent, history and recovery UI. Target ownership integration is in progress. This local branch has not been deployed.
+**Status, 2026-09-10.** This work is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. The sections below are in the order they were built and each is the checkpoint it says it is. Target ownership integration is done: `createChequebookOperationsService` builds the production preparation from `PostgresChequebookTargetOwnership.capture`, so an admission on a real database gets the proof rather than failing closed. The last section, "Bounded receipt polling and connected acceptance", is the current state. Nothing on this branch has been deployed.
+
+The durable transaction journal is connected to authenticated routes and to the saved-intent, history and recovery UI.
 
 ## Frozen target repository checkpoint
 
@@ -10,7 +12,7 @@ Migration 026 adds nullable `chequebook_operations.submission_target`. Historica
 
 Admission copies this proof before its first wait. Exact request replay precedes proof validation. New admission and dispatch both recheck ownership under the money chain and node locks, then allocation, daemon-attempt, profile, alias and reservation locks. The dispatch update happens while those locks remain held. Ownership refusal leaves the journal unclaimed. A lost claim acknowledgement never authorizes another POST.
 
-This checkpoint proves SQL ownership only. The existing direct locator does not yet supply the proof, so new production PostgreSQL admissions fail closed at this intermediate branch state. Container-bound preparation, fresh daemon and full-container inspection on its private connection, and the exact-image bridge qualification are still required. No Docker inspection or network call runs inside these SQL transactions. A later immutable transport must keep an already-claimed send on the original container even if ownership changes after commit.
+That checkpoint proved SQL ownership only, and at it the direct locator did not supply the proof, so new admissions on a real database failed closed. The owned transport factory closed that, and the production composition now passes the capture into preparation. Container-bound preparation and full-container inspection on its private connection came with it. The exact-image bridge qualification is still required and has not run: `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is a frozen empty list. No Docker inspection or network call runs inside these SQL transactions. A later immutable transport must keep an already-claimed send on the original container even if ownership changes after commit.
 
 The merged dependency baseline passed all 47 prior T09 SQL cases. The target checkpoint adds 31 cases for stale identity and alias verification, exact reservation ownership, both sides of ownership locks, attempt admission, caller mutation, historical NULL, lost dispatch acknowledgement and a one-connection pool. Refusal reads use the same checked-out client after rollback so they cannot wait for their own connection to be released. All evidence uses a dedicated synthetic PostgreSQL database, never a Bee or deployment.
 
@@ -25,7 +27,7 @@ An absent chain mapping refuses new preparation and records unavailable evidence
 
 The configured locator uses exactly one saved `bee-uploader` service and its `BEE_UPLOADER_API_PORT`, together with the profile's host. SSH `user@host` loses its user portion. Hostnames and SSH aliases are preserved for DNS. Local hosts follow the existing `BEE_LOCAL_HOST` behavior. The external publishing destination `bee_url` does not select the transaction target. Known deploy, stop and remove transitions refuse preparation. Missing or duplicate Bee services, malformed ports and profiles without an owned Bee component refuse it too.
 
-The target revision includes the canonical T01 `profiles.instance_id`, profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. The instance UUID identifies one deployment lifetime independently of timestamp precision. A saved name that is removed and recreated receives a different instance UUID. T06 current target and port-reservation integration is still required before aggregate acceptance. No second SSH or Docker ownership implementation was added here.
+The target revision includes the canonical T01 `profiles.instance_id`, profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. The instance UUID identifies one deployment lifetime independently of timestamp precision. A saved name that is removed and recreated receives a different instance UUID. T06 current target and port-reservation integration was still required when this section was written, and it is in. No second SSH or Docker ownership implementation was added here.
 
 ## Single-connection submission
 
@@ -97,7 +99,7 @@ The new regression failed before the fix as `admitted` instead of `busy`, and th
 
 Recovery check, manual resolution and assertion require the account that reviewed the action. A mismatch refuses the write before service access, while preserving the existing policy that any authenticated operator can recover saved operations. Assertion additionally requires the exact reviewed revision, checked at the final recovery load and again by the repository under its existing operation lock. A same-account competing assertion or newer conflict returns the fixed changed-operation response. Request-only account and revision values do not enter the assertion audit record.
 
-The focused coordinator and authenticated HTTP suite passes 21 tests. All 47 PostgreSQL tests pass, including same-account concurrent assertions and conflicting direct-response evidence between the final load and assertion CAS. The full manager suite passes 675 tests, the shared package passes 269 tests, and workspace typechecks pass. No checks use real funds or a deployment. The dedicated synthetic PostgreSQL container was `0519d196ae73b99e0aab3bfae1ba4e2774cd7978a992e95bcd025a581c448271` on loopback port 52292. It was stopped after the checks and exact-ID inspection confirmed removal. History and recovery UI integration remains the next reviewed slice.
+The focused coordinator and authenticated HTTP suite passes 21 tests. All 47 PostgreSQL tests pass, including same-account concurrent assertions and conflicting direct-response evidence between the final load and assertion CAS. The full manager suite passes 675 tests, the shared package passes 269 tests, and workspace typechecks pass. No checks use real funds or a deployment. The dedicated synthetic PostgreSQL container was `0519d196ae73b99e0aab3bfae1ba4e2774cd7978a992e95bcd025a581c448271` on loopback port 52292. It was stopped after the checks and exact-ID inspection confirmed removal. History and recovery UI integration was the next slice when this was written, and it is in.
 
 ## Bounded receipt polling and connected acceptance
 

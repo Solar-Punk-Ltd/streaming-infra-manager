@@ -1,5 +1,11 @@
 # Next features, planned 2026-09-05
 
+Status, 2026-09-10. This is the plan as written on 2026-09-05. All four features are built and are
+on `feat/ai-remediation` at `6dc33d1`, pull request #40 into `main-v2`, apart from the live engine
+status, which is the second pull request of feature 3 and is not started. The stacked branches
+this page names are gone. Its decisions D1 to D12 are this page's own numbering and are not the
+consensus decisions D01 to D14 in `../consensus/`.
+
 Status: decided 2026-09-05 late evening. Levi took D1 to D11 as recommended and put D12 on
 hold, so nothing in swarm-hls-stream changes for now. Building started the same night on stacked
 branches, in the order below.

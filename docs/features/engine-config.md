@@ -5,12 +5,13 @@ its selected stack version advertises support. The manager checks the file,
 recreates the engine, then records the outcome of startup verification.
 Recovery can fail. Saving a file is not proof that publishing or playback works.
 
-This page describes the agreed remediation included in the local `main-v2`
-integration checkpoint `4372848` on 2026-09-09. It includes T01's service caller
-integration through `82e2d08`, the isolated SRS checks, OME validation and T11's
-effective settings. Aggregate verification and immutable execution integration
-remain open. No host deployment of this remediation is claimed here. The
-engine-configuration decisions were accepted on 2026-09-07.
+Status, 2026-09-10. Everything on this page is on the branch
+`feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into
+`main-v2`. It carries T01's service caller integration, the isolated SRS checks,
+the OvenMediaEngine validation and T11's effective settings. Exact execution and
+recovery completion is the next slice and is described at the end of this page.
+Nothing on this branch has been deployed, so no behaviour here has been seen on
+a host. The engine-configuration decisions were accepted on 2026-09-07.
 
 ## File editing and effective settings
 
@@ -49,18 +50,17 @@ the XML file. These observations describe configured input, not proof of what
 the running engine loaded. Inspect its running configuration under Logs.
 
 When the page receives a changed deployment or configuration revision, the
-card and open drawer hide old observations immediately. Failed or timed-out refreshes keep the
-draft text but do not restore stale values. A draft for a deleted and
-recreated deployment cannot be applied to the replacement. Close and reopen
-Settings to review that deployment.
+card and open drawer hide old observations immediately. Failed or timed-out
+refreshes keep the draft text but do not restore stale values. A draft for a
+deleted and recreated deployment cannot be applied to the replacement. Close
+and reopen Settings to review that deployment.
 
-The accepted local T11 checkpoint `ef269a8` also binds the settings write to
-the exact deployment job that reserved it. Losing that ownership returns a
-conflict and preserves the draft. Validation and job admission use one
-captured published build. Publication of another build before the locked
-claim refuses the save before settings or job state changes. Capturing mutable
-host inputs before execution remains open. This checkpoint is included in the
-local merge, without a claim of host deployment.
+A settings write is bound to the exact deployment job that reserved it. Losing
+that ownership returns a conflict and preserves the draft. Validation and job
+admission use one captured published build. Publication of another build before
+the locked claim refuses the save before settings or job state changes.
+Capturing mutable host inputs before execution remains open, and it closes with
+the exact-execution slice described at the end of this page.
 
 ## What validation establishes
 
@@ -93,13 +93,13 @@ lifetime identity, configuration and operator-intent revisions, previous file,
 container identity and current state. The deployment lifetime identity changes
 when a deployment is deleted and recreated, even under the same name.
 
-Apply, reset and recovery callers now use the atomic configuration-operation
-and deployment claim. They carry the captured build reference through execution and
+Apply, reset and recovery callers use the atomic configuration-operation and
+deployment claim. They carry the captured build reference through execution and
 check ownership again when recording completion. A failure during preparation
 keeps the still-owned operation interrupted, its previous file and its original
 failure evidence. A refused recovery claim does not mean the previous file was
-restored. These caller changes do not close the remaining immutable execution
-and build-hold release integration.
+restored. These callers do not close the remaining immutable execution and
+build-hold release work, which the last section of this page describes.
 
 Startup verification begins after the engine recreation has finished and
 RUNNING is committed. A stopped engine, a restart or another demonstrated
@@ -117,7 +117,7 @@ supersedes the old operation. An old watcher must not undo the newer action.
 | `reverted` | The new file failed startup verification and recreation on the previous file completed. |
 | `failed` | Applying the file failed. Read the recorded reason, which also reports a failed recovery attempt when applicable. Verify now starts another explicit attempt. |
 | `interrupted` | The manager could not finish verification or recovery. Verify now recreates on the stored file. Recreate on previous uses the file saved by the interrupted operation. |
-| `superseded` | A newer action or container replaced the operation's authority. The older operation does no further recovery work. |
+| `superseded` | A newer action or container replaced the operation's authority. The older operation does no further recovery work, and the card says the last file was not verified. Verify now starts an attempt on what is stored. |
 
 The engine card and open editor follow the current stored state. Recovery
 actions explain when they are unavailable. They are not offered for a stopped
@@ -146,38 +146,59 @@ edits. Reading uses `GET /profiles/:name/engine-config`. Saving uses `PUT` with
 202 with a deployment snapshot. Observe the later operation state for its
 outcome. A successful HTTP response does not prove playback.
 
-## Verification still needed before release
+## What has been checked, and where the containers are missing
 
-Local regressions cover operation ownership, restart reconciliation, isolated
-SRS check files, XML parsing and protected paths, and effective-setting sources.
-The T11 exact-job write checkpoint passed 18 database, 27 focused HTTP and
-13 browser checks, plus workspace types. Before T01's service caller integration,
-its full manager run passed 1095 of 1097 cases. Those two failures concerned
-configuration-operation and deployment-claim integration. This is historical
-evidence, not a test result for the merged branch. The later same-build capture
-correction passed 28 targeted HTTP/unit checks, three database cases and manager
-types. The full suite was not repeated for that checkpoint. T01's later
-`82e2d08` includes the atomic service and retained-recovery corrections.
-The configured-value UI also has desktop and 390-pixel responsive browser
-review. These checks are separate from running the real engine containers.
+Everything below is a laptop result. Nothing on this branch has run on a GitHub
+runner or on a host.
 
-Fable's 2026-09-08 local T03 evidence records OME `v0.21.0` with manifest-list
-digest `sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6`.
+Unit, database and browser suites cover operation ownership, restart
+reconciliation, isolated SRS check files, XML parsing and protected paths, and
+the sources of an effective setting. They also cover the configured-value UI on
+a desktop width and at 390 pixels. Every one of them substitutes the engine: the
+container control is a test double and no SRS or OvenMediaEngine process starts.
+A passing suite therefore proves the manager's own decisions, and never that an
+engine read a file.
+
+Two container harnesses exist for this feature and both run only when someone
+starts them. `manager/test/docker/srs-check-isolation.sh` puts eight files
+through the manager's own checker at once and asserts that each refusal names
+the directive of its own file and no directive of any of the other seven.
+`manager/test/docker/ome-admission-gate.sh` drives the isolated
+publish-to-admission-to-playlist path. Both have a job in the manual workflow,
+`docker-checks.yml`, which no one has dispatched, so no job of it has ever run
+on a runner. Both pass on this laptop, most recently on 2026-09-10.
+
+The gap between a parse and a start now has a test of its own, and it has never
+executed. `manager/test/integration/engine-startup-failure.test.ts` is the only
+place the whole rollout path would run against real containers: it takes the
+version's own template with `work_dir /no/such/directory;` added, which the
+manager's check accepts and the engine dies on. The observations that establish
+that, taken on this laptop on 2026-09-10 against the SRS image the stack pins,
+are in the file's own header. It needs the whole stack deployed on a runner, so
+its first run is Levi's dispatch of the manual workflow. See
+[../ci.md](../ci.md).
+
+Fable's 2026-09-08 local T03 evidence records OvenMediaEngine `v0.21.0` with
+manifest-list digest
+`sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6`.
 On arm64, the healthy template started, a second root and an undefined entity
-were tolerated by OME, and an unquoted attribute exited with code 1. This is
-why the manager must reject malformed XML before recreation. The same recorded
-local run passed the isolated SRT-to-admission-to-HLS gate with a signed opening
-callback, a media segment and a closing callback. Codex has not rerun that
-container evidence in this continuation.
+were tolerated by OvenMediaEngine, and an unquoted attribute exited with code 1.
+This is why the manager rejects malformed XML before recreation. That is a
+recorded arm64 run from a laptop, not an amd64 result and not a funded-host
+result, and it has not been repeated since.
 
-Levi still owns the stack image-pin change. T20 must integrate these regressions
-with the real SRS parser concurrency check and the combined CI workflow. The
-recorded arm64 result is not an amd64 CI run or a funded-host result. T11's
-mutable-input integration remains open as described above.
-T01 still needs immutable execution and build-hold release verification across
-the combined paths. T04b's fixed production publication CLI and private runtime
-wiring remain open dependencies. The atomic operation claim, retained recovery
-and deployment-completion service callers are now connected, but their local
-integration still needs combined verification. T22 separately verifies
-authorized live Swarm delivery. Unit tests do not substitute for these
-execution results.
+## What is still open
+
+Exact execution and recovery completion is the next slice of work on this
+branch. Today a deployment runs out of the immutable build directory rather than
+out of a private execution copy of its own, which is what the recorded decision
+in [../consensus/BUNDLED-ON-HOST-BRIEF.md](../consensus/BUNDLED-ON-HOST-BRIEF.md)
+asks for. Until that lands, three things here stay open: an operation cannot
+carry the final deployment owner, job reference and existing attempt into a copy
+of its own, the release of a build hold cannot be proven against a successful
+watch, and a settings write cannot execute the same captured host inputs it
+validated.
+
+T22 separately verifies authorised live Swarm delivery, and it waits for Levi's
+D05 numbers and a separate authorisation to spend. Unit tests do not substitute
+for any of these execution results.
