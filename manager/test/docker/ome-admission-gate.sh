@@ -16,11 +16,13 @@
 #   bash manager/test/docker/ome-admission-gate.sh
 # Exit code 0 on pass. Needs docker and outbound network for the three images.
 #
-# Evidence, 2026-09-10, this laptop, arm64, Docker 29.7.2: PASS in 120 s. SRT
-# in, one segment in the media playlist, a signed opening admission call for
-# video/gate and a closing call after the publisher ended. That run waited for
-# the publisher's ffmpeg install, which is the change of the day: two earlier
-# runs had failed here on a 93 second install and nothing else.
+# Evidence, 2026-09-10, this laptop, arm64, Docker 29.7.2: PASS in 132 s, and
+# 120 s and 127 s on the two runs before the install budget became a clock
+# reading. SRT in, one segment in the media playlist, a signed opening
+# admission call for video/gate and a closing call after the publisher ended.
+# All three waited for the publisher's ffmpeg install, which is the change of
+# the day: two runs before that had failed here on a 93 second install and
+# nothing else.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -137,11 +139,14 @@ docker run -d --name "$RUN-publisher" --network "$NET" alpine:3.20 sh -c "
     'srt://ome:10080?streamid=srt%3A%2F%2Fome%3A10080%2Fvideo%2Fgate&pkt_size=1316'
 " >/dev/null || fail "could not start the publisher"
 
-# Wait for the binary itself, not for a number of seconds. The exit check is
-# inside the loop, so a publisher that dies during the install is still caught
-# in seconds rather than at the end of this budget.
+# Wait for the binary itself, not for a fixed pause. The budget is read off the
+# clock rather than counted, because a turn of this loop costs a docker exec on
+# top of its sleep and the name says seconds. The exit check is inside the loop,
+# so a publisher that dies during the install is still caught in seconds rather
+# than at the end of the budget.
 installed=""
-for _ in $(seq 1 "$FFMPEG_WAIT_SECONDS"); do
+install_deadline=$((SECONDS + FFMPEG_WAIT_SECONDS))
+while [ "$SECONDS" -lt "$install_deadline" ]; do
   if docker exec "$RUN-publisher" sh -c 'command -v ffmpeg' >/dev/null 2>&1; then installed=yes; break; fi
   if [ "$(docker inspect -f '{{.State.Running}}' "$RUN-publisher")" != "true" ]; then
     docker logs "$RUN-publisher" 2>&1 | tail -10 >&2
