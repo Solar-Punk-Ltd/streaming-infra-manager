@@ -12,6 +12,7 @@
  * pins that the three places say one thing.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -33,6 +34,9 @@ const CI_ROW_RE = /\|\s*`ossrs\/srs:6`\s*\|\s*`(sha256:[0-9a-f]{64})`\s*\|\s*(\d
 function digestsIn(text: string): string[] {
   return [...text.matchAll(SRS_DIGEST_RE)].map(([, digest]) => digest);
 }
+
+/** The harness exit code for a problem with the harness rather than a wrong answer. */
+const HARNESS_PROBLEM = 2;
 
 const pinned = digestsIn(script);
 const imageLine = script.split('\n').find((line) => line.startsWith('IMAGE=')) ?? '';
@@ -64,5 +68,20 @@ describe('the places that have to agree with it', () => {
     assert.ok(row, 'docs/ci.md has no pin row for ossrs/srs:6');
     assert.equal(row[1], pinned[0], 'the pin table names an image the harness does not run');
     assert.match(row[2], /^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('an image the operator names instead', () => {
+  const run = (image: string) =>
+    spawnSync('bash', [join(here, '..', 'docker', 'srs-check-isolation.sh')], {
+      env: { ...process.env, SRS_CHECK_IMAGE: image },
+      encoding: 'utf8',
+    });
+
+  it('is refused unless it is a digest, because a tag can move under the check', () => {
+    const { status, stderr } = run('ossrs/srs:6');
+    assert.equal(status, HARNESS_PROBLEM, stderr);
+    assert.match(stderr, /SRS_CHECK_IMAGE/);
+    assert.match(stderr, /@sha256:/);
   });
 });
