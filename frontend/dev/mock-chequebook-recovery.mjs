@@ -1,5 +1,6 @@
 import { CHEQUEBOOK_OPERATION_CHANGED_MESSAGE, CHEQUEBOOK_RECOVERY_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation, isChequebookRevision } from '@streaming-infra-manager/common';
 import { readBody, send } from './mock-http.mjs';
+import { openReceiptPollBudget } from './mock-receipt-polling.mjs';
 
 const hash = value => typeof value === 'string' && /^0x[0-9a-f]{64}$/i.test(value);
 const recoverable = operation => ['submitting', 'unknown'].includes(operation.state) && operation.failureReason !== 'hash_conflict';
@@ -53,7 +54,7 @@ export function mockChequebookRecoveryRoutes({ records, userFor, detail, changed
           other.direction === operation.direction && other.amountPlur === operation.amountPlur && other.chequebookAddress === operation.chequebookAddress &&
           (!other.transactionHash || other.failureReason === 'hash_conflict'))));
       if (competing) recorded = { ...recorded, kind: 'ambiguous' };
-      else { operation.transactionHash = transactionHash; operation.state = 'submitted'; }
+      else { operation.transactionHash = transactionHash; operation.state = 'submitted'; openReceiptPollBudget(operation); }
     }
     operation.recoveryObservation = recorded;
     operation.recoveryCheckedAt = new Date().toISOString();

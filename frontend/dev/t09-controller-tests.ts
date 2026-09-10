@@ -20,7 +20,7 @@ function detail(intent: { requestId: string; accountId: number; profileName: str
     chainId: 100, nodeAddress: `0x${'11'.repeat(20)}`, chequebookAddress: `0x${'22'.repeat(20)}`, tokenAddress: `0x${'33'.repeat(20)}`,
     startBlockNumber: '500', startBlockHash: `0x${'44'.repeat(32)}`, nonceLowerBound: '9', nonceQueryTag: '0x1f4',
     transactionHash: `0x${'55'.repeat(32)}`, failureReason: null, revision: '0', dispatchStartedAt: '2026-09-08T00:00:00.000Z',
-    receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
+    receiptObservation: null, receiptCheckedAt: null, receiptPollUntil: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
     createdAt: '2026-09-08T00:00:00.000Z', updatedAt: '2026-09-08T00:00:00.000Z' }, responseEvidence: [],
     assertionConfirmation: chequebookAssertionConfirmation(intent.amountPlur) };
 }

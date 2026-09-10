@@ -15,7 +15,7 @@ function detail() {
     transactionHash: `0x${'55'.repeat(32)}`, failureReason: null, revision: '0', dispatchStartedAt: intent.createdAt,
     receiptObservation: { kind: 'settled', receiptBlockNumber: '501', receiptBlockHash: `0x${'77'.repeat(32)}`,
       finalizedBlockNumber: '510', finalizedBlockHash: `0x${'88'.repeat(32)}` },
-    receiptCheckedAt: intent.createdAt, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
+    receiptCheckedAt: intent.createdAt, receiptPollUntil: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
     createdAt: intent.createdAt, updatedAt: intent.createdAt }, responseEvidence: [],
     assertionConfirmation: 'I accept that retrying 0.5 BZZ may pay twice.' };
 }
