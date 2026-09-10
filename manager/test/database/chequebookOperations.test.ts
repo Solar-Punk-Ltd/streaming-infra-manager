@@ -790,6 +790,14 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.ok(resolved.receiptPollUntil);
   });
 
+  it('keeps the first budget when the same hash is recorded again', async () => {
+    const submitted = await submittedOperation();
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const again = await repository.recordSubmission(submitted.id, { state: 'submitted', transactionHash, failureReason: null });
+    assert.equal(again.state, 'submitted');
+    assert.equal(again.receiptPollUntil, submitted.receiptPollUntil, 'a repeated response for a hash the row already owns cannot renew the budget');
+  });
+
   it('refuses a polling deadline on a row without a transaction hash', async () => {
     const unknown = await unknownOperation();
     await assert.rejects(pool.query('UPDATE chequebook_operations SET receipt_poll_until = NOW() WHERE id=$1', [unknown.id]),
