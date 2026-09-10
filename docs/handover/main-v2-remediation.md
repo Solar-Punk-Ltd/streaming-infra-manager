@@ -893,3 +893,16 @@ in a correction round (b76fb6a to bb4021c). The first run of the three-job
 checks workflow on 6dc33d1 ended with the checks and database jobs green and
 the browser job cancelled at its 30 minute limit by a teardown fault on Linux,
 which is fixed on its own branch next.
+
+**Merged, 2026-09-10, the browser teardown fix.** Merged into
+`feat/ai-remediation` as dc733f4 from the branch `fix/browser-teardown-linux`
+(12 commits, 6dc33d1 to d92c413). The Chrome fixture ends Chrome by its
+process group and waits its profile out, every fixture teardown runs all of
+its steps, the forked connected fixture ends itself when its parent is gone,
+and the browser runner bounds each suite file at 600 seconds and judges the
+files together. Proven on this laptop inside a Linux container (Chromium 152
+on Debian bookworm, as a non-root user, the checkout copied in, PostgreSQL in a
+second container sharing the network namespace): 183 tests across 25 suite
+files, no hook failure, no orphan process, no leftover profile, in 7 minutes
+39 seconds. On macOS the same set passed in 377 seconds. The next push of this
+branch is the second run of the browser job on a GitHub runner.
