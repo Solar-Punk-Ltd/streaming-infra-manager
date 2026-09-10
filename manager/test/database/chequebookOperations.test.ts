@@ -853,6 +853,44 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(checked.receiptPollUntil, null);
   });
 
+  it('advances the revision only when a check changes what it observed', async () => {
+    const submitted = await submittedOperation();
+    const first = await repository.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_receipt' });
+    assert.equal(first.revision, String(BigInt(submitted.revision) + 1n));
+    const second = await repository.recordReceipt(first, { kind: 'pending', reason: 'awaiting_receipt' });
+    assert.equal(second.revision, first.revision, 'an unchanged observation leaves the revision where it was');
+    assert.equal(second.updatedAt, first.updatedAt, 'and leaves the record update time alone');
+    assert.ok(Date.parse(second.receiptCheckedAt!) > Date.parse(first.receiptCheckedAt!), 'and still records when the check happened');
+    assert.deepEqual((await repository.findById(submitted.id))?.receiptObservation, first.receiptObservation);
+    const changed = await repository.recordReceipt(second, { kind: 'could_not_check', reason: 'rpc_unavailable' });
+    assert.equal(changed.revision, String(BigInt(first.revision) + 1n), 'a changed observation advances the revision');
+    assert.ok(Date.parse(changed.updatedAt) > Date.parse(first.updatedAt));
+  });
+
+  it('treats a moved history cursor as a changed observation', async () => {
+    const submitted = await submittedOperation();
+    const history = {
+      transactionHash, receiptBlockNumber: '501', receiptBlockHash: confirmed.receiptBlockHash, receiptStatus: 'success' as const,
+      finalizedBlockNumber: '510', finalizedBlockHash: confirmed.finalizedBlockHash,
+      cursorBlockNumber: '508', cursorBlockHash: `0x${'11'.repeat(32)}`,
+    };
+    const first = await repository.recordReceipt(submitted, { kind: 'could_not_check', reason: 'history_incomplete', history });
+    const same = await repository.recordReceipt(first, { kind: 'could_not_check', reason: 'history_incomplete', history });
+    assert.equal(same.revision, first.revision);
+    const moved = await repository.recordReceipt(same, { kind: 'could_not_check', reason: 'history_incomplete', history: { ...history, cursorBlockNumber: '506' } });
+    assert.equal(moved.revision, String(BigInt(first.revision) + 1n));
+  });
+
+  it('lets an operator check that lands between two unchanged polls record its result', async () => {
+    const submitted = await submittedOperation();
+    const shownToOperator = await repository.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_receipt' });
+    await repository.recordReceipt(shownToOperator, { kind: 'pending', reason: 'awaiting_receipt' });
+    const checked = await repository.recordReceipt(shownToOperator, confirmed);
+    assert.equal(checked.state, 'settled', 'a poll that saw nothing new cannot refuse the operator their own check');
+    assert.equal(checked.revision, String(BigInt(shownToOperator.revision) + 1n));
+    assert.deepEqual(checked.receiptObservation, confirmed);
+  });
+
   it('enforces the same-node uniqueness in SQL even when admission code is bypassed', async () => {
     await repository.admit(operationCandidate());
     await assert.rejects(pool.query(`INSERT INTO chequebook_operations

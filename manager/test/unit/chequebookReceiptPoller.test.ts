@@ -100,7 +100,9 @@ describe('ChequebookReceiptPoller', () => {
     h.age(row.id, 60_000);
     await h.ticks.fire();
     assert.deepEqual(h.checked, [row.id, row.id]);
-    assert.equal((await h.repository.findById(row.id))?.state, 'submitted');
+    const polled = await h.repository.findById(row.id);
+    assert.equal(polled?.state, 'submitted');
+    assert.equal(polled?.revision, String(BigInt(row.revision) + 1n), 'a poll that sees nothing new does not move the revision under the operator');
   });
 
   it('stops polling a row once the chain answers with a terminal receipt', async t => {
