@@ -111,10 +111,10 @@ that fails half the time is worth more than the difference.
 
 ### browser
 
-The twenty-five suites under `frontend/test/`, of which fourteen drive a real
-headless Chrome against a real Vite and eleven need no browser. They live
-outside `pnpm test`, which only takes `src`, so they ran nowhere on a pull
-request.
+The twenty-seven suites under `frontend/test/`, of which fourteen drive a real
+headless Chrome against a real Vite, one drives a Chrome and no Vite, and
+twelve need no browser. They live outside `pnpm test`, which only takes `src`,
+so they ran nowhere on a pull request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
 
@@ -185,6 +185,33 @@ a plugin set of their own and all of them shared one cache directory, so each
 one now builds in `frontend/node_modules/.vite-t09/<suite>` and that line
 appears in neither of two full runs measured here.
 
+**What the third runner run showed, and what changed.** Run 34498885341 on
+2026-09-10 passed every suite but `transfer-recovery-browser.test.mjs`, whose
+fourth case failed 646 ms in with
+`TypeError: Cannot read properties of null (reading 'innerText')`. The helper
+that waits for text on the page read `document.body.innerText` in the instant
+after `Page.navigate`, when the committed document has no body yet, so a read
+that would have polled again threw instead. That shape was everywhere: reads
+of a `querySelector` result that can be null, and waits that found a control in
+one evaluate and clicked it in the next, which on a slow machine is two reads
+of a page that renders in between. Every one of them in all fourteen Chrome
+suites is now a wait naming what it waits for, or a read that answers rather
+than throwing when the element is absent, through shared helpers in
+`frontend/test/support/chrome.mjs`.
+
+**Running the suites at the runner's speed.** `BROWSER_CPU_THROTTLE=4` applies
+`Emulation.setCPUThrottlingRate` to every page session the harness opens,
+second tabs included, so a race that only appears on the job's two cores
+appears on a twelve core laptop as well, and the runner and each launch print
+the rate. Qualified here with three consecutive green full runs at rate 4
+(544 s, 473 s and 424 s of wall clock, 208 tests each), one at rate 6 (462 s)
+and one unthrottled (360 s), all with the Postgres container up so the
+connected suite ran rather than skipped. The slowest single file was
+`transfer-polling-browser.test.mjs` at 168 s throttled against 144 s
+unthrottled, which is well inside the 600 second per-file bound, and that file
+is slow because it waits out real polling intervals rather than because it is
+throttled.
+
 Both the job and the runner prove the Chrome before anything starts.
 `CHROME_BIN` is `/usr/bin/google-chrome`, the job's first step fails in words
 when nothing executable is there, and the runner does the same again from its
@@ -209,8 +236,9 @@ provenance checks recorded here first.
 
 ### What a push costs
 
-Measured on this laptop on 2026-09-10 (12 cores, arm64), test and build time
-only, without install. Each number is the longest run of that step measured
+Measured on this laptop on 2026-09-10 (12 cores, arm64), and the browser row
+again on 2026-09-11 with the twenty-five support cases the throttle work
+added. Test and build time only, without install. Each number is the longest run of that step measured
 here, so the estimate below is built on the slow end rather than the lucky one:
 
 | Step | Wall time |
@@ -221,7 +249,7 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
 | SQL suites, 518, one file at a time | 235 s |
-| browser suites, 183, one child per file | 377 s |
+| browser suites, 208, one child per file | 360 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on
@@ -240,7 +268,7 @@ required on every push, or the browser job moves to a schedule or a manual
 dispatch, is a spend question. Keeping all three required is what the D06
 agreement says and what this slice built. Moving the browser job off every
 push would take roughly half the minutes back and would mean a pull request
-can go green while fourteen Chrome suites have not run on it.
+can go green while fifteen Chrome suites have not run on it.
 
 **Measured on the runner, 2026-09-10.** The first two runs of this workflow on
 `ubuntu-latest` took 1.7 and 1.8 minutes for `checks`, 3.8 and 4.1 minutes for
