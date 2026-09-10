@@ -333,9 +333,16 @@ export class DeploymentOrchestrator {
     profile: Profile,
     input: { all?: boolean } = {},
   ): Promise<RunHandle> {
+    // The same target deploy.sh was given, or clean.sh cleans the manager's own
+    // host: it finds no such compose project there, reports success, and the
+    // profile row is deleted while the containers keep running where they were
+    // deployed. Built by hand rather than through buildScriptArgs because a remove
+    // must not carry the deploy-time overrides (key, stamp, feed) into clean.sh.
+    const host = targetHost(profile);
     const args: string[] = [
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
+      ...(host ? [`--host=${host}`] : []),
       '--yes',
       '--volumes',
     ];
