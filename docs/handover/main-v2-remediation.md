@@ -718,7 +718,7 @@ are in the test's header.
 **Verified, 2026-09-10.** Manager unit 2262 of 2262, thirty nine more than
 before, from the two new unit files. Common 321, frontend unit 100, native 7,
 all with no skips. The whole database directory 518 of 518 with nine
-disposable databases, no skips, 161 s. Every browser suite through the new
+disposable databases, no skips, 161 s in that run. Every browser suite through the new
 script, 144 of 144, no skips. Every workspace typecheck clean after building
 common, both workflow files valid YAML, `git diff --check` clean against the
 branch base, and no em-dash or prose semicolon in anything added. Nothing ran
@@ -785,8 +785,8 @@ setting are his.
 GitHub runner. The T01 startup-failure file needs the whole stack deployed on
 one, so its first execution is Levi's dispatch. The SQL suites now run one file
 at a time, because two of four parallel runs failed here on tests that read the
-clock while another connection holds a lock, which costs about 115 seconds a
-run. The OvenMediaEngine gate failed here for a reason that is about this
+clock while another connection holds a lock, which costs 182 seconds a run,
+the longest of the five full runs measured. The OvenMediaEngine gate failed here for a reason that is about this
 laptop's network: its publisher spends 93 seconds installing ffmpeg inside a
 40 second playlist budget, and with the budget raised the gate passed. The
 harness was not changed. The T05a qualification on Docker Engine 29.1.3 with
