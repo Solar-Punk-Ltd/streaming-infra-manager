@@ -119,6 +119,7 @@ export async function launchChrome(t, origin) {
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   const version = await call('Browser.getVersion');
+  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);
   return {
     call, evaluate, errors, blockedRequests,
     pid: child.pid, profile, debuggingPort: port, version: version.product,

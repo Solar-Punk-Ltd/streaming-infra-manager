@@ -9,6 +9,7 @@
     "build": "pnpm --filter @streaming-infra-manager/common build && tsc -b && vite build",
     "preview": "vite preview",
     "test": "tsx --conditions=development --test 'src/**/*.test.ts'",
+    "test:browser": "node --import tsx --conditions=development --test --test-concurrency=1 'test/**/*.test.mjs'",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
