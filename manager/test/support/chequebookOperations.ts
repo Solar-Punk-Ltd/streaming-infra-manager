@@ -4,6 +4,7 @@ import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
 import { normalizeRecoveryObservation, preserveRecoveryEvidence } from '../../src/domain/chequebook/recoveryObservation.js';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { chequebookAssertionConfirmation, RECEIPT_POLL_BUDGET_MS, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
@@ -111,9 +112,11 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     if (!row) throw new Error('Missing operation');
     if (row.failureReason === 'hash_conflict' || row.state !== 'submitted' || row.revision !== expected.revision || row.transactionHash !== expected.transactionHash) return structuredClone(row);
     const now = new Date().toISOString();
+    const unchanged = isDeepStrictEqual(row.receiptObservation, observation);
     const operation: ChequebookOperation = {
       ...row, state: observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : row.state,
-      revision: String(BigInt(row.revision) + 1n), receiptObservation: structuredClone(observation), receiptCheckedAt: now, updatedAt: now,
+      revision: unchanged ? row.revision : String(BigInt(row.revision) + 1n), receiptObservation: structuredClone(observation),
+      receiptCheckedAt: now, updatedAt: unchanged ? row.updatedAt : now,
     };
     this.rows.set(row.id, operation);
     return structuredClone(operation);

@@ -45,6 +45,10 @@ function operationFrom(row: OperationRow): ChequebookOperation {
   });
 }
 
+/** Keeps a column as it is when the check saw exactly what the row already held. */
+const sameObservation = (observation: string, unchanged: string, changed: string) =>
+  `CASE WHEN receipt_observation = ${observation}::jsonb THEN ${unchanged} ELSE ${changed} END`;
+
 /** Sets the budget on the row's first entry into submitted and leaves every later write alone. */
 const openPollBudget = (nextState: string, budgetSeconds: string) =>
   `CASE WHEN ${nextState} = 'submitted' THEN COALESCE(receipt_poll_until, NOW() + make_interval(secs => ${budgetSeconds}::double precision)) ELSE receipt_poll_until END`;
@@ -318,7 +322,9 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     const observation = normalizeReceiptObservation(input);
     const nextState = observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : 'submitted';
     const updated = await this.pool.query<OperationRow>(`UPDATE chequebook_operations
-      SET state = $4, receipt_observation = $5::jsonb, receipt_checked_at = NOW(), updated_at = NOW(), revision = revision + 1
+      SET state = $4, receipt_observation = $5::jsonb, receipt_checked_at = NOW(),
+          updated_at = ${sameObservation('$5', 'updated_at', 'NOW()')},
+          revision = ${sameObservation('$5', 'revision', 'revision + 1')}
       WHERE id = $1 AND revision = $2 AND transaction_hash = $3 AND state = 'submitted' AND failure_reason IS DISTINCT FROM 'hash_conflict' RETURNING *`,
     [id, expected.revision, expected.transactionHash.toLowerCase(), nextState, JSON.stringify(observation)]);
     if (updated.rows[0]) return operationFrom(updated.rows[0]);

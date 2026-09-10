@@ -24,7 +24,7 @@ export interface ChequebookOperationRepository {
   claimDispatch(id: string): Promise<{ claimed: boolean; operation: ChequebookOperation }>;
   /** Direct hash evidence survives concurrent closure without changing an asserted outcome. */
   recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation>;
-  /** Every check advances the observed revision. Stale observations return the current row. */
+  /** A check that changes the observation advances the revision, an unchanged one only records when it was made. Stale observations return the current row. */
   recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, observation: ChequebookReceiptObservation): Promise<ChequebookOperation>;
   recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, observation: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation>;
   resolveCandidate(expected: Pick<ChequebookOperation, 'id' | 'revision'>, candidate: ChainTransaction): Promise<ChequebookOperation>;
