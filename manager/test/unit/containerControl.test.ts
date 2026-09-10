@@ -325,18 +325,22 @@ describe('ContainerControl.logs: when a followed read stops', () => {
   it('stops once the tail has arrived and nothing follows it', async () => {
     // What every ordinary read does: the daemon sends the tail, then holds the
     // connection open for lines the container has not written yet.
+    //
+    // The total bound is put far out of reach here rather than left at 250 ms,
+    // so what ends the read is the idle gap and nothing else can be mistaken
+    // for it. Against a gap of 40 ms the assertion below then has room for a
+    // machine under load, which the earlier margin of 160 ms did not.
+    const REACHABLE_ONLY_BY_THE_IDLE_GAP = { ...SHORT_BOUNDS, totalMs: 5_000 };
     const feed = openStream();
-    const { control } = controlOverStream(() => feed.stream);
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_IDLE_GAP);
     feed.write('one\ntwo\n');
 
     const started = Date.now();
     const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
     assert.equal(text, 'one\ntwo');
-    assert.ok(
-      Date.now() - started < 200,
-      'the idle gap ends it, not the total bound',
-    );
+    assert.ok(took < 2_000, `the idle gap ends it, not the total bound, and it took ${took} ms`);
     assert.equal(feed.stream.destroyed, true);
   });
 
