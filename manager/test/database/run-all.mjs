@@ -209,4 +209,8 @@ async function main() {
   console.log(`PASS: ${counted(result.summary)}`);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await main().catch((error) => {
+    refuse([`the runner itself failed: ${error instanceof Error ? error.message : String(error)}`]);
+  });
+}
