@@ -4,8 +4,9 @@ const HASH = /^0x[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value);
 const hash = (value: unknown): value is string => typeof value === 'string' && HASH.test(value);
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
 const isTimestampOrNull = (value: unknown): value is string | null =>
-  value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)));
+  value === null || (typeof value === 'string' && ISO_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value)));
 
 export function isTransferOperation(value: unknown): value is ChequebookOperation {
   if (!value || typeof value !== 'object') return false;
