@@ -880,3 +880,16 @@ comment is left as it is and recorded here for whoever next touches that file.
 no prose semicolon in any changed file, and every relative path in every
 changed document resolved from that document's own directory. Nothing ran
 against the host, nothing was pushed, and no credential or `.env` was read.
+
+**Merged, 2026-09-10, the T21 reconciliation slice.** Merged into
+`feat/ai-remediation` as 47b6a6c. One review pass on a detached worktree
+checked every changed sentence against the code and found one high finding
+(the transaction contracts record still said every journal update advances
+the revision, which the T09 slice changed for an unchanged observation), three
+medium (an overclaim about a corrupt bundled pin, nine browser suites where
+eight drive a browser, and three older feature pages naming branches that no
+longer exist with a decision numbering of their own) and six low, all taken
+in a correction round (b76fb6a to bb4021c). The first run of the three-job
+checks workflow on 6dc33d1 ended with the checks and database jobs green and
+the browser job cancelled at its 30 minute limit by a teardown fault on Linux,
+which is fixed on its own branch next.
