@@ -31,6 +31,7 @@ async function dialogFixture(t) {
   const dispatched = [];
   const reads = [];
   const posts = [];
+  let readDelayMs = 0;
   const journal = createMockChequebookJournal({ profileFor: () => profile,
     nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
       chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } }),
@@ -38,7 +39,10 @@ async function dialogFixture(t) {
   const server = await launchTransferFixture(t, async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/profiles/synthetic-test') return json(res, 200, profile);
-    if (req.method === 'GET' && path.startsWith('/chequebook/')) reads.push(path);
+    if (req.method === 'GET' && path.startsWith('/chequebook/')) {
+      reads.push(path);
+      if (readDelayMs > 0) await new Promise(resolve => setTimeout(resolve, readDelayMs));
+    }
     if (req.method === 'POST') posts.push(path);
     for (const [method, pattern, handler] of journal.routes) {
       const match = pattern.exec(path);
@@ -46,7 +50,7 @@ async function dialogFixture(t) {
     }
     json(res, 404, {});
   });
-  return { ...server, journal, dispatched, reads, posts };
+  return { ...server, journal, dispatched, reads, posts, slowReads(milliseconds) { readDelayMs = milliseconds; } };
 }
 
 async function visible(browser, text, timeoutMs) {
@@ -160,5 +164,45 @@ test('a conflicted transfer is never shown as polled and never re-read on its ow
   assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Check transaction receipt')"),
     false, 'a conflicted transfer offers no Check button to point the operator at');
   assert.deepEqual(h.posts, []);
+  assert.deepEqual(browser.errors, []);
+});
+
+const UNKNOWN_SENTENCE = 'The manager has not returned a verified record for this request. Its transaction outcome is unknown.';
+
+/** Every rendered state, not a sample of them, so a flash of one frame still counts. */
+async function watchForText(browser, text) {
+  await browser.evaluate(`(() => {
+    globalThis.__t09Seen = 0;
+    const look = () => { if (document.body.innerText.includes(${JSON.stringify(text)})) globalThis.__t09Seen++; };
+    look();
+    globalThis.__t09Watch = new MutationObserver(look);
+    globalThis.__t09Watch.observe(document.body, { childList: true, subtree: true, characterData: true });
+  })()`);
+  return async () => {
+    const seen = await browser.evaluate('globalThis.__t09Seen');
+    await browser.evaluate('globalThis.__t09Watch.disconnect()');
+    return seen;
+  };
+}
+
+test('an automatic re-read never tells the operator the outcome is unknown', async t => {
+  const h = await dialogFixture(t);
+  h.slowReads(400);
+  const browser = await launchChrome(t, h.origin);
+  await browser.call('Page.navigate', { url: `${h.origin}/dev/t09-dialog-tests.html` });
+  await visible(browser, 'Storage and funding');
+  await click(browser, 'Fill chequebook');
+  await amount(browser, '0.5');
+  await click(browser, 'Review transfer');
+  await click(browser, 'Confirm transfer');
+  await visible(browser, 'Waiting for transaction confirmation');
+  await visible(browser, POLLED_SENTENCE);
+  const seen = await watchForText(browser, UNKNOWN_SENTENCE);
+  const readsBefore = h.reads.length;
+  await new Promise(resolve => setTimeout(resolve, RECEIPT_READ_INTERVAL_MS + 4000));
+  assert.ok(h.reads.length > readsBefore, 'the dialog re-read the saved record during the sampled window');
+  assert.equal(await seen(), 0, 'the evidence panel is never replaced by the unknown-outcome sentence while the record is submitted');
+  assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), true);
+  assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
   assert.deepEqual(browser.errors, []);
 });

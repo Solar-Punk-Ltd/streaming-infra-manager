@@ -181,6 +181,32 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     tests.push('persistence failure refuses dispatch');
   } finally { await h.close(); }
 
+  h = await fixture();
+  try {
+    await h.controller.confirmNew(draft, null);
+    const shown = h.controller.state.detail!;
+    const held = deferred<ChequebookOperationDetail | null>();
+    const asked = deferred<void>();
+    const answered = h.api.lookup;
+    h.api.lookup = () => { asked.resolve(); return held.promise; };
+    const refreshing = h.controller.restore();
+    await asked.promise;
+    assert(h.controller.state.detail?.operation.id === shown.operation.id, 'A refresh keeps the shown record until the manager answers');
+    held.resolve(shown);
+    await refreshing;
+    assert(h.controller.state.detail?.operation.id === shown.operation.id, 'The answer replaces the retained record with itself');
+    h.api.lookup = answered;
+    h.setRecord({ operation: shown.operation } as ChequebookOperationDetail);
+    await h.controller.restore();
+    assert(h.controller.state.detail === null && h.controller.state.issue === 'incomplete_response', 'An incomplete answer clears the retained record');
+    h.setRecord(shown);
+    await h.controller.restore();
+    h.setRecord(null);
+    await h.controller.restore();
+    assert(h.controller.state.detail === null && h.controller.state.issue === 'lookup_missing', 'A missing record clears the retained one');
+    tests.push('a refresh keeps the shown record until a real answer replaces or clears it');
+  } finally { await h.close(); }
+
   const asserted = detail({ requestId: crypto.randomUUID(), accountId: 7, profileName: profile.name,
     profileInstanceId: profile.instanceId, ...draft }, 'asserted');
   assert(transferHeadline(asserted) === 'Recorded outcome needs verification', 'A missing assertion cannot be labeled as a recorded operator action');
