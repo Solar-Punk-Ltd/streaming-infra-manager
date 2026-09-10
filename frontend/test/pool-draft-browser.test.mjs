@@ -9,6 +9,14 @@ import react from '@vitejs/plugin-react';
 import { launchChrome, waitFor } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 
+/**
+ * A wizard step can sit behind a Vite dependency re-optimization the first time
+ * a cold cache meets it, which once took the Continue button past the default
+ * fifteen seconds on a busy machine. The budget is only ever spent while the
+ * button is missing, so a fast run pays nothing for it.
+ */
+const COLD_OPTIMIZE_BUDGET_MS = 45_000;
+
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const rungs = ['360p', '480p', '720p', '1080p'];
@@ -93,7 +101,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   const body = () => evaluate('document.body.innerText');
   const click = async text => {
     const selector = `([...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)} && !button.disabled))`;
-    await waitFor(() => evaluate(`!!${selector}`), Boolean, `enabled button ${text}`);
+    await waitFor(() => evaluate(`!!${selector}`), Boolean, `enabled button ${text}`, COLD_OPTIMIZE_BUDGET_MS);
     await evaluate(`${selector}.click()`);
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   };
