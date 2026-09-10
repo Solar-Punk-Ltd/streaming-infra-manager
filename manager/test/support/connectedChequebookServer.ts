@@ -71,37 +71,49 @@ async function main(): Promise<void> {
   const pgPort = Number(process.env.T09_TEST_PG_PORT);
   if (!Number.isInteger(pgPort) || pgPort < 1 || pgPort > 65535) throw new Error('T09_TEST_PG_PORT is required');
   const backend = await startConnectedChequebook({ pgPort });
-  const auth = await connectedChequebookAuth();
-  const app = express();
-  app.use(connectedChequebookApi(backend.service, auth, { stubs: shellStubs(), chequebookSummary: syntheticSummary }));
-  const server = http.createServer(app);
-  await new Promise<void>(resolve => server.listen(0, LOOPBACK, resolve));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('The connected fixture server reported no port');
-  // Behind this port sit the real money routes and a published fixture password.
-  if (address.address !== LOOPBACK) throw new Error(`The connected fixture server must bind ${LOOPBACK} and bound ${address.address}`);
-  backend.service.start();
+  try {
+    const auth = await connectedChequebookAuth();
+    const app = express();
+    app.use(connectedChequebookApi(backend.service, auth, { stubs: shellStubs(), chequebookSummary: syntheticSummary }));
+    const server = http.createServer(app);
+    await new Promise<void>(resolve => server.listen(0, LOOPBACK, resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('The connected fixture server reported no port');
+    // Behind this port sit the real money routes and a published fixture password.
+    if (address.address !== LOOPBACK) throw new Error(`The connected fixture server must bind ${LOOPBACK} and bound ${address.address}`);
+    backend.service.start();
 
-  let closing = false;
-  const close = async () => {
-    if (closing) return;
-    closing = true;
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    await backend.close();
-    process.exit(0);
-  };
-  process.on('disconnect', () => { void close(); });
-  process.on('SIGTERM', () => { void close(); });
-  process.on('message', (message: ConnectedServerCommand) => {
-    if (message.kind === 'receipt') backend.chain.answers(message.answer);
-    if (message.kind === 'drop-next-response') backend.dropNextResponse();
-    const reply: ConnectedServerReply = { id: message.id, beePosts: backend.beePosts(), receiptReads: backend.chain.receiptReads() };
-    process.send?.(reply);
-  });
-  const ready: ConnectedServerReady = { ready: true, port: address.port, profileName: CONNECTED_PROFILE,
-    profileInstanceId: instanceForProfile(CONNECTED_PROFILE), username: CONNECTED_OPERATOR, password: CONNECTED_OPERATOR_PASSWORD };
-  process.send?.(ready);
+    let closing = false;
+    // The parent waits for this exit, so it happens whether or not the cleanup succeeded.
+    const close = async () => {
+      if (closing) return;
+      closing = true;
+      let failed = false;
+      try {
+        server.closeAllConnections();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+        await backend.close();
+      } catch (error) {
+        failed = true;
+        console.error(`The connected fixture did not close cleanly: ${error instanceof Error ? error.message : 'unknown'}`);
+      }
+      process.exit(failed ? 1 : 0);
+    };
+    process.on('disconnect', () => { void close(); });
+    process.on('SIGTERM', () => { void close(); });
+    process.on('message', (message: ConnectedServerCommand) => {
+      if (message.kind === 'receipt') backend.chain.answers(message.answer);
+      if (message.kind === 'drop-next-response') backend.dropNextResponse();
+      const reply: ConnectedServerReply = { id: message.id, beePosts: backend.beePosts(), receiptReads: backend.chain.receiptReads() };
+      process.send?.(reply);
+    });
+    const ready: ConnectedServerReady = { ready: true, port: address.port, profileName: CONNECTED_PROFILE,
+      profileInstanceId: instanceForProfile(CONNECTED_PROFILE), username: CONNECTED_OPERATOR, password: CONNECTED_OPERATOR_PASSWORD };
+    process.send?.(ready);
+  } catch (error) {
+    await backend.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 main().catch(error => {
