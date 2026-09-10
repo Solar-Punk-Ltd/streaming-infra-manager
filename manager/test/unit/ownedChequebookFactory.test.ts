@@ -11,6 +11,7 @@ import { fakeForwardHarness, remoteLocator } from '../support/sshForwardLifecycl
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
 import type { ChequebookChainReader } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
 import { ChequebookDockerTransports } from '../../src/domain/chequebook/ChequebookDockerTransports.js';
+import { Logger } from '../../src/domain/Logger.js';
 
 const runtime = () => ({ rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: JSON.stringify({
   [syntheticTarget.alias]: { locator: { kind: 'unix', alias: syntheticTarget.alias, socketPath: '/synthetic/docker.sock' }, qualificationIds: ['synthetic-only'] },
@@ -199,6 +200,36 @@ it('the started service polls its own submitted transfer to settlement and polls
   for (let round = 0; round < 20; round++) await pause();
   assert.equal((await h.repository.findById(later.id))?.receiptCheckedAt, null);
   assert.equal(h.fixture.counts().posts, 1);
+});
+
+it('the production factory sends receipt polling notes and journal failures to the manager logger', async t => {
+  const h = harness(t);
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  t.mock.method(Logger.prototype, 'info', (...args: unknown[]) => { notes.push(args.join(' ')); });
+  t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
+  const operation = (await h.service.submit(transferIntent())).operation;
+  const settling = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
+    ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
+    receiptPolling: { intervalMs: 5, schedule: () => () => {} },
+  });
+  t.after(() => settling.shutdown());
+  settling.start();
+  for (let round = 0; round < 40 && notes.length === 0; round++) await pause();
+  assert.equal(notes.length, 1, 'the production default is not the no-op logger');
+  assert.match(notes[0]!, new RegExp(`${operation.id} settled`));
+  assert.deepEqual(warnings, []);
+  await settling.shutdown();
+
+  const unreadable = new InMemoryChequebookOperations();
+  unreadable.listAwaitingReceipt = async () => { throw new Error('synthetic-journal-failure'); };
+  const failing = createChequebookOperationsService(h.pool, runtime(), { ...h.dependencies, repository: unreadable,
+    receiptPolling: { intervalMs: 5, schedule: () => () => {} } });
+  t.after(() => failing.shutdown());
+  failing.start();
+  for (let round = 0; round < 40 && warnings.length === 0; round++) await pause();
+  assert.deepEqual(warnings, ['Receipt polling could not read the transfer journal.']);
+  assert.equal(notes.length, 1, 'a journal that cannot be read is a warning and not a note');
 });
 
 it('shutdown while target capture is held refuses later acquisition', async t => {
