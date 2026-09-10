@@ -16,7 +16,7 @@ test('the transfer controller preserves intent through lost responses, auth and 
   const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
     value => value !== 'Ready' && value !== 'Running', 'controller test result');
   assert.ok(!result.startsWith('FAILED:'), result);
-  assert.equal(JSON.parse(result).passed, 10);
+  assert.equal(JSON.parse(result).passed, 11);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
 });
