@@ -12,86 +12,17 @@
  * skips rather than passing quietly.
  */
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import http from 'node:http';
-import net from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
-import express from 'express';
-import pg from 'pg';
 import { REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME, type ChequebookOperation } from '@streaming-infra-manager/common';
-import { createAuthRouter } from '../../src/api/routes/auth.js';
-import { createChequebookRouter } from '../../src/api/routes/chequebook.js';
-import { createRequireSession } from '../../src/api/middleware/requireSession.js';
-import { requireSameSite } from '../../src/api/middleware/requireSameSite.js';
-import { errorHandler } from '../../src/api/middleware/errorHandler.js';
-import { AuthService } from '../../src/domain/auth/AuthService.js';
-import { OpenStreams } from '../../src/domain/auth/OpenStreams.js';
-import type { ChequebookService } from '../../src/domain/ChequebookService.js';
-import type { ChequebookChainReader } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
 import { createChequebookOperationsService } from '../../src/domain/chequebook/createChequebookOperationsService.js';
-import { InMemoryCredentialRepository } from '../support/InMemoryCredentialRepository.js';
-import { InMemorySessionRepository } from '../support/InMemorySessionRepository.js';
-import { InMemoryUserRepository } from '../support/InMemoryUserRepository.js';
-import { instanceForProfile, transferContext, transactionHash } from '../support/chequebookOperations.js';
-import { qualifiedBridge } from '../support/qualifiedBeeBridge.js';
-import { seedSyntheticChequebookTarget, SyntheticTargetChequebookRepository } from '../support/syntheticChequebookTargets.js';
-import { syntheticDockerBee } from '../support/syntheticDockerBee.js';
+import { instanceForProfile, transactionHash } from '../support/chequebookOperations.js';
+import { CONNECTED_OPERATOR, CONNECTED_OPERATOR_PASSWORD, CONNECTED_PROFILE, connectedChequebookApi, connectedChequebookAuth,
+  startConnectedChequebook, type ConnectedChequebookOptions } from '../support/connectedChequebook.js';
 
 const port = Number(process.env.T09_TEST_PG_PORT);
-// Only a loopback port is configurable. This suite cannot select a deployment database.
-const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't09_test', connectionTimeoutMillis: 30000 };
-const PROFILE = 'test-deployment';
-/** The port the synthetic container publishes, which the SQL reservation has to agree with. */
-const PUBLISHED_BEE_PORT = 11633;
-const OPERATOR = 'connected-operator';
-const OPERATOR_PASSWORD = 'a-long-enough-synthetic-password';
-const START_BLOCK = 500n;
-const RECEIPT_BLOCK = 501n;
-
-type ReceiptAnswer = 'pending' | 'success' | 'reverted';
-const hashAt = (block: bigint) => block === START_BLOCK ? transferContext.startBlockHash : `0x${block.toString(16).padStart(64, '0')}`;
-
-/**
- * One chain, scripted. It answers the same finalized history every time so a
- * case can say what changed rather than what the chain happened to do.
- */
-function syntheticChain() {
-  let answer: ReceiptAnswer = 'pending';
-  let available = true;
-  let receiptReads = 0;
-  const unavailable = () => { throw new Error('synthetic-rpc-outage'); };
-  const reader: ChequebookChainReader = {
-    async chainId() { return available ? 100 : unavailable(); },
-    async transactionCount() { return available ? '8' : unavailable(); },
-    async blockTransactions() { return available ? null : unavailable(); },
-    async blockHeader(block) {
-      if (!available) unavailable();
-      const number = block === 'finalized' || block === 'latest' ? (answer === 'pending' ? START_BLOCK : RECEIPT_BLOCK) : block;
-      return { number: String(number), hash: hashAt(number), parentHash: hashAt(number - 1n) };
-    },
-    async transaction(hash) {
-      if (!available) unavailable();
-      if (answer === 'pending') return null;
-      return { hash, chainId: 100, from: transferContext.nodeAddress, to: '0xdbf3ea6f5bee45c02255b2c26a16f300502f68da',
-        data: `0xa9059cbb${transferContext.chequebookAddress.slice(2).padStart(64, '0')}${(5000000000000000n).toString(16).padStart(64, '0')}`,
-        nonce: '9', value: '0', blockNumber: String(RECEIPT_BLOCK), blockHash: hashAt(RECEIPT_BLOCK) };
-    },
-    async receipt(hash) {
-      receiptReads++;
-      if (!available) unavailable();
-      if (answer === 'pending') return null;
-      return { transactionHash: hash, from: transferContext.nodeAddress, to: '0xdbf3ea6f5bee45c02255b2c26a16f300502f68da',
-        blockNumber: String(RECEIPT_BLOCK), blockHash: hashAt(RECEIPT_BLOCK), status: answer === 'success' ? 'success' : 'reverted' };
-    },
-  };
-  return { reader, receiptReads: () => receiptReads,
-    answers(next: ReceiptAnswer) { answer = next; },
-    outage(on: boolean) { available = !on; } };
-}
 
 async function until<T>(read: () => Promise<T>, accepts: (value: T) => boolean, description: string, timeoutMs = 20_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -104,102 +35,39 @@ async function until<T>(read: () => Promise<T>, accepts: (value: T) => boolean, 
   return last;
 }
 
-interface ConnectedOptions {
-  readonly dropNextResponse?: boolean;
-  readonly receiptPollBudgetMs?: number;
-  readonly pollIntervalMs?: number;
-}
-
-async function connected(t: TestContext, options: ConnectedOptions = {}) {
-  const schema = `t09c_${randomBytes(8).toString('hex')}`;
-  const admin = new pg.Pool(connection);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  const pool = new pg.Pool({ ...connection, max: 20, options: `-c search_path=${schema}` });
-  const migrations = new URL('../../src/migrations/', import.meta.url);
-  for (const name of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
-    await pool.query(await readFile(new URL(name, migrations), 'utf8'));
-  }
-  await pool.query('INSERT INTO profiles (name, port_slot, instance_id, stack_version_id) VALUES ($1, 1, $2, 1)', [PROFILE, instanceForProfile(PROFILE)]);
-  await seedSyntheticChequebookTarget(pool, PROFILE);
-  await pool.query('UPDATE port_reservations SET port = $2 WHERE profile_name = $1', [PROFILE, PUBLISHED_BEE_PORT]);
-
-  const directory = await mkdtemp(join(tmpdir(), 't09-connected-'));
-  const socketPath = join(directory, 'docker.sock');
-  let dropResponse = options.dropNextResponse === true;
-  const beeFixtures: ReturnType<typeof syntheticDockerBee>[] = [];
-  const connections = new Set<net.Socket>();
-  const sockets = net.createServer(socket => {
-    const bee = syntheticDockerBee(t, request => {
-      if (request.method !== 'POST' || !dropResponse) return false;
-      dropResponse = false;
-      request.socket.destroy();
-      return true;
-    }, false);
-    beeFixtures.push(bee);
-    connections.add(socket);
-    socket.on('error', () => {});
-    socket.pipe(bee.transport).pipe(socket);
-    socket.on('close', () => connections.delete(socket));
-    bee.transport.once('close', () => socket.destroy());
-  });
-  sockets.listen(socketPath);
-  await once(sockets, 'listening');
-
-  const chain = syntheticChain();
-  const repository = new SyntheticTargetChequebookRepository(pool, { receiptPollBudgetMs: options.receiptPollBudgetMs });
-  const runtime = { rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: JSON.stringify({
-    localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath }, qualificationIds: ['synthetic-only'] } }) };
-  const dependencies = { repository, qualificationCatalog: [qualifiedBridge()], createChainReader: () => chain.reader,
-    preparation: { cleanupGraceMs: 20, timeoutMs: 3000 },
-    receiptPolling: { intervalMs: options.pollIntervalMs ?? 50 } };
-  const service = createChequebookOperationsService(pool, runtime, dependencies);
-
-  const users = new InMemoryUserRepository();
-  const sessions = new InMemorySessionRepository(users);
-  const openStreams = new OpenStreams();
-  const authService = new AuthService(users, sessions, new InMemoryCredentialRepository(users, sessions), openStreams);
-  await authService.addUser(OPERATOR, OPERATOR_PASSWORD);
-  const requireSession = createRequireSession(authService);
+async function connected(t: TestContext, options: Omit<ConnectedChequebookOptions, 'pgPort'> = {}) {
+  const backend = await startConnectedChequebook({ ...options, pgPort: port });
+  const auth = await connectedChequebookAuth();
   const requests: string[] = [];
-  const app = express();
-  app.use(requireSameSite, express.json({ limit: '256kb' }));
-  app.use((req, _res, next) => { requests.push(`${req.method} ${req.path}`); next(); });
-  app.use('/auth', createAuthRouter(authService, requireSession));
-  app.use(requireSession);
-  app.use(createChequebookRouter({} as ChequebookService, service), errorHandler);
-  const server = http.createServer(app);
+  const server = http.createServer(connectedChequebookApi(backend.service, auth,
+    { onRequest: (method, path) => requests.push(`${method} ${path}`) }));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   const base = `http://127.0.0.1:${address.port}`;
-
-  const cleanup = async () => {
-    await service.shutdown();
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
-    for (const socket of connections) socket.destroy();
-    if (sockets.listening) await new Promise<void>(resolve => sockets.close(() => resolve()));
-    await rm(directory, { recursive: true, force: true });
-    await pool.end();
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
+    await backend.close();
   };
-  let closed = false;
-  t.after(async () => { if (!closed) { closed = true; await cleanup(); } });
-  t.diagnostic(`Owned synthetic Docker socket ${socketPath}, schema ${schema}, API ${base}`);
+  t.after(close);
+  t.diagnostic(`Owned synthetic Docker socket in ${backend.directory}, schema ${backend.schema}, API ${base}`);
 
   const login = await fetch(`${base}/auth/login`, { method: 'POST',
     headers: { 'content-type': 'application/json', [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE },
-    body: JSON.stringify({ username: OPERATOR, password: OPERATOR_PASSWORD }) });
+    body: JSON.stringify({ username: CONNECTED_OPERATOR, password: CONNECTED_OPERATOR_PASSWORD }) });
   assert.equal(login.status, 204, 'the fixture operator signs in through the real login route');
   const cookiePair = login.headers.getSetCookie().find(value => value.startsWith(`${SESSION_COOKIE_NAME}=`))?.split(';')[0];
   assert.ok(cookiePair, 'sign-in set a session cookie');
   const headers = { cookie: cookiePair, [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE, 'content-type': 'application/json' };
-  const accountId = (await users.findByUsername(OPERATOR))!.id;
+  const accountId = await auth.accountId();
 
   async function deposit(requestId = randomUUID(), amount = '5000000000000000') {
-    const response = await fetch(`${base}/profiles/${PROFILE}/chequebook/deposit`, { method: 'POST', headers,
-      body: JSON.stringify({ requestId, profileInstanceId: instanceForProfile(PROFILE), expectedAccountId: accountId, amount }),
+    const response = await fetch(`${base}/profiles/${CONNECTED_PROFILE}/chequebook/deposit`, { method: 'POST', headers,
+      body: JSON.stringify({ requestId, profileInstanceId: instanceForProfile(CONNECTED_PROFILE), expectedAccountId: accountId, amount }),
       signal: AbortSignal.timeout(20_000) });
     return { status: response.status, body: await response.json() as { kind: string; operation: ChequebookOperation } };
   }
@@ -208,15 +76,10 @@ async function connected(t: TestContext, options: ConnectedOptions = {}) {
       body: JSON.stringify({ expectedAccountId: accountId }), signal: AbortSignal.timeout(20_000) });
     return { status: response.status, body: await response.json() as { operation: ChequebookOperation } };
   }
-  const row = async (id: string) => (await repository.findById(id))!;
-
-  return { base, headers, accountId, service, repository, pool, chain, requests, row, deposit, check, cleanup: async () => { closed = true; await cleanup(); },
-    directory,
-    beePosts: () => beeFixtures.reduce((total, fixture) => total + fixture.counts().posts, 0),
-    beeRequests: () => beeFixtures.flatMap(fixture => fixture.beeRequests),
+  return { ...backend, base, headers, accountId, deposit, check, close,
+    row: async (id: string) => (await backend.repository.findById(id))!,
     checkRequests: () => requests.filter(entry => entry.endsWith('/check')),
-    dropNextResponse() { dropResponse = true; },
-    due: () => repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }) };
+    due: () => backend.repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }) };
 }
 
 describe('the connected chequebook path over a real journal and an owned synthetic Bee', { skip: !Number.isInteger(port) || port < 1 || port > 65535 }, () => {
@@ -353,7 +216,7 @@ describe('the connected chequebook path over a real journal and an owned synthet
     const h = await connected(t);
     const admitted = await h.deposit();
     assert.equal(admitted.body.operation.state, 'submitted');
-    await h.cleanup();
+    await h.close();
     await assert.rejects(stat(h.directory), { code: 'ENOENT' });
     t.diagnostic(`Verified removed: ${h.directory}`);
   });
