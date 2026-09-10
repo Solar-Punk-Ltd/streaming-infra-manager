@@ -5,8 +5,10 @@
  * Each suite file gates itself on a task port variable and skips silently when
  * that variable is unset, which on a runner would report a green database
  * check for a database nothing ever opened. So the configuration is checked
- * here first, every database is connected to here first, and a run whose
- * summary carries a single skip is not a pass.
+ * here first, every file's gate is read here first, every database is
+ * connected to here first, and the run itself is judged by the shared rules in
+ * test/support/tapJudge.mjs, which refuse a skipped test, a suite that skipped
+ * itself whole, and a run that took no test at all.
  *
  * Usage, from the manager package, with a disposable PostgreSQL that already
  * holds the nine databases:
@@ -18,10 +20,14 @@
  * database.
  */
 import { spawn } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
+
+import { counted, runProblem, summaryOf } from '../support/tapJudge.mjs';
 
 /**
  * The nine databases the suites in this directory open, and the variable each
@@ -69,12 +75,11 @@ export const SUITE_ARGS = [
   SUITE_GLOB,
 ];
 const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
+const SUITE_DIR = fileURLToPath(new URL('.', import.meta.url));
+const SUITE_FILE_SUFFIX = '.test.ts';
 
-/** A count the child never printed, which is a reason to refuse rather than a zero. */
-const UNKNOWN = null;
-
-const SUMMARY_KEYS = ['tests', 'pass', 'fail', 'skipped'];
-const SUMMARY_RE = /^# (tests|pass|fail|skipped) (\d+)$/gm;
+/** Every variable a suite file could be gated on, whether or not this job sets it. */
+const PORT_VARIABLE_RE = /[A-Z0-9]+_TEST_PG_PORT/g;
 
 /** The connection one suite would make, so the preflight opens exactly what the suite opens. */
 export function connectionFor(entry, port) {
@@ -126,30 +131,43 @@ export function portsFrom(env) {
   return TASK_DATABASES.map((entry) => ({ ...entry, port: portOf(env, entry.variable).port }));
 }
 
-/** The four counts the child's own summary reports, each null when it printed none. */
-export function summaryOf(output) {
-  const summary = Object.fromEntries(SUMMARY_KEYS.map((key) => [key, UNKNOWN]));
-  for (const [, key, value] of output.matchAll(SUMMARY_RE)) summary[key] = Number(value);
-  return summary;
+/**
+ * Why a suite file in this directory could never run under this job, one line
+ * each, or an empty list.
+ *
+ * A file gated on a variable the table does not carry skips itself whole, and
+ * a suite that skips whole registers no test at all. The judge catches that
+ * after the fact, from the marker on its result line. This catches it before
+ * anything is started, and names the file rather than the suite, which is
+ * what the person who has to add a database needs.
+ */
+export function gateProblems(suites) {
+  const known = new Set(TASK_DATABASES.map((entry) => entry.variable));
+  const problems = [];
+  for (const { file, text } of suites) {
+    const named = [...new Set([...text.matchAll(PORT_VARIABLE_RE)].map(([variable]) => variable))];
+    if (named.length === 0) {
+      problems.push(
+        `${file} reads no task port variable, so nothing here knows which database it opens and this run cannot set it.`,
+      );
+      continue;
+    }
+    for (const variable of named.filter((variable) => !known.has(variable))) {
+      problems.push(
+        `${file} is gated on ${variable}, which is not one of the ${TASK_DATABASES.length} this run sets, ` +
+          `so it would skip in silence. Add its database to the table in this file.`,
+      );
+    }
+  }
+  return problems;
 }
 
-function counted({ tests, fail, skipped }) {
-  return `${tests} tests, ${fail} failed, ${skipped} skipped`;
-}
-
-/** Why the run was not green, in one line carrying all three counts, or null. */
-export function runProblem({ code, signal, summary }) {
-  if (SUMMARY_KEYS.some((key) => summary[key] === UNKNOWN)) {
-    return 'The child printed no summary, so nothing here knows what ran. Its output is above.';
-  }
-  const counts = counted(summary);
-  if (signal) return `The suites were killed by ${signal}. ${counts}.`;
-  if (code !== 0) return `The suites exited with code ${code}. ${counts}.`;
-  if (summary.fail !== 0) return `The suites reported failures. ${counts}.`;
-  if (summary.skipped !== 0) {
-    return `A skipped suite is a suite that did not run, and this runner exists so that is never counted as green. ${counts}.`;
-  }
-  return null;
+/** Every suite file this run is about to start, with its text, for the gate scan. */
+function suiteFiles() {
+  return readdirSync(SUITE_DIR)
+    .filter((file) => file.endsWith(SUITE_FILE_SUFFIX))
+    .sort()
+    .map((file) => ({ file, text: readFileSync(join(SUITE_DIR, file), 'utf8') }));
 }
 
 async function preflight(entries) {
@@ -184,7 +202,7 @@ function runSuites(env) {
       output += chunk;
     });
     child.on('error', reject);
-    child.on('close', (code, signal) => resolve({ code, signal, summary: summaryOf(output) }));
+    child.on('close', (code, signal) => resolve({ code, signal, output }));
   });
 }
 
@@ -197,6 +215,9 @@ async function main() {
   const configuration = portProblems(process.env);
   if (configuration.length > 0) return refuse(configuration);
 
+  const gates = gateProblems(suiteFiles());
+  if (gates.length > 0) return refuse(gates);
+
   const entries = portsFrom(process.env);
   const unreachable = await preflight(entries);
   if (unreachable.length > 0) return refuse(unreachable);
@@ -204,9 +225,9 @@ async function main() {
 
   const config = entries.find((entry) => entry.database === CONFIG_DATABASE);
   const result = await runSuites({ ...process.env, DATABASE_URL: databaseUrlFor(config.port) });
-  const problem = runProblem(result);
+  const problem = runProblem({ ...result, glob: SUITE_GLOB });
   if (problem) return refuse([problem]);
-  console.log(`PASS: ${counted(result.summary)}`);
+  console.log(`PASS: ${counted(summaryOf(result.output))}`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

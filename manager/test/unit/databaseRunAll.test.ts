@@ -2,10 +2,12 @@
  * The rules the SQL runner refuses on, exercised without a database.
  *
  * The runner in test/database/run-all.mjs exists so that an unset variable or
- * a skipped suite can never be reported as a passing database check. Its
- * decisions are pure functions over an environment and over the child's own
- * summary lines, and this file is where they are pinned. The live run against
- * nine disposable databases is a separate thing and proves something else.
+ * a suite nothing ever started can never be reported as a passing database
+ * check. Its decisions are pure functions over an environment and over the
+ * suite files themselves, and this file is where they are pinned. How the run
+ * is judged afterwards is shared with the browser runner and pinned in
+ * tapJudge.test.ts. The live run against nine disposable databases is a third
+ * thing and proves something else again.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -15,9 +17,8 @@ import {
   TASK_DATABASES,
   connectionFor,
   databaseUrlFor,
+  gateProblems,
   portProblems,
-  runProblem,
-  summaryOf,
 } from '../database/run-all.mjs';
 
 const NINE = {
@@ -32,7 +33,6 @@ const NINE = {
   T12_TEST_PG_PORT: '55432',
 };
 
-const clean = { tests: 518, pass: 518, fail: 0, skipped: 0 };
 
 describe('the table of task databases', () => {
   it('names the nine databases the SQL suites open, each with its own variable', () => {
@@ -108,68 +108,36 @@ describe('refusing to start on the environment', () => {
   });
 });
 
-describe('reading the child summary', () => {
-  const tail = [
-    'ok 518 - the last one',
-    '1..518',
-    '# tests 518',
-    '# suites 33',
-    '# pass 518',
-    '# fail 0',
-    '# cancelled 0',
-    '# skipped 0',
-    '# todo 0',
-    '# duration_ms 128000',
-    '',
-  ].join('\n');
-
-  it('reads the four counts a run is judged on', () => {
-    assert.deepEqual(summaryOf(tail), clean);
+describe('refusing to start on a suite this run could never make answer', () => {
+  const gated = (variable: string) => ({
+    file: 'somethingNew.test.ts',
+    text: `const port = Number(process.env.${variable});\ndescribe('x', { skip: !port }, () => {});\n`,
   });
 
-  it('ignores the indented summaries of nested subtests', () => {
-    const nested = ['    # tests 3', '    # fail 2', '    # skipped 1', tail].join('\n');
-    assert.deepEqual(summaryOf(nested), clean);
+  it('says nothing about the files that are gated on the table', () => {
+    assert.deepEqual(gateProblems(TASK_DATABASES.map((entry) => gated(entry.variable))), []);
   });
 
-  it('takes the last summary when a child prints more than one', () => {
-    const twice = [tail, '# tests 4', '# pass 3', '# fail 1', '# skipped 0'].join('\n');
-    assert.deepEqual(summaryOf(twice), { tests: 4, pass: 3, fail: 1, skipped: 0 });
+  it('names the file and the variable when a suite is gated on a database this run does not create', () => {
+    const problems = gateProblems([gated('T13_TEST_PG_PORT')]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /somethingNew\.test\.ts/);
+    assert.match(problems[0], /T13_TEST_PG_PORT/);
+    assert.match(problems[0], /skip in silence/);
   });
 
-  it('reports a missing count as unknown rather than as zero', () => {
-    assert.deepEqual(summaryOf('ok 1 - alone\n1..1\n'), { tests: null, pass: null, fail: null, skipped: null });
-  });
-});
-
-describe('deciding whether the run was green', () => {
-  it('passes a child that exited zero with no failure and no skip', () => {
-    assert.equal(runProblem({ code: 0, signal: null, summary: clean }), null);
+  it('names a file that reads no port variable at all, because its gate is not one this run sets', () => {
+    const problems = gateProblems([{ file: 'ungated.test.ts', text: "describe('x', () => {});\n" }]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /ungated\.test\.ts/);
+    assert.match(problems[0], /no task port variable/);
   });
 
-  it('refuses a failure and prints all three counts', () => {
-    const problem = runProblem({ code: 1, signal: null, summary: { ...clean, pass: 515, fail: 3 } });
-    assert.match(problem ?? '', /3 failed/);
-    assert.match(problem ?? '', /518 tests/);
-    assert.match(problem ?? '', /0 skipped/);
-  });
-
-  it('refuses a skip, because a skipped suite is a suite that did not run', () => {
-    const problem = runProblem({ code: 0, signal: null, summary: { ...clean, pass: 516, skipped: 2 } });
-    assert.match(problem ?? '', /2 skipped/);
-    assert.match(problem ?? '', /did not run/);
-  });
-
-  it('refuses a non-zero exit even when the counts look clean', () => {
-    assert.match(runProblem({ code: 7, signal: null, summary: clean }) ?? '', /exited with code 7/);
-  });
-
-  it('refuses a child killed by a signal', () => {
-    assert.match(runProblem({ code: null, signal: 'SIGKILL', summary: clean }) ?? '', /SIGKILL/);
-  });
-
-  it('refuses a run whose counts could not be read', () => {
-    const problem = runProblem({ code: 0, signal: null, summary: { tests: null, pass: null, fail: null, skipped: null } });
-    assert.match(problem ?? '', /summary/);
+  it('reads a file that names two variables as two answers, and refuses the one it cannot set', () => {
+    const problems = gateProblems([
+      { file: 'both.test.ts', text: 'T09_TEST_PG_PORT T13_TEST_PG_PORT T09_TEST_PG_PORT' },
+    ]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /T13_TEST_PG_PORT/);
   });
 });
