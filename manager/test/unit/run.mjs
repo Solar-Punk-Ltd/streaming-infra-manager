@@ -27,6 +27,16 @@ import { fileURLToPath } from 'node:url';
 /** Where a checkout's root is named, read by envUtils at import time. */
 export const STACK_ROOT_VARIABLE = 'SHLS_ROOT';
 
+/**
+ * A database URL that names nothing, for a run that opens no database.
+ *
+ * src/utils/config.ts requires the variable when it is first imported, and 26
+ * unit files reach it, so a checkout with no manager/.env fails them all at
+ * import. dotenv never overwrites a variable that is already set, so a
+ * developer's own URL still wins when they exported one.
+ */
+export const PLACEHOLDER_DATABASE_URL = 'postgres://unused@localhost/unused';
+
 export const UNIT_ARGS = ['--conditions=development', '--test', 'test/unit/**/*.test.ts'];
 
 const ROOT_PREFIX = 'manager-unit-stack-';
@@ -34,12 +44,19 @@ const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url
 const PACKAGE = fileURLToPath(new URL('../../', import.meta.url));
 
 /**
- * The environment the suite runs in. A root the caller already exported is
- * replaced rather than kept, because the point is that no unit test writes
- * into a checkout anyone else can see.
+ * The environment the suite runs in.
+ *
+ * A root the caller already exported is replaced rather than kept, because the
+ * point is that no unit test writes into a checkout anyone else can see. A
+ * database URL, by contrast, is only filled in when the caller has none, so a
+ * run against a real one is still possible.
  */
 export function sandboxedEnv(env, root) {
-  return { ...env, [STACK_ROOT_VARIABLE]: root };
+  return {
+    ...env,
+    DATABASE_URL: env.DATABASE_URL ?? PLACEHOLDER_DATABASE_URL,
+    [STACK_ROOT_VARIABLE]: root,
+  };
 }
 
 /** Why the run was not green, in words, or null. */
