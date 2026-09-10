@@ -3,6 +3,7 @@ import { historyCursor, normalizeHistoryQuery } from '../../src/domain/chequeboo
 import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence.js';
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
 import { normalizeRecoveryObservation, preserveRecoveryEvidence } from '../../src/domain/chequebook/recoveryObservation.js';
+import { normalizeReceiptObservation } from '../../src/domain/chequebook/receiptObservation.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { chequebookAssertionConfirmation, RECEIPT_POLL_BUDGET_MS, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
@@ -112,10 +113,12 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     if (!row) throw new Error('Missing operation');
     if (row.failureReason === 'hash_conflict' || row.state !== 'submitted' || row.revision !== expected.revision || row.transactionHash !== expected.transactionHash) return structuredClone(row);
     const now = new Date().toISOString();
-    const unchanged = isDeepStrictEqual(row.receiptObservation, observation);
+    // Postgres stores and compares the observation as normalized jsonb, so the fake decides on that same value.
+    const observed = normalizeReceiptObservation(observation);
+    const unchanged = isDeepStrictEqual(row.receiptObservation, observed);
     const operation: ChequebookOperation = {
-      ...row, state: observation.kind === 'settled' || observation.kind === 'reverted' ? observation.kind : row.state,
-      revision: unchanged ? row.revision : String(BigInt(row.revision) + 1n), receiptObservation: structuredClone(observation),
+      ...row, state: observed.kind === 'settled' || observed.kind === 'reverted' ? observed.kind : row.state,
+      revision: unchanged ? row.revision : String(BigInt(row.revision) + 1n), receiptObservation: structuredClone(observed),
       receiptCheckedAt: now, updatedAt: unchanged ? row.updatedAt : now,
     };
     this.rows.set(row.id, operation);
