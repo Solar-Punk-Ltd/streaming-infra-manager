@@ -34,3 +34,11 @@ test('a run with nothing to report leaves no evidence directory and shares one V
   assert.deepEqual(await evidenceDirectories(), before, 'and leaves the temporary directory as it found it');
   assert.ok((await stat(sharedCache)).isDirectory(), 'the Vite cache is shared by every fixture and stays where it is');
 });
+
+test('the Vite fixture binds the port it probed and never one from the environment', async t => {
+  const planted = '54291';
+  process.env.T09_VITE_PORT = planted;
+  t.after(() => { delete process.env.T09_VITE_PORT; });
+  const fixture = await launchTransferFixture(t, (_req, res) => json(res, 404, {}));
+  assert.notEqual(new URL(fixture.origin).port, planted, 'the port came from the fixture probe and not from the environment');
+});
