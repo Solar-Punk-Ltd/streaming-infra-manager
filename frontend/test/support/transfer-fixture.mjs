@@ -36,12 +36,12 @@ async function startVite(managerUrl, evidence) {
     if (output === '' && left.length === 1 && left[0] === 'vite.log') await rm(evidence, { recursive: true, force: true });
   };
   try {
-    const [{ port }] = await Promise.race([
+    const [{ port, cache }] = await Promise.race([
       once(child, 'message', { signal: AbortSignal.timeout(15_000) }),
       once(child, 'exit').then(() => { throw new Error('The owned Vite fixture exited before startup. Inspect its evidence log.'); }),
     ]);
     if (!Number.isSafeInteger(port) || port < 1) throw new Error('The owned Vite fixture did not return a port');
-    return { port, stop };
+    return { port, cache, stop };
   } catch (error) {
     await stop();
     throw error;
@@ -63,8 +63,8 @@ export async function launchTransferFixture(t, handler, options = {}) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const managerPort = server.address().port;
   vite = await startVite(`http://127.0.0.1:${managerPort}`, evidence);
-  t.diagnostic(`Owned synthetic API ${managerPort}, Vite ${vite.port}, evidence ${evidence}`);
-  return { origin: `http://127.0.0.1:${vite.port}`, evidence };
+  t.diagnostic(`Owned synthetic API ${managerPort}, Vite ${vite.port}, evidence ${evidence}, cache ${vite.cache}`);
+  return { origin: `http://127.0.0.1:${vite.port}`, evidence, viteCache: vite.cache };
 }
 
 /** Vite alone, in front of a manager the caller already owns. */
@@ -73,8 +73,8 @@ export async function launchViteFor(t, managerUrl) {
   let vite;
   t.after(async () => { await vite?.stop(); });
   vite = await startVite(managerUrl, evidence);
-  t.diagnostic(`Owned Vite ${vite.port} in front of ${managerUrl}, evidence ${evidence}`);
-  return { origin: `http://127.0.0.1:${vite.port}`, evidence };
+  t.diagnostic(`Owned Vite ${vite.port} in front of ${managerUrl}, evidence ${evidence}, cache ${vite.cache}`);
+  return { origin: `http://127.0.0.1:${vite.port}`, evidence, viteCache: vite.cache };
 }
 
 export function json(res, status, body) {
