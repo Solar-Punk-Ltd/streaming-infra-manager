@@ -1,5 +1,7 @@
-# The checks main-v2 requires before a merge, D06. What they prove and what
-# they do not: docs/ci.md.
+# The checks main-v2 requires before a merge, D06. Three jobs: the build and
+# unit suites, the SQL suites against nine disposable databases, and the
+# browser suites against a real headless Chrome. What they prove and what they
+# do not: docs/ci.md.
 name: checks
 
 on:
@@ -111,3 +113,63 @@ jobs:
 
       - name: SQL suites, every one of the nine databases, no skip counted as a pass
         run: pnpm --filter @streaming-infra-manager/api test:database
+
+  browser:
+    # The nineteen suites under frontend/test, fourteen of which drive a real
+    # headless Chrome against a real Vite. They live outside pnpm test and so
+    # ran nowhere on a pull request. One at a time, because each starts its own
+    # Vite and its own Chrome.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        # The same pin as the database job, resolved 2026-09-10. Only the
+        # connected transfer suite needs it: it signs into a real manager over
+        # a real journal with the browser as the only client.
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # The Ubuntu 24.04 image carries Google Chrome. Its README names the
+      # driver path and not the browser's, so the preflight below proves the
+      # binary rather than trusting this line. A missing Chrome is a failed
+      # check and never a passed one.
+      CHROME_BIN: /usr/bin/google-chrome
+      T09_TEST_PG_PORT: 5432
+    steps:
+      - name: The Chrome these suites drive
+        run: |
+          if [ ! -x "$CHROME_BIN" ]; then
+            echo "No executable Chrome at $CHROME_BIN. The browser suites drive a real browser, so this is a failed check and not a skipped one." >&2
+            command -v google-chrome google-chrome-stable chromium chromium-browser >&2 || true
+            exit 1
+          fi
+          "$CHROME_BIN" --version
+
+      - name: Create the database the connected transfer suite writes its journal in
+        run: docker exec ${{ job.services.postgres.id }} createdb -U postgres t09_test
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Build common, which the app and the mock manager both type against
+        run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: Browser suites, one at a time, each owning its Vite and its Chrome
+        # Screenshots and fixture evidence go under RUNNER_TEMP, where the
+        # fixtures already put them. Nothing is uploaded: an upload action
+        # would need the repository's four provenance checks first.
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype test:browser
