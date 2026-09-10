@@ -79,8 +79,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
+        # Published on loopback rather than on every interface. Nothing outside
+        # the runner needs it, and a service with trust authentication that
+        # answers the world is a habit worth not having.
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s
@@ -138,8 +141,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
+        # Published on loopback rather than on every interface. Nothing outside
+        # the runner needs it, and a service with trust authentication that
+        # answers the world is a habit worth not having.
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s

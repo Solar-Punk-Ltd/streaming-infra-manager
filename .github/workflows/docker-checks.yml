@@ -92,8 +92,9 @@ jobs:
           POSTGRES_USER: manager
           POSTGRES_PASSWORD: manager
           POSTGRES_DB: manager
+        # Loopback only, as in the checks workflow.
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U manager"
           --health-interval 5s
