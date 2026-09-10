@@ -13,9 +13,11 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import fs, { stat } from 'node:fs/promises';
 import http from 'node:http';
+import { syncBuiltinESMExports } from 'node:module';
 import { describe, it, type TestContext } from 'node:test';
+import pg from 'pg';
 import { REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME, type ChequebookOperation } from '@streaming-infra-manager/common';
 import { createChequebookOperationsService } from '../../src/domain/chequebook/createChequebookOperationsService.js';
 import { instanceForProfile, transactionHash } from '../support/chequebookOperations.js';
@@ -210,6 +212,36 @@ describe('the connected chequebook path over a real journal and an owned synthet
     assert.equal(again.body.kind, 'replayed');
     assert.equal(again.body.operation.id, first.body.operation.id);
     assert.equal(h.beePosts(), 1);
+  });
+
+  function adminPool(t: TestContext) {
+    const admin = new pg.Pool({ host: '127.0.0.1', port, user: 'postgres', database: 't09_test', connectionTimeoutMillis: 30000 });
+    t.after(() => admin.end());
+    return admin;
+  }
+
+  it('unwinds a start that fails partway and leaves no schema behind', async t => {
+    const admin = adminPool(t);
+    const schemas = async () => (await admin.query("SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 't09c\\_%'")).rowCount;
+    const before = await schemas();
+    t.mock.method(fs, 'mkdtemp', async () => { throw new Error('synthetic-directory-failure'); });
+    syncBuiltinESMExports();
+    await assert.rejects(startConnectedChequebook({ pgPort: port }), /synthetic-directory-failure/);
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    assert.equal(await schemas(), before, 'the schema the failed start created was dropped again');
+  });
+
+  it('finishes every close step even when the first one fails', async t => {
+    const h = await connected(t);
+    const admin = adminPool(t);
+    assert.equal((await h.deposit()).body.operation.state, 'submitted');
+    h.service.shutdown = async () => { throw new Error('synthetic-shutdown-failure'); };
+    await assert.rejects(h.close(), /synthetic-shutdown-failure/);
+    await assert.rejects(stat(h.directory), { code: 'ENOENT' }, 'the socket directory is removed anyway');
+    await assert.rejects(h.pool.query('SELECT 1'), /after calling end/i, 'the journal pool is closed anyway');
+    assert.equal((await admin.query('SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1', [h.schema])).rowCount, 0,
+      'the disposable schema is dropped anyway');
   });
 
   it('leaves no temporary socket directory behind', async t => {
