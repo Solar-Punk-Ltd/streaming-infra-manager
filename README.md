@@ -39,6 +39,15 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
   deploy, removed with the deployment. See
   [docs/features/engine-config.md](docs/features/engine-config.md).
 
+## Checks
+
+Every pull request into `main-v2` runs three jobs: the build and the unit
+suites, the SQL suites against nine disposable databases, and the browser
+suites against a real headless Chrome. A separate workflow, started by hand,
+runs the container-backed regressions and the signed-in integration suite.
+What each one proves, what it does not, and how to run any of it on a laptop:
+[docs/ci.md](docs/ci.md).
+
 ## Cloning this repository
 
 This repo uses a **git submodule** (the `manager/swarm-hls-stream/` directory). A plain

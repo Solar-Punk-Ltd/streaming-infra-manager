@@ -123,7 +123,7 @@ jobs:
         run: pnpm --filter @streaming-infra-manager/api test:database
 
   browser:
-    # The nineteen suites under frontend/test, fourteen of which drive a real
+    # The twenty suites under frontend/test, fourteen of which drive a real
     # headless Chrome against a real Vite. They live outside pnpm test and so
     # ran nowhere on a pull request. One at a time, because each starts its own
     # Vite and its own Chrome.
