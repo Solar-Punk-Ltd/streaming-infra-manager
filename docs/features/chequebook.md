@@ -101,6 +101,13 @@ operation re-reads the saved record every 10 seconds so the outcome appears
 without a click. A settled or reverted receipt ends the polling by changing the
 state.
 
+The gap between checks grows when the chain endpoint stops answering. One pass
+takes at most 20 operations and each one waits out the receipt inspector's own
+timeout, so a pass during a complete outage can take about five minutes instead
+of a few seconds. Nothing is lost by that, the budget is still the same 30
+minutes and the page says the checks are about every 20 seconds and longer while
+the endpoint does not answer.
+
 The budget is never renewed. Nothing an operator does extends it, a restart
 resumes only the operations whose budget has not passed, and every operation
 recorded before this behaviour existed keeps an empty deadline and is never

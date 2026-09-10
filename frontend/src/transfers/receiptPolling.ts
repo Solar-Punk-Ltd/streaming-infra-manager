@@ -26,6 +26,6 @@ export function receiptPollingSentence(operation: PolledTransfer, now = Date.now
   const deadline = receiptPollDeadline(operation, now);
   if (deadline === null) return null;
   if (deadline <= now) return `Automatic checks ended at ${localClockTime(deadline)} without a final receipt. Use Check to ask the chain again.`;
-  return `The manager checks the chain for this transaction's receipt about every ${wholeSeconds(RECEIPT_POLL_INTERVAL_MS)} seconds until ${localClockTime(deadline)}. ` +
-    `This page re-reads the saved record every ${wholeSeconds(RECEIPT_READ_INTERVAL_MS)} seconds meanwhile.`;
+  return `The manager checks the chain for this transaction's receipt about every ${wholeSeconds(RECEIPT_POLL_INTERVAL_MS)} seconds until ${localClockTime(deadline)}, ` +
+    `and leaves longer gaps while the chain endpoint does not answer. This page re-reads the saved record every ${wholeSeconds(RECEIPT_READ_INTERVAL_MS)} seconds meanwhile.`;
 }
