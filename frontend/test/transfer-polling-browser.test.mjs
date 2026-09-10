@@ -26,12 +26,15 @@ const POLLED_SENTENCE = "The manager checks the chain for this transaction's rec
 const ENDED_SENTENCE = 'Automatic checks ended at';
 /** One re-read plus room for a slow headless render, so a missed re-read fails instead of hanging. */
 const WITHIN_ONE_REREAD_MS = RECEIPT_READ_INTERVAL_MS + 15_000;
+/** A failed read may cost one cycle. It may not cost the cadence. */
+const WITHIN_TWO_REREADS_MS = 2 * RECEIPT_READ_INTERVAL_MS + 15_000;
 
 async function dialogFixture(t) {
   const dispatched = [];
   const reads = [];
   const posts = [];
   let readDelayMs = 0;
+  let failNextRead = false;
   const journal = createMockChequebookJournal({ profileFor: () => profile,
     nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
       chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } }),
@@ -41,6 +44,7 @@ async function dialogFixture(t) {
     if (req.method === 'GET' && path === '/profiles/synthetic-test') return json(res, 200, profile);
     if (req.method === 'GET' && path.startsWith('/chequebook/')) {
       reads.push(path);
+      if (failNextRead) { failNextRead = false; return json(res, 503, { error: 'synthetic_unavailable' }); }
       if (readDelayMs > 0) await new Promise(resolve => setTimeout(resolve, readDelayMs));
     }
     if (req.method === 'POST') posts.push(path);
@@ -50,7 +54,9 @@ async function dialogFixture(t) {
     }
     json(res, 404, {});
   });
-  return { ...server, journal, dispatched, reads, posts, slowReads(milliseconds) { readDelayMs = milliseconds; } };
+  return { ...server, journal, dispatched, reads, posts,
+    slowReads(milliseconds) { readDelayMs = milliseconds; },
+    failNextRead() { failNextRead = true; } };
 }
 
 async function visible(browser, text, timeoutMs) {
@@ -204,5 +210,45 @@ test('an automatic re-read never tells the operator the outcome is unknown', asy
   assert.equal(await seen(), 0, 'the evidence panel is never replaced by the unknown-outcome sentence while the record is submitted');
   assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), true);
   assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
+  assert.deepEqual(browser.errors, []);
+});
+
+test('one failed re-read costs the dialog a cycle and not the cadence', async t => {
+  const h = await dialogFixture(t);
+  const browser = await launchChrome(t, h.origin);
+  await browser.call('Page.navigate', { url: `${h.origin}/dev/t09-dialog-tests.html` });
+  await visible(browser, 'Storage and funding');
+  await click(browser, 'Fill chequebook');
+  await amount(browser, '0.5');
+  await click(browser, 'Review transfer');
+  await click(browser, 'Confirm transfer');
+  await visible(browser, POLLED_SENTENCE);
+  h.failNextRead();
+  await visible(browser, 'The saved transfer could not be checked.', WITHIN_ONE_REREAD_MS);
+  h.journal.observeReceipt(h.dispatched[0].id, receipt);
+  await visible(browser, 'Transfer verified on chain', WITHIN_TWO_REREADS_MS);
+  assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
+  assert.deepEqual(browser.errors, []);
+});
+
+test('one failed re-read costs the detail page a cycle and not the cadence', async t => {
+  const h = await launchHistoryFixture(t, 1);
+  const seeded = h.records[0];
+  const record = h.journal.detail(seeded.id);
+  let answer = shown(record, { state: 'submitted', receiptObservation: null, receiptCheckedAt: null,
+    receiptPollUntil: new Date(Date.now() + 600_000).toISOString() });
+  let failNext = false;
+  h.override(url => {
+    if (url.pathname !== `/chequebook/operations/${seeded.id}`) return null;
+    if (failNext) { failNext = false; return { status: 503, body: { error: 'synthetic_unavailable' } }; }
+    return { status: 200, body: answer };
+  });
+  const browser = await detailPage(t, h, seeded.id);
+  await visible(browser, POLLED_SENTENCE);
+  failNext = true;
+  await visible(browser, 'Saved transfer evidence could not be verified', WITHIN_ONE_REREAD_MS);
+  answer = record;
+  await visible(browser, 'Transfer verified on chain', WITHIN_TWO_REREADS_MS);
+  assert.deepEqual(h.posts, []);
   assert.deepEqual(browser.errors, []);
 });
