@@ -28,6 +28,103 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
 }
 
 /**
+ * The page's own text, and '' where a document has no body yet.
+ *
+ * `document.body` is null from the moment a navigation commits until the
+ * parser reaches the body element, and a read that lands in that window
+ * throws `Cannot read properties of null` rather than answering. That is one
+ * evaluate in a wait that would otherwise have polled again, and it failed
+ * the third browser job on the runner.
+ */
+export const PAGE_TEXT = "(document.body?.innerText ?? '')";
+
+/** An expression answering whether the page shows `text` right now. */
+export function pageShows(text) {
+  return `${PAGE_TEXT}.includes(${JSON.stringify(text)})`;
+}
+
+/** An expression answering the button whose own text is `text`, or undefined. */
+export function buttonWithText(text) {
+  return `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)})`;
+}
+
+/**
+ * Clicks what `finder` answers, the moment it answers an enabled element.
+ *
+ * A wait that asks whether a control is there followed by an evaluate that
+ * clicks it are two reads of a page that renders in between, and the slower
+ * the machine the wider that gap is: the element found by the first can be
+ * gone by the second. One expression finds and clicks, so what was found is
+ * what was clicked, and a control that never arrives times out naming itself
+ * rather than throwing from inside the page.
+ *
+ * @param {(expression: string) => Promise<unknown>} evaluate runs an expression in the page.
+ * @param {string} finder an expression answering the element, or nothing.
+ * @param {string} description what this is waiting for, which is all a timeout prints.
+ * @param {number} [timeoutMs]
+ */
+export function clickWhenEnabled(evaluate, finder, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const element = ${finder};
+    if (!element || element.disabled) return false;
+    element.click();
+    return true;
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
+ * Where to click what `finder` answers, once it answers an enabled element.
+ *
+ * For the suites that drive a real mouse through `Input.dispatchMouseEvent`
+ * rather than calling `click()`, which is the only way to exercise what a
+ * pointer does to a control. The element is scrolled into view by the same
+ * expression that measures it, so the point cannot be one it has moved off.
+ *
+ * @returns {Promise<{ x: number, y: number }>} the middle of that element.
+ */
+export function pointToClick(evaluate, finder, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const element = ${finder};
+    if (!element || element.disabled) return null;
+    element.scrollIntoView({ block: 'center' });
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
+ * One property of the element `finder` answers, once there is one to read.
+ *
+ * @param {string} property the property name, such as `value` or `innerText`.
+ */
+export function readWhenPresent(evaluate, finder, property, description, timeoutMs) {
+  return waitFor(
+    () => evaluate(`(${finder})?.${property} ?? null`),
+    (value) => value !== null,
+    description,
+    timeoutMs,
+  );
+}
+
+/**
+ * Puts `value` into the field `finder` answers, once there is an enabled one.
+ *
+ * React reads a field's value off the element and only when it hears the
+ * input event, so the native setter and that event are what typing is here.
+ */
+export function fillWhenPresent(evaluate, finder, value, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const field = ${finder};
+    if (!field || field.disabled) return false;
+    const shape = field.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    field.focus();
+    Object.getOwnPropertyDescriptor(shape, 'value').set.call(field, ${JSON.stringify(value)});
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
  * Counts the requests a page completes from this call on, by the end of their URL.
  *
  * A `PerformanceObserver` is handed every resource entry whatever the timing
@@ -66,7 +163,24 @@ export async function watchCompletedRequests(evaluate, suffix) {
   })()`);
 }
 
-export function createProtocolClient(socket, timeoutMs = 10_000) {
+/** What one Chrome protocol request gets on an unthrottled page. */
+export const PROTOCOL_TIMEOUT_MS = 10_000;
+
+/**
+ * What one protocol request gets, stretched by whatever throttle is on.
+ *
+ * An evaluate runs in the page, so a rate of 4 makes the same expression take
+ * four times as long, and a fixed budget would end the request rather than the
+ * thing it is measuring. The row measurement in versions-layout.test.mjs took
+ * a whole browser run past ten seconds at rate 4 and failed as
+ * `Chrome request timed out: Runtime.evaluate`, which names the plumbing and
+ * not the page.
+ */
+export function protocolTimeoutFor(env = process.env) {
+  return PROTOCOL_TIMEOUT_MS * (cpuThrottleRate(env) ?? 1);
+}
+
+export function createProtocolClient(socket, timeoutMs = PROTOCOL_TIMEOUT_MS) {
   let nextId = 0;
   let ended = false;
   const pending = new Map();
@@ -100,6 +214,40 @@ export function createProtocolClient(socket, timeoutMs = 10_000) {
       });
     },
   };
+}
+
+/**
+ * How much slower than this machine a page session runs, from `BROWSER_CPU_THROTTLE`.
+ *
+ * The job's runner has two cores where this laptop has twelve, and each of
+ * three browser jobs in a row failed one different Chrome suite there while
+ * the whole set passed here. The value is a divider, so 4 asks for a quarter
+ * of this machine's speed. One and below, and anything that is not a number,
+ * is no throttling at all.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {number | null} the rate asked for, or null.
+ */
+export function cpuThrottleRate(env = process.env) {
+  const rate = Number(env.BROWSER_CPU_THROTTLE);
+  return Number.isFinite(rate) && rate > 1 ? rate : null;
+}
+
+/**
+ * Slows one page session to `cpuThrottleRate`.
+ *
+ * Every session the suites open goes through here, second tabs included: the
+ * rate is set on a page target rather than on the browser, so a tab that
+ * opened a session of its own runs at full speed until it is told otherwise.
+ *
+ * @param {(method: string, params?: object) => Promise<unknown>} call that session's protocol client.
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {Promise<number | null>} the rate applied, or null when none was.
+ */
+export async function throttleCpu(call, env = process.env) {
+  const rate = cpuThrottleRate(env);
+  if (rate !== null) await call('Emulation.setCPUThrottlingRate', { rate });
+  return rate;
 }
 
 /**
@@ -227,7 +375,7 @@ export async function launchChrome(t, origin) {
   const tabs = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json());
   socket = new WebSocket(tabs.find((tab) => tab.type === 'page').webSocketDebuggerUrl);
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
-  const { call } = createProtocolClient(socket);
+  const { call } = createProtocolClient(socket, protocolTimeoutFor());
   const errors = [];
   const blockedRequests = [];
   socket.addEventListener('message', ({ data }) => {
@@ -252,8 +400,10 @@ export async function launchChrome(t, origin) {
   await call('Page.enable');
   await call('Page.addScriptToEvaluateOnNewDocument', { source: `performance.setResourceTimingBufferSize(${RESOURCE_TIMING_BUFFER});` });
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  const throttled = await throttleCpu(call);
   const version = await call('Browser.getVersion');
-  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);
+  const slowedBy = throttled === null ? '' : `, CPU throttled ${throttled}x`;
+  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}${slowedBy}`);
   return {
     call, evaluate, errors, blockedRequests,
     pid: child.pid, profile, debuggingPort: port, version: version.product,

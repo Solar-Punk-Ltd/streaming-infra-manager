@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, launchChrome, PAGE_TEXT, readWhenPresent, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
@@ -70,9 +70,10 @@ test('readiness and container diagnostics use current observations in the browse
   const browser = await launchChrome(t, origin);
   const evidence = await evidenceDirectory('t12-browser-evidence-');
   const { call, evaluate } = browser;
-  const body = () => evaluate('document.body.innerText');
-  const hasUploader = () => evaluate(`!![...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Start uploader')`);
-  const click = text => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); if (!button) throw Error('Missing button'); button.click(); })()`);
+  const body = () => evaluate(PAGE_TEXT);
+  const hasUploader = () => evaluate(`!!${buttonWithText('Start uploader')}`);
+  const click = text => clickWhenEnabled(evaluate, buttonWithText(text), `an enabled ${text} button`);
+  const clickSelected = (selector, description) => clickWhenEnabled(evaluate, `document.querySelector(${JSON.stringify(selector)})`, description);
   await call('Page.navigate', { url: `${origin}/#/deployments/test-stream` });
   try { await waitFor(body, text => text.includes('Bee reports its API is ready'), 'current Bee readiness'); }
   catch (error) { console.log(await body(), browser.errors); throw error; }
@@ -80,10 +81,10 @@ test('readiness and container diagnostics use current observations in the browse
   assert.match(await body(), /Checked \d{4}-\d{2}-\d{2}T/);
   assert.doesNotMatch(await body(), /usually within a minute|Ready to stream|Watchable/);
   for (const service of ['bee-uploader', 'srs']) {
-    await evaluate(`document.querySelector('button[aria-label="View ${service} logs"]').click()`);
+    await clickSelected(`button[aria-label="View ${service} logs"]`, `the View ${service} logs button`);
     await waitFor(body, text => text.includes(`Only ${service} logs`), `${service} selected logs`);
     assert.equal(logRequests.at(-1), `/profiles/test-stream/containers/${service}/logs`);
-    await evaluate(`document.querySelector('button[aria-label="close"]').click()`);
+    await clickSelected('button[aria-label="close"]', 'the log dialog close button');
     await waitFor(() => evaluate('document.querySelector("[role=dialog]") === null'), Boolean, 'the log dialog to close');
   }
   await evaluate('window.fixtureNow = performance.now.bind(performance); performance.now = () => window.fixtureNow() + 31000');
@@ -128,7 +129,12 @@ test('readiness and container diagnostics use current observations in the browse
     await waitFor(body, text => text.includes(`${label}. Ingest and current container state are not yet verified.`), `${label} after page reload`);
     assert.doesNotMatch(await body(), /deployment is stopped|Stopped\. Start it/);
     assert.match(await body(), /Previous container records, current state not yet verified/);
-    const engineText = await evaluate(`[...document.querySelectorAll('h3')].find(heading => heading.textContent === 'SRS 6').closest('.MuiPaper-root').innerText`);
+    const engineText = await readWhenPresent(
+      evaluate,
+      `[...document.querySelectorAll('h3')].find(heading => heading.textContent === 'SRS 6')?.closest('.MuiPaper-root')`,
+      'innerText',
+      'the SRS 6 engine card',
+    );
     assert.match(engineText, /State not checked/);
     assert.doesNotMatch(await body(), /own node · not running/);
   }

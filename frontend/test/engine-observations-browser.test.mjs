@@ -7,7 +7,7 @@ import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -109,13 +109,15 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const browser = await launchChrome(t, origin);
   const evidence = await evidenceDirectory('t11-browser-evidence-');
   const { call, evaluate } = browser;
-  const body = () => evaluate('document.body.innerText');
-  const card = () => evaluate(`[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root').innerText ?? ''`);
-  const drawer = () => evaluate(`[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream')?.closest('.MuiDrawer-paper').innerText ?? ''`);
-  const click = label => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); if (!button) throw Error('Missing button'); button.click(); })()`);
-  const saveDisabled = () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Apply and recreate engine')?.disabled`);
-  const typed = () => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.value`);
-  const typeDuration = value => evaluate(`(() => { const input = document.querySelector('input[aria-label="Segment duration"]'); if (!input) throw Error('Missing duration input'); input.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  const DURATION_FIELD = `document.querySelector('input[aria-label="Segment duration"]')`;
+  const SETTINGS_PANEL = `[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream')?.closest('.MuiDrawer-paper')`;
+  const body = () => evaluate(PAGE_TEXT);
+  const card = () => evaluate(`[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root')?.innerText ?? ''`);
+  const drawer = () => evaluate(`(${SETTINGS_PANEL})?.innerText ?? ''`);
+  const click = label => clickWhenEnabled(evaluate, buttonWithText(label), `an enabled ${label} button`);
+  const saveDisabled = () => evaluate(`${buttonWithText('Apply and recreate engine')}?.disabled`);
+  const typed = () => readWhenPresent(evaluate, DURATION_FIELD, 'value', 'the segment duration field');
+  const typeDuration = value => fillWhenPresent(evaluate, DURATION_FIELD, value, 'the segment duration field');
   function publish(patch) {
     profile = { ...profile, ...patch };
     for (const res of events) res.write(`event: profile.changed\ndata: ${JSON.stringify({ profile })}\n\n`);
@@ -145,19 +147,24 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
 
   await t.test('literal value and source agree on the desktop summary, card and drawer, then on a phone', async () => {
     await reset();
-    assert.match(await card(), /4\s+seconds\s+Set in config file/);
+    await waitFor(card, text => /4\s+seconds\s+Set in config file/.test(text), 'the card to show the literal value and its source');
     assert.match(await body(), /segment 4 s/);
     await click('Settings');
     await waitFor(drawer, text => text.includes('Set in config file'), 'literal editor source');
     assert.match(await drawer(), /4 seconds/);
     assert.match(await drawer(), /Changing this override will not change this setting/);
     assert.doesNotMatch(await drawer(), /dropped the placeholder/);
-    assert.equal(await evaluate(`document.querySelector('input[aria-label="Segment duration"]').placeholder`), 'Config controls value');
+    assert.equal(await readWhenPresent(evaluate, DURATION_FIELD, 'placeholder', 'the segment duration placeholder'), 'Config controls value');
     await writeFile(join(evidence, 'desktop.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.match(await drawer(), /4 seconds/);
-    assert.deepEqual(await evaluate(`(() => { const panel = [...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream').closest('.MuiDrawer-paper'); return { viewport: window.innerWidth, contentWidth: panel.clientWidth, noOverflow: panel.scrollWidth <= panel.clientWidth, controlsFit: [...panel.querySelectorAll('input, button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) }; })()`),
+    assert.deepEqual(await waitFor(() => evaluate(`(() => {
+      const panel = ${SETTINGS_PANEL};
+      if (!panel) return null;
+      return { viewport: window.innerWidth, contentWidth: panel.clientWidth, noOverflow: panel.scrollWidth <= panel.clientWidth,
+        controlsFit: [...panel.querySelectorAll('input, button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) };
+    })()`), value => value !== null, 'the settings panel to measure at 390px'),
       { viewport: 390, contentWidth: 390, noOverflow: true, controlsFit: true });
     await writeFile(join(evidence, 'phone.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
   });
@@ -173,7 +180,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.equal(await saveDisabled(), true);
     release();
     await waitFor(body, text => text.includes('segment 5 s'), 'new revision observation');
-    assert.match(await drawer(), /5 seconds/);
+    await waitFor(drawer, text => /5 seconds/.test(text), 'the drawer to carry the new revision observation');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), false);
   });
@@ -214,11 +221,11 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await waitFor(body, text => text.includes('segment 5 s'), 'replacement observation');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), true);
-    assert.match(await drawer(), /replaced|different deployment/);
-    await evaluate(`[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream').closest('.MuiDrawer-paper').querySelector('button[aria-label="close"]').click()`);
+    await waitFor(drawer, text => /replaced|different deployment/.test(text), 'the drawer to say the deployment was replaced');
+    await clickWhenEnabled(evaluate, `(${SETTINGS_PANEL})?.querySelector('button[aria-label="close"]')`, 'the settings panel close button');
     await waitFor(drawer, text => text === '', 'drawer closed');
     await openDraft();
-    assert.match(await drawer(), /5 seconds/);
+    await waitFor(drawer, text => /5 seconds/.test(text), 'the reopened drawer to carry the replacement observation');
     assert.equal(await saveDisabled(), false);
   });
 
@@ -271,15 +278,15 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await reset();
     publish({ has_engine_config: false, engine_settings: {}, notes: 'environment settings active' });
     await waitFor(body, text => text.includes('segment 6 s'), 'host default observation');
-    assert.match(await card(), /6\s+seconds\s+Host default/);
+    await waitFor(card, text => /6\s+seconds\s+Host default/.test(text), 'the card to show the host default');
     await click('Settings');
     await waitFor(() => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.placeholder`), value => value === '6', 'verified default placeholder');
-    assert.match(await drawer(), /Default 6 seconds, set on this host/);
+    await waitFor(drawer, text => /Default 6 seconds, set on this host/.test(text), 'the drawer to name the host default');
     await typeDuration('9');
     assert.equal(await saveDisabled(), false);
     publish({ engine_settings: { HLS_SEGMENT_DURATION: '7' }, notes: 'deployment override active' });
     await waitFor(body, text => text.includes('segment 7 s'), 'deployment override observation');
-    assert.match(await card(), /7\s+seconds\s+Deployment override/);
+    await waitFor(card, text => /7\s+seconds\s+Deployment override/.test(text), 'the card to show the deployment override');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), false);
   });

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { launchHistoryFixture, historyReceipt } from './support/history-fixture.mjs';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, pageShows, readWhenPresent, waitFor } from './support/chrome.mjs';
 
 const hash = `0x${'55'.repeat(32)}`;
 const otherHash = `0x${'66'.repeat(32)}`;
@@ -11,22 +11,15 @@ const completeNoMatch = operation => ({ kind: 'no_match', candidateHashes: [], s
   headBlockNumber: '510', headBlockHash: `0x${'aa'.repeat(32)}`, nextBlockNumber: operation.startBlockNumber,
   nextBlockHash: operation.startBlockHash, complete: true, candidateHashes: [],
 } });
-async function visible(browser, text) {
-  await waitFor(() => browser.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`), Boolean, text);
-}
-async function click(browser, text) {
-  await waitFor(() => browser.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); return !!button && !button.disabled; })()`), Boolean, text);
-  await browser.evaluate(`([...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)})).click()`);
-}
-async function input(browser, label, value) {
-  await waitFor(() => browser.evaluate(`!![...document.querySelectorAll('label')].find(label => label.textContent.includes(${JSON.stringify(label)}))`), Boolean, label);
-  await browser.evaluate(`(() => { const label = [...document.querySelectorAll('label')].find(label => label.textContent.includes(${JSON.stringify(label)}));
-    const field = document.getElementById(label.htmlFor); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
-    field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-}
-async function exists(browser, text) {
-  return browser.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`);
-}
+const visible = (browser, text) => waitFor(() => browser.evaluate(pageShows(text)), Boolean, text);
+const click = (browser, text) => clickWhenEnabled(browser.evaluate, buttonWithText(text), `the ${text} button`);
+const fieldNamed = name => `document.querySelector('input[name=${name}]')`;
+const fieldLabelled = label => `(() => {
+  const label = [...document.querySelectorAll('label')].find(label => label.textContent.includes(${JSON.stringify(label)}));
+  return label && document.getElementById(label.htmlFor);
+})()`;
+const input = (browser, label, value) => fillWhenPresent(browser.evaluate, fieldLabelled(label), value, `the ${label} field`);
+const exists = (browser, text) => browser.evaluate(pageShows(text));
 async function app(t, fixture) {
   const browser = await launchChrome(t, fixture.origin);
   await browser.call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
@@ -36,7 +29,12 @@ async function app(t, fixture) {
 }
 async function screenshot(browser, fixture, name, width) {
   await browser.call('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 1000, deviceScaleFactor: 1, mobile: width === 390 });
-  await browser.evaluate("[...document.querySelectorAll('h6')].find(element => element.textContent === 'Recovery actions')?.scrollIntoView()");
+  await waitFor(() => browser.evaluate(`(() => {
+    const heading = [...document.querySelectorAll('h6')].find(element => element.textContent === 'Recovery actions');
+    if (!heading) return false;
+    heading.scrollIntoView();
+    return true;
+  })()`), Boolean, 'the Recovery actions heading to scroll into view');
   await waitFor(() => browser.evaluate("[...document.querySelectorAll('.MuiDialog-container, .MuiBackdrop-root')].every(element => getComputedStyle(element).opacity === '1')"), Boolean, 'dialog transition completion');
   await browser.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   assert.equal(await browser.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
@@ -119,7 +117,7 @@ test('D10 requires the exact sentence and a second confirmation and remains an o
   await click(browser, 'Search transaction history');
   await click(browser, 'Record operator assertion');
   await input(browser, 'Type the exact statement', 'I think it is safe');
-  assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].find(button => button.textContent === 'Review assertion').disabled"), true);
+  assert.equal(await readWhenPresent(browser.evaluate, buttonWithText('Review assertion'), 'disabled', 'the Review assertion button'), true);
   await input(browser, 'Type the exact statement', fixture.journal.detail(fixture.records[0].id).assertionConfirmation);
   await click(browser, 'Review assertion');
   await visible(browser, 'Confirm the operator assertion');
@@ -277,9 +275,9 @@ test('signing out clears a typed assertion and the next account must review it f
   await input(browser, 'Type the exact statement', fixture.journal.detail(fixture.records[0].id).assertionConfirmation);
   await click(browser, 'Sign out');
   await visible(browser, 'Sign in to the manager');
-  await browser.evaluate(`for (const [name, value] of [['username', 'operator-8'], ['password', 'synthetic-test-password']]) {
-    const field = document.querySelector('input[name=' + name + ']'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value);
-    field.dispatchEvent(new Event('input', { bubbles: true })); }`);
+  for (const [name, value] of [['username', 'operator-8'], ['password', 'synthetic-test-password']]) {
+    await fillWhenPresent(browser.evaluate, fieldNamed(name), value, `the ${name} field`);
+  }
   await click(browser, 'Sign in');
   await visible(browser, 'operator-8');
   await visible(browser, 'Record operator assertion');

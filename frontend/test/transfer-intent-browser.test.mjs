@@ -1,20 +1,25 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
+import { clickWhenEnabled, createProtocolClient, launchChrome, protocolTimeoutFor, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 /** This suite reads no manager data. Its owned API answers 404 so nothing depends on a listener it did not start. */
 const ownedOrigin = t => launchTransferFixture(t, (_req, res) => json(res, 404, {})).then(fixture => fixture.origin);
 
+/** The fixture page's own button, once its handler is on it and not a moment before. */
+const wiredButton = id => `(() => { const button = document.querySelector('#${id}'); return typeof button?.onclick === 'function' ? button : null; })()`;
+const runButtonWired = (tab, description = 'the run button to be wired') =>
+  waitFor(() => tab.evaluate(`Boolean(${wiredButton('run')})`), Boolean, description);
+const outcome = browser => waitFor(() => browser.evaluate("document.querySelector('#result')?.textContent ?? null"),
+  value => value !== null && value !== 'Ready' && value !== 'Running', 'the fixture page to report its result');
+
 test('the transfer controller preserves intent through lost responses, auth and target changes', async t => {
   const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#controller')?.onclick === 'function'"), Boolean, 'the controller button to be wired');
-  await browser.evaluate("document.querySelector('#controller').click()");
-  const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
-    value => value !== 'Ready' && value !== 'Running', 'controller test result');
+  await clickWhenEnabled(browser.evaluate, wiredButton('controller'), 'the wired controller button');
+  const result = await outcome(browser);
   assert.ok(!result.startsWith('FAILED:'), result);
   assert.equal(JSON.parse(result).passed, 11);
   assert.deepEqual(browser.errors, []);
@@ -25,10 +30,8 @@ test('native IndexedDB keeps one immutable intent across concurrent browser conn
   const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
-  await browser.evaluate("document.querySelector('#run').click()");
-  const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
-    value => value !== 'Ready' && value !== 'Running', 'native intent test result');
+  await clickWhenEnabled(browser.evaluate, wiredButton('run'), 'the wired run button');
+  const result = await outcome(browser);
   assert.ok(!result.startsWith('FAILED:'), result);
   assert.equal(JSON.parse(result).passed, 9);
   assert.deepEqual(browser.errors, []);
@@ -42,7 +45,7 @@ async function anotherTab(t, browser, origin) {
   const socket = new WebSocket(tabs.find(tab => tab.id === targetId).webSocketDebuggerUrl);
   t.after(() => socket.close());
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
-  const { call } = createProtocolClient(socket);
+  const { call } = createProtocolClient(socket, protocolTimeoutFor());
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(String(data));
     if (message.method !== 'Fetch.requestPaused') return;
@@ -53,6 +56,7 @@ async function anotherTab(t, browser, origin) {
   await call('Runtime.enable');
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  await throttleCpu(call);
   return { call, async evaluate(expression) {
     const response = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     assert.equal(response.exceptionDetails, undefined, JSON.stringify(response.exceptionDetails));
@@ -75,7 +79,7 @@ test('two real tabs cannot replace each other’s confirmed intent after reload 
   })()`;
   for (const tab of [first, second]) {
     await tab.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-    await waitFor(() => tab.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
+    await runButtonWired(tab);
     await tab.evaluate(setup);
   }
   const confirmed = await Promise.all([first.evaluate('store.confirm(input, null)'), second.evaluate('store.confirm(input, null)')]);
@@ -84,7 +88,7 @@ test('two real tabs cannot replace each other’s confirmed intent after reload 
   const originalId = confirmed[0].intent.requestId;
   await first.evaluate('store.close()');
   await first.call('Page.reload');
-  await waitFor(() => first.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired after the reload');
+  await runButtonWired(first, 'the run button to be wired after the reload');
   await first.evaluate(setup);
   assert.equal((await first.evaluate('store.current(input.accountId, input.profileInstanceId)')).requestId, originalId);
   const newIntent = await second.evaluate(`store.confirm({ ...input, requestId: crypto.randomUUID() }, ${JSON.stringify(originalId)})`);

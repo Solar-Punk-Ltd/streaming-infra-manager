@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, launchChrome, pointToClick, readWhenPresent, waitFor } from './support/chrome.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
@@ -74,13 +74,21 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   const browser = await launchChrome(t, origin);
   const { call, evaluate } = browser;
   await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 960, deviceScaleFactor: 1, mobile: false });
-  async function click(expression) {
-    const point = await evaluate(`(() => { const el = ${expression}; if (!el || el.disabled) throw new Error('Missing enabled control'); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+  async function click(finder, description) {
+    const point = await pointToClick(evaluate, finder, description);
     await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   }
-  const button = name => `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(name)})`;
+  const found = selector => `document.querySelector(${JSON.stringify(selector)})`;
+  const clickButton = name => click(buttonWithText(name), `the ${name} button`);
+  const clickSelected = (selector, description) => click(found(selector), description);
+  const DIALOG = found('[role=dialog]');
+  const TESTED_BOX = found('input[type=checkbox]');
+  const VERSION_PICKER = found('#wizard-version');
+  const NAME_FIELD = found('input[placeholder=main-stage]');
+  const continueDisabled = () => readWhenPresent(evaluate, buttonWithText('Continue'), 'disabled', 'the Continue button');
+  const dialogText = () => readWhenPresent(evaluate, DIALOG, 'innerText', 'the open wizard');
   let visitNumber = 0;
   async function visit(waitForVersions = true) {
     await evaluate('window.__t08OldPage = true');
@@ -88,16 +96,15 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     if (waitForVersions) {
       await waitFor(() => evaluate(`window.__t08OldPage ? -1 : document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === versions.length, 'every version to be listed');
     } else {
-      await waitFor(() => evaluate(`!window.__t08OldPage && (${button('New deployment')})?.disabled === false`), Boolean, 'the New deployment button to be enabled');
+      await waitFor(() => evaluate(`!window.__t08OldPage && (${buttonWithText('New deployment')})?.disabled === false`), Boolean, 'the New deployment button to be enabled');
     }
   }
   async function openBasics(goal = 'Custom') {
-    await click(button('New deployment'));
+    await clickButton('New deployment');
     await waitFor(() => evaluate('document.querySelector("[role=dialog]") !== null'), Boolean, 'the wizard to open');
-    await click(`[...document.querySelectorAll("[role=radio]")].find(el => el.querySelector('h6')?.textContent.trim() === ${JSON.stringify(goal)})`);
-    await click(button('Continue'));
-    await waitFor(() => evaluate('document.querySelector("input[placeholder=main-stage]") !== null'), Boolean, 'the deployment name field');
-    await click('document.querySelector("input[placeholder=main-stage]")');
+    await click(`[...document.querySelectorAll("[role=radio]")].find(el => el.querySelector('h6')?.textContent.trim() === ${JSON.stringify(goal)})`, `the ${goal} goal`);
+    await clickButton('Continue');
+    await clickSelected('input[placeholder=main-stage]', 'the deployment name field');
     await call('Input.insertText', { text: 'offline-choice' });
   }
   await visit();
@@ -127,64 +134,63 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   await t.test('the sole default stays selected with the actual invalidation date visible through review', async () => {
     await visit();
     await openBasics('Stream to Swarm');
-    const text = await evaluate('document.querySelector("[role=dialog]").innerText');
+    const text = await dialogText();
     const date = await evaluate(`import('/src/format.ts').then(({formatDateTime}) => formatDateTime(${JSON.stringify(LOST_AT)}))`);
     assert.ok(text.includes(`Not tested since the update on ${date}`), text);
     assert.ok(text.includes('review-build'));
-    await click(button('Continue'));
-    await click(button('Continue'));
+    await clickButton('Continue');
+    await clickButton('Continue');
     await waitFor(() => evaluate('document.querySelector("[role=dialog] [role=alert]")?.innerText'), text => text?.includes('Not tested since the update on'), 'the not tested since warning');
     if (process.env.T08_EVIDENCE_DIR) {
       await mkdir(process.env.T08_EVIDENCE_DIR, { recursive: true });
       const { data } = await call('Page.captureScreenshot', { fromSurface: true });
       await writeFile(resolve(process.env.T08_EVIDENCE_DIR, 'default-warning-review.png'), Buffer.from(data, 'base64'));
     }
-    await click('document.querySelector("button[aria-label=close]")');
+    await clickSelected('button[aria-label=close]', 'the wizard close button');
   });
 
   await t.test('approval transmits the shown build id and withdrawal needs no identity', async () => {
     writes.length = 0;
     await visit();
-    await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
+    await clickSelected('input[aria-label="review-build tested"]', 'the review-build tested box');
     await waitFor(() => writes.length, n => n > 0, 'the tested request');
     assert.deepEqual(writes.at(-1), { path: '/versions/1', method: 'PATCH', body: { tested: true, commitSha: COMMIT, buildId: `${COMMIT}-r1` } });
-    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), Boolean, 'the tested box to be checked');
-    await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
+    await waitFor(() => evaluate(`${TESTED_BOX}?.checked ?? null`), checked => checked === true, 'the tested box to be checked');
+    await clickSelected('input[aria-label="review-build tested"]', 'the review-build tested box');
     await waitFor(() => writes.length, n => n === 2, 'the untested request');
     assert.deepEqual(writes.at(-1).body, { tested: false });
-    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), checked => !checked, 'the tested box to clear');
+    await waitFor(() => evaluate(`${TESTED_BOX}?.checked ?? null`), checked => checked === false, 'the tested box to clear');
     await openBasics();
-    const text = await evaluate('document.querySelector("[role=dialog]").innerText');
+    const text = await dialogText();
     assert.ok(text.includes('Not currently marked as tested on this host.'));
     assert.ok(!text.includes('Not tested since the update'));
-    await click('document.querySelector("button[aria-label=close]")');
+    await clickSelected('button[aria-label=close]', 'the wizard close button');
   });
 
   await t.test('with one non-default candidate the picker waits for a choice and preserves it on back', async () => {
     versions = [makeVersion({ isDefault: false, testedInvalidatedAt: null })];
     await visit();
     await openBasics();
-    assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
-    assert.match(await evaluate('document.querySelector("[role=dialog]").innerText'), /Pick a stack version/);
-    await click('document.querySelector("#wizard-version")');
-    await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
-    await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
-    assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
-    await click(button('Continue'));
-    await click(button('Back'));
-    assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/);
-    await click('document.querySelector("button[aria-label=close]")');
+    assert.equal(await continueDisabled(), true);
+    assert.match(await dialogText(), /Pick a stack version/);
+    await clickSelected('#wizard-version', 'the version picker');
+    await clickSelected('[role=option][data-value="1"]', 'the review-build option');
+    assert.equal(await continueDisabled(), false);
+    await clickButton('Continue');
+    await clickButton('Back');
+    assert.match(await readWhenPresent(evaluate, VERSION_PICKER, 'innerText', 'the version picker'), /review-build/);
+    await clickSelected('button[aria-label=close]', 'the wizard close button');
   });
 
   await t.test('unknown immutable identity is disabled and explicit legacy approval carries null build id', async () => {
     versions = [makeVersion({ buildId: null, testedInvalidatedAt: null })];
     await visit();
-    assert.equal(await evaluate('document.querySelector("input[type=checkbox]").disabled'), true);
+    assert.equal(await readWhenPresent(evaluate, TESTED_BOX, 'disabled', 'the tested box'), true);
     versions = [makeVersion({ layout: 'legacy', buildId: null, testedInvalidatedAt: null })];
     writes.length = 0;
     await visit();
-    assert.equal(await evaluate('document.querySelector("input[type=checkbox]").disabled'), false);
-    await click('document.querySelector("input[type=checkbox]")');
+    assert.equal(await readWhenPresent(evaluate, TESTED_BOX, 'disabled', 'the tested box'), false);
+    await clickSelected('input[type=checkbox]', 'the tested box');
     await waitFor(() => writes.length, n => n > 0, 'legacy approval request');
     assert.deepEqual(writes[0].body, { tested: true, commitSha: COMMIT, buildId: null });
   });
@@ -200,33 +206,31 @@ test('approval payload and explicit wizard version choice stay tied to the visib
       await visit(false);
       await waitFor(() => versionsRequests > requestsBefore, Boolean, 'the versions request the page makes on load');
       await openBasics();
-      assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
+      assert.equal(await continueDisabled(), true);
       releaseVersions();
       versionsGate = null;
       await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1, 'the late sole default to arrive');
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'a late sole default must leave a way to choose it');
-      assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
-      await click('document.querySelector("#wizard-version")');
-      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
-      await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
-      assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
+      assert.equal(await readWhenPresent(evaluate, NAME_FIELD, 'value', 'the deployment name field'), 'offline-choice');
+      await clickSelected('#wizard-version', 'the version picker');
+      await clickSelected('[role=option][data-value="1"]', 'the review-build option');
+      assert.equal(await continueDisabled(), false);
 
       await waitFor(() => heldEvents !== null, Boolean, 'the event stream to be held open');
       versions = [makeVersion({ tested: true, testedInvalidatedAt: null, isDefault: false }), makeVersion({ id: 2, name: 'another-default', tested: true, testedInvalidatedAt: null })];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
       await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 2, 'the second version to arrive');
-      assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/, 'a new default never replaces an explicit choice');
+      assert.match(await readWhenPresent(evaluate, VERSION_PICKER, 'innerText', 'the version picker'), /review-build/, 'a new default never replaces an explicit choice');
       versions = [versions[1]];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
       await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1, 'the chosen version to be gone');
-      assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
+      assert.equal(await continueDisabled(), true);
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'removing the chosen version must leave a way to select the remaining default');
-      await click('document.querySelector("#wizard-version")');
-      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
-      await click('document.querySelector("[role=option][data-value=\\"2\\"]")');
-      assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
-      assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
-      await click('document.querySelector("button[aria-label=close]")');
+      await clickSelected('#wizard-version', 'the version picker');
+      await clickSelected('[role=option][data-value="2"]', 'the remaining default option');
+      assert.equal(await continueDisabled(), false);
+      assert.equal(await readWhenPresent(evaluate, NAME_FIELD, 'value', 'the deployment name field'), 'offline-choice');
+      await clickSelected('button[aria-label=close]', 'the wizard close button');
     } finally {
       releaseVersions();
       versionsGate = null;

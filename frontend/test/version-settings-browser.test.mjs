@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, fillWhenPresent, launchChrome, PAGE_TEXT, pointToClick, readWhenPresent, waitFor } from './support/chrome.mjs';
 import { seedVersions } from './fixtures/versions.mjs';
 import { seedSettings } from './fixtures/versionSettings.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
@@ -108,31 +108,24 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   const browser = await launchChrome(t, origin);
   const { call, evaluate } = browser;
 
+  const buttonIn = (name, scope) => `[...((${scope})?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === ${JSON.stringify(name)})`;
+
   async function clickButton(name, scope = 'document') {
-    const point = await evaluate(`(() => {
-      const element = [...(${scope}).querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(name)});
-      if (!element || element.disabled) throw new Error('No enabled button: ' + ${JSON.stringify(name)});
-      element.scrollIntoView({ block: 'center' });
-      const rect = element.getBoundingClientRect();
-      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-    })()`);
+    const point = await pointToClick(evaluate, buttonIn(name, scope), `an enabled ${name} button`);
     await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
   }
 
-  /** Types into a field the way a person does, so React sees every keystroke. */
-  async function typeInto(label, value) {
-    await evaluate(`(() => {
-      const field = document.querySelector('input[aria-label=${JSON.stringify(label)}]');
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      setter.call(field, ${JSON.stringify(value)});
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-      return true;
-    })()`);
-  }
-
   const fieldOf = (key) => `document.querySelector('input[aria-label="${key}"]')`;
-  const rowOf = (key) => `${fieldOf(key)}.closest('li')`;
+  const rowOf = (key) => `${fieldOf(key)}?.closest('li')`;
+  const cardOf = (name) => `document.querySelector('input[aria-label="${name} tested"]')?.closest('article')`;
+  const typeInto = (label, value) => fillWhenPresent(evaluate, fieldOf(label), value, `the ${label} field`);
+  const saveDisabled = () => readWhenPresent(evaluate, buttonWithText('Save'), 'disabled', 'the Save button');
+  const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
+  const rowButtons = (key) => waitFor(() => evaluate(`(() => {
+    const row = ${rowOf(key)};
+    return row && [...row.querySelectorAll('button')].map(button => button.textContent.trim());
+  })()`), Boolean, `the ${key} row`);
 
   await call('Emulation.setDeviceMetricsOverride', { width: NARROW, height: 900, deviceScaleFactor: 1, mobile: false });
   await call('Page.navigate', { url: `${origin}/#/versions/3/settings` });
@@ -149,50 +142,52 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   });
 
   await t.test('the header says applied while the current build carries the saved revision', async () => {
-    assert.match(await evaluate('document.body.innerText'), /revision 4/);
-    assert.match(await evaluate('document.body.innerText'), /applied/);
-    assert.equal((await evaluate('document.body.innerText')).includes('do not have these changes yet'), false);
+    assert.match(await evaluate(PAGE_TEXT), /revision 4/);
+    assert.match(await evaluate(PAGE_TEXT), /applied/);
+    assert.equal((await evaluate(PAGE_TEXT)).includes('do not have these changes yet'), false);
   });
 
   await t.test('a secret is masked until it is revealed, and hidden again after', async () => {
-    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), 'password');
-    assert.equal(await evaluate(`${fieldOf('API_PORT')}.type`), 'text');
+    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}?.type`), 'password');
+    assert.equal(await readWhenPresent(evaluate, fieldOf('API_PORT'), 'type', 'the API_PORT field'), 'text');
 
     await clickButton('Reveal', rowOf('API_AUTH_TOKEN'));
-    await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), (type) => type === 'text', 'the revealed token');
+    await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}?.type`), (type) => type === 'text', 'the revealed token');
 
     await clickButton('Hide', rowOf('API_AUTH_TOKEN'));
-    await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), (type) => type === 'password', 'the masked token');
+    await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}?.type`), (type) => type === 'password', 'the masked token');
   });
 
   await t.test('a masked field asks the browser not to save or fill it', async () => {
-    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.getAttribute('autocomplete')`), 'off');
-    assert.equal(await evaluate(`${fieldOf('SRT_PASSPHRASE')}.getAttribute('autocomplete')`), 'off');
+    for (const key of ['API_AUTH_TOKEN', 'SRT_PASSPHRASE']) {
+      assert.equal(await readWhenPresent(evaluate, fieldOf(key), "getAttribute('autocomplete')", `the ${key} field`), 'off');
+    }
   });
 
   await t.test('a key at the version default says so, and one the manager fills says that', async () => {
-    const marks = async (key) => evaluate(`[...(${rowOf(key)}).querySelectorAll('.MuiChip-label')].map(el => el.textContent.trim())`);
+    const marks = (key) => waitFor(
+      () => evaluate(`[...((${rowOf(key)})?.querySelectorAll('.MuiChip-label') ?? [])].map(el => el.textContent.trim())`),
+      (found) => found.length > 0,
+      `the marks on ${key}`,
+    );
 
     assert.deepEqual(await marks('API_PORT'), ['default']);
     assert.deepEqual(await marks('API_AUTH_TOKEN'), ['generated']);
     assert.match(
-      await evaluate(`(${rowOf('API_AUTH_TOKEN')}).innerText`),
+      await rowText('API_AUTH_TOKEN'),
       /Set per deployment by the manager unless you set a value here\./,
     );
-    assert.match(
-      await evaluate(`(${rowOf('API_AUTH_TOKEN')}).innerText`),
-      /Bearer token for every gated route/,
-    );
+    assert.match(await rowText('API_AUTH_TOKEN'), /Bearer token for every gated route/);
   });
 
   await t.test('nothing is offered to save until something is typed', async () => {
-    assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`), true);
-    assert.ok((await evaluate('document.body.innerText')).includes('Nothing changed yet'));
+    assert.equal(await saveDisabled(), true);
+    assert.ok((await evaluate(PAGE_TEXT)).includes('Nothing changed yet'));
     assert.equal(writes.length, 0);
   });
 
   await t.test('apply is offered only where it would change something', async () => {
-    const disabled = await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save and apply').disabled`);
+    const disabled = await readWhenPresent(evaluate, buttonWithText('Save and apply'), 'disabled', 'the Save and apply button');
 
     assert.equal(disabled, true, 'nothing is edited and the build already carries the revision');
   });
@@ -221,41 +216,25 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('a value the stack would read differently says so under the field', async () => {
     await typeInto('API_PORT', '3000 #notacomment');
-    await waitFor(
-      () => evaluate(`(${rowOf('API_PORT')}).innerText`),
-      (text) => text.includes('#'),
-      'the value problem under the field',
-    );
+    await waitFor(() => rowText('API_PORT'), (text) => text.includes('#'), 'the value problem under the field');
 
-    const row = await evaluate(`(${rowOf('API_PORT')}).innerText`);
-    assert.match(row, /comment/);
+    assert.match(await rowText('API_PORT'), /comment/);
 
     await typeInto('API_PORT', '3000');
-    await waitFor(
-      () => evaluate(`(${rowOf('API_PORT')}).innerText`),
-      (text) => !text.includes('comment'),
-      'the problem clearing once the value is writable',
-    );
+    await waitFor(() => rowText('API_PORT'), (text) => !text.includes('comment'), 'the problem clearing once the value is writable');
   });
 
   await t.test('nothing can be saved while a field holds a value that would be refused', async () => {
     await typeInto('API_PORT', '3000 #notacomment');
-    await waitFor(
-      () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`),
-      (off) => off === true,
-      'a Save that stops at the bad value',
-    );
+    await waitFor(saveDisabled, (off) => off === true, 'a Save that stops at the bad value');
 
-    assert.equal(
-      await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save and apply').disabled`),
-      true,
-    );
-    assert.match(await evaluate('document.body.innerText'), /One value cannot be saved as written: API_PORT/);
+    assert.equal(await readWhenPresent(evaluate, buttonWithText('Save and apply'), 'disabled', 'the Save and apply button'), true);
+    assert.match(await evaluate(PAGE_TEXT), /One value cannot be saved as written: API_PORT/);
     assert.equal(writes.length, 0, 'nothing went to the manager');
 
     await typeInto('API_PORT', '3000');
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the footer back at rest once the value is writable',
     );
@@ -263,7 +242,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('a save sends the key that moved and no other', async () => {
     await typeInto('API_PORT', '3100');
-    await waitFor(() => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`), (off) => off === false, 'an enabled Save');
+    await waitFor(saveDisabled, (off) => off === false, 'an enabled Save');
 
     await clickButton('Save');
     await waitFor(() => writes.length, (count) => count === 1, 'the save request');
@@ -280,7 +259,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     // what puts the draft back in step. Waiting for it here rather than letting
     // it land in the middle of the next subtest.
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the reload after the save',
     );
@@ -288,12 +267,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('a saved revision no build carries says new deployments do not have it', async () => {
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('The current build carries revision 4'),
       'the lagging build message',
     );
 
-    const text = await evaluate('document.body.innerText');
+    const text = await evaluate(PAGE_TEXT);
     assert.match(text, /Saved as revision 5\./);
     assert.match(text, /new deployments do not have these changes yet/);
     assert.match(text, /Apply makes a build that does\./);
@@ -301,11 +280,11 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('Discard puts the loaded values back', async () => {
     await typeInto('API_PORT', '3200');
-    await waitFor(() => evaluate(`${fieldOf('API_PORT')}.value`), (value) => value === '3200', 'the API port field to carry what was typed');
+    await waitFor(() => evaluate(`${fieldOf('API_PORT')}?.value`), (value) => value === '3200', 'the API port field to carry what was typed');
 
     await clickButton('Discard');
 
-    await waitFor(() => evaluate(`${fieldOf('API_PORT')}.value`), (value) => value === '3000', 'the loaded value');
+    await waitFor(() => evaluate(`${fieldOf('API_PORT')}?.value`), (value) => value === '3000', 'the loaded value');
     assert.equal(writes.length, 1, 'discarding sends nothing');
   });
 
@@ -316,17 +295,17 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await waitFor(() => writes.length, (count) => count === 2, 'the refused save');
 
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Somebody changed these settings since you loaded them.'),
       'the conflict message',
     );
-    assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Reload')`), true);
+    await waitFor(() => evaluate(`Boolean(${buttonWithText('Reload')})`), Boolean, 'the Reload button the conflict offers');
 
     saveConflict = false;
     await clickButton('Reload');
-    await waitFor(() => evaluate(`${fieldOf('API_PORT')}.value`), (value) => value === '3000', 'the reloaded values');
+    await waitFor(() => evaluate(`${fieldOf('API_PORT')}?.value`), (value) => value === '3000', 'the reloaded values');
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the reloaded draft',
     );
@@ -343,13 +322,13 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     ]);
     assert.deepEqual(writes[3], { method: 'POST', path: '/versions/3/settings/apply', body: {} });
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('New deployments run build 3333333333333333333333333333333333333333-r3'),
       'the applied build',
     );
-    assert.match(await evaluate('document.body.innerText'), /keep the settings they\s+started with until they are deployed again/);
+    assert.match(await evaluate(PAGE_TEXT), /keep the settings they\s+started with until they are deployed again/);
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the reload after the apply',
     );
@@ -362,7 +341,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await waitFor(() => writes.length, (count) => count === 6, 'the refused apply');
 
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('other-version is building.'),
       'the busy message',
     );
@@ -371,7 +350,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('the save that a refused apply followed is not held against the next one', async () => {
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the reload the refused apply did not skip',
     );
@@ -381,12 +360,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await waitFor(() => writes.length, (count) => count === 7, 'the next save');
 
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Nothing changed yet'),
       'the reload after the next save',
     );
     assert.equal(
-      (await evaluate('document.body.innerText')).includes('Somebody changed these settings'),
+      (await evaluate(PAGE_TEXT)).includes('Somebody changed these settings'),
       false,
       'the page saved against its own revision rather than the one it loaded with',
     );
@@ -395,7 +374,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   await t.test('a version with no build yet says why and offers no fields', async () => {
     await call('Page.navigate', { url: `${origin}/#/versions/5/settings` });
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('has no settings yet'),
       'the not ready reason',
     );
@@ -409,11 +388,10 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await call('Page.navigate', { url: `${origin}/#/versions` });
     await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="bundled tested"]'))`), Boolean, 'the versions page to list the bundled version');
 
-    const button = await evaluate(`(() => {
-      const card = document.querySelector('input[aria-label="bundled tested"]').closest('article');
-      const element = [...card.querySelectorAll('button')].find(b => b.textContent.trim() === 'Settings');
-      return { found: Boolean(element), disabled: element?.disabled ?? null };
-    })()`);
+    const button = await waitFor(() => evaluate(`(() => {
+      const element = ${buttonIn('Settings', cardOf('bundled'))};
+      return element ? { found: true, disabled: element.disabled } : null;
+    })()`), Boolean, 'the Settings button on the bundled version card');
 
     assert.deepEqual(button, { found: true, disabled: true });
   });
@@ -422,7 +400,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await call('Page.navigate', { url: `${origin}/#/versions` });
     await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`), Boolean, 'the versions page to list the candidate version');
 
-    await clickButton('Settings', `document.querySelector('input[aria-label="candidate tested"]').closest('article')`);
+    await clickButton('Settings', cardOf('candidate'));
 
     await waitFor(() => evaluate('window.location.hash'), (hash) => hash === '#/versions/3/settings', 'the settings route');
     await waitFor(() => evaluate(`Boolean(${fieldOf('API_PORT')})`), Boolean, 'the settings fields');
@@ -440,7 +418,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
     assert.deepEqual(writes[before], { method: 'POST', path: '/versions/3/settings/apply', body: {} });
     await waitFor(
-      () => evaluate('document.body.innerText'),
+      () => evaluate(PAGE_TEXT),
       (text) => text.includes('Build 3333333333333333333333333333333333333333-r2 already carries these settings'),
       'the reused build',
     );
@@ -454,25 +432,17 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await call('Page.navigate', { url: `${origin}/#/versions/3/settings` });
     await waitFor(() => evaluate(`Boolean(${fieldOf('API_PORT')})`), Boolean, 'the settings fields');
 
-    const text = await evaluate('document.body.innerText');
+    const text = await evaluate(PAGE_TEXT);
     assert.match(text, /engines\/ome\/\.env/);
     assert.match(text, /link or a directory/);
   });
 
   await t.test('a key the version does not declare can be taken out of the file', async () => {
     const before = writes.length;
-    assert.equal(
-      await evaluate(`[...(${rowOf('API_PORT')}).querySelectorAll('button')].some(b => b.textContent.trim() === 'Remove')`),
-      false,
-      'a key the sample declares is not removable',
-    );
+    assert.equal((await rowButtons('API_PORT')).includes('Remove'), false, 'a key the sample declares is not removable');
 
     await clickButton('Remove', rowOf('EXTRA_LOCAL_KEY'));
-    await waitFor(
-      () => evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').disabled`),
-      (off) => off === false,
-      'an enabled Save',
-    );
+    await waitFor(saveDisabled, (off) => off === false, 'an enabled Save');
     await clickButton('Save');
     await waitFor(() => writes.length, (count) => count === before + 1, 'the save with the removal');
 
