@@ -98,15 +98,15 @@ four full runs failed, once on the lock-ordering case in
 `chequebookTargets.test.ts` and once on the spent-budget deadline in
 `chequebookConnected.test.ts`. Both read the clock while another connection
 holds a lock, so a loaded machine beats them and neither failure was a rule
-being wrong. Serialized, every run since has passed. **It costs 182 seconds**,
-the longest of the five full runs measured here and on two review worktrees,
+being wrong. Serialized, every run since has passed. **It costs 235 seconds**,
+the longest of the six full runs measured here and on two review worktrees,
 and that one number is what the estimate below is built from. A required check
 that fails half the time is worth more than the difference.
 
 ### browser
 
-The twenty-two suites under `frontend/test/`, of which fourteen drive a real
-headless Chrome against a real Vite and eight need neither. They live outside
+The twenty-three suites under `frontend/test/`, of which fourteen drive a real
+headless Chrome against a real Vite and nine need neither. They live outside
 `pnpm test`, which only takes `src`, so they ran nowhere on a pull request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
@@ -115,7 +115,7 @@ That runner is the browser counterpart of the SQL one and judges a run by the
 same shared rules: a skipped test, a suite that skipped itself whole, a run of
 no tests, a missing summary, a signal or a non-zero exit each stop it in
 words. Checked by running it with `T09_TEST_PG_PORT` unset, which is exactly
-the hole it exists to close: 153 passed, 3 skipped, refused, exit 1.
+the hole it exists to close: 163 passed, 3 skipped, refused, exit 1.
 
 The suites run under `node --import tsx --conditions=development` and not
 under plain `node`, because `mock-engine-observations.test.mjs` reaches the
@@ -162,11 +162,11 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 6 s |
-| unit suites, common 321, manager 2301, frontend 100 | 18 s |
+| unit suites, common 321, manager 2317, frontend 100 | 25 s |
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
-| SQL suites, 518, one file at a time | 182 s |
-| browser suites, 156 | 374 s |
+| SQL suites, 518, one file at a time | 235 s |
+| browser suites, 166 | 374 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on
@@ -175,9 +175,9 @@ the work that dominates is serialized, so take the numbers above at roughly
 one and a half to two and a half times, plus about a minute of install and
 common build per job.
 
-That puts `checks` at about 3 minutes, `database` at about 7, and `browser` at
-about 13. **Estimate about 23 Actions minutes per push, somewhere between 19
-and 29.** The browser job is more than half of it. The first real run replaces
+That puts `checks` at about 3 minutes, `database` at about 9, and `browser` at
+about 13. **Estimate about 25 Actions minutes per push, somewhere between 19
+and 30.** The browser job is more than half of it. The first real run replaces
 this estimate with a measurement.
 
 **A decision that is Levi's, not this page's.** Whether all three jobs stay

@@ -48,7 +48,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
 | T18 narrow layouts | `5f835ca` | Responsive version cards preserve exact-build approval and attempt-release controls. |
 | T19 notes editing | `6b3c50c` | Separate notes updates and revision conflicts coexist with full deployment edits. |
-| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 156 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
+| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 166 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
 | T21 documentation | `c640b10` | Reviewed docs plus a new integrated-status correction are included. Update again as remaining flows close. |
 | T22 controlled live acceptance | No task branch | Await D05 inputs, completed prerequisites and separate live authorization. |
 
@@ -785,11 +785,11 @@ setting are his.
 GitHub runner. The T01 startup-failure file needs the whole stack deployed on
 one, so its first execution is Levi's dispatch. The SQL suites now run one file
 at a time, because two of four parallel runs failed here on tests that read the
-clock while another connection holds a lock, which costs 182 seconds a run,
-the longest of the five full runs measured. The OvenMediaEngine gate failed here for a reason that is about this
+clock while another connection holds a lock, which costs 235 seconds a run,
+the longest of the six full runs measured. The OvenMediaEngine gate failed here for a reason that is about this
 laptop's network: its publisher spends 93 seconds installing ffmpeg inside a
 40 second playlist budget, and with the budget raised the gate passed. The
 harness was not changed. The T05a qualification on Docker Engine 29.1.3 with
 Compose 5.1.4 is still a separate obligation that neither the runner's versions
 nor this laptop's discharge. All of it is in `docs/ci.md`, with an estimate of
-about 22 Actions minutes a push.
+about 25 Actions minutes a push.
