@@ -170,23 +170,67 @@ function suiteFiles() {
     .map((file) => ({ file, text: readFileSync(join(SUITE_DIR, file), 'utf8') }));
 }
 
-async function preflight(entries) {
+/**
+ * Tables that say a database belongs to a manager rather than to this run.
+ *
+ * A task database is created empty and every suite makes a schema of its own
+ * in it, so nothing the suites do ever puts these in the public schema. Their
+ * presence means the port leads somewhere that is not disposable.
+ */
+const MANAGER_TABLES = ['_migrations', 'profiles'];
+const MANAGER_TABLE_QUERY =
+  'SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = ANY($2)';
+const PUBLIC_SCHEMA = 'public';
+
+const openClient = (connection) => new pg.Client(connection);
+
+/** What one database said when the preflight opened it. */
+export async function inspect(entry, connect = openClient) {
+  const client = connect(connectionFor(entry, entry.port));
+  try {
+    await client.connect();
+    await client.query('SELECT 1');
+    const answered = await client.query(MANAGER_TABLE_QUERY, [PUBLIC_SCHEMA, MANAGER_TABLES]);
+    return { entry, error: null, managerTables: answered.rows.map((row) => row.tablename).sort() };
+  } catch (error) {
+    return { entry, error, managerTables: [] };
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/**
+ * Why the run must not start on the databases it just opened, one line each,
+ * or an empty list.
+ *
+ * Two things are asked of every one of them: that it answers, and that it is
+ * not somebody's deployment. "Never point these variables at a deployment
+ * database" was a sentence in this header and nothing else, and a port is easy
+ * to mistype.
+ */
+export function preflightProblems(outcomes) {
   const problems = [];
-  for (const entry of entries) {
-    const client = new pg.Client(connectionFor(entry, entry.port));
-    try {
-      await client.connect();
-      await client.query('SELECT 1');
-    } catch (error) {
+  for (const { entry, error, managerTables } of outcomes) {
+    if (error) {
       problems.push(
         `${entry.database} did not answer on ${HOST}:${entry.port} within ${CONNECT_TIMEOUT_MS / 1000} s ` +
           `(${entry.variable}): ${error instanceof Error ? error.message : String(error)}`,
       );
-    } finally {
-      await client.end().catch(() => undefined);
+    } else if (managerTables.length > 0) {
+      problems.push(
+        `${entry.database} on ${HOST}:${entry.port} (${entry.variable}) already holds ${managerTables.join(' and ')} ` +
+          `in its ${PUBLIC_SCHEMA} schema, so it is a manager's database and not a disposable one. ` +
+          `These suites create and drop schemas, and this run will not do that to somebody's deployment.`,
+      );
     }
   }
   return problems;
+}
+
+async function preflight(entries) {
+  const outcomes = [];
+  for (const entry of entries) outcomes.push(await inspect(entry));
+  return preflightProblems(outcomes);
 }
 
 function runSuites(env) {

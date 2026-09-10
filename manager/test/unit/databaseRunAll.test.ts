@@ -18,7 +18,9 @@ import {
   connectionFor,
   databaseUrlFor,
   gateProblems,
+  inspect,
   portProblems,
+  preflightProblems,
 } from '../database/run-all.mjs';
 
 const NINE = {
@@ -139,5 +141,62 @@ describe('refusing to start on a suite this run could never make answer', () => 
     ]);
     assert.equal(problems.length, 1);
     assert.match(problems[0], /T13_TEST_PG_PORT/);
+  });
+});
+
+describe('refusing to start on what the nine databases answered', () => {
+  const entry = { database: 't09_test', variable: 'T09_TEST_PG_PORT', port: 55432 };
+  const answered = { entry, error: null, managerTables: [] };
+
+  /** A pg client that answers whatever the case wants asked about its tables. */
+  const clientAnswering = (tables: string[], failOn?: string) => () => ({
+    connect: async () => {
+      if (failOn === 'connect') throw new Error('connection refused');
+    },
+    query: async (sql: string) => {
+      if (failOn === 'query') throw new Error('server closed the connection');
+      return { rows: sql.includes('pg_tables') ? tables.map((tablename) => ({ tablename })) : [{ '?column?': 1 }] };
+    },
+    end: async () => undefined,
+  });
+
+  it('says nothing about nine empty databases that answered', () => {
+    assert.deepEqual(preflightProblems([answered, { ...answered, entry: { ...entry, database: 't01_test' } }]), []);
+  });
+
+  it('names the database, the variable and the address of one that did not answer', () => {
+    const problems = preflightProblems([{ entry, error: new Error('connection refused'), managerTables: [] }]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /t09_test/);
+    assert.match(problems[0], /T09_TEST_PG_PORT/);
+    assert.match(problems[0], /127\.0\.0\.1:55432/);
+    assert.match(problems[0], /connection refused/);
+  });
+
+  it('refuses a database that already holds the manager own tables, because that is nobody disposable', () => {
+    const problems = preflightProblems([{ entry, error: null, managerTables: ['_migrations', 'profiles'] }]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /_migrations and profiles/);
+    assert.match(problems[0], /t09_test/);
+    assert.match(problems[0], /not a disposable one/);
+  });
+
+  it('reads those tables off a client that answers them, and refuses on what it read', async () => {
+    const outcome = await inspect(entry, clientAnswering(['profiles']));
+    assert.deepEqual(outcome.managerTables, ['profiles']);
+    assert.equal(outcome.error, null);
+    assert.match(preflightProblems([outcome]).join(' '), /profiles/);
+  });
+
+  it('reads an empty public schema as the disposable database it is', async () => {
+    const outcome = await inspect(entry, clientAnswering([]));
+    assert.deepEqual(outcome.managerTables, []);
+    assert.deepEqual(preflightProblems([outcome]), []);
+  });
+
+  it('turns a client that cannot connect into the outcome the refusal is written from', async () => {
+    const outcome = await inspect(entry, clientAnswering([], 'connect'));
+    assert.match(String(outcome.error), /connection refused/);
+    assert.match(preflightProblems([outcome]).join(' '), /did not answer/);
   });
 });
