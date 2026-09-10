@@ -266,6 +266,7 @@ export class ProfileService {
       ...row,
       containers: existing.containers,
       pendingStamp: isPendingStamp(row),
+      network_host: existing.network_host,
     };
 
     this.publishChanged(withContainers);
@@ -448,9 +449,9 @@ export class ProfileService {
    *    the batch is still alive. Batches are paid, finite leases; they run out on
    *    their own and nothing writes that back.
    *  - the URL is `PUBLIC_HOST` plus `10005 + slot*10`, so it always *looks* like
-   *    an address whether or not anything is there — and it is composed from a
-   *    field that holds a *deploy* target, which may be an ssh alias or
-   *    `user@host` rather than a network address.
+   *    an address whether or not anything is there — and its host half comes from
+   *    a field that holds a *deploy* target, resolved by `resolveNetworkHost` but
+   *    only as far as the ssh config can take it.
    *
    * So each rung is checked twice, all rungs in parallel on a short timeout: its
    * node is asked about its batch, and the exact address that goes into the string

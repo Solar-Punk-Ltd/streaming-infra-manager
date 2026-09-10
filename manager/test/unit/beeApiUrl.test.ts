@@ -9,7 +9,12 @@
  * `@` and documented as "localhost, an ssh alias, or user@host". Dropped verbatim
  * into `http://{host}:{port}` a `user@host` target yields an address that is not a
  * bee base URL — and whose stray `@` lands inside a BEE_PUBLISHERS entry format
- * that already separates the rung from the URL on `@`.
+ * that already separates the rung from the URL on `@`. An alias is no better: it
+ * is a key into an ssh config, so `http://vultr-eu-1:10055` resolves nowhere.
+ *
+ * Both are undone by `resolveNetworkHost`; how it resolves an alias is pinned in
+ * deployHost.test.ts, where `ssh -G` is injected. Here the concern is only what
+ * the URL composes to.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -75,10 +80,12 @@ describe('beePublicApiUrlFor', () => {
     assert.equal(beePublicApiUrlFor(profile({ host: 'deploy@localhost' })), bare);
   });
 
-  it('leaves an ssh alias alone — it may well resolve for the uploader', () => {
+  it('keeps an alias no ssh config knows, rather than losing the host', () => {
+    // The floor under resolution: a name nothing can resolve still composes to
+    // the address it always did, so this can only improve on the old behaviour.
     assert.equal(
-      beePublicApiUrlFor(profile({ host: 'streamer1' })),
-      'http://streamer1:10055',
+      beePublicApiUrlFor(profile({ host: 'no-such-ssh-alias-000' })),
+      'http://no-such-ssh-alias-000:10055',
     );
   });
 });
