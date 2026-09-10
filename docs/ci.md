@@ -260,10 +260,10 @@ number of seconds, and the container exit check sits inside the loop so a
 publisher that dies is still caught in seconds. The playlist budget is
 unchanged at 40 seconds, because that is not where the time went.
 
-Run here on 2026-09-10 after that change: pass in 120 seconds. SRT in, one
-segment in the media playlist, a signed opening admission call for `video/gate`
-and a closing call after the publisher ended, on
-`airensoft/ovenmediaengine@sha256:172da912...`.
+Run here on 2026-09-10 after that change: pass in 132 seconds, the number the
+script's own header records. SRT in, one segment in the media playlist, a
+signed opening admission call for `video/gate` and a closing call after the
+publisher ended, on `airensoft/ovenmediaengine@sha256:172da912...`.
 
 ### image-race, T05a
 
