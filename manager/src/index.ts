@@ -259,6 +259,7 @@ async function main(): Promise<void> {
     rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
     dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
   });
+  chequebookOperations.start();
   // The project guard and the daemon lock: every deploy attempt holds its
   // project until its containers prove it over, and shared-tag builds wait
   // for each other on the daemon.

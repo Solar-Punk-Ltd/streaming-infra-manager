@@ -60,6 +60,7 @@ export class ChequebookReceiptPoller {
   }
 
   private runBatch(): void {
+    if (this.stopped) return;
     const batch = this.tick().catch(() => {}).then(() => {
       if (this.batch !== batch) return;
       this.batch = null;

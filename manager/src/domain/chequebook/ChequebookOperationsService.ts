@@ -5,6 +5,7 @@ import { ChequebookOperationNotFoundError } from '../errors/ChequebookOperationN
 import type { ChequebookOperationRepository } from './ChequebookOperationRepository.js';
 import type { ChequebookSubmission } from './ChequebookSubmission.js';
 import type { ChequebookReceiptCheck } from './ChequebookReceiptCheck.js';
+import type { ChequebookReceiptPoller } from './ChequebookReceiptPoller.js';
 import type { ChequebookRecovery } from './ChequebookRecovery.js';
 import { normalizeHistoryQuery } from './chequebookHistory.js';
 import { operationId } from './operationIdentity.js';
@@ -14,9 +15,16 @@ import type { ChequebookTransportCleanup } from './OwnedChequebookTransports.js'
 export class ChequebookOperationsService {
   constructor(private readonly repository: ChequebookOperationRepository, private readonly submission: ChequebookSubmission,
     private readonly receipts: ChequebookReceiptCheck, private readonly recovery: ChequebookRecovery,
-    private readonly closeTransports: () => Promise<readonly ChequebookTransportCleanup[]> = async () => []) {}
+    private readonly closeTransports: () => Promise<readonly ChequebookTransportCleanup[]> = async () => [],
+    private readonly poller?: Pick<ChequebookReceiptPoller, 'start' | 'stop'>) {}
 
-  shutdown(): Promise<readonly ChequebookTransportCleanup[]> { return this.closeTransports(); }
+  /** Begins bounded receipt polling for every submitted transfer whose budget has not passed. */
+  start(): void { this.poller?.start(); }
+
+  async shutdown(): Promise<readonly ChequebookTransportCleanup[]> {
+    await this.poller?.stop();
+    return this.closeTransports();
+  }
 
   async submit(intent: ChequebookTransferIntent): Promise<ChequebookAdmissionDetail> {
     const result = await this.submission.submit(intent);

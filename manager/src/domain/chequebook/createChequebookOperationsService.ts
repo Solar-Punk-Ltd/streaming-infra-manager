@@ -8,6 +8,7 @@ import { ChequebookRecoveryInspector } from './ChequebookRecoveryInspector.js';
 import { ChequebookRecovery } from './ChequebookRecovery.js';
 import { ChequebookSubmission } from './ChequebookSubmission.js';
 import { ChequebookOperationsService } from './ChequebookOperationsService.js';
+import { ChequebookReceiptPoller, type ReceiptPollerOptions } from './ChequebookReceiptPoller.js';
 import { PostgresChequebookOperationRepository } from './PostgresChequebookOperationRepository.js';
 import { PostgresChequebookTargetOwnership } from './PostgresChequebookTargetOwnership.js';
 import type { ChequebookOperationRepository } from './ChequebookOperationRepository.js';
@@ -21,6 +22,7 @@ export interface ChequebookServiceDependencies extends ChequebookTransportDepend
   readonly createChainReader?: (endpoint: string) => ChequebookChainReader;
   readonly qualificationCatalog?: readonly BeeBridgeQualificationRecord[];
   readonly preparation?: OwnedTransferPreparationOptions;
+  readonly receiptPolling?: ReceiptPollerOptions;
 }
 
 /** Runtime strings route already qualified transports. Test dependencies are trusted code, never API or profile fields. */
@@ -42,6 +44,7 @@ export function createChequebookOperationsService(pool: Pool,
   const receiptInspector = new ChequebookReceiptInspector((operation, signal) => chains.forChain(operation.chainId, signal));
   const receipts = new ChequebookReceiptCheck(repository, receiptInspector.inspect.bind(receiptInspector));
   const recoveryInspector = new ChequebookRecoveryInspector((operation, signal) => chains.forChain(operation.chainId, signal), pending.read.bind(pending));
+  const poller = new ChequebookReceiptPoller(repository, receipts, dependencies.receiptPolling);
   return new ChequebookOperationsService(repository, new ChequebookSubmission(repository, preparation.prepare.bind(preparation)),
-    receipts, new ChequebookRecovery(repository, recoveryInspector, receipts), transports.shutdown.bind(transports));
+    receipts, new ChequebookRecovery(repository, recoveryInspector, receipts), transports.shutdown.bind(transports), poller);
 }
