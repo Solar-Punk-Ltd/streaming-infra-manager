@@ -162,11 +162,11 @@ engine read a file.
 Two container harnesses exist for this feature and both run only when someone
 starts them. `manager/test/docker/srs-check-isolation.sh` puts eight files
 through the manager's own checker at once and asserts that each refusal names
-the directive of its own file and none of the other three. `manager/test/docker/ome-admission-gate.sh`
-drives the isolated publish-to-admission-to-playlist path. Both have a job in
-the manual workflow, `docker-checks.yml`, which no one has dispatched, so no
-job of it has ever run on a runner. Both pass on this laptop, most recently on
-2026-09-10.
+the directive of its own file and no directive of any of the other seven.
+`manager/test/docker/ome-admission-gate.sh` drives the isolated
+publish-to-admission-to-playlist path. Both have a job in the manual workflow,
+`docker-checks.yml`, which no one has dispatched, so no job of it has ever run
+on a runner. Both pass on this laptop, most recently on 2026-09-10.
 
 The gap between a parse and a start now has a test of its own, and it has never
 executed. `manager/test/integration/engine-startup-failure.test.ts` is the only
