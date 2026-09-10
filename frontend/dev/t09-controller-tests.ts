@@ -20,7 +20,7 @@ function detail(intent: { requestId: string; accountId: number; profileName: str
     chainId: 100, nodeAddress: `0x${'11'.repeat(20)}`, chequebookAddress: `0x${'22'.repeat(20)}`, tokenAddress: `0x${'33'.repeat(20)}`,
     startBlockNumber: '500', startBlockHash: `0x${'44'.repeat(32)}`, nonceLowerBound: '9', nonceQueryTag: '0x1f4',
     transactionHash: `0x${'55'.repeat(32)}`, failureReason: null, revision: '0', dispatchStartedAt: '2026-09-08T00:00:00.000Z',
-    receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
+    receiptObservation: null, receiptCheckedAt: null, receiptPollUntil: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
     createdAt: '2026-09-08T00:00:00.000Z', updatedAt: '2026-09-08T00:00:00.000Z' }, responseEvidence: [],
     assertionConfirmation: chequebookAssertionConfirmation(intent.amountPlur) };
 }
@@ -179,6 +179,32 @@ export async function runControllerTests(): Promise<{ passed: number; tests: str
     await h.controller.confirmNew(draft, null);
     assert(h.requests.length === 0 && h.controller.state.issue === 'storage_unavailable', 'Persistence failure refuses sending');
     tests.push('persistence failure refuses dispatch');
+  } finally { await h.close(); }
+
+  h = await fixture();
+  try {
+    await h.controller.confirmNew(draft, null);
+    const shown = h.controller.state.detail!;
+    const held = deferred<ChequebookOperationDetail | null>();
+    const asked = deferred<void>();
+    const answered = h.api.lookup;
+    h.api.lookup = () => { asked.resolve(); return held.promise; };
+    const refreshing = h.controller.restore();
+    await asked.promise;
+    assert(h.controller.state.detail?.operation.id === shown.operation.id, 'A refresh keeps the shown record until the manager answers');
+    held.resolve(shown);
+    await refreshing;
+    assert(h.controller.state.detail?.operation.id === shown.operation.id, 'The answer replaces the retained record with itself');
+    h.api.lookup = answered;
+    h.setRecord({ operation: shown.operation } as ChequebookOperationDetail);
+    await h.controller.restore();
+    assert(h.controller.state.detail === null && h.controller.state.issue === 'incomplete_response', 'An incomplete answer clears the retained record');
+    h.setRecord(shown);
+    await h.controller.restore();
+    h.setRecord(null);
+    await h.controller.restore();
+    assert(h.controller.state.detail === null && h.controller.state.issue === 'lookup_missing', 'A missing record clears the retained one');
+    tests.push('a refresh keeps the shown record until a real answer replaces or clears it');
   } finally { await h.close(); }
 
   const asserted = detail({ requestId: crypto.randomUUID(), accountId: 7, profileName: profile.name,

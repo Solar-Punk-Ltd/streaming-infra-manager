@@ -11,6 +11,7 @@ import { fakeForwardHarness, remoteLocator } from '../support/sshForwardLifecycl
 import { acquireDockerBeeStream } from '../../src/domain/chequebook/acquireDockerBeeStream.js';
 import type { ChequebookChainReader } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
 import { ChequebookDockerTransports } from '../../src/domain/chequebook/ChequebookDockerTransports.js';
+import { Logger } from '../../src/domain/Logger.js';
 
 const runtime = () => ({ rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: JSON.stringify({
   [syntheticTarget.alias]: { locator: { kind: 'unix', alias: syntheticTarget.alias, socketPath: '/synthetic/docker.sock' }, qualificationIds: ['synthetic-only'] },
@@ -159,6 +160,96 @@ it('the remote factory branch uses the accepted handshake and waits for owned fa
   assert.equal(remote.events.filter(value => value === 'rmdir').length, 1);
   assert.equal(remote.paths.size, 0); assert.deepEqual(remote.child.signals, ['SIGTERM']);
   assert.equal(h.counts().connections, 0); assert.equal(h.fixture.counts().networkCalls, 0);
+});
+
+/** Keeps a test's own poller quiet without hiding what it would have said. */
+const recordedLog = () => { const lines: string[] = []; return { lines, info: (line: string) => lines.push(line), warn: (line: string) => lines.push(line) }; };
+
+/** Answers one exact transaction with a canonical finalized success receipt. */
+function settlingReader(base: ChequebookChainReader, operation: { transactionHash: string | null; chainId: number; nodeAddress: string; tokenAddress: string; chequebookAddress: string; amountPlur: string; startBlockHash: string }): ChequebookChainReader {
+  const hash = operation.transactionHash!;
+  const hashAt = (number: bigint) => number === 500n ? operation.startBlockHash : `0x${number.toString(16).padStart(64, '0')}`;
+  const transaction = { hash, chainId: operation.chainId, from: operation.nodeAddress, to: operation.tokenAddress,
+    data: `0xa9059cbb${operation.chequebookAddress.slice(2).padStart(64, '0')}${BigInt(operation.amountPlur).toString(16).padStart(64, '0')}`,
+    nonce: '9', value: '0', blockNumber: '501', blockHash: hashAt(501n) };
+  return { ...base,
+    async transaction(requested) { return requested === hash ? transaction : null; },
+    async receipt(requested) { return requested === hash ? { transactionHash: hash, from: transaction.from, to: transaction.to, blockNumber: '501', blockHash: hashAt(501n), status: 'success' as const } : null; },
+    async blockHeader(block) { const number = block === 'finalized' || block === 'latest' ? 501n : block;
+      return { number: String(number), hash: hashAt(number), parentHash: hashAt(number - 1n) }; } };
+}
+
+it('the started service polls its own submitted transfer to settlement and polls nothing after shutdown', async t => {
+  const h = harness(t);
+  const operation = (await h.service.submit(transferIntent())).operation;
+  assert.equal(operation.state, 'submitted');
+  assert.ok(operation.receiptPollUntil);
+  const ticks: (() => void)[] = [];
+  const service = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
+    ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
+    receiptPolling: { intervalMs: 5, schedule: call => { ticks.push(call); return () => {}; }, log: recordedLog() },
+  });
+  t.after(() => service.shutdown());
+  service.start();
+  for (let round = 0; round < 40 && (await h.repository.findById(operation.id))?.state === 'submitted'; round++) await pause();
+  assert.equal((await h.repository.findById(operation.id))?.state, 'settled');
+  assert.equal(ticks.length, 1);
+  const later = (await h.repository.admit(operationCandidate({ profileName: 'later-deployment', nodeAddress: `0x${'cc'.repeat(20)}` }))).operation;
+  await h.repository.claimDispatch(later.id);
+  await h.repository.recordSubmission(later.id, { state: 'submitted', transactionHash: `0x${'ee'.repeat(32)}`, failureReason: null });
+  assert.ok((await h.service.shutdown()).every(value => value.state === 'closed'));
+  await service.shutdown();
+  ticks[0]!();
+  for (let round = 0; round < 20; round++) await pause();
+  assert.equal((await h.repository.findById(later.id))?.receiptCheckedAt, null);
+  assert.equal(h.fixture.counts().posts, 1);
+});
+
+it('gives the receipt poller the two calls it needs and not the objects behind them', async t => {
+  const h = harness(t);
+  const operation = (await h.service.submit(transferIntent())).operation;
+  const log = recordedLog();
+  const service = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
+    ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
+    receiptPolling: { intervalMs: 5, schedule: () => () => {}, log },
+  });
+  t.after(() => service.shutdown());
+  // Whatever the journal object becomes later, the poller holds the one call it was composed with.
+  h.repository.listAwaitingReceipt = async () => { throw new Error('the poller was handed the whole journal'); };
+  service.start();
+  for (let round = 0; round < 40 && (await h.repository.findById(operation.id))?.state === 'submitted'; round++) await pause();
+  assert.equal((await h.repository.findById(operation.id))?.state, 'settled');
+  assert.deepEqual(log.lines.filter(line => line.includes('could not read the transfer journal')), []);
+});
+
+it('the production factory sends receipt polling notes and journal failures to the manager logger', async t => {
+  const h = harness(t);
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  t.mock.method(Logger.prototype, 'info', (...args: unknown[]) => { notes.push(args.join(' ')); });
+  t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
+  const operation = (await h.service.submit(transferIntent())).operation;
+  const settling = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
+    ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
+    receiptPolling: { intervalMs: 5, schedule: () => () => {} },
+  });
+  t.after(() => settling.shutdown());
+  settling.start();
+  for (let round = 0; round < 40 && notes.length === 0; round++) await pause();
+  assert.equal(notes.length, 1, 'the production default is not the no-op logger');
+  assert.match(notes[0]!, new RegExp(`${operation.id} settled`));
+  assert.deepEqual(warnings, []);
+  await settling.shutdown();
+
+  const unreadable = new InMemoryChequebookOperations();
+  unreadable.listAwaitingReceipt = async () => { throw new Error('synthetic-journal-failure'); };
+  const failing = createChequebookOperationsService(h.pool, runtime(), { ...h.dependencies, repository: unreadable,
+    receiptPolling: { intervalMs: 5, schedule: () => () => {} } });
+  t.after(() => failing.shutdown());
+  failing.start();
+  for (let round = 0; round < 40 && warnings.length === 0; round++) await pause();
+  assert.deepEqual(warnings, ['Receipt polling could not read the transfer journal.']);
+  assert.equal(notes.length, 1, 'a journal that cannot be read is a warning and not a note');
 });
 
 it('shutdown while target capture is held refuses later acquisition', async t => {

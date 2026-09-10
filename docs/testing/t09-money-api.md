@@ -98,3 +98,81 @@ The new regression failed before the fix as `admitted` instead of `busy`, and th
 Recovery check, manual resolution and assertion require the account that reviewed the action. A mismatch refuses the write before service access, while preserving the existing policy that any authenticated operator can recover saved operations. Assertion additionally requires the exact reviewed revision, checked at the final recovery load and again by the repository under its existing operation lock. A same-account competing assertion or newer conflict returns the fixed changed-operation response. Request-only account and revision values do not enter the assertion audit record.
 
 The focused coordinator and authenticated HTTP suite passes 21 tests. All 47 PostgreSQL tests pass, including same-account concurrent assertions and conflicting direct-response evidence between the final load and assertion CAS. The full manager suite passes 675 tests, the shared package passes 269 tests, and workspace typechecks pass. No checks use real funds or a deployment. The dedicated synthetic PostgreSQL container was `0519d196ae73b99e0aab3bfae1ba4e2774cd7978a992e95bcd025a581c448271` on loopback port 52292. It was stopped after the checks and exact-ID inspection confirmed removal. History and recovery UI integration remains the next reviewed slice.
+
+## Bounded receipt polling and connected acceptance
+
+Migration 031 adds nullable `chequebook_operations.receipt_poll_until`, checked
+so a deadline cannot exist without a transaction hash. `ChequebookOperation`
+carries it as `receiptPollUntil`. The repository writes it in exactly the three
+statements that move a row into `submitted`, namely `recordSubmission` with a
+submitted outcome, candidate adoption in `recordRecovery` and `resolveCandidate`,
+and each of those keeps an existing value rather than replacing it, so a budget
+is opened once and never renewed. A receipt check, a manual check, a second
+response on a conflicted row and an assertion all leave it alone. Historical
+rows keep NULL and are never polled.
+
+`RECEIPT_POLL_BUDGET_MS` is 30 minutes, `RECEIPT_POLL_INTERVAL_MS` is 20 seconds
+and `RECEIPT_READ_INTERVAL_MS` is 10 seconds, all exported from
+`common/src/chequebookOperations.ts` so the manager and the page quote the same
+numbers. The repository takes `{ receiptPollBudgetMs }` so a test can use a
+short budget.
+
+`listAwaitingReceipt({ intervalMs, limit })` returns the rows the poller owes a
+check: `submitted`, hash known, not `hash_conflict`, deadline still ahead, and
+last checked longer ago than one interval, oldest check first.
+`ChequebookReceiptPoller` runs one batch at a time through the existing
+`ChequebookReceiptCheck`, schedules the next tick after the batch ends rather
+than from its start, catches a journal failure on one row and carries on, stops
+between rows once it has been told to stop, and writes at most one log line per
+tick naming operation ids and observation kinds only.
+`ChequebookOperationsService.start()` starts it, `shutdown()` stops it before the
+transports close, and `index.ts` starts it right after the service is created. A
+restart resumes the rows whose budget has not passed and adopts no others,
+because the query is the only thing that decides what is due.
+
+The poller's log is the manager's own `Logger`, supplied by
+`createChequebookOperationsService`. A tick that changed something is an
+information line, a journal the poller could not read is a warning line reading
+"Receipt polling could not read the transfer journal." A test supplies its own
+recorder through `receiptPolling.log`. The factory hands the poller two bound
+calls, `listAwaitingReceipt` and `check`, and not the objects behind them.
+
+A check that sees exactly the observation the row already holds refreshes
+`receipt_checked_at` only. It leaves `revision` and `updated_at` where they are,
+under the same compare-and-set. A check whose observation differs, including a
+`could_not_check` whose history cursor moved, writes as before and advances the
+revision. This matters to the operator rather than to the poller: the recovery
+actions are keyed on the revision and refuse when it moved, and a poll every 20
+seconds that sees the same pending answer would otherwise refuse most Check
+presses made while polling runs.
+
+`manager/test/database/chequebookConnected.test.ts` is the connected acceptance
+suite. It composes the production `createChequebookOperationsService` over a
+real PostgreSQL schema, the real router behind `requireSameSite` and the real
+session gate, and the owned Docker transport over a temporary Unix socket served
+by `manager/test/support/syntheticDockerBee.ts`. Only the Bee, the chain and the
+database are synthetic. Its ten cases cover an accepted deposit polled to
+settlement with no Check request, a reverted receipt, a lost response that stays
+unknown and unpolled and blocks the next intent, an RPC outage that polling
+survives, a spent budget that leaves the chain to the operator, a restart that
+resumes a live budget and adopts nothing after it, exact replay, a start that
+fails partway and leaves no schema behind, a close that finishes every step
+before reporting the first failure, and the removal of the temporary socket
+directory. The composition itself lives in
+`manager/test/support/connectedChequebook.ts` and is shared with
+`connectedChequebookServer.ts`, the process the connected browser suite forks.
+Both refuse to run unless the API is on loopback and the synthetic Docker is on
+its own socket inside a directory only this user can read.
+
+Run it with the disposable database:
+
+```
+docker run --rm -d --name t09-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55436:5432 postgres:16-alpine
+docker exec t09-pg psql -U postgres -c 'CREATE DATABASE t09_test'
+cd manager && T09_TEST_PG_PORT=55436 DATABASE_URL=postgres://postgres@127.0.0.1:55436/t09_test \
+  ./node_modules/.bin/tsx --conditions=development --test 'test/database/chequebook*.test.ts'
+docker stop t09-pg
+```
+
+A file whose variable is unset skips silently, so read `# skipped 0` in the
+summary as well as `# fail 0`.

@@ -37,7 +37,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T06 port reservations | `b65f8d9` | Reservation and target admission are included. Combined execution verification and Linux firewall qualification remain. |
 | T07 proposed deployment row | `24b85bf` | Validation, admission and write use the proposed row. Unknown critical prerequisites refuse. |
 | T08 build approval | `347c7dd` | Approval names the displayed commit/build and the wizard requires an explicit valid choice. Integrated with T18 and both publication writers. |
-| T09 money by transaction | `b1b1aec` | Journal, recovery, durable UI, exact target ownership and owned transport factory are included. Finite receipt polling, portable intent harness, connected SQL/browser acceptance and actual transport/image qualification remain. Production qualification catalog is empty. |
+| T09 money by transaction | `feat/t09-receipt-polling` | Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and connected SQL and browser acceptance are included, with the two reviews of that slice acted on. Actual SSH and immutable-image qualification remain. Production qualification catalog is empty. |
 | T10 authenticated integration client | `284790c` | Confirmed-instance cleanup and atomic profile/group removal are included. Real deployment integration has not run. |
 | T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
 | T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
@@ -56,7 +56,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 
 1. **Close the bundled upgrade and runtime flow, T04b with T01/T11.** Connect the durable shipment command to a fixed production CLI and the ordered upgrade adapters. Ordinary API boot refreshes exact still-legacy metadata only. It must not publish incoming trees, adopt timestamp orphans or recreate missing legacy files. Replace the 12 old boot-publication tests with equivalent coverage through the authorized shipment path as that path is completed. Do not delete or skip the underlying acceptance obligations just to obtain green.
 2. **Finish exact execution and recovery completion.** Carry the final deployment owner, job/build reference and existing attempt into the private execution copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work. A complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
-3. **Close the remaining money flow, T09.** Add bounded receipt-only polling without resubmission, automatic scans of unknown submissions or indefinitely renewed budgets. Make the intent-browser harness own its server instead of assuming port 54291. Exercise the authenticated UI/API against synthetic SQL and owned transport. Actual SSH and immutable-image qualification remain separate. Do not populate production qualification merely because synthetic tests pass.
+3. **Close the remaining money flow, T09.** Done on `feat/t09-receipt-polling`, see the dated section below. What remains of T09 is actual SSH and immutable-image qualification. Do not populate production qualification merely because synthetic tests pass.
 4. **Finish T20/T21 after those complete flows.** Run all required SQL with explicit task database configuration and fail missing setup instead of counting skips. Add the frontend mock/browser suites. Separate the three native transport integration files from real deployment integration. Wire the T01 startup-failure, T02 concurrent parser, T03 OME and T05a matching-version harnesses. Update docs and acceptance against the final SHA.
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
@@ -518,3 +518,139 @@ and the only `.env` of the submodule read was the `.env.sample` the fixture's
 block was copied from.
 
 Merged into `feat/ai-remediation` as 7d9af23 on 2026-09-10, after three rounds: the implementation, the two reviews with their fixes, and the targeted re-review with its fixes. Verified by Fable at 8bf512d before the merge: manager unit 2207 of 2207, the whole database directory 497 of 497 the nine-database way, common 318, frontend 88, the browser suites 12 and 24 on their own, every typecheck clean, the deploy script parses, no em-dash or semicolon in any doc, commit message or added comment, and the submodule pointer unchanged. One accident on the task branch, a scratch directory picked up by a `git add -A`, was replayed out of the history before the merge, and `.scratch/` is ignored from now on. The runbook for the first real deploy and the signed-in live test is `../consensus/FIRST-DEPLOY-SESSION.md`. D14, whether version settings become admin-only, is open for Levi.
+
+## Receipt polling, a portable harness and connected acceptance, 2026-09-10
+
+Until now a transfer that Bee answered with a transaction hash sat in
+`submitted` until somebody opened the transfer page and pressed Check. Nobody
+watching meant nobody knowing, and the node stayed locked behind that unread
+operation. The manager checks for itself now.
+
+An operation that enters `submitted` is given one budget of 30 minutes, written
+on the row as `receipt_poll_until` by migration 031 and carried to the browser
+as `receiptPollUntil`. While the budget lasts the manager asks the chain for the
+receipt about every 20 seconds through the receipt check that already existed,
+one batch at a time, scheduling the next tick after a batch ends rather than
+from its start so batches cannot overlap. A settled or reverted receipt ends the
+polling by changing the state. The budget is never renewed: no operator action
+extends it, a restart resumes only the operations whose budget has not passed,
+and every operation recorded before this slice keeps an empty deadline and is
+never polled. An operation in `submitting` or `unknown` is never polled at all,
+so recovery stays the operator's explicit action, and neither is one carrying a
+hash conflict.
+
+The two surfaces that show a waiting transfer follow along. The transfer detail
+page and the Move BZZ dialog re-read the saved record every 10 seconds while the
+deadline is ahead, and stop when the state changes, when the deadline passes or
+when the operator leaves. Both only read the saved record. Neither asks the
+chain, because the manager is doing that. While polling runs they say so and
+name the deadline in the operator's own local time, and once it passes they say
+that automatic checks ended without a final receipt and that Check asks the
+chain again. The three numbers live once, in `common`, so the manager and the
+page cannot drift apart.
+
+Two harness problems are closed with it. The intent browser suite no longer
+assumes a Vite listener on port 54291 that nobody starts: every case now owns
+its own API and its own Vite on free ports, like every other browser suite. And
+the composition is finally exercised whole. `chequebookConnected.test.ts` signs
+in over HTTP, goes through the real router behind the real session and same-site
+gates into a real PostgreSQL journal, out over the owned Docker transport to a
+synthetic Bee, and reads the outcome back. `transfer-connected-browser.test.mjs`
+does the same with the browser as the only client, against that manager run as a
+forked process. Only the Bee, the chain and the database are synthetic. Both
+suites need `T09_TEST_PG_PORT` and skip out loud without it.
+
+**Verified, 2026-09-10.** Manager unit 2218 of 2218, eleven more than before.
+Common 321, three more. Frontend unit 95, seven more. The three chequebook
+database files with a disposable PostgreSQL on port 55436: connected 8 of 8,
+operations 50 of 50, seven more than before, targets 31 of 31, none skipped. The
+browser suites one file at a time: intent 3, dialog 10, history 9, recovery 10,
+api 2, recovery-api 2, the new polling suite 3 and the new connected suite 3,
+all passing, and the connected suite verified to skip with its reason printed
+when the database variable is unset. Every workspace typecheck clean,
+`git diff --check` clean against the branch base, and no em-dash or semicolon in
+any added prose, comment, UI string or commit message. Nothing ran against the
+real host, nothing was pushed, and no credential was read.
+
+What remains of T09 after this slice is unchanged and separate: actual SSH and
+real image qualification. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is still empty
+and a synthetic pass qualifies nothing. T14 still waits on Levi's D04 numbers.
+
+## What the two reviews of the receipt polling slice changed, 2026-09-10
+
+Two reviews read the slice above on detached worktrees at its head, one for
+correctness and one for security, with a disposable PostgreSQL and twenty five
+mutations between them. Nothing they found was a wrong state machine or a leak.
+Two were wrong information on a money screen, several were places where the code
+was right and no test would have noticed it stopping being right, and one was a
+runaway in the fixtures. All of them are fixed on the same branch.
+
+The dialog no longer flashes. It re-reads the saved record every ten seconds
+unattended, and it used to clear the record at the start of each of those reads,
+so for the length of a round trip the evidence panel was replaced by the sentence
+saying the transaction outcome is unknown. That sentence was untrue at that
+moment and it appeared every ten seconds. A re-read of the same request now keeps
+what is on screen until the manager answers, and only an answer that really says
+the record is missing or incomplete clears it.
+
+A failed read no longer ends the automatic re-reads. One synthetic 503 used to
+be enough: the page scheduled nothing from its failure branch and never read
+again. A fifteen second timeout, a tunnel blip or a manager restart during a
+deploy would have done it. A failed read now costs one cycle.
+
+A conflicted transfer is no longer shown as polled. The manager excludes a row
+whose failure reason is `hash_conflict` from its own checks, but the page decided
+from the state and the deadline alone, so it promised checks that never happen
+and, after the deadline, told the operator to press a Check button that a
+conflicted transfer does not offer.
+
+A poll that sees nothing new no longer moves the revision. The manager checks
+about every twenty seconds and almost every check sees the same pending answer,
+and each one wrote a new revision, about ninety over one budget. The operator's
+Check refuses when the revision moved under it, and the recovery actions remount
+on it, so a good share of Check presses during polling came back saying the saved
+transfer had changed. A check that changes what it observed still advances the
+revision. One that does not now records only when it happened.
+
+The poller's log reached nobody. `index.ts` passes no polling options, so the log
+was the no-op default and a journal that stopped answering was never recorded
+anywhere. It goes through the manager's own `Logger` now, a warning for the
+journal and information for the per-tick notes, and the factory hands the poller
+two bound calls rather than the whole repository and the whole receipt check.
+
+A shutdown no longer waits out a whole batch. The loop over the due rows never
+looked at whether it had been stopped, and twenty rows at the receipt inspector's
+fifteen second timeout during an RPC outage is about five minutes, past the
+ninety seconds systemd allows before killing the process with its transport
+cleanup unverified. The page also says now that the gap between checks grows
+while the chain endpoint does not answer, and the feature doc records the worst
+case.
+
+Three things were right and untested, and now have tests: that a repeated
+response cannot renew a polling budget, that a spent budget stops the dialog's
+re-reads as well as the page's, and that the fixture's Vite port comes from its
+own probe rather than from the environment. The connected fixtures now refuse to
+run unless the API is on loopback and the synthetic Docker is on its own private
+socket, they unwind a start that fails partway, and their close runs every step
+before reporting the first failure.
+
+The browser fixtures stopped filling the machine. Every fixture built its own
+9 MB Vite cache inside a temporary directory that nothing ever removed. Measured
+here before the fix: 575 such directories holding 5.0 GB. They share one cache
+under the frontend `node_modules` now, which also skips the cold start, and a
+fixture with nothing to report removes its own directory. The 477 old directories
+whose contents were only that cache and an empty log were removed after checking
+each one, freeing 4.0 GB. The 113 that also hold screenshots from earlier runs
+were left alone, 958 MB, for Levi to decide on.
+
+**Verified, 2026-09-10, after the fix round.** Manager unit 2222 of 2222, four
+more than before. Common 321, unchanged. Frontend unit 98, three more. The three
+chequebook database files with a disposable PostgreSQL on port 55436: connected
+10 of 10, two more, operations 54 of 54, four more, targets 31 of 31, none
+skipped. The browser suites one file at a time: intent 3, dialog 10, api 2,
+recovery-api 2, history 9, recovery 10, polling 8, five more, the new fixture
+file 3, and connected 3, which was also run without the database variable and
+skipped all three out loud. Every workspace typecheck clean after building
+common, `git diff --check` clean against the branch base, and no em-dash or
+semicolon in any added prose, comment, UI string or commit message. Nothing ran
+against the real host, nothing was pushed, and no credential was read.

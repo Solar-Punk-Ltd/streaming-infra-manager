@@ -18,7 +18,7 @@ A new confirmation still checks the pointer atomically. Same-ID explicit retries
 
 ## Native verification
 
-The harness is `frontend/dev/t09-intent-tests.html`. It uses generated synthetic intents and temporary IndexedDB names. The node runner is `node --test frontend/test/transfer-intent-browser.test.mjs`, with a dedicated local Vite server on 127.0.0.1:54291. The existing Chrome helper creates one temporary profile per run, permits only this test origin, bounds protocol requests, stops its exact child and removes its exact temporary profile.
+The harness is `frontend/dev/t09-intent-tests.html`. It uses generated synthetic intents and temporary IndexedDB names. The node runner is `node --test frontend/test/transfer-intent-browser.test.mjs`. Each case starts its own synthetic API and its own Vite server on free loopback ports through `launchTransferFixture` and stops both, so nothing in the file depends on a listener somebody started by hand. The existing Chrome helper creates one temporary profile per run, permits only this test origin, bounds protocol requests, stops its exact child and removes its exact temporary profile.
 
 Chrome 152.0.7977.83 passed nine in-page cases and a separate two-tab case. Coverage includes concurrent confirmations, reload, current-pointer replacement, unrelated account or instance scopes, immutable UUID payloads, invalid input, abort after an individual write succeeds damaged pointer refusal and exact observation-link isolation. Two real tabs confirm concurrently, reload and prove that an old pointer cannot replace the newer intent. Workspace typechecks and `git diff --check` passed. Ten additional controller scenarios use native IndexedDB and an injected synthetic API. They cover durable completion before submit, exact restore, response loss and repeated 404, explicit same-ID retry, busy identity separation, current terminal evidence, logout/cancellation/profile changes during late persistence, target replacement, quota failure and evidence-first headlines. The three native browser tests passed with all workspace source typechecks. No real money request is made. Production API transport, full money UI and the final fixture-owned Vite lifecycle remain open, so this is not completion of T09.
 
@@ -28,7 +28,7 @@ Chrome 152.0.7977.83 passed nine in-page cases and a separate two-tab case. Cove
 
 Exact by-request reads and fresh profile reads use `cache: 'no-store'` through the additive `ApiRequest.cache` option. The browser fixture holds an older ordinary GET, returns newer conflict evidence to the controller's distinct lookup, then releases the older terminal response. The original pointer remains and no POST occurs. This is evidence observed during confirmation. The backend must independently refuse admission when conflict is already durable after that read.
 
-Run `node --test frontend/test/transfer-api-browser.test.mjs` from the worktree root. These adapter tests own their synthetic API, Vite and Chrome processes. API and Vite bind dynamic loopback ports, and Vite uses a separate cache. `RUNNER_TEMP` selects the evidence parent directory, otherwise the operating system temporary directory is used. Each run reports its evidence path. The earlier intent-browser suite still requires its local Vite listener and remains scheduled for the final harness portability correction.
+Run `node --test frontend/test/transfer-api-browser.test.mjs` from the worktree root. These adapter tests own their synthetic API, Vite and Chrome processes. API and Vite bind dynamic loopback ports, and Vite uses a separate cache. `RUNNER_TEMP` selects the evidence parent directory, otherwise the operating system temporary directory is used. Each run reports its evidence path. The intent-browser suite owns its listeners the same way.
 
 This checkpoint does not wire the money dialog or global history. T06 current target ownership integration is still required. The historical 0.5 BZZ fill remains unverified.
 
@@ -37,6 +37,8 @@ This checkpoint does not wire the money dialog or global history. T06 current ta
 `frontend/dev/mock-chequebook.mjs` replaces the offline manager's amount-only money routes. Synthetic operation records retain their permanent request keys for the lifetime of that mock process. Exact replay precedes current profile lookup, and account or profile-instance changes refuse new submissions. Busy operations and historical hash conflicts remain protected. The mock returns the same admission, exact-request and operation-detail shapes as the real API.
 
 A receipt observation changes the recorded outcome. A balance change does not. The ordinary offline manager schedules a synthetic receipt and updates its sample balances separately. Tests can inject an unavailable submission response or later receipt/hash evidence through the JavaScript fixture only. There are no HTTP controls for forcing an outcome.
+
+The automatic settlement that makes `pnpm dev:mock` show the whole flow is not in the journal mock. It lives in `frontend/dev/mock-manager.mjs`, which schedules `observeReceipt(..., settled)` a few seconds after a submission. A reader looking for it in `mock-chequebook.mjs` will not find it.
 
 Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
 
@@ -49,3 +51,69 @@ An initial transfer has separate amount review and confirmation. A later New tra
 The dialog displays complete transaction response evidence and retains terminal outcomes on screen. It neither closes automatically nor infers completion from balances. The unused amount-only API functions and balance-settlement polling helpers were removed from this frontend flow. Refresh saved status and focus restoration only read existing journal evidence. Receipt checks, manual recovery, global history and T06 ownership integration remain later slices.
 
 The browser regression mounts actual StorageCard and MoveBzzDialog under React StrictMode. It uses the journal mock, native IndexedDB, isolated Chrome profiles and owned random loopback API/Vite listeners. It captures desktop and phone screenshots and checks horizontal overflow. These synthetic fixtures do not access any live Bee node or RPC endpoint.
+
+## Following the manager without a click
+
+A submitted operation carries `receiptPollUntil`, the moment the manager stops
+checking the chain on its own. While that deadline is ahead, the transfer detail
+page and the Move BZZ dialog re-read the saved record every 10 seconds and say
+so, and when it passes they say that automatic checks ended and leave Check to
+the operator. Both surfaces only read `GET /chequebook/operations/...`. Neither
+asks the chain, because the manager is doing that.
+
+A record whose failure reason is `hash_conflict` is never treated as polled,
+whatever deadline it still carries, because the manager excludes it from its own
+checks and there is no Check button on a conflicted transfer to point at. A
+deadline is read no further ahead than one whole budget after the record last
+changed, whatever `receiptPollUntil` says, because the manager writes that
+deadline and the record's `updatedAt` in one statement and `updatedAt` only
+moves forward. The ceiling sits on the record and not on the clock. One measured
+from now would move with every re-read and never arrive, so a page holding a
+dishonest deadline would keep reading forever.
+
+A re-read keeps the record already on screen until the manager answers, and only
+a real answer that says the record is missing or incomplete clears it. A read
+that fails costs one cycle rather than the cadence: both surfaces try again at
+the next interval while the last good answer still asks for one.
+
+`frontend/src/transfers/receiptPolling.ts` holds the deadline arithmetic and the
+two sentences, tested in `receiptPolling.test.ts`. `transferEvidence.test.ts`
+pins that a record is refused unless its poll deadline is null or an ISO
+timestamp of the shape the manager writes.
+`frontend/test/transfer-polling-browser.test.mjs` drives the real dialog and the
+real detail page: a record that becomes settled while nobody clicks is shown as
+settled within one re-read, the GET count proves the re-reads happened and no
+`check` request is sent, a record whose deadline has already passed re-reads
+nothing on either surface while Check still works, a conflicted record is neither
+polled nor re-read, the unknown-outcome sentence never appears across a re-read,
+and one synthetic 503 in the middle of polling costs a single cycle.
+
+`frontend/test/transfer-fixture.test.mjs` covers the fixtures themselves, with no
+browser: every fixture shares one Vite cache under `frontend/node_modules`, a run
+with nothing to report removes its own evidence directory, and the Vite port
+always comes from the fixture's own probe rather than from the environment.
+
+Run `node --test frontend/test/transfer-polling-browser.test.mjs`. Four of its
+cases wait out a full re-read interval on purpose, so the file takes about two
+minutes.
+
+## Connected browser acceptance
+
+`frontend/test/transfer-connected-browser.test.mjs` runs the same UI against a
+real manager: `manager/test/support/connectedChequebookServer.ts` forked with
+`tsx`, a real PostgreSQL schema, the real router and session gate, the owned
+Docker transport and a synthetic Bee and chain. Vite comes from `launchViteFor`
+in `frontend/test/support/transfer-fixture.mjs`, the variant that puts Vite in
+front of a manager the caller already owns.
+
+The browser signs in through the real login route, moves 0.5 BZZ and watches it
+settle without a click. A dropped Bee response leaves the operation unresolved,
+the fixture reports that no receipt was ever asked for, the detail page's search
+leaves it unresolved, and a second operator's move is refused with the blocking
+explanation. The history and detail pages then read the same journal. The three
+cases need `T09_TEST_PG_PORT`. Without it they skip with that reason printed
+rather than passing quietly.
+
+```
+T09_TEST_PG_PORT=55436 node --test frontend/test/transfer-connected-browser.test.mjs
+```

@@ -10,7 +10,7 @@ await new Promise(resolve => probe.close(resolve));
 const server = await createServer({ root, cacheDir: process.env.T09_VITE_CACHE,
   server: { host: '127.0.0.1', port, strictPort: true, hmr: false }, logLevel: 'error' });
 await server.listen();
-process.send({ port: server.httpServer.address().port });
+process.send({ port: server.httpServer.address().port, cache: server.config.cacheDir });
 let closing = false;
 async function close() {
   if (closing) return;

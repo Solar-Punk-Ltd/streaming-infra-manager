@@ -363,7 +363,7 @@ test('controller keeps the busy and identity-conflict retry boundaries distinct'
   const h = await fixture(t);
   const browser = await open(t, h);
   const result = await browser.evaluate("(async () => { const { runControllerTests } = await import('/dev/t09-controller-tests.ts'); return runControllerTests(); })()");
-  assert.equal(result.passed, 10);
+  assert.equal(result.passed, 11);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
 });

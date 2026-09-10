@@ -4,6 +4,9 @@ const HASH = /^0x[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value);
 const hash = (value: unknown): value is string => typeof value === 'string' && HASH.test(value);
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+const isTimestampOrNull = (value: unknown): value is string | null =>
+  value === null || (typeof value === 'string' && ISO_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value)));
 
 export function isTransferOperation(value: unknown): value is ChequebookOperation {
   if (!value || typeof value !== 'object') return false;
@@ -18,7 +21,8 @@ export function isTransferOperation(value: unknown): value is ChequebookOperatio
       !['deposit', 'withdraw'].includes(operation.direction) || !integer(operation.revision) || !integer(operation.startBlockNumber) || !hash(operation.startBlockHash) ||
       (operation.transactionHash !== null && !hash(operation.transactionHash)) ||
       ![null, 'preflight_failed', 'response_unavailable', 'invalid_response', 'hash_conflict'].includes(operation.failureReason) ||
-      operation.receiptObservation === undefined || operation.recoveryObservation === undefined || operation.assertion === undefined || operation.dispatchStartedAt === undefined) return false;
+      operation.receiptObservation === undefined || operation.recoveryObservation === undefined || operation.assertion === undefined || operation.dispatchStartedAt === undefined ||
+      !isTimestampOrNull(operation.receiptPollUntil)) return false;
   return true;
 }
 

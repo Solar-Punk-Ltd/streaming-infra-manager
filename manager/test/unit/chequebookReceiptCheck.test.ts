@@ -79,6 +79,15 @@ describe('durable chequebook receipt checks', () => {
     assert.ok(!JSON.stringify(result).includes('synthetic-private-path'));
   });
 
+  it('leaves the revision alone when a re-check observes what the journal already holds', async () => {
+    const { repository, submitted } = await setup();
+    const first = await repository.recordReceipt(submitted, { kind: 'could_not_check', reason: 'rpc_unavailable' });
+    const again = await repository.recordReceipt(first, { reason: 'rpc_unavailable', kind: 'could_not_check', history: undefined });
+    assert.equal(again.revision, first.revision, 'the journal compares normalized observations, where key order and an absent field cannot differ');
+    assert.equal(again.updatedAt, first.updatedAt);
+    assert.deepEqual(again.receiptObservation, first.receiptObservation, 'and stores what it compared');
+  });
+
   it('never answers settlement when its journal write fails', async () => {
     const { repository, submitted } = await setup();
     repository.recordReceipt = async () => { throw new Error('synthetic-private-path'); };

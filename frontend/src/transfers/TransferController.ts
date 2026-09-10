@@ -25,7 +25,13 @@ type Context = { readonly accountId: number; readonly profile: TransferProfileId
 type ActiveTask = { readonly controller: AbortController; readonly epoch: number; readonly context: Context };
 const empty = (phase: TransferControllerState['phase']): TransferControllerState => ({ phase, intent: null, detail: null, blocking: null, blockingReason: null, issue: null });
 
-/** A saved UUID survives every interrupted UI action. Only explicit confirmation or retry can call submit. */
+/**
+ * A saved UUID survives every interrupted UI action. Only explicit confirmation or retry can call submit.
+ *
+ * A re-read of the same request keeps the record already on screen until the
+ * manager answers, because the page re-reads unattended every few seconds and
+ * an empty panel between the request and its answer reads as a lost outcome.
+ */
 export class TransferController {
   private snapshot: TransferControllerState = empty('idle');
   private context: Context | null = null;
@@ -102,7 +108,7 @@ export class TransferController {
       const intent = await this.store.current(task.context.accountId, task.context.profile.instanceId);
       if (this.live(task)) {
         const retained = intent && intent.requestId === this.snapshot.intent?.requestId
-          ? { blocking: this.snapshot.blocking, blockingReason: this.snapshot.blockingReason } : {};
+          ? { detail: this.snapshot.detail, blocking: this.snapshot.blocking, blockingReason: this.snapshot.blockingReason } : {};
         this.update({ ...empty(intent ? 'loading' : 'entry'), intent, ...retained });
       }
       return intent;
@@ -117,8 +123,8 @@ export class TransferController {
     try { detail = await this.api.lookup(intent.requestId, task.controller.signal); }
     catch (error) { this.failedRequest(task, error, 'lookup_unavailable'); return null; }
     if (!this.live(task)) return null;
-    if (!detail) { this.patch({ phase: 'ready', issue: 'lookup_missing' }); return null; }
-    if (!isCompleteTransferDetail(detail)) { this.patch({ phase: 'ready', issue: 'incomplete_response' }); return null; }
+    if (!detail) { this.patch({ phase: 'ready', detail: null, issue: 'lookup_missing' }); return null; }
+    if (!isCompleteTransferDetail(detail)) { this.patch({ phase: 'ready', detail: null, issue: 'incomplete_response' }); return null; }
     if (!isExactTransfer(intent, detail.operation)) { await this.blocked(task, intent, detail, 'identity_conflict'); return null; }
     return await this.exact(task, intent, detail) ? detail : null;
   }

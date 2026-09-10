@@ -12,7 +12,7 @@ function detail() {
     chainId: 100, nodeAddress: `0x${'11'.repeat(20)}`, chequebookAddress: `0x${'22'.repeat(20)}`, tokenAddress: `0x${'33'.repeat(20)}`,
     startBlockNumber: '500', startBlockHash: `0x${'44'.repeat(32)}`, nonceLowerBound: '9', nonceQueryTag: '0x1f4',
     transactionHash: null, failureReason: 'response_unavailable', revision: '2', dispatchStartedAt: stamp,
-    receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
+    receiptObservation: null, receiptCheckedAt: null, receiptPollUntil: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null,
     createdAt: stamp, updatedAt: stamp }, responseEvidence: [], assertionConfirmation: 'I accept that retrying 0.5 BZZ may pay twice.' };
 }
 async function open(t, fixture) {

@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation } from '@streaming-infra-manager/common';
 import { readBody, send } from './mock-http.mjs';
 import { mockChequebookRecoveryRoutes } from './mock-chequebook-recovery.mjs';
+import { openReceiptPollBudget } from './mock-receipt-polling.mjs';
 import { mockChequebookHistory } from './mock-chequebook-history.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,6 +42,7 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     } else {
       operation.transactionHash = transactionHash;
       if (ACTIVE.has(operation.state)) operation.state = 'submitted';
+      openReceiptPollBudget(operation);
     }
     changed(operation);
   }
@@ -80,7 +82,7 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     const operation = { id: randomUUID(), requestId, profileName: name, profileInstanceId: profile.instance_id, requestedBy: `user:${user.id}`,
       direction, amountPlur: input.amount, chainId: 100, nodeAddress: node.ethereum.toLowerCase(), chequebookAddress: node.chequebook.address.toLowerCase(),
       tokenAddress: '0xdbf3ea6f5bee45c02255b2c26a16f300502f68da', startBlockNumber: '500', startBlockHash: hash(), nonceLowerBound: '0', nonceQueryTag: '0x1f4',
-      state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null,
+      state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, receiptPollUntil: null,
       recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
     records.set(operation.id, { operation, responseEvidence: [] });
     byRequest.set(requestId, operation.id);

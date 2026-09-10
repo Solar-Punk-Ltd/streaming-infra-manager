@@ -174,6 +174,16 @@ malformed value stops the process rather than silently reverting to the default.
 `GET /config` answers it as `chequebookFloorBzz` so the UI shows the number the
 gate uses.
 
+Two more process settings decide whether a transfer can be made at all, and
+neither is ever accepted from a request, a profile or a Bee response.
+**`CHEQUEBOOK_RPC_ENDPOINTS`** is a JSON object keyed by chain id, naming the
+chain the manager reads receipts from. **`CHEQUEBOOK_DOCKER_TRANSPORTS`** names,
+per deploy target alias, the Docker socket the manager reaches the node's Bee
+through and the qualification ids the container image must match. With either
+missing, saved operations stay readable and recoverable and new transfers refuse
+rather than guess. `docs/testing/t09-money-api.md` has their exact shapes and
+the rules the registry applies to them.
+
 ### Engine control
 
 The media server of one deployment: what it is configured with, and the two

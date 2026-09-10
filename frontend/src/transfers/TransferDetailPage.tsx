@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Link, Paper, Stack, Typography } from '@mui/material';
-import type { ChequebookOperationDetail } from '@streaming-infra-manager/common';
+import { RECEIPT_READ_INTERVAL_MS, type ChequebookOperationDetail } from '@streaming-infra-manager/common';
 import { routes } from '../app/router';
 import { useSession } from '../app/useSession';
 import { TransferEvidencePanel, TransferValue } from './TransferEvidencePanel';
@@ -9,6 +9,7 @@ import { readTransferDetail, transferIdentity, TransferHistoryError, type Transf
 import { isExactTransfer, type ProvenTransferLink, type StoredTransferIntent } from './transferIntentStore';
 import { useBrowserTransferStore } from './useBrowserTransferStore';
 import { useTransferRead } from './useTransferRead';
+import { isPollingReceipt } from './receiptPolling';
 import { TransferRecordedEvidence } from './TransferRecordedEvidence';
 import { TransferRecoveryActions } from './TransferRecoveryActions';
 import type { RecoveryNotice } from './useTransferRecovery';
@@ -52,7 +53,9 @@ function Detail({ accountId, detailKey }: { accountId: number; detailKey: Transf
     }
     return { detail, intent, browserUnavailable };
   }, [detailKey, store, accountId]);
-  const { state, refresh } = useTransferRead(`${accountId}:${detailKey.kind}:${detailKey.id}`, load);
+  const followManagerPolling = useMemo(() => ({ intervalMs: RECEIPT_READ_INTERVAL_MS,
+    whileReading: (value: { detail: ChequebookOperationDetail | null }) => value.detail !== null && isPollingReceipt(value.detail.operation) }), []);
+  const { state, refresh } = useTransferRead(`${accountId}:${detailKey.kind}:${detailKey.id}`, load, followManagerPolling);
   return <Stack spacing={2}>
     <Link href={routes.transfers}>Back to transfer history</Link>
     <Typography variant="h5">Saved transfer</Typography>
