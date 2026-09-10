@@ -6,7 +6,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function waitFor(read, accepts = Boolean, description = 'condition', timeoutMs = 15_000) {
+/**
+ * Polls `read` until `accepts` takes what it answered, or the budget runs out.
+ *
+ * The description is not optional, because it is the whole of what a timeout
+ * says. Without one a failed wait reads "Timed out waiting for condition",
+ * which in a browser suite of hundreds of waits names nothing at all, and the
+ * log of a run on a runner is usually the only evidence there is.
+ */
+export async function waitFor(read, accepts = Boolean, description = '', timeoutMs = 15_000) {
+  if (typeof description !== 'string' || description.trim() === '') {
+    throw new Error('A wait says what it is waiting for, since that is all a timeout here prints.');
+  }
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     const value = await read();
@@ -119,6 +130,7 @@ export async function launchChrome(t, origin) {
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   const version = await call('Browser.getVersion');
+  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);
   return {
     call, evaluate, errors, blockedRequests,
     pid: child.pid, profile, debuggingPort: port, version: version.product,

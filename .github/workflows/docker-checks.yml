@@ -1,7 +1,14 @@
-# The Docker-backed run: the manager on the runner with Postgres beside it, the
-# integration suite signed in against it, real containers built and started
-# here and nowhere else. By hand, since it takes minutes and builds images. Not
-# a required check. What it proves and what it does not: docs/ci.md.
+# The Docker-backed run: the container-backed regressions and the signed-in
+# integration suite, real containers built and started here and nowhere else.
+# By hand, since it takes minutes and builds images. Not a required check.
+#
+# Four jobs, so one failure never hides another and each shows by name in the
+# run: the SRS parser on eight files at once, the OvenMediaEngine admission
+# gate, the shared image race, and the deployment integration suite that
+# carries T01's startup failure. The first three need Docker and this
+# repository with its submodule, no manager and no secret.
+#
+# What each proves and what it does not: docs/ci.md.
 name: docker-backed checks
 
 on:
@@ -11,18 +18,83 @@ permissions:
   contents: read
 
 jobs:
+  srs-parser:
+    # T02. Eight concurrent checks through the manager's own checker, on the
+    # engine image the stack runs. Every refusal has to name the directive of
+    # its own file, which is what a shared scratch copy would break.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: The daemon this ran on
+        run: docker version --format 'server {{.Server.Version}}'
+
+      - name: SRS parser isolation, eight files at once
+        run: bash manager/test/docker/srs-check-isolation.sh
+
+  ome-gate:
+    # T03. SRT in, signed admission out, HLS playlist served, all in throwaway
+    # containers on a private network. No funds, no Swarm, no host.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: The daemon this ran on
+        run: docker version --format 'server {{.Server.Version}}'
+
+      - name: OvenMediaEngine admission gate
+        run: bash manager/test/docker/ome-admission-gate.sh
+
+  image-race:
+    # T05a. The shared image tag reproduced and closed on throwaway projects.
+    # The versions this ran on are in the harness output, and they are not the
+    # Engine 29.1.3 and Compose 5.1.4 pair the qualification names. That
+    # qualification stays a separate obligation, see docs/ci.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The daemon and Compose this ran on
+        # The harness prints them too. This step puts them in the log before
+        # any build, so a run that dies mid-build still says what it was on.
+        run: |
+          docker version --format 'server {{.Server.Version}}'
+          docker compose version --short
+
+      - name: Shared image race
+        run: bash manager/test/docker/shared-image-race.sh
+
   integration:
+    # T10, and now T01's container-backed startup failure. The manager on the
+    # runner with Postgres beside it, real deployments created and removed.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
       postgres:
-        image: postgres:16-alpine
+        # The same pin the checks workflow uses, digest resolved 2026-09-10.
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
         env:
           POSTGRES_USER: manager
           POSTGRES_PASSWORD: manager
           POSTGRES_DB: manager
+        # Loopback only, as in the checks workflow.
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U manager"
           --health-interval 5s
@@ -82,6 +154,9 @@ jobs:
         run: node -e "process.stdout.write(process.env.ITEST_PASSWORD ?? '')" | node dist/cli.js user:add itest --password-stdin
 
       - name: Integration suite, signed in, against the manager on this runner
+        # This is where T01's engine-startup-failure file runs, for the first
+        # time. It stores a config file SRS parses and dies on, and asserts the
+        # rollout puts the previous file back with the deployment up on it.
         env:
           MANAGER_TEST_TARGET: http://localhost:9876
           MANAGER_TEST_USERNAME: itest

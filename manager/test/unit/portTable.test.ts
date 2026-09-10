@@ -10,7 +10,7 @@
  * deploy script then refuses it.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -26,15 +26,18 @@ import {
 } from '../../src/domain/versions/portTable.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
-import { profileServiceHarness } from '../support/profileServiceHarness.js';
 
 const root = join(mkdtempSync(join(tmpdir(), 'port-table-')), 'main-v3');
 mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
+// Both harnesses reach envUtils, which reads SHLS_ROOT once at import time, so
+// a static import here would give every deployment below the real checkout
+// this manager ships with and write its env file into it.
 const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
+const { profileServiceHarness } = await import('../support/profileServiceHarness.js');
 
 const V3_CONTRACT: StackContract = {
   ports: [
@@ -127,6 +130,10 @@ describe('the container snapshot after a deploy', () => {
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
     assert.equal(srs?.ports.SRS_HTTP_API_PORT, undefined);
+    assert.ok(
+      existsSync(join(root, '.env.plain')),
+      'the deployment env file belongs in this run own root, and a unit test that writes one anywhere else has reached a real checkout',
+    );
   });
 });
 

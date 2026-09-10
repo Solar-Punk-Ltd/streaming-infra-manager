@@ -48,7 +48,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
 | T18 narrow layouts | `5f835ca` | Responsive version cards preserve exact-build approval and attempt-release controls. |
 | T19 notes editing | `6b3c50c` | Separate notes updates and revision conflicts coexist with full deployment edits. |
-| T20 CI checks | `1eb7cdd` | Partial workflow is included. SQL, browser and real parser/engine entrypoints and required-check execution are unfinished. |
+| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 166 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
 | T21 documentation | `c640b10` | Reviewed docs plus a new integrated-status correction are included. Update again as remaining flows close. |
 | T22 controlled live acceptance | No task branch | Await D05 inputs, completed prerequisites and separate live authorization. |
 
@@ -57,7 +57,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 1. **Close the bundled upgrade and runtime flow, T04b with T01/T11.** Connect the durable shipment command to a fixed production CLI and the ordered upgrade adapters. Ordinary API boot refreshes exact still-legacy metadata only. It must not publish incoming trees, adopt timestamp orphans or recreate missing legacy files. Replace the 12 old boot-publication tests with equivalent coverage through the authorized shipment path as that path is completed. Do not delete or skip the underlying acceptance obligations just to obtain green.
 2. **Finish exact execution and recovery completion.** Carry the final deployment owner, job/build reference and existing attempt into the private execution copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work. A complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
 3. **Close the remaining money flow, T09.** Done on `feat/t09-receipt-polling`, see the dated section below. What remains of T09 is actual SSH and immutable-image qualification. Do not populate production qualification merely because synthetic tests pass.
-4. **Finish T20/T21 after those complete flows.** Run all required SQL with explicit task database configuration and fail missing setup instead of counting skips. Add the frontend mock/browser suites. Separate the three native transport integration files from real deployment integration. Wire the T01 startup-failure, T02 concurrent parser, T03 OME and T05a matching-version harnesses. Update docs and acceptance against the final SHA.
+4. **Finish T21 after those complete flows, and dispatch T20's manual workflow.** T20's own work is done on `feat/t20-ci-completion`, see the dated section below. What remains of it is Levi's: dispatch the docker-backed workflow so its four jobs run once, and turn the required checks on after the `checks` workflow has run. Update docs and acceptance against the final SHA.
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
 
@@ -669,3 +669,127 @@ held only a Vite cache were removed (4.0 GB), 113 that also hold screenshots
 were kept. Still open after this slice: the production Bee bridge qualification
 catalog is empty, real SSH and real image qualification have not run, and T14
 waits on the D04 numbers.
+
+## Checks that run what the repository claims, T20, 2026-09-10
+
+Before this slice the workflow ran the build, the three unit suites and the
+frontend build. That is what a green check meant. The 33 SQL suites, the twenty
+browser suites and the three native transport suites ran nowhere, and the four
+container-backed regressions had either no entry point or no job.
+
+Three jobs are required on a pull request now. `checks` gained the native
+transport suites, which had been sitting inside the deployment integration
+suite: they own temporary Unix sockets and fork synthetic Node children, need
+no manager and no Docker socket, and were picked up by an entry point that
+refuses to start without `MANAGER_TEST_TARGET`. They live in
+`manager/test/native/` and run through `pnpm test:native`.
+
+`database` is new. Every SQL file gates itself on a task port variable and
+skips silently without it, so `manager/test/database/run-all.mjs` names the
+nine databases in one table, refuses in words when a variable is unset or is
+not a port, connects to all nine before anything runs, and treats one skipped
+test as a failure. A Postgres 16 service pinned by digest sits beside the
+runner and the nine databases are created through the image's own `createdb`.
+
+`browser` is new. The twenty files under `frontend/test` run through one
+script, `pnpm test:browser`, under `node --import tsx` because one of them
+reaches the manager's TypeScript through specifiers only tsx rewrites. One
+file at a time, each owning its Vite and its Chrome. The job proves the Chrome
+binary before it starts, so a missing browser is a failed check and never a
+passed one, and it carries `t09_test` for the connected transfer suite.
+
+The manual workflow is four jobs instead of one, so a failure shows by name:
+`srs-parser`, `ome-gate`, `image-race` and `integration`. T02 had no entry
+point and now has one, `manager/test/docker/srs-check-isolation.sh`, which
+puts eight files through the manager's own checker at once and asserts that
+each refusal names the directive of its own file and none of the other three.
+T01 had none either, and now has
+`manager/test/integration/engine-startup-failure.test.ts`.
+
+**The file that separates a parse from a start.** T01 needed a config the
+manager's check accepts and the engine dies on. It is the version's own
+template with `work_dir /no/such/directory;` added. On the pinned SRS image on
+2026-09-10, `srs -t` exited 0 and printed that the file is successful, and
+`srs` left the container exited with code 255 one second in, printing that it
+could not change directory. SRS reads its config first and changes directory
+second, and only the second step touches the file system. Both observations
+are in the test's header.
+
+**Verified, 2026-09-10.** Manager unit 2262 of 2262, thirty nine more than
+before, from the two new unit files. Common 321, frontend unit 100, native 7,
+all with no skips. The whole database directory 518 of 518 with nine
+disposable databases, no skips, 161 s in that run. Every browser suite through the new
+script, 144 of 144, no skips. Every workspace typecheck clean after building
+common, both workflow files valid YAML, `git diff --check` clean against the
+branch base, and no em-dash or prose semicolon in anything added. Nothing ran
+against the real host, nothing was pushed, and no credential was read.
+
+### What two reviews found in it, and what changed, 2026-09-10
+
+Two parallel reviews on detached worktrees, one for correctness with ten
+mutations and one for security with four, plus Fable's own reading. Sixteen
+findings, of which two were high.
+
+**A unit test was writing into the real stack checkout.** `portTable.test.ts`
+set `SHLS_ROOT` to a temporary root at line 33, but imported a harness at line
+29 that reaches `envUtils`, which reads that variable once when it is first
+imported. So every run of the manager unit suite deployed into
+`manager/swarm-hls-stream` and left a `.env.plain` there, 3088 bytes, the real
+stack `.env` merged with the generated lines, mode 0600. Nothing failed
+because the CI job checks out no submodule. The import is dynamic now, the
+test asserts the file lands in its own root, and the whole unit run goes
+through `manager/test/unit/run.mjs`, which hands the suite a throwaway
+checkout so no test can reach the real one whatever it imports.
+
+**The SQL runner refused the wrong thing.** It refused a skipped test, but
+node counts skipped tests and all 33 files skip at the suite level, which
+registers no test at all. A run with every variable unset printed 0 tests, 0
+failed, 0 skipped and was called a pass. So did a glob that matched no file.
+The rules that catch both, and the summary reading they sit beside, now live
+in one module the browser runner uses too, and the SQL runner also reads every
+file's gate before it starts anything and refuses one gated on a database this
+run does not create.
+
+Also changed: the SRS image was pinned to a digest no tag points at any more,
+and is now the one `ossrs/srs:6` resolves to, with both T01 observations taken
+again on it. The browser job got a runner of its own with the same rules and a
+Chrome preflight. Three browser suites wrote evidence to a fixed
+`/private/tmp` path that an ordinary user on a Linux runner cannot create, so
+three of fourteen Chrome suites would have failed on the job's first run. The
+OvenMediaEngine gate waits for its publisher's ffmpeg install before the
+playlist clock starts, and passed here in 120 s. Two load-sensitive unit cases
+now wait on what they watch instead of on a 30 ms timer. The SQL preflight
+refuses a task database that already holds the manager's own tables. The
+Postgres services publish on loopback, the T02 image override has to be a
+digest, its scratch directory is removed on any exit path, and the engine log
+tail the T01 test prints is redacted.
+
+**Verified again after the fixes, 2026-09-10.** Manager unit 2301 of 2301
+twice in a row, common 321, frontend unit 100, native 7 with `DATABASE_URL`
+unset, all with no skips. The database directory 518 of 518 in 182 s. Every
+browser suite through its runner, 156 of 156 in 351 s, and with
+`T09_TEST_PG_PORT` unset the same run ends `REFUSED` on three skipped cases,
+exit 1. The three Docker harnesses pass here: T02 in 2 s on the corrected pin,
+T03 in 120 s, T05a in 143 s. Every workspace typecheck clean, both workflows
+valid YAML, `git diff --check` clean, and `manager/swarm-hls-stream` untouched
+after a full unit run.
+
+**Open for Levi.** The workflow costs about 23 Actions minutes a push and the
+browser job is more than half of it, so whether it stays required on every
+push is a spend decision that is his. Nothing in the repository reads the
+workflow files, so a CODEOWNERS entry over `.github/workflows/` with required
+code-owner review is the control that would, and both the entry and the
+setting are his.
+
+**What did not run and what it costs.** No job in either workflow has run on a
+GitHub runner. The T01 startup-failure file needs the whole stack deployed on
+one, so its first execution is Levi's dispatch. The SQL suites now run one file
+at a time, because two of four parallel runs failed here on tests that read the
+clock while another connection holds a lock, which costs 235 seconds a run,
+the longest of the six full runs measured. The OvenMediaEngine gate failed here for a reason that is about this
+laptop's network: its publisher spends 93 seconds installing ffmpeg inside a
+40 second playlist budget, and with the budget raised the gate passed. The
+harness was not changed. The T05a qualification on Docker Engine 29.1.3 with
+Compose 5.1.4 is still a separate obligation that neither the runner's versions
+nor this laptop's discharge. All of it is in `docs/ci.md`, with an estimate of
+about 25 Actions minutes a push.

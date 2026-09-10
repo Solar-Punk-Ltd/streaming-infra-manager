@@ -82,7 +82,7 @@ test('partial, unavailable and ambiguous recovery require explicit checks and ne
   assert.equal(step, 3);
   await click(browser, 'Continue transaction search');
   await visible(browser, 'Transaction evidence needs review');
-  await waitFor(() => step === 4);
+  await waitFor(() => step === 4, Boolean, 'the recovery to reach the evidence step');
   assert.equal(await exists(browser, 'Record operator assertion'), false);
   noMoneyPosts(fixture);
   assert.deepEqual(browser.errors, []);

@@ -85,17 +85,17 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     await evaluate('window.__t08OldPage = true');
     await call('Page.navigate', { url: `${origin}/?t08=${++visitNumber}#/versions` });
     if (waitForVersions) {
-      await waitFor(() => evaluate(`window.__t08OldPage ? -1 : document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === versions.length);
+      await waitFor(() => evaluate(`window.__t08OldPage ? -1 : document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === versions.length, 'every version to be listed');
     } else {
-      await waitFor(() => evaluate(`!window.__t08OldPage && (${button('New deployment')})?.disabled === false`));
+      await waitFor(() => evaluate(`!window.__t08OldPage && (${button('New deployment')})?.disabled === false`), Boolean, 'the New deployment button to be enabled');
     }
   }
   async function openBasics(goal = 'Custom') {
     await click(button('New deployment'));
-    await waitFor(() => evaluate('document.querySelector("[role=dialog]") !== null'));
+    await waitFor(() => evaluate('document.querySelector("[role=dialog]") !== null'), Boolean, 'the wizard to open');
     await click(`[...document.querySelectorAll("[role=radio]")].find(el => el.querySelector('h6')?.textContent.trim() === ${JSON.stringify(goal)})`);
     await click(button('Continue'));
-    await waitFor(() => evaluate('document.querySelector("input[placeholder=main-stage]") !== null'));
+    await waitFor(() => evaluate('document.querySelector("input[placeholder=main-stage]") !== null'), Boolean, 'the deployment name field');
     await click('document.querySelector("input[placeholder=main-stage]")');
     await call('Input.insertText', { text: 'offline-choice' });
   }
@@ -132,7 +132,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     assert.ok(text.includes('review-build'));
     await click(button('Continue'));
     await click(button('Continue'));
-    await waitFor(() => evaluate('document.querySelector("[role=dialog] [role=alert]")?.innerText'), text => text?.includes('Not tested since the update on'));
+    await waitFor(() => evaluate('document.querySelector("[role=dialog] [role=alert]")?.innerText'), text => text?.includes('Not tested since the update on'), 'the not tested since warning');
     if (process.env.T08_EVIDENCE_DIR) {
       await mkdir(process.env.T08_EVIDENCE_DIR, { recursive: true });
       const { data } = await call('Page.captureScreenshot', { fromSurface: true });
@@ -145,13 +145,13 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     writes.length = 0;
     await visit();
     await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
-    await waitFor(() => writes.length, n => n > 0);
+    await waitFor(() => writes.length, n => n > 0, 'the tested request');
     assert.deepEqual(writes.at(-1), { path: '/versions/1', method: 'PATCH', body: { tested: true, commitSha: COMMIT, buildId: `${COMMIT}-r1` } });
-    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'));
+    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), Boolean, 'the tested box to be checked');
     await click('document.querySelector("input[aria-label=\\"review-build tested\\"]")');
-    await waitFor(() => writes.length, n => n === 2);
+    await waitFor(() => writes.length, n => n === 2, 'the untested request');
     assert.deepEqual(writes.at(-1).body, { tested: false });
-    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), checked => !checked);
+    await waitFor(() => evaluate('document.querySelector("input[type=checkbox]").checked'), checked => !checked, 'the tested box to clear');
     await openBasics();
     const text = await evaluate('document.querySelector("[role=dialog]").innerText');
     assert.ok(text.includes('Not currently marked as tested on this host.'));
@@ -166,7 +166,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
     assert.match(await evaluate('document.querySelector("[role=dialog]").innerText'), /Pick a stack version/);
     await click('document.querySelector("#wizard-version")');
-    await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+    await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
     await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
     assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
     await click(button('Continue'));
@@ -197,31 +197,31 @@ test('approval payload and explicit wizard version choice stay tied to the visib
     const requestsBefore = versionsRequests;
     try {
       await visit(false);
-      await waitFor(() => versionsRequests > requestsBefore);
+      await waitFor(() => versionsRequests > requestsBefore, Boolean, 'the versions request the page makes on load');
       await openBasics();
       assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
       releaseVersions();
       versionsGate = null;
-      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1, 'the late sole default to arrive');
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'a late sole default must leave a way to choose it');
       assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');
       await click('document.querySelector("#wizard-version")');
-      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
       await click('document.querySelector("[role=option][data-value=\\"1\\"]")');
       assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
 
-      await waitFor(() => heldEvents !== null);
+      await waitFor(() => heldEvents !== null, Boolean, 'the event stream to be held open');
       versions = [makeVersion({ tested: true, testedInvalidatedAt: null, isDefault: false }), makeVersion({ id: 2, name: 'another-default', tested: true, testedInvalidatedAt: null })];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
-      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 2);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 2, 'the second version to arrive');
       assert.match(await evaluate('document.querySelector("#wizard-version").innerText'), /review-build/, 'a new default never replaces an explicit choice');
       versions = [versions[1]];
       heldEvents.write('event: version.changed\ndata: {}\n\n');
-      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1);
+      await waitFor(() => evaluate(`document.querySelectorAll('input[aria-label$=" tested"]').length`), n => n === 1, 'the chosen version to be gone');
       assert.equal(await evaluate(`${button('Continue')}.disabled`), true);
       assert.equal(await evaluate('document.querySelector("#wizard-version") !== null'), true, 'removing the chosen version must leave a way to select the remaining default');
       await click('document.querySelector("#wizard-version")');
-      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'));
+      await waitFor(() => evaluate('document.querySelector("[role=option]") !== null'), Boolean, 'the version list to open');
       await click('document.querySelector("[role=option][data-value=\\"2\\"]")');
       assert.equal(await evaluate(`${button('Continue')}.disabled`), false);
       assert.equal(await evaluate('document.querySelector("input[placeholder=main-stage]").value'), 'offline-choice');

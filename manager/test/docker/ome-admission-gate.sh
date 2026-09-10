@@ -15,6 +15,14 @@
 # Usage, from the repository root, with the stack submodule checked out:
 #   bash manager/test/docker/ome-admission-gate.sh
 # Exit code 0 on pass. Needs docker and outbound network for the three images.
+#
+# Evidence, 2026-09-10, this laptop, arm64, Docker 29.7.2: PASS in 132 s, and
+# 120 s and 127 s on the two runs before the install budget became a clock
+# reading. SRT in, one segment in the media playlist, a signed opening
+# admission call for video/gate and a closing call after the publisher ended.
+# All three waited for the publisher's ffmpeg install, which is the change of
+# the day: two runs before that had failed here on a 93 second install and
+# nothing else.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -28,6 +36,12 @@ SECRET="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 PUBLISH_SECONDS=25
 PLAYLIST_WAIT_SECONDS=40
 CLOSING_WAIT_SECONDS=20
+# The publisher installs ffmpeg before it publishes, and how long that takes is
+# a property of the package mirror rather than of the engine. It took 93
+# seconds here on 2026-09-10, which expired the playlist budget below twice and
+# read as an engine fault both times. So the install gets a budget of its own,
+# and the playlist clock starts after it.
+FFMPEG_WAIT_SECONDS=300
 
 if [ ! -f "$STACK/engines/ome/Server.xml.template" ] || [ ! -f "$STACK/engines/ome/entrypoint.sh" ]; then
   echo "FAIL: the stack submodule is not checked out at $STACK (git submodule update --init)" >&2
@@ -124,12 +138,27 @@ docker run -d --name "$RUN-publisher" --network "$NET" alpine:3.20 sh -c "
     -c:a aac -b:a 64k -f mpegts \
     'srt://ome:10080?streamid=srt%3A%2F%2Fome%3A10080%2Fvideo%2Fgate&pkt_size=1316'
 " >/dev/null || fail "could not start the publisher"
-sleep 5
-[ "$(docker inspect -f '{{.State.Running}}' "$RUN-publisher")" = "true" ] || {
+
+# Wait for the binary itself, not for a fixed pause. The budget is read off the
+# clock rather than counted, because a turn of this loop costs a docker exec on
+# top of its sleep and the name says seconds. The exit check is inside the loop,
+# so a publisher that dies during the install is still caught in seconds rather
+# than at the end of the budget.
+installed=""
+install_deadline=$((SECONDS + FFMPEG_WAIT_SECONDS))
+while [ "$SECONDS" -lt "$install_deadline" ]; do
+  if docker exec "$RUN-publisher" sh -c 'command -v ffmpeg' >/dev/null 2>&1; then installed=yes; break; fi
+  if [ "$(docker inspect -f '{{.State.Running}}' "$RUN-publisher")" != "true" ]; then
+    docker logs "$RUN-publisher" 2>&1 | tail -10 >&2
+    fail "the publisher exited before ffmpeg was installed"
+  fi
+  sleep 1
+done
+[ -n "$installed" ] || {
   docker logs "$RUN-publisher" 2>&1 | tail -10 >&2
-  fail "the publisher exited within 5 s of starting"
+  fail "ffmpeg was not installed in the publisher within $FFMPEG_WAIT_SECONDS s"
 }
-echo "publisher running"
+echo "publisher running, ffmpeg installed"
 
 # The playlist the uploader polls: the master at ts:playlist.m3u8, then the
 # media playlist it names, with at least one segment in it.

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { createServer as createNetServer } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
 import { launchChrome, waitFor } from './support/chrome.mjs';
+import { evidenceDirectory } from './support/evidence.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
@@ -104,6 +106,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);
+  const evidence = await evidenceDirectory('t11-browser-evidence-');
   const { call, evaluate } = browser;
   const body = () => evaluate('document.body.innerText');
   const card = () => evaluate(`[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root').innerText ?? ''`);
@@ -149,14 +152,13 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.match(await drawer(), /Changing this override will not change this setting/);
     assert.doesNotMatch(await drawer(), /dropped the placeholder/);
     assert.equal(await evaluate(`document.querySelector('input[aria-label="Segment duration"]').placeholder`), 'Config controls value');
-    await mkdir('/private/tmp/t11-browser-evidence', { recursive: true });
-    await writeFile('/private/tmp/t11-browser-evidence/desktop.png', Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
+    await writeFile(join(evidence, 'desktop.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.match(await drawer(), /4 seconds/);
     assert.deepEqual(await evaluate(`(() => { const panel = [...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream').closest('.MuiDrawer-paper'); return { viewport: window.innerWidth, contentWidth: panel.clientWidth, noOverflow: panel.scrollWidth <= panel.clientWidth, controlsFit: [...panel.querySelectorAll('input, button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) }; })()`),
       { viewport: 390, contentWidth: 390, noOverflow: true, controlsFit: true });
-    await writeFile('/private/tmp/t11-browser-evidence/phone.png', Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
+    await writeFile(join(evidence, 'phone.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
   });
 
   await t.test('same-millisecond config revision hides old evidence while preserving an unsaved draft', async () => {
@@ -325,7 +327,6 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   assert.equal(writes.length, 3);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
-  await mkdir('/private/tmp/t11-browser-evidence', { recursive: true });
-  await writeFile('/private/tmp/t11-browser-evidence/processes.json', JSON.stringify({ chromePid: browser.pid,
+  await writeFile(join(evidence, 'processes.json'), JSON.stringify({ chromePid: browser.pid,
     debuggingPort: browser.debuggingPort, vitePort: port, version: browser.version, reads, writes }, null, 2));
 });

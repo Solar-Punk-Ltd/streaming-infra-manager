@@ -18,7 +18,7 @@ function detail() {
 async function open(t, fixture) {
   const browser = await launchChrome(t, fixture.origin);
   await browser.call('Page.navigate', { url: `${fixture.origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
+  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
   await browser.evaluate(`(async () => {
     globalThis.run = (await import('/src/transfers/transferRecoveryApi.ts')).runTransferRecovery;
     globalThis.reviewed = ${JSON.stringify(detail())};

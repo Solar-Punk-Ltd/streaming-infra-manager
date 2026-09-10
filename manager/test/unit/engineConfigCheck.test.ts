@@ -153,7 +153,14 @@ describe('the SRS check', () => {
     assert.equal(calls[0]?.file, 'docker');
     const args = calls[0]?.args ?? [];
     assert.deepEqual(args.slice(0, 2), ['run', '--rm']);
-    assert.ok(args.includes('--network') && args.includes('none'), 'no network for a parser');
+    // The whole set, in order, not a membership test: a parser container gets
+    // no network, a quarter of a gigabyte and 64 processes, and any one of
+    // those going missing is a container that can do more than parse.
+    assert.deepEqual(
+      args.slice(2, 8),
+      ['--network', 'none', '--memory', '256m', '--pids-limit', '64'],
+      args.join(' '),
+    );
     assert.ok(args.includes('ossrs/srs:6.0.184'), 'the version image');
     assert.deepEqual(args.slice(-4), ['./objs/srs', '-t', '-c', '/check/srs.conf']);
     const mount = mountOptionIn(args);

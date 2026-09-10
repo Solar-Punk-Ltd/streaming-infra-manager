@@ -1,9 +1,9 @@
 # Integration tests
 
-This setup describes the authenticated T10 harness merged into local main-v2
-on 2026-09-09 at Levi's request. These instructions are not authorization for
-a deployment run. T20 workflow completion and actual runner execution remain
-separate checks.
+This setup describes the authenticated T10 harness as it stands on
+`feat/ai-remediation` on 2026-09-10. It is not on `main-v2`. These instructions
+are not authorization for a deployment run, and no run of this suite against a
+real deployment has happened.
 
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
@@ -92,6 +92,7 @@ remediation session. The funded review deployment is never a disposable target.
 | group config edit (`groups.test.ts`) | 2-viewer group, edit `feed_owner` for the whole group in one call, every member picks up the new feed and stays up, removing the members deletes the empty group |
 | group resize (`group-resize.test.ts`) | grow a group by one member, deploy the grown group, remove a member, remove the rest, the group deletes itself |
 | ABR pool and uploader (`abr-node-pool.test.ts`, `abr-uploader.test.ts`) | the pool's publisher assembly and the uploader's Bee target rules, see each file's header |
+| engine config startup failure (`engine-startup-failure.test.ts`) | a stored SRS file the manager's own check accepts and the engine exits on ends the rollout in `reverted`, the deployment comes back `RUNNING` on the previous file, and the card's notice offers nothing to press |
 
 ## Notes and limitations
 
@@ -101,6 +102,17 @@ remediation session. The funded review deployment is never a disposable target.
 - T10's final local checks passed 960 manager, 288 common and 31 actual SQL tests plus types. Synthetic HTTP tests exercise the real helper and cleanup reporting. They do not establish that this deployment integration suite ran.
 
 ## Separate local regression suites
+
+Three files moved out of this directory on 2026-09-10. `localDockerUnix.test.ts`,
+`nativeSupervisedForward.test.ts` and `sshForwardSupervisor.test.ts` are now in
+`manager/test/native/`. They own temporary Unix sockets and fork synthetic Node
+children, and they need no manager, no Docker socket and no target declaration.
+Here they were picked up by `test:integration`, which refuses to start without
+`MANAGER_TEST_TARGET`, so they ran nowhere. Run them from `manager/` with
+`pnpm test:native`, which needs no environment at all: run on 2026-09-10 with
+`DATABASE_URL` unset, 7 of 7 passed. The `checks` workflow runs them on every
+pull request and still hands them the placeholder the manager unit step gets,
+which costs nothing and keeps the two steps alike.
 
 The integration suite above creates deployments. The remediation's SQL suites
 use disposable local PostgreSQL databases with synthetic data instead. Each

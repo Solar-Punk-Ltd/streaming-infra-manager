@@ -23,7 +23,7 @@ function detail() {
 async function open(t, fixture) {
   const browser = await launchChrome(t, fixture.origin);
   await browser.call('Page.navigate', { url: `${fixture.origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
+  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
   await browser.evaluate(`(async () => {
     globalThis.api = (await import('/src/transfers/transferApi.ts')).transferApi;
     globalThis.intent = ${JSON.stringify(intent)};
@@ -58,7 +58,7 @@ test('fresh exact evidence bypasses a held older GET before authorizing pointer 
     controller.setContext(7, { name: intent.profileName, instanceId: intent.profileInstanceId });
     return true;
   })()`);
-  await waitFor(() => reads === 1);
+  await waitFor(() => reads === 1, Boolean, 'the first exact HTTP request');
   const confirmation = browser.evaluate('controller.confirmNew({ direction: intent.direction, amountPlur: intent.amountPlur }, intent.requestId).then(() => true)');
   await waitFor(() => reads === 2, Boolean, 'a new exact HTTP request while the old request is still held');
   await confirmation;

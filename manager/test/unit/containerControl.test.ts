@@ -325,44 +325,51 @@ describe('ContainerControl.logs: when a followed read stops', () => {
   it('stops once the tail has arrived and nothing follows it', async () => {
     // What every ordinary read does: the daemon sends the tail, then holds the
     // connection open for lines the container has not written yet.
+    //
+    // The total bound is put far out of reach here rather than left at 250 ms,
+    // so what ends the read is the idle gap and nothing else can be mistaken
+    // for it. Against a gap of 40 ms the assertion below then has room for a
+    // machine under load, which the earlier margin of 160 ms did not.
+    const REACHABLE_ONLY_BY_THE_IDLE_GAP = { ...SHORT_BOUNDS, totalMs: 5_000 };
     const feed = openStream();
-    const { control } = controlOverStream(() => feed.stream);
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_IDLE_GAP);
     feed.write('one\ntwo\n');
 
     const started = Date.now();
     const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
     assert.equal(text, 'one\ntwo');
-    assert.ok(
-      Date.now() - started < 200,
-      'the idle gap ends it, not the total bound',
-    );
+    assert.ok(took < 2_000, `the idle gap ends it, not the total bound, and it took ${took} ms`);
     assert.equal(feed.stream.destroyed, true);
   });
 
-  it('stops at the total bound when lines keep arriving', async () => {
+  it('stops at the total bound when lines keep arriving', { timeout: 2_000 }, async (t) => {
     // A container logging continuously never leaves an idle gap, so without the
     // total bound the request would stay open for as long as it keeps talking.
-    const feed = openStream();
-    const ticking = setInterval(() => feed.write('still going\n'), 10);
-    // Room to spare on bytes, so it is the total bound that ends this one.
-    const { control } = controlOverStream(() => feed.stream, {
+    //
+    // Both other exits are put out of reach here rather than left at 40 ms and
+    // 64 bytes, so the total bound is the only one left and a writer that ticks
+    // late on a loaded machine cannot end the read in its place. What a missing
+    // total bound costs is then a read that never returns, which is what the
+    // case's own timeout is for.
+    const REACHABLE_ONLY_BY_THE_TOTAL_BOUND = {
       ...SHORT_BOUNDS,
       maxBytes: 1024 * 1024,
-    });
+      idleMs: 5_000,
+    };
+    const feed = openStream();
+    const ticking = setInterval(() => feed.write('still going\n'), 10);
+    t.after(() => clearInterval(ticking));
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_TOTAL_BOUND);
 
-    try {
-      const started = Date.now();
-      const text = await control.logs('stream1', 'srs', 2000);
-      const took = Date.now() - started;
+    const started = Date.now();
+    const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
-      assert.ok(text.startsWith('still going'), 'with what arrived kept');
-      assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
-      assert.ok(took < 2000, `stopped after ${took} ms, not never`);
-      assert.equal(feed.stream.destroyed, true);
-    } finally {
-      clearInterval(ticking);
-    }
+    assert.ok(text.startsWith('still going'), 'with what arrived kept');
+    assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
+    assert.equal(feed.stream.destroyed, true);
   });
 });
 

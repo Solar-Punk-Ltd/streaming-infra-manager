@@ -60,7 +60,7 @@ async function open(t, fixture, script) {
   const browser = await launchChrome(t, fixture.origin);
   if (script) await browser.call('Page.addScriptToEvaluateOnNewDocument', { source: script });
   await browser.call('Page.navigate', { url: `${fixture.origin}/dev/t09-dialog-tests.html` });
-  await waitFor(() => browser.evaluate("document.body?.innerText.includes('Storage and funding')"));
+  await waitFor(() => browser.evaluate("document.body?.innerText.includes('Storage and funding')"), Boolean, 'the dialog fixture page to render');
   return browser;
 }
 async function click(browser, text) {

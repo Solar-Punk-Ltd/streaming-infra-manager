@@ -11,6 +11,17 @@ import { DOCKER_BEE_BRIDGE_REVISION } from '../../src/domain/chequebook/dockerBe
 import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+/** Long enough for a repeat to have happened, short enough to stay a unit test. */
+const REPEAT_WINDOW_MS = 25;
+/** Only so a request that never arrives says so instead of hanging until the suite timeout. */
+const ARRIVAL_BUDGET_MS = 2_000;
+async function until(reached: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + ARRIVAL_BUDGET_MS;
+  while (!reached()) {
+    if (Date.now() > deadline) throw new Error(`waited ${ARRIVAL_BUDGET_MS} ms for ${description} and it never happened`);
+    await pause(1);
+  }
+}
 const containerId = 'a'.repeat(64);
 const replacementId = 'b'.repeat(64);
 const execId = 'c'.repeat(64);
@@ -306,9 +317,28 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
   });
 
   for (const stage of ['create', 'start'] as const) {
-    it(`times out a lost ${stage} response without repeating either Docker POST`, async t => {
+    // What this is about is that neither POST is ever sent twice, and both are
+    // non-idempotent: a repeated exec creates a second one on the container.
+    // It used to wait 30 ms for a deadline to end the attempt, which meant the
+    // POST had to reach the fixture through five earlier round trips inside
+    // those 30 ms, and on a loaded machine it did not: the case failed once in
+    // four full runs on a count of 0 against 1, with nothing wrong. So the
+    // POST arriving is now waited for rather than assumed, and the attempt is
+    // ended by an abort, which the handshake answers with the same call the
+    // deadline answers with. The deadline arithmetic itself is pinned by the
+    // stalled acquisition and the monotonic expiry cases either side of this.
+    it(`never repeats either Docker POST when the ${stage} response is lost`, async t => {
       const docker = syntheticDocker(t, { holdAt: stage });
-      await assert.rejects(acquireDockerBeeStream(docker.transport, expected, { acquisitionTimeoutMs: 30 }, qualified), safeFailure);
+      const controller = new AbortController();
+      const acquiring = acquireDockerBeeStream(docker.transport, expected, {}, qualified, controller.signal);
+      const posted = stage === 'start' ? docker.starts : docker.creates;
+      await until(() => posted() === 1, `the ${stage} POST to reach the daemon`);
+
+      await pause(REPEAT_WINDOW_MS);
+      assert.equal(docker.creates(), 1); assert.equal(docker.starts(), stage === 'start' ? 1 : 0);
+
+      controller.abort();
+      await assert.rejects(acquiring, safeFailure);
       assert.equal(docker.creates(), 1); assert.equal(docker.starts(), stage === 'start' ? 1 : 0);
       assert.equal(docker.transport.destroyed, true); assert.equal(docker.counts().connects, 0);
       const command = (docker.requests.find(request => request.url.endsWith('/exec'))!.body as { Cmd: string[] }).Cmd;
