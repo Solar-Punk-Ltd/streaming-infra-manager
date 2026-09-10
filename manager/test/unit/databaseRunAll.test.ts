@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  SUITE_ARGS,
   TASK_DATABASES,
   connectionFor,
   databaseUrlFor,
@@ -53,6 +54,12 @@ describe('the table of task databases', () => {
     assert.equal(connection.database, 't09_test');
     assert.equal(connection.port, 55432);
     assert.equal(connection.connectionTimeoutMillis, 10_000);
+  });
+
+  it('runs the suite files one at a time, because two of them read the clock while they hold locks', () => {
+    assert.ok(SUITE_ARGS.includes('--test-concurrency=1'), SUITE_ARGS.join(' '));
+    assert.ok(SUITE_ARGS.includes('--test-reporter=tap'), SUITE_ARGS.join(' '));
+    assert.ok(SUITE_ARGS.includes('--conditions=development'), SUITE_ARGS.join(' '));
   });
 
   it('hands the child a DATABASE_URL that names a database the run created', () => {
