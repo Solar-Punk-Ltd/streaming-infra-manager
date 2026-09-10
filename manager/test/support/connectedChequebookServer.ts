@@ -8,7 +8,8 @@
  * a stub below, because the pages need a shell to load into and none of that
  * shell is what these cases are about.
  *
- * It cleans its schema and its socket directory when the parent disconnects.
+ * It cleans its schema and its socket directory when the parent disconnects, and
+ * ends itself when the parent is gone without having disconnected.
  */
 import http from 'node:http';
 import express, { Router } from 'express';
@@ -16,6 +17,7 @@ import type { ChequebookService } from '../../src/domain/ChequebookService.js';
 import { CONNECTED_OPERATOR, CONNECTED_OPERATOR_PASSWORD, CONNECTED_PROFILE, connectedChequebookApi, connectedChequebookAuth,
   startConnectedChequebook, type ReceiptAnswer } from './connectedChequebook.js';
 import { instanceForProfile } from './chequebookOperations.js';
+import { exitWhenOrphaned } from './exitWhenOrphaned.mjs';
 
 const LOOPBACK = '127.0.0.1';
 
@@ -101,6 +103,7 @@ async function main(): Promise<void> {
     };
     process.on('disconnect', () => { void close(); });
     process.on('SIGTERM', () => { void close(); });
+    exitWhenOrphaned(() => { void close(); });
     process.on('message', (message: ConnectedServerCommand) => {
       if (message.kind === 'receipt') backend.chain.answers(message.answer);
       if (message.kind === 'drop-next-response') backend.dropNextResponse();
