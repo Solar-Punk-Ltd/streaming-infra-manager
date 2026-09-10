@@ -850,11 +850,13 @@ on top. No history was manufactured for a gap.
 **Two investigations, both recorded here as the brief asked.** Neither
 `STATE.md` nor `CONTEXT.md` exists at the repository root or anywhere else in
 the tree, `git log --diff-filter=D` records no deletion of either, and the only
-files that mention them, `AGENTS.md` and `docs/agents/domain.md`, describe the
-convention rather than asserting the files are there, so nothing was created
-and nothing is flagged. `docs/consensus/issues/` holds one file per agreed row,
-25 of them from T01a to T22, plus its README, and the README's order section
-names all 25.
+two files that name them as something to read, `AGENTS.md` and
+`docs/agents/domain.md`, describe the convention rather than asserting the
+files are there, and the consensus records that mention them only record this
+same investigation, so nothing was created and nothing is flagged.
+`docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
+T22 with T01a and the a/b splits among them, plus its README, and the README's
+order section names all 25.
 
 **One thing the older sections say that is no longer true.** "Preserved local
 state" above lists three review worktrees under `/private/tmp` and says the
@@ -868,9 +870,11 @@ before using it, and that check now answers no for those trees.
 
 **One thing a document cannot fix.** `.github/workflows/checks.yml` carries a
 comment saying "The twenty-two suites under frontend/test". There are 23, and
-`docs/ci.md` says 23, which is the correct number. Changing a workflow file was
-out of scope for this slice, so the comment is left as it is and recorded here
-for whoever next touches that file.
+`docs/ci.md` says 23, which is the correct number. The same count is ambiguous
+in the T20 section above, which says twenty. Twenty sit directly in
+`frontend/test`, three more under `frontend/test/support`, and the runner takes
+all 23. Changing a workflow file was out of scope for this slice, so the
+comment is left as it is and recorded here for whoever next touches that file.
 
 **Verified.** `git diff --check` clean against the branch base, no em-dash and
 no prose semicolon in any changed file, and every relative path in every
