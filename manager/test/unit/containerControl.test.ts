@@ -344,29 +344,32 @@ describe('ContainerControl.logs: when a followed read stops', () => {
     assert.equal(feed.stream.destroyed, true);
   });
 
-  it('stops at the total bound when lines keep arriving', async () => {
+  it('stops at the total bound when lines keep arriving', { timeout: 2_000 }, async (t) => {
     // A container logging continuously never leaves an idle gap, so without the
     // total bound the request would stay open for as long as it keeps talking.
-    const feed = openStream();
-    const ticking = setInterval(() => feed.write('still going\n'), 10);
-    // Room to spare on bytes, so it is the total bound that ends this one.
-    const { control } = controlOverStream(() => feed.stream, {
+    //
+    // Both other exits are put out of reach here rather than left at 40 ms and
+    // 64 bytes, so the total bound is the only one left and a writer that ticks
+    // late on a loaded machine cannot end the read in its place. What a missing
+    // total bound costs is then a read that never returns, which is what the
+    // case's own timeout is for.
+    const REACHABLE_ONLY_BY_THE_TOTAL_BOUND = {
       ...SHORT_BOUNDS,
       maxBytes: 1024 * 1024,
-    });
+      idleMs: 5_000,
+    };
+    const feed = openStream();
+    const ticking = setInterval(() => feed.write('still going\n'), 10);
+    t.after(() => clearInterval(ticking));
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_TOTAL_BOUND);
 
-    try {
-      const started = Date.now();
-      const text = await control.logs('stream1', 'srs', 2000);
-      const took = Date.now() - started;
+    const started = Date.now();
+    const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
-      assert.ok(text.startsWith('still going'), 'with what arrived kept');
-      assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
-      assert.ok(took < 2000, `stopped after ${took} ms, not never`);
-      assert.equal(feed.stream.destroyed, true);
-    } finally {
-      clearInterval(ticking);
-    }
+    assert.ok(text.startsWith('still going'), 'with what arrived kept');
+    assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
+    assert.equal(feed.stream.destroyed, true);
   });
 });
 
