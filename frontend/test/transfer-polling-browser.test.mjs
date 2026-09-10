@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { RECEIPT_READ_INTERVAL_MS } from '@streaming-infra-manager/common';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
 import { launchHistoryFixture, historyInstanceId } from './support/history-fixture.mjs';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, pageShows, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 const instanceId = '11111111-1111-4111-8111-111111111111';
@@ -63,19 +63,10 @@ async function dialogFixture(t) {
     override(value) { override = value; } };
 }
 
-async function visible(browser, text, timeoutMs) {
-  await waitFor(() => browser.evaluate(`document.body?.innerText.includes(${JSON.stringify(text)})`), Boolean, text, timeoutMs);
-}
-async function click(browser, text) {
-  await waitFor(() => browser.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); return !!button && !button.disabled; })()`), Boolean, `enabled ${text} button`);
-  await browser.evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
-}
-async function amount(browser, value) {
-  await waitFor(() => browser.evaluate("!!document.querySelector('[role=dialog] input') && !document.querySelector('[role=dialog] input').disabled"), Boolean, 'editable amount');
-  await browser.evaluate(`(() => { const input = document.querySelector('[role="dialog"] input');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
-    input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-}
+const DIALOG_AMOUNT = `document.querySelector('[role="dialog"] input')`;
+const visible = (browser, text, timeoutMs) => waitFor(() => browser.evaluate(pageShows(text)), Boolean, text, timeoutMs);
+const click = (browser, text) => clickWhenEnabled(browser.evaluate, buttonWithText(text), `an enabled ${text} button`);
+const amount = (browser, value) => fillWhenPresent(browser.evaluate, DIALOG_AMOUNT, value, 'the editable amount');
 
 test('the dialog reaches the settled outcome without a click while the manager polls', async t => {
   const h = await dialogFixture(t);
@@ -96,7 +87,7 @@ test('the dialog reaches the settled outcome without a click while the manager p
   await visible(browser, 'Transfer verified on chain', WITHIN_ONE_REREAD_MS);
   assert.ok(h.reads.length > readsBefore, 'the dialog re-read the saved record on its own');
   assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
-  assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), false);
+  assert.equal(await browser.evaluate(pageShows(POLLED_SENTENCE)), false);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
 });
@@ -130,7 +121,7 @@ test('the transfer detail page reaches the settled outcome without a click while
   await visible(browser, 'Transfer verified on chain', WITHIN_ONE_REREAD_MS);
   assert.ok(h.reads.length > readsBefore, 'the page re-read the saved record on its own');
   assert.deepEqual(h.posts, []);
-  assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), false);
+  assert.equal(await browser.evaluate(pageShows(POLLED_SENTENCE)), false);
   assert.deepEqual(browser.errors, []);
 });
 
@@ -151,7 +142,7 @@ test('a spent polling budget stops the re-reads, says so, and leaves Check to th
   await click(browser, 'Check transaction receipt');
   await visible(browser, 'Transfer verified on chain');
   assert.deepEqual(h.posts, [`/chequebook/operations/${seeded.id}/check`]);
-  assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(ENDED_SENTENCE)})`), false);
+  assert.equal(await browser.evaluate(pageShows(ENDED_SENTENCE)), false);
   assert.deepEqual(browser.errors, []);
 });
 
@@ -168,7 +159,7 @@ test('a conflicted transfer is never shown as polled and never re-read on its ow
   const readsBefore = h.reads.filter(url => url.includes(seeded.id)).length;
   await new Promise(resolve => setTimeout(resolve, RECEIPT_READ_INTERVAL_MS + 3000));
   assert.equal(h.reads.filter(url => url.includes(seeded.id)).length, readsBefore, 'a conflicted transfer re-reads nothing');
-  const body = await browser.evaluate('document.body.innerText');
+  const body = await browser.evaluate(PAGE_TEXT);
   assert.equal(body.includes(POLLED_SENTENCE), false, 'no promise of automatic checks');
   assert.equal(body.includes(ENDED_SENTENCE), false, 'no claim that automatic checks ended');
   assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Check transaction receipt')"),
@@ -183,10 +174,10 @@ const UNKNOWN_SENTENCE = 'The manager has not returned a verified record for thi
 async function watchForText(browser, text) {
   await browser.evaluate(`(() => {
     globalThis.__t09Seen = 0;
-    const look = () => { if (document.body.innerText.includes(${JSON.stringify(text)})) globalThis.__t09Seen++; };
+    const look = () => { if (${pageShows(text)}) globalThis.__t09Seen++; };
     look();
     globalThis.__t09Watch = new MutationObserver(look);
-    globalThis.__t09Watch.observe(document.body, { childList: true, subtree: true, characterData: true });
+    globalThis.__t09Watch.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   })()`);
   return async () => {
     const seen = await browser.evaluate('globalThis.__t09Seen');
@@ -212,7 +203,7 @@ test('an automatic re-read never tells the operator the outcome is unknown', asy
   await new Promise(resolve => setTimeout(resolve, RECEIPT_READ_INTERVAL_MS + 4000));
   assert.ok(h.reads.length > readsBefore, 'the dialog re-read the saved record during the sampled window');
   assert.equal(await seen(), 0, 'the evidence panel is never replaced by the unknown-outcome sentence while the record is submitted');
-  assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), true);
+  assert.equal(await browser.evaluate(pageShows(POLLED_SENTENCE)), true);
   assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
   assert.deepEqual(browser.errors, []);
 });
