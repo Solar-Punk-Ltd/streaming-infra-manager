@@ -37,6 +37,17 @@ STACK="$ROOT/manager/swarm-hls-stream"
 # same tag, so the parser here is the parser a deployment gets.
 IMAGE="${SRS_CHECK_IMAGE:-ossrs/srs@sha256:2be08a0fe28737bf28bae8a575bb5776e09b620366dd1e62dd4f8a41cf4310f3}"
 
+# An override is for pinning a different build, never for going back to a tag.
+# A tag moves, and the whole claim of this harness is that the parser it asks
+# is the one a deployment gets, which only a digest can hold still.
+case "$IMAGE" in
+  *@sha256:*) ;;
+  *)
+    echo "FAIL: SRS_CHECK_IMAGE is $IMAGE, which is not pinned. Name it with @sha256:<digest>." >&2
+    exit 2
+    ;;
+esac
+
 if [ ! -f "$STACK/engines/srs/srs.conf.template" ] || [ ! -f "$STACK/engines/srs/entrypoint.sh" ]; then
   echo "FAIL: the stack submodule is not checked out at $STACK (git submodule update --init)" >&2
   exit 2
@@ -47,6 +58,12 @@ docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
   exit 2
 }
 
+# The scratch root is made and removed here rather than by the driver, so a
+# run stopped by a signal leaves nothing behind either. The containers remove
+# themselves daemon side, the directory has nobody but this.
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH"' EXIT INT TERM
+
 echo "docker: $(docker version --format '{{.Server.Version}}' 2>/dev/null)"
-exec "$ROOT/manager/node_modules/.bin/tsx" --conditions=development \
-  "$ROOT/manager/test/docker/srsCheckIsolation.ts" "$STACK" "$IMAGE"
+"$ROOT/manager/node_modules/.bin/tsx" --conditions=development \
+  "$ROOT/manager/test/docker/srsCheckIsolation.ts" "$STACK" "$IMAGE" "$SCRATCH"

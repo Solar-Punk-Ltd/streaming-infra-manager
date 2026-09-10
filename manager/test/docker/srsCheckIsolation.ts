@@ -159,15 +159,17 @@ const HARNESS_PROBLEM = 2;
 const WRONG_ANSWER = 1;
 
 async function main(): Promise<number> {
-  const [stackRoot, image] = process.argv.slice(2);
+  const [stackRoot, image, scratchRoot] = process.argv.slice(2);
   if (!stackRoot || !image) {
-    console.error('usage: srsCheckIsolation.ts <stack root> <srs image>');
+    console.error('usage: srsCheckIsolation.ts <stack root> <srs image> [scratch root]');
     return HARNESS_PROBLEM;
   }
   const template = engineTemplateIn(stackRoot, SRS_SERVICE);
   const configs = CHECK_CASES.map((one) => ({ one, config: applyCase(template.text, one) }));
 
-  const scratchDir = await mkdtemp(join(tmpdir(), 't02-srs-check-'));
+  // Inside the root the shell script owns when there is one, so a signal that
+  // never reaches the finally below still leaves nothing behind.
+  const scratchDir = await mkdtemp(join(scratchRoot ?? tmpdir(), 't02-srs-check-'));
   const checker = new EngineConfigChecker(execFileRunner);
   try {
     console.log(`Eight checks at once on ${image}, scratch ${scratchDir}`);
