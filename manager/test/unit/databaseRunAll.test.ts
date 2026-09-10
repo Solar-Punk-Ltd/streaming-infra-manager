@@ -10,6 +10,9 @@
  * thing and proves something else again.
  */
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
@@ -22,6 +25,7 @@ import {
   portProblems,
   preflightProblems,
   run,
+  suiteFiles,
 } from '../database/run-all.mjs';
 
 const NINE = {
@@ -134,6 +138,26 @@ describe('refusing to start on a suite this run could never make answer', () => 
     assert.equal(problems.length, 1);
     assert.match(problems[0], /ungated\.test\.ts/);
     assert.match(problems[0], /no task port variable/);
+  });
+
+  it('reads a suite in a subdirectory, because the glob it protects is recursive', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'suite-scan-'));
+    try {
+      mkdirSync(join(directory, 'nested'));
+      writeFileSync(join(directory, 'top.test.ts'), 'process.env.T09_TEST_PG_PORT');
+      writeFileSync(join(directory, 'nested', 'deep.test.ts'), 'process.env.T13_TEST_PG_PORT');
+      writeFileSync(join(directory, 'nested', 'helper.ts'), 'not a suite file');
+
+      const found = suiteFiles(directory);
+
+      assert.deepEqual(
+        found.map((suite) => suite.file),
+        [join('nested', 'deep.test.ts'), 'top.test.ts'],
+      );
+      assert.match(gateProblems(found).join(' '), /T13_TEST_PG_PORT/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('reads a file that names two variables as two answers, and refuses the one it cannot set', () => {
