@@ -26,15 +26,18 @@ import {
 } from '../../src/domain/versions/portTable.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
-import { profileServiceHarness } from '../support/profileServiceHarness.js';
 
 const root = join(mkdtempSync(join(tmpdir(), 'port-table-')), 'main-v3');
 mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
+// Both harnesses reach envUtils, which reads SHLS_ROOT once at import time, so
+// a static import here would give every deployment below the real checkout
+// this manager ships with and write its env file into it.
 const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
+const { profileServiceHarness } = await import('../support/profileServiceHarness.js');
 
 const V3_CONTRACT: StackContract = {
   ports: [
