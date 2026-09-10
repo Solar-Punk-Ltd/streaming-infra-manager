@@ -9,29 +9,35 @@
  * No browser here. This starts one Vite fixture and looks at the machine.
  */
 import assert from 'node:assert/strict';
-import { readdir, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
-const temporary = process.env.RUNNER_TEMP ?? tmpdir();
-const evidenceDirectories = async () => (await readdir(temporary)).filter(name => name.startsWith('t09-http-')).sort();
 const sharedCache = fileURLToPath(new URL('../node_modules/.vite-t09', import.meta.url));
 
+/** A parent of this test's own, so a fixture started by another session cannot answer for it. */
+async function ownedEvidenceParent(t) {
+  const parent = await mkdtemp(join(tmpdir(), 't09-fixture-evidence-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  return parent;
+}
+
 test('a run with nothing to report leaves no evidence directory and shares one Vite cache', async t => {
-  const before = await evidenceDirectories();
+  const evidenceParent = await ownedEvidenceParent(t);
   let origin = '';
   let evidence = '';
   await t.test('one owned fixture', async inner => {
-    const fixture = await launchTransferFixture(inner, (_req, res) => json(res, 404, {}));
+    const fixture = await launchTransferFixture(inner, (_req, res) => json(res, 404, {}), { evidenceParent });
     origin = fixture.origin;
     evidence = fixture.evidence;
     assert.ok((await stat(evidence)).isDirectory(), 'the fixture has somewhere to put evidence while it runs');
   });
   assert.ok(origin.startsWith('http://127.0.0.1:'), 'the fixture served loopback only');
   await assert.rejects(stat(evidence), { code: 'ENOENT' }, 'a fixture with nothing to report removes its own evidence directory');
-  assert.deepEqual(await evidenceDirectories(), before, 'and leaves the temporary directory as it found it');
+  assert.deepEqual(await readdir(evidenceParent), [], 'and leaves nothing behind in the directory it was handed');
   assert.ok((await stat(sharedCache)).isDirectory(), 'the Vite cache is shared by every fixture and stays where it is');
 });
 

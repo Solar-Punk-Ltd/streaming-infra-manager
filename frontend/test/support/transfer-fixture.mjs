@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const evidenceDirectory = () => mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), 't09-http-'));
+const evidenceDirectory = parent => mkdtemp(join(parent ?? process.env.RUNNER_TEMP ?? tmpdir(), 't09-http-'));
 /** One cache for every fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
 const VITE_CACHE = fileURLToPath(new URL('../../node_modules/.vite-t09', import.meta.url));
 
@@ -49,8 +49,8 @@ async function startVite(managerUrl, evidence) {
 }
 
 /** Synthetic API and Vite instances owned by one test. Never attaches to an existing listener. */
-export async function launchTransferFixture(t, handler) {
-  const evidence = await evidenceDirectory();
+export async function launchTransferFixture(t, handler, options = {}) {
+  const evidence = await evidenceDirectory(options.evidenceParent);
   const server = createServer((req, res) => {
     Promise.resolve(handler(req, res)).catch(() => { res.writeHead(500); res.end(); });
   });
