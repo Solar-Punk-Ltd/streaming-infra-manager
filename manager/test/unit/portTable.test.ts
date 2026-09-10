@@ -10,7 +10,7 @@
  * deploy script then refuses it.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -127,6 +127,10 @@ describe('the container snapshot after a deploy', () => {
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
     assert.equal(srs?.ports.SRS_HTTP_API_PORT, undefined);
+    assert.ok(
+      existsSync(join(root, '.env.plain')),
+      'the deployment env file belongs in this run own root, and a unit test that writes one anywhere else has reached a real checkout',
+    );
   });
 });
 
