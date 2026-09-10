@@ -1,19 +1,21 @@
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const evidenceDirectory = () => mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), 't09-http-'));
+/** One cache for every fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
+const VITE_CACHE = fileURLToPath(new URL('../../node_modules/.vite-t09', import.meta.url));
 
 /** One Vite child on a free port, pointed at whichever manager the caller owns. */
 async function startVite(managerUrl, evidence) {
   let output = '';
   const child = fork(fileURLToPath(new URL('./transfer-vite.mjs', import.meta.url)), [], {
     cwd: fileURLToPath(new URL('../../', import.meta.url)), silent: true, execArgv: [],
-    env: { ...process.env, VITE_MANAGER_URL: managerUrl, T09_VITE_CACHE: join(evidence, 'vite-cache') },
+    env: { ...process.env, VITE_MANAGER_URL: managerUrl, T09_VITE_CACHE: VITE_CACHE },
   });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-32_768); });
   const stop = async () => {
@@ -30,6 +32,8 @@ async function startVite(managerUrl, evidence) {
       }
     }
     await writeFile(join(evidence, 'vite.log'), output);
+    const left = await readdir(evidence);
+    if (output === '' && left.length === 1 && left[0] === 'vite.log') await rm(evidence, { recursive: true, force: true });
   };
   try {
     const [{ port }] = await Promise.race([
