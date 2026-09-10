@@ -46,6 +46,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { redactEngineOutput } from '../support/redactEngineOutput.js';
+import { assertMatchesRedacted, assertNull } from '../support/redactedAssertions.js';
 import {
   BEE_UPLOADER,
   SRS,
@@ -104,7 +105,7 @@ describe('a config file the check accepts and the engine dies on', () => {
     const onTemplate = await engineConfig(name);
     assert.equal(onTemplate.engine, SRS, 'a streamer runs SRS, which is the engine with a parser to ask');
     assert.ok(onTemplate.supported, onTemplate.unsupportedReason ?? 'this version does not run a file of its own');
-    assert.equal(onTemplate.config, null, 'a fresh deployment runs the template, which is the file the revert has to bring back');
+    assertNull(onTemplate.config, 'a fresh deployment runs the template, which is the file the revert has to bring back');
 
     // Accepted by the check, because the parse never changes directory.
     await api('PUT', `/profiles/${encodeURIComponent(name)}/engine-config`, {
@@ -114,22 +115,24 @@ describe('a config file the check accepts and the engine dies on', () => {
     const ended = await waitForRolloutEnd(name);
     // The reason embeds the engine's own last lines, and the file SRS was
     // started on carries this deployment's SRT passphrase and webhook token.
-    // Every message below prints the redacted copy, because an assertion
-    // message on a runner is a log anyone with the repository can read.
+    // Nothing below compares either of them directly: a failing assertion
+    // publishes its own actual value, and this file's failures are read in an
+    // Actions log. The tail is matched on its redacted copy and the stored file
+    // on whether it is gone, both from test/support/redactedAssertions.
     const reason = ended.error ? redactEngineOutput(ended.error) : '(no reason)';
     assert.equal(ended.state, 'reverted', `the rollout ended ${ended.state}, not reverted: ${reason}`);
     assert.ok(ended.error, 'a reverted rollout has to say why');
-    assert.match(
+    assertMatchesRedacted(
       ended.error,
       /so the previous one is back/,
-      `the reason does not say the previous file is back: ${reason}`,
+      'the reason does not say the previous file is back',
     );
-    assert.match(
+    assertMatchesRedacted(
       ended.error,
       /no\/such\/directory/,
-      `the reason does not carry the engine's own last lines: ${reason}`,
+      "the reason does not carry the engine's own last lines",
     );
-    assert.equal(ended.config, null, 'the template is back, so the stored file is gone');
+    assertNull(ended.config, 'the template is back, so the stored file is gone');
 
     const notice = rolloutNotice(ended.state, { engine: ended.engine, hasConfig: ended.config !== null }, ended.error);
     assert.ok(notice, 'a reverted rollout shows a notice');
@@ -142,6 +145,6 @@ describe('a config file the check accepts and the engine dies on', () => {
 
     await removeProfile(name);
     await waitForGone(name);
-    assert.equal(await getProfileOrNull(name), null);
+    assertNull(await getProfileOrNull(name), 'the profile is gone, and a profile carries the passphrase too');
   });
 });
