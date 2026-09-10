@@ -7,10 +7,10 @@ on the same host can never collide on a port.
 ## Stack
 
 - **Express 5** + ESM + **TypeScript**
-- **PostgreSQL 16** — single source of truth for `port_slot` allocations (1–999)
-- **Yup** — request body / params validation at the API edge
-- **dotenv** — config from `.env`
-- **Docker-out-of-Docker** — the API container spawns `bash deploy.sh ...`,
+- **PostgreSQL 16**, the single source of truth for `port_slot` allocations (1 to 999)
+- **Yup**, request body and params validation at the API edge
+- **dotenv**, config from `.env`
+- **Docker-out-of-Docker**: the API container spawns `bash deploy.sh ...`,
   which calls `docker compose` against the host daemon via a mounted
   `/var/run/docker.sock`
 
@@ -65,7 +65,7 @@ nginx forwards, or a TLS connection to the manager itself. Over the plain HTTP
 of the SSH tunnel it is left off, because a browser drops a `Secure` cookie
 that did not arrive over TLS and the sign-in would loop.
 
-The token is 32 random bytes; the database stores only its SHA-256, so a dump of
+The token is 32 random bytes. The database stores only its SHA-256, so a dump of
 the sessions table signs nobody in. A session ends after twelve hours of
 inactivity, and fourteen days after it started whatever happens in between.
 
@@ -109,9 +109,9 @@ All command endpoints stream output as Server-Sent Events
 | Method | Path              | Body                                              | Notes                                                         |
 | ------ | ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
 | POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds from `.env`. |
-| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                  |
-| GET    | `/profiles/:name` | —                                                 | Single profile.                                               |
-| DELETE | `/profiles/:name` | —                                                 | Releases the slot.                                            |
+| GET    | `/profiles`       | none                                              | List ordered by `port_slot`.                                  |
+| GET    | `/profiles/:name` | none                                              | Single profile.                                               |
+| DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
 
 ### Actions (per profile, SSE)
 
@@ -119,7 +119,7 @@ All command endpoints stream output as Server-Sent Events
 | ------ | ------------------------ | ------------------------- | ------------------------------------------------------ |
 | POST   | `/profiles/:name/deploy` | `{ services?: string[] }` | `deploy.sh --profile=<name> --portSlot=<n> [services]` |
 | POST   | `/profiles/:name/stop`   | `{ services?: string[] }` | `stop.sh   --profile=<name> --portSlot=<n> [services]` |
-| GET    | `/profiles/:name/health` | —                         | `health.sh --profile=<name> --portSlot=<n>`            |
+| GET    | `/profiles/:name/health` | none                      | `health.sh --profile=<name> --portSlot=<n>`            |
 
 When `services` is omitted:
 
@@ -127,16 +127,17 @@ When `services` is omitted:
 - `viewer` → `client bee-gateway`
 - `custom` → empty (the script then uses everything enabled in `config.json`)
 
-Media engines: `srs` (default) and `ome` are mutually exclusive — a profile's
+Media engines: `srs` (default) and `ome` are mutually exclusive, so a profile's
 `components` may contain at most one of them. Including `ome` makes the manager
 write `ENGINE=ome` (plus slot-shifted `OME_SRT_PORT`/`OME_HLS_PORT`) into the
 profile's `.env.<name>` so the stream-uploader runs the OvenMediaEngine plugin.
 
 SRT passphrase: a profile may carry its own `srt_passphrase`, written to
 `.env.<name>` as `SRT_PASSPHRASE` so SRS encrypts that deployment's SRT listener
-with it. Left unset, the base `.env`'s host-wide value applies — the behaviour
-before the field existed. SRS only; OME's SRT listener takes no passphrase.
-Accepted values are 10–79 characters of `A-Z a-z 0-9 . _ ~ -`; the bounds are
+with it. Left unset, the base `.env`'s host-wide value applies, which is the
+behaviour before the field existed. This is SRS only. OME's SRT listener takes
+no passphrase. Accepted values are 10 to 79 characters of
+`A-Z a-z 0-9 . _ ~ -`. The bounds are
 libsrt's and the character set keeps the value intact through the `sed` in
 `engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
 `srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
@@ -311,10 +312,10 @@ answered by the API.
 | ------ | ----------------------- | --------------- | --------------------------------------------------------------- |
 | GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, builtAt, lastError, contract, deployments }]` |
 | POST   | `/versions`             | `{ name, ref }` | SSE build log, then `version.changed` on `/events`.              |
-| POST   | `/versions/:id/update`  |                 | SSE build log. Refused for `bundled`.                            |
+| POST   | `/versions/:id/update`  |                 | SSE build log. On `bundled` it builds the commit the manager pins, and refuses when it pins none. |
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
-| PATCH  | `/versions/:id`         | `{ tested }`    | 200 and the row.                                                 |
-| DELETE | `/versions/:id`         |                 | 204, or 409 with the deployment names when it is in use.         |
+| PATCH  | `/versions/:id`         | `{ tested, commitSha?, buildId? }` | 200 and the row. Marking tested requires the commit the page showed, and the build id too unless the row is legacy. |
+| DELETE | `/versions/:id`         |                 | 204, or 409: the deployment names when it is in use, or the bundled version, the default, one that is building, one with an unresolved build reference or execution, or one whose identity moved while removal waited. |
 | GET    | `/versions/:id/settings` |                | `{ generation, buildGeneration, buildId, files, leftAlone }`, or 409 `settings_not_ready`. `Cache-Control: no-store`. |
 | PUT    | `/versions/:id/settings` | `{ expectedGeneration, files }` | `{ generation }`, or 409 `settings_changed`, 409 `settings_locked`, 400 on a value, 413 `payload_too_large`. |
 | POST   | `/versions/:id/settings/apply` |          | `{ buildId, reused }`, or 409 `stack_build_busy`, 409 `settings_not_ready`, 409 `settings_locked`. |
@@ -420,7 +421,7 @@ profile).
 | Method | Path              | Notes                                                              |
 | ------ | ----------------- | ----------------------------------------------------------------- |
 | GET    | `/metrics`        | Latest snapshot as JSON. `503` until the first sample is ready.    |
-| GET    | `/metrics/stream` | Server-Sent Events; one `snapshot` event every ~2s while watching. |
+| GET    | `/metrics/stream` | Server-Sent Events, one `snapshot` event every ~2s while watching. |
 
 Sampling is gated: the collector only polls Docker while at least one client is
 connected to `/metrics/stream` (or immediately after a `/metrics` request).
@@ -455,12 +456,13 @@ Notes:
   from deltas, so they read `0` on the first sample after (re)connecting.
 - **Host CPU/RAM/disk need read-only host mounts** (`/proc → /host/proc`,
   `/ → /host/rootfs`, already wired in `docker-compose.yml`). Without them,
-  host fields fall back to capacity-only / `null`; infra and per-container
+  host fields fall back to capacity only or `null`. Infra and per-container
   numbers still work from the docker socket alone. Adding the mounts requires a
   redeploy.
 
 Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
-exposes the web port; for the API use the manager port directly on the host):
+exposes the web port, and for the API use the manager port directly on the
+host):
 
 ```bash
 # one-shot (cookies.txt comes from the sign-in under Example session)
@@ -519,8 +521,8 @@ key. The two that decide where the streaming stack lives:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `SHLS_ROOT`           | the submodule next to the manager source           | The bundled version's checkout. Set by `docker-compose.yml` to the host bind mount. |
-| `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where added versions are checked out, one directory each.                           |
+| `SHLS_ROOT`           | the submodule next to the manager source           | The legacy bundled checkout, read once to carry its settings over and still mounted by engines that were deployed from it. Set by `docker-compose.yml` to the host bind mount. |
+| `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
 
 Both are bind-mounted into the api container at the same absolute path they
 have on the host, because the docker daemon runs on the host and reads every
@@ -528,13 +530,13 @@ path in a compose file as a host path.
 
 ## Limitations (intentional, v1)
 
-- **Max 999 managed profiles per host** — `--portSlot` is an integer 1–999.
+- **Max 999 managed profiles per host.** `--portSlot` is an integer from 1 to 999.
 - **No HTTPS of its own.** The sign-in gate is only as good as the transport in
   front of it. The `edge` service in `docker-compose.yml` is that transport: a
   Caddy container in the `public` compose profile that terminates TLS and gets
   its own certificate for `MANAGER_DOMAIN`. It starts only when that name is
   set, and `deploy/README.md` has the steps for turning it on.
-- **Synchronous SSE.** A deploy holds an HTTP connection open for its duration;
-  client disconnect kills the child.
+- **Synchronous SSE.** A deploy holds an HTTP connection open for its whole
+  duration, and a client disconnect kills the child.
 - **Local target only.** This iteration assumes `config.json` deploys to
   `localhost`, which matches the "one manager per host" plan.
