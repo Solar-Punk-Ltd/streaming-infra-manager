@@ -34,7 +34,7 @@ async function dialogFixture(t) {
   const reads = [];
   const posts = [];
   let readDelayMs = 0;
-  let failNextRead = false;
+  let shouldFailNextRead = false;
   let override = null;
   const journal = createMockChequebookJournal({ profileFor: () => profile,
     nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
@@ -45,7 +45,7 @@ async function dialogFixture(t) {
     if (req.method === 'GET' && path === '/profiles/synthetic-test') return json(res, 200, profile);
     if (req.method === 'GET' && path.startsWith('/chequebook/')) {
       reads.push(path);
-      if (failNextRead) { failNextRead = false; return json(res, 503, { error: 'synthetic_unavailable' }); }
+      if (shouldFailNextRead) { shouldFailNextRead = false; return json(res, 503, { error: 'synthetic_unavailable' }); }
       const replacement = override?.(path);
       if (replacement) return json(res, replacement.status, replacement.body);
       if (readDelayMs > 0) await new Promise(resolve => setTimeout(resolve, readDelayMs));
@@ -59,7 +59,7 @@ async function dialogFixture(t) {
   });
   return { ...server, journal, dispatched, reads, posts,
     slowReads(milliseconds) { readDelayMs = milliseconds; },
-    failNextRead() { failNextRead = true; },
+    failNextRead() { shouldFailNextRead = true; },
     override(value) { override = value; } };
 }
 
