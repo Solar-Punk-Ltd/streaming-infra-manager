@@ -35,6 +35,7 @@ async function dialogFixture(t) {
   const posts = [];
   let readDelayMs = 0;
   let failNextRead = false;
+  let override = null;
   const journal = createMockChequebookJournal({ profileFor: () => profile,
     nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
       chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } }),
@@ -45,6 +46,8 @@ async function dialogFixture(t) {
     if (req.method === 'GET' && path.startsWith('/chequebook/')) {
       reads.push(path);
       if (failNextRead) { failNextRead = false; return json(res, 503, { error: 'synthetic_unavailable' }); }
+      const replacement = override?.(path);
+      if (replacement) return json(res, replacement.status, replacement.body);
       if (readDelayMs > 0) await new Promise(resolve => setTimeout(resolve, readDelayMs));
     }
     if (req.method === 'POST') posts.push(path);
@@ -56,7 +59,8 @@ async function dialogFixture(t) {
   });
   return { ...server, journal, dispatched, reads, posts,
     slowReads(milliseconds) { readDelayMs = milliseconds; },
-    failNextRead() { failNextRead = true; } };
+    failNextRead() { failNextRead = true; },
+    override(value) { override = value; } };
 }
 
 async function visible(browser, text, timeoutMs) {
@@ -250,5 +254,28 @@ test('one failed re-read costs the detail page a cycle and not the cadence', asy
   answer = record;
   await visible(browser, 'Transfer verified on chain', WITHIN_TWO_REREADS_MS);
   assert.deepEqual(h.posts, []);
+  assert.deepEqual(browser.errors, []);
+});
+
+test('a spent polling budget stops the dialog re-reads and says so', async t => {
+  const h = await dialogFixture(t);
+  const browser = await launchChrome(t, h.origin);
+  await browser.call('Page.navigate', { url: `${h.origin}/dev/t09-dialog-tests.html` });
+  await visible(browser, 'Storage and funding');
+  await click(browser, 'Fill chequebook');
+  await amount(browser, '0.5');
+  await click(browser, 'Review transfer');
+  await click(browser, 'Confirm transfer');
+  await visible(browser, POLLED_SENTENCE);
+  const spent = shown(h.journal.detail(h.dispatched[0].id), { receiptObservation: { kind: 'pending', reason: 'awaiting_receipt' },
+    receiptCheckedAt: '2026-09-09T12:00:00.000Z', receiptPollUntil: '2026-09-09T12:30:00.000Z' });
+  h.override(path => path.endsWith(`/by-request/${h.dispatched[0].requestId}`) ? { status: 200, body: spent } : null);
+  await click(browser, 'Refresh saved status');
+  await visible(browser, ENDED_SENTENCE);
+  const readsBefore = h.reads.length;
+  await new Promise(resolve => setTimeout(resolve, RECEIPT_READ_INTERVAL_MS + 3000));
+  assert.equal(h.reads.length, readsBefore, 'a spent budget re-reads nothing');
+  await visible(browser, 'Waiting for transaction confirmation');
+  assert.deepEqual(h.posts.filter(path => path.endsWith('/check')), []);
   assert.deepEqual(browser.errors, []);
 });
