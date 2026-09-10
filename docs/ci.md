@@ -36,6 +36,16 @@ run goes around the runner, and to run a single file by hand give it a root of
 its own: `SHLS_ROOT="$(mktemp -d)" tsx --conditions=development --test
 test/unit/<file>`.
 
+Two unit files hold cases that used to read the clock while a timer raced a
+loaded machine, `acquireDockerBeeStream.test.ts` and `containerControl.test.ts`.
+A lost-response case in the first failed one full run in four on this laptop on
+2026-09-10, on a Docker POST count, and a log read in the second failed one in
+six the same day, ended early by an idle gap the total bound was supposed to
+beat. Neither was a wrong rule. All four cases now wait on the thing they are
+about rather than on a duration, or put every exit but the one they test out of
+reach. A red run in either file is therefore a broken rule and not a busy
+runner: diagnose it, never retry it.
+
 ### database
 
 The 33 SQL suites in `manager/test/database/`, each against the task database
