@@ -56,8 +56,8 @@ describe('isPollingReceipt', () => {
 describe('receiptPollingSentence', () => {
   it('names the cadence and the deadline in the operator local time while polling lasts', () => {
     const sentence = receiptPollingSentence(polled, at('2026-09-10T14:10:00.000Z'));
-    assert.equal(sentence, `The manager checks the chain for this transaction's receipt about every 20 seconds until ${localClock('2026-09-10T14:32:00.000Z')}. ` +
-      'This page re-reads the saved record every 10 seconds meanwhile.');
+    assert.equal(sentence, `The manager checks the chain for this transaction's receipt about every 20 seconds until ${localClock('2026-09-10T14:32:00.000Z')}, ` +
+      'and leaves longer gaps while the chain endpoint does not answer. This page re-reads the saved record every 10 seconds meanwhile.');
     assert.equal(sentence?.includes(String(RECEIPT_READ_INTERVAL_MS / 1000)), true);
   });
 
