@@ -164,12 +164,18 @@ export function gateProblems(suites) {
   return problems;
 }
 
-/** Every suite file this run is about to start, with its text, for the gate scan. */
-function suiteFiles() {
-  return readdirSync(SUITE_DIR)
+/**
+ * Every suite file this run is about to start, with its text, for the gate scan.
+ *
+ * Recursive, because the glob the suites are started with is recursive. A file
+ * one directory down would otherwise be started without its gate ever being
+ * read, which is the whole thing the scan exists to prevent.
+ */
+export function suiteFiles(directory = SUITE_DIR) {
+  return readdirSync(directory, { recursive: true })
     .filter((file) => file.endsWith(SUITE_FILE_SUFFIX))
     .sort()
-    .map((file) => ({ file, text: readFileSync(join(SUITE_DIR, file), 'utf8') }));
+    .map((file) => ({ file, text: readFileSync(join(directory, file), 'utf8') }));
 }
 
 /**
