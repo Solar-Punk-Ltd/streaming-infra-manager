@@ -18,7 +18,13 @@ import { dirname, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { STACK_ROOT_VARIABLE, UNIT_ARGS, runProblem, sandboxedEnv } from './run.mjs';
+import {
+  PLACEHOLDER_DATABASE_URL,
+  STACK_ROOT_VARIABLE,
+  UNIT_ARGS,
+  runProblem,
+  sandboxedEnv,
+} from './run.mjs';
 
 import { BUNDLED_STACK_ROOT } from '../../src/utils/envUtils.js';
 
@@ -45,6 +51,12 @@ describe('the runner that hands it that root', () => {
     const env = sandboxedEnv({ [STACK_ROOT_VARIABLE]: '/somewhere/real', DATABASE_URL: 'postgres://unused' }, '/tmp/throwaway');
     assert.equal(env[STACK_ROOT_VARIABLE], '/tmp/throwaway');
     assert.equal(env.DATABASE_URL, 'postgres://unused');
+  });
+
+  it('names a database nothing opens, because the config module requires one at load', () => {
+    const env = sandboxedEnv({}, '/tmp/throwaway');
+    assert.equal(env.DATABASE_URL, PLACEHOLDER_DATABASE_URL);
+    assert.match(env.DATABASE_URL, /unused/);
   });
 
   it('runs the unit glob and nothing else', () => {
