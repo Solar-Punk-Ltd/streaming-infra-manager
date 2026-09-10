@@ -146,7 +146,10 @@ export async function endChromeSession(reporter, child, profile, removal = {}) {
   if (failure) throw failure;
 }
 
-/** Runs an isolated Chrome profile. Only this process and its profile are cleaned up. */
+/**
+ * Runs an isolated Chrome profile. Only the process group this starts and the
+ * profile it was given are cleaned up.
+ */
 export async function launchChrome(t, origin) {
   const executable = process.env.CHROME_BIN ??
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
