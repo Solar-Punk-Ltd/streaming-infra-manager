@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
+import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
-const origin = 'http://127.0.0.1:54291';
+/** This suite reads no manager data. Its owned API answers 404 so nothing depends on a listener it did not start. */
+const ownedOrigin = t => launchTransferFixture(t, (_req, res) => json(res, 404, {})).then(fixture => fixture.origin);
+
 test('the transfer controller preserves intent through lost responses, auth and target changes', async t => {
+  const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
   await waitFor(() => browser.evaluate("typeof document.querySelector('#controller')?.onclick === 'function'"));
@@ -18,6 +22,7 @@ test('the transfer controller preserves intent through lost responses, auth and 
 });
 
 test('native IndexedDB keeps one immutable intent across concurrent browser connections', async t => {
+  const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
   await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
@@ -31,7 +36,7 @@ test('native IndexedDB keeps one immutable intent across concurrent browser conn
   t.diagnostic(`Verified ${browser.version} with an isolated temporary profile`);
 });
 
-async function anotherTab(t, browser) {
+async function anotherTab(t, browser, origin) {
   const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank' });
   const tabs = await fetch(`http://127.0.0.1:${browser.debuggingPort}/json/list`, { signal: AbortSignal.timeout(5000) }).then(response => response.json());
   const socket = new WebSocket(tabs.find(tab => tab.id === targetId).webSocketDebuggerUrl);
@@ -56,8 +61,9 @@ async function anotherTab(t, browser) {
 }
 
 test('two real tabs cannot replace each other’s confirmed intent after reload or terminal navigation', async t => {
+  const origin = await ownedOrigin(t);
   const first = await launchChrome(t, origin);
-  const second = await anotherTab(t, first);
+  const second = await anotherTab(t, first, origin);
   const name = `t09-tabs-${crypto.randomUUID()}`;
   const setup = `(async () => {
     const { IndexedDbTransferIntentStore: Store } = await import('/src/transfers/transferIntentStore.ts');
