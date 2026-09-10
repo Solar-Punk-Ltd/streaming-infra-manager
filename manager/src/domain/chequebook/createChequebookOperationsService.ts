@@ -45,7 +45,10 @@ export function createChequebookOperationsService(pool: Pool,
   const receiptInspector = new ChequebookReceiptInspector((operation, signal) => chains.forChain(operation.chainId, signal));
   const receipts = new ChequebookReceiptCheck(repository, receiptInspector.inspect.bind(receiptInspector));
   const recoveryInspector = new ChequebookRecoveryInspector((operation, signal) => chains.forChain(operation.chainId, signal), pending.read.bind(pending));
-  const poller = new ChequebookReceiptPoller(repository, receipts, { log: Logger.getInstance(), ...dependencies.receiptPolling });
+  const poller = new ChequebookReceiptPoller(
+    { listAwaitingReceipt: repository.listAwaitingReceipt.bind(repository) },
+    { check: receipts.check.bind(receipts) },
+    { log: Logger.getInstance(), ...dependencies.receiptPolling });
   return new ChequebookOperationsService(repository, new ChequebookSubmission(repository, preparation.prepare.bind(preparation)),
     receipts, new ChequebookRecovery(repository, recoveryInspector, receipts), transports.shutdown.bind(transports), poller);
 }
