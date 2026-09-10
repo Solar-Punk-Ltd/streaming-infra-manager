@@ -1,10 +1,10 @@
 import { RECEIPT_POLL_INTERVAL_MS, RECEIPT_READ_INTERVAL_MS, type ChequebookOperation } from '@streaming-infra-manager/common';
 
-export type PolledTransfer = Pick<ChequebookOperation, 'state' | 'receiptPollUntil'>;
+export type PolledTransfer = Pick<ChequebookOperation, 'state' | 'failureReason' | 'receiptPollUntil'>;
 
 /** When the manager stops checking this transfer on its own, or null when it never was. */
 export function receiptPollDeadline(operation: PolledTransfer): number | null {
-  if (operation.state !== 'submitted' || operation.receiptPollUntil === null) return null;
+  if (operation.state !== 'submitted' || operation.failureReason === 'hash_conflict' || operation.receiptPollUntil === null) return null;
   const deadline = Date.parse(operation.receiptPollUntil);
   return Number.isFinite(deadline) ? deadline : null;
 }

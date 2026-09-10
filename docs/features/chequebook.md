@@ -108,6 +108,9 @@ polled. When the budget ends without a final receipt the operation stays
 `submitted` with its last observation, the page says that automatic checks
 ended, and Check remains the operator's own action, exactly as before. An
 operation in `submitting` or `unknown` is never polled: recovery stays explicit.
+An operation whose failure reason is `hash_conflict` is never polled either,
+whatever deadline its row still carries, and the page shows no automatic
+checking sentence for it.
 
 Check uses the recorded identity and trusted manager chain configuration.
 It first examines the known hash when available. Receipt verification checks
