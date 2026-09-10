@@ -654,3 +654,18 @@ skipped all three out loud. Every workspace typecheck clean after building
 common, `git diff --check` clean against the branch base, and no em-dash or
 semicolon in any added prose, comment, UI string or commit message. Nothing ran
 against the real host, nothing was pushed, and no credential was read.
+
+**Merged, 2026-09-10.** Merged into `feat/ai-remediation` as 8f48fb0 after the
+S8 ceiling was anchored to the record instead of the clock (b5a85e8) and a
+mini-round of five test-quality items from the targeted re-review (0decec0).
+Verified by Fable at 0decec0 on a quiet machine: manager unit 2223 of 2223, the
+whole database directory 518 of 518 the nine-database way with no skips, common
+321, frontend unit 100, every browser suite green one file at a time, with the
+note that `mock-engine-observations.test.mjs` runs only under `node --import
+tsx --conditions=development` from the frontend package (T20 records the
+command), every typecheck clean, prose clean, no submodule or lockfile movement.
+Housekeeping on this laptop: 477 leftover `t09-http-*` fixture directories that
+held only a Vite cache were removed (4.0 GB), 113 that also hold screenshots
+were kept. Still open after this slice: the production Bee bridge qualification
+catalog is empty, real SSH and real image qualification have not run, and T14
+waits on the D04 numbers.
