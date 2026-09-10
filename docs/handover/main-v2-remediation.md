@@ -918,3 +918,16 @@ list at ten so the runner's condition is reproduced here, and each suite has a
 Vite cache of its own. The full set passed twice on this laptop with no
 re-optimization. Measured on the runner: about 12 billed minutes a push for the
 three required jobs, recorded in `docs/ci.md`.
+
+**Merged, 2026-09-11, the browser suites under throttle.** Merged into
+`feat/ai-remediation` as 0c02ed0 from `fix/browser-suites-under-throttle`
+(17 commits, f9ce5f8 to aa64a43). The third runner run of the browser job
+(34498885341) failed one suite on a page read made before the body existed.
+The harness now has `BROWSER_CPU_THROTTLE`, every page read and click in the
+fourteen Chrome suites is a named wait through four shared helpers, and two
+more races surfaced under throttle and are fixed. Qualified on this laptop:
+three consecutive green full runs at four times throttle (208 tests, 27 files,
+544, 473 and 424 seconds), one at six times, and an unthrottled run in 360
+seconds. Recorded as a P2 follow-up under the estate's review-priority rule of
+2026-09-11: a failing suite exits late because five suites close their Vite
+before their Chrome, which costs ten runner minutes only when a suite fails.
