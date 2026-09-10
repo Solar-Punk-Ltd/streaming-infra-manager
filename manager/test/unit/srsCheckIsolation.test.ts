@@ -144,6 +144,19 @@ describe('judging the eight answers', () => {
     assert.match(wrong[0], new RegExp(onlyAccepted));
   });
 
+  it('reports a directive two cases share once, not once per case', () => {
+    const shared = ACCEPTED_CASES.map(one => one.directive)
+      .find(directive => REFUSED_CASES.some(other => other.directive === directive))!;
+    const carrier = REFUSED_CASES.find(one => one.directive !== shared)!;
+    const answers = allRight.map((answer) =>
+      answer.name === carrier.name
+        ? { ...answer, problem: `${RECORDED[carrier.name]} and also token ${shared}` }
+        : answer,
+    );
+    const wrong = wrongAnswers(answers).filter(line => line.includes(shared));
+    assert.equal(wrong.length, 1, wrong.join(' | '));
+  });
+
   it('reports an answer that belongs to no case at all', () => {
     assert.match(wrongAnswers([{ name: 'not a case', problem: null }]).join(' '), /not a case/);
   });

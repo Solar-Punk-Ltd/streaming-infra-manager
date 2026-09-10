@@ -8,8 +8,13 @@
  * one check would read another's copy and refuse with a directive that is not
  * in the file the operator is looking at, which reads as a real refusal. So
  * every refusal here has to name the directive of its own file and none of the
- * others, every valid file has to be accepted, and the scratch directory has
- * to be empty when the eight are done.
+ * others, and no directive of any of the other seven files at all, and the
+ * scratch directory has to be empty when the eight are done.
+ *
+ * The isolation evidence is in the four refusals. An accepted file's only
+ * observable is that nothing was said about it, so the four accepted cases
+ * prove that a valid file is not refused and nothing more: two of them
+ * swapped for each other would look exactly the same from here.
  *
  * Run it through manager/test/docker/srs-check-isolation.sh, which is where
  * the image pin and the evidence live.
@@ -142,12 +147,15 @@ export function wrongAnswers(answers: readonly CaseAnswer[]): string[] {
     if (!answer.problem.includes(one.directive)) {
       wrong.push(`${one.name}: the refusal does not name ${one.directive}: "${answer.problem}".`);
     }
-    const intruders = REFUSED_CASES.filter(
-      (other) => other.directive !== one.directive && answer.problem!.includes(other.directive),
-    );
-    for (const intruder of intruders) {
+    // Every other case's directive, accepted ones included: a refusal carrying
+    // a directive that only another file changed is the same cross-talk as one
+    // carrying a directive another file broke. Two cases share a directive, so
+    // this is a set and a refusal is reported once.
+    const others = new Set(CHECK_CASES.map((other) => other.directive));
+    others.delete(one.directive);
+    for (const intruder of [...others].filter((directive) => answer.problem!.includes(directive))) {
       wrong.push(
-        `${one.name}: the refusal names ${intruder.directive}, which is only in another case's file. ` +
+        `${one.name}: the refusal names ${intruder}, which is only in another case's file. ` +
           `That is one check reading another check's copy: "${answer.problem}".`,
       );
     }
