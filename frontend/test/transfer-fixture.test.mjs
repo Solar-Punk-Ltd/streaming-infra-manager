@@ -26,6 +26,37 @@ async function ownedEvidenceParent(t) {
   return parent;
 }
 
+/**
+ * A stand-in for the runner's own context, so a teardown hook can be run here
+ * and what it reported can be read.
+ *
+ * Node stops at the first `after` hook that throws and never runs the rest, so
+ * a hook that gives up halfway leaves its own children behind. Running the
+ * hooks here is the only way to watch that from inside a passing test.
+ */
+function collectedTeardown() {
+  const hooks = [];
+  return {
+    context: { after: (hook) => hooks.push(hook), diagnostic: () => undefined },
+    async run() {
+      for (const hook of hooks) await hook();
+    },
+  };
+}
+
+test('a fixture teardown that cannot write its log still closes the servers it opened', async t => {
+  const evidenceParent = await ownedEvidenceParent(t);
+  const teardown = collectedTeardown();
+  const fixture = await launchTransferFixture(teardown.context, (_req, res) => json(res, 404, {}), { evidenceParent });
+  assert.match(String(fixture.managerOrigin), /^http:\/\/127\.0\.0\.1:\d+$/, 'the fixture names the synthetic API it owns');
+  await rm(fixture.evidence, { recursive: true, force: true });
+
+  await assert.rejects(teardown.run(), { code: 'ENOENT' }, 'the hook still reports the step it could not finish');
+
+  await assert.rejects(fetch(fixture.managerOrigin), 'the synthetic API the fixture owns was closed anyway');
+  await assert.rejects(fetch(fixture.origin), 'and so was the Vite in front of it');
+});
+
 test('a run with nothing to report leaves no evidence directory behind', async t => {
   const evidenceParent = await ownedEvidenceParent(t);
   let origin = '';
