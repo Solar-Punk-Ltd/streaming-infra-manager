@@ -83,7 +83,7 @@ test('readiness and container diagnostics use current observations in the browse
     await waitFor(body, text => text.includes(`Only ${service} logs`), `${service} selected logs`);
     assert.equal(logRequests.at(-1), `/profiles/test-stream/containers/${service}/logs`);
     await evaluate(`document.querySelector('button[aria-label="close"]').click()`);
-    await waitFor(() => evaluate('document.querySelector("[role=dialog]") === null'));
+    await waitFor(() => evaluate('document.querySelector("[role=dialog]") === null'), Boolean, 'the log dialog to close');
   }
   await evaluate('window.fixtureNow = performance.now.bind(performance); performance.now = () => window.fixtureNow() + 31000');
   await waitFor(body, text => text.includes('Bee observation stale'), 'expired observation');
@@ -118,7 +118,7 @@ test('readiness and container diagnostics use current observations in the browse
   await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   await evaluate('performance.now = () => window.fixtureNow() + 93000');
   holdWallet = false; held.splice(0).forEach(reply => reply());
-  await waitFor(() => evaluate(`!![...document.querySelectorAll('#storage button')].find(button => button.textContent.trim() === 'Refresh' && !button.disabled)`));
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('#storage button')].find(button => button.textContent.trim() === 'Refresh' && !button.disabled)`), Boolean, 'the storage Refresh button to be enabled again');
   assert.equal(await hasUploader(), false);
   assert.match(await body(), /Bee observation stale/);
   for (const phase of ['starting', 'restarting', null]) {

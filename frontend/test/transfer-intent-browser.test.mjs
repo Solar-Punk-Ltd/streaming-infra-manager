@@ -11,7 +11,7 @@ test('the transfer controller preserves intent through lost responses, auth and 
   const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#controller')?.onclick === 'function'"));
+  await waitFor(() => browser.evaluate("typeof document.querySelector('#controller')?.onclick === 'function'"), Boolean, 'the controller button to be wired');
   await browser.evaluate("document.querySelector('#controller').click()");
   const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
     value => value !== 'Ready' && value !== 'Running', 'controller test result');
@@ -25,7 +25,7 @@ test('native IndexedDB keeps one immutable intent across concurrent browser conn
   const origin = await ownedOrigin(t);
   const browser = await launchChrome(t, origin);
   await browser.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
+  await waitFor(() => browser.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
   await browser.evaluate("document.querySelector('#run').click()");
   const result = await waitFor(() => browser.evaluate("document.querySelector('#result').textContent"),
     value => value !== 'Ready' && value !== 'Running', 'native intent test result');
@@ -75,7 +75,7 @@ test('two real tabs cannot replace each other’s confirmed intent after reload 
   })()`;
   for (const tab of [first, second]) {
     await tab.call('Page.navigate', { url: `${origin}/dev/t09-intent-tests.html` });
-    await waitFor(() => tab.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
+    await waitFor(() => tab.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired');
     await tab.evaluate(setup);
   }
   const confirmed = await Promise.all([first.evaluate('store.confirm(input, null)'), second.evaluate('store.confirm(input, null)')]);
@@ -84,7 +84,7 @@ test('two real tabs cannot replace each other’s confirmed intent after reload 
   const originalId = confirmed[0].intent.requestId;
   await first.evaluate('store.close()');
   await first.call('Page.reload');
-  await waitFor(() => first.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"));
+  await waitFor(() => first.evaluate("typeof document.querySelector('#run')?.onclick === 'function'"), Boolean, 'the run button to be wired after the reload');
   await first.evaluate(setup);
   assert.equal((await first.evaluate('store.current(input.accountId, input.profileInstanceId)')).requestId, originalId);
   const newIntent = await second.evaluate(`store.confirm({ ...input, requestId: crypto.randomUUID() }, ${JSON.stringify(originalId)})`);

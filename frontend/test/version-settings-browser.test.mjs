@@ -299,7 +299,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('Discard puts the loaded values back', async () => {
     await typeInto('API_PORT', '3200');
-    await waitFor(() => evaluate(`${fieldOf('API_PORT')}.value`), (value) => value === '3200');
+    await waitFor(() => evaluate(`${fieldOf('API_PORT')}.value`), (value) => value === '3200', 'the API port field to carry what was typed');
 
     await clickButton('Discard');
 
@@ -405,7 +405,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('a version deploying from a flat checkout offers no settings page', async () => {
     await call('Page.navigate', { url: `${origin}/#/versions` });
-    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="bundled tested"]'))`));
+    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="bundled tested"]'))`), Boolean, 'the versions page to list the bundled version');
 
     const button = await evaluate(`(() => {
       const card = document.querySelector('input[aria-label="bundled tested"]').closest('article');
@@ -418,7 +418,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
 
   await t.test('the Versions page opens this page from the card', async () => {
     await call('Page.navigate', { url: `${origin}/#/versions` });
-    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`));
+    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`), Boolean, 'the versions page to list the candidate version');
 
     await clickButton('Settings', `document.querySelector('input[aria-label="candidate tested"]').closest('article')`);
 
@@ -448,7 +448,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   await t.test('a path of the set nothing here reads is named rather than dropped', async () => {
     settings = { ...settings, leftAlone: ['engines/ome/.env'] };
     await call('Page.navigate', { url: `${origin}/#/versions` });
-    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`));
+    await waitFor(() => evaluate(`Boolean(document.querySelector('input[aria-label="candidate tested"]'))`), Boolean, 'the versions page to list the candidate version');
     await call('Page.navigate', { url: `${origin}/#/versions/3/settings` });
     await waitFor(() => evaluate(`Boolean(${fieldOf('API_PORT')})`), Boolean, 'the settings fields');
 

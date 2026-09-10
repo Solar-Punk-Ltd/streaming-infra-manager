@@ -122,7 +122,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   };
   const createPool = async () => {
     await click('Create a storage pool');
-    await waitFor(() => evaluate('!!document.querySelector("input[placeholder=abr-pool-2]")'));
+    await waitFor(() => evaluate('!!document.querySelector("input[placeholder=abr-pool-2]")'), Boolean, 'the pool wizard to open');
     await fill('input[placeholder="abr-pool-2"]', group.name);
     await next(); await next(); await click('Create pool (4 nodes)');
   };
@@ -137,7 +137,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     await next();
   };
   await call('Page.navigate', { url: `${origin}/#/` });
-  await waitFor(body, text => text.includes('New deployment'));
+  await waitFor(body, text => text.includes('New deployment'), 'the app to boot');
   await startUploader();
   await click('Create a storage pool');
   assert.equal(await evaluate(`document.querySelector('input[placeholder="abr-pool-2"]').value === ''`), true);
@@ -162,9 +162,9 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   nodeMode = 'unknown'; await click('Refresh pool checks');
   await waitFor(body, text => text.includes('Bee API not checked') && text.includes('Funding not checked'), 'unknown observations');
   holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
-  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
   globalsReady = false; await call('Page.reload');
-  await waitFor(body, text => text.includes('New deployment'));
+  await waitFor(body, text => text.includes('New deployment'), 'the app to boot after the reload');
   // Fresh absence wins in both orders relative to older compatible global lists.
   for (const oldFirst of [false, true]) {
     holdAfterWrite = writes.length; holdRefresh = true;
@@ -183,9 +183,9 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     if (!oldFirst) await releaseOld();
     assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]')?.textContent.includes('chosen-pool') ?? false`), false);
     await assertDraft();
-    await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+    await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
     globalsReady = false; await call('Page.reload');
-    await waitFor(body, text => text.includes('New deployment'));
+    await waitFor(body, text => text.includes('New deployment'), 'the app to boot after the reload');
   }
   // Incompatible and refused creation keep the original uploader choice and draft.
   for (const mode of ['incompatible', 'null', 'malformed-member', 'failed']) {
@@ -194,15 +194,15 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     if (mode === 'failed') await click('Return to uploader');
     await assertDraft();
     assert.equal(await evaluate(`!!document.querySelector('[role=combobox][aria-label="Storage pool"]')`), false);
-    await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+    await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
   }
   // A late pool response cannot reopen a cancelled uploader or change the route.
   resultMode = 'held'; await startUploader(); await createPool();
   await waitFor(() => held.length, count => count === 1, 'pending pool request');
   const routeBefore = await evaluate('location.hash');
-  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+  await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
   resultMode = 'success'; held.splice(0).forEach(reply => reply());
-  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/groups')).length`), count => count > 0);
+  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/groups')).length`), count => count > 0, 'the late pool response to be fetched');
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(await evaluate('location.hash'), routeBefore);
   assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'), false);
@@ -214,12 +214,12 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(() => held.length, count => count === 1, 'pending before sign-out');
   signedIn = false;
   await evaluate(`import('/src/http.ts').then(module => module.apiFetch('/auth/session')).catch(() => undefined)`);
-  await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+  await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the dialog to close when the session goes');
   resultMode = 'success'; held.splice(0).forEach(reply => reply());
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(await evaluate('location.hash'), routeBefore);
   signedIn = true; await call('Page.reload');
-  await waitFor(body, text => text.includes('New deployment'));
+  await waitFor(body, text => text.includes('New deployment'), 'the app to boot after the reload');
   await click('New deployment'); await choose('ABR uploader'); await next();
   assert.equal(await evaluate(`document.querySelector('input[placeholder="main-stage"]').value === ''`), true);
   await fill('input[placeholder="main-stage"]', 'external-uploader'); await next();

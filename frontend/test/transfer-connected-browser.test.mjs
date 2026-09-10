@@ -67,7 +67,7 @@ async function signedInBrowser(t, manager, fixture, path) {
   await browser.call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
   // Sign in from a page with no app on it, so the app itself boots with the session already in place.
   await browser.call('Page.navigate', { url: `${fixture.origin}/dev/t09-intent-tests.html` });
-  await waitFor(() => browser.evaluate('document.readyState === "complete"'));
+  await waitFor(() => browser.evaluate('document.readyState === "complete"'), Boolean, 'the sign-in page to finish loading');
   const login = await browser.evaluate(`(async () => {
     const response = await fetch('/auth/login', { method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'x-requested-with': 'streaming-infra-manager' },
@@ -76,7 +76,7 @@ async function signedInBrowser(t, manager, fixture, path) {
   })()`);
   assert.equal(login, 204, 'the browser signed in through the real login route');
   await browser.call('Page.navigate', { url: `${fixture.origin}${path}` });
-  await waitFor(() => browser.evaluate('document.readyState === "complete"'));
+  await waitFor(() => browser.evaluate('document.readyState === "complete"'), Boolean, 'the app to finish loading');
   return browser;
 }
 

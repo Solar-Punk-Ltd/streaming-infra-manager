@@ -163,7 +163,7 @@ test('version identity, states and actions fit verified narrow viewports', async
     versions[0] = { ...before, tested: false, buildId: `${'1'.repeat(40)}-r3`, testedInvalidatedAt: invalidatedAt };
     try {
       await clickButton('Refresh');
-      await waitFor(() => evaluate(`!document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`));
+      await waitFor(() => evaluate(`!document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`), Boolean, 'the tested box to clear after the refresh');
       for (const width of [723, 390, 1280]) {
         await call('Emulation.setDeviceMetricsOverride', { width, height: 960, deviceScaleFactor: 1, mobile: false });
         const reading = await evaluate(`(() => {
@@ -199,7 +199,7 @@ test('version identity, states and actions fit verified narrow viewports', async
     } finally {
       versions[0] = before;
       await clickButton('Refresh');
-      await waitFor(() => evaluate(`document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`));
+      await waitFor(() => evaluate(`document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`), Boolean, 'the tested box to be checked again');
     }
   });
 
@@ -208,13 +208,13 @@ test('version identity, states and actions fit verified narrow viewports', async
     versions[2] = { ...before, buildId: null };
     try {
       await clickButton('Refresh');
-      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('no build yet')`));
+      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('no build yet')`), Boolean, 'the candidate card to say it has no build yet');
       assert.equal(await evaluate(`document.querySelector('input[aria-label="candidate tested"]').disabled`), true);
       assert.equal(await evaluate(`document.querySelector('input[aria-label="bundled tested"]').disabled`), false);
     } finally {
       versions[2] = before;
       await clickButton('Refresh');
-      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('3333333-r2')`));
+      await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('3333333-r2')`), Boolean, 'the candidate card to name the rebuilt version');
     }
   });
 
@@ -226,7 +226,7 @@ test('version identity, states and actions fit verified narrow viewports', async
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     })()`);
     await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
-    await waitFor(() => evaluate('document.querySelector("[role=tooltip]") !== null'));
+    await waitFor(() => evaluate('document.querySelector("[role=tooltip]") !== null'), Boolean, 'the tooltip to open');
     const help = await evaluate('document.querySelector("[role=tooltip]").innerText');
     assert.match(help, /different build clears approval, even at the same commit/);
     assert.match(help, /Legacy versions/);
@@ -239,21 +239,21 @@ test('version identity, states and actions fit verified narrow viewports', async
     await pressKey(' ', 'Space', 32, ' ');
     await waitFor(() => writes.length, (count) => count === 1, 'tested request');
     assert.deepEqual(writes[0], { method: 'PATCH', path: '/versions/3', body: { tested: true, commitSha: '3'.repeat(40), buildId: `${'3'.repeat(40)}-r2` } });
-    await waitFor(() => evaluate(`document.querySelector('input[aria-label="candidate tested"]').checked`));
+    await waitFor(() => evaluate(`document.querySelector('input[aria-label="candidate tested"]').checked`), Boolean, 'the candidate tested box to be checked');
     await clickButton('Set as default', card('candidate'));
     assert.equal(writes.length, 1, 'opening confirmation does not mutate default');
-    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'));
+    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'), Boolean, 'the default confirmation to open');
     await clickButton('Set as default', 'document.querySelector("[role=dialog]")');
     await waitFor(() => writes.length, (count) => count === 2, 'default request');
     assert.deepEqual(writes[1], { method: 'POST', path: '/versions/3/default', body: {} });
-    await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('Default')`));
+    await waitFor(() => evaluate(`(${card('candidate')}).innerText.includes('Default')`), Boolean, 'the candidate card to say Default');
   });
 
   await t.test('an active build keeps default and tested visible and leaves its log after failure', async () => {
-    await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'));
+    await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the dialog of the previous case to be gone');
     await clickButton('Update', card(LONG_VERSION_NAME));
-    await waitFor(() => Boolean(activeBuild));
-    await waitFor(() => evaluate(`(${card(LONG_VERSION_NAME)}).querySelector('button').disabled`));
+    await waitFor(() => Boolean(activeBuild), Boolean, 'the build to start');
+    await waitFor(() => evaluate(`(${card(LONG_VERSION_NAME)}).querySelector('button').disabled`), Boolean, 'the update button to be disabled while the build runs');
     assert.equal(await evaluate(`document.querySelector('input[aria-label="${LONG_VERSION_NAME} tested"]').checked`), true);
     assert.equal(await evaluate(`(${card('candidate')}).innerText.includes('Default')`), true);
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
@@ -261,11 +261,11 @@ test('version identity, states and actions fit verified narrow viewports', async
     activeBuild.write(`event: stderr\ndata: ${JSON.stringify({ chunk: LONG_ERROR })}\n\n`);
     activeBuild.end('event: done\ndata: {"code":1}\n\n');
     activeBuild = undefined;
-    await waitFor(() => evaluate(`document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`));
+    await waitFor(() => evaluate(`document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`), Boolean, 'the build log to open');
     assert.equal(await evaluate(`document.body.innerText.includes('Offline build log')`), true);
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
     await clickButton('Dismiss');
-    await waitFor(() => evaluate(`!document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`));
+    await waitFor(() => evaluate(`!document.body.innerText.includes('Build log, ${LONG_VERSION_NAME}')`), Boolean, 'the build log to be dismissed');
   });
 
   await t.test('the bundled card offers the rebuild the host can now do, and names the commit', async () => {
@@ -282,19 +282,19 @@ test('version identity, states and actions fit verified narrow viewports', async
   await t.test('approval can be withdrawn and removal still confirms before sending', async () => {
     await evaluate(`document.querySelector('input[aria-label="rebuilding-tested-version tested"]').focus()`);
     await pressKey(' ', 'Space', 32, ' ');
-    await waitFor(() => writes.length, (count) => count === 4);
+    await waitFor(() => writes.length, (count) => count === 4, 'the untested request');
     assert.deepEqual(writes[3], { method: 'PATCH', path: '/versions/6', body: { tested: false } });
-    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="rebuilding-tested-version tested"]').checked`));
+    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="rebuilding-tested-version tested"]').checked`), Boolean, 'the tested box of the rebuilt version to clear');
     assert.equal(await evaluate(`document.querySelector('input[aria-label="rebuilding-tested-version tested"]').disabled`), true);
     assert.equal(await evaluate(`document.querySelector('input[aria-label="failed-first-build tested"]').disabled`), true);
     assert.equal(await evaluate(`[...(${card('bundled')}).querySelectorAll('button')].find(button => button.textContent === 'Remove').disabled`), true);
     await clickButton('Remove', card('failed-first-build'));
     assert.equal(writes.length, 4, 'opening confirmation does not remove a version');
-    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'));
+    await waitFor(() => evaluate('Boolean(document.querySelector("[role=dialog]"))'), Boolean, 'the remove confirmation to open');
     await clickButton('Remove', 'document.querySelector("[role=dialog]")');
-    await waitFor(() => writes.length, (count) => count === 5);
+    await waitFor(() => writes.length, (count) => count === 5, 'the remove request');
     assert.deepEqual(writes[4], { method: 'DELETE', path: '/versions/4', body: null });
-    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="failed-first-build tested"]')`));
+    await waitFor(() => evaluate(`!document.querySelector('input[aria-label="failed-first-build tested"]')`), Boolean, 'the removed version to be gone from the page');
   });
 
   if (evidence) {
