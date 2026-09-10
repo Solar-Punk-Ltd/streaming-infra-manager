@@ -44,7 +44,9 @@ jobs:
 
       - name: Unit tests, manager
         # The tests never open a database. The config module requires the
-        # variable at load, so it gets a value that names nothing.
+        # variable at load, so it gets a value that names nothing. Redundant
+        # since test/unit/run.mjs supplies the same placeholder when the
+        # environment has none, and kept so this step still says what it needs.
         env:
           DATABASE_URL: postgres://unused@localhost/unused
         run: pnpm --filter @streaming-infra-manager/api test

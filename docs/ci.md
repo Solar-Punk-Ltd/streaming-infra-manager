@@ -20,10 +20,14 @@ transport code that owns Unix sockets and forks children works, the frontend
 bundles.
 
 What it does not prove: anything that needs Docker, a Bee node, a host or
-money. The manager's unit tests get a `DATABASE_URL` that names nothing,
+money. The manager's unit tests need a `DATABASE_URL` that names nothing,
 because the config module requires the variable at load and no unit test opens
-a database. The native suites need no variable at all, checked with it unset,
-and keep the same placeholder only so the two steps read alike.
+a database. `manager/test/unit/run.mjs` now supplies that placeholder itself
+when the environment has none, which is what makes `pnpm -r test` work on a
+fresh clone. The workflow still sets the same value on the step, and it is
+kept only so a reader of the job sees what the run needs. The native suites
+need no variable at all, checked with it unset, and keep the same placeholder
+for the same reason.
 
 The manager's unit run goes through `manager/test/unit/run.mjs`, which makes
 one throwaway directory and hands it to the whole suite as `SHLS_ROOT`. A
