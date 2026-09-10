@@ -16,7 +16,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, pageShows, waitFor } from './support/chrome.mjs';
 import { runEveryStep } from './support/teardown.mjs';
 import { launchViteFor } from './support/transfer-fixture.mjs';
 
@@ -84,9 +84,9 @@ async function signedInBrowser(t, manager, fixture, path) {
 }
 
 async function visible(browser, text, timeoutMs) {
-  try { await waitFor(() => browser.evaluate(`document.body?.innerText.includes(${JSON.stringify(text)})`), Boolean, text, timeoutMs); }
+  try { await waitFor(() => browser.evaluate(pageShows(text)), Boolean, text, timeoutMs); }
   catch (error) {
-    error.message += `\nOn screen: ${String(await browser.evaluate('document.body?.innerText')).slice(0, 1500)}`;
+    error.message += `\nOn screen: ${(await browser.evaluate(PAGE_TEXT)).slice(0, 1500)}`;
     throw error;
   }
 }
@@ -100,16 +100,9 @@ async function useSignedInAccount(browser) {
   await browser.evaluate(`t09Ui.account(${id})`);
   return id;
 }
-async function click(browser, text) {
-  await waitFor(() => browser.evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}); return !!button && !button.disabled; })()`), Boolean, `enabled ${text} button`);
-  await browser.evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
-}
-async function amount(browser, value) {
-  await waitFor(() => browser.evaluate("!!document.querySelector('[role=dialog] input') && !document.querySelector('[role=dialog] input').disabled"), Boolean, 'editable amount');
-  await browser.evaluate(`(() => { const input = document.querySelector('[role="dialog"] input');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
-    input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-}
+const DIALOG_AMOUNT = `document.querySelector('[role="dialog"] input')`;
+const click = (browser, text) => clickWhenEnabled(browser.evaluate, buttonWithText(text), `an enabled ${text} button`);
+const amount = (browser, value) => fillWhenPresent(browser.evaluate, DIALOG_AMOUNT, value, 'the editable amount');
 async function moveBzz(browser, value = '0.5') {
   await click(browser, 'Fill chequebook');
   await amount(browser, value);
@@ -199,7 +192,7 @@ test('the transfer history and detail pages read the real journal', { skip: HAS_
   t.diagnostic(await screenshot(pages, fixture, 'connected-detail-polling'));
   await manager.answerReceipt('success');
   await visible(pages, 'Transfer verified on chain', 30_000);
-  assert.equal(await pages.evaluate(`document.body.innerText.includes(${JSON.stringify(POLLED_SENTENCE)})`), false);
+  assert.equal(await pages.evaluate(pageShows(POLLED_SENTENCE)), false);
   assert.equal((await manager.counts()).beePosts, 1);
   assert.deepEqual(pages.errors, []);
 });
