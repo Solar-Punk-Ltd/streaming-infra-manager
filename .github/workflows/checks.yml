@@ -70,8 +70,9 @@ jobs:
   database:
     # The 33 SQL suites, each against the task database it owns. They gate
     # themselves on a port variable and skip without it, so the runner they go
-    # through refuses an unset variable, connects to all nine databases first,
-    # and treats one skip as a failure. See manager/test/database/run-all.mjs.
+    # through refuses an unset variable, reads every file's gate, connects to
+    # all nine databases first, and counts neither a skip nor a suite that
+    # never started as a pass. See manager/test/database/run-all.mjs.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -130,10 +131,11 @@ jobs:
         run: pnpm --filter @streaming-infra-manager/api test:database
 
   browser:
-    # The twenty suites under frontend/test, fourteen of which drive a real
-    # headless Chrome against a real Vite. They live outside pnpm test and so
-    # ran nowhere on a pull request. One at a time, because each starts its own
-    # Vite and its own Chrome.
+    # The twenty-two suites under frontend/test, fourteen of which drive a
+    # real headless Chrome against a real Vite. They live outside pnpm test and
+    # so ran nowhere on a pull request. One at a time, because each starts its
+    # own Vite and its own Chrome, through a runner that refuses a skip the
+    # same way the SQL one does.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
