@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 
 /**
@@ -209,8 +209,9 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(() => held.length, count => count === 1, 'pending pool request');
   const routeBefore = await evaluate('location.hash');
   await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
+  const latePoolResponses = await watchCompletedRequests(evaluate, '/groups');
   resultMode = 'success'; held.splice(0).forEach(reply => reply());
-  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/groups')).length`), count => count > 0, 'the late pool response to be fetched');
+  await waitFor(latePoolResponses, count => count > 0, 'the late pool response to be fetched');
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(await evaluate('location.hash'), routeBefore);
   assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'), false);
