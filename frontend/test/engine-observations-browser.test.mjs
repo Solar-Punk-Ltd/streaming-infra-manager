@@ -147,7 +147,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
 
   await t.test('literal value and source agree on the desktop summary, card and drawer, then on a phone', async () => {
     await reset();
-    assert.match(await card(), /4\s+seconds\s+Set in config file/);
+    await waitFor(card, text => /4\s+seconds\s+Set in config file/.test(text), 'the card to show the literal value and its source');
     assert.match(await body(), /segment 4 s/);
     await click('Settings');
     await waitFor(drawer, text => text.includes('Set in config file'), 'literal editor source');
@@ -180,7 +180,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.equal(await saveDisabled(), true);
     release();
     await waitFor(body, text => text.includes('segment 5 s'), 'new revision observation');
-    assert.match(await drawer(), /5 seconds/);
+    await waitFor(drawer, text => /5 seconds/.test(text), 'the drawer to carry the new revision observation');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), false);
   });
@@ -221,11 +221,11 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await waitFor(body, text => text.includes('segment 5 s'), 'replacement observation');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), true);
-    assert.match(await drawer(), /replaced|different deployment/);
+    await waitFor(drawer, text => /replaced|different deployment/.test(text), 'the drawer to say the deployment was replaced');
     await clickWhenEnabled(evaluate, `(${SETTINGS_PANEL})?.querySelector('button[aria-label="close"]')`, 'the settings panel close button');
     await waitFor(drawer, text => text === '', 'drawer closed');
     await openDraft();
-    assert.match(await drawer(), /5 seconds/);
+    await waitFor(drawer, text => /5 seconds/.test(text), 'the reopened drawer to carry the replacement observation');
     assert.equal(await saveDisabled(), false);
   });
 
@@ -278,15 +278,15 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await reset();
     publish({ has_engine_config: false, engine_settings: {}, notes: 'environment settings active' });
     await waitFor(body, text => text.includes('segment 6 s'), 'host default observation');
-    assert.match(await card(), /6\s+seconds\s+Host default/);
+    await waitFor(card, text => /6\s+seconds\s+Host default/.test(text), 'the card to show the host default');
     await click('Settings');
     await waitFor(() => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.placeholder`), value => value === '6', 'verified default placeholder');
-    assert.match(await drawer(), /Default 6 seconds, set on this host/);
+    await waitFor(drawer, text => /Default 6 seconds, set on this host/.test(text), 'the drawer to name the host default');
     await typeDuration('9');
     assert.equal(await saveDisabled(), false);
     publish({ engine_settings: { HLS_SEGMENT_DURATION: '7' }, notes: 'deployment override active' });
     await waitFor(body, text => text.includes('segment 7 s'), 'deployment override observation');
-    assert.match(await card(), /7\s+seconds\s+Deployment override/);
+    await waitFor(card, text => /7\s+seconds\s+Deployment override/.test(text), 'the card to show the deployment override');
     assert.equal(await typed(), '9');
     assert.equal(await saveDisabled(), false);
   });
