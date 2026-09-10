@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { launchChrome, waitFor } from './support/chrome.mjs';
+import { runEveryStep } from './support/teardown.mjs';
 import { launchViteFor } from './support/transfer-fixture.mjs';
 
 const pgPort = Number(process.env.T09_TEST_PG_PORT);
@@ -32,15 +33,17 @@ async function connectedManager(t) {
     env: { ...process.env, T09_TEST_PG_PORT: String(pgPort) } });
   let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-32_768); });
-  t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, 'exit', { signal: AbortSignal.timeout(15_000) });
-      child.disconnect();
-      try { await exited; }
-      catch { child.kill('SIGKILL'); await once(child, 'exit'); }
-    }
-    if (output.trim()) t.diagnostic(`Connected manager output: ${output.slice(-2000)}`);
-  });
+  const endManager = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = once(child, 'exit', { signal: AbortSignal.timeout(15_000) });
+    child.disconnect();
+    try { await exited; }
+    catch { child.kill('SIGKILL'); await once(child, 'exit'); }
+  };
+  t.after(() => runEveryStep([
+    endManager,
+    () => { if (output.trim()) t.diagnostic(`Connected manager output: ${output.slice(-2000)}`); },
+  ]));
   const [ready] = await Promise.race([
     once(child, 'message', { signal: AbortSignal.timeout(60_000) }),
     once(child, 'exit').then(() => { throw new Error(`The connected manager exited before startup: ${output.slice(-2000)}`); }),
