@@ -107,7 +107,7 @@ only, without install:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 5 s |
-| unit suites, common 321, manager 2261, frontend 100 | 19 s |
+| unit suites, common 321, manager 2262, frontend 100 | 19 s |
 | native transport suites, 7 | 2 s |
 | frontend build | 5 s |
 | SQL suites, 518, one file at a time | 161 s |

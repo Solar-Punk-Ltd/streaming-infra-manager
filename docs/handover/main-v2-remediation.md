@@ -715,7 +715,7 @@ could not change directory. SRS reads its config first and changes directory
 second, and only the second step touches the file system. Both observations
 are in the test's header.
 
-**Verified, 2026-09-10.** Manager unit 2261 of 2261, thirty eight more than
+**Verified, 2026-09-10.** Manager unit 2262 of 2262, thirty nine more than
 before, from the two new unit files. Common 321, frontend unit 100, native 7,
 all with no skips. The whole database directory 518 of 518 with nine
 disposable databases, no skips, 161 s. Every browser suite through the new
