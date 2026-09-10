@@ -17,7 +17,8 @@
  *
  * The suites connect to 127.0.0.1 as postgres and nothing else, so the port is
  * the whole configuration. Never point these variables at a deployment
- * database.
+ * database: the preflight below refuses one that already holds the manager's
+ * own tables, which is the check rather than this sentence.
  */
 import { spawn } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
