@@ -113,11 +113,13 @@ resumes only the operations whose budget has not passed, and every operation
 recorded before this behaviour existed keeps an empty deadline and is never
 polled. When the budget ends without a final receipt the operation stays
 `submitted` with its last observation, the page says that automatic checks
-ended, and Check remains the operator's own action, exactly as before. An
-operation in `submitting` or `unknown` is never polled: recovery stays explicit.
-An operation whose failure reason is `hash_conflict` is never polled either,
-whatever deadline its row still carries, and the page shows no automatic
-checking sentence for it.
+ended, and Check remains the operator's own action, exactly as before. The page
+holds itself to that same budget from its own side. It never re-reads a record
+for longer than 30 minutes after that record last changed, whatever deadline the
+record carries. An operation in `submitting` or `unknown` is never polled:
+recovery stays explicit. An operation whose failure reason is `hash_conflict` is
+never polled either, whatever deadline its row still carries, and the page shows
+no automatic checking sentence for it.
 
 Check uses the recorded identity and trusted manager chain configuration.
 It first examines the known hash when available. Receipt verification checks

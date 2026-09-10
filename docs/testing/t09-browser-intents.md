@@ -64,8 +64,12 @@ asks the chain, because the manager is doing that.
 A record whose failure reason is `hash_conflict` is never treated as polled,
 whatever deadline it still carries, because the manager excludes it from its own
 checks and there is no Check button on a conflicted transfer to point at. A
-deadline is read no further ahead than one whole budget from now, which is the
-furthest the manager could still be polling.
+deadline is read no further ahead than one whole budget after the record last
+changed, whatever `receiptPollUntil` says, because the manager writes that
+deadline and the record's `updatedAt` in one statement and `updatedAt` only
+moves forward. The ceiling sits on the record and not on the clock. One measured
+from now would move with every re-read and never arrive, so a page holding a
+dishonest deadline would keep reading forever.
 
 A re-read keeps the record already on screen until the manager answers, and only
 a real answer that says the record is missing or incomplete clears it. A read
