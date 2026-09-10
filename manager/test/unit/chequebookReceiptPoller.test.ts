@@ -56,6 +56,8 @@ function injectedTicks() {
 function harness(options: { observation?: (id: string) => ChequebookReceiptObservation; failOn?: () => string | null } = {}) {
   const repository = new InMemoryChequebookOperations();
   const lines: string[] = [];
+  const warnings: string[] = [];
+  const log = { info: (line: string) => lines.push(line), warn: (line: string) => warnings.push(line) };
   const inspected: string[] = [];
   const receipts = new ChequebookReceiptCheck(repository, async operation => {
     inspected.push(operation.transactionHash);
@@ -76,13 +78,13 @@ function harness(options: { observation?: (id: string) => ChequebookReceiptObser
     return repository.recordSubmission(operation.id, { state: 'submitted', transactionHash: hash(index), failureReason: null });
   }
   function poller(overrides: { intervalMs?: number; batchLimit?: number } = {}) {
-    return new ChequebookReceiptPoller(repository, check, { intervalMs: 50, schedule: ticks.schedule, log: line => lines.push(line), ...overrides });
+    return new ChequebookReceiptPoller(repository, check, { intervalMs: 50, schedule: ticks.schedule, log, ...overrides });
   }
   function age(id: string, milliseconds: number) {
     const row = repository.rows.get(id)!;
     repository.rows.set(id, { ...row, receiptCheckedAt: new Date(Date.parse(row.receiptCheckedAt!) - milliseconds).toISOString() });
   }
-  return { repository, receipts, ticks, lines, checked, inspected, submitted, poller, age };
+  return { repository, receipts, ticks, lines, warnings, log, checked, inspected, submitted, poller, age };
 }
 
 describe('ChequebookReceiptPoller', () => {
@@ -163,7 +165,7 @@ describe('ChequebookReceiptPoller', () => {
     const h = harness();
     const row = await h.submitted(1);
     const slow = { check: async (id: string) => { h.checked.push(id); await held; return h.receipts.check(id); } };
-    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: line => h.lines.push(line) });
+    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: h.log });
     t.after(async () => { release(); await poller.stop(); });
     poller.start();
     await drain();
@@ -182,7 +184,7 @@ describe('ChequebookReceiptPoller', () => {
     const row = await h.submitted(1);
     let finished = false;
     const slow = { check: async (id: string) => { await held; finished = true; return h.receipts.check(id); } };
-    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: line => h.lines.push(line) });
+    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: h.log });
     poller.start();
     await drain();
     const stopping = poller.stop();
@@ -202,7 +204,7 @@ describe('ChequebookReceiptPoller', () => {
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     const slow = { check: async (id: string) => { h.checked.push(id); await held; return h.receipts.check(id); } };
-    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: line => h.lines.push(line) });
+    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: h.log });
     poller.start();
     await drain();
     assert.equal(h.checked.length, 1, 'the batch is inside its first row');
@@ -257,6 +259,19 @@ describe('ChequebookReceiptPoller', () => {
     assert.equal(h.lines.length, 2);
     await h.ticks.fire();
     assert.equal(h.lines.length, 2, 'a tick that changed nothing writes no line');
+  });
+
+  it('warns rather than notes when the journal cannot be read', async () => {
+    const h = harness();
+    await h.submitted(1);
+    h.repository.listAwaitingReceipt = async () => { throw new Error('synthetic-journal-failure'); };
+    const poller = h.poller();
+    poller.start();
+    await drain();
+    assert.deepEqual(h.warnings, ['Receipt polling could not read the transfer journal.']);
+    assert.deepEqual(h.lines, []);
+    assert.deepEqual(h.checked, []);
+    await poller.stop();
   });
 
   it('reads at most one batch of due rows and defaults to the shared interval', async t => {

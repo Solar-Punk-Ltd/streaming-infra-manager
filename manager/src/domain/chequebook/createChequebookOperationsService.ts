@@ -15,6 +15,7 @@ import type { ChequebookOperationRepository } from './ChequebookOperationReposit
 import type { BeeBridgeQualificationRecord } from './beeBridgeQualification.js';
 import { ChequebookDockerTransports } from './ChequebookDockerTransports.js';
 import { OwnedChequebookTransports, type ChequebookTransportDependencies } from './OwnedChequebookTransports.js';
+import { Logger } from '../Logger.js';
 
 export interface ChequebookServiceDependencies extends ChequebookTransportDependencies {
   readonly repository?: ChequebookOperationRepository;
@@ -44,7 +45,7 @@ export function createChequebookOperationsService(pool: Pool,
   const receiptInspector = new ChequebookReceiptInspector((operation, signal) => chains.forChain(operation.chainId, signal));
   const receipts = new ChequebookReceiptCheck(repository, receiptInspector.inspect.bind(receiptInspector));
   const recoveryInspector = new ChequebookRecoveryInspector((operation, signal) => chains.forChain(operation.chainId, signal), pending.read.bind(pending));
-  const poller = new ChequebookReceiptPoller(repository, receipts, dependencies.receiptPolling);
+  const poller = new ChequebookReceiptPoller(repository, receipts, { log: Logger.getInstance(), ...dependencies.receiptPolling });
   return new ChequebookOperationsService(repository, new ChequebookSubmission(repository, preparation.prepare.bind(preparation)),
     receipts, new ChequebookRecovery(repository, recoveryInspector, receipts), transports.shutdown.bind(transports), poller);
 }

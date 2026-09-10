@@ -6,14 +6,21 @@ type DueRows = Pick<ChequebookOperationRepository, 'listAwaitingReceipt'>;
 type CheckReceipt = Pick<ChequebookReceiptCheck, 'check'>;
 type CancelTick = () => void;
 
+/** The shape of the manager's Logger, so the factory hands it the real one and a test hands it a recorder. */
+export interface ReceiptPollerLog {
+  info(line: string): void;
+  warn(line: string): void;
+}
+
 export interface ReceiptPollerOptions {
   readonly intervalMs?: number;
   readonly batchLimit?: number;
-  readonly log?: (line: string) => void;
+  readonly log?: ReceiptPollerLog;
   readonly schedule?: (call: () => void, milliseconds: number) => CancelTick;
 }
 
 const DEFAULT_BATCH_LIMIT = 20;
+const unrecorded: ReceiptPollerLog = { info() {}, warn() {} };
 const defaultSchedule = (call: () => void, milliseconds: number): CancelTick => {
   const timer = setTimeout(call, milliseconds);
   timer.unref?.();
@@ -30,7 +37,7 @@ const defaultSchedule = (call: () => void, milliseconds: number): CancelTick => 
 export class ChequebookReceiptPoller {
   private readonly intervalMs: number;
   private readonly batchLimit: number;
-  private readonly log: (line: string) => void;
+  private readonly log: ReceiptPollerLog;
   private readonly schedule: (call: () => void, milliseconds: number) => CancelTick;
   private cancelTick: CancelTick | null = null;
   private batch: Promise<void> | null = null;
@@ -40,7 +47,7 @@ export class ChequebookReceiptPoller {
   constructor(private readonly repository: DueRows, private readonly receipts: CheckReceipt, options: ReceiptPollerOptions = {}) {
     this.intervalMs = options.intervalMs ?? RECEIPT_POLL_INTERVAL_MS;
     this.batchLimit = options.batchLimit ?? DEFAULT_BATCH_LIMIT;
-    this.log = options.log ?? (() => {});
+    this.log = options.log ?? unrecorded;
     this.schedule = options.schedule ?? defaultSchedule;
   }
 
@@ -72,7 +79,7 @@ export class ChequebookReceiptPoller {
   private async tick(): Promise<void> {
     let due;
     try { due = await this.repository.listAwaitingReceipt({ intervalMs: this.intervalMs, limit: this.batchLimit }); }
-    catch { this.log('Receipt polling could not read the transfer journal.'); return; }
+    catch { this.log.warn('Receipt polling could not read the transfer journal.'); return; }
     const notes: string[] = [];
     for (const operation of due) {
       if (this.stopped) break;
@@ -81,6 +88,6 @@ export class ChequebookReceiptPoller {
         if (checked.state !== 'submitted') notes.push(`${operation.id} ${checked.receiptObservation?.kind ?? checked.state}`);
       } catch { notes.push(`${operation.id} journal_error`); }
     }
-    if (notes.length > 0) this.log(`Receipt polling checked ${due.length}: ${notes.join(', ')}`);
+    if (notes.length > 0) this.log.info(`Receipt polling checked ${due.length}: ${notes.join(', ')}`);
   }
 }

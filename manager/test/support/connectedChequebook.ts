@@ -104,6 +104,7 @@ export interface ConnectedChequebookBackend {
   readonly chain: SyntheticChain;
   readonly directory: string;
   readonly schema: string;
+  pollerLines(): readonly string[];
   beePosts(): number;
   beeRequests(): readonly { method: string; url: string }[];
   dropNextResponse(): void;
@@ -154,18 +155,20 @@ export async function startConnectedChequebook(options: ConnectedChequebookOptio
   await once(sockets, 'listening');
 
   const chain = syntheticChain();
+  const pollerLines: string[] = [];
   const repository = new SyntheticTargetChequebookRepository(pool, { receiptPollBudgetMs: options.receiptPollBudgetMs });
   const runtime = { rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: JSON.stringify({
     localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath }, qualificationIds: ['synthetic-only'] } }) };
   const service = createChequebookOperationsService(pool, runtime, {
     repository, qualificationCatalog: [qualifiedBridge()], createChainReader: () => chain.reader,
     preparation: { cleanupGraceMs: 20, timeoutMs: 3000 },
-    receiptPolling: { intervalMs: options.pollIntervalMs ?? 50 },
+    receiptPolling: { intervalMs: options.pollIntervalMs ?? 50, log: { info: line => pollerLines.push(line), warn: line => pollerLines.push(line) } },
   });
 
   let closed = false;
   return {
     pool, repository, service, chain, directory, schema,
+    pollerLines: () => pollerLines,
     beePosts: () => beeFixtures.reduce((total, fixture) => total + fixture.counts().posts, 0),
     beeRequests: () => beeFixtures.flatMap(fixture => fixture.beeRequests),
     dropNextResponse() { dropResponse = true; },

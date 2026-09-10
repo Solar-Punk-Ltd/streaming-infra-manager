@@ -162,6 +162,9 @@ it('the remote factory branch uses the accepted handshake and waits for owned fa
   assert.equal(h.counts().connections, 0); assert.equal(h.fixture.counts().networkCalls, 0);
 });
 
+/** Keeps a test's own poller quiet without hiding what it would have said. */
+const recordedLog = () => { const lines: string[] = []; return { lines, info: (line: string) => lines.push(line), warn: (line: string) => lines.push(line) }; };
+
 /** Answers one exact transaction with a canonical finalized success receipt. */
 function settlingReader(base: ChequebookChainReader, operation: { transactionHash: string | null; chainId: number; nodeAddress: string; tokenAddress: string; chequebookAddress: string; amountPlur: string; startBlockHash: string }): ChequebookChainReader {
   const hash = operation.transactionHash!;
@@ -184,7 +187,7 @@ it('the started service polls its own submitted transfer to settlement and polls
   const ticks: (() => void)[] = [];
   const service = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
     ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
-    receiptPolling: { intervalMs: 5, schedule: call => { ticks.push(call); return () => {}; } },
+    receiptPolling: { intervalMs: 5, schedule: call => { ticks.push(call); return () => {}; }, log: recordedLog() },
   });
   t.after(() => service.shutdown());
   service.start();
