@@ -28,6 +28,103 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
 }
 
 /**
+ * The page's own text, and '' where a document has no body yet.
+ *
+ * `document.body` is null from the moment a navigation commits until the
+ * parser reaches the body element, and a read that lands in that window
+ * throws `Cannot read properties of null` rather than answering. That is one
+ * evaluate in a wait that would otherwise have polled again, and it failed
+ * the third browser job on the runner.
+ */
+export const PAGE_TEXT = "(document.body?.innerText ?? '')";
+
+/** An expression answering whether the page shows `text` right now. */
+export function pageShows(text) {
+  return `${PAGE_TEXT}.includes(${JSON.stringify(text)})`;
+}
+
+/** An expression answering the button whose own text is `text`, or undefined. */
+export function buttonWithText(text) {
+  return `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)})`;
+}
+
+/**
+ * Clicks what `finder` answers, the moment it answers an enabled element.
+ *
+ * A wait that asks whether a control is there followed by an evaluate that
+ * clicks it are two reads of a page that renders in between, and the slower
+ * the machine the wider that gap is: the element found by the first can be
+ * gone by the second. One expression finds and clicks, so what was found is
+ * what was clicked, and a control that never arrives times out naming itself
+ * rather than throwing from inside the page.
+ *
+ * @param {(expression: string) => Promise<unknown>} evaluate runs an expression in the page.
+ * @param {string} finder an expression answering the element, or nothing.
+ * @param {string} description what this is waiting for, which is all a timeout prints.
+ * @param {number} [timeoutMs]
+ */
+export function clickWhenEnabled(evaluate, finder, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const element = ${finder};
+    if (!element || element.disabled) return false;
+    element.click();
+    return true;
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
+ * Where to click what `finder` answers, once it answers an enabled element.
+ *
+ * For the suites that drive a real mouse through `Input.dispatchMouseEvent`
+ * rather than calling `click()`, which is the only way to exercise what a
+ * pointer does to a control. The element is scrolled into view by the same
+ * expression that measures it, so the point cannot be one it has moved off.
+ *
+ * @returns {Promise<{ x: number, y: number }>} the middle of that element.
+ */
+export function pointToClick(evaluate, finder, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const element = ${finder};
+    if (!element || element.disabled) return null;
+    element.scrollIntoView({ block: 'center' });
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
+ * One property of the element `finder` answers, once there is one to read.
+ *
+ * @param {string} property the property name, such as `value` or `innerText`.
+ */
+export function readWhenPresent(evaluate, finder, property, description, timeoutMs) {
+  return waitFor(
+    () => evaluate(`(${finder})?.${property} ?? null`),
+    (value) => value !== null,
+    description,
+    timeoutMs,
+  );
+}
+
+/**
+ * Puts `value` into the field `finder` answers, once there is an enabled one.
+ *
+ * React reads a field's value off the element and only when it hears the
+ * input event, so the native setter and that event are what typing is here.
+ */
+export function fillWhenPresent(evaluate, finder, value, description, timeoutMs) {
+  return waitFor(() => evaluate(`(() => {
+    const field = ${finder};
+    if (!field || field.disabled) return false;
+    const shape = field.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    field.focus();
+    Object.getOwnPropertyDescriptor(shape, 'value').set.call(field, ${JSON.stringify(value)});
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`), Boolean, description, timeoutMs);
+}
+
+/**
  * Counts the requests a page completes from this call on, by the end of their URL.
  *
  * A `PerformanceObserver` is handed every resource entry whatever the timing
