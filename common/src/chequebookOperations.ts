@@ -5,6 +5,13 @@ export const CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed
 export const CHEQUEBOOK_RECOVERY_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Review this action again with your current account.';
 export const CHEQUEBOOK_OPERATION_CHANGED_MESSAGE = 'The saved transfer changed. Refresh its evidence and review the action again.';
 
+/** How long the manager keeps checking one submitted transfer. Set once when it enters that state, never renewed. */
+export const RECEIPT_POLL_BUDGET_MS = 30 * 60_000;
+/** How often the manager asks the chain for a receipt while the budget lasts. */
+export const RECEIPT_POLL_INTERVAL_MS = 20_000;
+/** How often a page showing a polled transfer re-reads the saved record. */
+export const RECEIPT_READ_INTERVAL_MS = 10_000;
+
 /** Journal revisions are nonnegative PostgreSQL bigint values, kept as exact decimal strings. */
 export function isChequebookRevision(value: unknown): value is string {
   return typeof value === 'string' && /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
@@ -87,6 +94,8 @@ export interface ChequebookOperation extends Omit<ChequebookTransferIntent, 'pro
   readonly revision: string;
   readonly receiptObservation: ChequebookReceiptObservation | null;
   readonly receiptCheckedAt: string | null;
+  /** When automatic receipt polling stops. NULL on every row the manager never polled. */
+  readonly receiptPollUntil: string | null;
   readonly recoveryObservation: ChequebookRecoveryObservation | null;
   readonly recoveryCheckedAt: string | null;
   readonly assertion: ChequebookAssertion | null;
