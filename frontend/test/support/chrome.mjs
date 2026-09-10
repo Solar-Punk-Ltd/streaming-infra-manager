@@ -63,6 +63,17 @@ export function createProtocolClient(socket, timeoutMs = 10_000) {
   };
 }
 
+/**
+ * How many completed requests a document remembers for `performance.getEntriesByType('resource')`.
+ *
+ * That list holds the first entries of a document and nothing once it is full.
+ * Vite serves every module as a request of its own, so a page here fills the
+ * default 250 during its own boot and never records the request a test is
+ * waiting for. Keeping it small makes that true on this laptop as well, so a
+ * wait that reads the list fails here rather than only on a loaded runner.
+ */
+const RESOURCE_TIMING_BUFFER = 10;
+
 /** How long a signalled Chrome gets before the next signal, and before the teardown refuses. */
 const EXIT_WAIT_MS = 3000;
 /** How long the helpers get to stop writing into the profile before it is left where it is. */
@@ -198,6 +209,7 @@ export async function launchChrome(t, origin) {
   }
   await call('Runtime.enable');
   await call('Page.enable');
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: `performance.setResourceTimingBufferSize(${RESOURCE_TIMING_BUFFER});` });
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   const version = await call('Browser.getVersion');
   t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);
