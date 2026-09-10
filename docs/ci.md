@@ -3,11 +3,17 @@
 Two workflows under `.github/workflows`. Neither reaches a host, a Bee node or
 funds. **A green check says nothing about a host, a Bee node or funds.**
 
-## checks, required on every pull request and push to main-v2
+## checks, on every pull request and push to main-v2
 
-Three jobs, all required, all on `ubuntu-latest`. Decision D06 of 2026-09-07:
-turning the requirement on is a repository setting Levi makes after the
-workflow has run once, and he keeps a bypass. Agents never push to `main-v2`.
+Three jobs, all on `ubuntu-latest`. Decision D06 of 2026-09-07: turning the
+requirement on is a repository setting Levi makes after the workflow has run
+once, and he keeps a bypass. Agents never push to `main-v2`.
+
+**Where this stands, 2026-09-10, on `feat/ai-remediation` at `6dc33d1`.** The
+requirement is not on yet, because the setting waits on a first run. Every
+number on this page below was measured on a laptop. Everything else here
+describes what the workflow files declare, which is a different thing from what
+a runner has done.
 
 ### checks
 
