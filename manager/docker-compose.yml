@@ -49,10 +49,10 @@ services:
       # known_hosts it pins on first connect live on the host under manager-ssh/,
       # owned by solarpunk; root in here reads the key fine and writes known_hosts.
       - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}:/root/.ssh
-      # Host aliases for the deploy targets (bee hosts, GCP stage hosts), as a
-      # system-wide drop-in rather than /root/.ssh/config: ssh refuses a per-user
-      # config not owned by the running user, and a bind-mounted file keeps the
-      # host's uid. Alpine's /etc/ssh/ssh_config is one Include of this directory.
+      # Host aliases for deploy targets (bee hosts, GCP stage hosts), as a
+      # system-wide ssh config file rather than /root/.ssh/config: ssh refuses a
+      # per-user config not owned by the running user, and a bind-mounted file
+      # keeps the host's uid.
       - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}/ssh_config:/etc/ssh/ssh_config:ro
 
   web:

@@ -6,7 +6,7 @@ import {
 
 import type { Profile } from './types';
 
-const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
+const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1', 'native']);
 
 /**
  * The address to dial for a deployment's components.

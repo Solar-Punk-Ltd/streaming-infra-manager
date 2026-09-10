@@ -67,7 +67,13 @@ export function targetHost(profile: Profile, hostOverride?: string): string {
  * on localhost.
  */
 function isLocalTarget(host: string): boolean {
-  return host === '' || host === LOCAL_TARGET;
+     return (
+     host === '' ||
+     host === LOCAL_TARGET ||
+     host === '127.0.0.1' ||
+     host === '0.0.0.0' ||
+     host === 'native'
+   );
 }
 
 /**
