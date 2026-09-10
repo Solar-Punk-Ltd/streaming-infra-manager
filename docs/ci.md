@@ -170,6 +170,21 @@ container against Chromium 152.0.7977.82, which is the version the runner's
 Google Chrome was, came back 183 tests, 0 failed, 0 skipped, with no
 `hookFailed`, no leftover profile and no process of its own left running.
 
+**What the second runner run showed, and what changed.** Run 34492919531 on
+2026-09-10 passed every suite but `pool-draft-browser.test.mjs`, which timed
+out after 27 seconds on a wait that counted entries in
+`performance.getEntriesByType('resource')`, a list that holds the first 250
+completed requests of a document and nothing after that, which a Vite page
+fills with its own modules before a test asks anything. Waits now count
+completed requests through a `PerformanceObserver`, which is handed every
+entry whatever that list holds, and every browser session caps the list at ten
+entries so a wait that reads it fails on a laptop rather than only on a
+runner. The same run printed `Re-optimizing dependencies because vite config
+has changed` at the start of five suites, because six suites start a Vite with
+a plugin set of their own and all of them shared one cache directory, so each
+one now builds in `frontend/node_modules/.vite-t09/<suite>` and that line
+appears in neither of two full runs measured here.
+
 Both the job and the runner prove the Chrome before anything starts.
 `CHROME_BIN` is `/usr/bin/google-chrome`, the job's first step fails in words
 when nothing executable is there, and the runner does the same again from its

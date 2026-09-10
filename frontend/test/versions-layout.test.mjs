@@ -6,6 +6,7 @@ import test from 'node:test';
 import { createServer } from 'vite';
 import { launchChrome, waitFor } from './support/chrome.mjs';
 import { LONG_ERROR, LONG_VERSION_NAME, seedVersions } from './fixtures/versions.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const evidence = process.env.T18_EVIDENCE_DIR;
@@ -17,6 +18,7 @@ test('version identity, states and actions fit verified narrow viewports', async
   const server = await createServer({
     root: frontend,
     configFile: resolve(frontend, 'vite.config.ts'),
+    cacheDir: viteCacheFor('versions-layout'),
     server: { host: '127.0.0.1', port: 0, strictPort: true },
     plugins: [{
       name: 'offline-version-fixture',

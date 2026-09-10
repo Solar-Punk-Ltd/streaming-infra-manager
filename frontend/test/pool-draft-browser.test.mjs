@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 /**
  * A wizard step can sit behind a Vite dependency re-optimization the first time
@@ -46,7 +47,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   let holdRefresh = true;
   let holdAfterWrite = 0;
   const writes = [], held = [], refreshes = [], freshMembership = [];
-  const server = await createServer({ root: frontend, configFile: false,
+  const server = await createServer({ root: frontend, configFile: false, cacheDir: viteCacheFor('pool-draft'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
     plugins: [react(), { name: 't15-offline-fixture', configureServer(vite) {
@@ -209,8 +210,9 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(() => held.length, count => count === 1, 'pending pool request');
   const routeBefore = await evaluate('location.hash');
   await close(); await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), Boolean, 'the uploader dialog to close');
+  const latePoolResponses = await watchCompletedRequests(evaluate, '/groups');
   resultMode = 'success'; held.splice(0).forEach(reply => reply());
-  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/groups')).length`), count => count > 0, 'the late pool response to be fetched');
+  await waitFor(latePoolResponses, count => count > 0, 'the late pool response to be fetched');
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(await evaluate('location.hash'), routeBefore);
   assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'), false);

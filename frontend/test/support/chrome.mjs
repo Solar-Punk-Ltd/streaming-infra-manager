@@ -27,6 +27,45 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+/**
+ * Counts the requests a page completes from this call on, by the end of their URL.
+ *
+ * A `PerformanceObserver` is handed every resource entry whatever the timing
+ * list holds, which is the whole reason to use one:
+ * `performance.getEntriesByType('resource')` answers from a capped list that a
+ * Vite page fills with its own modules during boot, so the request a wait is
+ * watching for is usually missing from it. Counting from the call rather than
+ * over the document also names one request, so a wait cannot be satisfied by a
+ * response that arrived before the thing it is waiting for was even asked for.
+ *
+ * A reload ends the count, since the document that was doing the counting is
+ * gone. Take a new one after a reload.
+ *
+ * @param {(expression: string) => Promise<unknown>} evaluate runs an expression in the page.
+ * @param {string} suffix the end of the URLs to count, such as `/groups`.
+ * @returns {Promise<() => Promise<number>>} how many have completed since this call.
+ */
+export async function watchCompletedRequests(evaluate, suffix) {
+  const watched = JSON.stringify(suffix);
+  await evaluate(`(() => {
+    const counts = window.completedRequestCounts ??= new Map();
+    if (!window.completedRequestObserver) {
+      window.completedRequestObserver = new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) {
+          for (const [suffix, count] of counts) if (entry.name.endsWith(suffix)) counts.set(suffix, count + 1);
+        }
+      });
+      window.completedRequestObserver.observe({ type: 'resource' });
+    }
+    counts.set(${watched}, 0);
+  })()`);
+  return () => evaluate(`(() => {
+    const counts = window.completedRequestCounts;
+    if (!counts?.has(${watched})) throw new Error('Nothing in this document is counting requests ending ' + ${watched} + '. A reload ends a count.');
+    return counts.get(${watched});
+  })()`);
+}
+
 export function createProtocolClient(socket, timeoutMs = 10_000) {
   let nextId = 0;
   let ended = false;
@@ -62,6 +101,19 @@ export function createProtocolClient(socket, timeoutMs = 10_000) {
     },
   };
 }
+
+/**
+ * How many completed requests a document remembers for `performance.getEntriesByType('resource')`.
+ *
+ * That list holds the first entries of a document and nothing once it is full.
+ * Vite serves every module as a request of its own, so a page here fills the
+ * default 250 during its own boot and never records the request a test is
+ * waiting for. Keeping it small makes that true on this laptop as well, so a
+ * wait that reads the list fails here rather than only on a loaded runner.
+ * Waits count completed requests through `watchCompletedRequests` instead,
+ * which a PerformanceObserver answers whatever this list holds.
+ */
+const RESOURCE_TIMING_BUFFER = 10;
 
 /** How long a signalled Chrome gets before the next signal, and before the teardown refuses. */
 const EXIT_WAIT_MS = 3000;
@@ -198,6 +250,7 @@ export async function launchChrome(t, origin) {
   }
   await call('Runtime.enable');
   await call('Page.enable');
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: `performance.setResourceTimingBufferSize(${RESOURCE_TIMING_BUFFER});` });
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   const version = await call('Browser.getVersion');
   t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);

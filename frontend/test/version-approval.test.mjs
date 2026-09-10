@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import { launchChrome, waitFor } from './support/chrome.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const COMMIT = 'a'.repeat(40);
@@ -25,7 +26,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
   let heldEvents = null;
   const writes = [];
   const server = await createServer({
-    root: frontend, configFile: resolve(frontend, 'vite.config.ts'),
+    root: frontend, configFile: resolve(frontend, 'vite.config.ts'), cacheDir: viteCacheFor('version-approval'),
     server: { host: '127.0.0.1', port: 0, strictPort: true },
     plugins: [{ name: 'offline-t08', configureServer(vite) {
       vite.middlewares.use(async (req, res, next) => {

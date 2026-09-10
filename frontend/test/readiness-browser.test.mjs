@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { launchChrome, waitFor } from './support/chrome.mjs';
+import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const base = { name: 'test-stream', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
@@ -28,7 +29,7 @@ test('readiness and container diagnostics use current observations in the browse
   let holdWallet = false;
   const held = [], logRequests = [], writes = [];
   const server = await createServer({
-    root: frontend, configFile: false,
+    root: frontend, configFile: false, cacheDir: viteCacheFor('readiness'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
     plugins: [react(), { name: 't12-offline-fixture', configureServer(vite) {
@@ -110,11 +111,10 @@ test('readiness and container diagnostics use current observations in the browse
   holdWallet = true;
   await evaluate('performance.now = () => window.fixtureNow() + 62000');
   await waitFor(body, text => text.includes('Bee observation stale'), 'second expiry');
-  await evaluate('performance.clearResourceTimings()');
-  const completedProbes = await evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/stamp/readiness')).length`);
+  const probeResponses = await watchCompletedRequests(evaluate, '/stamp/readiness');
   await click('Retry node checks');
   await waitFor(() => held.length, count => count >= 1, 'held wallet sibling');
-  await waitFor(() => evaluate(`performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/stamp/readiness')).length`), count => count > completedProbes, 'probe response received before wallet');
+  await waitFor(probeResponses, count => count > 0, 'probe response received before wallet');
   await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   await evaluate('performance.now = () => window.fixtureNow() + 93000');
   holdWallet = false; held.splice(0).forEach(reply => reply());

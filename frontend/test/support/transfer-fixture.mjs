@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 
 import { evidenceDirectory as makeEvidenceDirectory } from './evidence.mjs';
 import { runEveryStep } from './teardown.mjs';
+import { viteCacheFor } from './vite-cache.mjs';
 
 const evidenceDirectory = parent => makeEvidenceDirectory('t09-http-', parent);
-/** One cache for every fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
-const VITE_CACHE = fileURLToPath(new URL('../../node_modules/.vite-t09', import.meta.url));
+/** One cache for every transfer fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
+const VITE_CACHE = viteCacheFor('transfer');
 
 /** One Vite child on a free port, pointed at whichever manager the caller owns. */
 async function startVite(managerUrl, evidence) {
