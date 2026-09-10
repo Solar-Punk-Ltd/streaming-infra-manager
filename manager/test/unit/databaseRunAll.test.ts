@@ -21,6 +21,7 @@ import {
   inspect,
   portProblems,
   preflightProblems,
+  run,
 } from '../database/run-all.mjs';
 
 const NINE = {
@@ -198,5 +199,105 @@ describe('refusing to start on what the nine databases answered', () => {
     const outcome = await inspect(entry, clientAnswering([], 'connect'));
     assert.match(String(outcome.error), /connection refused/);
     assert.match(preflightProblems([outcome]).join(' '), /did not answer/);
+  });
+});
+
+describe('the gates the run consults, and the order it consults them in', () => {
+  /** What a green child prints: enough of a summary for the shared judge to accept. */
+  const GREEN = { code: 0, signal: null, output: '# tests 3\n# pass 3\n# fail 0\n# skipped 0\n' };
+
+  /** One file, gated the way the nine real ones are, so the scan has nothing to say about it. */
+  const GATED_ON_THE_TABLE = [{ file: 't09.test.ts', text: 'process.env.T09_TEST_PG_PORT' }];
+
+  const emptyDatabase = () => ({
+    connect: async () => undefined,
+    query: async () => ({ rows: [] as Array<{ tablename: string }> }),
+    end: async () => undefined,
+  });
+  const managerDatabase = () => ({
+    ...emptyDatabase(),
+    query: async () => ({ rows: [{ tablename: 'profiles' }] }),
+  });
+
+  const READ_THE_FILES = 'read the suite files';
+  const OPEN_A_DATABASE = 'open a database';
+  const START_THE_SUITES = 'start the suites';
+
+  /**
+   * A run over fakes, and the list of what it actually asked for.
+   *
+   * Every decision the runner makes is a pure function pinned above. What these
+   * cases are about is that the run still calls them, in this order, and stops
+   * at the first that refuses.
+   */
+  function drive(overrides: Record<string, unknown> = {}) {
+    const asked: string[] = [];
+    const record =
+      <Args extends unknown[], Result>(step: string, call: (...args: Args) => Result) =>
+      (...args: Args): Result => {
+        asked.push(step);
+        return call(...args);
+      };
+    const parts = {
+      env: { ...NINE },
+      readSuites: () => GATED_ON_THE_TABLE,
+      connect: emptyDatabase,
+      spawnSuites: async () => GREEN,
+      ...overrides,
+    } as {
+      env: Record<string, string>;
+      readSuites: () => Array<{ file: string; text: string }>;
+      connect: () => ReturnType<typeof emptyDatabase>;
+      spawnSuites: () => Promise<typeof GREEN>;
+    };
+    const start = () =>
+      run({
+        env: parts.env,
+        readSuites: record(READ_THE_FILES, parts.readSuites),
+        connect: record(OPEN_A_DATABASE, parts.connect),
+        spawnSuites: record(START_THE_SUITES, parts.spawnSuites),
+        log: () => undefined,
+      });
+    return { asked, start };
+  }
+
+  it('reads every suite file, opens every database, then starts the suites', async () => {
+    const { asked, start } = drive();
+
+    assert.deepEqual(await start(), []);
+    assert.deepEqual([...new Set(asked)], [READ_THE_FILES, OPEN_A_DATABASE, START_THE_SUITES]);
+    assert.equal(asked.filter((step) => step === OPEN_A_DATABASE).length, TASK_DATABASES.length);
+  });
+
+  it('stops at a variable that is not set, before it reads a file or opens anything', async () => {
+    const { T09_TEST_PG_PORT: _unset, ...eight } = NINE;
+    const { asked, start } = drive({ env: eight });
+
+    assert.match((await start()).join(' '), /T09_TEST_PG_PORT/);
+    assert.deepEqual(asked, []);
+  });
+
+  it('stops at a suite it could never make answer, before it opens anything', async () => {
+    const { asked, start } = drive({
+      readSuites: () => [{ file: 'new.test.ts', text: 'process.env.T13_TEST_PG_PORT' }],
+    });
+
+    assert.match((await start()).join(' '), /T13_TEST_PG_PORT/);
+    assert.deepEqual(asked, [READ_THE_FILES]);
+  });
+
+  it('stops at a database that is not disposable, before it starts a suite', async () => {
+    const { asked, start } = drive({ connect: managerDatabase });
+
+    assert.match((await start()).join(' '), /not a disposable one/);
+    assert.equal(asked.includes(START_THE_SUITES), false, asked.join(', '));
+  });
+
+  it('refuses what the judge refuses, so a skipped test is not the end of a green run', async () => {
+    const { start } = drive({
+      spawnSuites: async () => ({ ...GREEN, output: '# tests 3\n# pass 2\n# fail 0\n# skipped 1\n' }),
+    });
+
+    assert.match((await start()).join(' '), /skipped suite is a suite that did not run/);
   });
 });
