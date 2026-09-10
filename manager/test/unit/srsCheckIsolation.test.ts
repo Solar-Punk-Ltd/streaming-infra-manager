@@ -127,6 +127,23 @@ describe('judging the eight answers', () => {
     assert.match(wrong[0], new RegExp(intruder));
   });
 
+  it('reports a refusal that names a directive only another accepted file changed', () => {
+    // The four accepted files differ in one directive each, and two of those
+    // directives appear in no refused file. A refusal carrying one of them is
+    // the same cross-talk as a refusal carrying another refused file's, so the
+    // scan covers every case rather than only the four that are refused.
+    const onlyAccepted = ACCEPTED_CASES.map(one => one.directive)
+      .find(directive => !REFUSED_CASES.some(other => other.directive === directive))!;
+    const answers = allRight.map((answer) =>
+      answer.name === REFUSED_CASES[0].name
+        ? { ...answer, problem: `${RECORDED[REFUSED_CASES[0].name]} and also token ${onlyAccepted}` }
+        : answer,
+    );
+    const wrong = wrongAnswers(answers);
+    assert.equal(wrong.length, 1, wrong.join(' | '));
+    assert.match(wrong[0], new RegExp(onlyAccepted));
+  });
+
   it('reports an answer that belongs to no case at all', () => {
     assert.match(wrongAnswers([{ name: 'not a case', problem: null }]).join(' '), /not a case/);
   });
