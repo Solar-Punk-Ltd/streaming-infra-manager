@@ -2,11 +2,12 @@
  * What the Chrome teardown has to end, and what it must never fail a suite for.
  *
  * On the browser job's first run every Chrome suite ended `not ok` with
- * `ENOTEMPTY: directory not empty, rmdir '/tmp/t15-chrome-XXXX/Default'`, and
- * the job was cancelled at its thirty minute limit with a chrome and two
- * chrome_crashpad_handler processes still alive. Chrome's helpers are not the
- * process `spawn` returned. On Linux they outlive it by a moment, and while
- * they live they keep writing into the profile the removal is walking.
+ * `ENOTEMPTY: directory not empty, rmdir` on the Default directory inside the
+ * profile, and the job was cancelled at its thirty minute limit with two
+ * chrome_crashpad_handler processes and a chrome still alive. Those helpers
+ * are not the process `spawn` returned. On Linux they outlive it by a moment,
+ * and while they live they keep writing into the profile the removal is
+ * walking.
  *
  * The synthetic tree below is that shape without a browser: a main process
  * that ends on SIGTERM the way Chrome does, and a helper it started that
@@ -16,6 +17,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,12 +45,26 @@ const MAIN = `
   setInterval(() => {}, 1000);
 `;
 
+/**
+ * Whether a pid is a process that is still running.
+ *
+ * A process that was killed but not yet reaped stays in the table as a zombie
+ * and still answers signal 0. That happens wherever the reaper is not an init,
+ * which a container without one is. A zombie holds nothing open and writes
+ * nothing, so it counts as gone here. Only Linux can be asked, and only Linux
+ * leaves them lying around for long.
+ */
 const alive = (pid) => {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 1).trim().startsWith('Z') === false;
+  } catch {
+    return true;
   }
 };
 
@@ -90,16 +106,43 @@ test('the teardown ends the helper the browser started, and not only the browser
   assert.deepEqual(said, [], 'a teardown that succeeded says nothing');
 });
 
-test('a profile that stays busy is given up on inside the budget rather than waited on forever', async t => {
-  const { profile } = await syntheticChrome(t);
+/** A profile of this test's own, with no process anywhere near it. */
+async function emptyProfile(t) {
+  const profile = await mkdtemp(join(tmpdir(), 't15-chrome-unremovable-'));
+  t.after(() => rm(profile, { recursive: true, force: true }));
+  return profile;
+}
+
+const refusing = (code, profile, attempts) => () => {
+  attempts.push(Date.now());
+  const error = new Error(`${code}: rmdir '${profile}'`);
+  error.code = code;
+  return Promise.reject(error);
+};
+
+test('a profile that stays busy is retried for its budget and then given up on', async t => {
+  const profile = await emptyProfile(t);
+  const attempts = [];
   const started = Date.now();
 
-  const failure = await removeProfile(profile, { budgetMs: 400, stepMs: 50 });
+  const failure = await removeProfile(profile, { remove: refusing('ENOTEMPTY', profile, attempts), budgetMs: 400, stepMs: 50 });
 
   assert.ok(failure instanceof Error, 'the removal reported what stopped it rather than throwing');
   assert.ok(failure.message.includes(profile), `the removal named the profile it could not remove: ${failure.message}`);
-  assert.ok(Date.now() - started >= 400, 'it retried for the whole budget');
-  assert.ok(Date.now() - started < 10_000, 'and stopped at the end of it');
+  assert.ok(attempts.length > 1, `it tried again rather than giving up at once, ${attempts.length} times`);
+  assert.ok(Date.now() - started >= 400, 'it kept trying for the whole budget');
+});
+
+test('a refusal that waiting cannot fix is reported at once rather than waited out', async t => {
+  const profile = await emptyProfile(t);
+  const attempts = [];
+  const started = Date.now();
+
+  const failure = await removeProfile(profile, { remove: refusing('EACCES', profile, attempts), budgetMs: 10_000, stepMs: 250 });
+
+  assert.equal(failure.code, 'EACCES');
+  assert.equal(attempts.length, 1, 'a permission is not a thing that stops being true');
+  assert.ok(Date.now() - started < 1000, 'and nothing is gained by spending the budget on it');
 });
 
 test('a profile that cannot be removed is a diagnostic and never a failed suite', async t => {
