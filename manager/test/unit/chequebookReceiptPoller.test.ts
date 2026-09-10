@@ -195,6 +195,24 @@ describe('ChequebookReceiptPoller', () => {
     assert.deepEqual(h.ticks.scheduled, []);
   });
 
+  it('stops between rows instead of waiting out the whole batch', async () => {
+    const h = harness();
+    await h.submitted(1);
+    await h.submitted(2);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const slow = { check: async (id: string) => { h.checked.push(id); await held; return h.receipts.check(id); } };
+    const poller = new ChequebookReceiptPoller(h.repository, slow, { intervalMs: 50, schedule: h.ticks.schedule, log: line => h.lines.push(line) });
+    poller.start();
+    await drain();
+    assert.equal(h.checked.length, 1, 'the batch is inside its first row');
+    const stopping = poller.stop();
+    release();
+    await stopping;
+    assert.equal(h.checked.length, 1, 'a row the poller had not reached when it was told to stop is never checked');
+    assert.deepEqual(h.ticks.scheduled, []);
+  });
+
   it('refuses to start again after it has been stopped', async () => {
     const h = harness();
     const row = await h.submitted(1);
