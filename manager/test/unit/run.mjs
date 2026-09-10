@@ -66,24 +66,63 @@ export function runProblem({ code, signal }) {
   return null;
 }
 
-function runSuites(env) {
+/** The two ways an interrupted run arrives: a terminal's Ctrl-C, and a runner stopping a job. */
+export const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM'];
+
+/**
+ * What an interrupt has to do, since the finally below never runs on that path.
+ *
+ * The signal goes to the child first, because the child is the process doing
+ * the work, and then the throwaway root goes, because otherwise every
+ * interrupted run leaves a copy of a stack checkout in the temp directory.
+ *
+ * @param {{
+ *   host: NodeJS.EventEmitter,
+ *   child: { kill: (signal: string) => unknown },
+ *   cleanUp: () => void,
+ * }} wiring
+ * @returns {() => void} stops listening, for the path where the run ends on its own.
+ */
+export function forwardSignals({ host, child, cleanUp }) {
+  const listeners = FORWARDED_SIGNALS.map((signal) => {
+    const listener = () => {
+      child.kill(signal);
+      cleanUp();
+    };
+    host.on(signal, listener);
+    return { signal, listener };
+  });
+  return () => {
+    for (const { signal, listener } of listeners) host.off(signal, listener);
+  };
+}
+
+function runSuites(env, cleanUp) {
   return new Promise((resolve, reject) => {
     const child = spawn(TSX, UNIT_ARGS, { cwd: PACKAGE, env, stdio: 'inherit' });
-    child.on('error', reject);
-    child.on('close', (code, signal) => resolve({ code, signal }));
+    const stopListening = forwardSignals({ host: process, child, cleanUp });
+    child.on('error', (error) => {
+      stopListening();
+      reject(error);
+    });
+    child.on('close', (code, signal) => {
+      stopListening();
+      resolve({ code, signal });
+    });
   });
 }
 
 async function main() {
   const root = mkdtempSync(join(tmpdir(), ROOT_PREFIX));
+  const removeRoot = () => rmSync(root, { recursive: true, force: true });
   try {
-    const problem = runProblem(await runSuites(sandboxedEnv(process.env, root)));
+    const problem = runProblem(await runSuites(sandboxedEnv(process.env, root), removeRoot));
     if (problem) {
       console.error(`REFUSED: ${problem}`);
       process.exitCode = 1;
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeRoot();
   }
 }
 
