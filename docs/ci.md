@@ -267,7 +267,7 @@ Container images are pinned by digest, each with the date it was resolved:
 | Image | Digest | Resolved | Used by |
 | --- | --- | --- | --- |
 | `postgres:16-alpine` | `sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685` | 2026-09-10 | database, browser, integration |
-| `ossrs/srs:6` | `sha256:4e293846ad2448ff1a0157aa2c694e7c451fff5046c93b5bc6da0fa0384ef998` | 2026-09-10 | srs-parser, and the T01 observations |
+| `ossrs/srs:6` | `sha256:2be08a0fe28737bf28bae8a575bb5776e09b620366dd1e62dd4f8a41cf4310f3` | 2026-09-10 | srs-parser, and the T01 observations |
 | `airensoft/ovenmediaengine` | `sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6` | 2026-09-08 | ome-gate |
 
 ## Running any of it here

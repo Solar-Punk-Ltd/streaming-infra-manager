@@ -12,7 +12,7 @@
  *
  *     work_dir /no/such/directory;
  *
- * Two observations on ossrs/srs@sha256:4e293846ad2448ff1a0157aa2c694e7c451fff5046c93b5bc6da0fa0384ef998,
+ * Two observations on ossrs/srs@sha256:2be08a0fe28737bf28bae8a575bb5776e09b620366dd1e62dd4f8a41cf4310f3,
  * which is the tag the stack runs, taken on this laptop on 2026-09-10 with the
  * template substituted the way the check substitutes it:
  *
@@ -27,6 +27,10 @@
  *      "do_main() [./src/main/srs_main_server.cpp:150][errno=2](No such file
  *      or directory)". SRS reads its config, then changes directory, and only
  *      the second step touches the file system.
+ *
+ * Both were taken again the same day, on this digest, after the first pin
+ * turned out to name an image no tag points at any more. Same two answers:
+ * the parse exited 0 and the start exited 255 on the chdir line.
  *
  * This file has never run. It needs the whole stack deployed on a runner, so
  * its first run is Levi's dispatch of the docker-backed workflow. See
