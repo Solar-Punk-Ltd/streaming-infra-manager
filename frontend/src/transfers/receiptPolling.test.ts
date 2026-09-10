@@ -13,7 +13,7 @@ import { RECEIPT_READ_INTERVAL_MS } from '@streaming-infra-manager/common';
 import { isPollingReceipt, receiptPollDeadline, receiptPollingSentence } from './receiptPolling';
 
 const at = (iso: string) => Date.parse(iso);
-const polled = { state: 'submitted' as const, receiptPollUntil: '2026-09-10T14:32:00.000Z' };
+const polled = { state: 'submitted' as const, failureReason: null, receiptPollUntil: '2026-09-10T14:32:00.000Z' };
 const localClock = (iso: string) => new Date(at(iso)).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
 describe('receiptPollDeadline', () => {
@@ -23,6 +23,14 @@ describe('receiptPollDeadline', () => {
     assert.equal(receiptPollDeadline({ ...polled, state: 'settled' }), null);
     assert.equal(receiptPollDeadline({ ...polled, state: 'unknown' }), null);
     assert.equal(receiptPollDeadline({ ...polled, receiptPollUntil: 'soon' }), null);
+  });
+
+  it('reads no deadline off a conflicted record, which the manager excludes from its own checks', () => {
+    const conflicted = { ...polled, failureReason: 'hash_conflict' as const };
+    assert.equal(receiptPollDeadline(conflicted), null);
+    assert.equal(isPollingReceipt(conflicted, at('2026-09-10T14:10:00.000Z')), false);
+    assert.equal(receiptPollingSentence(conflicted, at('2026-09-10T14:10:00.000Z')), null);
+    assert.equal(receiptPollingSentence(conflicted, at('2026-09-10T15:10:00.000Z')), null);
   });
 });
 

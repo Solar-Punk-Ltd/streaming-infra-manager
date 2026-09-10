@@ -140,3 +140,25 @@ test('a spent polling budget stops the re-reads, says so, and leaves Check to th
   assert.equal(await browser.evaluate(`document.body.innerText.includes(${JSON.stringify(ENDED_SENTENCE)})`), false);
   assert.deepEqual(browser.errors, []);
 });
+
+test('a conflicted transfer is never shown as polled and never re-read on its own', async t => {
+  const h = await launchHistoryFixture(t, 1);
+  const seeded = h.records[0];
+  // The manager's due-row query excludes a conflict, so the page must not promise checks that never happen.
+  const conflicted = shown(h.journal.detail(seeded.id), { state: 'submitted', failureReason: 'hash_conflict',
+    receiptObservation: { kind: 'could_not_check', reason: 'attribution_conflict' }, receiptCheckedAt: '2026-09-09T12:00:00.000Z',
+    receiptPollUntil: new Date(Date.now() + 600_000).toISOString() });
+  h.override(url => url.pathname === `/chequebook/operations/${seeded.id}` ? { status: 200, body: conflicted } : null);
+  const browser = await detailPage(t, h, seeded.id);
+  await visible(browser, 'Transaction evidence needs review');
+  const readsBefore = h.reads.filter(url => url.includes(seeded.id)).length;
+  await new Promise(resolve => setTimeout(resolve, RECEIPT_READ_INTERVAL_MS + 3000));
+  assert.equal(h.reads.filter(url => url.includes(seeded.id)).length, readsBefore, 'a conflicted transfer re-reads nothing');
+  const body = await browser.evaluate('document.body.innerText');
+  assert.equal(body.includes(POLLED_SENTENCE), false, 'no promise of automatic checks');
+  assert.equal(body.includes(ENDED_SENTENCE), false, 'no claim that automatic checks ended');
+  assert.equal(await browser.evaluate("[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Check transaction receipt')"),
+    false, 'a conflicted transfer offers no Check button to point the operator at');
+  assert.deepEqual(h.posts, []);
+  assert.deepEqual(browser.errors, []);
+});
