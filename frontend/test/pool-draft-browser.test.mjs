@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 /**
  * A wizard step can sit behind a Vite dependency re-optimization the first time
@@ -46,7 +47,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   let holdRefresh = true;
   let holdAfterWrite = 0;
   const writes = [], held = [], refreshes = [], freshMembership = [];
-  const server = await createServer({ root: frontend, configFile: false,
+  const server = await createServer({ root: frontend, configFile: false, cacheDir: viteCacheFor('pool-draft'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
     plugins: [react(), { name: 't15-offline-fixture', configureServer(vite) {

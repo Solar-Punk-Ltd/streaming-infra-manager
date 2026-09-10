@@ -13,11 +13,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
-const sharedCache = fileURLToPath(new URL('../node_modules/.vite-t09', import.meta.url));
+const sharedCache = viteCacheFor('transfer');
 
 /** A parent of this test's own, so a fixture started by another session cannot answer for it. */
 async function ownedEvidenceParent(t) {
@@ -82,7 +82,7 @@ test('every fixture builds into the one shared Vite cache and never into one of 
       assert.deepEqual(await readdir(fixture.evidence), [], 'the running fixture built nothing beside its own evidence');
     });
   }
-  assert.equal(caches[0], sharedCache, 'the fixture named the one cache the repository keeps');
+  assert.equal(caches[0], sharedCache, 'the fixture named the one cache the transfer suites share');
   assert.equal(caches[1], caches[0], 'and the fixture after it built into that same cache');
   assert.ok((await stat(caches[0])).isDirectory(), 'which is a directory the run can actually reuse');
 });

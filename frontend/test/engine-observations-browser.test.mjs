@@ -9,6 +9,7 @@ import react from '@vitejs/plugin-react';
 import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
 import { launchChrome, waitFor } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
@@ -47,7 +48,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const heldSaves = [];
   let holdSave = false;
   let saveRefusal = null;
-  const server = await createServer({ root: frontend, configFile: false,
+  const server = await createServer({ root: frontend, configFile: false, cacheDir: viteCacheFor('engine-observations'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
     plugins: [react(), { name: 't11-engine-observation-fixture', configureServer(vite) {

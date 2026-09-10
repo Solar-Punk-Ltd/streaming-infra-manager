@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const base = { name: 'test-stream', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
@@ -28,7 +29,7 @@ test('readiness and container diagnostics use current observations in the browse
   let holdWallet = false;
   const held = [], logRequests = [], writes = [];
   const server = await createServer({
-    root: frontend, configFile: false,
+    root: frontend, configFile: false, cacheDir: viteCacheFor('readiness'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
     plugins: [react(), { name: 't12-offline-fixture', configureServer(vite) {

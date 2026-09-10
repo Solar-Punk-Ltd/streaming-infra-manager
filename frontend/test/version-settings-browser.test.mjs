@@ -7,6 +7,7 @@ import { createServer } from 'vite';
 import { launchChrome, waitFor } from './support/chrome.mjs';
 import { seedVersions } from './fixtures/versions.mjs';
 import { seedSettings } from './fixtures/versionSettings.mjs';
+import { viteCacheFor } from './support/vite-cache.mjs';
 
 /**
  * The settings page of one version, in headless Chrome against an offline
@@ -38,6 +39,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
   const server = await createServer({
     root: frontend,
     configFile: resolve(frontend, 'vite.config.ts'),
+    cacheDir: viteCacheFor('version-settings'),
     server: { host: '127.0.0.1', port: 0, strictPort: true },
     plugins: [{
       name: 'offline-version-settings-fixture',
