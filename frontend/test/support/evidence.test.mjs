@@ -12,9 +12,13 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+import { evidenceDirectory } from './evidence.mjs';
 
 const suiteDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -43,5 +47,40 @@ describe('the evidence the browser suites leave behind', () => {
       ),
     );
     assert.deepEqual(written, [], 'a run can only write in a directory it made itself');
+  });
+});
+
+describe('the directory a suite is given', () => {
+  it('is made under RUNNER_TEMP where the job has one', async () => {
+    const runnerTemp = await mkdtemp(join(tmpdir(), 'runner-temp-'));
+    try {
+      process.env.RUNNER_TEMP = runnerTemp;
+      const made = await evidenceDirectory('t11-browser-evidence-');
+      assert.equal(dirname(made), runnerTemp);
+    } finally {
+      delete process.env.RUNNER_TEMP;
+      await rm(runnerTemp, { recursive: true, force: true });
+    }
+  });
+
+  it('is made under the OS temp directory where the job has none', async () => {
+    delete process.env.RUNNER_TEMP;
+    const made = await evidenceDirectory('t11-browser-evidence-');
+    try {
+      assert.equal(dirname(made), tmpdir());
+      assert.match(made, /t11-browser-evidence-/);
+    } finally {
+      await rm(made, { recursive: true, force: true });
+    }
+  });
+
+  it('is a new one every time, so two runs cannot land in one place', async () => {
+    delete process.env.RUNNER_TEMP;
+    const [one, two] = await Promise.all([evidenceDirectory('t12-'), evidenceDirectory('t12-')]);
+    try {
+      assert.notEqual(one, two);
+    } finally {
+      await Promise.all([rm(one, { recursive: true, force: true }), rm(two, { recursive: true, force: true })]);
+    }
   });
 });

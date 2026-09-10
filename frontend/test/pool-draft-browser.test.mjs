@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { createServer as createNetServer } from 'node:net';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { launchChrome, waitFor } from './support/chrome.mjs';
+import { evidenceDirectory } from './support/evidence.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
@@ -85,6 +87,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);
+  const evidence = await evidenceDirectory('t15-browser-evidence-');
   const { call, evaluate } = browser;
   await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
   const body = () => evaluate('document.body.innerText');
@@ -151,12 +154,11 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   assert.deepEqual(Object.keys(writes[0].body).sort(), ['abr_ladder', 'group_name', 'host', 'kind', 'notes', 'size', 'stack_version_id']);
   assert.equal(writes[0].body.notes, null);
   assert.equal(writes[0].body.stack_version_id, 7);
-  await mkdir('/private/tmp/t15-browser-evidence', { recursive: true });
   await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').click()`);
   await waitFor(() => evaluate(`!!document.querySelector('[role=dialog] .MuiCollapse-entered')`), Boolean, 'expanded node details');
   await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').scrollIntoView({ block: 'start' })`);
   const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
-  await writeFile('/private/tmp/t15-browser-evidence/pool-prerequisites.png', Buffer.from(data, 'base64'));
+  await writeFile(join(evidence, 'pool-prerequisites.png'), Buffer.from(data, 'base64'));
   nodeMode = 'unknown'; await click('Refresh pool checks');
   await waitFor(body, text => text.includes('Bee API not checked') && text.includes('Funding not checked'), 'unknown observations');
   holdRefresh = false; refreshes.splice(0).forEach(entry => entry.reply());
@@ -234,5 +236,5 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   assert.equal(writes.filter(write => write.path === '/profiles').length, 0);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
-  await writeFile('/private/tmp/t15-browser-evidence/processes.json', JSON.stringify({ chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: port }, null, 2));
+  await writeFile(join(evidence, 'processes.json'), JSON.stringify({ chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: port }, null, 2));
 });

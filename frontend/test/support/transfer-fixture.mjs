@@ -1,12 +1,13 @@
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const evidenceDirectory = parent => mkdtemp(join(parent ?? process.env.RUNNER_TEMP ?? tmpdir(), 't09-http-'));
+import { evidenceDirectory as makeEvidenceDirectory } from './evidence.mjs';
+
+const evidenceDirectory = parent => makeEvidenceDirectory('t09-http-', parent);
 /** One cache for every fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
 const VITE_CACHE = fileURLToPath(new URL('../../node_modules/.vite-t09', import.meta.url));
 

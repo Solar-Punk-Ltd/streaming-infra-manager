@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { createServer as createNetServer } from 'node:net';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { launchChrome, waitFor } from './support/chrome.mjs';
+import { evidenceDirectory } from './support/evidence.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const base = { name: 'test-stream', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
@@ -65,6 +67,7 @@ test('readiness and container diagnostics use current observations in the browse
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);
+  const evidence = await evidenceDirectory('t12-browser-evidence-');
   const { call, evaluate } = browser;
   const body = () => evaluate('document.body.innerText');
   const hasUploader = () => evaluate(`!![...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Start uploader')`);
@@ -132,8 +135,7 @@ test('readiness and container diagnostics use current observations in the browse
   assert.deepEqual(writes, []);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
-  await mkdir('/private/tmp/t12-browser-evidence', { recursive: true });
-  await writeFile('/private/tmp/t12-browser-evidence/processes.json', JSON.stringify({ chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: port, logRequests }, null, 2));
+  await writeFile(join(evidence, 'processes.json'), JSON.stringify({ chromePid: browser.pid, debuggingPort: browser.debuggingPort, vitePort: port, logRequests }, null, 2));
   const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
-  await writeFile('/private/tmp/t12-browser-evidence/readiness.png', Buffer.from(data, 'base64'));
+  await writeFile(join(evidence, 'readiness.png'), Buffer.from(data, 'base64'));
 });
