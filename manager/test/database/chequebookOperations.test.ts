@@ -747,6 +747,112 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     assert.equal(closed.operation.dispatchStartedAt, null);
   });
 
+  /** Admission claims one node per chain, so a second live row needs its own node. */
+  const spareNode = (index: number) => `0x${index.toString(16).padStart(2, '0').repeat(20)}`;
+  const spareHash = (index: number) => `0x${index.toString(16).padStart(2, '0').repeat(32)}`;
+  async function submittedOn(index: number) {
+    const { operation } = await repository.admit(operationCandidate({ profileName: `alias-${index}`, nodeAddress: spareNode(index) }));
+    await repository.claimDispatch(operation.id);
+    return repository.recordSubmission(operation.id, { state: 'submitted', transactionHash: spareHash(index), failureReason: null });
+  }
+  async function unknownOn(index: number) {
+    const { operation } = await repository.admit(operationCandidate({ profileName: `alias-${index}`, tokenAddress, nodeAddress: spareNode(index) }));
+    await repository.claimDispatch(operation.id);
+    return repository.recordSubmission(operation.id, { state: 'unknown', transactionHash: null, failureReason: 'response_unavailable' });
+  }
+
+  it('opens one receipt polling budget when a row becomes submitted and never moves it again', async () => {
+    const submitted = await submittedOperation();
+    assert.ok(submitted.receiptPollUntil, 'a submitted row carries a polling deadline');
+    assert.ok(Date.parse(submitted.receiptPollUntil!) > Date.parse(submitted.createdAt));
+    const pending = await repository.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_receipt' });
+    assert.equal(pending.receiptPollUntil, submitted.receiptPollUntil);
+    const unavailable = await repository.recordReceipt(pending, { kind: 'could_not_check', reason: 'rpc_unavailable' });
+    assert.equal(unavailable.receiptPollUntil, submitted.receiptPollUntil);
+    const settled = await repository.recordReceipt(unavailable, confirmed);
+    assert.equal(settled.state, 'settled');
+    assert.equal(settled.receiptPollUntil, submitted.receiptPollUntil);
+    const conflicted = await repository.recordSubmission(submitted.id, { state: 'submitted', transactionHash: `0x${'99'.repeat(32)}`, failureReason: null });
+    assert.equal(conflicted.failureReason, 'hash_conflict');
+    assert.equal(conflicted.receiptPollUntil, submitted.receiptPollUntil);
+  });
+
+  it('opens a budget when recovery adopts a candidate and when an operator resolves a hash, and never for an assertion', async () => {
+    const asserted = await assertedOperation();
+    assert.equal(asserted.state, 'asserted');
+    assert.equal(asserted.receiptPollUntil, null);
+    const found = recoveryTransaction({ hash: spareHash(1), from: spareNode(1) });
+    const adopted = await repository.recordRecovery(await unknownOn(1), { kind: 'candidate', candidateHashes: [found.hash] }, [found]);
+    assert.equal(adopted.state, 'submitted');
+    assert.ok(adopted.receiptPollUntil);
+    const resolved = await repository.resolveCandidate(await unknownOn(2), recoveryTransaction({ hash: spareHash(2), from: spareNode(2) }));
+    assert.equal(resolved.state, 'submitted');
+    assert.ok(resolved.receiptPollUntil);
+  });
+
+  it('refuses a polling deadline on a row without a transaction hash', async () => {
+    const unknown = await unknownOperation();
+    await assert.rejects(pool.query('UPDATE chequebook_operations SET receipt_poll_until = NOW() WHERE id=$1', [unknown.id]),
+      (error: unknown) => (error as { code?: string }).code === '23514');
+  });
+
+  it('lists only the rows the poller still owes a check, oldest check first and within its limit', async () => {
+    const rows = [await submittedOn(1), await submittedOn(2), await submittedOn(3)];
+    const due = await repository.listAwaitingReceipt({ intervalMs: 20_000, limit: 20 });
+    assert.deepEqual(new Set(due.map(operation => operation.id)), new Set(rows.map(operation => operation.id)));
+    assert.equal(due.every(operation => operation.receiptPollUntil !== null && operation.state === 'submitted'), true);
+    assert.equal((await repository.listAwaitingReceipt({ intervalMs: 20_000, limit: 2 })).length, 2);
+    const checked = await repository.recordReceipt(rows[0]!, { kind: 'pending', reason: 'awaiting_receipt' });
+    assert.equal((await repository.listAwaitingReceipt({ intervalMs: 20_000, limit: 20 })).some(operation => operation.id === checked.id), false);
+    assert.equal((await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 })).length, 3);
+    await pool.query("UPDATE chequebook_operations SET receipt_checked_at = NOW() - INTERVAL '1 minute' WHERE id=$1", [checked.id]);
+    const aged = await repository.listAwaitingReceipt({ intervalMs: 20_000, limit: 20 });
+    assert.equal(aged.length, 3);
+    assert.equal(aged.at(-1)?.id, checked.id, 'a never-checked row is owed a check before one checked a minute ago');
+  });
+
+  it('never lists a spent budget, an unpolled row, a conflicted row or a row outside submitted', async () => {
+    const submitted = await submittedOn(1);
+    await pool.query("UPDATE chequebook_operations SET receipt_poll_until = NOW() - INTERVAL '1 second' WHERE id=$1", [submitted.id]);
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+    await pool.query("UPDATE chequebook_operations SET receipt_poll_until = NOW() + INTERVAL '1 hour', failure_reason='hash_conflict' WHERE id=$1", [submitted.id]);
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+    await pool.query("UPDATE chequebook_operations SET failure_reason = NULL, state='settled' WHERE id=$1", [submitted.id]);
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+    const unknown = await unknownOperation();
+    assert.equal(unknown.receiptPollUntil, null);
+    const admitted = (await repository.admit(operationCandidate({ profileName: 'alias-9', nodeAddress: spareNode(9) }))).operation;
+    assert.equal(admitted.receiptPollUntil, null);
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+  });
+
+  it('resumes the same due row in a restarted manager and lets only one concurrent check record', async () => {
+    const submitted = await submittedOperation();
+    const restarted = new SyntheticTargetChequebookRepository(pool);
+    const due = await restarted.listAwaitingReceipt({ intervalMs: 20_000, limit: 20 });
+    assert.deepEqual(due.map(operation => operation.id), [submitted.id]);
+    assert.equal(due[0]?.revision, submitted.revision);
+    assert.equal(due[0]?.receiptPollUntil, submitted.receiptPollUntil);
+    await Promise.all([repository.recordReceipt(submitted, confirmed),
+      restarted.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_finality' })]);
+    const current = await repository.findById(submitted.id);
+    assert.equal(current?.state, 'settled');
+    assert.equal(current?.revision, String(BigInt(submitted.revision) + 1n));
+    assert.equal(current?.receiptPollUntil, submitted.receiptPollUntil);
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+  });
+
+  it('leaves every historical operation unpolled when the polling migration is applied', async () => {
+    const submitted = await submittedOperation();
+    await pool.query('UPDATE chequebook_operations SET receipt_poll_until = NULL WHERE id=$1', [submitted.id]);
+    const historical = await repository.findById(submitted.id);
+    assert.equal(historical?.receiptPollUntil, null);
+    assert.equal(historical?.state, 'submitted');
+    assert.deepEqual(await repository.listAwaitingReceipt({ intervalMs: 0, limit: 20 }), []);
+    const checked = await repository.recordReceipt(historical!, { kind: 'pending', reason: 'awaiting_receipt' });
+    assert.equal(checked.receiptPollUntil, null);
+  });
+
   it('enforces the same-node uniqueness in SQL even when admission code is bypassed', async () => {
     await repository.admit(operationCandidate());
     await assert.rejects(pool.query(`INSERT INTO chequebook_operations
