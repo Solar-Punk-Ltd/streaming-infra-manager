@@ -50,6 +50,24 @@ const PORT_RE = /^\d{1,5}$/;
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 const SUITE_GLOB = 'test/database/**/*.test.ts';
+
+/**
+ * One file at a time. Measured here on 2026-09-10 against nine disposable
+ * databases: with the runner's default file concurrency, two of four runs
+ * failed, once on the lock-ordering case in chequebookTargets.test.ts and once
+ * on the spent-budget deadline in chequebookConnected.test.ts. Both read the
+ * clock while another connection holds a lock, so they lose to a loaded
+ * machine rather than to a wrong rule. Serialized, three of three runs passed.
+ * It costs about 115 seconds, and a required check that fails half the time is
+ * worth more than that.
+ */
+export const SUITE_ARGS = [
+  '--conditions=development',
+  '--test',
+  '--test-reporter=tap',
+  '--test-concurrency=1',
+  SUITE_GLOB,
+];
 const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
 
 /** A count the child never printed, which is a reason to refuse rather than a zero. */
@@ -155,7 +173,7 @@ async function preflight(entries) {
 
 function runSuites(env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(TSX, ['--conditions=development', '--test', '--test-reporter=tap', SUITE_GLOB], {
+    const child = spawn(TSX, SUITE_ARGS, {
       cwd: fileURLToPath(new URL('../../', import.meta.url)),
       env,
       stdio: ['ignore', 'pipe', 'inherit'],
