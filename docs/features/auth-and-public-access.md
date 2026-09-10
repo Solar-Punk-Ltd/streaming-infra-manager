@@ -1,9 +1,9 @@
 # Sign in, and opening the manager to the internet
 
-Status: decided 2026-09-05 (D1 Caddy, D2 several users, D3 close the host doors first). PR 1, the
-login gate, is built on `feat/auth`. PR 2, the HTTPS edge and the host preparation, is built on
-`feat/auth-edge`, stacked on it. Both target `main-v2`. The host steps at the end are still Levi's
-to run, and nothing on the host changes until he does.
+Status, 2026-09-10. The login gate and the HTTPS edge are both on `feat/ai-remediation` at
+`6dc33d1`, pull request #40 into `main-v2`. The host steps at the end are still Levi's to run, and
+nothing on the host changes until he does. The decisions this page rests on were taken on
+2026-09-05: D1 Caddy, D2 several users, D3 close the host doors first.
 
 ## Where we are
 
