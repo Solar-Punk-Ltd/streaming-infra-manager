@@ -242,6 +242,14 @@ agreement says and what this slice built. Moving the browser job off every
 push would take roughly half the minutes back and would mean a pull request
 can go green while fourteen Chrome suites have not run on it.
 
+**Measured on the runner, 2026-09-10.** The first two runs of this workflow on
+`ubuntu-latest` took 1.7 and 1.8 minutes for `checks`, 3.8 and 4.1 minutes for
+`database`, and 6.8 minutes for `browser` once its teardown held (run
+34492919531, install included). That is about 12 billed minutes a push with all
+three jobs required, half the laptop-derived estimate above, because the
+browser suites spend most of their time waiting on a page rather than on a
+core. The estimate stays for the reasoning, the measurement is the number.
+
 ## docker-backed checks, by hand
 
 `workflow_dispatch` only, four jobs, so one failure never hides another and

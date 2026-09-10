@@ -906,3 +906,15 @@ second container sharing the network namespace): 183 tests across 25 suite
 files, no hook failure, no orphan process, no leftover profile, in 7 minutes
 39 seconds. On macOS the same set passed in 377 seconds. The next push of this
 branch is the second run of the browser job on a GitHub runner.
+
+**Merged, 2026-09-10, the runner wait fix.** Merged into `feat/ai-remediation`
+as ab627ce from `fix/browser-waits-on-runner` (4 commits, 95cc9c9 to 3a6c1b8).
+The second runner run of the browser job (34492919531) finished in 6.8 minutes
+with one suite failing: its wait read the browser's resource timing list,
+capped at 250 entries and full of Vite's per-module requests, and on this
+laptop a stale entry had been satisfying the same wait early. Waits now count
+completed requests from the moment they start, every browser session caps that
+list at ten so the runner's condition is reproduced here, and each suite has a
+Vite cache of its own. The full set passed twice on this laptop with no
+re-optimization. Measured on the runner: about 12 billed minutes a push for the
+three required jobs, recorded in `docs/ci.md`.
