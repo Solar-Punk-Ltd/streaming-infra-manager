@@ -42,6 +42,58 @@ export function counted({ tests, fail, skipped }) {
   return `${tests} tests, ${fail} failed, ${skipped} skipped`;
 }
 
+/** The four counts of every file together, each unknown when any one file printed none. */
+export function totalled(results) {
+  const total = Object.fromEntries(SUMMARY_KEYS.map((key) => [key, 0]));
+  for (const { output } of results) {
+    const summary = summaryOf(output);
+    for (const key of SUMMARY_KEYS) {
+      total[key] = total[key] === UNKNOWN || summary[key] === UNKNOWN ? UNKNOWN : total[key] + summary[key];
+    }
+  }
+  return total;
+}
+
+/**
+ * @typedef {object} FileRun what one suite file's child came back with.
+ * @property {string} file the file it was asked to take.
+ * @property {number | null} code the exit code, null when a signal ended it.
+ * @property {string | null} signal what ended it, when something did.
+ * @property {string} output the whole TAP body it printed.
+ * @property {number} [timedOutAfterMs] the bound it outran, when the runner killed it at one.
+ */
+
+/**
+ * Why a run of one child per file was not green, one line per file that was
+ * not, and what every file together counted.
+ *
+ * A runner that gives each file a child of its own and a bound of its own can
+ * say which file hung. That is the whole point of the shape: without it a
+ * suite that never ends takes the job down with it and no other file's result
+ * is ever reported.
+ *
+ * @param {{ results: FileRun[], glob: string }} run
+ * @returns {{ problems: string[], summary: Record<string, number | null> }}
+ */
+export function judgeFiles({ results, glob }) {
+  const problems = [];
+  if (results.length === 0) {
+    problems.push(`${glob} matched no file, and a run of nothing is not a pass.`);
+  }
+  for (const result of results) {
+    if (result.timedOutAfterMs) {
+      problems.push(
+        `${result.file} was still running after ${result.timedOutAfterMs / 1000} s and was killed with its process group. ` +
+          `A suite that hangs is a named failure here, never a cancelled job.`,
+      );
+      continue;
+    }
+    const problem = runProblem({ ...result, glob: result.file });
+    if (problem) problems.push(`${result.file}: ${problem}`);
+  }
+  return { problems, summary: totalled(results) };
+}
+
 /**
  * Why the run was not green, in one line, or null.
  *
