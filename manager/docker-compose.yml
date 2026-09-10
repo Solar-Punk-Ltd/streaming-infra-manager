@@ -44,6 +44,16 @@ services:
       #   /host/rootfs → host disk used/total (statfs on the root filesystem)
       - /proc:/host/proc:ro
       - /:/host/rootfs:ro
+      # Deploying to other hosts: deploy.sh shells out to ssh/rsync from inside
+      # this container, which has no identity of its own. The deploy key and the
+      # known_hosts it pins on first connect live on the host under manager-ssh/,
+      # owned by solarpunk; root in here reads the key fine and writes known_hosts.
+      - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}:/root/.ssh
+      # Host aliases for the deploy targets (bee hosts, GCP stage hosts), as a
+      # system-wide drop-in rather than /root/.ssh/config: ssh refuses a per-user
+      # config not owned by the running user, and a bind-mounted file keeps the
+      # host's uid. Alpine's /etc/ssh/ssh_config is one Include of this directory.
+      - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}/ssh_config:/etc/ssh/ssh_config:ro
 
   web:
     build:

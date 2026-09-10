@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 
 import { ApiContainer, Profile, ProfileWithContainers } from '../types/index.js';
+import { resolveNetworkHost } from '../utils/deployHost.js';
 
 import { ContainerSnapshot } from './containerKeysSpec.js';
 import { isPendingStamp } from './stampLogic.js';
@@ -55,6 +56,11 @@ export class ContainerRepository {
 
   async withContainers(profile: Profile): Promise<ProfileWithContainers> {
     const containers = await this.listApiContainers(profile.name);
-    return { ...profile, containers, pendingStamp: isPendingStamp(profile) };
+    return {
+      ...profile,
+      containers,
+      pendingStamp: isPendingStamp(profile),
+      network_host: resolveNetworkHost(profile.host ?? ''),
+    };
   }
 }

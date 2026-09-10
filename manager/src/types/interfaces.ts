@@ -52,6 +52,14 @@ export interface ProfileWithContainers extends Profile {
   containers: ApiContainer[];
   /** Derived: uploader held back until a usable stamp is set. */
   pendingStamp: boolean;
+  /**
+   * Derived: `host` with the ssh layer resolved away — userinfo dropped, a
+   * dotless alias looked up in the ssh config. `host` is a *deploy* target and
+   * an alias means nothing to a browser, so component links and the SRT publish
+   * URL are built from this instead. Equal to `host` when there is nothing to
+   * resolve.
+   */
+  network_host: string;
 }
 
 export interface ActionInput {

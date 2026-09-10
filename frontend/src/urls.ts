@@ -8,8 +8,17 @@ import type { Profile } from './types';
 
 const LOCAL_HOSTS = new Set(['', 'localhost', '0.0.0.0', '127.0.0.1']);
 
+/**
+ * The address to dial for a deployment's components.
+ *
+ * `profile.host` is a *deploy* target, so it may be an ssh alias — a key into
+ * the manager's ssh config and nothing a browser can resolve. `network_host` is
+ * that target already resolved server-side, so prefer it and keep `host` only as
+ * the fallback for a manager that does not send it yet.
+ */
 export function hostFor(profile: Profile, serverHost: string): string {
-  const profileHost = profile.host?.trim() ?? '';
+  const profileHost =
+    profile.network_host?.trim() || profile.host?.trim() || '';
   if (!LOCAL_HOSTS.has(profileHost)) return profileHost;
   return serverHost || window.location.hostname;
 }

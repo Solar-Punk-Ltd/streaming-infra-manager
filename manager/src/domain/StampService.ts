@@ -9,6 +9,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileWithContainers } from '../types/index.js';
+import { resolveNetworkHost } from '../utils/deployHost.js';
 import { resolveServerHost } from '../utils/serverHost.js';
 
 import {
@@ -70,18 +71,18 @@ export type BeeClientFactory = (
  *
  * `profiles.host` holds a *deploy* target: the schema validates it against
  * `/^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/` and documents it as "localhost, an ssh
- * alias, or user@host". The user half addresses an ssh account and never the bee
- * API, and left in place it composes to `http://deploy@1.2.3.4:10055` — not a bee
- * base URL, and a stray `@` inside a BEE_PUBLISHERS entry format that already
- * separates the rung from the URL on `@`.
+ * alias, or user@host". Neither of the two non-trivial forms is an address. The
+ * user half addresses an ssh account and never the bee API, and left in place it
+ * composes to `http://deploy@1.2.3.4:10055` — not a bee base URL, and a stray `@`
+ * inside a BEE_PUBLISHERS entry format that already separates the rung from the
+ * URL on `@`. An alias is a key into an ssh config and resolves nowhere else, so
+ * `http://vultr-eu-1:10055` times out on every probe.
  *
- * Stripping it is safe in a way that guessing at the rest is not: the userinfo is
- * provably not part of the address, whereas an ssh *alias* may well resolve for
- * the uploader, so that is left alone and left to the reachability probe.
+ * resolveNetworkHost undoes both, reading the same ssh config deploy.sh reads.
+ * See manager/src/utils/deployHost.ts.
  */
 function networkHostOf(declaredHost: string): string {
-  const at = declaredHost.lastIndexOf('@');
-  return at === -1 ? declaredHost : declaredHost.slice(at + 1);
+  return resolveNetworkHost(declaredHost);
 }
 
 export function beeApiUrlFor(profile: Profile): string {

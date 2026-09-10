@@ -53,7 +53,45 @@ function stripDockerWarnings(text: string): string {
 const BEE_DATA_ROOT =
   process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
 
-function beeDataDirsFor(profileName: string): Record<string, string> {
+/** deploy.sh's TARGET_LOCAL — see is_local() in deploy/scripts/_lib.sh. */
+const LOCAL_TARGET = 'localhost';
+
+/** The deploy target for a profile, as buildScriptArgs passes it to --host. */
+export function targetHost(profile: Profile, hostOverride?: string): string {
+  return hostOverride ?? profile.host ?? LOCAL_TARGET;
+}
+
+/**
+ * An empty host means buildScriptArgs writes no --host at all, so deploy.sh
+ * falls back to config.json — which the manager bootstraps with every service
+ * on localhost.
+ */
+function isLocalTarget(host: string): boolean {
+  return host === '' || host === LOCAL_TARGET;
+}
+
+/**
+ * BEE_DATA_ROOT is a directory on the *manager's* host: somewhere it can size
+ * (DiskUsage) and delete (removeProfileDataDir), outside the submodule that
+ * `rsync --delete` rewrites on every deploy. None of that holds for a remote
+ * target, and the value never reaches the remote compose either — it is process
+ * env here, and neither the rsynced .env nor .env.deploy carries it.
+ *
+ * Exporting it anyway put deploy.sh and compose on different directories:
+ * init_bee_dirs wrote the password under $REMOTE_BASE/deploy/<this absolute
+ * path>, compose mounted $REMOTE_BASE/deploy/data/bee-uploader, and every
+ * remote Bee node died on "configure signer: open /home/bee/.bee/password: no
+ * such file or directory".
+ *
+ * So for a remote target, say nothing: the submodule's own
+ * BEE_UPLOADER_DATA_DIR=./data/bee-uploader is rsynced to that host and is the
+ * one value both deploy.sh and compose resolve against $REMOTE_BASE/deploy.
+ */
+export function beeDataDirsFor(
+  profileName: string,
+  host: string,
+): Record<string, string> {
+  if (!isLocalTarget(host)) return {};
   return {
     BEE_UPLOADER_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-uploader`,
     BEE_GATEWAY_DATA_DIR: `${BEE_DATA_ROOT}/${profileName}/bee-gateway`,
@@ -97,6 +135,9 @@ interface JobConfig {
   profileName: string;
   script: string;
   args: string[];
+
+  /** Deploy target — decides the env the script runs with. See beeDataDirsFor. */
+  host: string;
 
   transitionTo?: ProfileStatus;
 
@@ -218,6 +259,7 @@ export class DeploymentOrchestrator {
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_DEPLOY,
+      host: targetHost(profile, opts.host),
       args: this.buildScriptArgs(profile, deployNow, opts.host),
       transitionTo: opts.transitionTo,
       allowedFrom: opts.allowedFrom,
@@ -271,6 +313,7 @@ export class DeploymentOrchestrator {
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_STOP,
+      host: targetHost(profile),
       args: this.buildScriptArgs(profile, services ?? []),
       transitionTo: 'STOPPING',
       allowedFrom: ['RUNNING', 'ERROR'],
@@ -303,6 +346,7 @@ export class DeploymentOrchestrator {
     return this.runJob({
       profileName: profile.name,
       script: SCRIPT_CLEAN,
+      host: targetHost(profile),
       args,
       transitionTo: 'REMOVING',
       allowedFrom: ['RUNNING', 'STOPPED', 'ERROR'],
@@ -341,7 +385,7 @@ export class DeploymentOrchestrator {
     await this.ensureSubmoduleDefaults();
     return this.runner.run(SCRIPT_HEALTH, this.buildScriptArgs(profile, []), {
       cwd: SUBMODULE,
-      env: beeDataDirsFor(profile.name),
+      env: beeDataDirsFor(profile.name, targetHost(profile)),
     });
   }
 
@@ -378,7 +422,7 @@ export class DeploymentOrchestrator {
 
     const handle = this.runner.run(cfg.script, cfg.args, {
       cwd: SUBMODULE,
-      env: beeDataDirsFor(cfg.profileName),
+      env: beeDataDirsFor(cfg.profileName, cfg.host),
     });
 
     let stderrTail = '';
@@ -451,7 +495,7 @@ export class DeploymentOrchestrator {
       `--profile=${profile.name}`,
       `--portSlot=${profile.port_slot}`,
     ];
-    const host = hostOverride ?? profile.host ?? 'localhost';
+    const host = targetHost(profile, hostOverride);
     if (host) args.push(`--host=${host}`);
     if (profile.feed_owner) args.push(`--feed-owner=${profile.feed_owner}`);
     if (profile.feed_topic) args.push(`--feed-topic=${profile.feed_topic}`);
@@ -496,7 +540,7 @@ export class DeploymentOrchestrator {
   private buildEffectiveEnv(profile: Profile): Record<string, string> {
     const env = parseBaseEnv();
 
-    Object.assign(env, beeDataDirsFor(profile.name));
+    Object.assign(env, beeDataDirsFor(profile.name, targetHost(profile)));
 
     env.ENGINE = engineForComponents(profile.components);
 
