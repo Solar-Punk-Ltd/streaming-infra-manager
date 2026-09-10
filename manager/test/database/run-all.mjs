@@ -200,7 +200,7 @@ async function main() {
   const entries = portsFrom(process.env);
   const unreachable = await preflight(entries);
   if (unreachable.length > 0) return refuse(unreachable);
-  console.log(`Nine databases answered: ${entries.map((e) => `${e.database}:${e.port}`).join(' ')}`);
+  console.log(`${entries.length} databases answered: ${entries.map((e) => `${e.database}:${e.port}`).join(' ')}`);
 
   const config = entries.find((entry) => entry.database === CONFIG_DATABASE);
   const result = await runSuites({ ...process.env, DATABASE_URL: databaseUrlFor(config.port) });
