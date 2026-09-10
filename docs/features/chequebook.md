@@ -193,13 +193,15 @@ and the browser runner treats a silent skip as a failure.
 
 **The rest of the suites.** Three database files cover this feature:
 `chequebookConnected`, `chequebookOperations`, which holds the polling
-behaviour, and `chequebookTargets`. Nine browser suites cover the durable
-intent, the dialog, the history, the recovery actions, the two API surfaces, the
-fixture and the polling itself. The unit suites cover the poller, the receipt
-check, the receipt inspector, the routes, the schemas, submission, recovery and
-the qualification catalog. All of them pass on a laptop, and all of them are in
-the jobs the checks workflow declares for a pull request. The last full run
-recorded on the branch, taken at `e857994`, is in
+behaviour, and `chequebookTargets`. Eight browser suites cover the durable
+intent, the dialog, the history, the recovery actions, the two API surfaces and
+the polling itself. A ninth file, `transfer-fixture.test.mjs`, starts no
+browser: it checks what the browser fixtures leave on the machine. The unit
+suites cover the poller, the receipt check, the receipt inspector, the routes,
+the schemas, submission, recovery and the qualification catalog. All of them
+pass on a laptop, and all of them are in the jobs the checks workflow declares
+for a pull request. The last full run recorded on the branch, taken at
+`e857994`, is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). No job
 of that workflow had run on a GitHub runner when this page was written.
 
