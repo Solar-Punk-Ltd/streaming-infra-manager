@@ -33,6 +33,14 @@ describe('the OvenMediaEngine gate', () => {
     assert.ok(at('# ') < at('FFMPEG_WAIT_SECONDS'), 'the header comes first');
   });
 
+  it('counts that budget in seconds rather than in turns of a loop', () => {
+    // Every turn is a docker exec plus a sleep, so a loop that counts to 300
+    // waits nearer 390 seconds. The name says seconds, so the clock decides.
+    assert.doesNotMatch(script, /seq 1 "\$FFMPEG_WAIT_SECONDS"/);
+    assert.match(script, /install_deadline=\$\(\(SECONDS \+ FFMPEG_WAIT_SECONDS\)\)/);
+    assert.match(script, /while \[ "\$SECONDS" -lt "\$install_deadline" \]/);
+  });
+
   it('waits for ffmpeg before it starts the playlist clock', () => {
     const waited = at('$FFMPEG_WAIT_SECONDS');
     const playlist = at('$PLAYLIST_WAIT_SECONDS');
@@ -42,7 +50,7 @@ describe('the OvenMediaEngine gate', () => {
   });
 
   it('catches a publisher that dies during the install, inside the wait rather than after it', () => {
-    const wait = script.slice(at('seq 1 "$FFMPEG_WAIT_SECONDS"'), at('$PLAYLIST_WAIT_SECONDS'));
+    const wait = script.slice(at('install_deadline='), at('$PLAYLIST_WAIT_SECONDS'));
     assert.match(wait, /State\.Running/);
     assert.match(wait, /fail /);
   });
