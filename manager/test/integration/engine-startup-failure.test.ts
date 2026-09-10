@@ -45,6 +45,7 @@ import {
   rolloutNotice,
 } from '@streaming-infra-manager/common';
 
+import { redactEngineOutput } from '../support/redactEngineOutput.js';
 import {
   BEE_UPLOADER,
   SRS,
@@ -111,21 +112,22 @@ describe('a config file the check accepts and the engine dies on', () => {
     });
 
     const ended = await waitForRolloutEnd(name);
-    assert.equal(
-      ended.state,
-      'reverted',
-      `the rollout ended ${ended.state}, not reverted: ${ended.error ?? '(no reason)'}`,
-    );
+    // The reason embeds the engine's own last lines, and the file SRS was
+    // started on carries this deployment's SRT passphrase and webhook token.
+    // Every message below prints the redacted copy, because an assertion
+    // message on a runner is a log anyone with the repository can read.
+    const reason = ended.error ? redactEngineOutput(ended.error) : '(no reason)';
+    assert.equal(ended.state, 'reverted', `the rollout ended ${ended.state}, not reverted: ${reason}`);
     assert.ok(ended.error, 'a reverted rollout has to say why');
     assert.match(
       ended.error,
       /so the previous one is back/,
-      `the reason does not say the previous file is back: ${ended.error}`,
+      `the reason does not say the previous file is back: ${reason}`,
     );
     assert.match(
       ended.error,
       /no\/such\/directory/,
-      `the reason does not carry the engine's own last lines: ${ended.error}`,
+      `the reason does not carry the engine's own last lines: ${reason}`,
     );
     assert.equal(ended.config, null, 'the template is back, so the stored file is gone');
 
