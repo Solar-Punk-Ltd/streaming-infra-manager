@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { launchChrome, waitFor, watchCompletedRequests } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor, watchCompletedRequests } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -99,31 +99,37 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   const evidence = await evidenceDirectory('t15-browser-evidence-');
   const { call, evaluate } = browser;
   await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
-  const body = () => evaluate('document.body.innerText');
-  const click = async text => {
-    const selector = `([...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)} && !button.disabled))`;
-    await waitFor(() => evaluate(`!!${selector}`), Boolean, `enabled button ${text}`, COLD_OPTIMIZE_BUDGET_MS);
-    await evaluate(`${selector}.click()`);
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const body = () => evaluate(PAGE_TEXT);
+  const settled = () => evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const found = selector => `document.querySelector(${JSON.stringify(selector)})`;
+  const click = async (text, timeoutMs = COLD_OPTIMIZE_BUDGET_MS) => {
+    await clickWhenEnabled(evaluate, buttonWithText(text), `an enabled ${text} button`, timeoutMs);
+    await settled();
+  };
+  const clickSelected = async (selector, description) => {
+    await clickWhenEnabled(evaluate, found(selector), description);
+    await settled();
   };
   const choose = async text => {
-    const selector = `([...document.querySelectorAll('input[type=radio], [role=radio], label')].find(node => node.getAttribute('aria-label') === ${JSON.stringify(text)} || node.textContent.trim().startsWith(${JSON.stringify(text)})))`;
-    await waitFor(() => evaluate(`!!${selector}`), Boolean, `choice ${text}`);
-    await evaluate(`${selector}.click()`);
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const choice = `[...document.querySelectorAll('input[type=radio], [role=radio], label')].find(node => node.getAttribute('aria-label') === ${JSON.stringify(text)} || node.textContent.trim().startsWith(${JSON.stringify(text)}))`;
+    await clickWhenEnabled(evaluate, choice, `the ${text} choice`);
+    await settled();
   };
-  const fill = (selector, value) => evaluate(`(() => { const input = document.querySelector(${JSON.stringify(selector)}); if (!input) throw Error('Missing input'); Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-  const close = () => evaluate(`document.querySelector('[role=dialog] button[aria-label="close"]').click()`);
-  const next = async () => { await click('Continue'); await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'); };
+  const fill = (selector, value) => fillWhenPresent(evaluate, found(selector), value, `the ${selector} field`);
+  const valueOf = (selector, description) => readWhenPresent(evaluate, found(selector), 'value', description);
+  const close = () => clickSelected('[role=dialog] button[aria-label="close"]', 'the dialog close button');
+  const next = async () => { await click('Continue'); await settled(); };
   const startUploader = async () => {
     await click('New deployment'); await choose('ABR uploader'); await next();
     await fill('input[placeholder="main-stage"]', 'retained-uploader');
     await fill('textarea[placeholder="What is this for?"]', 'retained note');
-    if (await evaluate('document.querySelector("#wizard-version") !== null')) {
-      await evaluate('document.querySelector("#wizard-version").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))');
-      await waitFor(() => evaluate('document.querySelector(\'[role="option"][data-value="7"]\') !== null'), Boolean, 'explicit fixture version');
-      await evaluate('document.querySelector(\'[role="option"][data-value="7"]\').click()');
-    }
+    const openedVersions = await evaluate(`(() => {
+      const field = ${found('#wizard-version')};
+      if (!field) return false;
+      field.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+      return true;
+    })()`);
+    if (openedVersions) await clickSelected('[role="option"][data-value="7"]', 'the explicit fixture version');
     await next();
     await waitFor(body, text => text.includes('Create a storage pool'), 'pool prerequisite action');
     await choose('Type my own'); await fill('input[placeholder="my-stage-passphrase-2026"]', passphrase);
@@ -131,41 +137,45 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   };
   const createPool = async () => {
     await click('Create a storage pool');
-    await waitFor(() => evaluate('!!document.querySelector("input[placeholder=abr-pool-2]")'), Boolean, 'the pool wizard to open');
     await fill('input[placeholder="abr-pool-2"]', group.name);
     await next(); await next(); await click('Create pool (4 nodes)');
   };
   const assertDraft = async () => {
-    assert.equal(await evaluate(`document.querySelector('input[placeholder="my-stage-passphrase-2026"]')?.value === ${JSON.stringify(passphrase)}`), true);
-    assert.equal(await evaluate(`document.querySelector('input[placeholder="0x plus 64 hex characters"]')?.value === ${JSON.stringify(key)}`), true);
+    assert.equal(await valueOf('input[placeholder="my-stage-passphrase-2026"]', 'the retained passphrase'), passphrase);
+    assert.equal(await valueOf('input[placeholder="0x plus 64 hex characters"]', 'the retained key'), key);
     assert.equal(await evaluate(`localStorage.length === 0 && sessionStorage.length === 0`), true);
     assert.equal(await evaluate(`location.href.includes('retained-uploader') || location.href.includes(${JSON.stringify(passphrase)})`), false);
     await click('Back');
-    assert.equal(await evaluate(`document.querySelector('input[placeholder="main-stage"]').value`), 'retained-uploader');
-    assert.equal(await evaluate(`document.querySelector('textarea[placeholder="What is this for?"]').value`), 'retained note');
+    assert.equal(await valueOf('input[placeholder="main-stage"]', 'the retained deployment name'), 'retained-uploader');
+    assert.equal(await valueOf('textarea[placeholder="What is this for?"]', 'the retained note'), 'retained note');
     await next();
   };
   await call('Page.navigate', { url: `${origin}/#/` });
   await waitFor(body, text => text.includes('New deployment'), 'the app to boot');
   await startUploader();
   await click('Create a storage pool');
-  assert.equal(await evaluate(`document.querySelector('input[placeholder="abr-pool-2"]').value === ''`), true);
+  assert.equal(await valueOf('input[placeholder="abr-pool-2"]', 'the empty pool name field'), '');
   await click('Return to uploader'); await assertDraft();
   await createPool();
   await waitFor(body, text => text.includes('Storage pool created and selected'), 'successful return');
   await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership');
   globalsReady = true; freshMembership.splice(0).forEach(entry => entry.reply());
   await assertDraft();
-  assert.equal(await evaluate(`document.querySelector('[role=combobox][aria-label="Storage pool"]').textContent.includes('chosen-pool')`), true);
+  assert.match(await readWhenPresent(evaluate, found('[role=combobox][aria-label="Storage pool"]'), 'textContent', 'the selected storage pool'), /chosen-pool/);
   await waitFor(body, text => text.includes('Node needs funding') && text.includes('Needs a stamp'), 'funding and stamp blockers');
   assert.match(await body(), /publishing have not been verified/);
   assert.equal(writes.length, 1);
   assert.deepEqual(Object.keys(writes[0].body).sort(), ['abr_ladder', 'group_name', 'host', 'kind', 'notes', 'size', 'stack_version_id']);
   assert.equal(writes[0].body.notes, null);
   assert.equal(writes[0].body.stack_version_id, 7);
-  await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').click()`);
+  await clickSelected('[role=dialog] .MuiAccordionSummary-root', 'the node details summary');
   await waitFor(() => evaluate(`!!document.querySelector('[role=dialog] .MuiCollapse-entered')`), Boolean, 'expanded node details');
-  await evaluate(`document.querySelector('[role=dialog] .MuiAccordionSummary-root').scrollIntoView({ block: 'start' })`);
+  await waitFor(() => evaluate(`(() => {
+    const summary = ${found('[role=dialog] .MuiAccordionSummary-root')};
+    if (!summary) return false;
+    summary.scrollIntoView({ block: 'start' });
+    return true;
+  })()`), Boolean, 'the node details summary to scroll into view');
   const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
   await writeFile(join(evidence, 'pool-prerequisites.png'), Buffer.from(data, 'base64'));
   nodeMode = 'unknown'; await click('Refresh pool checks');
@@ -217,7 +227,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   assert.equal(await evaluate('location.hash'), routeBefore);
   assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'), false);
   await click('New deployment'); await choose('ABR uploader'); await next();
-  assert.equal(await evaluate(`document.querySelector('input[placeholder="main-stage"]').value === ''`), true);
+  assert.equal(await valueOf('input[placeholder="main-stage"]', 'the empty deployment name field'), '');
   await close();
   // Sign-out also discards a pending draft before its response arrives.
   resultMode = 'held'; await startUploader(); await createPool();
@@ -231,7 +241,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   signedIn = true; await call('Page.reload');
   await waitFor(body, text => text.includes('New deployment'), 'the app to boot after the reload');
   await click('New deployment'); await choose('ABR uploader'); await next();
-  assert.equal(await evaluate(`document.querySelector('input[placeholder="main-stage"]').value === ''`), true);
+  assert.equal(await valueOf('input[placeholder="main-stage"]', 'the empty deployment name field'), '');
   await fill('input[placeholder="main-stage"]', 'external-uploader'); await next();
   await fill('textarea[placeholder^="360p@"]', external); await next();
   assert.match(await body(), /Review/);
@@ -240,7 +250,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   // The existing custom and group controls remain reachable.
   await click('New deployment'); await choose('Custom'); await next();
   await fill('input[placeholder="main-stage"]', 'custom-group');
-  await evaluate(`document.querySelector('input[type=checkbox]').click()`);
+  await clickSelected('input[type=checkbox]', 'the group checkbox');
   assert.match(await body(), /How many/);
   await next(); assert.match(await body(), /Components/);
   assert.equal(writes.filter(write => write.path === '/profiles').length, 0);
