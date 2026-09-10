@@ -184,7 +184,19 @@ const PUBLIC_SCHEMA = 'public';
 
 const openClient = (connection) => new pg.Client(connection);
 
-/** What one database said when the preflight opened it. */
+/**
+ * What one database said when the preflight opened it.
+ *
+ * The client is a parameter so the refusals can be exercised without a
+ * PostgreSQL, and only the three calls below are asked of it.
+ *
+ * @param {{ database: string, variable: string, port: number }} entry
+ * @param {(connection: unknown) => {
+ *   connect: () => Promise<unknown>,
+ *   query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ tablename: string }> }>,
+ *   end: () => Promise<unknown>,
+ * }} [connect]
+ */
 export async function inspect(entry, connect = openClient) {
   const client = connect(connectionFor(entry, entry.port));
   try {

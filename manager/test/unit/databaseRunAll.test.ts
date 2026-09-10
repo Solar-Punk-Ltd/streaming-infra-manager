@@ -148,14 +148,14 @@ describe('refusing to start on what the nine databases answered', () => {
   const entry = { database: 't09_test', variable: 'T09_TEST_PG_PORT', port: 55432 };
   const answered = { entry, error: null, managerTables: [] };
 
-  /** A pg client that answers whatever the case wants asked about its tables. */
-  const clientAnswering = (tables: string[], failOn?: string) => () => ({
+  /** A client that answers what the case says its public schema holds. */
+  const clientAnswering = (tables: string[], failOn?: 'connect' | 'query') => () => ({
     connect: async () => {
       if (failOn === 'connect') throw new Error('connection refused');
     },
-    query: async (sql: string) => {
+    query: async () => {
       if (failOn === 'query') throw new Error('server closed the connection');
-      return { rows: sql.includes('pg_tables') ? tables.map((tablename) => ({ tablename })) : [{ '?column?': 1 }] };
+      return { rows: tables.map((tablename) => ({ tablename })) };
     },
     end: async () => undefined,
   });
