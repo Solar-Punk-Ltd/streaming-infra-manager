@@ -37,7 +37,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T06 port reservations | `b65f8d9` | Reservation and target admission are included. Combined execution verification and Linux firewall qualification remain. |
 | T07 proposed deployment row | `24b85bf` | Validation, admission and write use the proposed row. Unknown critical prerequisites refuse. |
 | T08 build approval | `347c7dd` | Approval names the displayed commit/build and the wizard requires an explicit valid choice. Integrated with T18 and both publication writers. |
-| T09 money by transaction | `feat/t09-receipt-polling` | Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and connected SQL and browser acceptance are included. Actual SSH and immutable-image qualification remain. Production qualification catalog is empty. |
+| T09 money by transaction | `feat/t09-receipt-polling` | Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and connected SQL and browser acceptance are included, with the two reviews of that slice acted on. Actual SSH and immutable-image qualification remain. Production qualification catalog is empty. |
 | T10 authenticated integration client | `284790c` | Confirmed-instance cleanup and atomic profile/group removal are included. Real deployment integration has not run. |
 | T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
 | T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
@@ -575,3 +575,82 @@ real host, nothing was pushed, and no credential was read.
 What remains of T09 after this slice is unchanged and separate: actual SSH and
 real image qualification. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is still empty
 and a synthetic pass qualifies nothing. T14 still waits on Levi's D04 numbers.
+
+## What the two reviews of the receipt polling slice changed, 2026-09-10
+
+Two reviews read the slice above on detached worktrees at its head, one for
+correctness and one for security, with a disposable PostgreSQL and twenty five
+mutations between them. Nothing they found was a wrong state machine or a leak.
+Two were wrong information on a money screen, several were places where the code
+was right and no test would have noticed it stopping being right, and one was a
+runaway in the fixtures. All of them are fixed on the same branch.
+
+The dialog no longer flashes. It re-reads the saved record every ten seconds
+unattended, and it used to clear the record at the start of each of those reads,
+so for the length of a round trip the evidence panel was replaced by the sentence
+saying the transaction outcome is unknown. That sentence was untrue at that
+moment and it appeared every ten seconds. A re-read of the same request now keeps
+what is on screen until the manager answers, and only an answer that really says
+the record is missing or incomplete clears it.
+
+A failed read no longer ends the automatic re-reads. One synthetic 503 used to
+be enough: the page scheduled nothing from its failure branch and never read
+again. A fifteen second timeout, a tunnel blip or a manager restart during a
+deploy would have done it. A failed read now costs one cycle.
+
+A conflicted transfer is no longer shown as polled. The manager excludes a row
+whose failure reason is `hash_conflict` from its own checks, but the page decided
+from the state and the deadline alone, so it promised checks that never happen
+and, after the deadline, told the operator to press a Check button that a
+conflicted transfer does not offer.
+
+A poll that sees nothing new no longer moves the revision. The manager checks
+about every twenty seconds and almost every check sees the same pending answer,
+and each one wrote a new revision, about ninety over one budget. The operator's
+Check refuses when the revision moved under it, and the recovery actions remount
+on it, so a good share of Check presses during polling came back saying the saved
+transfer had changed. A check that changes what it observed still advances the
+revision. One that does not now records only when it happened.
+
+The poller's log reached nobody. `index.ts` passes no polling options, so the log
+was the no-op default and a journal that stopped answering was never recorded
+anywhere. It goes through the manager's own `Logger` now, a warning for the
+journal and information for the per-tick notes, and the factory hands the poller
+two bound calls rather than the whole repository and the whole receipt check.
+
+A shutdown no longer waits out a whole batch. The loop over the due rows never
+looked at whether it had been stopped, and twenty rows at the receipt inspector's
+fifteen second timeout during an RPC outage is about five minutes, past the
+ninety seconds systemd allows before killing the process with its transport
+cleanup unverified. The page also says now that the gap between checks grows
+while the chain endpoint does not answer, and the feature doc records the worst
+case.
+
+Three things were right and untested, and now have tests: that a repeated
+response cannot renew a polling budget, that a spent budget stops the dialog's
+re-reads as well as the page's, and that the fixture's Vite port comes from its
+own probe rather than from the environment. The connected fixtures now refuse to
+run unless the API is on loopback and the synthetic Docker is on its own private
+socket, they unwind a start that fails partway, and their close runs every step
+before reporting the first failure.
+
+The browser fixtures stopped filling the machine. Every fixture built its own
+9 MB Vite cache inside a temporary directory that nothing ever removed. Measured
+here before the fix: 575 such directories holding 5.0 GB. They share one cache
+under the frontend `node_modules` now, which also skips the cold start, and a
+fixture with nothing to report removes its own directory. The 477 old directories
+whose contents were only that cache and an empty log were removed after checking
+each one, freeing 4.0 GB. The 113 that also hold screenshots from earlier runs
+were left alone, 958 MB, for Levi to decide on.
+
+**Verified, 2026-09-10, after the fix round.** Manager unit 2222 of 2222, four
+more than before. Common 321, unchanged. Frontend unit 98, three more. The three
+chequebook database files with a disposable PostgreSQL on port 55436: connected
+10 of 10, two more, operations 54 of 54, four more, targets 31 of 31, none
+skipped. The browser suites one file at a time: intent 3, dialog 10, api 2,
+recovery-api 2, history 9, recovery 10, polling 8, five more, the new fixture
+file 3, and connected 3, which was also run without the database variable and
+skipped all three out loud. Every workspace typecheck clean after building
+common, `git diff --check` clean against the branch base, and no em-dash or
+semicolon in any added prose, comment, UI string or commit message. Nothing ran
+against the real host, nothing was pushed, and no credential was read.

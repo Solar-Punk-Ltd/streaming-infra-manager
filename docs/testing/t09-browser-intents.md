@@ -38,6 +38,8 @@ This checkpoint does not wire the money dialog or global history. T06 current ta
 
 A receipt observation changes the recorded outcome. A balance change does not. The ordinary offline manager schedules a synthetic receipt and updates its sample balances separately. Tests can inject an unavailable submission response or later receipt/hash evidence through the JavaScript fixture only. There are no HTTP controls for forcing an outcome.
 
+The automatic settlement that makes `pnpm dev:mock` show the whole flow is not in the journal mock. It lives in `frontend/dev/mock-manager.mjs`, which schedules `observeReceipt(..., settled)` a few seconds after a submission. A reader looking for it in `mock-chequebook.mjs` will not find it.
+
 Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
 
 ## Money dialog wiring
@@ -59,18 +61,37 @@ so, and when it passes they say that automatic checks ended and leave Check to
 the operator. Both surfaces only read `GET /chequebook/operations/...`. Neither
 asks the chain, because the manager is doing that.
 
+A record whose failure reason is `hash_conflict` is never treated as polled,
+whatever deadline it still carries, because the manager excludes it from its own
+checks and there is no Check button on a conflicted transfer to point at. A
+deadline is read no further ahead than one whole budget from now, which is the
+furthest the manager could still be polling.
+
+A re-read keeps the record already on screen until the manager answers, and only
+a real answer that says the record is missing or incomplete clears it. A read
+that fails costs one cycle rather than the cadence: both surfaces try again at
+the next interval while the last good answer still asks for one.
+
 `frontend/src/transfers/receiptPolling.ts` holds the deadline arithmetic and the
 two sentences, tested in `receiptPolling.test.ts`. `transferEvidence.test.ts`
-pins that a record is refused unless its poll deadline is null or a real
-timestamp. `frontend/test/transfer-polling-browser.test.mjs` drives the real
-dialog and the real detail page: a record that becomes settled while nobody
-clicks is shown as settled within one re-read, the GET count proves the re-reads
-happened and no `check` request is sent, and a record whose deadline has already
-passed re-reads nothing while Check still works.
+pins that a record is refused unless its poll deadline is null or an ISO
+timestamp of the shape the manager writes.
+`frontend/test/transfer-polling-browser.test.mjs` drives the real dialog and the
+real detail page: a record that becomes settled while nobody clicks is shown as
+settled within one re-read, the GET count proves the re-reads happened and no
+`check` request is sent, a record whose deadline has already passed re-reads
+nothing on either surface while Check still works, a conflicted record is neither
+polled nor re-read, the unknown-outcome sentence never appears across a re-read,
+and one synthetic 503 in the middle of polling costs a single cycle.
 
-Run `node --test frontend/test/transfer-polling-browser.test.mjs`. The case
-about the spent budget waits out one full re-read interval on purpose, so the
-file takes about a minute.
+`frontend/test/transfer-fixture.test.mjs` covers the fixtures themselves, with no
+browser: every fixture shares one Vite cache under `frontend/node_modules`, a run
+with nothing to report removes its own evidence directory, and the Vite port
+always comes from the fixture's own probe rather than from the environment.
+
+Run `node --test frontend/test/transfer-polling-browser.test.mjs`. Four of its
+cases wait out a full re-read interval on purpose, so the file takes about two
+minutes.
 
 ## Connected browser acceptance
 
