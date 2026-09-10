@@ -75,6 +75,7 @@ export class ChequebookReceiptPoller {
     catch { this.log('Receipt polling could not read the transfer journal.'); return; }
     const notes: string[] = [];
     for (const operation of due) {
+      if (this.stopped) break;
       try {
         const checked = await this.receipts.check(operation.id);
         if (checked.state !== 'submitted') notes.push(`${operation.id} ${checked.receiptObservation?.kind ?? checked.state}`);
