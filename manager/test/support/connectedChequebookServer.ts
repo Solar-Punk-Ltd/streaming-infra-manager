@@ -17,6 +17,8 @@ import { CONNECTED_OPERATOR, CONNECTED_OPERATOR_PASSWORD, CONNECTED_PROFILE, con
   startConnectedChequebook, type ReceiptAnswer } from './connectedChequebook.js';
 import { instanceForProfile } from './chequebookOperations.js';
 
+const LOOPBACK = '127.0.0.1';
+
 export type ConnectedServerCommand =
   | { readonly id: number; readonly kind: 'receipt'; readonly answer: ReceiptAnswer }
   | { readonly id: number; readonly kind: 'drop-next-response' }
@@ -73,9 +75,11 @@ async function main(): Promise<void> {
   const app = express();
   app.use(connectedChequebookApi(backend.service, auth, { stubs: shellStubs(), chequebookSummary: syntheticSummary }));
   const server = http.createServer(app);
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, LOOPBACK, resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('The connected fixture server reported no port');
+  // Behind this port sit the real money routes and a published fixture password.
+  if (address.address !== LOOPBACK) throw new Error(`The connected fixture server must bind ${LOOPBACK} and bound ${address.address}`);
   backend.service.start();
 
   let closing = false;

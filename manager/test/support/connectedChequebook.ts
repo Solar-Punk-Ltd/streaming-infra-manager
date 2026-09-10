@@ -10,7 +10,7 @@
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -153,6 +153,10 @@ export async function startConnectedChequebook(options: ConnectedChequebookOptio
   });
   sockets.listen(socketPath);
   await once(sockets, 'listening');
+  // The synthetic Bee answers unauthenticated Docker requests, so its only reachable address is this path.
+  if (sockets.address() !== socketPath) throw new Error(`The connected fixture must serve its synthetic Docker on ${socketPath}`);
+  const directoryMode = (await stat(directory)).mode & 0o777;
+  if (directoryMode !== 0o700) throw new Error(`The connected fixture socket directory must stay at 0700 and is ${directoryMode.toString(8)}`);
 
   const chain = syntheticChain();
   const pollerLines: string[] = [];
