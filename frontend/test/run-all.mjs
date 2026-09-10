@@ -94,20 +94,52 @@ function refuse(problems) {
   process.exitCode = 1;
 }
 
-async function main() {
-  const chrome = chromeFrom(process.env);
-  const unusable = chromeProblem(chrome);
-  if (unusable) return refuse([unusable]);
-  console.log(`Chrome: ${chrome}`);
+/**
+ * @typedef {object} Dependencies
+ * @property {Record<string, string | undefined>} env where the browser's path is read from.
+ * @property {(path: string) => boolean} canExecute whether that path is a browser this run can start.
+ * @property {(env: Record<string, string | undefined>) => Promise<{ code: number | null, signal: string | null, output: string }>} spawnSuites the child, run to the end.
+ * @property {(line: string) => void} log where the two lines a green run prints go.
+ */
 
-  const result = await runSuites(process.env);
+/**
+ * The whole run, over the pieces it needs from outside itself.
+ *
+ * Both decisions are pure functions pinned in run-all.test.mjs, and the order
+ * is a guarantee of its own: the browser is proved before a suite is started,
+ * and the judge's verdict is what the run returns rather than something it
+ * looks at. Handing those in rather than reaching for them is what lets a test
+ * drive that order without a browser and without starting anything.
+ *
+ * @param {Dependencies} dependencies
+ * @returns {Promise<string[]>} every reason this run is not green, or an empty list.
+ */
+export async function run({ env, canExecute, spawnSuites, log }) {
+  const chrome = chromeFrom(env);
+  const unusable = chromeProblem(chrome, canExecute);
+  if (unusable) return [unusable];
+  log(`Chrome: ${chrome}`);
+
+  const result = await spawnSuites(env);
   const problem = runProblem({ ...result, glob: SUITE_GLOB });
-  if (problem) return refuse([problem]);
-  console.log(`PASS: ${counted(summaryOf(result.output))}`);
+  if (problem) return [problem];
+  log(`PASS: ${counted(summaryOf(result.output))}`);
+  return [];
+}
+
+/** @returns {Dependencies} the real pieces, which is all the entry point below adds. */
+function realDependencies() {
+  return {
+    env: process.env,
+    canExecute: isExecutable,
+    spawnSuites: runSuites,
+    log: (line) => console.log(line),
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main().catch((error) => {
-    refuse([`the runner itself failed: ${error instanceof Error ? error.message : String(error)}`]);
-  });
+  const problems = await run(realDependencies()).catch((error) => [
+    `the runner itself failed: ${error instanceof Error ? error.message : String(error)}`,
+  ]);
+  if (problems.length > 0) refuse(problems);
 }
