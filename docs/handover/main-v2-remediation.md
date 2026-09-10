@@ -793,3 +793,20 @@ harness was not changed. The T05a qualification on Docker Engine 29.1.3 with
 Compose 5.1.4 is still a separate obligation that neither the runner's versions
 nor this laptop's discharge. All of it is in `docs/ci.md`, with an estimate of
 about 25 Actions minutes a push.
+
+**Merged, 2026-09-10, the T20 completion slice.** Merged into
+`feat/ai-remediation` as ab8776c after two parallel reviews, a fix round, a
+targeted re-review and a final round (the record is
+`../consensus/T20-COMPLETION-FIXES.md`). Verified by Fable at e857994: the
+manager unit suite 2317 of 2317 three times through its new runner, the
+database directory 518 of 518 through its runner with no skips, the browser
+suites 166 of 166 through theirs, the native suites 7, common 321, frontend
+unit 100, the three Docker harnesses passing on this laptop (T02 in 3 s on the
+digest `ossrs/srs:6` resolves to today, T03 in 130 s with the ffmpeg wait,
+T05a in 110 s), both workflows valid YAML, every typecheck clean, prose clean,
+no submodule or lockfile movement, and no by-product under the submodule after
+the unit runs. Nothing in either workflow has run on a GitHub runner yet: the
+checks workflow runs on the next push of this branch, the Docker-backed one is
+Levi's dispatch. Two decisions are his: the Actions cost of about 25 minutes a
+push with all three jobs required, and a CODEOWNERS entry over
+`.github/workflows` with code-owner review in branch protection.
