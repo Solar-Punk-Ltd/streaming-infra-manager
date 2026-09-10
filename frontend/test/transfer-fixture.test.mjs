@@ -6,7 +6,8 @@
  * run of the transfer suites starts nine of them, so the machine collected
  * gigabytes of caches that no run ever read again.
  *
- * No browser here. This starts one Vite fixture and looks at the machine.
+ * No browser here. These cases start Vite fixtures of their own and look at
+ * what each one leaves behind.
  */
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
