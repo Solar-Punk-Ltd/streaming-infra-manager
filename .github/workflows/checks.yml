@@ -49,6 +49,14 @@ jobs:
           DATABASE_URL: postgres://unused@localhost/unused
         run: pnpm --filter @streaming-infra-manager/api test
 
+      - name: Native transport tests, manager
+        # Unix sockets and forked Node children of their own, no manager and no
+        # Docker socket. They sat in the deployment integration suite, which
+        # refuses to start without a declared target, so they ran nowhere.
+        env:
+          DATABASE_URL: postgres://unused@localhost/unused
+        run: pnpm --filter @streaming-infra-manager/api test:native
+
       - name: Unit tests, frontend
         run: pnpm --filter @streaming-infra-manager/frontend-prototype test
 
