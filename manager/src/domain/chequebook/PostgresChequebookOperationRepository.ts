@@ -5,7 +5,7 @@ import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { historyCursor, normalizeHistoryQuery } from './chequebookHistory.js';
 import type { Pool, PoolClient } from 'pg';
-import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookHistoryPage, type ChequebookOperationEvidence, type ChequebookAssertion, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookAdmissionResult, type ChequebookOperation, type ChequebookReceiptObservation } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, RECEIPT_POLL_BUDGET_MS, type ChequebookHistoryQuery, type ChequebookHistoryPage, type ChequebookOperationEvidence, type ChequebookAssertion, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookAdmissionResult, type ChequebookOperation, type ChequebookReceiptObservation } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from './ChequebookOperationRepository.js';
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, operationId, sameTransferIntent } from './operationIdentity.js';
 import type { ChainTransaction } from './chainEvidence.js';
@@ -24,6 +24,7 @@ type OperationRow = {
   failure_reason: ChequebookOperation['failureReason']; dispatch_started_at: Date | null; created_at: Date; updated_at: Date;
   recovery_observation: ChequebookRecoveryObservation | null; recovery_checked_at: Date | null; assertion: ChequebookAssertion | null;
   revision: string; receipt_observation: ChequebookReceiptObservation | null; receipt_checked_at: Date | null;
+  receipt_poll_until: Date | null;
 };
 
 function operationFrom(row: OperationRow): ChequebookOperation {
@@ -37,14 +38,23 @@ function operationFrom(row: OperationRow): ChequebookOperation {
     dispatchStartedAt: row.dispatch_started_at?.toISOString() ?? null,
     revision: row.revision, receiptObservation: row.receipt_observation ? normalizeReceiptObservation(row.receipt_observation) : null,
     receiptCheckedAt: row.receipt_checked_at?.toISOString() ?? null,
+    receiptPollUntil: row.receipt_poll_until?.toISOString() ?? null,
     recoveryObservation: row.recovery_observation ? normalizeRecoveryObservation(row.recovery_observation) : null,
     recoveryCheckedAt: row.recovery_checked_at?.toISOString() ?? null, assertion: row.assertion,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   });
 }
 
+/** Sets the budget on the row's first entry into submitted and leaves every later write alone. */
+const openPollBudget = (nextState: string, budgetSeconds: string) =>
+  `CASE WHEN ${nextState} = 'submitted' THEN COALESCE(receipt_poll_until, NOW() + make_interval(secs => ${budgetSeconds}::double precision)) ELSE receipt_poll_until END`;
+
 export class PostgresChequebookOperationRepository implements ChequebookOperationRepository {
-  constructor(private readonly pool: Pool) {}
+  private readonly pollBudgetSeconds: number;
+
+  constructor(private readonly pool: Pool, options: { receiptPollBudgetMs?: number } = {}) {
+    this.pollBudgetSeconds = (options.receiptPollBudgetMs ?? RECEIPT_POLL_BUDGET_MS) / 1000;
+  }
 
   async listHistory(input: ChequebookHistoryQuery): Promise<ChequebookHistoryPage> {
     const query = normalizeHistoryQuery(input);
@@ -177,8 +187,9 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
       const state = operation.state === 'asserted' || operation.state === 'settled' || operation.state === 'reverted'
         ? operation.state : owned ? 'submitted' : 'unknown';
       const updated = await client.query<OperationRow>(`UPDATE chequebook_operations
-        SET state=$2, transaction_hash=$3, failure_reason=$4, revision=revision+1, updated_at=NOW()
-        WHERE id=$1 RETURNING *`, [operation.id, state, owned ? hash : operation.transactionHash, owned ? null : 'hash_conflict']);
+        SET state=$2, transaction_hash=$3, failure_reason=$4, revision=revision+1, updated_at=NOW(),
+            receipt_poll_until=${openPollBudget('$2', '$5')}
+        WHERE id=$1 RETURNING *`, [operation.id, state, owned ? hash : operation.transactionHash, owned ? null : 'hash_conflict', this.pollBudgetSeconds]);
       return operationFrom(updated.rows[0]!);
     });
   }
@@ -218,8 +229,9 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
       }
       if (observation.kind === 'no_match' && candidates.some(candidate => matchesChequebookTransfer(operation, candidate))) throw new ChequebookOperationInputError('recovery candidates');
       const updated = await client.query<OperationRow>(`UPDATE chequebook_operations
-        SET state=$2, transaction_hash=$3, recovery_observation=$4::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW()
-        WHERE id=$1 RETURNING *`, [operation.id, hash ? 'submitted' : operation.state, hash, JSON.stringify(recorded)]);
+        SET state=$2, transaction_hash=$3, recovery_observation=$4::jsonb, recovery_checked_at=NOW(), revision=revision+1, updated_at=NOW(),
+            receipt_poll_until=${openPollBudget('$2', '$5')}
+        WHERE id=$1 RETURNING *`, [operation.id, hash ? 'submitted' : operation.state, hash, JSON.stringify(recorded), this.pollBudgetSeconds]);
       return operationFrom(updated.rows[0]!);
     });
   }
@@ -287,6 +299,15 @@ export class PostgresChequebookOperationRepository implements ChequebookOperatio
     } finally {
       client.release();
     }
+  }
+
+  async listAwaitingReceipt(input: { intervalMs: number; limit: number }): Promise<readonly ChequebookOperation[]> {
+    const result = await this.pool.query<OperationRow>(`SELECT * FROM chequebook_operations
+      WHERE state = 'submitted' AND transaction_hash IS NOT NULL AND failure_reason IS DISTINCT FROM 'hash_conflict'
+        AND receipt_poll_until > NOW()
+        AND (receipt_checked_at IS NULL OR receipt_checked_at <= NOW() - make_interval(secs => $1::double precision / 1000.0))
+      ORDER BY receipt_checked_at NULLS FIRST, created_at LIMIT $2`, [input.intervalMs, input.limit]);
+    return result.rows.map(operationFrom);
   }
 
   async recordReceipt(expected: Pick<ChequebookOperation, 'id' | 'revision' | 'transactionHash'>, input: ChequebookReceiptObservation): Promise<ChequebookOperation> {

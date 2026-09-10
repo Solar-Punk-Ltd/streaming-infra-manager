@@ -14,7 +14,7 @@ export async function seedSyntheticChequebookTarget(pool: Pool, profileName: str
 
 /** Journal tests inject a synthetic SQL owner. Production preparation must acquire its own target and connection. */
 export class SyntheticTargetChequebookRepository extends PostgresChequebookOperationRepository {
-  constructor(private readonly fixturePool: Pool) { super(fixturePool); }
+  constructor(private readonly fixturePool: Pool, options: { receiptPollBudgetMs?: number } = {}) { super(fixturePool, options); }
   override async admit(candidate: NewChequebookOperation) {
     if (candidate.submissionTarget || await this.findByRequestId(candidate.requestId)) return super.admit(candidate);
     const submissionTarget = await new PostgresChequebookTargetOwnership(this.fixturePool).capture(candidate.profileName, candidate.profileInstanceId);

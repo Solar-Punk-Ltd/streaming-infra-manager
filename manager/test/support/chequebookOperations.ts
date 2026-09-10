@@ -4,7 +4,7 @@ import type { ChainTransaction } from '../../src/domain/chequebook/chainEvidence
 import { matchesChequebookTransfer } from '../../src/domain/chequebook/transactionIdentity.js';
 import { normalizeRecoveryObservation, preserveRecoveryEvidence } from '../../src/domain/chequebook/recoveryObservation.js';
 import { randomUUID } from 'node:crypto';
-import { chequebookAssertionConfirmation, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import { chequebookAssertionConfirmation, RECEIPT_POLL_BUDGET_MS, type ChequebookHistoryQuery, type ChequebookAssertionInput, type ChequebookRecoveryObservation, type ChequebookSubmissionResponseEvidence, type ChequebookOperation, type ChequebookReceiptObservation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import type { ChequebookOperationRepository, NewChequebookOperation, SubmissionOutcome } from '../../src/domain/chequebook/ChequebookOperationRepository.js';
 
 export const profileInstanceId = '11111111-1111-4111-8111-111111111111';
@@ -37,6 +37,17 @@ export function operationCandidate(overrides: Partial<NewChequebookOperation> = 
 
 export class InMemoryChequebookOperations implements ChequebookOperationRepository {
   readonly rows = new Map<string, ChequebookOperation>();
+  private readonly pollBudgetMs: number;
+
+  constructor(options: { receiptPollBudgetMs?: number } = {}) {
+    this.pollBudgetMs = options.receiptPollBudgetMs ?? RECEIPT_POLL_BUDGET_MS;
+  }
+
+  /** Mirrors the SQL rule: opened on the first entry into submitted, never renewed. */
+  private pollUntil(row: ChequebookOperation, nextState: ChequebookOperation['state']): string | null {
+    if (nextState !== 'submitted') return row.receiptPollUntil;
+    return row.receiptPollUntil ?? new Date(Date.now() + this.pollBudgetMs).toISOString();
+  }
 
   async listHistory(input: ChequebookHistoryQuery) {
     const query = normalizeHistoryQuery(input);
@@ -74,7 +85,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     const now = new Date().toISOString();
     const journalFields = { ...candidate };
     delete journalFields.submissionTarget;
-    const row: ChequebookOperation = { ...journalFields, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
+    const row: ChequebookOperation = { ...journalFields, state: 'submitting', transactionHash: null, failureReason: null, dispatchStartedAt: null, revision: '0', receiptObservation: null, receiptCheckedAt: null, receiptPollUntil: null, recoveryObservation: null, recoveryCheckedAt: null, assertion: null, createdAt: now, updatedAt: now };
     this.rows.set(row.id, structuredClone(row));
     return { kind: 'admitted' as const, operation: structuredClone(row) };
   }
@@ -91,7 +102,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
   async recordSubmission(id: string, outcome: SubmissionOutcome): Promise<ChequebookOperation> {
     const row = this.rows.get(id);
     if (!row) throw new Error('Missing operation');
-    if (row.state === 'submitting') this.rows.set(id, { ...row, ...outcome, revision: String(BigInt(row.revision) + 1n) });
+    if (row.state === 'submitting') this.rows.set(id, { ...row, ...outcome, receiptPollUntil: this.pollUntil(row, outcome.state), revision: String(BigInt(row.revision) + 1n) });
     return structuredClone(this.rows.get(id)!);
   }
 
@@ -111,6 +122,17 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     return [];
   }
 
+  async listAwaitingReceipt(input: { intervalMs: number; limit: number }): Promise<readonly ChequebookOperation[]> {
+    const now = Date.now();
+    return [...this.rows.values()]
+      .filter(row => row.state === 'submitted' && row.transactionHash !== null && row.failureReason !== 'hash_conflict' &&
+        row.receiptPollUntil !== null && Date.parse(row.receiptPollUntil) > now &&
+        (row.receiptCheckedAt === null || Date.parse(row.receiptCheckedAt) <= now - input.intervalMs))
+      .sort((a, b) => (Date.parse(a.receiptCheckedAt ?? '') || 0) - (Date.parse(b.receiptCheckedAt ?? '') || 0) || a.createdAt.localeCompare(b.createdAt))
+      .slice(0, input.limit)
+      .map(row => structuredClone(row));
+  }
+
   async recordRecovery(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookRecoveryObservation, candidates: readonly ChainTransaction[]): Promise<ChequebookOperation> {
     const row = this.rows.get(expected.id)!;
     if (row.revision !== expected.revision || !['unknown', 'submitting'].includes(row.state)) return structuredClone(row);
@@ -126,6 +148,7 @@ export class InMemoryChequebookOperations implements ChequebookOperationReposito
     }
     const now = new Date().toISOString();
     const result: ChequebookOperation = { ...row, transactionHash, state: transactionHash ? 'submitted' : row.state,
+      receiptPollUntil: this.pollUntil(row, transactionHash ? 'submitted' : row.state),
       recoveryObservation: observation, recoveryCheckedAt: now, updatedAt: now, revision: String(BigInt(row.revision) + 1n) };
     this.rows.set(row.id, result);
     return structuredClone(result);

@@ -30,5 +30,7 @@ export interface ChequebookOperationRepository {
   resolveCandidate(expected: Pick<ChequebookOperation, 'id' | 'revision'>, candidate: ChainTransaction): Promise<ChequebookOperation>;
   assertNoSubmission(expected: Pick<ChequebookOperation, 'id' | 'revision'>, input: ChequebookAssertionInput): Promise<ChequebookOperation>;
   listSubmissionResponses(id: string): Promise<readonly ChequebookSubmissionResponseEvidence[]>;
+  /** Rows the poller owes a check: submitted, hash known, unconflicted, budget not spent, last check older than one interval. */
+  listAwaitingReceipt(input: { intervalMs: number; limit: number }): Promise<readonly ChequebookOperation[]>;
 
 }
