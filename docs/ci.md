@@ -111,9 +111,10 @@ that fails half the time is worth more than the difference.
 
 ### browser
 
-The twenty-three suites under `frontend/test/`, of which fourteen drive a real
-headless Chrome against a real Vite and nine need neither. They live outside
-`pnpm test`, which only takes `src`, so they ran nowhere on a pull request.
+The twenty-five suites under `frontend/test/`, of which fourteen drive a real
+headless Chrome against a real Vite and eleven need no browser. They live
+outside `pnpm test`, which only takes `src`, so they ran nowhere on a pull
+request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
 
@@ -121,7 +122,8 @@ That runner is the browser counterpart of the SQL one and judges a run by the
 same shared rules: a skipped test, a suite that skipped itself whole, a run of
 no tests, a missing summary, a signal or a non-zero exit each stop it in
 words. Checked by running it with `T09_TEST_PG_PORT` unset, which is exactly
-the hole it exists to close: 163 passed, 3 skipped, refused, exit 1.
+the hole it exists to close: on 2026-09-10, before the suites below were
+added, 163 passed, 3 skipped, refused, exit 1.
 
 The suites run under `node --import tsx --conditions=development` and not
 under plain `node`, because `mock-engine-observations.test.mjs` reaches the
@@ -129,12 +131,44 @@ manager's TypeScript through `dev/mock-engine.mjs`, whose `.js` import
 specifiers only tsx rewrites. Under plain `node` that one file fails on a
 missing `omeXml.js`.
 
-One file at a time, because each Chrome suite starts its own Vite and its own
-Chrome. Concurrency 2 was not qualified: the rule was three consecutive
-failure-free runs under three minutes, and the same class of clock-reading
+One file at a time, each in a child of its own, because each Chrome suite
+starts its own Vite and its own Chrome. Concurrency 2 was not qualified: the
+rule was three consecutive failure-free runs under three minutes, and the same
+class of clock-reading
 failure had already shown up in the SQL job under parallel files, on a laptop
 with three times the runner's cores. If it is worth the risk later, the
 measurement to beat is below.
+
+**What the first runner run showed, and what changed.** Run 34477086525 on
+2026-09-10 was the first time this job ran on a GitHub runner, against Chrome
+152.0.7977.82 at `/usr/bin/google-chrome`. Every suite that drove that Chrome
+ended `not ok` with `ENOTEMPTY: directory not empty, rmdir
+'/tmp/t15-chrome-XXXX/Default'`, and the job was cancelled at its thirty
+minute limit with a chrome, two chrome_crashpad_handler processes and several
+node processes in the runner's own orphan list. The tests themselves had
+passed. The teardown signalled the one process `spawn` returned, and on Linux
+Chrome's helpers outlive it by a moment and keep writing into the profile the
+removal is walking. Node's test runner then stops at the first `after` hook
+that throws, so the next hook never ran, the browser it owned stayed alive,
+and a live child keeps its file's process alive for as long as the job lasts.
+
+Chrome is now started detached, so its pid is a process group and one signal
+reaches the crashpad handler and the renderers with it. The profile removal
+retries ENOTEMPTY, EBUSY and ENOTDIR for ten seconds and then names the path
+through `t.diagnostic` instead of failing the suite, because a temporary
+directory left behind is housekeeping and never a failed test. Every fixture
+teardown now runs each of its own steps whatever an earlier one did and
+reports the first failure at the end, and the forked connected manager ends
+itself when the pid that started it is gone. **The runner bounds each suite
+file at 600 seconds**, in a child of its own, kills it with its process group
+if it outruns that, and refuses the run naming the file. A suite that hangs is
+a named failure rather than a cancelled job that says nothing about the other
+twenty-four files.
+
+Checked on Linux before any of it went anywhere: the whole set in a Debian
+container against Chromium 152.0.7977.82, which is the version the runner's
+Google Chrome was, came back 183 tests, 0 failed, 0 skipped, with no
+`hookFailed`, no leftover profile and no process of its own left running.
 
 Both the job and the runner prove the Chrome before anything starts.
 `CHROME_BIN` is `/usr/bin/google-chrome`, the job's first step fails in words
@@ -168,11 +202,11 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 6 s |
-| unit suites, common 321, manager 2317, frontend 100 | 25 s |
+| unit suites, common 321, manager 2325, frontend 100 | 25 s |
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
 | SQL suites, 518, one file at a time | 235 s |
-| browser suites, 166 | 374 s |
+| browser suites, 183, one child per file | 377 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on

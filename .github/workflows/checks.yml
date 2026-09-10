@@ -133,11 +133,12 @@ jobs:
         run: pnpm --filter @streaming-infra-manager/api test:database
 
   browser:
-    # The twenty-two suites under frontend/test, fourteen of which drive a
+    # The twenty-five suites under frontend/test, fourteen of which drive a
     # real headless Chrome against a real Vite. They live outside pnpm test and
-    # so ran nowhere on a pull request. One at a time, because each starts its
-    # own Vite and its own Chrome, through a runner that refuses a skip the
-    # same way the SQL one does.
+    # so ran nowhere on a pull request. One at a time, each in a child of its
+    # own bounded at 600 seconds, because each starts its own Vite and its own
+    # Chrome, through a runner that refuses a skip the same way the SQL one
+    # does.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:

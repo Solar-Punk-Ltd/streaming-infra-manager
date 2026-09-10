@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { evidenceDirectory as makeEvidenceDirectory } from './evidence.mjs';
+import { runEveryStep } from './teardown.mjs';
 
 const evidenceDirectory = parent => makeEvidenceDirectory('t09-http-', parent);
 /** One cache for every fixture. A fresh one per fixture cost 9 MB and a cold start each time. */
@@ -19,23 +20,28 @@ async function startVite(managerUrl, evidence) {
     env: { ...process.env, VITE_MANAGER_URL: managerUrl, T09_VITE_CACHE: VITE_CACHE },
   });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-32_768); });
-  const stop = async () => {
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, 'exit', { signal: AbortSignal.timeout(5000) });
-      child.kill('SIGTERM');
-      try { await exited; }
-      catch {
-        if (child.exitCode === null && child.signalCode === null) {
-          const killed = once(child, 'exit', { signal: AbortSignal.timeout(3000) });
-          child.kill('SIGKILL');
-          await killed;
-        }
+  const endChild = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = once(child, 'exit', { signal: AbortSignal.timeout(5000) });
+    child.kill('SIGTERM');
+    try { await exited; }
+    catch {
+      if (child.exitCode === null && child.signalCode === null) {
+        const killed = once(child, 'exit', { signal: AbortSignal.timeout(3000) });
+        child.kill('SIGKILL');
+        await killed;
       }
     }
-    await writeFile(join(evidence, 'vite.log'), output);
+  };
+  const pruneEvidence = async () => {
     const left = await readdir(evidence);
     if (output === '' && left.length === 1 && left[0] === 'vite.log') await rm(evidence, { recursive: true, force: true });
   };
+  const stop = () => runEveryStep([
+    endChild,
+    () => writeFile(join(evidence, 'vite.log'), output),
+    pruneEvidence,
+  ]);
   try {
     const [{ port, cache }] = await Promise.race([
       once(child, 'message', { signal: AbortSignal.timeout(15_000) }),
@@ -56,16 +62,17 @@ export async function launchTransferFixture(t, handler, options = {}) {
     Promise.resolve(handler(req, res)).catch(() => { res.writeHead(500); res.end(); });
   });
   let vite;
-  t.after(async () => {
-    await vite?.stop();
-    server.closeAllConnections();
-    await new Promise(resolve => server.close(resolve));
-  });
+  t.after(() => runEveryStep([
+    () => vite?.stop(),
+    () => server.closeAllConnections(),
+    () => new Promise(resolve => server.close(resolve)),
+  ]));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const managerPort = server.address().port;
-  vite = await startVite(`http://127.0.0.1:${managerPort}`, evidence);
+  const managerOrigin = `http://127.0.0.1:${managerPort}`;
+  vite = await startVite(managerOrigin, evidence);
   t.diagnostic(`Owned synthetic API ${managerPort}, Vite ${vite.port}, evidence ${evidence}, cache ${vite.cache}`);
-  return { origin: `http://127.0.0.1:${vite.port}`, evidence, viteCache: vite.cache };
+  return { origin: `http://127.0.0.1:${vite.port}`, managerOrigin, evidence, viteCache: vite.cache };
 }
 
 /** Vite alone, in front of a manager the caller already owns. */

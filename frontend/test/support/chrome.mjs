@@ -63,22 +63,93 @@ export function createProtocolClient(socket, timeoutMs = 10_000) {
   };
 }
 
+/** How long a signalled Chrome gets before the next signal, and before the teardown refuses. */
+const EXIT_WAIT_MS = 3000;
+/** How long the helpers get to stop writing into the profile before it is left where it is. */
+const PROFILE_REMOVAL_BUDGET_MS = 10_000;
+const PROFILE_REMOVAL_STEP_MS = 250;
+/** What a removal is told while something is still writing into the profile, rather than for good. */
+const STILL_BUSY = new Set(['ENOTEMPTY', 'EBUSY', 'ENOTDIR']);
+
 function hasExited(child) {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
-async function stopOwnedChild(child) {
+/**
+ * Signals the child's whole process group, and the child alone where that is refused.
+ *
+ * Chrome is started detached below, so the group id is its pid and the negative
+ * pid reaches chrome_crashpad_handler and the renderers as well. Those are not
+ * the process `spawn` returned, and they are what a plain `child.kill` misses.
+ */
+function signalTree(child, signal) {
+  if (!child.pid) return;
+  try { process.kill(-child.pid, signal); }
+  catch { child.kill(signal); }
+}
+
+/**
+ * Ends an owned Chrome and every process it started.
+ *
+ * The last signal goes out after the main process has exited, because that is
+ * exactly when the helpers are still there: on Linux they outlive it by a
+ * moment, and on the runner they outlived the whole job.
+ */
+async function stopChromeTree(child) {
   for (const signal of ['SIGTERM', 'SIGKILL']) {
-    if (hasExited(child)) return;
-    const wait = once(child, 'exit', { signal: AbortSignal.timeout(3000) });
-    child.kill(signal);
-    try { await wait; return; }
+    if (hasExited(child)) break;
+    const wait = once(child, 'exit', { signal: AbortSignal.timeout(EXIT_WAIT_MS) });
+    signalTree(child, signal);
+    try { await wait; break; }
     catch (error) { if (error.name !== 'AbortError') throw error; }
   }
   if (!hasExited(child)) throw new Error(`Owned Chrome process ${child.pid} did not exit`);
+  signalTree(child, 'SIGKILL');
 }
 
-/** Runs an isolated Chrome profile. Only this process and its profile are cleaned up. */
+/**
+ * Removes a Chrome profile, waiting out whatever is still writing into it.
+ *
+ * @param {string} profile the directory to remove.
+ * @param {{ remove?: typeof rm, budgetMs?: number, stepMs?: number }} [options]
+ * @returns {Promise<Error | null>} what stopped it, for the caller to report, or null.
+ */
+export async function removeProfile(profile, options = {}) {
+  const { remove = rm, budgetMs = PROFILE_REMOVAL_BUDGET_MS, stepMs = PROFILE_REMOVAL_STEP_MS } = options;
+  const until = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      await remove(profile, { recursive: true, force: true });
+      return null;
+    } catch (error) {
+      if (!STILL_BUSY.has(error.code) || Date.now() >= until) return error;
+      await delay(stepMs);
+    }
+  }
+}
+
+/**
+ * Ends an owned Chrome, its helpers and its profile.
+ *
+ * A profile that will not go is reported through `reporter.diagnostic` and
+ * never thrown. It is a temporary directory left behind, which is housekeeping
+ * for whoever cleans the machine, and the suite that just passed is not the
+ * thing that is wrong with it. A Chrome that will not exit is thrown, because
+ * that one outlives the job.
+ */
+export async function endChromeSession(reporter, child, profile, removal = {}) {
+  let failure = null;
+  try { await stopChromeTree(child); }
+  catch (error) { failure = error; }
+  const leftover = await removeProfile(profile, removal);
+  if (leftover) reporter.diagnostic(`Left the Chrome profile ${profile} behind: ${leftover.message}`);
+  if (failure) throw failure;
+}
+
+/**
+ * Runs an isolated Chrome profile. Only the process group this starts and the
+ * profile it was given are cleaned up.
+ */
 export async function launchChrome(t, origin) {
   const executable = process.env.CHROME_BIN ??
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -90,12 +161,11 @@ export async function launchChrome(t, origin) {
     '--disable-default-apps', '--disable-extensions', '--disable-sync',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: 'ignore' });
+  ], { stdio: 'ignore', detached: true });
   let socket;
   t.after(async () => {
     socket?.close();
-    await stopOwnedChild(child);
-    await rm(profile, { recursive: true, force: true });
+    await endChromeSession(t, child, profile);
   });
   const portFile = join(profile, 'DevToolsActivePort');
   const port = await waitFor(async () => {
