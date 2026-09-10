@@ -36,4 +36,13 @@ describe('isTransferOperation', () => {
       assert.equal(isTransferOperation({ ...operation, receiptPollUntil: value }), false, `${JSON.stringify(value)} is not a poll deadline`);
     }
   });
+
+  it('refuses anything but the timestamp shape the manager writes', () => {
+    for (const value of ['2026', '2026-09', '2026-09-10', 'September 10 2026', '2026-09-10 14:32:00Z', '2026-09-10T14:32:00']) {
+      assert.equal(isTransferOperation({ ...operation, receiptPollUntil: value }), false, `${JSON.stringify(value)} is not a poll deadline`);
+    }
+    for (const value of ['2026-09-10T14:32:00Z', '2026-09-10T14:32:00.000Z', '2026-09-10T14:32:00.000000Z', '2026-09-10T16:32:00.000+02:00']) {
+      assert.equal(isTransferOperation({ ...operation, receiptPollUntil: value }), true, `${JSON.stringify(value)} is a poll deadline`);
+    }
+  });
 });

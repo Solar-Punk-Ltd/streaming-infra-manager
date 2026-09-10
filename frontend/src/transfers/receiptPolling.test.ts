@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { RECEIPT_READ_INTERVAL_MS } from '@streaming-infra-manager/common';
+import { RECEIPT_POLL_BUDGET_MS, RECEIPT_READ_INTERVAL_MS } from '@streaming-infra-manager/common';
 
 import { isPollingReceipt, receiptPollDeadline, receiptPollingSentence } from './receiptPolling';
 
@@ -17,12 +17,22 @@ const polled = { state: 'submitted' as const, failureReason: null, receiptPollUn
 const localClock = (iso: string) => new Date(at(iso)).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
 describe('receiptPollDeadline', () => {
+  const whilePolling = at('2026-09-10T14:10:00.000Z');
+
   it('reads the deadline of a submitted record and nothing else', () => {
-    assert.equal(receiptPollDeadline(polled), at('2026-09-10T14:32:00.000Z'));
-    assert.equal(receiptPollDeadline({ ...polled, receiptPollUntil: null }), null);
-    assert.equal(receiptPollDeadline({ ...polled, state: 'settled' }), null);
-    assert.equal(receiptPollDeadline({ ...polled, state: 'unknown' }), null);
-    assert.equal(receiptPollDeadline({ ...polled, receiptPollUntil: 'soon' }), null);
+    assert.equal(receiptPollDeadline(polled, whilePolling), at('2026-09-10T14:32:00.000Z'));
+    assert.equal(receiptPollDeadline({ ...polled, receiptPollUntil: null }, whilePolling), null);
+    assert.equal(receiptPollDeadline({ ...polled, state: 'settled' }, whilePolling), null);
+    assert.equal(receiptPollDeadline({ ...polled, state: 'unknown' }, whilePolling), null);
+    assert.equal(receiptPollDeadline({ ...polled, receiptPollUntil: 'soon' }, whilePolling), null);
+  });
+
+  it('never reads a deadline further ahead than one whole budget', () => {
+    const distant = { ...polled, receiptPollUntil: '2030-01-01T00:00:00.000Z' };
+    assert.equal(receiptPollDeadline(distant, whilePolling), whilePolling + RECEIPT_POLL_BUDGET_MS);
+    assert.equal(receiptPollDeadline(polled, whilePolling), at('2026-09-10T14:32:00.000Z'), 'an honest deadline inside the budget is read as it is');
+    assert.equal(receiptPollingSentence(distant, whilePolling)?.includes(localClock('2026-09-10T14:40:00.000Z')), true,
+      'the page never promises automatic checks further ahead than the manager could still be polling');
   });
 
   it('reads no deadline off a conflicted record, which the manager excludes from its own checks', () => {
