@@ -205,6 +205,23 @@ it('the started service polls its own submitted transfer to settlement and polls
   assert.equal(h.fixture.counts().posts, 1);
 });
 
+it('gives the receipt poller the two calls it needs and not the objects behind them', async t => {
+  const h = harness(t);
+  const operation = (await h.service.submit(transferIntent())).operation;
+  const log = recordedLog();
+  const service = createChequebookOperationsService(h.pool, { ...runtime(), dockerTransports: undefined }, {
+    ...h.dependencies, qualificationCatalog: undefined, createChainReader: () => settlingReader(h.reader, operation),
+    receiptPolling: { intervalMs: 5, schedule: () => () => {}, log },
+  });
+  t.after(() => service.shutdown());
+  // Whatever the journal object becomes later, the poller holds the one call it was composed with.
+  h.repository.listAwaitingReceipt = async () => { throw new Error('the poller was handed the whole journal'); };
+  service.start();
+  for (let round = 0; round < 40 && (await h.repository.findById(operation.id))?.state === 'submitted'; round++) await pause();
+  assert.equal((await h.repository.findById(operation.id))?.state, 'settled');
+  assert.deepEqual(log.lines.filter(line => line.includes('could not read the transfer journal')), []);
+});
+
 it('the production factory sends receipt polling notes and journal failures to the manager logger', async t => {
   const h = harness(t);
   const notes: string[] = [];
