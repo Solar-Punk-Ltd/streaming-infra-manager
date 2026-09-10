@@ -100,6 +100,7 @@ describe('the connected chequebook path over a real journal and an owned synthet
     assert.equal(settled.receiptObservation?.kind, 'settled');
     assert.equal(settled.receiptPollUntil, admitted.body.operation.receiptPollUntil, 'settling never moved the budget');
     assert.ok(h.chain.receiptReads() > 0, 'the poller asked the chain');
+    assert.ok(h.pollerLines().some(line => line.includes(`${admitted.body.operation.id} settled`)), 'the poller recorded what it changed');
     assert.deepEqual(h.checkRequests(), [], 'nobody pressed Check');
     const next = await h.deposit();
     assert.equal(next.status, 202);
