@@ -15,6 +15,7 @@ import { describe, it } from 'node:test';
 
 import {
   counted,
+  judgeFiles,
   runProblem,
   skippedSuitesIn,
   summaryOf,
@@ -139,5 +140,66 @@ describe('deciding whether the run was green', () => {
     const problem = runProblem({ ...green, output: tap({ tests: 0, pass: 0, body: '1..0\n' }) });
     assert.match(problem ?? '', /No test ran/);
     assert.match(problem ?? '', new RegExp(GLOB.replace(/[*/.]/g, '\\$&')));
+  });
+});
+
+describe('judging a run made of one child per suite file', () => {
+  const ran = (file: string, over: Record<string, unknown> = {}) =>
+    ({ file, code: 0, signal: null, output: tap({ tests: 3, pass: 3 }), ...over });
+
+  it('adds the counts of every file together', () => {
+    const { problems, summary } = judgeFiles({ results: [ran('a.test.mjs'), ran('b.test.mjs')], glob: GLOB });
+
+    assert.deepEqual(problems, []);
+    assert.deepEqual(summary, { tests: 6, pass: 6, fail: 0, skipped: 0 });
+  });
+
+  it('judges each file by the same rules as a whole run, and names the file it refused', () => {
+    const { problems } = judgeFiles({
+      results: [ran('a.test.mjs'), ran('b.test.mjs', { code: 1, output: tap({ pass: 2, fail: 1 }) })],
+      glob: GLOB,
+    });
+
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /^b\.test\.mjs/);
+    assert.match(problems[0], /1 failed/);
+  });
+
+  it('still catches a suite that skipped itself whole, in whichever file it was', () => {
+    const { problems } = judgeFiles({
+      results: [ran('a.test.mjs'), ran('b.test.mjs', { output: tap({ tests: 0, pass: 0, body: SKIPPED_BODY }) })],
+      glob: GLOB,
+    });
+
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /^b\.test\.mjs/);
+    assert.match(problems[0], /chequebook operations in isolated PostgreSQL schemas/);
+  });
+
+  it('refuses a file that outran its bound, naming the file and the bound', () => {
+    const { problems } = judgeFiles({
+      results: [ran('slow.test.mjs', { code: null, signal: 'SIGKILL', output: '', timedOutAfterMs: 600_000 })],
+      glob: GLOB,
+    });
+
+    assert.match(problems[0], /slow\.test\.mjs/);
+    assert.match(problems[0], /600 s/);
+    assert.match(problems[0], /process group/);
+  });
+
+  it('refuses a run that took no file at all, naming what it was looking for', () => {
+    const { problems } = judgeFiles({ results: [], glob: GLOB });
+
+    assert.match(problems[0], new RegExp(GLOB.replace(/[*/.]/g, '\\$&')));
+    assert.match(problems[0], /matched no file/);
+  });
+
+  it('reports a total no file could supply as unknown rather than as a smaller number', () => {
+    const { summary } = judgeFiles({
+      results: [ran('a.test.mjs'), ran('b.test.mjs', { output: 'ok 1 - alone\n' })],
+      glob: GLOB,
+    });
+
+    assert.equal(summary.tests, null);
   });
 });
