@@ -48,7 +48,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
 | T18 narrow layouts | `5f835ca` | Responsive version cards preserve exact-build approval and attempt-release controls. |
 | T19 notes editing | `6b3c50c` | Separate notes updates and revision conflicts coexist with full deployment edits. |
-| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 144 browser tests against a real Chrome, with no skip counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
+| T20 CI checks | `feat/t20-ci-completion` | Three required jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 156 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job. The T01 startup-failure file and every job in the manual workflow have not run on a runner. |
 | T21 documentation | `c640b10` | Reviewed docs plus a new integrated-status correction are included. Update again as remaining flows close. |
 | T22 controlled live acceptance | No task branch | Await D05 inputs, completed prerequisites and separate live authorization. |
 
@@ -723,6 +723,63 @@ script, 144 of 144, no skips. Every workspace typecheck clean after building
 common, both workflow files valid YAML, `git diff --check` clean against the
 branch base, and no em-dash or prose semicolon in anything added. Nothing ran
 against the real host, nothing was pushed, and no credential was read.
+
+### What two reviews found in it, and what changed, 2026-09-10
+
+Two parallel reviews on detached worktrees, one for correctness with ten
+mutations and one for security with four, plus Fable's own reading. Sixteen
+findings, of which two were high.
+
+**A unit test was writing into the real stack checkout.** `portTable.test.ts`
+set `SHLS_ROOT` to a temporary root at line 33, but imported a harness at line
+29 that reaches `envUtils`, which reads that variable once when it is first
+imported. So every run of the manager unit suite deployed into
+`manager/swarm-hls-stream` and left a `.env.plain` there, 3088 bytes, the real
+stack `.env` merged with the generated lines, mode 0600. Nothing failed
+because the CI job checks out no submodule. The import is dynamic now, the
+test asserts the file lands in its own root, and the whole unit run goes
+through `manager/test/unit/run.mjs`, which hands the suite a throwaway
+checkout so no test can reach the real one whatever it imports.
+
+**The SQL runner refused the wrong thing.** It refused a skipped test, but
+node counts skipped tests and all 33 files skip at the suite level, which
+registers no test at all. A run with every variable unset printed 0 tests, 0
+failed, 0 skipped and was called a pass. So did a glob that matched no file.
+The rules that catch both, and the summary reading they sit beside, now live
+in one module the browser runner uses too, and the SQL runner also reads every
+file's gate before it starts anything and refuses one gated on a database this
+run does not create.
+
+Also changed: the SRS image was pinned to a digest no tag points at any more,
+and is now the one `ossrs/srs:6` resolves to, with both T01 observations taken
+again on it. The browser job got a runner of its own with the same rules and a
+Chrome preflight. Three browser suites wrote evidence to a fixed
+`/private/tmp` path that an ordinary user on a Linux runner cannot create, so
+three of fourteen Chrome suites would have failed on the job's first run. The
+OvenMediaEngine gate waits for its publisher's ffmpeg install before the
+playlist clock starts, and passed here in 120 s. Two load-sensitive unit cases
+now wait on what they watch instead of on a 30 ms timer. The SQL preflight
+refuses a task database that already holds the manager's own tables. The
+Postgres services publish on loopback, the T02 image override has to be a
+digest, its scratch directory is removed on any exit path, and the engine log
+tail the T01 test prints is redacted.
+
+**Verified again after the fixes, 2026-09-10.** Manager unit 2301 of 2301
+twice in a row, common 321, frontend unit 100, native 7 with `DATABASE_URL`
+unset, all with no skips. The database directory 518 of 518 in 182 s. Every
+browser suite through its runner, 156 of 156 in 351 s, and with
+`T09_TEST_PG_PORT` unset the same run ends `REFUSED` on three skipped cases,
+exit 1. The three Docker harnesses pass here: T02 in 2 s on the corrected pin,
+T03 in 120 s, T05a in 143 s. Every workspace typecheck clean, both workflows
+valid YAML, `git diff --check` clean, and `manager/swarm-hls-stream` untouched
+after a full unit run.
+
+**Open for Levi.** The workflow costs about 23 Actions minutes a push and the
+browser job is more than half of it, so whether it stays required on every
+push is a spend decision that is his. Nothing in the repository reads the
+workflow files, so a CODEOWNERS entry over `.github/workflows/` with required
+code-owner review is the control that would, and both the entry and the
+setting are his.
 
 **What did not run and what it costs.** No job in either workflow has run on a
 GitHub runner. The T01 startup-failure file needs the whole stack deployed on

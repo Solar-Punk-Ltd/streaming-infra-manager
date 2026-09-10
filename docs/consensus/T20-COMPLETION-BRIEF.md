@@ -39,7 +39,7 @@ Package script in `manager/package.json`: `"test:database": "node test/database/
 
 A second job `database` in `checks.yml`, beside `checks`, both required. A Postgres 16 service container pinned by digest (`postgres:16-alpine@sha256:...`, the digest resolved on the day and written with the date in a comment, as the repository does for its other pins), `POSTGRES_HOST_AUTH_METHOD: trust`, `POSTGRES_USER: postgres`, port 5432 published, a health check. A step creates the nine databases through `docker exec ${{ job.services.postgres.id }} createdb -U postgres <name>` or an equivalent `psql` loop, so the runner needs no client of its own. The nine variables are set to `5432` in the job's `env`. Then install, common build, and `pnpm --filter @streaming-infra-manager/api test:database`.
 
-Locally the same script runs against the disposable container the briefs describe: `docker run --rm -d --name t20-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:16-alpine`, create the nine databases, export the nine variables as 55432, run the script. Record the count it prints. At the baseline it was 497 tests, 0 skipped, before the T09 slice added its files.
+Locally the same script runs against the disposable container the briefs describe: `docker run --rm -d --name t20-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685` (digest resolved 2026-09-10, the same pin the jobs use), create the nine databases, export the nine variables as 55432, run the script. Record the count it prints. At the baseline it was 497 tests, 0 skipped, before the T09 slice added its files.
 
 ## Part 2. The browser job
 
