@@ -241,9 +241,9 @@ export function preflightProblems(outcomes) {
   return problems;
 }
 
-async function preflight(entries) {
+async function preflight(entries, connect) {
   const outcomes = [];
-  for (const entry of entries) outcomes.push(await inspect(entry));
+  for (const entry of entries) outcomes.push(await inspect(entry, connect));
   return preflightProblems(outcomes);
 }
 
@@ -269,27 +269,66 @@ function refuse(problems) {
   process.exitCode = 1;
 }
 
-async function main() {
-  const configuration = portProblems(process.env);
-  if (configuration.length > 0) return refuse(configuration);
+/**
+ * @typedef {object} Dependencies
+ * @property {Record<string, string | undefined>} env where the nine ports are read from.
+ * @property {() => Array<{ file: string, text: string }>} readSuites every suite file this run would start.
+ * @property {(connection: unknown) => {
+ *   connect: () => Promise<unknown>,
+ *   query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ tablename: string }> }>,
+ *   end: () => Promise<unknown>,
+ * }} connect one database, opened.
+ * @property {(env: Record<string, string | undefined>) => Promise<{ code: number | null, signal: string | null, output: string }>} spawnSuites the child, run to the end.
+ * @property {(line: string) => void} log where the two lines a green run prints go.
+ */
 
-  const gates = gateProblems(suiteFiles());
-  if (gates.length > 0) return refuse(gates);
+/**
+ * The whole run, over the pieces it needs from outside itself.
+ *
+ * Each gate is a pure function pinned in databaseRunAll.test.ts, and the order
+ * they are asked in is a guarantee of its own: nothing is opened before every
+ * port is known to be a port, no suite is started before every database
+ * answered, and the first gate that refuses ends the run where it stands.
+ * Handing those in rather than reaching for them is what lets a test
+ * drive that order without a PostgreSQL and without starting anything.
+ *
+ * @param {Dependencies} dependencies
+ * @returns {Promise<string[]>} every reason this run is not green, or an empty list.
+ */
+export async function run({ env, readSuites, connect, spawnSuites, log }) {
+  const configuration = portProblems(env);
+  if (configuration.length > 0) return configuration;
 
-  const entries = portsFrom(process.env);
-  const unreachable = await preflight(entries);
-  if (unreachable.length > 0) return refuse(unreachable);
-  console.log(`${entries.length} databases answered: ${entries.map((e) => `${e.database}:${e.port}`).join(' ')}`);
+  const gates = gateProblems(readSuites());
+  if (gates.length > 0) return gates;
+
+  const entries = portsFrom(env);
+  const unreachable = await preflight(entries, connect);
+  if (unreachable.length > 0) return unreachable;
+  log(`${entries.length} databases answered: ${entries.map((e) => `${e.database}:${e.port}`).join(' ')}`);
 
   const config = entries.find((entry) => entry.database === CONFIG_DATABASE);
-  const result = await runSuites({ ...process.env, DATABASE_URL: databaseUrlFor(config.port) });
+  const result = await spawnSuites({ ...env, DATABASE_URL: databaseUrlFor(config.port) });
   const problem = runProblem({ ...result, glob: SUITE_GLOB });
-  if (problem) return refuse([problem]);
-  console.log(`PASS: ${counted(summaryOf(result.output))}`);
+  if (problem) return [problem];
+  log(`PASS: ${counted(summaryOf(result.output))}`);
+  return [];
+}
+
+/** @returns {Dependencies} the real pieces, which is all the entry point below adds. */
+function realDependencies() {
+  return {
+    env: process.env,
+    readSuites: suiteFiles,
+    connect: openClient,
+    spawnSuites: runSuites,
+    log: (line) => console.log(line),
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main().catch((error) => {
-    refuse([`the runner itself failed: ${error instanceof Error ? error.message : String(error)}`]);
-  });
+  const problems = await run(realDependencies()).catch((error) => [
+    `the runner itself failed: ${error instanceof Error ? error.message : String(error)}`,
+  ]);
+  if (problems.length > 0) refuse(problems);
 }
