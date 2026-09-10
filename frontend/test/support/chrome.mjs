@@ -163,7 +163,24 @@ export async function watchCompletedRequests(evaluate, suffix) {
   })()`);
 }
 
-export function createProtocolClient(socket, timeoutMs = 10_000) {
+/** What one Chrome protocol request gets on an unthrottled page. */
+export const PROTOCOL_TIMEOUT_MS = 10_000;
+
+/**
+ * What one protocol request gets, stretched by whatever throttle is on.
+ *
+ * An evaluate runs in the page, so a rate of 4 makes the same expression take
+ * four times as long, and a fixed budget would end the request rather than the
+ * thing it is measuring. The row measurement in versions-layout.test.mjs took
+ * a whole browser run past ten seconds at rate 4 and failed as
+ * `Chrome request timed out: Runtime.evaluate`, which names the plumbing and
+ * not the page.
+ */
+export function protocolTimeoutFor(env = process.env) {
+  return PROTOCOL_TIMEOUT_MS * (cpuThrottleRate(env) ?? 1);
+}
+
+export function createProtocolClient(socket, timeoutMs = PROTOCOL_TIMEOUT_MS) {
   let nextId = 0;
   let ended = false;
   const pending = new Map();
@@ -358,7 +375,7 @@ export async function launchChrome(t, origin) {
   const tabs = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json());
   socket = new WebSocket(tabs.find((tab) => tab.type === 'page').webSocketDebuggerUrl);
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
-  const { call } = createProtocolClient(socket);
+  const { call } = createProtocolClient(socket, protocolTimeoutFor());
   const errors = [];
   const blockedRequests = [];
   socket.addEventListener('message', ({ data }) => {

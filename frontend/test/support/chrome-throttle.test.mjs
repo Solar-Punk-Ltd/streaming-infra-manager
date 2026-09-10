@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, test } from 'node:test';
 
-import { cpuThrottleRate, launchChrome, throttleCpu } from './chrome.mjs';
+import { cpuThrottleRate, launchChrome, PROTOCOL_TIMEOUT_MS, protocolTimeoutFor, throttleCpu } from './chrome.mjs';
 
 /** Nothing on this page fetches, so the origin only has to be one no request reaches. */
 const MAKES_NO_REQUESTS = 'http://127.0.0.1:1';
@@ -54,6 +54,17 @@ describe('the rate the environment asks for', () => {
       assert.equal(cpuThrottleRate({ BROWSER_CPU_THROTTLE: value }), null, String(value));
     }
     assert.equal(cpuThrottleRate({}), null);
+  });
+});
+
+describe('the budget one protocol request gets', () => {
+  it('is the plain one when nothing is throttled', () => {
+    assert.equal(protocolTimeoutFor({}), PROTOCOL_TIMEOUT_MS);
+  });
+
+  it('stretches with the rate, since the evaluate runs in the throttled page', () => {
+    assert.equal(protocolTimeoutFor({ BROWSER_CPU_THROTTLE: '4' }), PROTOCOL_TIMEOUT_MS * 4);
+    assert.equal(protocolTimeoutFor({ BROWSER_CPU_THROTTLE: '6' }), PROTOCOL_TIMEOUT_MS * 6);
   });
 });
 

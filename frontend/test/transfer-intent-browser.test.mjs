@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { clickWhenEnabled, createProtocolClient, launchChrome, throttleCpu, waitFor } from './support/chrome.mjs';
+import { clickWhenEnabled, createProtocolClient, launchChrome, protocolTimeoutFor, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 /** This suite reads no manager data. Its owned API answers 404 so nothing depends on a listener it did not start. */
@@ -45,7 +45,7 @@ async function anotherTab(t, browser, origin) {
   const socket = new WebSocket(tabs.find(tab => tab.id === targetId).webSocketDebuggerUrl);
   t.after(() => socket.close());
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
-  const { call } = createProtocolClient(socket);
+  const { call } = createProtocolClient(socket, protocolTimeoutFor());
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(String(data));
     if (message.method !== 'Fetch.requestPaused') return;

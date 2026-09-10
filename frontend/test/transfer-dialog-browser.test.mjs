@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
-import { buttonWithText, clickWhenEnabled, createProtocolClient, fillWhenPresent, launchChrome, pageShows, readWhenPresent, throttleCpu, waitFor } from './support/chrome.mjs';
+import { buttonWithText, clickWhenEnabled, createProtocolClient, fillWhenPresent, launchChrome, pageShows, protocolTimeoutFor, readWhenPresent, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 const instanceId = '11111111-1111-4111-8111-111111111111';
@@ -75,7 +75,7 @@ async function anotherDialog(t, first, origin) {
   const socket = new WebSocket(tabs.find(tab => tab.id === targetId).webSocketDebuggerUrl);
   t.after(() => socket.close());
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
-  const { call } = createProtocolClient(socket);
+  const { call } = createProtocolClient(socket, protocolTimeoutFor());
   const blocked = [];
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(String(data));
