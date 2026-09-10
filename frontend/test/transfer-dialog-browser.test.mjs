@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
-import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
+import { createProtocolClient, launchChrome, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 const instanceId = '11111111-1111-4111-8111-111111111111';
@@ -96,6 +96,7 @@ async function anotherDialog(t, first, origin) {
   });
   await call('Runtime.enable'); await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  await throttleCpu(call);
   const browser = { call, async evaluate(expression) {
     const response = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     assert.equal(response.exceptionDetails, undefined, JSON.stringify(response.exceptionDetails));

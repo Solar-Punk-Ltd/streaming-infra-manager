@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { createProtocolClient, launchChrome, waitFor } from './support/chrome.mjs';
+import { createProtocolClient, launchChrome, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
 
 /** This suite reads no manager data. Its owned API answers 404 so nothing depends on a listener it did not start. */
@@ -53,6 +53,7 @@ async function anotherTab(t, browser, origin) {
   await call('Runtime.enable');
   await call('Page.enable');
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  await throttleCpu(call);
   return { call, async evaluate(expression) {
     const response = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     assert.equal(response.exceptionDetails, undefined, JSON.stringify(response.exceptionDetails));

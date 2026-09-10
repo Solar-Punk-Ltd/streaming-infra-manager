@@ -2,8 +2,9 @@
  * Runs every suite in this directory, one file at a time, and refuses
  * anything short of all of them running.
  *
- * Fourteen of them drive a real headless Chrome against a real Vite, several
- * need neither, and one drives the protocol client itself. They live outside
+ * Fourteen of them drive a real headless Chrome against a real Vite, one
+ * drives a Chrome and no Vite, several need neither, and one drives the
+ * protocol client itself. They live outside
  * `pnpm test`, which only takes src, so until the browser job existed they
  * ran nowhere on a pull request. Two things can turn that job green while it
  * proves nothing: transfer-connected-browser.test.mjs skips its three cases
@@ -23,6 +24,9 @@
  * Usage, from the frontend package:
  *
  *   pnpm test:browser
+ *
+ * `BROWSER_CPU_THROTTLE=4` runs every page session at a quarter of this
+ * machine's speed, which is how the runner's two cores are reproduced here.
  */
 import { spawn } from 'node:child_process';
 import { accessSync, constants, readdirSync } from 'node:fs';
@@ -30,6 +34,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { counted, judgeFiles } from '../../manager/test/support/tapJudge.mjs';
+
+import { cpuThrottleRate } from './support/chrome.mjs';
 
 /** Where the suites look when CHROME_BIN says nothing, which is this laptop. */
 export const DEFAULT_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -173,6 +179,8 @@ export async function run({ env, canExecute, readSuites, spawnSuite, log }) {
   const unusable = chromeProblem(chrome, canExecute);
   if (unusable) return [unusable];
   log(`Chrome: ${chrome}`);
+  const throttle = cpuThrottleRate(env);
+  if (throttle !== null) log(`CPU throttle: every browser session runs at 1/${throttle} of this machine's speed`);
 
   const files = readSuites();
   const results = [];

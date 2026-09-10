@@ -103,6 +103,40 @@ export function createProtocolClient(socket, timeoutMs = 10_000) {
 }
 
 /**
+ * How much slower than this machine a page session runs, from `BROWSER_CPU_THROTTLE`.
+ *
+ * The job's runner has two cores where this laptop has twelve, and each of
+ * three browser jobs in a row failed one different Chrome suite there while
+ * the whole set passed here. The value is a divider, so 4 asks for a quarter
+ * of this machine's speed. One and below, and anything that is not a number,
+ * is no throttling at all.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {number | null} the rate asked for, or null.
+ */
+export function cpuThrottleRate(env = process.env) {
+  const rate = Number(env.BROWSER_CPU_THROTTLE);
+  return Number.isFinite(rate) && rate > 1 ? rate : null;
+}
+
+/**
+ * Slows one page session to `cpuThrottleRate`.
+ *
+ * Every session the suites open goes through here, second tabs included: the
+ * rate is set on a page target rather than on the browser, so a tab that
+ * opened a session of its own runs at full speed until it is told otherwise.
+ *
+ * @param {(method: string, params?: object) => Promise<unknown>} call that session's protocol client.
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {Promise<number | null>} the rate applied, or null when none was.
+ */
+export async function throttleCpu(call, env = process.env) {
+  const rate = cpuThrottleRate(env);
+  if (rate !== null) await call('Emulation.setCPUThrottlingRate', { rate });
+  return rate;
+}
+
+/**
  * How many completed requests a document remembers for `performance.getEntriesByType('resource')`.
  *
  * That list holds the first entries of a document and nothing once it is full.
@@ -252,8 +286,10 @@ export async function launchChrome(t, origin) {
   await call('Page.enable');
   await call('Page.addScriptToEvaluateOnNewDocument', { source: `performance.setResourceTimingBufferSize(${RESOURCE_TIMING_BUFFER});` });
   await call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+  const throttled = await throttleCpu(call);
   const version = await call('Browser.getVersion');
-  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}`);
+  const slowedBy = throttled === null ? '' : `, CPU throttled ${throttled}x`;
+  t.diagnostic(`${version.product} at ${executable}, debugging port ${port}${slowedBy}`);
   return {
     call, evaluate, errors, blockedRequests,
     pid: child.pid, profile, debuggingPort: port, version: version.product,

@@ -212,6 +212,38 @@ describe('the gates it consults, and the order it consults them in', () => {
     assert.match((await start()).join(' '), /test\/\*\*\/\*\.test\.mjs/);
   });
 
+  it('names the throttle every browser session will run under', async () => {
+    const { lines, start } = drive({ env: { CHROME_BIN: '/usr/bin/google-chrome', BROWSER_CPU_THROTTLE: '4' } });
+
+    assert.deepEqual(await start(), []);
+    assert.ok(
+      lines.includes("CPU throttle: every browser session runs at 1/4 of this machine's speed"),
+      lines.join(' | '),
+    );
+  });
+
+  it('says nothing about a throttle when the environment asks for none', async () => {
+    const { lines, start } = drive();
+
+    assert.deepEqual(await start(), []);
+    assert.deepEqual(lines.filter((line) => /throttle/i.test(line)), []);
+  });
+
+  it('hands every suite child the environment it was given, the throttle with it', async () => {
+    const env = { CHROME_BIN: '/usr/bin/google-chrome', BROWSER_CPU_THROTTLE: '6' };
+    const handed = [];
+    const { start } = drive({
+      env,
+      spawnSuite: async (file, suiteEnv) => {
+        handed.push(suiteEnv);
+        return { file, ...GREEN };
+      },
+    });
+
+    assert.deepEqual(await start(), []);
+    assert.deepEqual(handed, [env]);
+  });
+
   it('looks for the browser the environment names, and nowhere else', async () => {
     const looked = [];
     const { start } = drive({
