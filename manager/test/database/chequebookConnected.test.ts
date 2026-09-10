@@ -227,9 +227,13 @@ describe('the connected chequebook path over a real journal and an owned synthet
     const before = await schemas();
     t.mock.method(fs, 'mkdtemp', async () => { throw new Error('synthetic-directory-failure'); });
     syncBuiltinESMExports();
-    await assert.rejects(startConnectedChequebook({ pgPort: port }), /synthetic-directory-failure/);
-    t.mock.restoreAll();
-    syncBuiltinESMExports();
+    try {
+      await assert.rejects(startConnectedChequebook({ pgPort: port }), /synthetic-directory-failure/);
+    } finally {
+      // A failure here would otherwise leave node:fs mocked for every later case in this file.
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
     assert.equal(await schemas(), before, 'the schema the failed start created was dropped again');
   });
 
