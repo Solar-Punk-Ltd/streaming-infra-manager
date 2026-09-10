@@ -2,6 +2,7 @@ import { Alert, Box, Stack, Typography } from '@mui/material';
 import { plurToBzzExact, type ChequebookOperationDetail } from '@streaming-infra-manager/common';
 import { CopyButton } from '../CopyButton';
 import { hasAttributionConflict, permitsNewTransfer, transferHeadline } from './transferEvidence';
+import { receiptPollingSentence } from './receiptPolling';
 
 export function TransferValue({ label, value, copy = false }: { label: string; value: string; copy?: boolean }) {
   return <Box>
@@ -21,6 +22,7 @@ export function TransferEvidencePanel({ detail, context = 'saved' }: { detail: C
   const identityConflict = context === 'identity_conflict';
   const returned = context !== 'saved';
   const prefix = identityConflict ? 'Returned' : returned ? 'Blocking' : 'Saved';
+  const polling = receiptPollingSentence(operation);
   const hashes = [...new Set([operation.transactionHash, ...detail.responseEvidence.map(evidence => evidence.transactionHash)].filter((value): value is string => value !== null))];
   return <Stack spacing={1.25}>
     {context === 'busy' && <Typography variant="subtitle2">Another transfer blocks this node</Typography>}
@@ -42,6 +44,7 @@ export function TransferEvidencePanel({ detail, context = 'saved' }: { detail: C
     {hashes.map(hash => <TransferValue key={hash} label={returned ? `${prefix} transaction hash` : 'Transaction hash'} value={hash} copy />)}
     {conflict && <Typography variant="body2">Additional transaction evidence needs review. Starting another transfer is blocked.</Typography>}
     {!identityConflict && operation.state === 'asserted' && permitsNewTransfer(detail) && <Typography variant="body2">This records an operator's acceptance of duplicate-payment risk. It does not prove that no transaction was sent.</Typography>}
+    {context === 'saved' && polling !== null && <Typography variant="body2">{polling}</Typography>}
     <TransferValue label="Last receipt check" value={operation.receiptCheckedAt ?? 'Not checked yet'} />
     <TransferValue label="Last recovery check" value={operation.recoveryCheckedAt ?? 'Not checked yet'} />
   </Stack>;
