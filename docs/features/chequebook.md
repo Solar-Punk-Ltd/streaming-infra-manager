@@ -5,15 +5,16 @@ from the node's wallet into its chequebook. A withdrawal moves it back. The
 manager presents these transfers as recorded operations whose outcome must be
 checked from transaction evidence. A balance change cannot confirm a transfer.
 
-This page describes accepted T09 behavior included in the local `main-v2`
-integration checkpoint `4372848` on 2026-09-09. It includes the journal, receipt
-recovery, durable browser workflow, history, account/instance guards and owned
-transport factory through `b1b1aec`. New submission preparation captures T06's
-SQL target proof and uses one qualified Docker/Bee connection. Local Unix and
+Status, 2026-09-10. Everything on this page is on the branch
+`feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into
+`main-v2`. It carries the journal, receipt recovery, the durable browser
+workflow, history, the account and instance guards, the owned transport factory
+and the automatic receipt polling. New submission preparation captures T06's SQL
+target proof and uses one qualified Docker and Bee connection. Local Unix and
 supervised SSH adapters are implemented, but the production qualification
-catalog is empty. Acquisition refuses without a matching qualified record.
-Actual SSH and exact-image qualification remain open. The local merge is not
-evidence of a host deployment or live transfer.
+catalog is empty, and acquisition refuses without a matching qualified record.
+Actual SSH and exact-image qualification have not run. Nothing on this branch
+has been deployed, and no transfer has been made with real money.
 
 ## Balances and new uploader starts
 
@@ -75,7 +76,7 @@ again automatically after a restart.
 | Stored state | Meaning |
 | --- | --- |
 | `submitting` | The operation was durably admitted. This state alone does not prove whether Bee received the POST. |
-| `submitted` | A transaction hash was recorded. Mining and finality are not yet established. The manager checks the chain for its receipt about every 20 seconds until the operation's `receiptPollUntil` deadline. |
+| `submitted` | A transaction hash was recorded. Mining and finality are not yet established. The manager checks the chain for its receipt about every 20 seconds while the operation's `receiptPollUntil` deadline is ahead. Three kinds of `submitted` row are never checked automatically: one with no deadline, which is every operation recorded before this behaviour existed, one whose deadline has passed, and one whose failure reason is `hash_conflict`. |
 | `unknown` | Submission or later evidence could not establish an outcome. Keep the original request and inspect recovery evidence. |
 | `settled` | A matching successful receipt and the required canonical, finalized history were verified. |
 | `reverted` | A matching reverted receipt and the required canonical, finalized history were verified. |
@@ -180,32 +181,44 @@ manual chain recovery can still use the frozen operation after profile deletion.
 
 ## Evidence and remaining acceptance
 
-The journal and target-ownership checkpoint `16fd7b3` passed 78 actual SQL
-checks and types. The preceding combined branch passed 1002 manager, 289 common,
-18 frontend and 48 browser checks plus types. Native browser regressions cover
-durable intents, competing tabs, reload, account changes, lost responses,
-deleted-deployment history, conflicting evidence and explicit recovery actions.
+**The composition is exercised whole, and only the Bee, the chain and the
+database are synthetic.** `manager/test/database/chequebookConnected.test.ts`
+signs in over HTTP, goes through the real router behind the real session and
+same-site gates into a real PostgreSQL journal, out over the owned Docker
+transport to a synthetic Bee, and reads the outcome back.
+`frontend/test/transfer-connected-browser.test.mjs` does the same with the
+browser as the only client, against that manager run as a forked process. Both
+need a disposable PostgreSQL on `T09_TEST_PG_PORT` and skip out loud without it,
+and the browser runner treats a silent skip as a failure.
 
-Synthetic Docker/Bee preparation is reviewed through `3cd3443`, with 211 focused
-checks and types. The separate step-deadline correction `3d66035` passed 88
-focused checks and types. These results exercise protocol and ownership code
-without qualifying an actual Bee image or making a live transfer.
+**The rest of the suites.** Three database files cover this feature:
+`chequebookConnected`, `chequebookOperations`, which holds the polling
+behaviour, and `chequebookTargets`. Nine browser suites cover the durable
+intent, the dialog, the history, the recovery actions, the two API surfaces, the
+fixture and the polling itself. The unit suites cover the poller, the receipt
+check, the receipt inspector, the routes, the schemas, submission, recovery and
+the qualification catalog. All of them pass on a laptop, and all of them are in
+the jobs the checks workflow declares for a pull request. The last full run
+recorded on the branch, taken at `e857994`, is in
+[../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). No job
+of that workflow had run on a GitHub runner when this page was written.
 
-The connected factory checkpoint `b1b1aec` passed 42 focused factory, runtime,
-deadline and pending-read checks, 151 compatibility checks and manager types.
-Its synthetic cases include lost-response replay, target changes, deleted-profile
-receipt recovery and shutdown during capture, connection, claim and POST.
-Shutdown retains cleanup promises and reports unverified resource closure.
-These results do not establish aggregate verification of the merged branch.
+**What the tests cannot establish.** They exercise protocol and ownership code
+against a synthetic Bee. They do not qualify a real Bee image, they do not open
+a real SSH connection, and they move no money.
 
-Completion still requires exact immutable-image bridge and actual SSH
-qualification, finite receipt-only polling, the portable intent-browser harness,
-and the connected authenticated SQL/browser acceptance run on the integrated
-code. Polling must not resend money, scan unknown submissions automatically or
-renew its budget indefinitely on refresh. The production qualification catalog
-remains empty until the recorded binary/disconnect harness succeeds.
-Real-money testing remains a separately authorized T22 activity with Levi's
-pending D05 inputs and strict ownership of cleanup.
+**The production qualification catalog is empty.**
+`PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` in
+`manager/src/domain/chequebook/beeBridgeQualification.ts` is a frozen empty
+list, and a unit test pins it that way. Acquisition refuses a transport with no
+matching qualified record, so on a real host this feature does nothing until a
+recorded qualification run puts an entry there. A synthetic pass qualifies
+nothing and must never be used to populate it.
+
+**What completion still requires.** The exact immutable-image bridge
+qualification and an actual SSH qualification, both of which need a host and
+have not run. Real-money testing is a separately authorised T22 activity, which
+waits for Levi's D05 numbers and keeps strict ownership of cleanup.
 
 The historical 0.5 BZZ fill on the funded `review-20260907` deployment remains
 unverified. Without transaction evidence, this document does not establish
