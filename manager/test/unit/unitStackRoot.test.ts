@@ -14,14 +14,17 @@
  * around it. `pnpm test` in manager/, or `node test/unit/run.mjs`.
  */
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { dirname, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  FORWARDED_SIGNALS,
   PLACEHOLDER_DATABASE_URL,
   STACK_ROOT_VARIABLE,
   UNIT_ARGS,
+  forwardSignals,
   runProblem,
   sandboxedEnv,
 } from './run.mjs';
@@ -68,5 +71,53 @@ describe('the runner that hands it that root', () => {
     assert.equal(runProblem({ code: 0, signal: null }), null);
     assert.match(runProblem({ code: 1, signal: null }) ?? '', /exited with code 1/);
     assert.match(runProblem({ code: null, signal: 'SIGKILL' }) ?? '', /SIGKILL/);
+  });
+});
+
+describe('a run that is interrupted rather than finished', () => {
+  /** The child and the removal, both recorded rather than done. */
+  function listening() {
+    const host = new EventEmitter();
+    const killed: string[] = [];
+    let removals = 0;
+    const stopListening = forwardSignals({
+      host,
+      child: { kill: (signal: string) => killed.push(signal) },
+      cleanUp: () => {
+        removals += 1;
+      },
+    });
+    return { host, killed, removals: () => removals, stopListening };
+  }
+
+  it('passes the signal to the child and takes the throwaway root away', () => {
+    const { host, killed, removals } = listening();
+
+    host.emit('SIGINT');
+
+    assert.deepEqual(killed, ['SIGINT']);
+    assert.equal(removals(), 1, 'the finally never runs on this path, so the removal has to happen here');
+  });
+
+  it('does the same for the signal a runner sends when it stops a job', () => {
+    const { host, killed, removals } = listening();
+
+    host.emit('SIGTERM');
+
+    assert.deepEqual(killed, ['SIGTERM']);
+    assert.equal(removals(), 1);
+  });
+
+  it('stops listening once the run has ended on its own', () => {
+    const { host, killed, stopListening } = listening();
+
+    stopListening();
+    host.emit('SIGINT');
+
+    assert.deepEqual(killed, []);
+  });
+
+  it('watches the two signals an interrupted run actually arrives as', () => {
+    assert.deepEqual([...FORWARDED_SIGNALS], ['SIGINT', 'SIGTERM']);
   });
 });
