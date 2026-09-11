@@ -941,3 +941,29 @@ the branch protection toggle that makes it binding, "Require review from Code
 Owners" on `main-v2`, is his to flip alongside the required-checks flip after
 the first green run. The 113 screenshot evidence directories left in the
 machine's temp folder by earlier runs were deleted.
+
+
+**Merged, 2026-09-11, what the fourth runner run found.** Two faults, neither
+of them seen by a review. The Docker-backed workflow had been rejected by
+GitHub since the day it was written, because it read `${{ runner.temp }}` in a
+job-level `env:` block where that context does not exist, so every push left a
+red startup-failure run and the first manual dispatch would have refused to
+start. Both paths are written from a step now. The fourth browser failure was
+the product and not the test: the New deployment wizard reads the default stack
+version once, when it opens, so a wizard opened before the versions list
+arrives keeps an empty required field and a Continue that never enables.
+`withDefaultVersion` adopts the default when the list lands and leaves an
+operator's own choice alone. Found without a billed round, in a container held
+to two cores with the runner's own Chrome build, where it failed about one run
+in three and then passed six for six. The script is worth keeping for the next
+one of these.
+
+Recorded as a P3 limit under the review-priority rule, with its reproduction:
+`initialWizardState` reads every other context-derived default once too, so a
+wizard opened before the profiles, groups or host configuration arrive starts
+with no feed stream picked, no pool picked, and a generated passphrase rather
+than the host-wide one. Each of those degrades to a usable alternative the
+operator can change on the step in front of them, and the passphrase one fails
+to the encrypted side, which is why only the version case was fixed. To see
+any of them, hold the matching request in a fixture and open the wizard before
+releasing it, as `pool-draft-browser.test.mjs` does for the pool.
