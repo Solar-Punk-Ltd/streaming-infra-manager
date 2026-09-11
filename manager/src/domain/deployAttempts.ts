@@ -15,11 +15,13 @@
  * the daemon against every other such attempt through Compose's completion.
  * Fixed-image attempts of other projects run beside it.
  *
- * An attempt resolves only by evidence, never by time: a container id that
- * did not exist before it started, for every service it touched. Compose
- * creates every container after every build, so that proves the build
- * phase finished and no delayed export can follow. Anything less blocks,
- * and a person who checked the host releases it.
+ * An attempt resolves only by evidence, never by time. Either a container id
+ * that did not exist before it started, for every service it touched, or a
+ * deploy that finished cleanly and left those containers where they were.
+ * Compose creates every container after every build, and it reports nothing
+ * to do only once its build is over, so both say the build phase is finished
+ * and no delayed export can follow. Anything less blocks, and a person who
+ * checked the host releases it.
  */
 import type {
   DeployAttemptKind,
@@ -64,23 +66,37 @@ export interface AdmissionRequest {
 
 /**
  * What the containers say about the attempt: released when every touched
- * service shows a container id from after the attempt started, blocked
- * naming the services that do not.
+ * service is accounted for, blocked naming the services that are not.
+ *
+ * A service is accounted for by a container id from after the attempt
+ * started, and, when the deploy script finished cleanly, by the container it
+ * already had. Compose leaves a container alone only when it has nothing to
+ * do with it, which it can only know once its build is over, and a container
+ * nothing rebuilt cannot have come from another project's image. Without
+ * that second reading every retry of an unchanged deployment blocked, which
+ * is what a walkthrough on 2026-09-11 met on the first Retry it pressed.
+ *
+ * @param scriptFinished whether the deploy script exited cleanly. False for a
+ *   run that failed and for a boot judging what a gone manager left, where
+ *   nothing is known about the script at all.
  */
 export function attemptOutcome(
   attempt: DeployAttempt,
   observed: ReadonlyMap<string, readonly string[]>,
+  scriptFinished: boolean,
 ): AttemptOutcome {
   const before = new Set(attempt.preJobContainerIds);
-  const unseen = attempt.services.filter(
-    (service) => !(observed.get(service) ?? []).some((id) => !before.has(id)),
-  );
+  const unseen = attempt.services.filter((service) => {
+    const ids = observed.get(service) ?? [];
+    if (ids.some((id) => !before.has(id))) return false;
+    return !(scriptFinished && ids.length > 0);
+  });
   if (unseen.length === 0) return { state: 'released', reason: null };
   return {
     state: 'blocked',
     reason:
-      `${unseen.join(', ')} of ${attempt.project} was never seen with a container created by attempt ${attempt.jobId}. ` +
-      'Compose creates every container after every build, so that build may still be running, or it never got that far. Check the host, then release the attempt.',
+      `${unseen.join(', ')} of ${attempt.project} was never seen with a container attempt ${attempt.jobId} can account for. ` +
+      'A deploy that did not finish may still be building, and a service with no container never got that far. Check the host, then release the attempt.',
   };
 }
 

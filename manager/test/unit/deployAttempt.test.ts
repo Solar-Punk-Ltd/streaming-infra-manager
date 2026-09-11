@@ -37,12 +37,16 @@ const OPEN: DeployAttempt = {
   releasedBy: null,
 };
 
+/** What the deploy script's own exit says, named so a case reads as the run it is about. */
+const DEPLOY_SUCCEEDED = true;
+const DEPLOY_FAILED = false;
+
 describe('attemptOutcome', () => {
   it('releases when every touched service has a container the attempt did not start with', () => {
     const outcome = attemptOutcome(OPEN, new Map([
       ['srs', ['c-srs-new']],
       ['stream-uploader', ['c-up-new']],
-    ]));
+    ]), DEPLOY_FAILED);
 
     assert.deepEqual(outcome, { state: 'released', reason: null });
   });
@@ -51,7 +55,7 @@ describe('attemptOutcome', () => {
     const outcome = attemptOutcome(OPEN, new Map([
       ['srs', ['c-srs-new']],
       ['stream-uploader', ['c-up-old']],
-    ]));
+    ]), DEPLOY_FAILED);
 
     assert.equal(outcome.state, 'blocked');
     assert.match(outcome.reason ?? '', /stream-uploader/);
@@ -59,7 +63,7 @@ describe('attemptOutcome', () => {
   });
 
   it('stays blocked when a touched service has no container at all', () => {
-    const outcome = attemptOutcome(OPEN, new Map([['srs', ['c-srs-new']]]));
+    const outcome = attemptOutcome(OPEN, new Map([['srs', ['c-srs-new']]]), DEPLOY_SUCCEEDED);
 
     assert.equal(outcome.state, 'blocked');
     assert.match(outcome.reason ?? '', /stream-uploader/);
@@ -69,7 +73,7 @@ describe('attemptOutcome', () => {
     const outcome = attemptOutcome(OPEN, new Map([
       ['srs', ['c-srs-old']],
       ['stream-uploader', ['c-up-old']],
-    ]));
+    ]), DEPLOY_FAILED);
 
     assert.equal(outcome.state, 'blocked');
   });
@@ -78,9 +82,35 @@ describe('attemptOutcome', () => {
     const outcome = attemptOutcome(OPEN, new Map([
       ['srs', ['c-srs-old', 'c-srs-new']],
       ['stream-uploader', ['c-up-new']],
-    ]));
+    ]), DEPLOY_FAILED);
 
     assert.equal(outcome.state, 'released');
+  });
+
+  /**
+   * Levi ruled on 2026-09-11, after a walkthrough where every Retry ended
+   * blocked: a deploy that finished cleanly and left a container where it was
+   * is Compose reporting nothing to do, which it can only report once its
+   * build is over. The container it left cannot have come from another
+   * project's half-finished image, because nothing rebuilt it.
+   */
+  it('releases a clean run that left every container exactly where it was', () => {
+    const outcome = attemptOutcome(OPEN, new Map([
+      ['srs', ['c-srs-old']],
+      ['stream-uploader', ['c-up-old']],
+    ]), DEPLOY_SUCCEEDED);
+
+    assert.deepEqual(outcome, { state: 'released', reason: null });
+  });
+
+  it('stays blocked when a clean run left a touched service with no container at all', () => {
+    const outcome = attemptOutcome(OPEN, new Map([
+      ['srs', ['c-srs-old']],
+      ['stream-uploader', []],
+    ]), DEPLOY_SUCCEEDED);
+
+    assert.equal(outcome.state, 'blocked');
+    assert.match(outcome.reason ?? '', /stream-uploader/);
   });
 });
 

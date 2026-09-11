@@ -295,13 +295,16 @@ export class DeploymentOrchestrator {
   /**
    * What boot does with the attempts a gone manager left open: each is
    * judged by its project's containers now, released when every touched
-   * service shows a new one and blocked otherwise. Never by time.
+   * service shows a new one and blocked otherwise. Never by time, and never
+   * on the script, because the process that ran it is gone.
    */
   async reconcileAttempts(): Promise<{ released: string[]; blocked: string[] }> {
     const outcome = { released: [] as string[], blocked: [] as string[] };
     for (const attempt of await this.attempts.listUnresolved()) {
       if (attempt.state !== 'open') continue;
-      const judged = await this.judgeAttempt(attempt);
+      // The manager that ran the script is gone, so nothing is known about how
+      // it ended and only a new container can account for a service.
+      const judged = await this.judgeAttempt(attempt, false);
       if (!judged) continue;
       (judged.state === 'released' ? outcome.released : outcome.blocked).push(attempt.project);
     }
@@ -1135,7 +1138,7 @@ export class DeploymentOrchestrator {
       if (finalizationStarted) return;
       finalizationStarted = true;
       void (async () => {
-        if (attempt) await this.judgeAttempt(attempt);
+        if (attempt) await this.judgeAttempt(attempt, code === 0);
         await this.finalizeJob(cfg, code, errorText, stdoutTail, attempt);
       })();
     };
@@ -1165,7 +1168,7 @@ export class DeploymentOrchestrator {
    * a new container, blocked naming the rest. A daemon that does not answer
    * leaves it open for boot to judge.
    */
-  private async judgeAttempt(attempt: DeployAttempt): Promise<AttemptOutcome | null> {
+  private async judgeAttempt(attempt: DeployAttempt, scriptFinished: boolean): Promise<AttemptOutcome | null> {
     try {
       const profile = attempt.target ? null : await this.profiles.findByName(attempt.project);
       if (!attempt.target && !profile) throw new Error('The legacy attempt has no recorded target or deployment');
@@ -1174,7 +1177,7 @@ export class DeploymentOrchestrator {
       if (snapshot.daemonId !== attempt.daemonId) {
         throw new TargetNotVerifiedError(target, 'The attempt target now reaches a different Docker daemon');
       }
-      const judged: AttemptOutcome = attemptOutcome(attempt, snapshot.containers);
+      const judged: AttemptOutcome = attemptOutcome(attempt, snapshot.containers, scriptFinished);
       await this.attempts.resolve(attempt.id, judged);
       if (judged.state === 'blocked') {
         logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);

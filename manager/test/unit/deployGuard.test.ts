@@ -103,11 +103,27 @@ describe('a deploy attempt', () => {
     assert.equal(harness.attempts.rows[0]?.state, 'released');
   });
 
-  it('blocks, naming the service, when the script ended with a touched service still on an old container', async () => {
+  // Levi ruled on 2026-09-11: Compose leaves a container alone only when it has
+  // nothing to do with it, which it knows only once its build is over. Before
+  // this every Retry of an unchanged deployment ended blocked.
+  it('releases a deploy that ended cleanly and left a touched service on the container it had', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
 
     harness.daemon.set('stage', 'srs', ['srs-new']);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    assert.equal(harness.attempts.rows[0]?.state, 'released');
+    assert.equal(harness.profiles.statusOf('stage'), 'RUNNING', 'the deployment itself came up');
+  });
+
+  it('blocks, naming the service, when a clean deploy left a touched service with no container at all', async () => {
+    const { harness, row } = await setup();
+    await harness.orchestrator.startDeploy(row('stage'), undefined);
+
+    harness.daemon.set('stage', 'srs', ['srs-new']);
+    harness.daemon.set('stage', 'stream-uploader', []);
     harness.runner.finish(0);
     await untilRunning(harness.profiles, 'stage');
 
@@ -131,15 +147,15 @@ describe('what an unresolved attempt refuses', () => {
   it('refuses the same project, naming the attempt, and takes no claim', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
-    harness.runner.finish(0);
-    await untilRunning(harness.profiles, 'stage');
+    harness.runner.finish(0, 1);
+    await untilStatus(harness, 'stage', 'ERROR');
     assert.equal(harness.attempts.rows[0]?.state, 'blocked');
 
     await assert.rejects(
       harness.orchestrator.startDeploy(row('stage'), undefined),
       (err: unknown) => err instanceof DeployAttemptRefusedError && /stage/.test(err.reason) && /job-|attempt/.test(err.reason),
     );
-    assert.equal(harness.profiles.statusOf('stage'), 'RUNNING');
+    assert.equal(harness.profiles.statusOf('stage'), 'ERROR', 'the refused deploy took no claim, so the row is where the failed one left it');
     assert.equal(harness.attempts.rows.length, 1);
   });
 
@@ -161,8 +177,8 @@ describe('what an unresolved attempt refuses', () => {
   it('is admitted again once a person released the blocked attempt', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
-    harness.runner.finish(0);
-    await untilRunning(harness.profiles, 'stage');
+    harness.runner.finish(0, 1);
+    await untilStatus(harness, 'stage', 'ERROR');
 
     const released = await harness.orchestrator.releaseAttempt(harness.attempts.rows[0]!.id, 'levi');
     assert.equal(released?.releasedBy, 'levi');
@@ -223,8 +239,8 @@ describe('what ends an attempt without its script', () => {
   it('requires explicit release of an unresolved attempt before its deployment can be removed', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
-    harness.runner.finish(0);
-    await untilRunning(harness.profiles, 'stage');
+    harness.runner.finish(0, 1);
+    await untilStatus(harness, 'stage', 'ERROR');
     assert.equal(harness.attempts.rows[0]?.state, 'blocked');
 
     await assert.rejects(harness.orchestrator.startRemove(row('stage')), /unresolved/);
@@ -278,8 +294,8 @@ describe('what the pages are told', () => {
   it('says attempt.changed when a person releases one, and nothing about versions', async () => {
     const { harness, row } = await setup();
     await harness.orchestrator.startDeploy(row('stage'), undefined);
-    harness.runner.finish(0);
-    await untilRunning(harness.profiles, 'stage');
+    harness.runner.finish(0, 1);
+    await untilStatus(harness, 'stage', 'ERROR');
     const told: string[] = [];
     harness.events.subscribe((event) => told.push(event.type));
 
