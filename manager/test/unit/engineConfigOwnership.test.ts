@@ -11,12 +11,12 @@
  * in a closure and nothing recorded whose the rollout was.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import type { StackContract } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
 import type { ContainerState } from '../../src/domain/ContainerControl.js';
@@ -26,7 +26,7 @@ import type {
   EngineConfigOperationState,
 } from '../../src/domain/engineConfig/operations.js';
 
-const root = mkdtempSync(join(tmpdir(), 'engine-config-ownership-'));
+const root = throwawayRoot('engine-config-ownership-');
 after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');

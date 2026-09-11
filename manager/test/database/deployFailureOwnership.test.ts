@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import type { Profile } from '../../src/types/index.js';
 
-const root = mkdtempSync(join(tmpdir(), 't04b-deploy-failure-'));
+const root = throwawayRoot('t04b-deploy-failure-');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(process.env.SHLS_ROOT);

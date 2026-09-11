@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import type { DeployReservation } from '../../src/domain/DeploymentOrchestrator.js';
 import { ProfileConfigError } from '../../src/domain/errors/index.js';
 
-const root = mkdtempSync(join(tmpdir(), 't04a-missing-version-'));
+const root = throwawayRoot('t04a-missing-version-');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(process.env.SHLS_ROOT, { recursive: true });

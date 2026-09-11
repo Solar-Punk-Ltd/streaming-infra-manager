@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import type { EngineOverview } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
-const root = mkdtempSync(join(tmpdir(), 't11-srs-overview-'));
+const root = throwawayRoot('t11-srs-overview-');
 const previousRoot = process.env.SHLS_ROOT;
 process.env.SHLS_ROOT = root;
 process.env.DATABASE_URL = 'postgresql://127.0.0.1:1/t11_unused';

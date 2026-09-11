@@ -12,8 +12,7 @@
  * never a reason to put the previous file back.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
@@ -26,10 +25,11 @@ import {
 import type { ContainerState } from '../../src/domain/ContainerControl.js';
 import type { EngineWatcher } from '../../src/domain/engineConfig/EngineConfigService.js';
 import { omePortsFor, portTableOf } from '../../src/domain/versions/portTable.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { OME_TEMPLATE } from '../support/omeTemplate.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
-const root = mkdtempSync(join(tmpdir(), 'ome-liveness-'));
+const root = throwawayRoot('ome-liveness-');
 after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');

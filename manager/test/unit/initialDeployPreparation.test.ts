@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { ProfileConfigError } from '../../src/domain/errors/index.js';
 import { readStackContract } from '../../src/domain/versions/stackContract.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { V3_FIXTURE } from '../support/stackFixtures.js';
 
-const root = mkdtempSync(join(tmpdir(), 't04a-initial-preparation-'));
+const root = throwawayRoot('t04a-initial-preparation-');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(process.env.SHLS_ROOT, { recursive: true });

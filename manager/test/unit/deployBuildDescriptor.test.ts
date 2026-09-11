@@ -11,9 +11,9 @@
  * mount, which is what resolves the job's reference.
  */
 import assert from 'node:assert/strict';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -26,7 +26,7 @@ import {
 } from '../../src/domain/versions/buildManifest.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 
-const root = mkdtempSync(join(tmpdir(), 'deploy-descriptor-'));
+const root = throwawayRoot('deploy-descriptor-');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'bundled'), { recursive: true });

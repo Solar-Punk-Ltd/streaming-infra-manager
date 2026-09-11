@@ -10,14 +10,14 @@
  * rungs the publishers cover — the uploader refuses any mismatch.
  */
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
 // Every case writes into a scratch checkout of its own, which is the root
 // writeProfileEnv is handed.
-const root = mkdtempSync(join(tmpdir(), 'shls-'));
+const root = throwawayRoot('shls-');
 
 // The one definition of the base .env every case starts from. Cases that need
 // a different base overwrite the file; rewriting it before each test means

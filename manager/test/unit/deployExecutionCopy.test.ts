@@ -15,7 +15,6 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -23,9 +22,10 @@ import type { StackContract } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../src/types/index.js';
 
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
-const root = mkdtempSync(join(tmpdir(), 'deploy-execution-'));
+const root = throwawayRoot('deploy-execution-');
 process.env.SHLS_ROOT = join(root, 'bundled');
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'bundled'), { recursive: true });

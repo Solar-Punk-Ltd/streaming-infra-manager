@@ -17,15 +17,15 @@
  *    if someone loosens one of those.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { writeProfileEnv } from '../../src/utils/envUtils.js';
 
 // A scratch checkout of its own, which is the root writeProfileEnv is handed.
-const root = mkdtempSync(join(tmpdir(), 'srt-passphrase-'));
+const root = throwawayRoot('srt-passphrase-');
 
 function withBaseEnv(contents: string): void {
   writeFileSync(join(root, '.env'), contents, 'utf8');

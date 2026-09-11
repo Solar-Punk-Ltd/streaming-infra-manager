@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
-const root = mkdtempSync(join(tmpdir(), 'target-attempt-'));
+const root = throwawayRoot('target-attempt-');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 writeFileSync(join(root, '.env'), 'ENGINE=srs\n');

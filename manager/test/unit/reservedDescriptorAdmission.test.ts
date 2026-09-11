@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import type { StackContract } from '@streaming-infra-manager/common';
 import type { DeployReservation } from '../../src/domain/DeploymentOrchestrator.js';
 import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
-const root = mkdtempSync(join(tmpdir(), 't06-descriptor-admission-'));
+const root = throwawayRoot('t06-descriptor-admission-');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 writeFileSync(join(root, '.env'), 'ENGINE=srs\n');

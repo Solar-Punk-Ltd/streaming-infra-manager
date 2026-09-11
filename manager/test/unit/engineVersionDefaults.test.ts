@@ -11,14 +11,14 @@
  * it refuses pairs the engine would start with.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import type { EngineOverview, StackContract } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
-const root = mkdtempSync(join(tmpdir(), 'engine-version-defaults-'));
+const root = throwawayRoot('engine-version-defaults-');
 process.env.SHLS_ROOT = root;
 writeFileSync(join(root, '.env'), 'ENGINE=srs\nAPI_PORT=10000\n', 'utf8');
 

@@ -10,17 +10,17 @@
  * to somebody else's running deploy.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { ProfileBusyError } from '../../src/domain/errors/index.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { makeProfile } from '../support/profileFixtures.js';
 
 // SUBMODULE is resolved when envUtils loads, so the scratch root has to be set
 // before the harness is imported, hence the dynamic import below.
-const root = mkdtempSync(join(tmpdir(), 'deploy-reservation-'));
+const root = throwawayRoot('deploy-reservation-');
 process.env.SHLS_ROOT = root;
 
 const { orchestratorHarness } = await import(

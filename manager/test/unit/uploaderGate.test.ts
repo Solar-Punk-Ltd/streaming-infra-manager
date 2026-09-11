@@ -11,8 +11,7 @@
  * belong where every route passes.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -29,11 +28,12 @@ import {
 import type { StampService } from '../../src/domain/StampService.js';
 import { UploaderStartGate } from '../../src/domain/UploaderStartGate.js';
 import { Profile } from '../../src/types/index.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { makeProfile } from '../support/profileFixtures.js';
 
 // SUBMODULE resolves when envUtils loads, so the scratch root has to be set
 // before the orchestrator is imported.
-const root = mkdtempSync(join(tmpdir(), 'uploader-gate-'));
+const root = throwawayRoot('uploader-gate-');
 process.env.SHLS_ROOT = root;
 writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
 

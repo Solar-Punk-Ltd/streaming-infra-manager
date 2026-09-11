@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, it } from 'node:test';
 import { rolloutNotice } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import type { EngineWatcher } from '../../src/domain/engineConfig/EngineConfigService.js';
 
-const root = mkdtempSync(join(tmpdir(), 't01-creation-guard-'));
+const root = throwawayRoot('t01-creation-guard-');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 mkdirSync(join(root, 'engines', 'srs'), { recursive: true });

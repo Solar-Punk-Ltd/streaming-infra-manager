@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import type { FirewallInventory } from '../../src/domain/ports/firewallInventoryTypes.js';
 
 const script = fileURLToPath(new URL('../../../deploy/host/firewall-rules.sh', import.meta.url));
-const root = mkdtempSync(join(tmpdir(), 'firewall-rules-'));
+const root = throwawayRoot('firewall-rules-');
 after(() => rmSync(root, { recursive: true, force: true }));
 const runOptions = { encoding: 'utf8', timeout: 10_000 } as const;
 function evidence(): FirewallInventory {

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, beforeEach, it } from 'node:test';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import type { DeploymentGroupRepository } from '../../src/domain/DeploymentGroupRepository.js';
 
-const root = mkdtempSync(join(tmpdir(), 't10-removal-ownership-'));
+const root = throwawayRoot('t10-removal-ownership-');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
 process.env.DATABASE_URL = 'postgres://unused';

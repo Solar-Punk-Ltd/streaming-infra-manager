@@ -11,15 +11,15 @@
  * later version that does have one would pick up a file nobody applied.
  */
 import assert from 'node:assert/strict';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import type { StackContract } from '@streaming-infra-manager/common';
 
-const root = mkdtempSync(join(tmpdir(), 'engine-config-deploy-'));
+const root = throwawayRoot('engine-config-deploy-');
 const dataRoot = join(root, 'data');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = dataRoot;

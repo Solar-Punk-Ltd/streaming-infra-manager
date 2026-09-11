@@ -11,9 +11,9 @@
  * down over a typo would be the worst thing this feature could do.
  */
 import assert from 'node:assert/strict';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
@@ -33,7 +33,7 @@ import {
 // root: what differs between the two here is the contract, not the files.
 // Both roots are read when their modules load, so they are set before the
 // dynamic imports below and nothing above imports them statically.
-const root = mkdtempSync(join(tmpdir(), 'engine-config-service-'));
+const root = throwawayRoot('engine-config-service-');
 after(() => rmSync(root, { recursive: true, force: true }));
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = join(root, 'data');
