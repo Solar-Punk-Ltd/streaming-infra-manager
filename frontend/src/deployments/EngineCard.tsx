@@ -119,7 +119,7 @@ export function EngineCard({
       title={ENGINE_LABEL[engine]}
       sub="media server"
       actions={
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <ReadinessPill
             label={profile.status !== 'RUNNING' ? 'State not checked' : engineRunning ? 'Reported running' : 'No container reported'}
             tone={profile.status !== 'RUNNING' ? 'info' : engineRunning ? 'ok' : 'gray'}

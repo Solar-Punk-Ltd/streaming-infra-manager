@@ -58,94 +58,99 @@ export function ContainersCard({
           hint="Open logs or refresh the deployment to check its current state."
         />
       ) : (
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Service</TableCell>
-              <TableCell>What it does</TableCell>
-              <TableCell>Ports</TableCell>
-              <TableCell>CPU</TableCell>
-              <TableCell>Memory</TableCell>
-              <TableCell>Diagnostics</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {containers.map((container) => {
-              const metrics = metricsFor(container.service);
-              const ports = Object.entries(container.ports);
-              return (
-                <TableRow key={container.service}>
+        // Six columns of ports and diagnostics are wider than a phone. Without
+        // a box of its own the table stretches the whole page instead, and the
+        // page slides sideways.
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Service</TableCell>
+                <TableCell>What it does</TableCell>
+                <TableCell>Ports</TableCell>
+                <TableCell>CPU</TableCell>
+                <TableCell>Memory</TableCell>
+                <TableCell>Diagnostics</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {containers.map((container) => {
+                const metrics = metricsFor(container.service);
+                const ports = Object.entries(container.ports);
+                return (
+                  <TableRow key={container.service}>
+                    <TableCell>
+                      <ServiceChip service={container.service} />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {SERVICE_DESCRIPTIONS[container.service] ?? 'part of this stack'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {ports.length === 0 ? (
+                        <Typography variant="caption" color="text.secondary">
+                          none exposed
+                        </Typography>
+                      ) : (
+                        ports.map(([key, port]) => (
+                          <PortCell
+                            key={key}
+                            portKey={key}
+                            port={port}
+                            host={hostFor(profile, host)}
+                          />
+                        ))
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {metrics ? (
+                        <Typography variant="body2">
+                          {formatCores(metrics.cpuPercent)} cores
+                        </Typography>
+                      ) : (
+                        <Dash />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {metrics && snapshot ? (
+                        <>
+                          <Typography variant="body2">
+                            {formatBytes(metrics.memUsageBytes)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatSharePercent(
+                              metrics.memUsageBytes,
+                              snapshot.host.memTotalBytes,
+                            )}{' '}
+                            of the machine
+                          </Typography>
+                        </>
+                      ) : (
+                        <Dash />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Button size="small" aria-label={`View ${container.service} logs`} onClick={() => setLogService(container.service)}>Logs</Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {uploaderPending && isRunning(profile) && (
+                <TableRow>
                   <TableCell>
-                    <ServiceChip service={container.service} />
+                    <ServiceChip service={STREAM_UPLOADER_SERVICE} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell colSpan={5}>
                     <Typography variant="body2" color="text.secondary">
-                      {SERVICE_DESCRIPTIONS[container.service] ?? 'part of this stack'}
+                      not started yet, waiting for a stamp
                     </Typography>
                   </TableCell>
-                  <TableCell>
-                    {ports.length === 0 ? (
-                      <Typography variant="caption" color="text.secondary">
-                        none exposed
-                      </Typography>
-                    ) : (
-                      ports.map(([key, port]) => (
-                        <PortCell
-                          key={key}
-                          portKey={key}
-                          port={port}
-                          host={hostFor(profile, host)}
-                        />
-                      ))
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {metrics ? (
-                      <Typography variant="body2">
-                        {formatCores(metrics.cpuPercent)} cores
-                      </Typography>
-                    ) : (
-                      <Dash />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {metrics && snapshot ? (
-                      <>
-                        <Typography variant="body2">
-                          {formatBytes(metrics.memUsageBytes)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {formatSharePercent(
-                            metrics.memUsageBytes,
-                            snapshot.host.memTotalBytes,
-                          )}{' '}
-                          of the machine
-                        </Typography>
-                      </>
-                    ) : (
-                      <Dash />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Button size="small" aria-label={`View ${container.service} logs`} onClick={() => setLogService(container.service)}>Logs</Button>
-                  </TableCell>
                 </TableRow>
-              );
-            })}
-            {uploaderPending && isRunning(profile) && (
-              <TableRow>
-                <TableCell>
-                  <ServiceChip service={STREAM_UPLOADER_SERVICE} />
-                </TableCell>
-                <TableCell colSpan={5}>
-                  <Typography variant="body2" color="text.secondary">
-                    not started yet, waiting for a stamp
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              )}
+            </TableBody>
+          </Table>
+        </Box>
       )}
     </SectionCard>
     {logService && <LogsDialog profile={profile} engine={engineOf(profile)} initialService={logService} onClose={() => setLogService(null)} />}

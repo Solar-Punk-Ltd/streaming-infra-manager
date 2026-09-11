@@ -216,7 +216,7 @@ function DeploymentBody({
         sx={{
           display: 'grid',
           gap: 2,
-          gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 300px' },
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1fr) 300px' },
           alignItems: 'start',
         }}
       >

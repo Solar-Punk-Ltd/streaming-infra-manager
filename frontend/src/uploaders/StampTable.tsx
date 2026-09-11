@@ -36,7 +36,7 @@ export function StampTable({
       <Typography variant="overline" color="text.secondary">
         Postage stamps
       </Typography>
-      <Paper variant="outlined" sx={{ mt: 1 }}>
+      <Paper variant="outlined" sx={{ mt: 1, overflowX: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
