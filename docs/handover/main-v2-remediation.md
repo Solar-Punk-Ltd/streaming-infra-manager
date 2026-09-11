@@ -42,7 +42,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
 | T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
 | T13 SRT default | `0a0aebc` | Per-deployment default and review copy are included. |
-| T14 guided stamp purchase | No task branch | Await D04 capacity/lifetime presets and spending ceiling, then implement after T09. |
+| T14 guided stamp purchase | No task branch | **Closed by Levi on 2026-09-11, not wanted for now.** Buying postage already works from a deployment's storage card and already quotes the cost in BZZ before the operator confirms. This row would only have added human-readable capacity and lifetime presets in place of Swarm's own amount and depth inputs, and a spending ceiling refused in the submission path rather than merely displayed. He will say if he wants it. D04 is closed with it. |
 | T15 pool prerequisites | `8d326aa` | Pool creation preserves uploader drafts and handles stale membership observations. |
 | T16 validation feedback | `1f14207` | Field feedback, accessible labels and focus behavior are included. |
 | T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
@@ -58,8 +58,11 @@ Rewritten on 2026-09-10, on `feat/ai-remediation` at `6dc33d1`. The four items t
 
 1. **Exact execution and recovery completion.** This is the next slice of work, and it is the one thing still blocking T01. Today a deployment runs out of the immutable build directory rather than out of a private execution copy of its own. The decision is recorded in `../consensus/BUNDLED-ON-HOST-BRIEF.md` as D11, one private execution copy per deployment. Carry the final deployment owner, job and build reference and existing attempt into that copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work, and a complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
 2. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
-3. **T14, the guided stamp purchase.** It waits for Levi's D04 numbers: the preset capacities and lifetimes, and the spending ceiling. Nothing else blocks it.
-4. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+3. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+
+T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling today.
+
+With that closed, exact execution and recovery is the only engineering slice left on this roadmap. Everything after it needs the host.
 
 What remains of T09 is real SSH and real image qualification, both of which need a host. Do not populate the production qualification catalog merely because synthetic tests pass.
 
