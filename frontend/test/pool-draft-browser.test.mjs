@@ -7,6 +7,7 @@ import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor, watchCompletedRequests } from './support/chrome.mjs';
+import { endViteServer } from './support/teardown.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -92,7 +93,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     }}],
   });
   await server.listen();
-  t.after(async () => { server.httpServer.closeAllConnections(); await server.close(); });
+  t.after(() => endViteServer(t, server));
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);

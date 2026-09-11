@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import { launchChrome, PAGE_TEXT, pageShows, pointToClick, readWhenPresent, waitFor } from './support/chrome.mjs';
+import { endViteServer } from './support/teardown.mjs';
 import { LONG_ERROR, LONG_VERSION_NAME, seedVersions } from './fixtures/versions.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -63,10 +64,7 @@ test('version identity, states and actions fit verified narrow viewports', async
     }],
   });
   await server.listen();
-  t.after(async () => {
-    server.httpServer.closeAllConnections();
-    await server.close();
-  });
+  t.after(() => endViteServer(t, server));
   const address = server.httpServer.address();
   const origin = `http://127.0.0.1:${address.port}`;
   const browser = await launchChrome(t, origin);

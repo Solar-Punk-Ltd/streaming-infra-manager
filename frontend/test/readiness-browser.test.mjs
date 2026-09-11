@@ -7,6 +7,7 @@ import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { buttonWithText, clickWhenEnabled, launchChrome, PAGE_TEXT, readWhenPresent, waitFor, watchCompletedRequests } from './support/chrome.mjs';
+import { endViteServer } from './support/teardown.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
@@ -64,7 +65,7 @@ test('readiness and container diagnostics use current observations in the browse
     }}],
   });
   await server.listen();
-  t.after(async () => { server.httpServer.closeAllConnections(); await server.close(); });
+  t.after(() => endViteServer(t, server));
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);

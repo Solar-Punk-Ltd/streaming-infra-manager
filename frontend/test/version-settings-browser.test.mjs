@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { createServer } from 'vite';
 import { buttonWithText, fillWhenPresent, launchChrome, PAGE_TEXT, pointToClick, readWhenPresent, waitFor } from './support/chrome.mjs';
+import { endViteServer } from './support/teardown.mjs';
 import { seedVersions } from './fixtures/versions.mjs';
 import { seedSettings } from './fixtures/versionSettings.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
@@ -99,10 +100,7 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     }],
   });
   await server.listen();
-  t.after(async () => {
-    server.httpServer.closeAllConnections();
-    await server.close();
-  });
+  t.after(() => endViteServer(t, server));
   const address = server.httpServer.address();
   const origin = `http://127.0.0.1:${address.port}`;
   const browser = await launchChrome(t, origin);

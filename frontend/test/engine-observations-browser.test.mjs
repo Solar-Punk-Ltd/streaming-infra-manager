@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
 import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor } from './support/chrome.mjs';
+import { endViteServer } from './support/teardown.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -103,7 +104,7 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     }}],
   });
   await server.listen();
-  t.after(async () => { server.httpServer.closeAllConnections(); await server.close(); });
+  t.after(() => endViteServer(t, server));
   const port = server.httpServer.address().port;
   const origin = `http://127.0.0.1:${port}`;
   const browser = await launchChrome(t, origin);
