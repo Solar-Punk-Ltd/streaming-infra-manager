@@ -931,3 +931,13 @@ three consecutive green full runs at four times throttle (208 tests, 27 files,
 seconds. Recorded as a P2 follow-up under the estate's review-priority rule of
 2026-09-11: a failing suite exits late because five suites close their Vite
 before their Chrome, which costs ten runner minutes only when a suite fails.
+
+**Ruled, 2026-09-11, the three open questions on the checks.** Levi kept all
+three jobs of `checks.yml` required, at the runner-measured cost of about 12
+billed minutes a push, rather than moving the browser job to a schedule and
+letting a pull request go green with the Chrome suites unrun. He also took the
+code-owner guard, so `.github/CODEOWNERS` now names him over `/.github/`, and
+the branch protection toggle that makes it binding, "Require review from Code
+Owners" on `main-v2`, is his to flip alongside the required-checks flip after
+the first green run. The 113 screenshot evidence directories left in the
+machine's temp folder by earlier runs were deleted.
