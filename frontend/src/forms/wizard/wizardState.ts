@@ -121,23 +121,6 @@ function defaultVersionIn(context: WizardContext): number | null {
   );
 }
 
-/**
- * The preselected default, adopted once the list that names it has arrived.
- *
- * `initialWizardState` reads the default when the wizard opens, and on a slow
- * load that is before the versions are there. Without this the required field
- * stays empty for as long as the wizard is open, and Continue never enables,
- * though a default exists and a wizard opened a moment later would have it.
- */
-export function withDefaultVersion(
-  state: WizardState,
-  context: WizardContext,
-): WizardState {
-  if (state.versionId !== null) return state;
-  const preselected = defaultVersionIn(context);
-  return preselected === null ? state : { ...state, versionId: preselected };
-}
-
 export function streamsIn(context: WizardContext): Profile[] {
   return streamersOf(context.profiles);
 }

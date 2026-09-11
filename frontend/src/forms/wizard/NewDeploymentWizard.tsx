@@ -35,7 +35,6 @@ import {
   deployLabel,
   initialWizardState,
   LAST_STEP,
-  withDefaultVersion,
   type WizardContext,
   type WizardState,
 } from './wizardState';
@@ -98,10 +97,6 @@ export function NewDeploymentWizard({
   const mounted = useRef(true);
   const generation = useRef(0);
   const inFlight = useRef(false);
-
-  useEffect(() => {
-    setState(previous => withDefaultVersion(previous, context));
-  }, [context]);
 
   useEffect(() => {
     mounted.current = true;
