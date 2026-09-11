@@ -226,6 +226,28 @@ workflow: it is closed by the job setting the variable and creating the
 database in a step that fails loudly, and by nothing else. Anyone removing
 either would turn three passing cases into three invisible ones.
 
+A failing suite ends at once rather than at the runner's bound. Node runs a
+test's `after` hooks in registration order and stops at the first one that
+throws, and every hook behind it is then left undone. The five suites that own
+a Vite server directly registered its teardown before `launchChrome` registers
+Chrome's, so anything that went wrong closing Vite left a detached browser
+running and its socket open, and the file never exited. On 2026-09-11
+`versions-layout.test.mjs` failed one case with a Chrome protocol timeout,
+reported its cases, and was killed by the runner with its process group ten
+minutes later. Ten billed minutes for one failing case.
+
+`endViteServer` in `frontend/test/support/teardown.mjs` is the answer and the
+five suites go through it. It never throws, so the Chrome teardown behind it
+always runs, and it gives the close a bound so a server that will not finish
+costs a suite ten seconds rather than the run its remaining minutes. What went
+wrong reaches the log as a diagnostic, which is evidence without being a
+second failure on top of the first. Measured both ways on 2026-09-11: with the
+old teardown a close that throws left the file running past ninety seconds
+with no summary printed and Chrome alive, and with this one the same file
+reports and ends in six seconds. What it cannot do is free a Vite that never
+released its own watcher: a close that does nothing at all still holds the
+file through handles no caller can reach.
+
 Screenshots and fixture evidence go under `RUNNER_TEMP` when the job sets one
 and the OS temp directory otherwise, each in a directory the suite makes for
 itself. Three suites used to write to a fixed `/private/tmp/...` path instead,
