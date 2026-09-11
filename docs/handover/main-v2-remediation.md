@@ -943,27 +943,43 @@ the first green run. The 113 screenshot evidence directories left in the
 machine's temp folder by earlier runs were deleted.
 
 
-**Merged, 2026-09-11, what the fourth runner run found.** Two faults, neither
-of them seen by a review. The Docker-backed workflow had been rejected by
-GitHub since the day it was written, because it read `${{ runner.temp }}` in a
-job-level `env:` block where that context does not exist, so every push left a
-red startup-failure run and the first manual dispatch would have refused to
-start. Both paths are written from a step now. The fourth browser failure was
-the product and not the test: the New deployment wizard reads the default stack
-version once, when it opens, so a wizard opened before the versions list
-arrives keeps an empty required field and a Continue that never enables.
-`withDefaultVersion` adopts the default when the list lands and leaves an
-operator's own choice alone. Found without a billed round, in a container held
-to two cores with the runner's own Chrome build, where it failed about one run
-in three and then passed six for six. The script is worth keeping for the next
-one of these.
+**Merged, 2026-09-11, what the fourth runner run found.** Two faults, and one
+of them was mine. The Docker-backed workflow had been rejected by GitHub since
+the day it was written, because it read `${{ runner.temp }}` in a job-level
+`env:` block where that context does not exist, so every push left a red
+startup-failure run and the first manual dispatch would have refused to start.
+Both paths are written from a step now, and the repository secret the
+integration job signs in with exists, generated in 1Password and stored as
+`solarpunk-streaming-infra-manager-itest` in the SolarPunk vault, with
+`manager/test/integration/env.example` naming it so the local run and the CI
+run use one pair.
+
+The fourth browser failure was the pool-draft suite's own, and the first
+reading of it here was wrong. It looked like a product fault: a wizard opened
+before the versions list arrives keeps an empty stack version and a Continue
+that never enables. It is deliberate. `BasicsStep` renders the picker when
+`versionChoiceShown(context) || !version`, so the picker is there exactly when
+the choice has not been made for the operator, and `version-approval.test.mjs`
+says so in words, "a late sole default must leave a way to choose it". The
+page the suite timed out on carried that picker and the sentence "Pick a stack
+version". Adopting the default silently hid the picker and failed that
+assertion, which is how the mistake was caught, and the change is reverted.
+The suite now takes every Continue out of Basics through
+`continueFromBasics`, which picks the fixture version when the picker is
+offered and does nothing when it is not, so either order of arrival passes.
+
+Two things are worth keeping from the round. A container held to two cores
+with the runner's own Chrome build reproduces these races for free, at about
+one run in three here, which is how this one was found without another billed
+run. And a click that times out now says whether the last read saw no element
+or a disabled one, which is the difference between looking at the page and
+looking at the control, and was the whole of the diagnosis.
 
 Recorded as a P3 limit under the review-priority rule, with its reproduction:
-`initialWizardState` reads every other context-derived default once too, so a
+`initialWizardState` reads every context-derived default once, at open, so a
 wizard opened before the profiles, groups or host configuration arrive starts
 with no feed stream picked, no pool picked, and a generated passphrase rather
-than the host-wide one. Each of those degrades to a usable alternative the
-operator can change on the step in front of them, and the passphrase one fails
-to the encrypted side, which is why only the version case was fixed. To see
-any of them, hold the matching request in a fixture and open the wizard before
-releasing it, as `pool-draft-browser.test.mjs` does for the pool.
+than the host-wide one. Each degrades to a usable alternative on the step in
+front of the operator, and the passphrase one fails to the encrypted side. To
+see any of them, hold the matching request in a fixture and open the wizard
+before releasing it, as `pool-draft-browser.test.mjs` does for the pool.

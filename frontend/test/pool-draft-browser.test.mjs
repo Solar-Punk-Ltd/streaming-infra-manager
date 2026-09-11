@@ -119,18 +119,29 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   const valueOf = (selector, description) => readWhenPresent(evaluate, found(selector), 'value', description);
   const close = () => clickSelected('[role=dialog] button[aria-label="close"]', 'the dialog close button');
   const next = async () => { await click('Continue'); await settled(); };
-  const startUploader = async () => {
-    await click('New deployment'); await choose('ABR uploader'); await next();
-    await fill('input[placeholder="main-stage"]', 'retained-uploader');
-    await fill('textarea[placeholder="What is this for?"]', 'retained note');
-    const openedVersions = await evaluate(`(() => {
+  /**
+   * The Basics step offers a version picker exactly when the wizard needs the
+   * choice made: a sole tested default read when the wizard opened is taken
+   * silently, but a versions list that answers after the wizard opened leaves
+   * the field empty on purpose, and Continue stays disabled until one is
+   * picked. Which of the two a run gets is a race the runner loses often
+   * enough, so every Continue out of Basics goes through here.
+   */
+  const continueFromBasics = async () => {
+    const offered = await evaluate(`(() => {
       const field = ${found('#wizard-version')};
       if (!field) return false;
       field.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
       return true;
     })()`);
-    if (openedVersions) await clickSelected('[role="option"][data-value="7"]', 'the explicit fixture version');
+    if (offered) await clickSelected('[role="option"][data-value="7"]', 'the explicit fixture version');
     await next();
+  };
+  const startUploader = async () => {
+    await click('New deployment'); await choose('ABR uploader'); await next();
+    await fill('input[placeholder="main-stage"]', 'retained-uploader');
+    await fill('textarea[placeholder="What is this for?"]', 'retained note');
+    await continueFromBasics();
     await waitFor(body, text => text.includes('Create a storage pool'), 'pool prerequisite action');
     await choose('Type my own'); await fill('input[placeholder="my-stage-passphrase-2026"]', passphrase);
     await choose('Use an existing key'); await fill('input[placeholder="0x plus 64 hex characters"]', key);
@@ -242,7 +253,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(body, text => text.includes('New deployment'), 'the app to boot after the reload');
   await click('New deployment'); await choose('ABR uploader'); await next();
   assert.equal(await valueOf('input[placeholder="main-stage"]', 'the empty deployment name field'), '');
-  await fill('input[placeholder="main-stage"]', 'external-uploader'); await next();
+  await fill('input[placeholder="main-stage"]', 'external-uploader'); await continueFromBasics();
   await fill('textarea[placeholder^="360p@"]', external); await next();
   assert.match(await body(), /Review/);
   assert.equal(await evaluate(`!![...document.querySelectorAll('button')].find(button => button.textContent === 'Deploy' && !button.disabled)`), true);
@@ -252,7 +263,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await fill('input[placeholder="main-stage"]', 'custom-group');
   await clickSelected('input[type=checkbox]', 'the group checkbox');
   assert.match(await body(), /How many/);
-  await next(); assert.match(await body(), /Components/);
+  await continueFromBasics(); assert.match(await body(), /Components/);
   assert.equal(writes.filter(write => write.path === '/profiles').length, 0);
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
