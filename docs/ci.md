@@ -111,9 +111,9 @@ that fails half the time is worth more than the difference.
 
 ### browser
 
-The twenty-seven suites under `frontend/test/`, of which fourteen drive a real
+The thirty suites under `frontend/test/`, of which sixteen drive a real
 headless Chrome against a real Vite, one drives a Chrome and no Vite, and
-twelve need no browser. They live outside `pnpm test`, which only takes `src`,
+thirteen need no browser. They live outside `pnpm test`, which only takes `src`,
 so they ran nowhere on a pull request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
