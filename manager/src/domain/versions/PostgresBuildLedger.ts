@@ -126,21 +126,22 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
       const root = await this.observer.mountedRootOf(profileName, service);
       if (root) mounted.push({ service, root });
     }
-    const observations: Observation[] = mounted.map(({ service, root }) => ({
-      service,
-      buildId: buildIdOfRoot(this.versionsRoot, root),
-      commit: commitOfRoot(root),
-    }));
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      const observations: Observation[] = [];
       for (const { service, root } of mounted) {
-        const versionId = await this.versionOfRoot(client, root);
-        if (versionId === null) continue;
+        const source = await this.sourceOfRoot(client, root);
+        observations.push({
+          service,
+          buildId: source?.buildId ?? buildIdOfRoot(this.versionsRoot, root),
+          commit: commitOfRoot(root),
+        });
+        if (source === null) continue;
         await client.query(
           `INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services)
            VALUES ($1, $2, 'snapshot', $3, $4::text[])`,
-          [versionId, buildIdOfRoot(this.versionsRoot, root), `${profileName}/${service}`, [service]],
+          [source.versionId, source.buildId, `${profileName}/${service}`, [service]],
         );
       }
       // A newer snapshot of a service replaces the older one of the same
@@ -216,6 +217,29 @@ export class PostgresBuildLedger implements BuildLedger, BuildReferenceReader {
   }
 
   /** The version a root belongs to, by the version name in its path, or null for the bundled checkout and anything else. */
+  /**
+   * The version and the build a mounted root names, or null for a root this
+   * manager does not own.
+   *
+   * A deployment runs from a private copy of its build, so the directory its
+   * containers report is `<versions>/.executions/<id>/tree`, which names
+   * neither. Only the copy's own row can say, because the copy is exact and
+   * nothing inside it distinguishes it from the build it came from. Without
+   * this the observation recorded nothing, so no snapshot ever covered a
+   * deploy's job hold, the hold stayed open, and neither the copy nor the
+   * build could ever be released. Measured on the live host on 2026-09-11.
+   */
+  private async sourceOfRoot(client: PoolClient, root: string): Promise<{ versionId: number; buildId: string } | null> {
+    const copy = await client.query<{ version_id: number; build_id: string }>(
+      'SELECT version_id, build_id FROM execution_roots WHERE root_path = $1',
+      [root],
+    );
+    const owned = copy.rows[0];
+    if (owned) return { versionId: owned.version_id, buildId: owned.build_id };
+    const versionId = await this.versionOfRoot(client, root);
+    return versionId === null ? null : { versionId, buildId: buildIdOfRoot(this.versionsRoot, root) };
+  }
+
   private async versionOfRoot(client: PoolClient, root: string): Promise<number | null> {
     if (root === stackRootOf({ rootPath: null })) {
       const found = await client.query<{ id: number }>('SELECT id FROM stack_versions WHERE name = $1', [BUNDLED_VERSION_NAME]);
