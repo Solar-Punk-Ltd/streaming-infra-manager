@@ -7,4 +7,9 @@ npm-debug.log
 *.log
 .DS_Store
 
+# The local issue scratch AGENTS.md defines. Never a source, and never sent:
+# only *.log above was excluded, so its markdown, JSON and screenshots were
+# still handed to the daemon with every build.
+.scratch
+
 manager/swarm-hls-stream

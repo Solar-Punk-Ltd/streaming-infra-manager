@@ -48,6 +48,23 @@ describe('deploy/deploy.sh', () => {
     assert.match(repo, /--exclude '\.scratch\/'/);
   });
 
+  /**
+   * The rsync is one of the two ways those notes could travel. The other is the
+   * image build, whose context is the repository root for both images, and
+   * where `.dockerignore` excluded only `*.log`, so the markdown, the JSON and
+   * the screenshots under `.scratch` would still be handed to the daemon. Levi
+   * ruled on 2026-09-11 that the directory stays as the local issue scratch
+   * `AGENTS.md` defines and never travels anywhere.
+   */
+  it('keeps the working notes out of the image build context as well', () => {
+    const ignore = readFileSync(join(here, '..', '..', '..', '.dockerignore'), 'utf8');
+    const excluded = ignore.split('\n').map((line) => line.trim());
+    assert.ok(
+      excluded.includes('.scratch') || excluded.includes('.scratch/'),
+      'the build context carries the scratch to the daemon',
+    );
+  });
+
   it('has nothing left of the staging tree the api used to publish at boot', () => {
     assert.equal(script.includes('bundled.incoming'), false);
   });
