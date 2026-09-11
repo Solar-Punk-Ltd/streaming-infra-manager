@@ -103,8 +103,6 @@ jobs:
     env:
       DATABASE_URL: postgres://manager:manager@localhost:5432/manager
       SHLS_ROOT: ${{ github.workspace }}/manager/swarm-hls-stream
-      BEE_DATA_ROOT: ${{ runner.temp }}/streaming-infra-manager-data
-      STACK_VERSIONS_ROOT: ${{ runner.temp }}/streaming-infra-manager-versions
       MANAGER_URL: http://localhost:9876
     steps:
       - name: Refuse to start without the sign-in secret
@@ -131,6 +129,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @streaming-infra-manager/common build
       - run: pnpm --filter @streaming-infra-manager/api build
+
+      - name: The roots the manager writes under
+        # RUNNER_TEMP is a step-level value. A job-level `env:` cannot read the
+        # runner context at all, and a workflow that tries is rejected whole,
+        # which is what kept this file from ever starting.
+        run: |
+          echo "BEE_DATA_ROOT=$RUNNER_TEMP/streaming-infra-manager-data" >> "$GITHUB_ENV"
+          echo "STACK_VERSIONS_ROOT=$RUNNER_TEMP/streaming-infra-manager-versions" >> "$GITHUB_ENV"
 
       - name: Start the manager, which runs the migrations
         working-directory: manager
