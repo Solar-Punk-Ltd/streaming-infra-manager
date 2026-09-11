@@ -27,11 +27,47 @@ import {
   fakeDocker,
   frame,
   openStream,
+  RUNNING_AFTER_TWO_RESTARTS,
   type FakeContainer,
 } from '../support/fakeDocker.js';
 
 /** Docker's per-write header: the stream, three zero bytes, and the length. */
 const FRAME_HEADER_BYTES = 8;
+
+describe('published port inventory', () => {
+  it('retains ports owned by paused containers', async () => {
+    const docker = fakeDocker([{ id: 'paused', labels: labels('outside', 'web') }]);
+    const handle = docker.getContainer('paused');
+    docker.getContainer = () => ({ ...handle, inspect: async () => ({
+      Id: 'paused', RestartCount: 0, State: { Status: 'paused', StartedAt: '2026-09-07T10:00:00Z' },
+      Config: { Labels: labels('outside', 'web') },
+      HostConfig: { NetworkMode: 'bridge' },
+      NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '10012' }] } },
+    }) });
+    const snapshot = await new ContainerControl(new EventBus(), docker).publishedPorts();
+    assert.deepEqual(snapshot.bindings.map(binding => [binding.project, binding.protocol, binding.port]), [['outside', 'tcp', 10012]]);
+  });
+});
+
+describe('daemon identity verification', () => {
+  it('reads the current local identity again after the socket is replaced', async () => {
+    const docker = fakeDocker([]);
+    let id = 'first-daemon';
+    docker.info = async () => ({ ID: id });
+    const control = new ContainerControl(new EventBus(), docker);
+    assert.equal(await control.daemonId(), 'first-daemon');
+    id = 'replacement-daemon';
+    assert.equal(await control.daemonId(), 'replacement-daemon');
+  });
+
+  it('does not report an old verification when Docker stops answering', async () => {
+    const docker = fakeDocker([]);
+    const control = new ContainerControl(new EventBus(), docker);
+    await control.daemonId();
+    docker.info = async () => { throw new Error('offline'); };
+    await assert.rejects(control.daemonId());
+  });
+});
 
 function labels(project: string, service: string): Record<string, string> {
   return {
@@ -289,44 +325,58 @@ describe('ContainerControl.logs: when a followed read stops', () => {
   it('stops once the tail has arrived and nothing follows it', async () => {
     // What every ordinary read does: the daemon sends the tail, then holds the
     // connection open for lines the container has not written yet.
+    //
+    // The total bound is put far out of reach here rather than left at 250 ms,
+    // so what ends the read is the idle gap and nothing else can be mistaken
+    // for it. Against a gap of 40 ms the assertion below then has room for a
+    // machine under load, which the earlier margin of 160 ms did not.
+    const REACHABLE_ONLY_BY_THE_IDLE_GAP = { ...SHORT_BOUNDS, totalMs: 5_000 };
     const feed = openStream();
-    const { control } = controlOverStream(() => feed.stream);
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_IDLE_GAP);
     feed.write('one\ntwo\n');
 
     const started = Date.now();
     const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
     assert.equal(text, 'one\ntwo');
-    assert.ok(
-      Date.now() - started < 200,
-      'the idle gap ends it, not the total bound',
-    );
+    assert.ok(took < 2_000, `the idle gap ends it, not the total bound, and it took ${took} ms`);
     assert.equal(feed.stream.destroyed, true);
   });
 
-  it('stops at the total bound when lines keep arriving', async () => {
+  it('stops at the total bound when lines keep arriving', { timeout: 2_000 }, async (t) => {
     // A container logging continuously never leaves an idle gap, so without the
     // total bound the request would stay open for as long as it keeps talking.
-    const feed = openStream();
-    const ticking = setInterval(() => feed.write('still going\n'), 10);
-    // Room to spare on bytes, so it is the total bound that ends this one.
-    const { control } = controlOverStream(() => feed.stream, {
+    //
+    // Both other exits are put out of reach here rather than left at 40 ms and
+    // 64 bytes, so the total bound is the only one left and a writer that ticks
+    // late on a loaded machine cannot end the read in its place. What a missing
+    // total bound costs is then a read that never returns, which is what the
+    // case's own timeout is for.
+    const REACHABLE_ONLY_BY_THE_TOTAL_BOUND = {
       ...SHORT_BOUNDS,
       maxBytes: 1024 * 1024,
-    });
+      idleMs: 5_000,
+    };
+    const feed = openStream();
+    const ticking = setInterval(() => feed.write('still going\n'), 10);
+    t.after(() => clearInterval(ticking));
+    const { control } = controlOverStream(() => feed.stream, REACHABLE_ONLY_BY_THE_TOTAL_BOUND);
 
-    try {
-      const started = Date.now();
-      const text = await control.logs('stream1', 'srs', 2000);
-      const took = Date.now() - started;
+    const started = Date.now();
+    const text = await control.logs('stream1', 'srs', 2000);
+    const took = Date.now() - started;
 
-      assert.ok(text.startsWith('still going'), 'with what arrived kept');
-      assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
-      assert.ok(took < 2000, `stopped after ${took} ms, not never`);
-      assert.equal(feed.stream.destroyed, true);
-    } finally {
-      clearInterval(ticking);
-    }
+    assert.ok(text.startsWith('still going'), 'with what arrived kept');
+    // Two clocks. The timer runs on the loop's cached millisecond count and
+    // `Date.now()` on the wall, so a 250 ms bound measures as 249 often enough
+    // to redden a run: it did once in five here on 2026-09-11. The tolerance is
+    // for that and for nothing else, because with the idle gap at five seconds
+    // and the cap at a megabyte no other exit is reachable this early.
+    const CLOCK_SKEW_MS = 5;
+    assert.ok(took >= REACHABLE_ONLY_BY_THE_TOTAL_BOUND.totalMs - CLOCK_SKEW_MS,
+      `stopped after ${took} ms, which is before the bound rather than at it`);
+    assert.equal(feed.stream.destroyed, true);
   });
 });
 
@@ -412,5 +462,39 @@ describe('ContainerControl.effectiveConfig', () => {
     assert.deepEqual(docker.execCommands, [
       ['cat', '/opt/ovenmediaengine/bin/origin_conf/Server.xml'],
     ]);
+  });
+});
+
+describe('ContainerControl.inspect', () => {
+  it('reads the restart count from beside State, where Docker puts it', async () => {
+    // A container that died on its config file and was brought back by its
+    // restart policy is `running` again with a count above zero. Read from
+    // under `State`, where Docker never puts it, the count is always zero, and
+    // the watch after a config change is blind to the one thing it looks for.
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+      {
+        id: 'own-srs',
+        labels: labels('stream1', 'srs'),
+        inspectAnswer: RUNNING_AFTER_TWO_RESTARTS,
+      },
+    ]);
+
+    const state = await control.inspect('stream1', 'srs');
+
+    assert.deepEqual(state, {
+      id: 'own-srs',
+      status: 'running',
+      restartCount: 2,
+      startedAt: '2026-09-07T10:00:09.000000000Z',
+    });
+  });
+
+  it('answers null when the deployment has no container of that service', async () => {
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs') },
+    ]);
+
+    assert.equal(await control.inspect('stream1', 'srs'), null);
   });
 });

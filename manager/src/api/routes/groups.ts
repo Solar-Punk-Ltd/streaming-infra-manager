@@ -5,9 +5,11 @@ import {
   AddMembersInput,
   CreateGroupInput,
   UpdateGroupConfigInput,
+  RemoveGroupInput,
   addMembersSchema,
   createGroupSchema,
   groupIdParamSchema,
+  removeGroupSchema,
   updateGroupConfigSchema,
 } from '../../schemas/profile.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -47,6 +49,17 @@ export function createGroupsRouter(profileService: ProfileService): Router {
     asyncHandler(async (_req: Request, res: Response) => {
       const groups = await profileService.listGroups();
       res.json({ groups });
+    }),
+  );
+
+  router.delete(
+    '/:id',
+    validateParams(groupIdParamSchema),
+    validateBody(removeGroupSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as RemoveGroupInput;
+      await profileService.removeEmptyGroup(Number(req.params.id), body.expectedName);
+      res.sendStatus(204);
     }),
   );
 

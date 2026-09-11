@@ -3,8 +3,16 @@
 Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first). D12 is on hold, so PR 1 (settings,
 restart, logs, effective config) proceeds and PR 2 (live status) waits for the upstream port change.
 
-PR 1 is built on `feat/engine-control`, against the stack as pinned today (`main-v2`, `ee99c36`).
-`SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is not started.
+PR 1 was built on `feat/engine-control` and is now on `feat/ai-remediation` at `6dc33d1`, pull
+request #40 into `main-v2`. It was written against the stack as pinned at the time, `main-v2`
+`ee99c36`. The pin today is `main-v3` at `9f1255b`, which the update below explains. `SRT_LATENCY`
+is left out with the rest of what a later stack reads. PR 2 is not started.
+
+Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is the default,
+main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
+`SRS_HTTP_API_PORT`, so the D7 backport to `main-v2` described below is no longer needed, and
+PR 2 (live status) waits only on the manager reading that port. The manager still answers
+`live: null` for it, with the reason "not read yet".
 
 ## What the engines are and how they are configured today
 

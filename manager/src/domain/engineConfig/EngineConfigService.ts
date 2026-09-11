@@ -8,13 +8,23 @@ import {
   type EngineConfigView,
   type EngineName,
   engineOfServices,
+  getErrorMessage,
+  OME_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { Profile, ProfileWithContainers, TRANSITIONAL_STATUSES } from '../../types/index.js';
+import {
+  Profile,
+  ProfileStatus,
+  ProfileWithContainers,
+  TRANSITIONAL_STATUSES,
+} from '../../types/index.js';
 import { ContainerRepository } from '../ContainerRepository.js';
 import type { ContainerState } from '../ContainerControl.js';
 import { engineConfigDirFor } from '../dataDirs.js';
-import { DeploymentOrchestrator } from '../DeploymentOrchestrator.js';
+import {
+  DeploymentOrchestrator,
+  type DeployReservation,
+} from '../DeploymentOrchestrator.js';
 import {
   ProfileBusyError,
   ProfileConfigError,
@@ -23,14 +33,23 @@ import {
 import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { ProfileRepository } from '../ProfileRepository.js';
-import { RunHandle } from '../ScriptRunner.js';
+import { omePortsFor, portTableOf } from '../versions/portTable.js';
 import type {
   StackVersionRecord,
   StackVersionRepository,
 } from '../versions/StackVersionRepository.js';
+import { deployRootProblem, stackRootOf } from '../versions/stackPaths.js';
 
 import { EngineConfigChecker } from './engineConfigCheck.js';
+import type { EngineConfigOperationRepository } from './EngineConfigOperationRepository.js';
+import type { ClaimedRolloutDeploy } from './rolloutDeployAdmission.js';
 import { engineTemplateIn } from './engineConfigTemplates.js';
+import {
+  type EngineConfigOperation,
+  type EngineConfigOperationKind,
+  type EngineConfigOperationState,
+  ownershipOf,
+} from './operations.js';
 
 const logger = Logger.getInstance();
 
@@ -38,16 +57,20 @@ const logger = Logger.getInstance();
 export interface EngineWatchTiming {
   intervalMs: number;
   durationMs: number;
+  /** How long the HLS port is tried for after the watch, for an engine with no parser to ask. */
+  probeBudgetMs: number;
 }
 
 /**
  * Twenty seconds, which covers a config the engine parses and then dies on a
  * few seconds in, and is short enough that an operator who is watching sees
- * the revert happen rather than finding it later.
+ * the revert happen rather than finding it later. The port is tried for ten
+ * more, which covers an engine that binds late.
  */
 export const DEFAULT_ENGINE_WATCH: EngineWatchTiming = {
   intervalMs: 2_000,
   durationMs: 20_000,
+  probeBudgetMs: 10_000,
 };
 
 /** How much of the engine's log a revert reads, and how much of it is kept. */
@@ -62,10 +85,12 @@ const LOG_TAIL_BYTES = 4_096;
  */
 const LOG_REASON_RE = /error|fail|invalid|refus|cannot|denied|errno|no such|exit/i;
 
-/** The slice of ContainerControl the watch and the revert use. */
+/** The slice of ContainerControl the watch, the revert and the probe after the watch use. */
 export interface EngineWatcher {
   inspect(profile: string, service: string): Promise<ContainerState | null>;
   logs(profile: string, service: string, tail: number): Promise<string>;
+  /** Whether a TCP connection to a published port opens within the budget. */
+  reachable(port: number, budgetMs: number): Promise<boolean>;
 }
 
 /**
@@ -89,6 +114,7 @@ export class EngineConfigService {
     private readonly control: EngineWatcher,
     private readonly checker: EngineConfigChecker,
     private readonly events: EventBus,
+    private readonly operations: EngineConfigOperationRepository,
     private readonly watch: EngineWatchTiming = DEFAULT_ENGINE_WATCH,
   ) {}
 
@@ -108,6 +134,7 @@ export class EngineConfigService {
       config: await this.profiles.engineConfigOf(name),
       template: template.text,
       placeholders: template.placeholders,
+      state: profile.engine_config_state,
       error: profile.engine_config_error,
       references: ENGINE_CONFIG_REFERENCES[engine],
     };
@@ -117,145 +144,417 @@ export class EngineConfigService {
    * Checks the file, stores it, recreates the engine on it and watches.
    *
    * Everything that can refuse runs before the claim is taken, so a refused
-   * save changes nothing. The claim comes before the write, so two saves that
-   * both passed the checks cannot both store.
+   * save changes nothing. The claim comes before the write, and the write
+   * records who owns the rollout: the open operation of this deployment
+   * instance, the config revision it produced and the intent it started
+   * under. Every later step checks those together and does nothing once any
+   * of them moved.
    */
   async apply(name: string, config: string): Promise<ProfileWithContainers> {
     const existing = await this.require(name);
     refuseWhileTransitional(existing);
     const engine = engineOf(existing);
-    const version = await this.versions.findById(existing.stack_version_id);
+    const version = await this.deployVersion(existing);
     if (!supportsEngineConfig(version, engine)) {
       throw new ProfileConfigError(name, unsupportedReason(version, engine));
     }
     refuseBySize(name, config);
 
-    const root = await this.orchestrator.stackRootFor(existing);
+    const root = stackRootOf(version);
     const template = engineTemplateIn(root, engine);
     const problem = await this.checker.problem({
       engine,
       config,
       image: version?.contract?.engineImages[engine] ?? null,
       filled: template.placeholders,
+      template: template.text,
       scratchDir: engineConfigDirFor(name),
     });
     if (problem) throw new ProfileConfigError(name, problem);
 
-    const previous = await this.profiles.engineConfigOf(name);
-    const row = await this.storeAndRecreate(existing, engine, config, (handle) =>
-      this.watchAfter(handle, name, engine, previous),
-    );
-    return this.containers.withContainers(row);
+    return this.rollOut(existing, engine, 'apply', config, version);
   }
 
-  /** Back to the version's template, which needs no check and no watch. */
+  /**
+   * Back to the version's template, which needs no check and no watch. A
+   * deployment already on the template with no rollout open has nothing to
+   * recreate.
+   */
   async reset(name: string): Promise<ProfileWithContainers> {
     const existing = await this.require(name);
     refuseWhileTransitional(existing);
     const engine = engineOf(existing);
-    if (!existing.has_engine_config) {
+    const open = await this.operations.findOpen(existing.instance_id);
+    if (!existing.has_engine_config && !open) {
       return this.containers.withContainers(existing);
     }
-    const row = await this.storeAndRecreate(existing, engine, null, () => undefined);
-    return this.containers.withContainers(row);
+    return this.rollOut(existing, engine, 'reset', null, await this.deployVersion(existing));
+  }
+
+  /**
+   * Recreates the engine on what is stored, file or template, and verifies
+   * it: a rollout of its own, which supersedes an interrupted one before it
+   * stores, so no operation is left open behind it.
+   */
+  async verifyNow(name: string): Promise<ProfileWithContainers> {
+    const existing = await this.require(name);
+    refuseWhileTransitional(existing);
+    const engine = engineOf(existing);
+    return this.rollOutStored(existing, engine, await this.profiles.engineConfigOf(name));
+  }
+
+  /** Puts the file an interrupted rollout recorded as previous back, as a rollout of its own. */
+  async recreateOnPrevious(name: string): Promise<ProfileWithContainers> {
+    const existing = await this.require(name);
+    refuseWhileTransitional(existing);
+    const engine = engineOf(existing);
+    const open = await this.operations.findOpen(existing.instance_id);
+    if (!open || open.state !== 'interrupted') {
+      throw new ProfileConfigError(name, 'There is no interrupted rollout to go back from.');
+    }
+    const begun = await this.operations.beginRestorePreviousDeploy({
+      profile: existing, engine, ownership: ownershipOf(open),
+      message: 'Restoring the previous config file at the operator\'s request.',
+      ...await this.prepareAdmission(existing),
+    });
+    if (!begun) throw new ProfileConfigError(name, 'The interrupted rollout changed. Reload and try again.');
+    await this.publish(begun.profile);
+    await this.runRecovery(begun, 'reverted', 'The requested previous config file could not be recreated.', true);
+    return this.containers.withContainers(begun.profile);
+  }
+
+  /**
+   * What boot does with a rollout a gone manager left open. An outage is
+   * never a pass: a healthy container the operation recorded is watched
+   * again in full, failure evidence reverts through the owned path, and
+   * anything the manager cannot tell becomes interrupted, with the actions
+   * the card offers.
+   */
+  async reconcileAtBoot(): Promise<void> {
+    for (const operation of await this.operations.listOpen()) {
+      const ownership = ownershipOf(operation);
+      const profile = await this.profiles.findByName(operation.profileName);
+      if (!profile || profile.instance_id !== operation.profileInstanceId) {
+        await this.operations.supersedeOpen(
+          operation.profileInstanceId,
+          'The deployment this rollout belonged to is gone.',
+        );
+        continue;
+      }
+      if (operation.state === 'applying') {
+        await this.operations.transition(ownership, ['applying'], 'interrupted', {
+          message: 'Apply interrupted by a manager restart. The file is stored, the engine was not verified.',
+        });
+        continue;
+      }
+      if (operation.state === 'reverting') {
+        await this.operations.transition(ownership, ['reverting'], 'interrupted', {
+          message: 'Recovery interrupted by a manager restart. The previous file is stored, the engine was not verified.',
+        });
+        continue;
+      }
+      if (operation.state !== 'watching') continue;
+      if (profile.status !== 'RUNNING') {
+        await this.operations.transition(ownership, ['watching'], 'superseded', {
+          message: `The deployment was ${profile.status.toLowerCase()} when the manager came back, so the file was not verified.`,
+        });
+        continue;
+      }
+
+      let state: ContainerState | null;
+      try {
+        state = await this.control.inspect(operation.profileName, operation.engine);
+      } catch {
+        await this.operations.transition(ownership, ['watching'], 'interrupted', {
+          message: 'Verification interrupted by a manager restart, and the engine could not be inspected.',
+        });
+        continue;
+      }
+      if (state && operation.containerId !== null && state.id !== operation.containerId) {
+        await this.operations.transition(ownership, ['watching'], 'superseded', {
+          message: 'The engine was recreated by something else while the manager was away.',
+        });
+        continue;
+      }
+      if (state && state.status === 'running' && state.restartCount === 0) {
+        const fresh = await this.operations.transition(ownership, ['watching'], 'watching', {
+          watchStartedAt: new Date(),
+        });
+        if (fresh) this.watchInBackground(fresh);
+        continue;
+      }
+      await this.revertOwned(operation, 'RUNNING', state, 'reverted');
+    }
   }
 
   // ---------------------------------------------------------- the rollout
 
-  private async storeAndRecreate(
+  /** A rollout on what is stored: the file, or the template when there is none. */
+  private async rollOutStored(
     existing: Profile,
     engine: EngineName,
     config: string | null,
-    onStarted: (handle: RunHandle) => void,
-  ): Promise<Profile> {
-    const reservation = await this.orchestrator.reserveDeploy(existing, [engine]);
-
-    let row: Profile;
-    try {
-      const written = await this.profiles.setEngineConfig(existing.name, config, null);
-      if (!written) throw new ProfileNotFoundError(existing.name);
-      row = written;
-    } catch (err) {
-      await this.orchestrator.cancelReservation(reservation);
-      throw err;
-    }
-
-    logger.info(
-      `[EngineConfig] ${existing.name}: ${config === null ? 'back to the template' : 'applying a config file'}; recreating ${engine}`,
-    );
-    await this.publish(row);
-
-    const handle = await this.orchestrator.runReserved(reservation, row);
-    onStarted(handle);
-    return row;
+  ): Promise<ProfileWithContainers> {
+    return this.rollOut(existing, engine, config === null ? 'reset' : 'apply', config, await this.deployVersion(existing));
   }
 
-  private watchAfter(
-    handle: RunHandle,
-    name: string,
+  private async rollOut(
+    existing: Profile,
     engine: EngineName,
-    previous: string | null,
-  ): void {
-    handle.emitter.once('done', ({ code }: { code: number }) => {
-      // A failed recreate is the orchestrator's to report: the deployment is
-      // marked ERROR with the script's own output.
-      if (code !== 0) return;
-      this.watchEngine(name, engine, previous).catch((err: unknown) => {
-        logger.error(`[EngineConfig] the watch on ${name} failed: ${String(err)}`);
+    kind: Exclude<EngineConfigOperationKind, 'restore-previous'>,
+    config: string | null,
+    version: StackVersionRecord,
+  ): Promise<ProfileWithContainers> {
+    const started = await this.operations.beginDeploy({
+      profile: existing, version, engine, kind, config, ...await this.prepareAdmission(existing),
+    });
+    if (!started) throw new ProfileConfigError(existing.name, 'The deployment or config file changed. Reload and try again.');
+
+    logger.info(
+      `[EngineConfig] ${existing.name}: ${config === null ? 'back to the template' : 'applying a config file'}, operation ${started.operation.id}, recreating ${engine}`,
+    );
+    await this.publish(started.profile);
+
+    try {
+      await this.orchestrator.runReserved(reservationOf(started), started.profile, {
+        afterRunning: () => this.afterRecreate(started.operation),
+        afterFailure: (message) =>
+          this.revertOwned(started.operation, 'ERROR', null, 'failed', message),
       });
+    } catch (err) {
+      await this.interruptPreparation(started, getErrorMessage(err));
+      throw err;
+    }
+    return this.containers.withContainers(started.profile);
+  }
+
+  /**
+   * Runs once RUNNING is committed. A template needs no watch. A file is
+   * watched from here, with the container the watch is about recorded, so a
+   * manager restart can tell that container from a replacement.
+   */
+  private async afterRecreate(operation: EngineConfigOperation): Promise<void> {
+    const ownership = ownershipOf(operation);
+    if (operation.kind === 'reset') {
+      await this.operations.transition(ownership, ['applying'], 'applied', {
+        recreateFinishedAt: new Date(),
+      });
+      return;
+    }
+    const container = await this.control
+      .inspect(operation.profileName, operation.engine)
+      .catch(() => null);
+    const watching = await this.operations.transition(ownership, ['applying'], 'watching', {
+      containerId: container?.id ?? null,
+      containerStartedAt: container?.startedAt ?? null,
+      recreateFinishedAt: new Date(),
+      watchStartedAt: new Date(),
+    });
+    if (watching) this.watchInBackground(watching);
+  }
+
+  /** The watch runs for its whole duration, and the success hook that started it must not wait on it. */
+  private watchInBackground(operation: EngineConfigOperation): void {
+    this.watchEngine(operation).catch((err: unknown) => {
+      logger.error(
+        `[EngineConfig] the watch on ${operation.profileName} failed: ${getErrorMessage(err)}`,
+      );
     });
   }
 
   /**
-   * Looks at the container every interval for the duration, and reverts the
-   * moment it is not a running container that has never restarted. A fresh
-   * container's restart count is zero, so any restart is the engine dying on
-   * the file.
+   * Looks at the container every interval for the duration. Every tick
+   * re-reads the rows first and ends the watch, without acting, when the
+   * rollout no longer owns the deployment. A container that is not running,
+   * has restarted, or is not the one the watch is about is what ends it with
+   * a revert. Completion is conditional on ownership too, so a superseded
+   * rollout cannot relabel itself applied from its last healthy tick.
    */
-  private async watchEngine(
-    name: string,
-    engine: EngineName,
-    previous: string | null,
-  ): Promise<void> {
+  private async watchEngine(operation: EngineConfigOperation): Promise<void> {
+    try {
+      await this.watchTicks(operation);
+    } catch (err) {
+      // A read or a write that failed mid watch. Left alone the row would say
+      // watching with nothing watching it until the next restart.
+      await this.operations.transition(ownershipOf(operation), ['watching'], 'interrupted', {
+        message: `Verification interrupted: ${getErrorMessage(err)}`,
+      });
+    }
+  }
+
+  private async watchTicks(operation: EngineConfigOperation): Promise<void> {
+    const ownership = ownershipOf(operation);
     const ticks = Math.max(1, Math.round(this.watch.durationMs / this.watch.intervalMs));
     for (let tick = 0; tick < ticks; tick += 1) {
       await sleep(this.watch.intervalMs);
-      const state = await this.control.inspect(name, engine);
-      if (state && state.status === 'running' && state.restartCount === 0) continue;
-      await this.revert(name, engine, previous, state);
+      if (!(await this.owns(operation, ['watching'], 'RUNNING'))) return;
+      let state: ContainerState | null;
+      try {
+        state = await this.control.inspect(operation.profileName, operation.engine);
+      } catch (err) {
+        await this.operations.transition(ownership, ['watching'], 'interrupted', {
+          message: `The engine could not be inspected while the file was being verified: ${getErrorMessage(err)}`,
+        });
+        return;
+      }
+      const sameContainer = operation.containerId === null || state?.id === operation.containerId;
+      if (state && state.status === 'running' && state.restartCount === 0 && sameContainer) continue;
+      if (state && !sameContainer) {
+        await this.operations.transition(ownership, ['watching'], 'superseded', {
+          message: 'The engine was recreated by something else while the file was being verified.',
+        });
+        return;
+      }
+      await this.revertOwned(operation, 'RUNNING', state, 'reverted');
       return;
     }
-    logger.info(
-      `[EngineConfig] ${name}: ${engine} stayed up on the new config file for ${this.watch.durationMs / 1000} s`,
-    );
-  }
-
-  private async revert(
-    name: string,
-    engine: EngineName,
-    previous: string | null,
-    state: ContainerState | null,
-  ): Promise<void> {
-    const tail = await this.control
-      .logs(name, engine, LOG_TAIL_LINES)
-      .catch(() => '');
-    const message = revertMessage(engine, state, tail);
-    logger.warn(`[EngineConfig] ${name}: ${message.split('\n')[0]}`);
-
-    const row = await this.profiles.setEngineConfig(name, previous, message);
-    if (!row) return;
-    await this.publish(row);
-
-    try {
-      await this.orchestrator.startDeploy(row, [engine]);
-    } catch (err) {
-      logger.error(
-        `[EngineConfig] ${name}: the previous config is stored again but ${engine} could not be recreated on it: ${String(err)}`,
+    const note = await this.livenessNote(operation);
+    const applied = await this.operations.transition(ownership, ['watching'], 'applied', {
+      message: note,
+    });
+    if (applied) {
+      logger.info(
+        `[EngineConfig] ${operation.profileName}: ${operation.engine} stayed up on the new config file for ${this.watch.durationMs / 1000} s${note ? `, ${note}` : ''}`,
       );
     }
   }
 
+  /**
+   * What the port the engine publishes on says once the watch is over, for
+   * an engine whose parser could not be asked before the recreate. A port
+   * that answers is liveness, not a verdict on the file, and one that does
+   * not is a note the card shows next to the applied rollout, never a reason
+   * to put the previous file back: the engine is up, and the file may be
+   * what it is meant to be.
+   */
+  private async livenessNote(operation: EngineConfigOperation): Promise<string | null> {
+    if (operation.engine !== OME_SERVICE) return null;
+    const profile = await this.profiles.findByName(operation.profileName);
+    if (!profile) return null;
+    const version = await this.versions.findById(profile.stack_version_id);
+    const port = omePortsFor(profile.port_slot, portTableOf(version?.contract)).omeHlsPort;
+    if (!port) return null;
+    if (await this.control.reachable(port, this.watch.probeBudgetMs)) return null;
+    return (
+      `The HLS port ${port} did not answer from the manager within ${Math.round(this.watch.probeBudgetMs / 1000)} s after the watch. ` +
+      `${ENGINE_DISPLAY_NAMES[operation.engine]} is running, so this is a diagnosis and not a verdict on the file: check its logs and the port.`
+    );
+  }
+
+  /** Whether the rollout still owns the deployment: its state, the instance, both revisions, and the status when one is required. */
+  private async owns(
+    operation: EngineConfigOperation,
+    states: readonly EngineConfigOperationState[],
+    status: ProfileStatus | null = null,
+  ): Promise<boolean> {
+    const [current, profile] = await Promise.all([
+      this.operations.findById(operation.id),
+      this.profiles.findByName(operation.profileName),
+    ]);
+    return Boolean(
+      current &&
+        profile &&
+        states.includes(current.state) &&
+        profile.instance_id === operation.profileInstanceId &&
+        profile.engine_config_revision === operation.appliedRevision &&
+        profile.intent_revision === operation.intentRevision &&
+        (status === null || profile.status === status),
+    );
+  }
+
+  /**
+   * The owned revert: ownership checked, the deploy claim taken, then one
+   * conditional write that puts the previous file back and marks the
+   * operation reverting, then the recreate. A refused claim keeps a still-owned
+   * operation interrupted and leaves the file unchanged. Lost ownership changes
+   * neither the operation nor the file. `from` is the status the deployment
+   * must still be in, RUNNING for a watch and ERROR for a recreate that
+   * failed, so a stopped deployment is never recreated by either. `failure`
+   * is the reason when the rollout's own recreate failed, and the operation
+   * then ends failed rather than reverted, with both reasons kept.
+   */
+  private async revertOwned(
+    operation: EngineConfigOperation,
+    from: ProfileStatus,
+    state: ContainerState | null,
+    terminal: 'reverted' | 'failed',
+    failure?: string,
+  ): Promise<void> {
+    if (!(await this.owns(operation, ['watching', 'applying'], from))) return;
+    const profile = await this.profiles.findByName(operation.profileName);
+    if (!profile) return;
+
+    const tail = await this.control
+      .logs(operation.profileName, operation.engine, LOG_TAIL_LINES)
+      .catch(() => '');
+    const message = failure
+      ? `${ENGINE_DISPLAY_NAMES[operation.engine]} could not be recreated on the new config file (${failure}), so the previous one is back.`
+      : revertMessage(operation.engine, state, tail);
+    let begun: ClaimedRolloutDeploy | null;
+    try {
+      begun = await this.operations.beginRevertDeploy({
+        profile, engine: operation.engine, ownership: ownershipOf(operation), message,
+        ...await this.prepareAdmission(profile),
+      });
+    } catch (err) {
+      const reason = failure
+        ? `The original recreate failed: ${failure}`
+        : `${ENGINE_DISPLAY_NAMES[operation.engine]} ${describeState(state)} on the new config file. ${reasonLines(tail)}`.trim();
+      await this.operations.transition(ownershipOf(operation), ['watching', 'applying'], 'interrupted', {
+        message: `Recovery interrupted before the previous config file was restored. ${reason}. The revert could not claim the deployment: ${getErrorMessage(err)}`,
+      });
+      return;
+    }
+    if (!begun) return;
+    logger.warn(`[EngineConfig] ${operation.profileName}: ${message.split('\n')[0]}`);
+    await this.publish(begun.profile);
+
+    await this.runRecovery(begun, terminal, message);
+  }
+
+  private async runRecovery(begun: ClaimedRolloutDeploy, terminal: 'reverted' | 'failed', message: string, propagateError = false): Promise<void> {
+    const reverting = ownershipOf(begun.operation);
+    try {
+      await this.orchestrator.runReserved(reservationOf(begun), begun.profile, {
+        afterRunning: async () => {
+          await this.operations.transition(reverting, ['reverting'], terminal, {
+            recreateFinishedAt: new Date(),
+          });
+        },
+        afterFailure: async (second) => {
+          await this.operations.transition(reverting, ['reverting'], 'failed', {
+            message: `${message} The recreate on it failed too: ${second}`,
+          });
+        },
+      });
+    } catch (err) {
+      await this.interruptPreparation(begun, `${message} The previous file could not be recreated on: ${getErrorMessage(err)}`);
+      if (propagateError) throw err;
+    }
+  }
+
+  private async interruptPreparation(claimed: ClaimedRolloutDeploy, message: string): Promise<void> {
+    const referenceId = claimed.descriptor.referenceId;
+    if (referenceId === null) return;
+    await this.operations.transition(ownershipOf(claimed.operation), ['applying', 'reverting'], 'interrupted', {
+      message: `Deployment preparation interrupted: ${message}`,
+    }, referenceId);
+  }
+
   // ---------------------------------------------------------- the plumbing
+
+  private async prepareAdmission(profile: Profile) {
+    const admission = await this.operations.captureDeployAdmission(profile);
+    return { admission, snapshot: await this.orchestrator.captureRolloutSnapshot(profile, admission) };
+  }
+
+  private async deployVersion(profile: Profile): Promise<StackVersionRecord> {
+    const version = await this.versions.findById(profile.stack_version_id);
+    if (!version) throw new ProfileConfigError(profile.name, `Stack version ${profile.stack_version_id} no longer exists.`);
+    const problem = deployRootProblem(version);
+    if (problem) throw new ProfileConfigError(profile.name, problem);
+    return version;
+  }
 
   private async require(name: string): Promise<Profile> {
     const profile = await this.profiles.findByName(name);
@@ -267,6 +566,16 @@ export class EngineConfigService {
     const profile = await this.containers.withContainers(row);
     this.events.publish({ type: 'profile.changed', profile });
   }
+}
+
+function reservationOf(claimed: ClaimedRolloutDeploy): DeployReservation {
+  return {
+    profileName: claimed.profile.name, claimedProfile: claimed.profile,
+    services: claimed.attempt.services, heldBackForStamp: [],
+    previousStatus: claimed.previousStatus, transitioned: true,
+    host: claimed.attempt.target ?? claimed.profile.host ?? undefined, daemonId: claimed.attempt.daemonId,
+    build: claimed.descriptor, attempt: claimed.attempt,
+  };
 }
 
 // ------------------------------------------------------------ the rules

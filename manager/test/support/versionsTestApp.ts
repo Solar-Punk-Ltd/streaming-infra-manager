@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { join } from 'node:path';
 
 import express from 'express';
 
@@ -25,17 +26,27 @@ export interface VersionsTestApp {
   repository: InMemoryStackVersionRepository;
   runner: FakeScriptSpawner;
   bus: EventBus;
+  /** The tree the bundled version ships with. Its parent is where the pin file goes. */
+  bundledRoot: string;
   close(): Promise<void>;
 }
 
+/**
+ * The bundled root defaults to a path of this test's own, never the machine's,
+ * so whether this checkout happens to carry a pinned stack commit changes
+ * nothing here.
+ */
 export async function startVersionsTestApp(
   versionsRoot: string,
+  bundledRoot: string = join(versionsRoot, 'bundled-tree'),
+  /** How long a settings route waits for the edit lock. Left to the service unless a case holds it. */
+  settingsLockWaitMs?: number,
 ): Promise<VersionsTestApp> {
   const repository = new InMemoryStackVersionRepository();
   repository.seedBundled();
   const runner = new FakeScriptSpawner();
   const bus = new EventBus();
-  const service = new StackVersionService(repository, runner, bus, versionsRoot);
+  const service = new StackVersionService(repository, runner, bus, versionsRoot, { openReferences: async () => [] }, bundledRoot, settingsLockWaitMs);
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
@@ -56,6 +67,7 @@ export async function startVersionsTestApp(
     repository,
     runner,
     bus,
+    bundledRoot,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));

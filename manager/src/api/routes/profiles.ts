@@ -3,10 +3,14 @@ import { Request, Response, Router } from 'express';
 import { ProfileService } from '../../domain/ProfileService.js';
 import {
   CreateProfileInput,
+  UpdateNotesInput,
   UpdateProfileInput,
+  RemoveProfileInput,
   createProfileSchema,
   profileNameSchema,
+  updateNotesSchema,
   updateProfileSchema,
+  removeProfileSchema,
 } from '../../schemas/profile.js';
 import { ProfileKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -65,6 +69,7 @@ export function createProfilesRouter(profileService: ProfileService): Router {
       const body = req.body as UpdateProfileInput;
       const profile = await profileService.update(req.params.name as string, {
         notes: body.notes,
+        notes_revision: body.notes_revision ?? undefined,
         feed_owner: body.feed_owner,
         feed_topic: body.feed_topic,
         private_key: body.private_key,
@@ -78,11 +83,28 @@ export function createProfilesRouter(profileService: ProfileService): Router {
     }),
   );
 
+  // The notes alone: no claim, no gate, no deploy, so 200 and not 202.
+  router.patch(
+    '/:name/notes',
+    validateParams(profileNameSchema),
+    validateBody(updateNotesSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as UpdateNotesInput;
+      const profile = await profileService.updateNotes(
+        req.params.name as string,
+        body.notes,
+        body.notes_revision,
+      );
+      res.json(profile);
+    }),
+  );
+
   router.delete(
     '/:name',
     validateParams(profileNameSchema),
+    validateBody(removeProfileSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const profile = await profileService.remove(req.params.name as string);
+      const profile = await profileService.remove(req.params.name as string, req.body as RemoveProfileInput);
       res.status(202).json(profile);
     }),
   );

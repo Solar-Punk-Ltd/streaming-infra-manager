@@ -12,16 +12,16 @@
  * would refuse.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import type { EngineOverview } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
 // SUBMODULE is resolved when envUtils loads and ProfileService reads the base
 // env through it, so the root is set before anything importing it is loaded.
-const root = mkdtempSync(join(tmpdir(), 'engine-host-defaults-'));
+const root = throwawayRoot('engine-host-defaults-');
 process.env.SHLS_ROOT = root;
 writeFileSync(
   join(root, '.env'),

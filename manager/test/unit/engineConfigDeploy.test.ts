@@ -11,14 +11,15 @@
  * later version that does have one would pick up a file nobody applied.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { throwawayRoot } from '../support/throwawayRoot.js';
+import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import type { StackContract } from '@streaming-infra-manager/common';
 
-const root = mkdtempSync(join(tmpdir(), 'engine-config-deploy-'));
+const root = throwawayRoot('engine-config-deploy-');
 const dataRoot = join(root, 'data');
 process.env.SHLS_ROOT = root;
 process.env.BEE_DATA_ROOT = dataRoot;
@@ -30,15 +31,16 @@ const { orchestratorHarness, untilRunning } = await import(
 const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
 
 const WITH_HOOK: StackContract = {
-  ports: [],
+  ports: [...ALLOCATION_CONTRACT.ports],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: true, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 const CONFIG = 'listen 1935;\nhls_fragment HLS_FRAGMENT_PLACEHOLDER;\n';

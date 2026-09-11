@@ -10,14 +10,22 @@ export type Route =
   | { page: 'group'; id: number }
   | { page: 'host' }
   | { page: 'versions' }
-  | { page: 'access' };
+  | { page: 'versionSettings'; id: number }
+  | { page: 'access' }
+  | { page: 'transfers' }
+  | { page: 'transfer'; id: string }
+  | { page: 'transferRequest'; requestId: string };
 
 export const routes = {
   overview: '#/',
   deployments: '#/deployments',
   host: '#/host',
   versions: '#/versions',
+  versionSettings: (id: number): string => `#/versions/${id}/settings`,
   access: '#/access',
+  transfers: '#/transfers',
+  transfer: (id: string): string => `#/transfers/${encodeURIComponent(id)}`,
+  transferRequest: (requestId: string): string => `#/transfers/request/${encodeURIComponent(requestId)}`,
   deployment: (name: string): string =>
     `#/deployments/${encodeURIComponent(name)}`,
   deploymentStorage: (name: string): string =>
@@ -39,8 +47,20 @@ function parse(hash: string): Route {
 
   if (segments.length === 0) return { page: 'overview' };
   if (segments[0] === 'host') return { page: 'host' };
-  if (segments[0] === 'versions') return { page: 'versions' };
+  if (segments[0] === 'versions') {
+    const id = Number.parseInt(segments[1] ?? '', 10);
+    if (segments[2] === 'settings' && Number.isInteger(id)) {
+      return { page: 'versionSettings', id };
+    }
+    return { page: 'versions' };
+  }
   if (segments[0] === 'access') return { page: 'access' };
+
+  if (segments[0] === 'transfers') {
+    if (segments[1] === 'request' && segments[2]) return { page: 'transferRequest', requestId: segments[2] };
+    if (segments[1]) return { page: 'transfer', id: segments[1] };
+    return { page: 'transfers' };
+  }
 
   if (segments[0] === 'deployments') {
     if (segments.length === 1) return { page: 'deployments' };

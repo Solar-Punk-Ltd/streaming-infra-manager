@@ -12,16 +12,16 @@
  * crash-loops under `restart: unless-stopped` if it gets through.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import type { EngineSettings } from '@streaming-infra-manager/common';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 
 // SUBMODULE resolves from SHLS_ROOT at module load, so the env var has to be
 // set before envUtils is imported, hence the dynamic import in `before`.
-const root = mkdtempSync(join(tmpdir(), 'engine-settings-'));
+const root = throwawayRoot('engine-settings-');
 const previousRoot = process.env.SHLS_ROOT;
 
 let writeProfileEnv: typeof import('../../src/utils/envUtils.js').writeProfileEnv;

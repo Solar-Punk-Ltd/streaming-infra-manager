@@ -8,11 +8,14 @@ import {
 } from '../../data';
 import type { CreateProfileBody, Profile } from '../../types';
 import { addressForKey } from '../validation';
+import { matchingPool, type CreatedPool } from './poolIdentity';
+import { PoolResponseError } from './PoolResponseError';
 import {
   chosenComponents,
   chosenHost,
   chosenKey,
   chosenPassphrase,
+  chosenVersion,
   needsExternalBeeUrl,
   needsFeedOwner,
   needsPassphrase,
@@ -26,6 +29,7 @@ import {
 /** What the dialog does once the manager has accepted the deployment. */
 export interface WizardOutcome {
   profiles: Profile[];
+  createdPool?: CreatedPool;
   /** Hash route of the thing that was just created. */
   route: string;
   toast: string;
@@ -35,6 +39,7 @@ export async function submitWizard(
   state: WizardState,
   context: WizardContext,
 ): Promise<WizardOutcome> {
+  if (!chosenVersion(state, context)) throw new Error('Pick a stack version');
   const toast = `Deploying ${state.name}…`;
 
   if (state.goal === 'abr-pool') {
@@ -47,7 +52,9 @@ export async function submitWizard(
       notes: notesOf(state),
       stack_version_id: versionOf(state),
     });
-    return { profiles: result.profiles, route: routes.group(result.group.id), toast };
+    const createdPool = matchingPool(result, state.name);
+    if (!createdPool) throw new PoolResponseError();
+    return { profiles: createdPool.profiles, route: routes.group(createdPool.group.id), toast, createdPool };
   }
 
   if (state.group) {
@@ -72,9 +79,9 @@ function notesOf(state: WizardState): string | null {
   return state.notes.trim() || null;
 }
 
-/** Left out while the versions have not arrived, so the manager's default applies. */
-function versionOf(state: WizardState): number | undefined {
-  return state.versionId ?? undefined;
+function versionOf(state: WizardState): number {
+  if (state.versionId === null) throw new Error('Pick a stack version');
+  return state.versionId;
 }
 
 /** The address of the feed a viewer or a client follows. */

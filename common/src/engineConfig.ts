@@ -9,6 +9,7 @@
  * edits the structure.
  */
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
+import type { EngineConfigState } from './engineConfigRollout.js';
 import type { EngineName } from './engines.js';
 import { engineSettingsFields } from './engineSettings.js';
 
@@ -39,6 +40,30 @@ export const ENGINE_CONFIG_REFERENCES: Record<EngineName, EngineConfigReference[
   ],
 };
 
+/** The env key each engine's compose override reads its config file path from. */
+export const ENGINE_CONFIG_ENV_KEYS: Record<EngineName, string> = {
+  [SRS_SERVICE]: 'SRS_CONF_FILE',
+  [OME_SERVICE]: 'OME_CONF_FILE',
+};
+
+/**
+ * What one of those keys may hold.
+ *
+ * The value becomes the source of a Docker bind mount in the version's compose
+ * override, so a relative path is resolved against the compose file rather
+ * than the host, and a quote or a space ends the mount somewhere else. Both
+ * the deployment's own value and the version's base env line go through this,
+ * because whichever of them is set is the one that gets mounted.
+ */
+export const ENGINE_CONFIG_FILE_RE = /^\/[A-Za-z0-9._/-]+$/;
+
+export const ENGINE_CONFIG_FILE_MESSAGE =
+  'has to be empty or an absolute path of letters, digits and . _ - /, because the stack mounts it into the engine container.';
+
+export function isEngineConfigFileKey(key: string): boolean {
+  return Object.values(ENGINE_CONFIG_ENV_KEYS).includes(key);
+}
+
 /** What `GET /profiles/:name/engine-config` answers. */
 export interface EngineConfigView {
   engine: EngineName;
@@ -52,7 +77,9 @@ export interface EngineConfigView {
   template: string;
   /** The tokens the version's entrypoint fills, in the order it names them. */
   placeholders: string[];
-  /** Why the last apply was reverted, or null. */
+  /** Where the deployment's latest rollout stands, or null before the first. */
+  state: EngineConfigState | null;
+  /** Why the latest rollout did not end applied, or null. */
   error: string | null;
   references: EngineConfigReference[];
 }

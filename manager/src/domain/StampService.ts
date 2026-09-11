@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs';
 
 import {
   classifyPublishUrl,
+  type BeeNodeObservation,
   getErrorMessage,
   type PublishUrlState,
   type StampHealth,
@@ -23,12 +23,14 @@ import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
+  BeeNodeError,
   ProfileNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { LOCAL_PUBLISHED_HOST } from './localHost.js';
 
 const logger = Logger.getInstance();
 
@@ -41,13 +43,9 @@ const LOCAL_HOSTS = new Set([
   'native',
 ]);
 
-// Local profiles publish their bee API on a host port. The manager reaches it
-// via host.docker.internal when it runs inside its own container (see
-// manager/docker-compose.yml extra_hosts); running natively (dev/e2e) that name
-// doesn't resolve, so fall back to 127.0.0.1. Override with BEE_LOCAL_HOST.
-const LOCAL_BEE_HOST =
-  process.env.BEE_LOCAL_HOST ??
-  (existsSync('/.dockerenv') ? 'host.docker.internal' : '127.0.0.1');
+// Local profiles publish their bee API on a host port, reached the way every
+// published port is.
+const LOCAL_BEE_HOST = LOCAL_PUBLISHED_HOST;
 
 const USABLE_POLL_MS = 3_000;
 const USABLE_WAIT_MS = 15 * 60 * 1_000;
@@ -124,6 +122,10 @@ export class StampService {
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
       new BeeClient(url, timeoutMs),
   ) {}
+
+  async getNodeObservation(name: string): Promise<BeeNodeObservation> {
+    return this.call(name, (client) => client.getNodeObservation());
+  }
 
   async getAddress(name: string): Promise<BeeAddresses> {
     return this.call(name, (client) => client.getAddresses());
@@ -239,7 +241,12 @@ export class StampService {
     }
   }
 
-  // Best-effort: only a definite unknown (404) or not-usable answer from bee blocks the deploy.
+  /**
+   * A batch the node does not know or calls unusable blocks the start, and so
+   * does a node that does not answer: an uploader started on an unverified
+   * batch reports RUNNING and fails every upload. The refusal says how to
+   * try again.
+   */
   async assertStampUsable(name: string, stampId: string): Promise<void> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
@@ -255,16 +262,10 @@ export class StampService {
           'the configured stamp is unknown to this bee node',
         );
       }
-      logger.warn(
-        `[StampService] ${name}: could not verify stamp usability, proceeding: ${getErrorMessage(err)}`,
+      throw new BeeNodeError(
+        name,
+        `The Bee node of ${name} did not answer the stamp check (${getErrorMessage(err)}), so the uploader was not started. Try again once the node answers.`,
       );
-      this.events.publish({
-        type: 'profile.notice',
-        profile: name,
-        text: `Started without checking the stamp of ${name}: its node did not answer.`,
-        tone: 'warn',
-      });
-      return;
     }
     if (!stamp.usable) {
       const reason =

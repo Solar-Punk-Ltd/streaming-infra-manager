@@ -60,7 +60,13 @@ export function TopBar({
       >
         <MenuIcon />
       </IconButton>
-      <Typography variant="h2" component="h1">
+      <Typography
+        variant="h2"
+        component="h1"
+        // On a phone the title is the one thing here that can give way. The
+        // controls beside it all do something.
+        sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
         {title}
       </Typography>
       <Box sx={{ flexGrow: 1 }} />

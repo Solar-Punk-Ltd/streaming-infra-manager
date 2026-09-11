@@ -16,6 +16,7 @@ import { streamersOf } from '../../deployments/shape';
 import type { PoolResults } from '../../groups/useBeePublishers';
 import type { DeploymentGroup, Profile } from '../../types';
 import { DEFAULT_CUSTOM_COMPONENTS, GOALS } from './wizardGoals';
+import { matchingPool } from './poolIdentity';
 
 /** What the operator said they want, which decides every field after it. */
 export type WizardGoal = NonNullable<WizardPrefill['goal']>;
@@ -56,7 +57,7 @@ export interface WizardState {
   poolId: number | null;
   poolString: string;
   components: string[];
-  /** The stack version to deploy on. Null until the versions have arrived. */
+  /** The stack version to deploy on. Null until a default or an explicit choice supplies it. */
   versionId: number | null;
 }
 
@@ -74,6 +75,7 @@ export interface WizardStepProps {
   state: WizardState;
   context: WizardContext;
   update: (patch: Partial<WizardState>) => void;
+  onCreatePool?: () => void;
 }
 
 /** Everything the wizard reads about what already exists on this manager. */
@@ -93,11 +95,12 @@ export function choosableVersions(context: WizardContext): StackVersion[] {
 }
 
 /**
- * Whether the wizard asks for a version at all. With one version there is
- * nothing to choose, and the row would only name what every deployment runs.
+ * A sole tested default needs no choice. Other cases need either an explicit
+ * selection or a visible explanation of the default's approval state.
  */
 export function versionChoiceShown(context: WizardContext): boolean {
-  return choosableVersions(context).length > 1;
+  const versions = choosableVersions(context);
+  return versions.length !== 1 || !versions[0]?.isDefault || !versions[0]?.tested;
 }
 
 export function chosenVersion(
@@ -114,7 +117,7 @@ export function chosenVersion(
 function defaultVersionIn(context: WizardContext): number | null {
   const choosable = choosableVersions(context);
   return (
-    choosable.find((version) => version.isDefault)?.id ?? choosable[0]?.id ?? null
+    choosable.find((version) => version.isDefault)?.id ?? null
   );
 }
 
@@ -132,6 +135,8 @@ export function poolValueIn(
   poolId: number | null,
 ): string | null {
   if (poolId == null) return null;
+  const group = context.groups.find(group => group.id === poolId);
+  if (!group || !matchingPool({ group, profiles: context.profiles.filter(profile => profile.group_id === poolId) }, group.name)) return null;
   return context.poolResults.get(poolId)?.value ?? null;
 }
 
@@ -167,7 +172,7 @@ export function initialWizardState(
     group: false,
     size: '2',
     engine: SRS_SERVICE,
-    passMode: 'host',
+    passMode: defaultPassphraseChoice(context),
     generatedPassphrase: generateSrtPassphrase(),
     ownPassphrase: '',
     keyMode: 'generate',
@@ -213,12 +218,33 @@ export function withGoal(
   };
 }
 
+/**
+ * The host-wide passphrase when the host has one, one generated for the
+ * deployment when it has none. 'host' on a host without a passphrase is
+ * unencrypted ingest, which a default must never be.
+ */
+export function defaultPassphraseChoice(context: WizardContext): PassphraseChoice {
+  return context.hostPassphrase ? 'host' : 'generate';
+}
+
 /** The passphrase this deployment would get, or null for the host-wide one. */
 export function chosenPassphrase(state: WizardState): string | null {
   if (state.passMode === 'host') return null;
   return state.passMode === 'generate'
     ? state.generatedPassphrase
     : state.ownPassphrase.trim();
+}
+
+/**
+ * The Review line for the passphrase, in the words the Publish card will use
+ * once the deployment runs.
+ */
+export function passphraseSummary(state: WizardState, context: WizardContext): string {
+  if (state.passMode === 'generate') return 'generated for this deployment';
+  if (state.passMode === 'custom') return 'a passphrase of your own';
+  return context.hostPassphrase
+    ? 'the host-wide passphrase'
+    : 'none on this host, so the ingest is unencrypted';
 }
 
 export function chosenKey(state: WizardState): string {

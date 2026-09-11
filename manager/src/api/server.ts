@@ -1,3 +1,4 @@
+import type { ChequebookOperationsService } from '../domain/chequebook/ChequebookOperationsService.js';
 import http from 'node:http';
 
 import express from 'express';
@@ -15,6 +16,10 @@ import { MetricsCollector } from '../domain/MetricsCollector.js';
 import { ProfileService } from '../domain/ProfileService.js';
 import { StampService } from '../domain/StampService.js';
 import { StackVersionService } from '../domain/versions/StackVersionService.js';
+import type { DeploymentOrchestrator } from '../domain/DeploymentOrchestrator.js';
+import type { VerifiedDeployTargets } from '../domain/ports/VerifiedDeployTargets.js';
+import type { FirewallInventoryExporter } from '../domain/ports/FirewallInventoryExporter.js';
+import type { PortReservationRepository } from '../domain/ports/PortReservationRepository.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
@@ -33,7 +38,10 @@ import { createHealthRouter } from './routes/health.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { createProfilesRouter } from './routes/profiles.js';
 import { createStampRouter } from './routes/stamp.js';
+import { createAttemptsRouter } from './routes/attempts.js';
 import { createVersionsRouter } from './routes/versions.js';
+import { createTargetsRouter } from './routes/targets.js';
+import type { PortInventory } from '../domain/ports/PortInventory.js';
 
 const logger = Logger.getInstance();
 
@@ -48,9 +56,16 @@ export interface ApiDeps {
   deployService: DeployService;
   stampService: StampService;
   chequebookService: ChequebookService;
+  chequebookOperations: ChequebookOperationsService;
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   stackVersionService: StackVersionService;
+  /** For the deploy attempts that hold a project or the daemon, and their release. */
+  orchestrator: DeploymentOrchestrator;
+  deployTargets: VerifiedDeployTargets;
+  portReservations: PortReservationRepository;
+  portInventory?: PortInventory;
+  firewallInventory?: FirewallInventoryExporter;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
 }
@@ -82,15 +97,24 @@ export function startApiServer(
   app.use('/auth', createAuthRouter(deps.authService, requireSession));
   app.use(requireSession);
 
-  app.use('/config', createConfigRouter(deps.chequebookService.floorBzz));
+  app.use(
+    '/config',
+    createConfigRouter(deps.chequebookService.floorBzz, () => deps.stackVersionService.hostPassphrase()),
+  );
   app.use('/metrics', metrics);
   app.use('/events', events.router);
+  // Before /versions, whose /:id route would otherwise take "attempts" for an id.
+  app.use(
+    '/versions/attempts',
+    createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
+  );
   app.use('/profiles', createProfilesRouter(deps.profileService));
+  app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
-  app.use('/', createChequebookRouter(deps.chequebookService));
+  app.use('/', createChequebookRouter(deps.chequebookService, deps.chequebookOperations));
   app.use('/', createEngineRouter(deps.profileService, deps.containerControl));
   app.use('/', createEngineConfigRouter(deps.engineConfigService));
 

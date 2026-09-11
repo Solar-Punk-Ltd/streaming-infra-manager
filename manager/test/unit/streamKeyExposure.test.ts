@@ -12,15 +12,15 @@
  * case an argument like it is ever added back.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { describeArgsForLog } from '../../src/domain/ScriptRunner.js';
+import { throwawayRoot } from '../support/throwawayRoot.js';
 import { makeProfile } from '../support/profileFixtures.js';
 
-const root = mkdtempSync(join(tmpdir(), 'stream-key-'));
+const root = throwawayRoot('stream-key-');
 process.env.SHLS_ROOT = root;
 writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
 

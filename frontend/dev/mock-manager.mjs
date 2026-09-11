@@ -10,7 +10,7 @@
  * The dataset it starts from is in `mock-seed.mjs` and the metrics generator is
  * in `mock-metrics.mjs`. This file is the transitions and the routes.
  *
- *   node frontend/dev/mock-manager.mjs        (or: pnpm -C frontend dev:mock)
+ *   pnpm -C frontend dev:mock
  *
  * Signing in is real here too: every route but /health and the two sign-in
  * routes needs the session cookie, so the frontend's 401 handling can be
@@ -24,12 +24,8 @@ import {
   chequebookHealthFrom,
   chequebookHealthPayload,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
-  depositOverWalletReason,
-  NO_XDAI_FOR_GAS_REASON,
   plurToBzz,
-  uncheckedChequebookNotice,
   uploaderUnfundedReason,
-  withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -38,9 +34,19 @@ import {
   DEV_USERNAME,
   refuseRequest,
   seedAuth,
+  userFor,
 } from './mock-auth.mjs';
+import {
+  attemptRefusal,
+  attemptRoutes,
+  openAttempt,
+  resolveAttempt,
+  seedAttempts,
+} from './mock-attempts.mjs';
 import { engineRoutes } from './mock-engine.mjs';
-import { engineConfigRoutes } from './mock-engine-config.mjs';
+import { createMockChequebookJournal } from './mock-chequebook.mjs';
+import { createTargetRoutes } from './mock-targets.mjs';
+import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
@@ -77,9 +83,7 @@ const STOP_MS = 1_200;
 const REMOVE_MS = 1_200;
 const STAMP_SETTLE_MS = 4_000;
 
-// Bee answers a deposit once the transaction is submitted, so the balance only
-// moves a few Gnosis blocks later. Short enough to watch, long enough that the
-// dialog's waiting state is a real state and not a flicker.
+// The offline simulator records transaction evidence separately from its balances.
 const CHEQUEBOOK_SETTLE_MS = 3_000;
 
 const CHEQUEBOOK_FLOOR_PLUR = bzzToPlur(DEFAULT_CHEQUEBOOK_FLOOR_BZZ);
@@ -106,20 +110,31 @@ function membersOf(groupId) {
   return state.profiles.filter((profile) => profile.group_id === groupId);
 }
 
-function deploy(profile, { withUploader } = {}) {
+/** @param onRunning runs once the row is RUNNING again, before that change is published. */
+function deploy(profile, { withUploader, onRunning } = {}) {
   profile.status = 'DEPLOYING';
   profile.last_error = null;
   profile.last_error_at = null;
   changed(profile);
+  const containers = containersFor(profile, {
+    withUploader:
+      withUploader ??
+      (!needsStamp(profile) ||
+        Boolean(profile.stamp_id) ||
+        Boolean(profile.bee_publishers)),
+  });
+  // The guard the manager takes before anything runs, resolved the way a
+  // deploy that gave every service a new container resolves it.
+  const attempt = openAttempt(
+    profile,
+    containers.map((container) => container.service),
+    publish,
+  );
   setTimeout(() => {
     profile.status = 'RUNNING';
-    profile.containers = containersFor(profile, {
-      withUploader:
-        withUploader ??
-        (!needsStamp(profile) ||
-          Boolean(profile.stamp_id) ||
-          Boolean(profile.bee_publishers)),
-    });
+    profile.containers = containers;
+    resolveAttempt(attempt, publish);
+    onRunning?.();
     changed(profile);
   }, DEPLOY_MS);
 }
@@ -138,6 +153,7 @@ function remove(profile) {
   profile.status = 'REMOVING';
   changed(profile);
   setTimeout(() => {
+    forgetEngineConfig(profile);
     state.profiles = state.profiles.filter((entry) => entry.name !== profile.name);
     state.nodes.delete(profile.name);
     publish({ type: 'profile.deleted', name: profile.name });
@@ -201,46 +217,39 @@ function chequebookSummary(name) {
   };
 }
 
-/** The refusal the manager sends, worded the same way. */
-function chequebookFundsError(res, reason) {
-  return send(res, 400, { error: 'validation_error', errors: [reason] });
-}
+const chequebookJournal = createMockChequebookJournal({
+  profileFor: findProfile,
+  nodeFor: nodeIfKnown,
+  userFor,
+  onSubmitted(operation) {
+    const entry = nodeIfKnown(operation.profileName);
+    setTimeout(() => {
+      chequebookJournal.observeReceipt(operation.id, { kind: 'settled', receiptBlockNumber: '501', receiptBlockHash: `0x${hex(32)}`,
+        finalizedBlockNumber: '510', finalizedBlockHash: `0x${hex(32)}` });
+      if (!entry || entry.ethereum.toLowerCase() !== operation.nodeAddress) return;
+      const amount = BigInt(operation.amountPlur);
+      const walletDelta = operation.direction === 'deposit' ? -amount : amount;
+      entry.bzz = String(BigInt(entry.bzz) + walletDelta);
+      entry.chequebook.total = String(BigInt(entry.chequebook.total) - walletDelta);
+      entry.chequebook.available = String(BigInt(entry.chequebook.available) - walletDelta);
+    }, CHEQUEBOOK_SETTLE_MS);
+  },
+});
 
 /**
- * Move BZZ between a node's two pots, a few seconds after answering, the way
- * bee does: the call returns a submitted transaction and the chain settles it.
- */
-function moveBzz(name, amountPlur, direction) {
-  const entry = node(name);
-  setTimeout(() => {
-    const walletDelta = direction === 'fill' ? -amountPlur : amountPlur;
-    entry.bzz = String(BigInt(entry.bzz) + walletDelta);
-    entry.chequebook.total = String(BigInt(entry.chequebook.total) - walletDelta);
-    entry.chequebook.available = String(
-      BigInt(entry.chequebook.available) - walletDelta,
-    );
-  }, CHEQUEBOOK_SETTLE_MS);
-  return { transactionHash: `0x${hex(32)}` };
-}
-
-/**
- * The uploader gate, refusing on the same rule and with the same 409 body.
- *
- * A deployment that publishes to a pool has no node of its own to ask, which in
- * the real manager is a failed probe and never a refusal.
+ * The uploader gate uses the manager's funding refusal and unknown-node bodies.
+ * A deployment without a local Bee node keeps its external or pool path.
  */
 function chequebookRefusal(profile) {
   if (!servicesOf(profile).includes('bee-uploader')) return null;
 
   const entry = nodeIfKnown(profile.name);
   if (!entry) {
-    publish({
-      type: 'profile.notice',
-      profile: profile.name,
-      text: uncheckedChequebookNotice(profile.name),
-      tone: 'warn',
-    });
-    return null;
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} did not answer the chequebook check, so the uploader was not started. Try again once the node answers.`,
+    };
   }
 
   const health = chequebookHealthFrom(
@@ -250,6 +259,13 @@ function chequebookRefusal(profile) {
     },
     CHEQUEBOOK_FLOOR_PLUR,
   );
+  if (health.state === 'unknown') {
+    return {
+      error: 'bee_node_unreachable',
+      name: profile.name,
+      message: `The Bee node of ${profile.name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
+    };
+  }
   if (health.state !== 'low' && health.state !== 'empty') return null;
 
   return {
@@ -377,6 +393,19 @@ const EDITABLE_FIELDS = [
   'srt_passphrase',
 ];
 
+/** The manager's rule: a note saved from a page that loaded before another save is refused. */
+function notesMoved(profile, body) {
+  return body.notes_revision !== undefined && body.notes_revision !== profile.notes_revision;
+}
+
+function notesConflict(profile) {
+  return {
+    error: 'notes_conflict',
+    name: profile.name,
+    message: `The notes of ${profile.name} changed since this page loaded. Reload to see them, then save again.`,
+  };
+}
+
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
@@ -438,9 +467,35 @@ const ROUTES = [
     'PUT',
     /^\/profiles\/([^/]+)$/,
     withProfile(async (req, res, profile) => {
-      replaceEditable(profile, await readBody(req));
+      const refusal = attemptRefusal(profile);
+      if (refusal) return send(res, 409, refusal);
+      const body = await readBody(req);
+      if ('notes' in body && notesMoved(profile, body)) {
+        send(res, 409, notesConflict(profile));
+        return;
+      }
+      const notesBefore = profile.notes;
+      replaceEditable(profile, body);
+      if (profile.notes !== notesBefore) profile.notes_revision += 1;
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, profile);
+    }),
+  ],
+  [
+    'PATCH',
+    /^\/profiles\/([^/]+)\/notes$/,
+    withProfile(async (req, res, profile) => {
+      const body = await readBody(req);
+      if (notesMoved(profile, body)) {
+        send(res, 409, notesConflict(profile));
+        return;
+      }
+      profile.notes = body.notes ?? null;
+      profile.notes_revision += 1;
+      profile.updated_at = new Date().toISOString();
+      changed(profile);
+      send(res, 200, profile);
     }),
   ],
   [
@@ -455,6 +510,9 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/deploy$/,
     withProfile((_req, res, profile) => {
+      const refusal = attemptRefusal(profile);
+      if (refusal) return send(res, 409, refusal);
+      closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
       send(res, 202, { status: 'accepted' });
     }),
@@ -463,6 +521,7 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/stop$/,
     withProfile((_req, res, profile) => {
+      closeRollout(profile, 'Stopped by the operator before the file was verified.');
       stop(profile);
       send(res, 202, { status: 'accepted' });
     }),
@@ -472,7 +531,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/deploy-uploader$/,
     withProfile((_req, res, profile) => {
       const refusal = chequebookRefusal(profile);
-      if (refusal) return send(res, 409, refusal);
+      if (refusal) return send(res, refusal.error === 'bee_node_unreachable' ? 502 : 409, refusal);
       deploy(profile, { withUploader: true });
       send(res, 202, { status: 'accepted' });
     }),
@@ -482,58 +541,7 @@ const ROUTES = [
     /^\/profiles\/([^/]+)\/chequebook$/,
     (_req, res, [name]) => send(res, 200, chequebookSummary(name)),
   ],
-  [
-    'POST',
-    /^\/profiles\/([^/]+)\/chequebook\/deposit$/,
-    withProfile(async (req, res, profile) => {
-      const body = await readBody(req);
-      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
-        return chequebookFundsError(
-          res,
-          'amount must be a positive whole number of PLUR',
-        );
-      }
-
-      const amountPlur = BigInt(body.amount);
-      const entry = node(profile.name);
-      const walletBzz = BigInt(entry.bzz);
-      if (walletBzz < amountPlur) {
-        return chequebookFundsError(
-          res,
-          depositOverWalletReason(walletBzz, amountPlur),
-        );
-      }
-      if (BigInt(entry.xdai) === 0n) {
-        return chequebookFundsError(res, NO_XDAI_FOR_GAS_REASON);
-      }
-
-      send(res, 202, moveBzz(profile.name, amountPlur, 'fill'));
-    }),
-  ],
-  [
-    'POST',
-    /^\/profiles\/([^/]+)\/chequebook\/withdraw$/,
-    withProfile(async (req, res, profile) => {
-      const body = await readBody(req);
-      if (!/^[1-9][0-9]{0,29}$/.test(String(body.amount))) {
-        return chequebookFundsError(
-          res,
-          'amount must be a positive whole number of PLUR',
-        );
-      }
-
-      const amountPlur = BigInt(body.amount);
-      const available = BigInt(node(profile.name).chequebook.available);
-      if (available < amountPlur) {
-        return chequebookFundsError(
-          res,
-          withdrawalOverChequebookReason(available, amountPlur),
-        );
-      }
-
-      send(res, 202, moveBzz(profile.name, amountPlur, 'withdraw'));
-    }),
-  ],
+  ...chequebookJournal.routes,
   [
     'GET',
     /^\/profiles\/([^/]+)\/stamp\/address$/,
@@ -684,7 +692,9 @@ const ROUTES = [
       send(res, 202, { group, profiles });
     },
   ],
-  ...engineRoutes({ readBody, withProfile, deploy, publish }),
+  ...attemptRoutes(readBody, publish),
+  ...createTargetRoutes(readBody),
+  ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
@@ -730,9 +740,13 @@ const server = createServer((req, res) => {
 seed();
 seedAuth();
 seedVersions();
+const held = seedAttempts();
 server.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(
     `mock manager on http://127.0.0.1:${PORT} (this machine only) with ${state.profiles.length} profiles, ${state.groups.length} groups and ${state.versions.length} stack versions\n` +
-      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n`,
+      `sign in as ${DEV_USERNAME} / ${DEV_PASSWORD}\n` +
+      (held
+        ? `${held.project} has a blocked deploy attempt, ${held.jobId}, holding every deploy of a version with shared image tags, as the manager would. Release it on the Versions page first.\n`
+        : ''),
   );
 });

@@ -1,8 +1,9 @@
-import type { GroupKind } from '@streaming-infra-manager/common';
+import type { GroupKind, StackPortVar } from '@streaming-infra-manager/common';
 import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
+import { reserveSlotFor } from './ports/reservationSql.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface SharedProfileParams {
@@ -18,8 +19,12 @@ export interface SharedProfileParams {
   srt_passphrase: string | null;
   /** Every member of a group runs one version, the one the group was made on. */
   stack_version_id: number;
-  /** The highest port slot that version's deploy script accepts. */
-  max_slot: number;
+  /** The highest slot a member may get: the version's own maximum, never above the manager's. */
+  slot_cap: number;
+  /** The daemon the members' ports belong to, from `docker info`. */
+  daemon_id: string;
+  /** The version's port table, every port of which each member's slot reserves. */
+  table: readonly StackPortVar[];
 }
 
 export interface MemberSeed {
@@ -39,8 +44,14 @@ export interface MemberConfigWrite {
   srt_passphrase: string | null;
 }
 
+export type EmptyGroupRemoval = 'deleted' | 'absent' | 'changed' | 'not_empty';
+
 export class DeploymentGroupRepository {
   constructor(private readonly pool: Pool) {}
+
+  async removeEmptyGroup(groupId: number, expectedName: string): Promise<EmptyGroupRemoval> {
+    return this.updateAfterRemoval(groupId, expectedName);
+  }
 
   async findByName(name: string): Promise<DeploymentGroup | null> {
     const r = await this.pool.query<DeploymentGroup>(
@@ -68,29 +79,41 @@ export class DeploymentGroupRepository {
   async syncMembershipAfterRemoval(
     groupId: number,
   ): Promise<'deleted' | 'resized'> {
+    const result = await this.updateAfterRemoval(groupId);
+    return result === 'deleted' || result === 'absent' ? 'deleted' : 'resized';
+  }
+
+  private async updateAfterRemoval(groupId: number, expectedName?: string): Promise<EmptyGroupRemoval> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-
-      const deleted = await client.query(
-        `DELETE FROM deployment_groups g
-          WHERE g.id = $1
-            AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.group_id = $1)`,
-        [groupId],
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROFILE_SLOT_LOCK_KEY]);
+      const group = await client.query<{ name: string }>(
+        'SELECT name FROM deployment_groups WHERE id = $1 FOR UPDATE', [groupId],
       );
-      if ((deleted.rowCount ?? 0) > 0) {
+      if (!group.rows[0]) {
+        await client.query('COMMIT');
+        return 'absent';
+      }
+      if (expectedName !== undefined && group.rows[0].name !== expectedName) {
+        await client.query('COMMIT');
+        return 'changed';
+      }
+      // Take a fresh statement snapshot after the parent lock waits for any FK insert.
+      const count = await client.query<{ count: number }>(
+        'SELECT COUNT(*)::integer AS count FROM profiles WHERE group_id = $1', [groupId],
+      );
+      const size = count.rows[0]!.count;
+      if (size === 0) {
+        await client.query('DELETE FROM deployment_groups WHERE id = $1', [groupId]);
         await client.query('COMMIT');
         return 'deleted';
       }
-
-      await client.query(
-        `UPDATE deployment_groups
-            SET size = (SELECT COUNT(*) FROM profiles WHERE group_id = $1)
-          WHERE id = $1`,
-        [groupId],
-      );
+      if (expectedName === undefined) {
+        await client.query('UPDATE deployment_groups SET size = $2 WHERE id = $1', [groupId, size]);
+      }
       await client.query('COMMIT');
-      return 'resized';
+      return 'not_empty';
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -165,21 +188,22 @@ export class DeploymentGroupRepository {
     shared: SharedProfileParams,
     groupId: number,
   ): Promise<Profile> {
+    const placement = { slotCap: shared.slot_cap, daemonId: shared.daemon_id, table: shared.table };
+    const slot = await reserveSlotFor(client, name, placement);
+    if (slot === null) {
+      throw new AllSlotsUsedError(shared.slot_cap);
+    }
     const r = await client.query<Profile>(
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
          srt_passphrase, group_id, stack_version_id
        )
-       SELECT $1, s.n, $2, $3, 'STOPPED', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-       FROM generate_series(1, $14::int) AS s(n)
-       LEFT JOIN profiles p ON p.port_slot = s.n
-       WHERE p.port_slot IS NULL
-       ORDER BY s.n
-       LIMIT 1
+       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
+        slot,
         shared.kind,
         shared.notes,
         shared.components,
@@ -192,12 +216,8 @@ export class DeploymentGroupRepository {
         shared.srt_passphrase,
         groupId,
         shared.stack_version_id,
-        shared.max_slot,
       ],
     );
-    if (!r.rowCount) {
-      throw new AllSlotsUsedError(shared.max_slot);
-    }
     return r.rows[0]!;
   }
 

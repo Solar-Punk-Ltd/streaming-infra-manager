@@ -1,4 +1,7 @@
-import { getErrorStack, plurToBzz } from '@streaming-infra-manager/common';
+import { createChequebookOperationsService } from './domain/chequebook/createChequebookOperationsService.js';
+import { getErrorStack, plurToBzz,
+  getErrorMessage,
+} from '@streaming-infra-manager/common';
 
 import { ApiServerHandle, startApiServer } from './api/server.js';
 import { AuthService } from './domain/auth/AuthService.js';
@@ -29,10 +32,24 @@ import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
+import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
+import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
+import { PostgresDeployAttemptRepository } from './domain/PostgresDeployAttemptRepository.js';
+import { VerifiedDeployTargets } from './domain/ports/VerifiedDeployTargets.js';
+import { FirewallInventoryExporter } from './domain/ports/FirewallInventoryExporter.js';
+import { PostgresFirewallStateSource } from './domain/ports/PostgresFirewallStateSource.js';
+import { ImmutableFirewallContractReader } from './domain/ports/ImmutableFirewallContractReader.js';
+import { PostgresDeployTargetRepository } from './domain/ports/PostgresDeployTargetRepository.js';
+import { TargetDocker } from './domain/ports/TargetDocker.js';
+import { PortInventory } from './domain/ports/PortInventory.js';
+import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
+import { ExecutionRootService } from './domain/versions/ExecutionRootService.js';
+import { PostgresExecutionRootRepository } from './domain/versions/PostgresExecutionRootRepository.js';
+import { executionsRootFor } from './domain/versions/stackPaths.js';
 import { config } from './utils/config.js';
-import { BUNDLED_STACK_ROOT, bootstrapStackDefaults } from './utils/envUtils.js';
+import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
 
 const logger = Logger.getInstance();
@@ -69,6 +86,7 @@ let database: Database | undefined;
 let metricsCollector: MetricsCollector | undefined;
 let sessionSweep: SessionSweep | undefined;
 let streamRevalidation: StreamRevalidation | undefined;
+let chequebookOperations: ReturnType<typeof createChequebookOperationsService> | undefined;
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -92,10 +110,13 @@ async function gracefulShutdown(signal: string): Promise<void> {
       metricsCollector.stop();
       metricsCollector = undefined;
     }
-    if (apiServer) {
-      await apiServer.close();
-      apiServer = undefined;
+    const [apiClosed, transferCleanup] = await Promise.allSettled([apiServer?.close(), chequebookOperations?.shutdown()]);
+    if (transferCleanup.status === 'rejected') throw new Error('Transfer transport cleanup could not be verified.');
+    for (const outcome of transferCleanup.value ?? []) {
+      if (outcome.state === 'unverified') logger.warn(`[Shutdown] transfer transport ${outcome.leaseId}: ${outcome.reason} (${outcome.remaining.join(', ')})`);
     }
+    if (apiClosed.status === 'rejected') throw new Error('API shutdown could not be verified.');
+    apiServer = undefined;
     if (database) {
       await database.close();
       database = undefined;
@@ -114,11 +135,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 async function main(): Promise<void> {
   logStartupConfig();
-
-  const bootstrapped = await bootstrapStackDefaults(BUNDLED_STACK_ROOT);
-  for (const file of bootstrapped) {
-    logger.info(`[Boot] created missing default: ${file}`);
-  }
 
   database = new Database(config.databaseUrl);
   await database.migrate();
@@ -144,15 +160,30 @@ async function main(): Promise<void> {
   const stackVersionRepository = new PostgresStackVersionRepository(
     database.pool,
   );
+  // Ahead of the profiles: the versions are what deployments run on.
+  const containerControl = new ContainerControl(eventBus);
+  // Which build each deployment runs on. The claim writes it, the success
+  // hook and boot observe the containers, and prune keeps what they mount.
+  const buildLedger = new PostgresBuildLedger(
+    database.pool,
+    containerControl,
+    config.stackVersionsRoot,
+  );
+  // The private copy each deployment runs its scripts from, so a build is
+  // never written into by a deploy. Under the versions root, which the api
+  // container sees at the same absolute path the host does.
+  const executionsParent = executionsRootFor(config.stackVersionsRoot);
+  const executionRoots = new ExecutionRootService(
+    new PostgresExecutionRootRepository(database.pool, executionsParent),
+    executionsParent,
+  );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,
     scriptRunner,
     eventBus,
     config.stackVersionsRoot,
-  );
-  await stackVersionService.refreshBundled(
+    buildLedger,
     BUNDLED_STACK_ROOT,
-    readBundledCommit(BUNDLED_STACK_ROOT),
   );
 
   const interruptedBuilds = await stackVersionService.failInterruptedBuilds();
@@ -164,6 +195,49 @@ async function main(): Promise<void> {
 
   const profileRepository = new ProfileRepository(database.pool);
   const containerRepository = new ContainerRepository(database.pool);
+
+  // What a gone manager left: attempts whose builder is gone go, containers
+  // are asked what they mount so a crashed job's reference can resolve, and
+  // then builds nothing protects go. A daemon that does not answer keeps
+  // everything, which is the safe side.
+  try {
+    await stackVersionService.cleanInterruptedAttempts({
+      containerExists: (name) => containerControl.containerExists(name),
+    });
+    await buildLedger.observeAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not reconciled: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // After the containers were observed, so a bundled build one still mounts
+  // has its reference before anything prunes.
+  try {
+    await stackVersionService.syncBundled(
+      BUNDLED_STACK_ROOT,
+      readBundledCommit(BUNDLED_STACK_ROOT),
+    );
+  } catch (err) {
+    logger.warn(`[Boot] the bundled version was not synced: ${getErrorMessage(err)}`);
+  }
+  // Before the prune: a copy taken back here releases its hold on a build, and
+  // a build nothing holds any more is what the prune is looking for.
+  try {
+    await executionRoots.reclaimInterrupted();
+  } catch (err) {
+    logger.warn(`[Boot] the execution copies were not reclaimed: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  try {
+    await stackVersionService.pruneAll();
+  } catch (err) {
+    logger.warn(`[Boot] the builds were not pruned: ${getErrorMessage(err)}. Nothing was deleted.`);
+  }
+  // The stack commit this manager pins, built here on the host. A build that
+  // cannot start or cannot finish leaves a failed version row the Versions page
+  // shows and an Update button retries, never an api that refuses to start.
+  try {
+    await stackVersionService.ensureBundledBuild();
+  } catch (err) {
+    logger.warn(`[Boot] the pinned stack commit was not built: ${getErrorMessage(err)}. The api starts either way.`);
+  }
 
   const orphans = await profileRepository.resetOrphanedTransitions();
   if (orphans.length > 0) {
@@ -199,6 +273,39 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  chequebookOperations = createChequebookOperationsService(database.pool, {
+    rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
+    dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
+  });
+  chequebookOperations.start();
+  // The project guard and the daemon lock: every deploy attempt holds its
+  // project until its containers prove it over, and shared-tag builds wait
+  // for each other on the daemon.
+  const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
+  const portReservations = new PostgresPortReservationRepository(database.pool);
+  const targetDocker = new TargetDocker(containerControl);
+  const deployTargets = new VerifiedDeployTargets(
+    new PostgresDeployTargetRepository(database.pool),
+    targetDocker,
+  );
+  try {
+    await deployTargets.verify('localhost');
+  } catch {
+    logger.warn('[Boot] The local Docker target could not be verified. Port allocation stays blocked for it.');
+  }
+  const portInventory = new PortInventory(profileRepository, stackVersionRepository, portReservations, deployTargets, targetDocker);
+  const firewallInventory = new FirewallInventoryExporter(new PostgresFirewallStateSource(database.pool), targetDocker, new ImmutableFirewallContractReader());
+  try {
+    await portInventory.seed();
+  } catch (err) {
+    logger.warn(`[Boot] The reservation inventory remains incomplete: ${getErrorMessage(err)}`);
+  }
+  // The rollouts of config files, which the orchestrator closes when an
+  // operator acts on the deployment and the config service acts through.
+  const engineConfigOperations = new PostgresEngineConfigOperationRepository(
+    database.pool,
+    config.stackVersionsRoot,
+  );
   const orchestrator = new DeploymentOrchestrator(
     profileRepository,
     containerRepository,
@@ -206,8 +313,25 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    buildLedger,
+    deployAttempts,
+    targetDocker,
+    engineConfigOperations,
     new UploaderStartGate(stampService, chequebookService),
+    deployTargets,
+    portReservations,
+    targetDocker,
+    portInventory,
+    executionRoots,
   );
+  try {
+    const judged = await orchestrator.reconcileAttempts();
+    if (judged.released.length > 0 || judged.blocked.length > 0) {
+      logger.info(`[Boot] deploy attempts judged: released ${judged.released.join(', ') || 'none'}, blocked ${judged.blocked.join(', ') || 'none'}`);
+    }
+  } catch (err) {
+    logger.warn(`[Boot] the deploy attempts were not judged: ${getErrorMessage(err)}. They stay as they are.`);
+  }
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -215,12 +339,13 @@ async function main(): Promise<void> {
     eventBus,
     deploymentGroupRepository,
     stackVersionRepository,
+    portInventory,
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
+    portReservations,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
-  const containerControl = new ContainerControl(eventBus);
   const engineConfigService = new EngineConfigService(
     profileRepository,
     containerRepository,
@@ -229,7 +354,12 @@ async function main(): Promise<void> {
     containerControl,
     new EngineConfigChecker(),
     eventBus,
+    engineConfigOperations,
   );
+  // After the orphan reset above, which is what an interrupted apply's row
+  // looks like by now, and before the API answers, so no card sees a rollout
+  // a gone manager left open as though it were still under way.
+  await engineConfigService.reconcileAtBoot();
 
   metricsCollector = new MetricsCollector();
   metricsCollector.setManagedProjectsProvider(
@@ -245,9 +375,15 @@ async function main(): Promise<void> {
       deployService,
       stampService,
       chequebookService,
+      chequebookOperations,
       containerControl,
       engineConfigService,
       stackVersionService,
+      orchestrator,
+      deployTargets,
+      portInventory,
+      firewallInventory,
+      portReservations,
       eventBus,
       metricsCollector,
     },

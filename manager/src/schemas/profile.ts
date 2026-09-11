@@ -203,6 +203,8 @@ export type CreateProfileInput = InferType<typeof createProfileSchema>;
 
 export const updateProfileSchema = object({
   notes: string().nullable().notRequired().max(500),
+  /** The revision the drawer loaded the notes at. Sent with an edited note. */
+  notes_revision: number().integer().min(0).notRequired(),
   feed_owner: string()
     .notRequired()
     .matches(
@@ -241,6 +243,26 @@ export const updateProfileSchema = object({
 }).noUnknown(true);
 
 export type UpdateProfileInput = InferType<typeof updateProfileSchema>;
+
+export const removeProfileSchema = object({
+  expectedInstanceId: string().optional().uuid('expectedInstanceId must be a deployment instance UUID'),
+}).noUnknown(true).strict();
+
+export type RemoveProfileInput = InferType<typeof removeProfileSchema>;
+
+export const removeGroupSchema = object({
+  expectedName: string().required().matches(PROFILE_NAME_RE, 'expectedName must be a group name'),
+}).noUnknown(true).strict();
+
+export type RemoveGroupInput = InferType<typeof removeGroupSchema>;
+
+export const updateNotesSchema = object({
+  notes: string().nullable().defined().max(500),
+  /** The revision the page loaded the notes at. A moved one refuses the save. */
+  notes_revision: number().integer().min(0).required(),
+}).noUnknown(true);
+
+export type UpdateNotesInput = InferType<typeof updateNotesSchema>;
 
 export const createGroupSchema = object({
   group_name: string()
@@ -321,7 +343,8 @@ export type CreateGroupInput = InferType<typeof createGroupSchema>;
 export const groupIdParamSchema = object({
   id: string()
     .required()
-    .matches(/^[1-9]\d*$/, 'id must be a positive integer'),
+    .matches(/^[1-9]\d*$/, 'id must be a positive integer')
+    .test('group-id-range', 'id must fit a group identifier', value => value !== undefined && Number(value) <= 2_147_483_647),
 }).strict();
 
 export const updateGroupConfigSchema = object({

@@ -1,4 +1,5 @@
 import { Request, RequestHandler, Response, Router } from 'express';
+import type { SessionInfo } from '@streaming-infra-manager/common';
 
 import { AuthService } from '../../domain/auth/AuthService.js';
 import { AdminRequiredError } from '../../domain/errors/index.js';
@@ -75,10 +76,11 @@ export function createAuthRouter(
 
       if (session) {
         res.json({
+          id: session.user.id,
           username: session.user.username,
           isAdmin: session.user.isAdmin,
           expiresAt: session.expiresAt.toISOString(),
-        });
+        } satisfies SessionInfo);
         return;
       }
 

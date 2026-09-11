@@ -34,21 +34,16 @@ import {
 // deploy fails with a useful message instead of blocking forever.
 const DEPLOY_TIMEOUT = 240_000;
 
-const created = new Set<string>();
-const track = (name: string): string => {
-  created.add(name);
-  return name;
-};
 
 before(requireStack);
 // Safety net: remove anything a failed test left behind.
 after(async () => {
-  await cleanup(created);
+  await cleanup();
 });
 
 describe('profile lifecycle (create → verify → modify → stop → remove)', () => {
   it('viewer: deploys client + bee-gateway, then modifies feed, stops and removes', async () => {
-    const name = track(uniqueName('viewer'));
+    const name = uniqueName('viewer');
 
     // POST /profiles auto-deploys.
     const created0 = await createProfile({
@@ -90,7 +85,7 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
   });
 
   it('streamer: deploys srs + bee-uploader with stream-uploader held back (no stamp)', async () => {
-    const name = track(uniqueName('streamer'));
+    const name = uniqueName('streamer');
 
     await createProfile({ name, kind: 'streamer', notes: 'initial' });
 
@@ -117,7 +112,7 @@ describe('profile lifecycle (create → verify → modify → stop → remove)',
   });
 
   it('custom: deploys exactly the chosen components, then stops and removes', async () => {
-    const name = track(uniqueName('custom'));
+    const name = uniqueName('custom');
     const components = [SRS, BEE_UPLOADER];
 
     await createProfile({ name, kind: 'custom', components, notes: 'initial' });

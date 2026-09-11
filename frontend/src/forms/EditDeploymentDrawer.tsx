@@ -24,7 +24,7 @@ import {
 } from './deploymentEdits';
 import { EditDrawerFrame } from './EditDrawerFrame';
 import { FixedAtCreation } from './FixedAtCreation';
-import { FormField } from './FormField';
+import { FormField, messageIdFor } from './FormField';
 import { PassphraseField } from './PassphraseField';
 import { StreamKeyField } from './StreamKeyField';
 import { addressProblem, notesProblem, stampIdProblem } from './validation';
@@ -48,6 +48,7 @@ export function EditDeploymentDrawer({
   // The snapshot the form opened with. Saving compares against it, so a field
   // the operator never touched keeps whatever the live profile holds by then.
   const [initial] = useState<DeploymentEdits>(() => initialEdits(profile));
+  const [loadedNotesRevision] = useState(() => profile?.notes_revision ?? 0);
   const [edits, setEdits] = useState<DeploymentEdits>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export function EditDeploymentDrawer({
     try {
       const saved = await updateProfile(
         profile.name,
-        bodyFor(profile, initial, edits, shown),
+        bodyFor(profile, initial, edits, shown, loadedNotesRevision),
       );
       mergeProfiles([saved]);
       onClose();
@@ -201,14 +202,17 @@ export function EditDeploymentDrawer({
         </FormField>
       )}
 
-      <FormField label="Notes" error={notesProblem(edits.notes)}>
+      <FormField label="Notes" error={notesProblem(edits.notes)} htmlFor="edit-notes">
         <TextField
+          id="edit-notes"
           size="small"
           fullWidth
           multiline
           minRows={2}
+          error={notesProblem(edits.notes) !== null}
           value={edits.notes}
           onChange={(event) => update({ notes: event.target.value })}
+          inputProps={{ 'aria-describedby': messageIdFor('edit-notes') }}
         />
       </FormField>
     </EditDrawerFrame>

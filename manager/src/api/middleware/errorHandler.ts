@@ -1,3 +1,11 @@
+import { ChequebookAccountChangedError } from '../../domain/errors/ChequebookAccountChangedError.js';
+import { ChequebookOperationChangedError } from '../../domain/errors/ChequebookOperationChangedError.js';
+import { ChequebookProfileChangedError } from '../../domain/errors/ChequebookProfileChangedError.js';
+import { ChequebookOperationInputError } from '../../domain/errors/ChequebookOperationInputError.js';
+import { ChequebookOperationNotFoundError } from '../../domain/errors/ChequebookOperationNotFoundError.js';
+import { ChequebookJournalError } from '../../domain/errors/ChequebookJournalError.js';
+import { ChequebookPreparationError } from '../../domain/errors/ChequebookPreparationError.js';
+import { ChequebookRecoveryRequiredError } from '../../domain/errors/ChequebookRecoveryRequiredError.js';
 import {
   getErrorMessage,
   getErrorStack,
@@ -8,6 +16,9 @@ import { ValidationError as YupValidationError } from 'yup';
 import {
   AdminRequiredError,
   AllSlotsUsedError,
+  PortReservedError,
+  ReservationInventoryPendingError,
+  TargetNotVerifiedError,
   BeeNodeError,
   BeeNotReadyError,
   BundledVersionError,
@@ -20,22 +31,30 @@ import {
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
+  ProfileInstanceChangedError,
+  EngineSettingsChangedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
+  GroupRemovalRefusedError,
+  HostConfigLockHeldError,
   InvalidCredentialsError,
   InvalidStackVersionError,
   InvalidUsernameError,
   LadderGroupError,
   LockedOutError,
   NotSignedInError,
+  NotesConflictError,
   NoUsersError,
   ProfileConfigError,
   ProfileExistsError,
   ProfileNotFoundError,
   RestartInProgressError,
   StackBuildBusyError,
+  StackSettingsChangedError,
+  StackSettingsNotReadyError,
   StackVersionExistsError,
+  StackVersionChangedError,
   StackVersionInUseError,
   StackVersionNotFoundError,
   StampNotUsableError,
@@ -45,10 +64,28 @@ import {
   UserExistsError,
   UserNotFoundError,
   WeakPasswordError,
+  DeployAttemptRefusedError,
 } from '../../domain/errors/index.js';
 import { Logger } from '../../domain/Logger.js';
+import { StackVersionRemovalHeldError } from '../../domain/errors/StackVersionRemovalHeldError.js';
 
 const logger = Logger.getInstance();
+
+const BODY_TOO_LARGE =
+  'That request is larger than this manager accepts. Save fewer files or fewer keys at once.';
+
+/**
+ * A body over `express.json`'s limit. body-parser marks it with `entity.too.large`
+ * rather than a class of its own, and without this branch it reached the
+ * unhandled case below and came back as a fault.
+ */
+function isPayloadTooLarge(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { type?: unknown }).type === 'entity.too.large'
+  );
+}
 
 /**
  * Centralised error → HTTP mapping. Domain errors get specific status codes;
@@ -61,8 +98,40 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
+  if (err instanceof ChequebookOperationChangedError) {
+    res.status(409).json({ error: 'operation_changed', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookAccountChangedError) {
+    res.status(409).json({ error: 'account_changed', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookProfileChangedError) {
+    res.status(409).json({ error: 'chequebook_profile_changed', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookOperationInputError) {
+    res.status(400).json({ error: 'validation_error', errors: [err.message] });
+    return;
+  }
+  if (err instanceof ChequebookOperationNotFoundError) {
+    res.status(404).json({ error: 'chequebook_operation_not_found', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookJournalError || err instanceof ChequebookPreparationError) {
+    res.status(503).json({ error: err instanceof ChequebookJournalError ? 'chequebook_journal_unavailable' : 'chequebook_preparation_unavailable', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookRecoveryRequiredError) {
+    res.status(409).json({ error: 'chequebook_recovery_required', message: err.message });
+    return;
+  }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (isPayloadTooLarge(err)) {
+    res.status(413).json({ error: 'payload_too_large', message: BODY_TOO_LARGE });
     return;
   }
   if (
@@ -119,6 +188,10 @@ export function errorHandler(
     res.status(404).json({ error: 'user_not_found', id: err.userId });
     return;
   }
+  if (err instanceof EngineSettingsChangedError) {
+    res.status(409).json({ error: 'engine_settings_changed', name: err.profileName, message: err.message });
+    return;
+  }
   if (err instanceof ProfileConfigError) {
     // Same shape as a schema rejection: it is a rejected request body, just one
     // whose rule needs the stored profile to evaluate.
@@ -137,12 +210,32 @@ export function errorHandler(
     res.status(409).json({ error: 'profile_exists', name: err.profileName });
     return;
   }
+  if (err instanceof DeployAttemptRefusedError) {
+    res.status(409).json({
+      error: 'deploy_attempt_refused',
+      name: err.profileName,
+      message: err.reason,
+    });
+    return;
+  }
+  if (err instanceof NotesConflictError) {
+    res.status(409).json({
+      error: 'notes_conflict',
+      name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
   if (err instanceof ProfileBusyError) {
     res.status(409).json({
       error: 'profile_busy',
       name: err.profileName,
       status: err.currentStatus,
     });
+    return;
+  }
+  if (err instanceof ProfileInstanceChangedError) {
+    res.status(409).json({ error: 'profile_instance_changed', name: err.profileName, message: err.message });
     return;
   }
   if (err instanceof GroupExistsError) {
@@ -159,6 +252,10 @@ export function errorHandler(
       name: err.groupName,
       members: err.busyMembers,
     });
+    return;
+  }
+  if (err instanceof GroupRemovalRefusedError) {
+    res.status(409).json({ error: `group_${err.reason}`, id: err.groupId });
     return;
   }
   if (err instanceof StampRequiredError) {
@@ -255,6 +352,15 @@ export function errorHandler(
       .json({ error: 'stack_version_exists', name: err.versionName });
     return;
   }
+  if (err instanceof StackVersionChangedError) {
+    res.status(409).json({
+      error: 'stack_version_changed',
+      name: err.versionName,
+      commitSha: err.commitSha,
+      message: err.message,
+    });
+    return;
+  }
   if (err instanceof StackVersionInUseError) {
     res.status(409).json({
       error: 'stack_version_in_use',
@@ -262,6 +368,10 @@ export function errorHandler(
       deployments: err.deployments,
       message: err.message,
     });
+    return;
+  }
+  if (err instanceof StackVersionRemovalHeldError) {
+    res.status(409).json({ error: 'stack_version_removal_held', name: err.versionName, reason: err.reason, message: err.message });
     return;
   }
   if (err instanceof BundledVersionError) {
@@ -284,6 +394,29 @@ export function errorHandler(
     });
     return;
   }
+  if (err instanceof StackSettingsNotReadyError) {
+    res.status(409).json({
+      error: 'settings_not_ready',
+      name: err.versionName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof HostConfigLockHeldError) {
+    // An ordinary outcome: the editing script holds this lock for a whole ssh
+    // edit, and the message says what to do about it.
+    res.status(409).json({ error: 'settings_locked', message: err.message });
+    return;
+  }
+  if (err instanceof StackSettingsChangedError) {
+    res.status(409).json({
+      error: 'settings_changed',
+      name: err.versionName,
+      generation: err.generation,
+      message: err.message,
+    });
+    return;
+  }
   if (err instanceof StackBuildBusyError) {
     res.status(409).json({
       error: 'stack_build_busy',
@@ -294,6 +427,18 @@ export function errorHandler(
   }
   if (err instanceof AllSlotsUsedError) {
     res.status(503).json({ error: 'all_slots_used', message: err.message });
+    return;
+  }
+  if (err instanceof TargetNotVerifiedError) {
+    res.status(409).json({ error: 'target_not_verified', alias: err.alias, message: err.message });
+    return;
+  }
+  if (err instanceof PortReservedError) {
+    res.status(409).json({ error: 'port_reserved', name: err.profileName, message: err.message });
+    return;
+  }
+  if (err instanceof ReservationInventoryPendingError) {
+    res.status(409).json({ error: 'reservation_inventory_pending', message: err.message });
     return;
   }
 

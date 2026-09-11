@@ -1,0 +1,198 @@
+# The checks main-v2 requires before a merge, D06. Three jobs: the build and
+# unit suites, the SQL suites against nine disposable databases, and the
+# browser suites against a real headless Chrome. What they prove and what they
+# do not: docs/ci.md.
+name: checks
+
+on:
+  pull_request:
+    branches: [main-v2]
+  push:
+    branches: [main-v2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Pinned by commit, the tag in the comment. Each was released more than
+      # two weeks before it was pinned here. pnpm comes from packageManager.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build common, which the other packages type against
+        run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: Type checks, every package, tests included
+        run: pnpm -r typecheck
+
+      - name: Unit tests, common
+        run: pnpm --filter @streaming-infra-manager/common test
+
+      - name: Unit tests, manager
+        # The tests never open a database. The config module requires the
+        # variable at load, so it gets a value that names nothing. Redundant
+        # since test/unit/run.mjs supplies the same placeholder when the
+        # environment has none, and kept so this step still says what it needs.
+        env:
+          DATABASE_URL: postgres://unused@localhost/unused
+        run: pnpm --filter @streaming-infra-manager/api test
+
+      - name: Native transport tests, manager
+        # Unix sockets and forked Node children of their own, no manager and no
+        # Docker socket. They sat in the deployment integration suite, which
+        # refuses to start without a declared target, so they ran nowhere.
+        #
+        # These seven need no variable at all, checked with it unset. The
+        # placeholder stays because it costs nothing and keeps this step and
+        # the unit step above alike.
+        env:
+          DATABASE_URL: postgres://unused@localhost/unused
+        run: pnpm --filter @streaming-infra-manager/api test:native
+
+      - name: Unit tests, frontend
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype test
+
+      - name: Frontend build
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype build
+
+  database:
+    # The 33 SQL suites, each against the task database it owns. They gate
+    # themselves on a port variable and skip without it, so the runner they go
+    # through refuses an unset variable, reads every file's gate, connects to
+    # all nine databases first, and counts neither a skip nor a suite that
+    # never started as a pass. See manager/test/database/run-all.mjs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # postgres:16-alpine, digest resolved 2026-09-10. Trust authentication
+        # because these databases are created empty here, hold synthetic rows
+        # for the length of one job, and are reachable only from it.
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        # Published on loopback rather than on every interface. Nothing outside
+        # the runner needs it, and a service with trust authentication that
+        # answers the world is a habit worth not having.
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # The suites reach 127.0.0.1 and nothing else, so the port is the whole
+      # configuration. The names are in the runner's own table.
+      T01_TEST_PG_PORT: 5432
+      T04A_TEST_PG_PORT: 5432
+      T04B_TEST_PG_PORT: 5432
+      T06_TEST_PG_PORT: 5432
+      T08_TEST_PG_PORT: 5432
+      T09_TEST_PG_PORT: 5432
+      T10_TEST_PG_PORT: 5432
+      T11_TEST_PG_PORT: 5432
+      T12_TEST_PG_PORT: 5432
+    steps:
+      - name: Create the nine task databases, through the service container's own client
+        # createdb ships in the postgres image, so the runner needs no client
+        # of its own. A service that did not come up fails here, in seconds,
+        # rather than as nine refused connections after an install.
+        run: |
+          for name in t01_test t04a_test t04b_test t06_test t08_test t09_test t10_test t11_test t12_test; do
+            docker exec ${{ job.services.postgres.id }} createdb -U postgres "$name"
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Build common, which the suites type against
+        run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: SQL suites, every one of the nine databases, no skip counted as a pass
+        run: pnpm --filter @streaming-infra-manager/api test:database
+
+  browser:
+    # The twenty-five suites under frontend/test, fourteen of which drive a
+    # real headless Chrome against a real Vite. They live outside pnpm test and
+    # so ran nowhere on a pull request. One at a time, each in a child of its
+    # own bounded at 600 seconds, because each starts its own Vite and its own
+    # Chrome, through a runner that refuses a skip the same way the SQL one
+    # does.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        # The same pin as the database job, resolved 2026-09-10. Only the
+        # connected transfer suite needs it: it signs into a real manager over
+        # a real journal with the browser as the only client.
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        # Published on loopback rather than on every interface. Nothing outside
+        # the runner needs it, and a service with trust authentication that
+        # answers the world is a habit worth not having.
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # The Ubuntu 24.04 image carries Google Chrome. Its README names the
+      # driver path and not the browser's, so the preflight below proves the
+      # binary rather than trusting this line. A missing Chrome is a failed
+      # check and never a passed one.
+      CHROME_BIN: /usr/bin/google-chrome
+      T09_TEST_PG_PORT: 5432
+    steps:
+      - name: The Chrome these suites drive
+        run: |
+          if [ ! -x "$CHROME_BIN" ]; then
+            echo "No executable Chrome at $CHROME_BIN. The browser suites drive a real browser, so this is a failed check and not a skipped one." >&2
+            command -v google-chrome google-chrome-stable chromium chromium-browser >&2 || true
+            exit 1
+          fi
+          "$CHROME_BIN" --version
+
+      - name: Create the database the connected transfer suite writes its journal in
+        run: docker exec ${{ job.services.postgres.id }} createdb -U postgres t09_test
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Build common, which the app and the mock manager both type against
+        run: pnpm --filter @streaming-infra-manager/common build
+
+      - name: Browser suites, one at a time, each owning its Vite and its Chrome
+        # Screenshots and fixture evidence go under RUNNER_TEMP, where the
+        # fixtures already put them. Nothing is uploaded: an upload action
+        # would need the repository's four provenance checks first.
+        run: pnpm --filter @streaming-infra-manager/frontend-prototype test:browser

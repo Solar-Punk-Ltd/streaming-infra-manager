@@ -11,21 +11,22 @@ import type { Profile } from '../types';
 // cannot drift apart over what this route answers.
 export type { EngineOverview };
 
-export function fetchEngine(name: string): Promise<EngineOverview> {
-  return getJson<EngineOverview>(
-    `/profiles/${encodeURIComponent(name)}/engine`,
-  );
+export async function fetchEngine(name: string, signal?: AbortSignal): Promise<EngineOverview> {
+  const response = await apiFetch(`/profiles/${encodeURIComponent(name)}/engine`, { signal });
+  if (!response.ok) await failWith(response, `request failed (${response.status})`);
+  return await response.json() as EngineOverview;
 }
 
 /** Stores the settings and recreates the engine container with them. */
 export function saveEngineSettings(
   name: string,
   settings: EngineSettings,
+  expectedInstanceId: string,
 ): Promise<Profile> {
   return sendJson<Profile>(
     'PUT',
     `/profiles/${encodeURIComponent(name)}/engine-settings`,
-    settings,
+    { ...settings, expectedInstanceId },
   );
 }
 
@@ -83,6 +84,24 @@ export function resetEngineConfig(name: string): Promise<Profile> {
   return sendJson<Profile>(
     'DELETE',
     `/profiles/${encodeURIComponent(name)}/engine-config`,
+    {},
+  );
+}
+
+/** Recreates the engine on what is stored, file or template, and verifies it again. */
+export function verifyEngineConfig(name: string): Promise<Profile> {
+  return sendJson<Profile>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/engine-config/verify`,
+    {},
+  );
+}
+
+/** Puts the file an interrupted rollout replaced back and recreates the engine on it. */
+export function restorePreviousEngineConfig(name: string): Promise<Profile> {
+  return sendJson<Profile>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/engine-config/restore-previous`,
     {},
   );
 }

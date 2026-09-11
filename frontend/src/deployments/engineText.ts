@@ -1,10 +1,10 @@
 import {
-  effectiveEngineSettings,
   type EngineName,
-  type EngineSettings,
+  type EngineSettingObservations,
   OME_SERVICE,
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
+import { engineObservationText } from './engineObservationText';
 
 /** What the engine is called on screen. */
 export const ENGINE_LABEL: Record<EngineName, string> = {
@@ -16,24 +16,28 @@ export const ENGINE_LABEL: Record<EngineName, string> = {
  * The engine in one line, for the side column: what it is and the two numbers
  * that decide how far behind live a viewer ends up.
  *
- * It reads the effective values rather than the stored ones, so a deployment
- * that has never been tuned still says what it is running.
+ * Configured values and uncertainty come from the same observations as the
+ * engine card and settings drawer. These are not live engine measurements.
  */
 export function engineSummary(
   engine: EngineName,
-  settings: EngineSettings,
+  observations: EngineSettingObservations,
 ): string {
-  const effective = effectiveEngineSettings(engine, settings);
+  const setting = (key: string, unit: string): string => {
+    const observation = observations[key];
+    const { value } = engineObservationText(observation, unit);
+    return observation?.status === 'known' ? value : value.toLowerCase();
+  };
   if (engine === OME_SERVICE) {
     return [
       ENGINE_LABEL[engine],
-      `segment ${effective.HLS_SEGMENT_DURATION} s`,
-      `playlist ${effective.HLS_SEGMENT_COUNT} pieces`,
+      `segment ${setting('HLS_SEGMENT_DURATION', 's')}`,
+      `playlist ${setting('HLS_SEGMENT_COUNT', 'pieces')}`,
     ].join(' · ');
   }
   return [
     'SRS',
-    `segment ${effective.HLS_FRAGMENT} s`,
-    `window ${effective.HLS_WINDOW} s`,
+    `segment ${setting('HLS_FRAGMENT', 's')}`,
+    `window ${setting('HLS_WINDOW', 's')}`,
   ].join(' · ');
 }

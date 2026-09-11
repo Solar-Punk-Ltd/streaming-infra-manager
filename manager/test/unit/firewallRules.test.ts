@@ -1,445 +1,240 @@
-/**
- * That the host firewall generator opens the stack's ports and not the ones
- * standing next to them.
- *
- * The whole ruleset is arithmetic on the port table in `DeploymentOrchestrator`
- * (`PORT_VAR_DEFAULTS`), and the two mistakes it can make both look fine in a
- * diff: an off-by-one in the base leaves a Bee API open to the internet, where
- * anyone reaching it can spend the node's postage, and a wrong stride closes a
- * P2P port so the node quietly stops finding peers. So the script is run and
- * its output read, the way `nginxProxyHeaders.test.ts` reads nginx.conf.
- *
- * The DOCKER-USER section has a third mistake available to it. Docker has
- * already rewritten the destination port by the time that chain runs, so a rule
- * written against `tcp dport` would match the container's port and quietly
- * filter nothing. These check that the match is on the original destination.
- *
- * A fourth mistake is the two port bands landing on each other. Every base
- * shifts by ten per slot, so far enough up the first band its ports reach the
- * second band's: first-band slot 101 has its RTMP port on 11012, which is the
- * rung band's slot 1 P2P port and open. The script refuses a slot above 100 for
- * that reason, and the sweep below is what holds it there.
- */
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
-import { describe, it } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { throwawayRoot } from '../support/throwawayRoot.js';
+import type { FirewallInventory } from '../../src/domain/ports/firewallInventoryTypes.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const SCRIPT = join(
-  here,
-  '..',
-  '..',
-  '..',
-  'deploy',
-  'host',
-  'firewall-rules.sh',
-);
-
-/**
- * The highest slot the script opens, and not the 999 the manager allocates:
- * above 100 the first band's ports land on the rung band's, and the rung sets
- * would open the RTMP ports the first band leaves closed on purpose.
- */
-const FIRST_BAND_SLOT_CAP = 100;
-
-/** The first slot refused, whose RTMP port is the rung band's slot 1 P2P port. */
-const FIRST_OVERLAPPING_SLOT = FIRST_BAND_SLOT_CAP + 1;
-const OVERLAP_PORT = 11012;
-
-/** Any name will do, so long as the ruleset carries it through. */
-const IFACE = 'eth0';
-
-/** A generator that hangs instead of refusing should fail, not stall the suite. */
-const RUN = { timeout: 10_000, encoding: 'utf8' } as const;
-
-const DOCKER_USER_FLUSH = 'flush chain ip filter DOCKER-USER';
-const DOCKER_USER_RULE = 'add rule ip filter DOCKER-USER';
-const BAND = '10000-19999';
-
-/**
- * Slot 1's ports: the stack's base table plus one stride of ten. That table is
- * PORT_VARS in `manager/swarm-hls-stream/deploy/scripts/_lib.sh` and
- * PORT_VAR_DEFAULTS in `manager/src/domain/DeploymentOrchestrator.ts`, copied
- * into `deploy/host/firewall-rules.sh` and again into these numbers. A port
- * that moves in either source has to move in all four places.
- */
-const SLOT_ONE = {
-  beeUploaderP2p: 10016,
-  beeGatewayP2p: 10018,
-  viewer: 10014,
-  srtIngest: 10011,
-  uploaderApi: 10010,
-  beeUploaderApi: 10015,
-  beeGatewayApi: 10017,
-  srsApi: 10019,
-};
-
-/** What one slot adds to every base in that table. */
-const SLOT_STRIDE = 10;
-
-/**
- * The media server's RTMP base, from the same table, shifted per slot like the
- * rest. No set holds one: anyone who reaches it can publish to the media server
- * as if they were the streamer.
- */
-const RTMP_BASE = 10002;
-
-const rtmpPort = (slot: number): number => RTMP_BASE + slot * SLOT_STRIDE;
-
-/**
- * How many ports each set gains per slot, and the highest slot it ever shifts
- * to. The second band's stack refuses a slot above 99, so that band stops there
- * however high `--max-slot` goes.
- */
-const RUNG_SLOT_CAP = 99;
-
-interface Band {
-  basesInBand: number;
-  slotCap: number;
-  l4proto: string;
+const script = fileURLToPath(new URL('../../../deploy/host/firewall-rules.sh', import.meta.url));
+const root = throwawayRoot('firewall-rules-');
+after(() => rmSync(root, { recursive: true, force: true }));
+const runOptions = { encoding: 'utf8', timeout: 10_000 } as const;
+function evidence(): FirewallInventory {
+  return { schemaVersion: 1, policyVersion: 1, daemonId: 'fixture-daemon', capturedAt: '2026-09-08T00:00:00.000Z',
+    fingerprint: 'a'.repeat(64), profiles: [], claims: [], reservations: [], bindings: [] };
 }
-
-const BANDS: Record<string, Band> = {
-  bee_p2p: { basesInBand: 2, slotCap: FIRST_BAND_SLOT_CAP, l4proto: 'tcp' },
-  rung_p2p: { basesInBand: 3, slotCap: RUNG_SLOT_CAP, l4proto: 'tcp' },
-  viewer: { basesInBand: 1, slotCap: FIRST_BAND_SLOT_CAP, l4proto: 'tcp' },
-  srt_ingest: { basesInBand: 1, slotCap: FIRST_BAND_SLOT_CAP, l4proto: 'udp' },
-};
-
-const SET_BLOCK = /set (\w+) \{[^}]*elements = \{([^}]*)\}/g;
-
-/** A DOCKER-USER return rule: its matches, its ports, and the band it names. */
-const DOCKER_USER_BAND =
-  /add rule ip filter DOCKER-USER ([^\n{]*)\{([^}]*)\} return comment "(\w+)"/g;
-
-/**
- * Arguments the script must refuse whole, and the flag its message has to name.
- * Bash reads a digit string in two ways that are both wrong for a port slot: a
- * leading zero is octal inside `(( ))`, and `[ -lt ]` on a value wider than a
- * 64 bit integer prints an error and carries on rather than answering. Either
- * one printed a ruleset that did not match the numbers in its own header, and a
- * ruleset that prints is a ruleset somebody applies.
- */
-const REFUSED: ReadonlyArray<{
-  why: string;
-  argv: readonly string[];
-  flag: string;
-}> = [
-  {
-    why: 'a slot below the first one the manager allocates',
-    argv: ['--iface', IFACE, '--max-slot', '0'],
-    flag: '--max-slot',
-  },
-  {
-    why: 'a slot above the last one the manager allocates',
-    argv: ['--iface', IFACE, '--max-slot', '1000'],
-    flag: '--max-slot',
-  },
-  {
-    why: 'a slot that is not a number at all',
-    argv: ['--iface', IFACE, '--max-slot', 'abc'],
-    flag: '--max-slot',
-  },
-  {
-    why: 'a slot written with a leading zero, which would read as octal',
-    argv: ['--iface', IFACE, '--max-slot', '010'],
-    flag: '--max-slot',
-  },
-  {
-    why: 'a slot wider than the integers the shell can compare',
-    argv: ['--iface', IFACE, '--max-slot', '9223372036854775808'],
-    flag: '--max-slot',
-  },
-  {
-    why: 'an SSH port below the first one',
-    argv: ['--iface', IFACE, '--ssh-port', '0'],
-    flag: '--ssh-port',
-  },
-  {
-    why: 'an SSH port above the last one',
-    argv: ['--iface', IFACE, '--ssh-port', '70000'],
-    flag: '--ssh-port',
-  },
-  {
-    why: 'an interface name carrying a quote, which nft could not read back',
-    argv: ['--iface', 'eth0"quoted'],
-    flag: '--iface',
-  },
-];
-
-type PortSets = Map<string, number[]>;
-
-function ruleset(...args: string[]): string {
-  return execFileSync('bash', [SCRIPT, '--iface', IFACE, ...args], RUN);
+let sequence = 0;
+function run(inventory: unknown = evidence(), args: string[] = []) {
+  const path = join(root, 'inventory-' + (++sequence) + '.json');
+  writeFileSync(path, JSON.stringify(inventory));
+  return spawnSync('bash', [script, '--iface', 'eth0', '--inventory', path, ...args], runOptions);
 }
-
-/** Everything from the flush of Docker's user chain to the end of the file. */
-function dockerUserSection(...args: string[]): string {
-  const printed = ruleset(...args);
-  const start = printed.indexOf(DOCKER_USER_FLUSH);
-
-  assert.notEqual(start, -1, 'the ruleset has no DOCKER-USER section');
-  return printed.slice(start);
+function rules(args: string[] = []): string {
+  const result = run(evidence(), args);
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
 }
-
-/** That section's rules, one string each, the multi-line sets left behind. */
-function dockerUserRules(...args: string[]): string[] {
-  return dockerUserSection(...args)
-    .split('\n')
-    .filter((line) => line.startsWith(DOCKER_USER_RULE));
+function sets(text: string): Map<string, number[]> {
+  return new Map([...text.matchAll(/set (\w+) \{[^}]*elements = \{([^}]*)\}/g)]
+    .map(match => [match[1]!, match[2]!.split(',').map(value => Number(value.trim()))]));
 }
-
-/** What each band's return rule matches on, keyed by the band it names. */
-function dockerUserMatches(...args: string[]): Map<string, string> {
-  const matches = new Map<string, string>();
-
-  for (const [, match, , name] of dockerUserSection(...args).matchAll(
-    DOCKER_USER_BAND,
-  )) {
-    matches.set(name!, match!.trim());
+function chain(text: string, name: string): string[] {
+  const start = text.indexOf('chain ' + name + ' {');
+  assert.ok(start >= 0, 'missing chain ' + name);
+  const open = text.indexOf('{', start);
+  let depth = 1;
+  let end = open + 1;
+  while (depth && end < text.length) {
+    if (text[end] === '{') depth++;
+    if (text[end] === '}') depth--;
+    end++;
   }
-  return matches;
+  return text.slice(open + 1, end - 1).split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
 }
-
-/** Every port that section lets through, whatever band the rule names. */
-function dockerUserReturnedPorts(...args: string[]): Set<number> {
-  const ports = new Set<number>();
-
-  for (const [, , listed] of dockerUserSection(...args).matchAll(
-    DOCKER_USER_BAND,
-  )) {
-    for (const element of listed!.split(',')) {
-      ports.add(Number(element.trim()));
-    }
+interface Packet {
+  family: 'ipv4' | 'ipv6';
+  protocol: 'tcp' | 'udp';
+  originalPort: number;
+  destinationPort: number;
+  iface?: string;
+  established?: boolean;
+  dnat?: boolean;
+}
+/** Evaluates every generated rule in order and rejects grammar the test does not understand. */
+function verdict(text: string, hook: 'input' | 'forward', packet: Packet): string {
+  assert.match(text, /table inet streaming_infra_manager \{/);
+  const portSets = sets(text);
+  let policy = '';
+  for (const line of chain(text, hook)) {
+    const declaration = line.match(/^type filter hook (input|forward) priority -?\d+; policy (accept|drop);$/);
+    if (declaration) { assert.equal(declaration[1], hook); policy = declaration[2]!; continue; }
+    let match = true;
+    let rest = line;
+    rest = rest.replace(/^iifname (!= )?"([^"]+)" /, (_all, inverse: string | undefined, iface: string) => {
+      const same = (packet.iface ?? 'eth0') === iface;
+      match &&= inverse ? !same : same;
+      return '';
+    });
+    rest = rest.replace(/^ct state established,related /, () => { match &&= !!packet.established; return ''; });
+    rest = rest.replace(/^ct status (!= )?dnat /, (_all, inverse: string | undefined) => {
+      match &&= inverse ? !packet.dnat : !!packet.dnat; return '';
+    });
+    rest = rest.replace(/^\(ct status & dnat\) != dnat /, () => { match &&= !packet.dnat; return ''; });
+    rest = rest.replace(/^meta l4proto \{ ([^}]+) \} /, (_all, values: string) => {
+      match &&= values.split(',').map(value => value.trim()).includes(packet.protocol); return '';
+    });
+    rest = rest.replace(/^(?:meta l4proto )?(tcp|udp) /, (_all, protocol: string) => {
+      match &&= packet.protocol === protocol; return '';
+    });
+    rest = rest.replace(/^(ct original proto-dst|dport) (@\w+|\{ [^}]+ \}|\d+(?:-\d+)?) /, (_all, field: string, expression: string) => {
+      const port = field === 'dport' ? packet.destinationPort : packet.originalPort;
+      let matches: boolean;
+      if (expression.startsWith('@')) {
+        const values = portSets.get(expression.slice(1));
+        assert.ok(values, 'unknown set ' + expression);
+        matches = values.includes(port);
+      } else if (expression.startsWith('{')) matches = expression.slice(1, -1).split(',').map(Number).includes(port);
+      else if (expression.includes('-')) {
+        const [lo, hi] = expression.split('-').map(Number);
+        matches = port >= lo! && port <= hi!;
+      } else matches = port === Number(expression);
+      match &&= matches;
+      return '';
+    });
+    assert.ok(['accept', 'drop'].includes(rest), 'unrecognized rule: ' + line);
+    if (match) return rest;
   }
-  return ports;
+  assert.ok(policy);
+  return policy;
+}
+function peerInventory(): FirewallInventory {
+  const value = evidence();
+  value.profiles.push({ name: 'a', slot: 1, status: 'STOPPED', target: 'localhost', versionId: 1 });
+  value.claims.push({ profileName: 'a', versionId: 1, buildId: 'b'.repeat(40),
+    port: 11012, protocol: 'tcp', portVar: 'BEE_RUNG_480P_P2P_PORT', service: 'bee-uploader-480p' });
+  value.reservations.push({ daemonId: value.daemonId, profileName: 'a', port: 11012, protocol: 'tcp', heldServices: ['bee-uploader-480p'] });
+  value.bindings = [{ project: 'a', service: 'bee-uploader-480p', port: 11012, protocol: 'tcp' }];
+  return value;
 }
 
-function portSets(...args: string[]): PortSets {
-  const sets: PortSets = new Map();
+describe('firewall rules from shared policy and complete inventory', () => {
+  it('refuses a listed deployment with no reservation or claim evidence', () => {
+    const value = peerInventory();
+    value.claims = [];
+    value.reservations = [];
+    value.bindings = [];
+    const result = run(value);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /a.*reservation|a.*coverage/);
+  });
 
-  for (const [, name, elements] of ruleset(...args).matchAll(SET_BLOCK)) {
-    sets.set(
-      name!,
-      elements!.split(',').map((element) => Number(element.trim())),
-    );
+  it('tests the DNAT flag rather than comparing the complete connection status bitmap', () => {
+    const text = rules();
+    assert.ok(text.includes('(ct status & dnat) != dnat drop'));
+    assert.ok(!text.includes('ct status != dnat'));
+  });
+
+  it('keeps legitimate v3 rung P2P on 11012', () => {
+    const result = run(peerInventory());
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(verdict(result.stdout, 'forward', { family: 'ipv6', protocol: 'tcp', originalPort: 11012, destinationPort: 1634, dnat: true }), 'accept');
+  });
+  it('replaces only the manager table and uses both-family hooks before Docker filtering', () => {
+    const text = rules();
+    assert.doesNotMatch(text, /delete table inet filter|flush chain|table ip filter|flush ruleset/);
+    assert.match(text, /delete table inet streaming_infra_manager/);
+    assert.match(text, /type filter hook forward priority -1; policy accept;/);
+  });
+  for (const maxSlot of [99, 100]) {
+    it('opens the exact supported sets through slot ' + maxSlot, () => {
+      const portSets = sets(rules(['--max-slot', String(maxSlot)]));
+      assert.equal(portSets.get('bee_p2p')!.length, maxSlot * 2);
+      assert.equal(portSets.get('viewer')!.length, maxSlot);
+      assert.equal(portSets.get('srt_ingest')!.length, maxSlot);
+      assert.equal(portSets.get('rung_p2p')!.length, 99 * 3);
+      assert.ok(portSets.get('rung_p2p')!.includes(11996));
+      assert.ok(!portSets.get('rung_p2p')!.includes(12006));
+    });
   }
-  return sets;
-}
+  for (const family of ['ipv4', 'ipv6'] as const) {
+    it('leaves every supported RTMP and API endpoint closed on ' + family, () => {
+      const text = rules();
+      for (let slot = 1; slot <= 100; slot++) {
+        const bases = [10000, 10002, 10003, 10005, 10007, 10009, ...(slot <= 99 ? [11001, 11003, 11005] : [])];
+        for (const base of bases) {
+          const port = base + slot * 10;
+          for (const hook of ['input', 'forward'] as const) {
+            assert.equal(verdict(text, hook, { family, protocol: 'tcp', originalPort: port, destinationPort: port, dnat: true }), 'drop', hook + ' TCP/' + port);
+          }
+        }
+      }
+    });
 
-function portsOf(sets: PortSets, name: string): number[] {
-  const ports = sets.get(name);
-  assert.ok(ports, `the ruleset has no set named ${name}`);
-  return ports;
-}
-
-function everyOpenPort(sets: PortSets): Set<number> {
-  return new Set([...sets.values()].flat());
-}
-
-function assertSetSizes(sets: PortSets, maxSlot: number): void {
-  for (const [name, { basesInBand, slotCap }] of Object.entries(BANDS)) {
-    const slots = Math.min(maxSlot, slotCap);
-
-    assert.equal(
-      portsOf(sets, name).length,
-      slots * basesInBand,
-      `${name} should hold one port per base for each of ${slots} slots`,
-    );
+    it('evaluates the complete ' + family + ' policy for TCP and UDP after DNAT', () => {
+      const text = rules();
+      for (const protocol of ['tcp', 'udp'] as const) {
+        for (const port of [10000, 10010, 10012, 10013, 10015, 10017, 10019, 11991, 19999]) {
+          const packet = { family, protocol, originalPort: port, destinationPort: 1633, dnat: true };
+          assert.equal(verdict(text, 'forward', packet), 'drop', protocol + '/' + port);
+          assert.equal(verdict(text, 'input', { ...packet, destinationPort: port }), 'drop');
+        }
+        const publicPort = protocol === 'tcp' ? 10016 : 10011;
+        assert.equal(verdict(text, 'forward', { family, protocol, originalPort: publicPort, destinationPort: 1634, dnat: true }), 'accept');
+        assert.equal(verdict(text, 'forward', { family, protocol, originalPort: protocol === 'tcp' ? 10011 : 10016, destinationPort: 1634, dnat: true }), 'drop');
+      }
+      assert.equal(verdict(text, 'forward', { family, protocol: 'tcp', originalPort: 1633, destinationPort: 1633, dnat: false }), 'drop');
+      assert.equal(verdict(text, 'forward', { family, protocol: 'tcp', originalPort: 9999, destinationPort: 80, dnat: true }), 'accept');
+      assert.equal(verdict(text, 'forward', { family, protocol: 'tcp', originalPort: 20000, destinationPort: 80, dnat: true }), 'accept');
+      assert.equal(verdict(text, 'forward', { family, protocol: 'tcp', originalPort: 10015, destinationPort: 1633, dnat: true, iface: 'internal0' }), 'accept');
+      assert.equal(verdict(text, 'forward', { family, protocol: 'tcp', originalPort: 10015, destinationPort: 1633, established: true }), 'accept');
+    });
   }
-}
-
-describe('firewall-rules.sh', () => {
-  it('opens what a deployment has to be reached on', () => {
-    const sets = portSets();
-
-    assert.ok(portsOf(sets, 'bee_p2p').includes(SLOT_ONE.beeUploaderP2p));
-    assert.ok(portsOf(sets, 'bee_p2p').includes(SLOT_ONE.beeGatewayP2p));
-    assert.ok(portsOf(sets, 'viewer').includes(SLOT_ONE.viewer));
-    assert.ok(portsOf(sets, 'srt_ingest').includes(SLOT_ONE.srtIngest));
-  });
-
-  it('leaves the APIs next to them to the drop policy', () => {
-    const open = everyOpenPort(portSets());
-
-    for (const port of [
-      SLOT_ONE.uploaderApi,
-      SLOT_ONE.beeUploaderApi,
-      SLOT_ONE.beeGatewayApi,
-      SLOT_ONE.srsApi,
-    ]) {
-      assert.ok(!open.has(port), `${port} must not be in any set`);
+  it('keeps SSH and edge listeners eligible without exempting a protected API', () => {
+    const text = rules(['--ssh-port', '2222']);
+    for (const port of [2222, 80, 443]) {
+      assert.equal(verdict(text, 'input', { family: 'ipv4', protocol: 'tcp', destinationPort: port, originalPort: port }), 'accept');
     }
+    const result = run(evidence(), ['--ssh-port', '10015']);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /ssh-port.*protected/i);
   });
-
-  it('covers every slot it can open without the two bands meeting', () => {
-    assertSetSizes(portSets(), FIRST_BAND_SLOT_CAP);
+  it('refuses a stopped slot 101 whose private RTMP collides with the rung allowance', () => {
+    const value = peerInventory();
+    value.profiles[0]!.slot = 101;
+    value.claims[0]!.portVar = 'SRS_RTMP_PORT';
+    value.claims[0]!.service = 'srs';
+    value.reservations[0]!.heldServices = ['srs'];
+    value.bindings = [];
+    const result = run(value);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /11012.*public|public.*11012/);
   });
-
-  it('leaves every slot RTMP port closed, in both sections, at the cap', () => {
-    const maxSlot = String(FIRST_BAND_SLOT_CAP);
-    const open = everyOpenPort(portSets('--max-slot', maxSlot));
-    const returned = dockerUserReturnedPorts('--max-slot', maxSlot);
-
-    for (let slot = 1; slot <= FIRST_BAND_SLOT_CAP; slot++) {
-      const rtmp = rtmpPort(slot);
-
-      assert.ok(!open.has(rtmp), `slot ${slot} has RTMP ${rtmp} in a set`);
-      assert.ok(
-        !returned.has(rtmp),
-        `slot ${slot} has RTMP ${rtmp} returned by DOCKER-USER`,
-      );
-    }
-    assert.equal(
-      rtmpPort(FIRST_OVERLAPPING_SLOT),
-      OVERLAP_PORT,
-      'the next slot up is the one whose RTMP port the rung band already opens',
-    );
+  for (const missing of ['owner', 'claim', 'reservation', 'binding', 'daemon', 'version', 'shape'] as const) {
+    it('refuses inconsistent ' + missing + ' evidence with no partial output', () => {
+      const value = peerInventory();
+      if (missing === 'owner') value.reservations[0]!.heldServices = [null];
+      if (missing === 'claim') value.claims = [];
+      if (missing === 'reservation') value.reservations = [];
+      if (missing === 'binding') value.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 11012 }];
+      if (missing === 'daemon') value.reservations[0]!.daemonId = 'other';
+      if (missing === 'version') value.policyVersion = 999;
+      const result = run(missing === 'shape' ? { complete: true } : value);
+      assert.equal(result.status, 2);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /inventory|evidence|policy/i);
+    });
+  }
+  it('requires an exporter snapshot', () => {
+    const result = spawnSync('bash', [script, '--iface', 'eth0'], runOptions);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /--inventory/);
   });
-
-  it('opens only as far as --max-slot says', () => {
-    const sets = portSets('--max-slot', '99');
-    const open = everyOpenPort(sets);
-
-    assertSetSizes(sets, 99);
-    assert.ok(open.has(10998), 'slot 99 still needs its gateway P2P port');
-    assert.ok(!open.has(11008), 'slot 100 is past the limit that was asked for');
-  });
-
-  it('stops the second band at slot 99 however high --max-slot goes', () => {
-    const rung = portsOf(
-      portSets('--max-slot', String(FIRST_BAND_SLOT_CAP)),
-      'rung_p2p',
-    );
-
-    assert.equal(rung.length, RUNG_SLOT_CAP * BANDS.rung_p2p!.basesInBand);
-    assert.ok(rung.includes(11996), 'slot 99 is the last one the stack allows');
-    assert.ok(!rung.includes(12006), 'slot 100 is one the stack refuses');
-  });
-});
-
-describe('firewall-rules.sh, the DOCKER-USER section', () => {
-  it('filters the interface it was told the internet arrives on', () => {
-    const section = dockerUserSection();
-
-    assert.ok(
-      section.startsWith(DOCKER_USER_FLUSH),
-      'the section should begin by emptying the chain of an earlier run',
-    );
-    for (const rule of dockerUserRules().slice(1)) {
-      assert.ok(
-        rule.includes(`iifname "${IFACE}"`),
-        `every rule but the first should name the interface: ${rule}`,
-      );
-    }
-  });
-
-  it('lets an established connection through before anything else', () => {
-    assert.equal(
-      dockerUserRules()[0],
-      `${DOCKER_USER_RULE} ct state established,related return`,
-    );
-  });
-
-  it('matches the port the client dialled, not the container port', () => {
-    for (const rule of dockerUserRules().slice(1)) {
-      assert.ok(
-        rule.includes('ct original proto-dst'),
-        `Docker has already rewritten the destination by here: ${rule}`,
-      );
-    }
-  });
-
-  it('names the protocol the input chain opens each band on', () => {
-    const printed = ruleset();
-    const matches = dockerUserMatches();
-
-    assert.equal(matches.size, Object.keys(BANDS).length);
-    for (const [name, { l4proto }] of Object.entries(BANDS)) {
-      assert.ok(
-        printed.includes(`${l4proto} dport @${name} accept`),
-        `the input chain should open ${name} on ${l4proto} and nothing else`,
-      );
-      assert.ok(
-        matches.get(name)?.includes(`meta l4proto ${l4proto}`),
-        `and so should this: ${matches.get(name)} (${name})`,
-      );
-    }
-  });
-
-  it('drops the rest of the band the stack publishes in', () => {
-    const rules = dockerUserRules();
-
-    assert.equal(
-      rules.at(-1),
-      `${DOCKER_USER_RULE} iifname "${IFACE}" ct original proto-dst ${BAND} drop`,
-    );
-  });
-
-  it('creates neither the table nor the chain, because Docker owns both', () => {
-    const section = dockerUserSection();
-
-    assert.ok(
-      !section.includes('table ip filter {'),
-      'defining the table would take it over from Docker',
-    );
-    assert.ok(
-      !section.includes('chain DOCKER-USER {'),
-      'defining the chain would take it over from Docker',
-    );
-  });
-});
-
-describe('firewall-rules.sh, the arguments it refuses', () => {
-  it('refuses to print at all without --iface', () => {
-    const run = spawnSync('bash', [SCRIPT], RUN);
-
-    assert.equal(run.status, 2);
-    assert.equal(run.stdout, '', 'a refused run should print no ruleset');
-    assert.match(run.stderr, /--iface is required/);
-    assert.match(
-      run.stderr,
-      /ip -4 route get 1\.1\.1\.1/,
-      'the message should say how to find the name',
-    );
-  });
-
-  it('refuses the first slot the two bands would collide on, and says where', () => {
-    const run = spawnSync(
-      'bash',
-      [SCRIPT, '--iface', IFACE, '--max-slot', String(FIRST_OVERLAPPING_SLOT)],
-      RUN,
-    );
-
-    assert.equal(run.status, 2, `stderr was: ${run.stderr}`);
-    assert.equal(run.stdout, '', 'a refused run should print no ruleset');
-    assert.ok(
-      run.stderr.includes('--max-slot'),
-      `the message should name --max-slot, and says: ${run.stderr}`,
-    );
-    assert.match(
-      run.stderr,
-      /rung/,
-      `the message should name the band it runs into: ${run.stderr}`,
-    );
-    assert.ok(
-      run.stderr.includes(String(OVERLAP_PORT)),
-      `the message should name the port they meet on: ${run.stderr}`,
-    );
-  });
-
-  for (const { why, argv, flag } of REFUSED) {
-    it(`refuses ${why}`, () => {
-      const run = spawnSync('bash', [SCRIPT, ...argv], RUN);
-
-      assert.equal(run.status, 2, `stderr was: ${run.stderr}`);
-      assert.equal(run.stdout, '', 'a refused run should print no ruleset');
-      assert.ok(
-        run.stderr.includes(flag),
-        `the message should name ${flag}, and says: ${run.stderr}`,
-      );
+  for (const args of [
+    ['--max-slot', '0'], ['--max-slot', '101'], ['--max-slot', '1000'], ['--max-slot', '010'],
+    ['--max-slot', 'abc'], ['--max-slot', '9223372036854775808'], ['--ssh-port', '0'],
+    ['--ssh-port', '70000'], ['--iface', 'eth0"quoted'],
+  ]) {
+    it('refuses invalid arguments ' + args.join(' '), () => {
+      const result = run(evidence(), args);
+      assert.equal(result.status, 2);
+      assert.equal(result.stdout, '');
+      assert.ok(result.stderr.includes(args[0]!));
     });
   }
 });

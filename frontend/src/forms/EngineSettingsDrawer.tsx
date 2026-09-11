@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   CircularProgress,
@@ -20,11 +20,13 @@ import {
 import { useToast } from '../app/ToastProvider';
 import { useDeployments } from '../app/useDeploymentsStore';
 import {
-  fetchEngine,
   saveEngineSettings,
   type EngineOverview,
 } from '../deployments/engineApi';
 import { ENGINE_LABEL } from '../deployments/engineText';
+import { engineObservationText, engineOverrideHint } from '../deployments/engineObservationText';
+import { useEngineOverview } from '../deployments/useEngineOverview';
+import { engineOf } from '../deployments/shape';
 import { EditDrawerFrame } from './EditDrawerFrame';
 import { FormField } from './FormField';
 
@@ -43,9 +45,6 @@ const SETTLE_MS = 600;
 
 const ABR_SECTION_HINT =
   'These apply to every rung of the ABR ladder. They are read only by a deployment that encodes one.';
-
-const NOT_IN_CONFIG =
-  'Not read: the config file this deployment runs on dropped the placeholder for it. Put the token back in the file, or set the value there.';
 
 function whatSavingDoes(engineName: string): string {
   return `Recreates the ${engineName} container with the new values. A live publisher is disconnected for a few seconds and reconnects on its own if OBS is set to retry.`;
@@ -84,6 +83,13 @@ function renderedSettings(overview: EngineOverview): EngineSettings {
   return rendered;
 }
 
+interface EngineDraftTarget {
+  instanceId: string;
+  engine: EngineOverview['engine'];
+  abr: boolean;
+  fields: EngineOverview['fields'];
+}
+
 /**
  * The engine's own settings, in the same frame the Edit drawer uses.
  *
@@ -100,27 +106,36 @@ export function EngineSettingsDrawer({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { mergeProfiles } = useDeployments();
-  const [overview, setOverview] = useState<EngineOverview | null>(null);
+  const { profiles, mergeProfiles } = useDeployments();
+  const profile = profiles?.find(candidate => candidate.name === name) ?? null;
+  const load = useEngineOverview(profile && engineOf(profile) ? profile : null);
+  const [draft, setDraft] = useState<EngineDraftTarget | null>(null);
   const [edits, setEdits] = useState<EngineSettings>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const latestProfile = useRef(profile);
+  latestProfile.current = profile;
 
   useEffect(() => {
-    let current = true;
-    fetchEngine(name)
-      .then((loaded) => {
-        if (!current) return;
-        setOverview(loaded);
-        setEdits(renderedSettings(loaded));
-      })
-      .catch((caught) => {
-        if (current) setError(getErrorMessage(caught, 'could not read the engine settings'));
-      });
-    return () => {
-      current = false;
-    };
-  }, [name]);
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (draft || !load.overview) return;
+    const loaded = load.overview;
+    setDraft({ instanceId: loaded.identity.instanceId, engine: loaded.engine, abr: loaded.abr, fields: loaded.fields });
+    setEdits(renderedSettings(loaded));
+  }, [draft, load.overview]);
+
+  const targetChanged = draft !== null && (profile?.instance_id !== draft.instanceId
+    || (profile ? engineOf(profile) : null) !== draft.engine
+    || (load.overview !== null && load.overview.abr !== draft.abr));
+  const overview = targetChanged ? null : load.overview;
+  const targetError = targetChanged
+    ? 'This draft belongs to a replaced or different deployment. Your text is kept. Close and reopen Settings before applying it.'
+    : null;
 
   const settings = storedSettings(edits);
   const problem = overview
@@ -134,41 +149,46 @@ export function EngineSettingsDrawer({
     : true;
 
   const save = async () => {
-    if (!overview) return;
+    if (!overview || !draft || targetChanged || problem || unchanged) return;
+    const instanceId = draft.instanceId;
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveEngineSettings(name, settings);
+      const saved = await saveEngineSettings(name, settings, instanceId);
+      if (!mounted.current) return;
+      if (latestProfile.current?.instance_id !== instanceId || saved.instance_id !== instanceId) {
+        setError('The deployment changed while settings were saved. Close and reopen Settings to inspect the current deployment.');
+        return;
+      }
       mergeProfiles([saved]);
       onClose();
       toast(`Saved. Recreating the engine for ${name}…`);
     } catch (caught) {
-      setError(getErrorMessage(caught, 'failed to save the engine settings'));
+      if (mounted.current) setError(getErrorMessage(caught, 'failed to save the engine settings'));
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
-  const engineName = overview ? ENGINE_LABEL[overview.engine] : 'engine';
-  const plainFields = overview?.fields.filter((field) => !field.abrOnly) ?? [];
-  const abrFields = overview?.fields.filter((field) => field.abrOnly) ?? [];
+  const engineName = draft ? ENGINE_LABEL[draft.engine] : 'engine';
+  const plainFields = draft?.fields.filter((field) => !field.abrOnly) ?? [];
+  const abrFields = draft?.fields.filter((field) => field.abrOnly) ?? [];
 
   return (
     <EditDrawerFrame
       title={`Engine settings for ${name}`}
       saving={saving}
-      error={error}
-      saveDisabled={!overview || problem !== null || unchanged}
+      error={targetError ?? error ?? load.loadError}
+      saveDisabled={!draft || !overview || problem !== null || unchanged}
       saveLabel={SAVE_LABEL}
       onSave={() => void save()}
       onClose={onClose}
     >
-      {!overview ? (
-        <Stack alignItems="center" sx={{ py: 6 }}>
-          <CircularProgress />
-        </Stack>
+      {!draft ? (
+        load.loadError ? null : <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /></Stack>
       ) : (
         <>
+          {!overview && !targetError && <Alert severity="info">No current settings observation. Your draft is kept. Apply requires matching observations.</Alert>}
           <Typography variant="body2" color="text.secondary">
             {whatSavingDoes(engineName)}
           </Typography>
@@ -238,7 +258,7 @@ function SettingField({
   onChange,
 }: {
   field: EngineSettingField;
-  overview: EngineOverview;
+  overview: EngineOverview | null;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -253,12 +273,18 @@ function SettingField({
 
   const inputId = `engine-setting-${field.key}`;
   const unit = field.unit ? ` ${field.unit}` : '';
-  const fallback = overview.defaults[field.key] ?? field.defaultValue;
-  const source = overview.defaultSources[field.key] ?? 'stack';
-  const defaultNote =
-    `${defaultLabel(fallback, source, unit)}. Leave it empty to use it. ` +
-    'Check the effective config under Logs to see what the container is running.';
-  const notInConfig = overview.notInConfig.includes(field.key);
+  const observation = overview?.observations[field.key];
+  const text = engineObservationText(observation, field.unit ?? '');
+  const fallback = overview?.defaults[field.key];
+  const source = overview?.defaultSources[field.key];
+  const knownDefault = observation?.environment === 'all' && fallback !== undefined && source !== undefined;
+  const defaultNote = knownDefault ? `${defaultLabel(fallback, source, unit)}. Leave the override empty to use it.` : '';
+  const observationNote = observation?.status === 'known' ? `Configured value: ${text.value}. ${text.source}.` : `${text.value}. ${text.detail}`;
+  const hint = overview
+    ? [field.help, observationNote, engineOverrideHint(observation), defaultNote].filter(Boolean).join(' ')
+    : `${field.help} No current observation is available. Your draft text is kept.`;
+  const placeholder = !overview ? '' : knownDefault ? fallback
+    : observation?.environment === 'none' ? 'Config controls value' : 'Config use unverified';
 
   // Shown late, but Save is not gated on it: the drawer's own check runs over
   // every field on every keystroke and is what decides whether Save is live.
@@ -268,7 +294,7 @@ function SettingField({
     <FormField
       label={field.label}
       aside={field.unit ?? undefined}
-      hint={notInConfig ? `${NOT_IN_CONFIG} ${field.help}` : `${field.help} ${defaultNote}`}
+      hint={hint}
       error={blurred || settled ? problem : null}
       htmlFor={inputId}
     >
@@ -287,7 +313,7 @@ function SettingField({
             SelectDisplayProps: { id: inputId },
           }}
         >
-          <MenuItem value="">{defaultLabel(fallback, source, '')}</MenuItem>
+          <MenuItem value="">{knownDefault ? defaultLabel(fallback, source, '') : 'No override'}</MenuItem>
           {field.choices.map((choice) => (
             <MenuItem key={choice} value={choice}>
               {choice}
@@ -300,7 +326,7 @@ function SettingField({
           size="small"
           fullWidth
           value={value}
-          placeholder={fallback}
+          placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
           onBlur={() => setBlurred(true)}
           inputProps={{ inputMode: 'decimal', 'aria-label': field.label }}

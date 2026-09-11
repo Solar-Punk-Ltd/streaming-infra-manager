@@ -1,0 +1,162 @@
+{
+  "baseline": "d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64",
+  "branches": [
+    {
+      "branch": "codex/t09-money-by-transaction",
+      "head": "b1b1aecc95e5137b4b8d8ca25e4270f5b822797e",
+      "containedBy": []
+    },
+    {
+      "branch": "codex/t12-readiness-and-diagnostics",
+      "head": "2966ab3cd28239fe8cc3e29decb83d13e81b2edc",
+      "containedBy": [
+        "codex/t09-money-by-transaction",
+        "fix/t01-config-ownership",
+        "fix/t04a-immutable-builds",
+        "fix/t04b-bundled-builds",
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "codex/t15-pool-prerequisites",
+      "head": "8d326aa229607aea0abd111ac3e6ada17d2107f2",
+      "containedBy": []
+    },
+    {
+      "branch": "codex/t18-narrow-layouts",
+      "head": "5f835ca2bf33266785e099bb28e1a0f203b6b3fa",
+      "containedBy": []
+    },
+    {
+      "branch": "codex/t21-documentation",
+      "head": "c640b10e24eb6c731c5c13b885010bfdea04fdb7",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t01-config-ownership",
+      "head": "82e2d0814617b6b11f55806f0ac19fd164d107af",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t01a-restart-count",
+      "head": "115b1944085ae759d3d757a52d132f482022693b",
+      "containedBy": [
+        "fix/t01-config-ownership"
+      ]
+    },
+    {
+      "branch": "fix/t02-srs-check-isolation",
+      "head": "1ab3e7256d997e75189d43c48e71733faf40e03b",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t03-ome-xml",
+      "head": "be10c3b2aeb95f3f43e50fb6aa949cdb32c4df84",
+      "containedBy": [
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "fix/t04a-immutable-builds",
+      "head": "c55c9d93b17b75619b239104099de28cdfff2a43",
+      "containedBy": [
+        "fix/t01-config-ownership",
+        "fix/t04b-bundled-builds",
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "fix/t04b-bundled-builds",
+      "head": "c61ac5e58f9aa51d98b763e56f40c50028880d57",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t05a-shared-image-guard",
+      "head": "3220114341c8c4e3a784f4e961c0b5912603d4d1",
+      "containedBy": [
+        "codex/t09-money-by-transaction",
+        "codex/t12-readiness-and-diagnostics",
+        "fix/t01-config-ownership",
+        "fix/t04a-immutable-builds",
+        "fix/t04b-bundled-builds",
+        "fix/t06-port-reservations",
+        "fix/t10-integration-client",
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "fix/t06-port-reservations",
+      "head": "b65f8d9b55bbe90b1aed8c2369b4094734f38c35",
+      "containedBy": [
+        "codex/t09-money-by-transaction",
+        "codex/t12-readiness-and-diagnostics",
+        "fix/t01-config-ownership",
+        "fix/t04a-immutable-builds",
+        "fix/t04b-bundled-builds",
+        "fix/t10-integration-client",
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "fix/t07-proposed-row",
+      "head": "24b85bffc56f9a00c1b0659596ad5cbebe0147b9",
+      "containedBy": [
+        "codex/t09-money-by-transaction",
+        "codex/t12-readiness-and-diagnostics",
+        "codex/t15-pool-prerequisites",
+        "fix/t01-config-ownership",
+        "fix/t04a-immutable-builds",
+        "fix/t04b-bundled-builds",
+        "fix/t11-effective-settings"
+      ]
+    },
+    {
+      "branch": "fix/t08-tested-approval",
+      "head": "347c7dd61cc26c00f9f41af00da50455b0d3c8fd",
+      "containedBy": [
+        "codex/t15-pool-prerequisites",
+        "codex/t18-narrow-layouts"
+      ]
+    },
+    {
+      "branch": "fix/t10-integration-client",
+      "head": "284790c96547a0a3d6f75e4d120d676257874fc0",
+      "containedBy": [
+        "fix/t01-config-ownership"
+      ]
+    },
+    {
+      "branch": "fix/t11-effective-settings",
+      "head": "ef269a861d0a7e80a6585f89ff71ae1e3c8e2ca8",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t13-srt-default",
+      "head": "0a0aebc3c3da724905cd4f01bbae38b8aa774816",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t16-validation-feedback",
+      "head": "1f142071b61dbfe36da4588e83b8be4b362c58b3",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t17-endpoint-protocols",
+      "head": "7354bfe622b25e3ba7178b0b752186ca8c299510",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t19-notes-route",
+      "head": "6b3c50cfc405db1b35dad7e86d64368ba923efee",
+      "containedBy": []
+    },
+    {
+      "branch": "fix/t20-ci-checks",
+      "head": "1eb7cddc86979bc0af0333551e296dd0f68a9b3c",
+      "containedBy": []
+    }
+  ],
+  "backupBranch": "codex/main-v2-before-remediation-20260909",
+  "integrationCheckpoint": "e2e02d472d4e17b37069a4568cfb05fc9639d903",
+  "scope": "22 agreed remediation task heads, preserved with their full ancestry. No push or host change."
+}

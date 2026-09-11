@@ -1,10 +1,14 @@
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import {
   BUNDLED_STACK_ROOT,
   bootstrapPairsFor,
   type BootstrapPair,
 } from '../../utils/envUtils.js';
+
+import { buildIdProblem, readBuildManifest } from './buildManifest.js';
+import type { StackVersionLayout } from './StackVersionRepository.js';
+import { versionRemovalProblem } from './versionRemovalMarker.js';
 
 /**
  * Where one version's checkout keeps everything the manager runs against it.
@@ -15,7 +19,11 @@ import {
  * only the running manager knows where its own checkout is.
  */
 export interface StackVersionRoot {
+  id?: number;
   rootPath: string | null;
+  /** Legacy when left out: a caller that names only a root means the flat one. */
+  layout?: StackVersionLayout;
+  buildId?: string | null;
 }
 
 export interface StackPaths {
@@ -30,9 +38,62 @@ export interface StackPaths {
   bootstrapPairs: readonly BootstrapPair[];
 }
 
-/** The checkout a version lives in. A null rootPath is the bundled one. */
+const MISSING_BUILD_ROOT = 'This version uses immutable builds but has no artifact root. Restore its build before deploying.';
+const MISSING_BUILD_ID = 'This version has no build to deploy from yet.';
+
+/**
+ * Where a version deploys from. A null rootPath is the bundled one. A legacy
+ * row deploys from its flat root. A builds row deploys from its current
+ * build, a sibling of the flat root, and never from the flat root itself,
+ * so a missing build is a refusal from `deployRootProblem` and not a
+ * fallback.
+ */
 export function stackRootOf(version: StackVersionRoot): string {
-  return version.rootPath ?? BUNDLED_STACK_ROOT;
+  if ((version.layout ?? 'legacy') !== 'builds') return version.rootPath ?? BUNDLED_STACK_ROOT;
+  if (version.rootPath === null) throw new Error(MISSING_BUILD_ROOT);
+  if (!version.buildId) throw new Error(MISSING_BUILD_ID);
+  return buildDirFor(dirname(version.rootPath), basename(version.rootPath), version.buildId);
+}
+
+/**
+ * The tree a version's samples and descriptions are read from, or null when it
+ * has none yet.
+ *
+ * Never the tree the manager ships with. A bundled row that has not been built
+ * on this host has no settings of its own to show, and answering from the
+ * manager's own checkout would put a page over files no version owns.
+ */
+export function settingsTreeOf(version: StackVersionRoot): string | null {
+  if ((version.layout ?? 'legacy') !== 'builds') return version.rootPath;
+  return version.rootPath !== null && version.buildId ? stackRootOf(version) : null;
+}
+
+/** Why a version cannot be deployed from right now, naming what is missing, or null. */
+export function deployRootProblem(version: StackVersionRoot): string | null {
+  const removalProblem = versionRemovalProblem(version);
+  if (removalProblem) return removalProblem;
+  if ((version.layout ?? 'legacy') !== 'builds') return null;
+  if (version.rootPath === null) return MISSING_BUILD_ROOT;
+  if (!version.buildId) return MISSING_BUILD_ID;
+  const problem = readBuildManifest(stackRootOf(version)).problem;
+  return problem ? `Build ${version.buildId} of this version cannot be deployed from. ${problem}` : null;
+}
+
+/** A version root plus what says whether its build is the one wanted. */
+export interface DeployableVersion extends StackVersionRoot {
+  status: string;
+  commitSha: string | null;
+}
+
+/**
+ * Whether the version deploys from a complete build of this commit right now.
+ *
+ * Boot and the manager upgrade both decide from this, so a build the upgrade
+ * calls ready is never one the next boot rebuilds.
+ */
+export function deploysBuildOf(version: DeployableVersion, commit: string): boolean {
+  return version.layout === 'builds' && version.status === 'ready' &&
+    version.commitSha === commit && deployRootProblem(version) === null;
 }
 
 export function stackPaths(version: StackVersionRoot): StackPaths {
@@ -61,4 +122,76 @@ export function stackPathsForRoot(root: string): StackPaths {
  */
 export function versionRootFor(versionsRoot: string, name: string): string {
   return join(versionsRoot, name);
+}
+
+/*
+ * The layout of a version with builds. A dot cannot appear in a version name
+ * (stack_versions_name_format in migration 010), so the three directories
+ * below are siblings of the flat root and the flat root is never an ancestor
+ * of a build, which is what keeps a legacy tree's removal from taking a build
+ * with it.
+ */
+const REPO_SUFFIX = '.repo';
+const BUILDS_SUFFIX = '.builds';
+const STAGING_PREFIX = 'tmp-';
+
+/** The clone a version fetches into. Never deployed from. */
+export function repoRootFor(versionsRoot: string, name: string): string {
+  return join(versionsRoot, `${name}${REPO_SUFFIX}`);
+}
+
+/** The parent of every build of the version, one immutable directory each. */
+export function buildsRootFor(versionsRoot: string, name: string): string {
+  return join(versionsRoot, `${name}${BUILDS_SUFFIX}`);
+}
+
+/** One build. Throws on an id that is not one, because the id becomes a path. */
+export function buildDirFor(versionsRoot: string, name: string, buildId: string): string {
+  const problem = buildIdProblem(buildId);
+  if (problem) throw new Error(problem);
+  return join(buildsRootFor(versionsRoot, name), buildId);
+}
+
+/** Where one build attempt stages its candidate. No two attempts share one. */
+export function stagingDirFor(versionsRoot: string, name: string, attemptId: string): string {
+  return join(buildsRootFor(versionsRoot, name), `${STAGING_PREFIX}${attemptId}`);
+}
+
+/**
+ * Where the host-owned inputs of a version live: the base env, the deploy
+ * config and the engine envs. The flat root the version always had, which a
+ * legacy row also deploys from. The bundled version has none until its first
+ * build here, which takes over what the tree the manager shipped had.
+ */
+export function configRootFor(versionsRoot: string, name: string): string {
+  return versionRootFor(versionsRoot, name);
+}
+
+const EXECUTIONS_DIR = '.executions';
+
+/**
+ * The parent of every deployment's private execution copy, one directory per
+ * execution under it.
+ *
+ * Under the versions root on purpose, and not beside it: that root is
+ * bind-mounted into the api container at the same absolute path it has on the
+ * host, which is what lets a compose file inside a copy resolve its own
+ * relative volumes. A version name cannot contain a dot (migration 010), so
+ * this name cannot be a version's, and the boot scan of interrupted attempts
+ * only walks the build directories.
+ */
+export function executionsRootFor(versionsRoot: string): string {
+  return join(versionsRoot, EXECUTIONS_DIR);
+}
+
+const MANAGER_UPGRADE_GUARD_DIR = '.manager-upgrade';
+
+/**
+ * The directory one manager upgrade holds while it runs. Outside the
+ * installation the upgrade replaces and outside every published build, so a
+ * half finished upgrade still blocks the next one after the files it was
+ * changing have been replaced.
+ */
+export function managerUpgradeGuardRootFor(versionsRoot: string): string {
+  return join(versionsRoot, MANAGER_UPGRADE_GUARD_DIR);
 }

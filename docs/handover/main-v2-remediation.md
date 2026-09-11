@@ -1,0 +1,1049 @@
+# main-v2 remediation handover, 2026-09-09
+
+Cross-provider review, OpenAI-hosted Codex, GPT-6 Astra.
+
+## Start here
+
+Levi requested: "okay merge everything to main-v2 locally and create handover". All 22 remediation task heads are now ancestors of local `main-v2`. Their complete histories, original branches and task worktrees are preserved. This consolidates implementation checkpoints. It does not complete the 25-row roadmap or establish deployment readiness.
+
+The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. It is where `main-v2` still points, locally and on the remote, so the baseline is preserved by the branch itself. The local backup branch `codex/main-v2-before-remediation-20260909` this line originally named is gone from this checkout, and so are the 22 task branches, but every head they pointed at is still reachable through the merge commits and every one of them is in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
+
+This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate and historical evidence remain in `.scratch/main-v2-review-consensus/`. Its `PRD.md` comments were not edited. That scratch directory remains untracked. This handover and its manifest are tracked.
+
+No push, GitHub write, repository setting, image pull, installation, real engine build, deployment, SSH or funded-node operation was performed for this consolidation. An initial pnpm typecheck tried its automatic dependency reconciliation and stopped before removing modules. No install completed. Subsequent checks used existing local executables directly. Its small generated store is preserved under the local merge evidence directory.
+
+## Authorization for continuation
+
+Levi explicitly overrode the reviewer-only restriction for the agreed local work. Local worktrees, source and test edits, commits and disposable tests are authorized. He also authorized subagents and this local main-v2 consolidation. Do not ask for the same permission again.
+
+Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies remain local drafts under `.scratch/main-v2-review-consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
+
+Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access Claude memory, estate, beeClients, secrets or the shared development services on ports 5186 and 3035.
+
+## Roadmap, all 25 rows
+
+The heads below are the task checkpoints included in this merge, not a claim that every acceptance criterion passed.
+
+| Row | Included head | State and remaining acceptance |
+| --- | --- | --- |
+| T01a restart count | `115b194` | Correct top-level Docker restart count and regression are included. |
+| T01 configuration operations | `82e2d08`, execution copies `939dd30` | Atomic claims, retained-build recovery and apply/reset/recovery service callers are connected. Immutable execution landed on 2026-09-11: a deploy runs in a private copy of its build and the build is never written into. Exact successful finalization and operation-hold release remain. |
+| T02 isolated SRS validation | `1ab3e72` | Concurrent checks have private files. The real concurrent parser harness still needs CI execution. |
+| T03 OME validation | `be10c3b` | XML parser, protected paths and harness are included. Recorded arm64 evidence is historical. Stack pin, amd64 and CI qualification remain. |
+| T04a immutable builds | `c55c9d9` | Immutable publication, retained references, guarded removal and durable removal markers are included. A build is now immutable in fact as well as in name: since 2026-09-11 no deploy writes into one. |
+| T04b bundled publication/runtime | `c61ac5e` | Durable publication command, registered candidates, receipt replay and legacy metadata CAS exist. Production CLI/upgrade adapters, private execution copies, complete observation and retirement remain. Twelve obsolete boot-publication tests remain red. |
+| T05a creation guard | `3220114` | Durable admission/recovery guard and release UI are included. Matching Engine 29.1.3 and Compose v5.1.4 harness remains unrun. |
+| T05b stack image changes | No task branch here | Levi owns the external stack image-name/cleanup commits and bundled submodule update under D09. |
+| T06 port reservations | `b65f8d9` | Reservation and target admission are included. Combined execution verification and Linux firewall qualification remain. |
+| T07 proposed deployment row | `24b85bf` | Validation, admission and write use the proposed row. Unknown critical prerequisites refuse. |
+| T08 build approval | `347c7dd` | Approval names the displayed commit/build and the wizard requires an explicit valid choice. Integrated with T18 and both publication writers. |
+| T09 money by transaction | `8f48fb0` | Merged. Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and the connected SQL and browser acceptance suites are all in, with both reviews of that slice acted on. What remains is real SSH and real image qualification, which need a host and have not run. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is a frozen empty list and a synthetic pass never fills it. |
+| T10 authenticated integration client | `284790c` | Confirmed-instance cleanup and atomic profile/group removal are included. Real deployment integration has not run. |
+| T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
+| T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
+| T13 SRT default | `0a0aebc` | Per-deployment default and review copy are included. |
+| T14 guided stamp purchase | No task branch | **Closed by Levi on 2026-09-11, not wanted for now.** Buying postage already works from a deployment's storage card and already quotes the cost in BZZ before the operator confirms. This row would only have added human-readable capacity and lifetime presets in place of Swarm's own amount and depth inputs, and a spending ceiling refused in the submission path rather than merely displayed. He will say if he wants it. D04 is closed with it. |
+| T15 pool prerequisites | `8d326aa` | Pool creation preserves uploader drafts and handles stale membership observations. |
+| T16 validation feedback | `1f14207` | Field feedback, accessible labels and focus behavior are included. |
+| T17 endpoint actions | `7354bfe` | Protocol-aware link/copy actions coexist with container diagnostics. |
+| T18 narrow layouts | `5f835ca` | Responsive version cards preserve exact-build approval and attempt-release controls. |
+| T19 notes editing | `6b3c50c` | Separate notes updates and revision conflicts coexist with full deployment edits. |
+| T20 CI checks | `ab8776c` | Merged. Three jobs run the build and unit suites, the 518 SQL tests against nine disposable databases and the 166 browser tests against a real Chrome, with no skip and no suite that never started counted as a pass. The four container-backed regressions each have a job in the manual workflow. What remains is Levi's: dispatch that manual workflow once, and turn the requirement on after the `checks` workflow has run. The T01 startup-failure file and every job of the manual workflow have never run on a runner. |
+| T21 documentation | `docs/t21-reconciliation`, from `6dc33d1` | The reconciliation slice of 2026-09-10, described in its own section at the end of this file. Every page that describes behaviour was checked against the code on the branch, and every status paragraph now names the branch, the date and the commit it is true at. Update again as remaining flows close. |
+| T22 controlled live acceptance | No task branch | Await D05 inputs, completed prerequisites and separate live authorization. |
+
+## The next work
+
+Rewritten on 2026-09-11. Everything this list used to hold has either been built, described in the dated sections below, or closed by Levi. What is left, in order:
+
+1. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
+2. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+
+Private execution copies were here and landed on 2026-09-11, described in its own section at the end of this file. What that slice leaves for T01 is its own remaining work rather than a dependency: the atomic begin and revert of a config rollout, the creator receipt, and the release of operation holds after a proven watch. Those repository APIs exist and nothing calls them, and none of them is needed for a deployment to stop writing into its build.
+
+T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling today.
+
+With that closed and private execution copies landed, no engineering slice of this roadmap is outstanding. Everything left needs the host.
+
+What remains of T09 is real SSH and real image qualification, both of which need a host. Do not populate the production qualification catalog merely because synthetic tests pass.
+
+D14 is open for Levi: whether the version settings page and version management become admin-only. Today any signed-in account can read and set those values, which is what every other version route does.
+
+Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
+
+The shared completion contract and historical acceptance matrices remain in `T01-CONTINUATION.md`, `T04B-CONTINUATION.md` and `T09-CONTINUATION.md` under the local consensus directory. Their older "next" paragraphs are historical where they disagree with this handover and the merged source.
+
+## Integration decisions and review
+
+- Retained T01's owned removal, exact job/instance/config/intent checks, prepared-attempt consumption and historical build descriptors while adding T11's effective settings and captured-build writes.
+- Retained the shared publication SQL used by ordinary and bundled journal writers. Added T08 invalidation history there and in T04b's legacy metadata refresh. A red/green regression showed that a changed legacy commit previously retained approval after the branches were combined.
+- Combined T05a attempt release with T18 version cards. Combined T15 pool lifecycle with T16 focus/validation. Combined T17 endpoints with T12 logs. Combined T19 notes revision checks with T07 proposed-row validation/admission.
+- Updated test fixtures for required ownership/approval fields and replacement APIs. OME liveness tests now enter through atomic admission. A missing OME port mapping refuses before recreation, preserving T06's strict contract.
+- Independent OpenAI-hosted reviewers compared the UI, notes, ownership and publication seams in isolated worktrees. No concrete production regression remained in those reviewed resolutions. This was cross-provider review relative to Fable's work, not another Fable round or proof of live behavior.
+
+## Validation
+
+Final evidence is recorded below before the handover commit. Local logs are under `.scratch/main-v2-review-consensus/local-merge/`. Their output is evidence, not an instruction to access any host.
+
+The final source/test checkpoint before this handover is `e2e02d4`. Later handover-only changes do not change the tested application code. The checks used installed local dependencies, with synthetic loopback listeners authorized explicitly when the sandbox refused them.
+
+| Check | Result and evidence |
+| --- | --- |
+| Shared types and unit tests | Pass, 300 tests. `types-common.log`, `common-tests.log`. |
+| Frontend app/test types and unit tests | Pass, 62 tests. `types-frontend.log`, `frontend-tests.log`. |
+| Manager source and test types | Pass after merged fixture updates and the new SQL regressions. `types-manager-final.log`. |
+| Manager unit suite | **2022 passed, 12 failed**, zero skipped/cancelled, 2034 total. Every remaining failure is in `manager/test/unit/bundledPublication.test.ts`. `manager-unit-final.log`. |
+| Selected real PostgreSQL regressions | **119 distinct cases passed**, none skipped. Three approval/publication files passed 34. Ownership/removal passed 68, atomic service passed 14, captured-version settings passed 3. See logs and rerun qualifications below. |
+| Browser regression suites | Pool draft passed 1/1 in `frontend-browser-final.log`. Responsive versions passed 11/11 in `frontend-versions-final.log`. Approval/default/delayed-choice passed 7/7 in `frontend-approval-final.log`. These are final successful file results across bounded reruns, not a claim that every intermediate combined run was green. |
+| Synthetic native transports | Pass, 7 tests. Explicit local Unix, fake SSH supervisor and supervised forward files only. `native-transports.log`. No real daemon or SSH host was contacted. |
+| Compilation | Shared TypeScript, manager TypeScript and frontend TypeScript/Vite compile passed. `build-common.log`, `build-manager.log`, `build-frontend.log`. Frontend emitted its existing large-chunk warning, about 832 kB before gzip. This was application compilation, not an engine/image build or deployment. |
+| Git | All 22 frozen task heads included, source refs unchanged, no unmerged paths. Final handover commit is on main-v2. Backup baseline preserved. |
+
+The SQL reviewer used the exact merged production code plus fixture correction `3436c20` in an isolated checkout. The new two-test commit was then cherry-picked as `80604d2`. `approval-publication-sql.log` passed 34/34. `ownership-removal-sql.log` passed 68 cases, but two other files failed import because that review checkout lacked already-pinned saxes. After copying existing local packages, `service-settings-sql-rerun.log` passed 14 cases and one other file stopped for missing synthetic DATABASE_URL. `settings-capture-sql-rerun.log` then passed its unchanged 3 cases. Preserve those setup failures and successful reruns. No database assertion failure remains in the selected set.
+
+The original sandboxed manager run failed because local test listeners were refused. Its log is retained as `manager-unit-initial.log` and is not product evidence. The first authorized aggregate run then exposed four OME fixture failures in addition to the 12 known bundled tests. Those four are fixed and pass. The browser logs retain the missing mock attempts endpoint, explicit late-version selection and render-timing failures preceding their corrections.
+
+The T03 draft already records all four provenance checks for the introduced `saxes` 6.0.0 and `xmlchars` 2.2.0 versions. It records 2021-11-07 and 2019-09-06 publish dates, verified registry signatures, installed-tree signature verification and no listed advisories including malware. Neither package has a provenance attestation. This is carried historical evidence from `.scratch/main-v2-review-consensus/prs/t03-ome-xml.md`, not a fresh registry query during this merge. No dependency version was changed by the conflict resolutions.
+
+No full real deployment suite, Linux firewall qualification, actual SRS/OME/shared-image container harness, production SSH/image qualification, funded transfer, upload, playback or T22 run occurred. CI is still a partial draft. The merged branch is therefore **not release-ready**.
+
+## Open inputs and funded assets
+
+D01 through D10 are already decided. D04 still needs the guided stamp preset capacities/lifetimes and spending ceiling. D05 still needs the live spend cap, duration, publishing content and disposition of the node's funds. These are inputs to decided policies, not a reopened design vote.
+
+The funded `review-20260907` deployment was not touched. The historical 0.5 BZZ chequebook fill's submission remains unverified. There is no transaction evidence here establishing that it was unsent, settled or safe to retry. Preserve the node and its assets. Do not run the R04/shared-image script on the host. The matching-version T05a harness is a later isolated run on Engine 29.1.3 and Compose v5.1.4.
+
+## Preserved local state
+
+- Original task worktrees and all 22 frozen source refs remain. The merge manifest records exact heads. Historical/rebased feature branches outside the remediation set were not indiscriminately merged or deleted.
+- Synthetic PostgreSQL fixture `285c10f9f8ae41c877fb54fe88f53e2ec3b8bb9ae3808872c02cee74bbadbe9a`, loopback 62527, belongs to `implement_t08_completion`. It holds synthetic task databases and previously retained interrupted schemas.
+- Synthetic fixture `6b755f793656af867ad33f9564fabc1a5d06f2d324a88cad91fe58f748fd656b`, loopback 61175, belongs to `implement_t12_readiness`. Preserve the previously documented incomplete-run schema. Only the owners clean these fixtures.
+- Integration SQL review tree: `/private/tmp/integration-approval-sql-codex`. Documentation review tree: `/private/tmp/t21-handover-codex`. Read-only UI review: `/private/tmp/t04b-merge-review-4372848`. These are separate from the original task trees.
+
+On resume, read this file first, inspect main-v2's actual HEAD and working tree, then choose one remaining complete flow. Verify any retained resource by its exact recorded identity before use. Never infer cleanup authority from a name prefix or a stopped test runner.
+
+## Where the record lives, 2026-09-09
+
+The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stays as the home of the originals, the logs and the browser evidence.
+
+## After the merge: the publication command slice, 2026-09-09
+
+Fable (Anthropic), with Opus agents implementing and reviewing. Levi decided to keep the durable publication design and build the command, opened PR #40 from `feat/ai-remediation` into `main-v2`, and authorised pushing every finished slice to that branch.
+
+What landed: `bundled:seal` on the laptop, `manager:upgrade` from the new image on the host, the deploy script wired to both, the twelve red boot-publication tests replaced by tests through the new path, and a sweep that removes every shipped package and claimed copy a finished publication made unreadable, so the host does not keep a copy of every secret every deploy shipped. Two reviews of the slice and one targeted review of the fixes found and closed, among others, the first-use probe counting the upgrade's own one-off container, `docker compose run` swallowing the rest of the remote script, the first-use rule firing again after the migration, the started api never being checked against the image the upgrade built, and the repository's `.dockerignore` letting `manager/.env` into the image build context. The briefs are `../consensus/T04B-COMMAND-BRIEF.md` and `../consensus/T04B-COMMAND-FIXES.md`.
+
+Verified at the merge: manager 2146 unit tests green, common 300, frontend 62, the three typechecks clean, the database test directory 159 green against a disposable local Postgres, and the manager image build context clean of the env file. Nothing has run against the real host. The first deploy with this flow needs Levi's word.
+
+Still open from the list above, in this order: exact execution and recovery completion (T01 with T04b private execution copies, so deploys stop writing into the immutable build), T09 receipt polling and its harness, T20 and T21, then T14 and T22 on Levi's numbers. The D09 stack commits reached the stack's main-v3 the same evening, see the next section.
+
+## The bundled stack is main-v3, 2026-09-09
+
+Levi ruled that the stack's `main-v3` is the stable default and that `main-v2` is obsolete, kept only as a second version to test version selection with. He fast-forwarded the stack's `main-v3` to the four D09 commits (head `9f1255b`, the two built services no longer name their images, a whole-project clean removes the images it built), so no branch of the stack repository is referenced anywhere: the bundled submodule pins the tip of `main-v3`.
+
+What landed on `feat/ai-remediation`: the pin moves from the tip of the stack's `main-v2` (`ee99c36`) to `9f1255b`, the submodule's tracked branch becomes `main-v3`, and the manager README, the deploy README and the engine-control feature page say which version is bundled and what its contract decides (slot ceiling 99, `API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` generated per deployment, the SRS API port published, engines on a config file of their own, chequebook floor 0.5 BZZ). No code changed: the manager reads all of that from the stack's contract.
+
+Verified with the new pin: manager 2146 unit tests green and typecheck clean, the real tree's contract read with no warning and `sharedImageTags` false, the stack installed and built on the laptop with the same two commands `deploy/deploy.sh` runs. A trial seal of the real tree then refused the laptop's stack `.env`, which still follows the `main-v2` sample and lacks twenty keys the `main-v3` sample declares (only the key names were seen). That is the check working as designed, and it means the first deploy after this bump needs those keys added to `manager/swarm-hls-stream/.env` first. The deploy README now says so. The trial's generation-one revision file was removed again, so the laptop checkout is back to never having had one and the deploy's `--adopt-inputs` takes the files as they are.
+
+Nothing has run against the real host. Next, unchanged: exact execution and recovery completion, then T09, T20, T21, T14 and T22.
+
+## The bundled stack is built on the host, 2026-09-09
+
+Levi's D12: "We run the infra manager on the server. The host should be able to
+checkout and pull the version or tag or branch whatever and build it there.
+Immediately it shows the settings that's needed for that version but filled with
+the working defaults." The bundled version stops arriving with the deploy. The
+brief is `../consensus/BUNDLED-ON-HOST-BRIEF.md`, the work is on
+`feat/bundled-on-host` off `feat/ai-remediation`.
+
+**What changed.** `deploy/deploy.sh` writes `manager/.stack-commit` from the
+repository itself, `git rev-parse HEAD:manager/swarm-hls-stream`, so the pin is
+what the submodule records and not what a laptop has checked out. That file is
+now the only thing about the stack a deploy carries. At boot the api reads the
+pin and, when the bundled row is not already on a complete build of it, builds
+that commit through the same path an added version takes: the same build script,
+the same one-build-at-a-time mutex, the same log on the Versions page. Update on
+the bundled version means rebuild that pin, and refuses with a plain message on a
+machine that pins none. The build script learned to fetch a forty character
+commit, which `git clone --branch` refuses. The upgrade command lost the
+shipment: its phases are checking, stopping, migrating, starting, verifying and
+then a bounded wait, `--bundled-timeout`, for the api's own boot to reach a build
+of the pin. A build that failed or timed out is printed and exits non zero, after
+the guard is released, because the manager is up by then.
+
+**Settings.** The first build on a host deployed the old way takes the bundled
+stack's `.env`, `deploy/config.json` and engine envs out of the legacy tree at
+`SHLS_ROOT`, byte for byte, as the config root's first revision. The legacy tree
+is only ever read, because running engines still mount it, and only the bundled
+version reads it at all. Then every env file is completed from the sample of the
+version being built: the sample's own line for each key the file lacks, in the
+sample's order, appended and committed as one more revision, which the build then
+captures. A file that does not parse, and a base env that is still short after
+completion, are refused with today's messages. That is the settings model the
+version settings page of D13 will read: one set per version on the host,
+committed as revisions in `.config-revision.json` under the same lock the editing
+script takes.
+
+**What went.** `bundled:seal`, the package format, the shipment journal
+(migration 030 drops `bundled_shipments` and its trigger, keeping
+`publication_revision` and its trigger), the publication command, the
+materializer, the package claim and sweep, the toolchain flag, and the strict
+path mode of the host config capture that only the seal used. Their tests went
+with them. The deploy script lost the stack build, the seal, the package rsync,
+the identity checks and the remote home probe those guarded, because with the
+package gone the only values it still interpolates into a remote command line are
+a local `git rev-parse` and a local `shasum`.
+
+**The T04b guarantee still holds and is still tested.** A deployment created
+while the bundled row was legacy keeps running the legacy tree until its own next
+deploy moves it: `manager/test/unit/deployBuildDescriptor.test.ts`, "runs the
+legacy tree until the bundled version is published, and its build after, each by
+its own deploy". `bundledBootRecovery.test.ts` still asserts that boot's metadata
+refresh adopts nothing and writes nothing into the legacy tree, and
+`bundledPublication.test.ts` was reworked around the new boot behaviour rather
+than deleted.
+
+**Verified.** Manager unit 2063 of 2063, manager database 98 of 98 against a
+disposable local Postgres, common 300, frontend 68, both manager typechecks and
+the common and frontend typechecks clean, `bash -n deploy/deploy.sh` clean.
+Earlier runs of the same suites, at load average 34 to 45 on this machine, failed
+a handful of timing-sensitive tests that pass alone, including
+`ownedChequebookPreparation.test.ts` and the pre-existing
+`legacyMetadataRefresh.test.ts` and `acquireDockerBeeStream.test.ts`, which
+nothing in this slice touches. `feat/ai-remediation` failed four of the same
+tests under that load, so the sensitivity is the machine's and not this branch's.
+Nothing ran against the real host, nothing was pushed, and no `.env` of the
+submodule was read.
+
+**Two things the brief asked for that are not here.** The build script's commit
+path is covered by a real run against a repository on this disk, put behind the
+stack's own https url with git's `insteadOf` in a home directory of the test's
+making, so neither the url check nor anything else in the script was relaxed for
+it. `readManagerPublication.ts` was kept and simplified rather than deleted: the
+brief lists it among the removed modules but also says `readPublication` keeps
+the first-use rule and the schema state, and something has to read the schema.
+Its database test was rewritten rather than removed, and it is where the
+migration-030 assertions live.
+
+**After the reviews, 2026-09-10.** A security review and a correctness review
+ran in parallel over the slice and found fourteen things, all now fixed on
+`feat/bundled-on-host`, one test-first commit pair each. The two that mattered
+were the same leftover from both sides: `removeGuarded` still asked
+`bundled_shipments` whether a version was held, and migration 030 drops that
+table, so the first version removal after an upgrade would have failed on the
+host and eleven database tests failed on the branch. The other one that could
+have reached the host is the guard: the twenty minute bundled wait did not catch
+its own read errors, so one failed query after the api was verified left
+`.manager-upgrade` behind and refused every later deploy. It now releases before
+it rethrows.
+
+Three findings were about the settings files, which hold the stream passphrase,
+the api token, the webhook token and the bee passphrase. They were being written
+at 0644 under a versions root anyone on the host can enter, because the atomic
+replacement wrote its temporary file with no mode. A file a commit creates is now
+owner only and a file it replaces keeps the mode an operator gave it. The
+completion and the legacy carry over both read a file and then took the lock only
+for the write, so an edit made in between was overwritten: `withHostConfigLock`
+now takes the lock once and hands the body a commit. And the set of settings
+files was built with calls that follow symbolic links, so a link planted in the
+legacy tree would have had its target read in the api container and committed as
+generation one. Every path of the set is now lstat checked, the `deploy` and
+`engines` directories included, and what was passed by is logged.
+
+The build script fetched from whatever `remote.origin.url` the clone on disk
+carried, so the https only check held for the first build alone. It repoints
+origin at the checked url before every fetch. The deploy refuses a
+`BUNDLED_TIMEOUT` that is not whole seconds and an ssh target starting with a
+dash, keeps the exit status of the upgrade so the receipt reaches the deployer
+before the failure, and `--bundled-timeout` is now optional with the twenty
+minute default the operations already carried. `deploysBuildOf` moved next to
+`deployRootProblem` so boot and the upgrade decide ready by the same rule, and
+the wait counts a `lastError` as its own only when the row has moved since it
+started the api, which is what tells this build's failure from one an earlier
+boot left standing. That baseline is read in `startProject`, which is the last
+moment before the new api can run its own boot.
+
+Two gaps in the tests were closed by mutation rather than by a code change.
+"Existing lines byte for byte untouched" had no fixture with a comment, a blank
+line, trailing spaces or a CRLF line, so stripping every comment and trimming the
+leading blank both passed. Both now go red. The bundled card's enabled Update
+button was asserted nowhere, and putting the old disable back passed every test.
+`frontend/test/versions-layout.test.mjs`, which renders the real page in headless
+Chrome, now asserts the button is enabled and the commit is on the card. That
+file is not part of `pnpm test`, which reads `src/**/*.test.ts` only, so it was
+run on its own: 12 of 12. The live build script test also set only `HOME`, which
+`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_COUNT` outrank, so a developer with either
+set would have sent that fetch to github.com. It answers all of them now.
+
+**Verified, 2026-09-10.** Manager unit 2081 of 2081. The whole
+`manager/test/database` directory 492 of 492 with nothing skipped, against a
+disposable Postgres holding the nine databases the files name, every
+`*_TEST_PG_PORT` set. That is five fewer than the base commit, which is exactly
+the four shipment cases and the one dropped table this round removed. Common 300,
+frontend 68, both manager typechecks and the common and frontend typechecks
+clean, `bash -n deploy/deploy.sh` clean, and the remote heredoc body parses as
+bash on its own. Nothing ran against the real host, nothing was pushed, and no
+`.env` of the submodule was read.
+
+**Third round, 2026-09-10.** A targeted re-review of those fixes found six more,
+all now in, one test-first commit each. Two were the same two shapes again, in
+places the first round missed. `manager/scripts/stack-config-edit.sh`, the
+supported way to edit a version's settings by hand, created its temporary file
+at whatever the umask allowed, so one `set` widened a 0600 `.env` back to 0644
+and undid the mode fix through the one door an operator is told to use. It now
+creates that file owner only and gives it the mode the target already has, and
+the revision manifest goes the same way. `seedHostConfig` asked whether a file
+was there outside the lock and committed under a fresh one, so a file an
+operator created while a build ran was written over by the sample. It holds the
+lock across both now, and `adoptHostConfig` commits through the caller's hold
+rather than taking its own.
+
+A legacy tree whose `deploy` or `engines` is a symbolic link was reported as
+holding nothing at all, so nothing was carried and no log said why. Those two
+paths are now named the same way a linked file is. The modes were asserted only
+where a file already existed, so the rule that a carried file lands owner only
+and a completed file keeps the mode it had was not held by anything. It is now,
+proven by a mutation that drops the mode handling and turns three suites red.
+
+The last one is the twenty minute wait a deploy does for the bundled build. It
+told this boot's answer from an earlier one's by the row having changed, and a
+boot that never started the build left the row byte identical, so the deploy sat
+out its whole bound and then printed an error from an earlier boot. Every path
+in `ensureBundledBuild` that does not start the build now writes the reason into
+the row and moves it onto the pin: the mutex refusing while another version
+builds, a `.stack-commit` that holds something that is not a commit, and a build
+whose script could not be started at all. A version that still has a build stays
+ready with the reason beside it, a version with nothing to deploy from is
+failed, and a machine with no pin file, which is a laptop rather than a broken
+deploy, is still left alone. `docs/features/stack-versions.md` lost the last
+mention of shipment records among the removal holds.
+
+**Verified, 2026-09-10.** Manager unit 2096 of 2096, fifteen more than the round
+before and nothing else moved. The whole `manager/test/database` directory 492 of
+492 with nothing skipped, run the nine-database way. Common 300, frontend 68,
+both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
+clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
+the submodule was read.
+
+Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, runs in neither `pnpm test` nor the checks workflow yet.
+
+
+## The version settings page, 2026-09-10
+
+Every stack version keeps three kinds of file the operator owns, beside its
+checkout on the host: the base `.env`, `deploy/config.json` and one `.env` per
+engine. Until now the only way to change one was `stack-config-edit.sh` over
+ssh. There is a page for them now, one per version, reached from a **Settings**
+button on the version card, and it is what D12 and D13 asked for: a working env
+setup, shown and editable, with the secret-like values revealable and settable
+by hand.
+
+Three routes carry it, all behind the session gate with the other version
+routes. `GET /versions/:id/settings` answers the operator's own files read
+against the samples the version's current build ships, so every key comes with
+the comment block that sample keeps above it, the value the sample assigns, and
+two flags: whether it is secret and whether the manager fills it per deployment.
+`PUT` takes the revision the page loaded and commits the whole edit as one, and
+`POST /versions/:id/settings/apply` publishes the build that carries it. A
+version that has never finished a build answers 409 `settings_not_ready`, and
+says that its settings appear after the first build.
+
+What the save must not do is lose a byte. These files carry the host's own
+documentation in their comments and are still read and edited over ssh, so an
+env file is rewritten from its own current bytes: the lines the save names get
+their value replaced in place, keeping the `export` prefix and the spacing up to
+the equals sign and any carriage return at the end, and every comment, blank
+line and untouched line is copied through. A key the file does not assign is
+appended. The whole save runs under one hold of the edit lock, generation check
+included, so a page and an ssh session cannot write over each other, and a save
+made against a revision that has moved is refused with 409 `settings_changed`
+carrying the generation to reload to.
+
+Apply is the part that makes a saved setting reach anything. A deployment reads
+its settings from the build it runs, and fetching and running `pnpm -r build`
+again for one changed line takes minutes. So apply publishes another build of
+the same commit instead: the current build's tree with the settings files
+replaced by the committed revision, a fresh build id from `freeBuildId`, the old
+manifest's commit and toolchain kept, the revision's generation and hashes
+recorded, and a new `treeSharing` field saying whether the unchanged files were
+hard linked or copied. Builds stay immutable, so nothing is ever written into an
+existing build directory. The unchanged files are hard links, because a
+published build is never written to again and the tree is a `node_modules` and a
+set of bundles that differ in nothing. A link falls back to a copy on EXDEV,
+EPERM or EMLINK, and a symbolic link in the tree is recreated as one rather than
+followed. Apply holds the build mutex for its whole run and refuses with the
+existing 409 `stack_build_busy` while a build is going, rather than inventing a
+second code for the same condition.
+
+The generated secrets rule closes the gap the page would otherwise open. A page
+that shows `API_AUTH_TOKEN` and then lets the manager generate a different value
+per deployment is a page that lies. Now a required secret whose value the
+version's own base or engine env already carries is neither generated nor
+written, so the file's own line reaches the containers, which is exactly how
+`SRT_PASSPHRASE` and `STREAM_KEY` have always behaved when a deployment set
+neither. An empty one is still generated per deployment, and a value already in
+`profiles.stack_secrets` still wins over both, because rotating the token a
+running container was started with is a decision rather than a side effect. The
+rule is one function, `versionSuppliedSecrets`, read by `stackSecretsFor` in the
+orchestrator from the same build root `writeProfileEnv` copies the base env
+from.
+
+The page masks a secret until **Reveal**, marks a value that still equals the
+version's own with `default`, says under a generated key that the manager fills
+it per deployment unless a value is set there, and offers the deploy config as a
+text area with a **Reset to sample** action. **Save**, **Save and apply** and
+**Discard** sit in the footer, a save carries only the keys that moved, and the
+two refusals arrive as what to do rather than as a code. The values do come back
+in the clear, which is D13: the routes are behind the session gate, a value the
+operator cannot see is one they cannot check, and nothing on either side logs
+one. The manager logs key names only.
+
+Two mutations were run against the new tests before the code was committed.
+Stripping comment lines in the env rewrite turns four cases of
+`envSettingsText.test.ts` red. Hard linking the settings files with the rest of
+the tree, which would write the new build's values through into the build every
+deployment is currently running, turns two cases of `versionSettingsApply.test.ts`
+red. The links themselves are checked by inode, both ways: the shared files are
+one inode and the settings files, the manifest and the marker are not.
+
+`frontend/test/versions-layout.test.mjs` moved with the card: it counted four
+controls per row and there are five now, so it asserts five and the same
+everything-fits property at 723, 390 and 1280 pixels. The new browser test is
+`frontend/test/version-settings-browser.test.mjs`, which renders the real page
+against an offline fixture at 390 pixels.
+
+**Verified, 2026-09-10.** Manager unit 2158 of 2158, sixty two more than the
+round before and nothing else moved. The whole `manager/test/database` directory
+496 of 496 with nothing skipped, run the nine-database way, four more than
+before. Common 307, frontend 78, both manager typechecks and the common and
+frontend typechecks clean. The two browser suites were run on their own, as
+neither is in `pnpm test`: `versions-layout` 12 of 12 and `version-settings` 13
+of 13. Nothing ran against the real host, nothing was pushed, and no `.env` of
+the submodule was read.
+
+**The two reviews, 2026-09-10.** Two reviewers went over the slice at `637d758`
+with probes and mutations, and a third pass looked at it against the design. The
+correctness review found five high and eight medium problems, the security
+review two high, five medium and eight low, and the design pass one high gap and
+one page nit. Four of those low security findings became fixes of their own, two
+were folded into the items beside them, and two were looked at and left alone,
+as were five low correctness findings. One question goes to Levi rather than
+into code: any signed-in account can read and set these values, which is what
+every other route does today, and whether version settings become admin-only is
+his to decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is
+in.
+
+The gap against D12 was that a version added in the UI never got
+`engines/<engine>/.env` at all, so its page had no engine section and half the
+secrets the stack keeps could not be set at version level. Seeding now walks the
+same sample pairs the completion walks, which means every engine the build tree
+ships. The stack's own `ensure_engine_env` copies that same sample when the file
+is missing, so a deploy reads what it always did.
+
+What the reviewers actually measured, in the order it was fixed. Every build's
+copy of a settings file was world readable, 644 in a 755 directory, and the
+apply path carried that 644 forward, as did the deployment's own
+`.env.<profile>` holding the generated secrets. All three are 0600 now, and an
+existing deployment env is narrowed on the next deploy. Nothing told the
+operator that a saved change had reached no build, so the answer carries the
+current build's own input generation and the page says `applied` or names the
+revision the build is still on. Apply with nothing changed published another
+identical build every time, each one clearing the version's approval and walking
+the protected build window, so it now answers the build that already carries the
+revision with `reused` and publishes nothing. An apply refused with
+`stack_build_busy` skipped the page's reload, so the operator's next Save was
+refused as somebody else's change when it was their own.
+
+A value the stack's env loader and the manager read differently was written
+through: `abc #notacomment` became `abc`, padding was kept by one reader and
+dropped by the other, and a quote that did not close swallowed the rest. One
+rule in `common` now refuses those, plus the C0 controls and the two Unicode
+line separators, and the page shows the same refusal under the field before the
+save goes out. `SRS_CONF_FILE` and `OME_CONF_FILE` take only an absolute path,
+because the version's compose override mounts whatever they hold, and the regex
+that already guarded the per-deployment value moved to `common` so both sides
+use one. The refusals name the key and never the value, type errors included.
+
+The rest. A required secret the base env declares blank is the base env's
+answer, because the root file wins in the deploy script, and the engine env
+decides only a key the base env does not name at all. Apply hard linked the
+previous build's `.env.<profile>`, which `writeProfileEnv` truncates in place,
+so a deploy on the new build wrote into the build every running deployment
+reads. A held edit lock came back as a 500 with the recovery buried in the log
+and is now 409 `settings_locked` with the manager's own words and a Try again.
+A path of the set holding a link or a directory fell out of the answer silently
+and is now named. The GET says `no-store`. One save carries at most sixteen
+files and 512 keys, names each file once, and a body over the limit is a 413.
+A description took the paragraph documenting a commented out neighbour, so
+`ORPHAN_REAP_MS` was explaining `HLS_FRAGMENT`, and a section rule opened two
+others. `settings_not_ready` has three reasons instead of one and no null in
+any of them, a legacy row offers no settings page at all, a key the version does
+not declare can be removed from the page, and a masked field asks the browser
+not to save it.
+
+Five mutations were run and reverted. Reading the revision before the lock in
+`saveHostConfigSettings` turns the new deterministic interleave in
+`versionSettingsSave.test.ts` red and leaves the other four green, which is the
+property that file is named for and did not have. Printing `key=value` in
+`describeSettingsSave` turns two of its three cases red. Taking the `finally`
+out of `applySettings` turns the mutex case red. Unanchoring `SETTINGS_PATH_RE`
+and dropping the 64 hex guard in `writeProfileEnv` turn four cases red. Dropping
+the `typeError` messages turns the echo case red.
+
+**Verified, 2026-09-10, after the fixes.** Manager unit 2205 of 2205, forty
+seven more than the round before. The whole `manager/test/database` directory
+497 of 497 with nothing skipped, run the nine-database way, one more than
+before. Common 318, frontend 83, both manager typechecks and the common and
+frontend typechecks clean. The two browser suites on their own: `versions-layout`
+12 of 12 and `version-settings` 23 of 23, ten more than before. Nothing ran
+against the real host, nothing was pushed, and no `.env` of the submodule was
+read.
+
+**The targeted re-review, 2026-09-10.** A third reviewer went back over the
+fixes, confirmed every one of them and had thirty one of thirty three mutations
+go red. Six small things came out of it, section R of
+`docs/consensus/VERSION-SETTINGS-FIXES.md`, and two of them mattered. A key's
+description ended at any comment that looked like an assignment, and a wrapped
+sentence looks like one: the block above `BEE_PUBLISHERS` in the stack's own
+sample ends on a line reading `# ABR_ENABLED=true, since with no ladder there is
+nothing to map onto.`, so the key lost the five lines that say what it is. A
+comment ends the run now only when it is a key, an equals sign and a value with
+no whitespace, and the fixture carries that real block rather than a shortened
+cut of it. The sixteen file bound on a save was pinned by a test sending
+seventeen paths no version keeps, so the service refused them as absent and the
+bound was never what answered. Both mutations were made, seen red and reverted.
+The rest are smaller. Save and Save and apply go off while a field holds a value
+the shared rule refuses and the footer names those keys, so a refused value
+costs no round trip. The page takes its revision from the reload rather than
+from the save the reload was overwriting. Two README sentences wrap where their
+neighbours do, a doubled blank line is gone, and the paragraph above now says
+eight low security findings rather than four.
+
+**Verified, 2026-09-10, after the third round.** Manager unit 2207 of 2207, two
+more than the round before. Common 318, unchanged, and frontend 88, five more.
+Both manager typechecks and the common and frontend typechecks clean. The two
+browser suites on their own: `versions-layout` 12 of 12 and `version-settings`
+24 of 24, one more than before. The database directory was not touched by this
+round and was not run. Nothing ran against the real host, nothing was pushed,
+and the only `.env` of the submodule read was the `.env.sample` the fixture's
+block was copied from.
+
+Merged into `feat/ai-remediation` as 7d9af23 on 2026-09-10, after three rounds: the implementation, the two reviews with their fixes, and the targeted re-review with its fixes. Verified by Fable at 8bf512d before the merge: manager unit 2207 of 2207, the whole database directory 497 of 497 the nine-database way, common 318, frontend 88, the browser suites 12 and 24 on their own, every typecheck clean, the deploy script parses, no em-dash or semicolon in any doc, commit message or added comment, and the submodule pointer unchanged. One accident on the task branch, a scratch directory picked up by a `git add -A`, was replayed out of the history before the merge, and `.scratch/` is ignored from now on. The runbook for the first real deploy and the signed-in live test is `../consensus/FIRST-DEPLOY-SESSION.md`. D14, whether version settings become admin-only, is open for Levi.
+
+## Receipt polling, a portable harness and connected acceptance, 2026-09-10
+
+Until now a transfer that Bee answered with a transaction hash sat in
+`submitted` until somebody opened the transfer page and pressed Check. Nobody
+watching meant nobody knowing, and the node stayed locked behind that unread
+operation. The manager checks for itself now.
+
+An operation that enters `submitted` is given one budget of 30 minutes, written
+on the row as `receipt_poll_until` by migration 031 and carried to the browser
+as `receiptPollUntil`. While the budget lasts the manager asks the chain for the
+receipt about every 20 seconds through the receipt check that already existed,
+one batch at a time, scheduling the next tick after a batch ends rather than
+from its start so batches cannot overlap. A settled or reverted receipt ends the
+polling by changing the state. The budget is never renewed: no operator action
+extends it, a restart resumes only the operations whose budget has not passed,
+and every operation recorded before this slice keeps an empty deadline and is
+never polled. An operation in `submitting` or `unknown` is never polled at all,
+so recovery stays the operator's explicit action, and neither is one carrying a
+hash conflict.
+
+The two surfaces that show a waiting transfer follow along. The transfer detail
+page and the Move BZZ dialog re-read the saved record every 10 seconds while the
+deadline is ahead, and stop when the state changes, when the deadline passes or
+when the operator leaves. Both only read the saved record. Neither asks the
+chain, because the manager is doing that. While polling runs they say so and
+name the deadline in the operator's own local time, and once it passes they say
+that automatic checks ended without a final receipt and that Check asks the
+chain again. The three numbers live once, in `common`, so the manager and the
+page cannot drift apart.
+
+Two harness problems are closed with it. The intent browser suite no longer
+assumes a Vite listener on port 54291 that nobody starts: every case now owns
+its own API and its own Vite on free ports, like every other browser suite. And
+the composition is finally exercised whole. `chequebookConnected.test.ts` signs
+in over HTTP, goes through the real router behind the real session and same-site
+gates into a real PostgreSQL journal, out over the owned Docker transport to a
+synthetic Bee, and reads the outcome back. `transfer-connected-browser.test.mjs`
+does the same with the browser as the only client, against that manager run as a
+forked process. Only the Bee, the chain and the database are synthetic. Both
+suites need `T09_TEST_PG_PORT` and skip out loud without it.
+
+**Verified, 2026-09-10.** Manager unit 2218 of 2218, eleven more than before.
+Common 321, three more. Frontend unit 95, seven more. The three chequebook
+database files with a disposable PostgreSQL on port 55436: connected 8 of 8,
+operations 50 of 50, seven more than before, targets 31 of 31, none skipped. The
+browser suites one file at a time: intent 3, dialog 10, history 9, recovery 10,
+api 2, recovery-api 2, the new polling suite 3 and the new connected suite 3,
+all passing, and the connected suite verified to skip with its reason printed
+when the database variable is unset. Every workspace typecheck clean,
+`git diff --check` clean against the branch base, and no em-dash or semicolon in
+any added prose, comment, UI string or commit message. Nothing ran against the
+real host, nothing was pushed, and no credential was read.
+
+What remains of T09 after this slice is unchanged and separate: actual SSH and
+real image qualification. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is still empty
+and a synthetic pass qualifies nothing. T14 still waits on Levi's D04 numbers.
+
+## What the two reviews of the receipt polling slice changed, 2026-09-10
+
+Two reviews read the slice above on detached worktrees at its head, one for
+correctness and one for security, with a disposable PostgreSQL and twenty five
+mutations between them. Nothing they found was a wrong state machine or a leak.
+Two were wrong information on a money screen, several were places where the code
+was right and no test would have noticed it stopping being right, and one was a
+runaway in the fixtures. All of them are fixed on the same branch.
+
+The dialog no longer flashes. It re-reads the saved record every ten seconds
+unattended, and it used to clear the record at the start of each of those reads,
+so for the length of a round trip the evidence panel was replaced by the sentence
+saying the transaction outcome is unknown. That sentence was untrue at that
+moment and it appeared every ten seconds. A re-read of the same request now keeps
+what is on screen until the manager answers, and only an answer that really says
+the record is missing or incomplete clears it.
+
+A failed read no longer ends the automatic re-reads. One synthetic 503 used to
+be enough: the page scheduled nothing from its failure branch and never read
+again. A fifteen second timeout, a tunnel blip or a manager restart during a
+deploy would have done it. A failed read now costs one cycle.
+
+A conflicted transfer is no longer shown as polled. The manager excludes a row
+whose failure reason is `hash_conflict` from its own checks, but the page decided
+from the state and the deadline alone, so it promised checks that never happen
+and, after the deadline, told the operator to press a Check button that a
+conflicted transfer does not offer.
+
+A poll that sees nothing new no longer moves the revision. The manager checks
+about every twenty seconds and almost every check sees the same pending answer,
+and each one wrote a new revision, about ninety over one budget. The operator's
+Check refuses when the revision moved under it, and the recovery actions remount
+on it, so a good share of Check presses during polling came back saying the saved
+transfer had changed. A check that changes what it observed still advances the
+revision. One that does not now records only when it happened.
+
+The poller's log reached nobody. `index.ts` passes no polling options, so the log
+was the no-op default and a journal that stopped answering was never recorded
+anywhere. It goes through the manager's own `Logger` now, a warning for the
+journal and information for the per-tick notes, and the factory hands the poller
+two bound calls rather than the whole repository and the whole receipt check.
+
+A shutdown no longer waits out a whole batch. The loop over the due rows never
+looked at whether it had been stopped, and twenty rows at the receipt inspector's
+fifteen second timeout during an RPC outage is about five minutes, past the
+ninety seconds systemd allows before killing the process with its transport
+cleanup unverified. The page also says now that the gap between checks grows
+while the chain endpoint does not answer, and the feature doc records the worst
+case.
+
+Three things were right and untested, and now have tests: that a repeated
+response cannot renew a polling budget, that a spent budget stops the dialog's
+re-reads as well as the page's, and that the fixture's Vite port comes from its
+own probe rather than from the environment. The connected fixtures now refuse to
+run unless the API is on loopback and the synthetic Docker is on its own private
+socket, they unwind a start that fails partway, and their close runs every step
+before reporting the first failure.
+
+The browser fixtures stopped filling the machine. Every fixture built its own
+9 MB Vite cache inside a temporary directory that nothing ever removed. Measured
+here before the fix: 575 such directories holding 5.0 GB. They share one cache
+under the frontend `node_modules` now, which also skips the cold start, and a
+fixture with nothing to report removes its own directory. The 477 old directories
+whose contents were only that cache and an empty log were removed after checking
+each one, freeing 4.0 GB. The 113 that also hold screenshots from earlier runs
+were left alone, 958 MB, for Levi to decide on.
+
+**Verified, 2026-09-10, after the fix round.** Manager unit 2222 of 2222, four
+more than before. Common 321, unchanged. Frontend unit 98, three more. The three
+chequebook database files with a disposable PostgreSQL on port 55436: connected
+10 of 10, two more, operations 54 of 54, four more, targets 31 of 31, none
+skipped. The browser suites one file at a time: intent 3, dialog 10, api 2,
+recovery-api 2, history 9, recovery 10, polling 8, five more, the new fixture
+file 3, and connected 3, which was also run without the database variable and
+skipped all three out loud. Every workspace typecheck clean after building
+common, `git diff --check` clean against the branch base, and no em-dash or
+semicolon in any added prose, comment, UI string or commit message. Nothing ran
+against the real host, nothing was pushed, and no credential was read.
+
+**Merged, 2026-09-10.** Merged into `feat/ai-remediation` as 8f48fb0 after the
+S8 ceiling was anchored to the record instead of the clock (b5a85e8) and a
+mini-round of five test-quality items from the targeted re-review (0decec0).
+Verified by Fable at 0decec0 on a quiet machine: manager unit 2223 of 2223, the
+whole database directory 518 of 518 the nine-database way with no skips, common
+321, frontend unit 100, every browser suite green one file at a time, with the
+note that `mock-engine-observations.test.mjs` runs only under `node --import
+tsx --conditions=development` from the frontend package (T20 records the
+command), every typecheck clean, prose clean, no submodule or lockfile movement.
+Housekeeping on this laptop: 477 leftover `t09-http-*` fixture directories that
+held only a Vite cache were removed (4.0 GB), 113 that also hold screenshots
+were kept. Still open after this slice: the production Bee bridge qualification
+catalog is empty, real SSH and real image qualification have not run, and T14
+waits on the D04 numbers.
+
+## Checks that run what the repository claims, T20, 2026-09-10
+
+Before this slice the workflow ran the build, the three unit suites and the
+frontend build. That is what a green check meant. The 33 SQL suites, the twenty
+browser suites and the three native transport suites ran nowhere, and the four
+container-backed regressions had either no entry point or no job.
+
+Three jobs are required on a pull request now. `checks` gained the native
+transport suites, which had been sitting inside the deployment integration
+suite: they own temporary Unix sockets and fork synthetic Node children, need
+no manager and no Docker socket, and were picked up by an entry point that
+refuses to start without `MANAGER_TEST_TARGET`. They live in
+`manager/test/native/` and run through `pnpm test:native`.
+
+`database` is new. Every SQL file gates itself on a task port variable and
+skips silently without it, so `manager/test/database/run-all.mjs` names the
+nine databases in one table, refuses in words when a variable is unset or is
+not a port, connects to all nine before anything runs, and treats one skipped
+test as a failure. A Postgres 16 service pinned by digest sits beside the
+runner and the nine databases are created through the image's own `createdb`.
+
+`browser` is new. The twenty files under `frontend/test` run through one
+script, `pnpm test:browser`, under `node --import tsx` because one of them
+reaches the manager's TypeScript through specifiers only tsx rewrites. One
+file at a time, each owning its Vite and its Chrome. The job proves the Chrome
+binary before it starts, so a missing browser is a failed check and never a
+passed one, and it carries `t09_test` for the connected transfer suite.
+
+The manual workflow is four jobs instead of one, so a failure shows by name:
+`srs-parser`, `ome-gate`, `image-race` and `integration`. T02 had no entry
+point and now has one, `manager/test/docker/srs-check-isolation.sh`, which
+puts eight files through the manager's own checker at once and asserts that
+each refusal names the directive of its own file and none of the other three.
+T01 had none either, and now has
+`manager/test/integration/engine-startup-failure.test.ts`.
+
+**The file that separates a parse from a start.** T01 needed a config the
+manager's check accepts and the engine dies on. It is the version's own
+template with `work_dir /no/such/directory;` added. On the pinned SRS image on
+2026-09-10, `srs -t` exited 0 and printed that the file is successful, and
+`srs` left the container exited with code 255 one second in, printing that it
+could not change directory. SRS reads its config first and changes directory
+second, and only the second step touches the file system. Both observations
+are in the test's header.
+
+**Verified, 2026-09-10.** Manager unit 2262 of 2262, thirty nine more than
+before, from the two new unit files. Common 321, frontend unit 100, native 7,
+all with no skips. The whole database directory 518 of 518 with nine
+disposable databases, no skips, 161 s in that run. Every browser suite through the new
+script, 144 of 144, no skips. Every workspace typecheck clean after building
+common, both workflow files valid YAML, `git diff --check` clean against the
+branch base, and no em-dash or prose semicolon in anything added. Nothing ran
+against the real host, nothing was pushed, and no credential was read.
+
+### What two reviews found in it, and what changed, 2026-09-10
+
+Two parallel reviews on detached worktrees, one for correctness with ten
+mutations and one for security with four, plus Fable's own reading. Sixteen
+findings, of which two were high.
+
+**A unit test was writing into the real stack checkout.** `portTable.test.ts`
+set `SHLS_ROOT` to a temporary root at line 33, but imported a harness at line
+29 that reaches `envUtils`, which reads that variable once when it is first
+imported. So every run of the manager unit suite deployed into
+`manager/swarm-hls-stream` and left a `.env.plain` there, 3088 bytes, the real
+stack `.env` merged with the generated lines, mode 0600. Nothing failed
+because the CI job checks out no submodule. The import is dynamic now, the
+test asserts the file lands in its own root, and the whole unit run goes
+through `manager/test/unit/run.mjs`, which hands the suite a throwaway
+checkout so no test can reach the real one whatever it imports.
+
+**The SQL runner refused the wrong thing.** It refused a skipped test, but
+node counts skipped tests and all 33 files skip at the suite level, which
+registers no test at all. A run with every variable unset printed 0 tests, 0
+failed, 0 skipped and was called a pass. So did a glob that matched no file.
+The rules that catch both, and the summary reading they sit beside, now live
+in one module the browser runner uses too, and the SQL runner also reads every
+file's gate before it starts anything and refuses one gated on a database this
+run does not create.
+
+Also changed: the SRS image was pinned to a digest no tag points at any more,
+and is now the one `ossrs/srs:6` resolves to, with both T01 observations taken
+again on it. The browser job got a runner of its own with the same rules and a
+Chrome preflight. Three browser suites wrote evidence to a fixed
+`/private/tmp` path that an ordinary user on a Linux runner cannot create, so
+three of fourteen Chrome suites would have failed on the job's first run. The
+OvenMediaEngine gate waits for its publisher's ffmpeg install before the
+playlist clock starts, and passed here in 120 s. Two load-sensitive unit cases
+now wait on what they watch instead of on a 30 ms timer. The SQL preflight
+refuses a task database that already holds the manager's own tables. The
+Postgres services publish on loopback, the T02 image override has to be a
+digest, its scratch directory is removed on any exit path, and the engine log
+tail the T01 test prints is redacted.
+
+**Verified again after the fixes, 2026-09-10.** Manager unit 2301 of 2301
+twice in a row, common 321, frontend unit 100, native 7 with `DATABASE_URL`
+unset, all with no skips. The database directory 518 of 518 in 182 s. Every
+browser suite through its runner, 156 of 156 in 351 s, and with
+`T09_TEST_PG_PORT` unset the same run ends `REFUSED` on three skipped cases,
+exit 1. The three Docker harnesses pass here: T02 in 2 s on the corrected pin,
+T03 in 120 s, T05a in 143 s. Every workspace typecheck clean, both workflows
+valid YAML, `git diff --check` clean, and `manager/swarm-hls-stream` untouched
+after a full unit run.
+
+**Open for Levi.** The workflow costs about 23 Actions minutes a push and the
+browser job is more than half of it, so whether it stays required on every
+push is a spend decision that is his. Nothing in the repository reads the
+workflow files, so a CODEOWNERS entry over `.github/workflows/` with required
+code-owner review is the control that would, and both the entry and the
+setting are his.
+
+**What did not run and what it costs.** No job in either workflow has run on a
+GitHub runner. The T01 startup-failure file needs the whole stack deployed on
+one, so its first execution is Levi's dispatch. The SQL suites now run one file
+at a time, because two of four parallel runs failed here on tests that read the
+clock while another connection holds a lock, which costs 235 seconds a run,
+the longest of the six full runs measured. The OvenMediaEngine gate failed here for a reason that is about this
+laptop's network: its publisher spends 93 seconds installing ffmpeg inside a
+40 second playlist budget, and with the budget raised the gate passed. The
+harness was not changed. The T05a qualification on Docker Engine 29.1.3 with
+Compose 5.1.4 is still a separate obligation that neither the runner's versions
+nor this laptop's discharge. All of it is in `docs/ci.md`, with an estimate of
+about 25 Actions minutes a push.
+
+**Merged, 2026-09-10, the T20 completion slice.** Merged into
+`feat/ai-remediation` as ab8776c after two parallel reviews, a fix round, a
+targeted re-review and a final round (the record is
+`../consensus/T20-COMPLETION-FIXES.md`). Verified by Fable at e857994: the
+manager unit suite 2317 of 2317 three times through its new runner, the
+database directory 518 of 518 through its runner with no skips, the browser
+suites 166 of 166 through theirs, the native suites 7, common 321, frontend
+unit 100, the three Docker harnesses passing on this laptop (T02 in 3 s on the
+digest `ossrs/srs:6` resolves to today, T03 in 130 s with the ffmpeg wait,
+T05a in 110 s), both workflows valid YAML, every typecheck clean, prose clean,
+no submodule or lockfile movement, and no by-product under the submodule after
+the unit runs. Nothing in either workflow has run on a GitHub runner yet: the
+checks workflow runs on the next push of this branch, the Docker-backed one is
+Levi's dispatch. Two decisions are his: the Actions cost of about 25 minutes a
+push with all three jobs required, and a CODEOWNERS entry over
+`.github/workflows` with code-owner review in branch protection.
+
+## The documentation says what the code does, T21, 2026-09-10
+
+A prose-only slice on `docs/t21-reconciliation`, cut from `feat/ai-remediation`
+at `6dc33d1`. No code, test, workflow or lockfile was touched. The brief is
+`../consensus/T21-COMPLETION-BRIEF.md`. Every sentence describing behaviour was
+checked against the code on that commit before it stayed, and every sentence
+about status now names the branch, the date and the commit it is true at.
+
+**What was wrong, by weight.** Three pages carried a status header naming a
+local `main-v2` integration checkpoint from 2026-09-09 as the place this work
+lives. It lives on `feat/ai-remediation`, pull request #40. The stack versions
+page still described the bundled version as a package sealed on a laptop and
+shipped to the host, a path the bundled-on-host slice deleted, and had no
+section at all for the settings page or for the Apply build. The root README
+said the submodule tracks `main`, that images are built from a pinned commit of
+it, and gave two submodule commands that name the submodule instead of its
+path, so neither would have matched anything. The manager README said Update is
+refused for the bundled version when Update on bundled is precisely how that
+version is rebuilt. The T09 API page said the direct locator does not supply
+the ownership proof, so admissions on a real database fail closed, which the
+owned transport factory closed. Eight further sentences across the testing
+pages named work as still to come that the sections beneath them describe as
+done, and the T18 evidence paths pointed at a scratch directory that no longer
+exists at that prefix.
+
+**What was kept.** The dated checkpoint paragraphs are the record and they
+stay. Where one had gone stale it was dated to its own checkpoint rather than
+deleted, the way the continuation files do it, and the current state was added
+on top. No history was manufactured for a gap.
+
+**Two investigations, both recorded here as the brief asked.** Neither
+`STATE.md` nor `CONTEXT.md` exists at the repository root or anywhere else in
+the tree, `git log --diff-filter=D` records no deletion of either, and the only
+two files that name them as something to read, `AGENTS.md` and
+`docs/agents/domain.md`, describe the convention rather than asserting the
+files are there, and the consensus records that mention them only record this
+same investigation, so nothing was created and nothing is flagged.
+`docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
+T22 with T01a and the a/b splits among them, plus its README, and the README's
+order section names all 25.
+
+**One thing the older sections say that is no longer true.** "Preserved local
+state" above lists three review worktrees under `/private/tmp` and says the
+original task worktrees remain. None of those paths exists on this machine any
+more, and neither do the 22 task branches, checked on 2026-09-10. That section
+is left as the record of the day it was written. What actually preserves the
+work is the git history: every frozen head is reachable through its merge
+commit and named in the merge manifest. The section's own closing rule still
+holds, which is to verify any retained resource by its exact recorded identity
+before using it, and that check now answers no for those trees.
+
+**One thing a document cannot fix.** `.github/workflows/checks.yml` carries a
+comment saying "The twenty-two suites under frontend/test". There are 23, and
+`docs/ci.md` says 23, which is the correct number. The same count is ambiguous
+in the T20 section above, which says twenty. Twenty sit directly in
+`frontend/test`, three more under `frontend/test/support`, and the runner takes
+all 23. Changing a workflow file was out of scope for this slice, so the
+comment is left as it is and recorded here for whoever next touches that file.
+
+**Verified.** `git diff --check` clean against the branch base, no em-dash and
+no prose semicolon in any changed file, and every relative path in every
+changed document resolved from that document's own directory. Nothing ran
+against the host, nothing was pushed, and no credential or `.env` was read.
+
+**Merged, 2026-09-10, the T21 reconciliation slice.** Merged into
+`feat/ai-remediation` as 47b6a6c. One review pass on a detached worktree
+checked every changed sentence against the code and found one high finding
+(the transaction contracts record still said every journal update advances
+the revision, which the T09 slice changed for an unchanged observation), three
+medium (an overclaim about a corrupt bundled pin, nine browser suites where
+eight drive a browser, and three older feature pages naming branches that no
+longer exist with a decision numbering of their own) and six low, all taken
+in a correction round (b76fb6a to bb4021c). The first run of the three-job
+checks workflow on 6dc33d1 ended with the checks and database jobs green and
+the browser job cancelled at its 30 minute limit by a teardown fault on Linux,
+which is fixed on its own branch next.
+
+**Merged, 2026-09-10, the browser teardown fix.** Merged into
+`feat/ai-remediation` as dc733f4 from the branch `fix/browser-teardown-linux`
+(12 commits, 6dc33d1 to d92c413). The Chrome fixture ends Chrome by its
+process group and waits its profile out, every fixture teardown runs all of
+its steps, the forked connected fixture ends itself when its parent is gone,
+and the browser runner bounds each suite file at 600 seconds and judges the
+files together. Proven on this laptop inside a Linux container (Chromium 152
+on Debian bookworm, as a non-root user, the checkout copied in, PostgreSQL in a
+second container sharing the network namespace): 183 tests across 25 suite
+files, no hook failure, no orphan process, no leftover profile, in 7 minutes
+39 seconds. On macOS the same set passed in 377 seconds. The next push of this
+branch is the second run of the browser job on a GitHub runner.
+
+**Merged, 2026-09-10, the runner wait fix.** Merged into `feat/ai-remediation`
+as ab627ce from `fix/browser-waits-on-runner` (4 commits, 95cc9c9 to 3a6c1b8).
+The second runner run of the browser job (34492919531) finished in 6.8 minutes
+with one suite failing: its wait read the browser's resource timing list,
+capped at 250 entries and full of Vite's per-module requests, and on this
+laptop a stale entry had been satisfying the same wait early. Waits now count
+completed requests from the moment they start, every browser session caps that
+list at ten so the runner's condition is reproduced here, and each suite has a
+Vite cache of its own. The full set passed twice on this laptop with no
+re-optimization. Measured on the runner: about 12 billed minutes a push for the
+three required jobs, recorded in `docs/ci.md`.
+
+**Merged, 2026-09-11, the browser suites under throttle.** Merged into
+`feat/ai-remediation` as 0c02ed0 from `fix/browser-suites-under-throttle`
+(17 commits, f9ce5f8 to aa64a43). The third runner run of the browser job
+(34498885341) failed one suite on a page read made before the body existed.
+The harness now has `BROWSER_CPU_THROTTLE`, every page read and click in the
+fourteen Chrome suites is a named wait through four shared helpers, and two
+more races surfaced under throttle and are fixed. Qualified on this laptop:
+three consecutive green full runs at four times throttle (208 tests, 27 files,
+544, 473 and 424 seconds), one at six times, and an unthrottled run in 360
+seconds. Recorded as a P2 follow-up under the estate's review-priority rule of
+2026-09-11: a failing suite exits late because five suites close their Vite
+before their Chrome, which costs ten runner minutes only when a suite fails.
+
+**Ruled, 2026-09-11, the three open questions on the checks.** Levi kept all
+three jobs of `checks.yml` required, at the runner-measured cost of about 12
+billed minutes a push, rather than moving the browser job to a schedule and
+letting a pull request go green with the Chrome suites unrun. He also took the
+code-owner guard, so `.github/CODEOWNERS` now names him over `/.github/`, and
+the branch protection toggle that makes it binding, "Require review from Code
+Owners" on `main-v2`, is his to flip alongside the required-checks flip after
+the first green run. The 113 screenshot evidence directories left in the
+machine's temp folder by earlier runs were deleted.
+
+
+**Merged, 2026-09-11, what the fourth runner run found.** Two faults, and one
+of them was mine. The Docker-backed workflow had been rejected by GitHub since
+the day it was written, because it read `${{ runner.temp }}` in a job-level
+`env:` block where that context does not exist, so every push left a red
+startup-failure run and the first manual dispatch would have refused to start.
+Both paths are written from a step now, and the repository secret the
+integration job signs in with exists, generated in 1Password and stored as
+`solarpunk-streaming-infra-manager-itest` in the SolarPunk vault, with
+`manager/test/integration/env.example` naming it so the local run and the CI
+run use one pair.
+
+The fourth browser failure was the pool-draft suite's own, and the first
+reading of it here was wrong. It looked like a product fault: a wizard opened
+before the versions list arrives keeps an empty stack version and a Continue
+that never enables. It is deliberate. `BasicsStep` renders the picker when
+`versionChoiceShown(context) || !version`, so the picker is there exactly when
+the choice has not been made for the operator, and `version-approval.test.mjs`
+says so in words, "a late sole default must leave a way to choose it". The
+page the suite timed out on carried that picker and the sentence "Pick a stack
+version". Adopting the default silently hid the picker and failed that
+assertion, which is how the mistake was caught, and the change is reverted.
+The suite now takes every Continue out of Basics through
+`continueFromBasics`, which picks the fixture version when the picker is
+offered and does nothing when it is not, so either order of arrival passes.
+
+Two things are worth keeping from the round. A container held to two cores
+with the runner's own Chrome build reproduces these races for free, at about
+one run in three here, which is how this one was found without another billed
+run. And a click that times out now says whether the last read saw no element
+or a disabled one, which is the difference between looking at the page and
+looking at the control, and was the whole of the diagnosis.
+
+Recorded as a P3 limit under the review-priority rule, with its reproduction:
+`initialWizardState` reads every context-derived default once, at open, so a
+wizard opened before the profiles, groups or host configuration arrive starts
+with no feed stream picked, no pool picked, and a generated passphrase rather
+than the host-wide one. Each degrades to a usable alternative on the step in
+front of the operator, and the passphrase one fails to the encrypted side. To
+see any of them, hold the matching request in a fixture and open the wizard
+before releasing it, as `pool-draft-browser.test.mjs` does for the pool.
+
+## Private execution copies, 2026-09-11
+
+Merged into `feat/ai-remediation` on 2026-09-11. The brief is `../consensus/EXACT-EXECUTION-BRIEF.md` and it holds the design and the two points it settled.
+
+**What was wrong.** A deploy ran the stack's scripts with the version's build directory as its working directory, and wrote into it. `ensureStackDefaults` bootstrapped `.env` and `deploy/config.json` there, `writeProfileEnv` put `.env.<profile>` there, and the stack's own scripts added `engines/<engine>/.env.<profile>` and `deploy/.env.deploy.<profile>` under the same root. Three things followed. A build stopped being the bytes it was published as, so every artifact digest taken at publication was void after the first deploy from it. Two deployments of one build shared one mutable tree and left their env files beside each other. And nothing could say afterwards which bytes a launched job had actually run.
+
+**What it does now.** Between the port reservation and the first write, a deploy registers an execution root against the job reference its claim already holds, copies the build into `<STACK_VERSIONS_ROOT>/.executions/<execution-id>/tree`, and takes its paths from the copy. The copy is exact, verified against the source before, during and after, and its directories are owner only. Stop, health and remove follow the same copy, because the compose files, the scripts and the deployment's env file are all there now. A version that keeps no immutable builds gets no copy and runs where it always did.
+
+**Retention, which is D11.** A deployment keeps the copy it runs from and the one before it, so a deploy that fails leaves the tree that last worked in place. A deploy that comes up takes the previous one. Anything older goes as soon as a new deploy launches, which is what stops repeated failures growing the disk, and a removed deployment keeps none. Retiring a copy releases its hold on its build, so the build becomes prunable. The state a launched copy sits in had no way out before this, so the authority for leaving it is one predicate in the database: the copy's own job has finished and the deployment has moved on, which is a newer launched copy, a profile that is gone, or one on a different instance. Anything uncertain keeps the copy and the hold.
+
+**Recovery.** A copy whose deploy never spawned anything goes with that deploy. At boot, every copy that never reached ready is taken back, before the prune so the holds it releases are gone by then, and a copy a job may have spawned under is left exactly as it is.
+
+**Two guards that could never fire now can.** `buildJobClaim.ts` refuses to cancel a job whose execution may have launched, and the version-removal and config-operation guards read the same table. Nothing had ever inserted a row into it.
+
+**Two defects found while proving it.** A row comparison sent a timestamp back to PostgreSQL as a parameter, and the column keeps microseconds where a JavaScript Date keeps milliseconds, so a row compared as newer than itself and every launched copy looked replaced. It is fixed by keeping the comparison inside the database. Separately, a chequebook case asserted that a receipt check time strictly advanced between two calls that can land in the same millisecond. It passed alone and failed under the load the new cases added to the parallel database run, which is load the runner has too. It now takes a two millisecond gap.
+
+**Verified.** Manager unit 2354 cases, the whole `manager/test/database` directory 524 cases against nine disposable databases, the shared package 321, the frontend unit suites 100, the native transport suites 7, every typecheck clean, none skipped. Both mutations were checked: running from the build instead of the copy fails the copy case, and dropping the launch record fails four. On a laptop, against a disposable PostgreSQL.
+
+**Not in this slice, and named so it is not mistaken for done.** T01's atomic begin and revert, the creator receipt and the release of operation holds. The full-daemon mount observation is still unused: it attributes a container to a copy by its compose working directory, which only holds for a local target, because `deploy.sh` rsyncs the tree to a remote base before running compose there. Retirement is authorised by the replacing deploy's own success instead, which holds for both. And a build already deployed from before this change still carries the files those deploys left, which the first copy of it copies too. They are inert and no new writes reach a build.
+
+## A walkthrough of the whole interface, 2026-09-11
+
+Levi asked for an end to end pass over everything the manager offers, through a browser, and for what it turned up to be fixed.
+
+**How it was run.** A real manager process against a disposable PostgreSQL in a container, on a port of its own, with its stack root a copy of the bundled tree and its versions and data roots temporary directories. The frontend dev server against that manager, and Chrome driving the pages. Nothing touched the deploy host and nothing was funded, so every path that ends at a Bee node ends at a node that is not there.
+
+**What it covered.** Sign in, refused and accepted. A stream deployment through the wizard, its name refused and accepted. A real deploy against the laptop's Docker: it pulled `ethersphere/bee:2.8.2`, created the project's network, volume and containers, started SRS, and failed binding the Bee node's port, because the stack's config names a host address this machine does not have. That failed state on the deployment page, then an edit, a redeploy, a retry, and a blocked attempt released by typing its job id. Engine settings, with a negative segment length refused. The config file editor: a missing placeholder marked, a refused apply, and an accepted one that recreated SRS and watched it for twenty seconds. Stop. Remove, which took the containers, the volume, the network and the data directory with it. The deployments list with its search and its empty result, Transfers, Host with the local target re-verified, Versions, the settings page of a version that has none yet, and Access, where a user was added, refused for a password holding its username, and removed. A non-admin session, which loses the add and remove controls and keeps its own sign-out. Both themes. The viewer and pool wizards as far as their review step.
+
+**Three fixes, each with the browser suite that catches its return.** A deployment page with one container record was 723 pixels wide in a 523 pixel viewport, because the container table has no scroll box of its own, so the whole page slid sideways. Three other places did the same: the postage stamp table, the engine card's row of controls, and the top bar. Each now scrolls, wraps or gives way inside its own width, and `frontend/test/deployment-layout.test.mjs` measures the page at 390, 723 and 1280. That suite also holds the second fix: a first deploy's image pull left 135 lines in the failure card with the line that says what failed at the bottom of them, 2412 pixels of page pushing everything else down. The card now scrolls inside 260 pixels and opens at its last line. The third is in the config file dialog, where a refused apply rendered the manager's reason 450 pixels below the visible area and the button looked like it had done nothing. It scrolls into view, and `frontend/test/engine-config-refusal.test.mjs` measures that it is inside the dialog after a 409.
+
+**Two Levi ruled on the same day, both now fixed.**
+
+*An applied config file leaves a deployment that cannot be removed.* Proven end to end: apply a config file, then press Remove, and the manager refuses with "An unresolved rollback or creation hold must be resolved before cleanup." The rollout finishes `applied` with its `finished_at` set, but the `operation` hold it took on `build_references` is never resolved, and `hasRemovalHold` counts it for ever. Resolving that one row by hand let the removal run to completion at once, which is the whole of the diagnosis. The obvious fix is refused by an existing guarantee: `engineConfigRecoveryHold.test.ts` asserts, for every state including the four terminal ones, that the manager "does not infer safe hold release from the label alone". That is a deliberate rule from the T01 work and the release it points at was never built, so the two together leave the operator with no way out and no page that offers one. Levi ruled that a rollout which has ended lets go of its hold, and that is what it does now: the four terminal states and a supersede release it, `interrupted` keeps it because its recovery still deploys from that build, and so does the saved source an explicit restore keeps reaching for, which `engineConfigExplicitRestore.test.ts` pins. The guarantee that a label alone is never enough now covers the three states that have not ended.
+
+*A redeploy that recreates no container leaves a blocked attempt.* An attempt resolves only when every service it touched shows a container id that did not exist before it started. `docker compose up -d --build` recreates a container only when its image or its config changed, so a retry that changes nothing, or a redeploy after an edit the containers do not see, ends blocked and refuses the next deploy until a person types its job id. Reproduced twice: a redeploy after a notes-only edit, and a plain Retry. The guard's premise, that Compose creates every container after every build, holds for a service built from source and not for one on a fixed image, which is what a stream's SRS and Bee node both are. Levi ruled for the second reading: a deploy that finished cleanly and left a container where it was accounts for that service, because Compose reports nothing to do only once its build is over and a container nothing rebuilt cannot carry another project's image. A script that failed, and a boot judging what a gone manager left, still need a new container.
+
+**One thing recorded and left.** The Versions page counts a version's deployments from a list it fetches once, so a version that gains or loses a deployment while the page is open keeps the old number until Refresh is pressed. The count is informational and the server refuses a removal on its own reading, so nothing turns on it. P3 under the review-priority rule.
+
+**What a laptop cannot reach, and so is not covered here.** The private execution copies, because the bundled version on a developer machine is a legacy tree and legacy versions get no copy by design. The version settings editor, which appears once a version has been built on the host. Everything past the port bind in a deploy, and every path that reads a funded Bee node: balances, the chequebook, buying a stamp, and the uploader that waits for one.
+
+## The first deploy and migration on the live host, 2026-09-11
+
+Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.105 while he was at the keyboard. The runbook is `../consensus/FIRST-DEPLOY-SESSION.md` and this is what happened against it.
+
+**The migration.** `bash deploy/deploy.sh 157.90.34.105` from the branch. Migrations 013 to 031 applied in one run, nineteen of them, one way as D08 decided. The five deployments already there kept running untouched throughout and were all still RUNNING with their containers at the end. The bundled version moved from the flat tree to immutable builds: the host fetched and built the pinned commit 9f1255b itself in twenty nine seconds, and the versions root gained `bundled.repo`, `bundled.builds/9f1255b` and `.executions` beside the existing `main-v3`. The Versions page then said, correctly, that bundled was not tested since that update, and repeated it on the wizard's version picker.
+
+**The version settings page ran for the first time anywhere.** Revision 3 on build 9f1255b, state applied, the host's own carried-over keys present with Remove beside each, the generated secrets masked behind Reveal, `deploy/config.json` and both engine environments below. `main-v3` keeps its Settings disabled because it is still a flat checkout, which is the rule the page states.
+
+**Execution copies ran for the first time anywhere, and the run found what was wrong with them.** A test deployment on the rebuilt bundled version came up on slot 6. The log shows what the slice promised: the build copied to `.executions/<id>/tree`, the profile env written into the copy, and the deploy script spawned from the copy. The build was never written into. Two more deploys followed, and three findings came out of them.
+
+*The mount observation did not recognise a copy.* It reads the directory a container reports, which is now the copy and not a build, so it recorded no snapshot at all. Nothing then covered the deploy's job hold, the hold stayed open for ever, and with it the copy could never be retired and the build could never be pruned, which is the whole of what the slice was built to manage. Two deploys left two copies and two open holds. The copy's own row is the only thing that can name its build, because the copy is exact and nothing inside it distinguishes the two. Fixed, and `executionMountObservation.test.ts` reproduces it. After that deploy the stuck holds resolved on the next boot, and the deploy after it left one copy live and the other two released with every hold closed, which is D11 working.
+
+*The deploy carried the sessions' own scratch directory to the host.* 1504 of the 3128 files it sent were under `.scratch`, the working notes and evidence logs of the sessions that built this branch, ignored by git and never part of what a host runs. The rsync excludes it now, `managerDeployScript.test.ts` holds that, and the 38 MB already on the host was removed. The next deploy sent fourteen files.
+
+*The whole transfer history had no route in production.* The Transfers page said its response could not be verified, which was honest: nginx had no location for the bare `/chequebook` routes and handed them the SPA's own HTML, so no record could ever be read. The dev server proxies them, so the feature worked on a laptop and had no route at all on a host. This is the second time a path has been proxied in one place and not the other, after the Host page's targets, so the test is now general: every path the dev server proxies must be taken by a location nginx sends to the manager, checked by matching each location's own rule rather than by looking for a name in it.
+
+**What the fixes proved after landing.** Both rulings of the same day hold on the live host. A redeploy that changed only the notes, which is the case that used to leave a blocked attempt and refuse the next deploy, came up running with no blocked attempt at all. Removing the test deployment took its containers, its data directory and all three of its execution copies, and left zero open build holds. The host ended with the five deployments it started with and nothing of the test.
+
+**Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 today. The paid part is still T22 and still waits on the D05 numbers.

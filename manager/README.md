@@ -7,10 +7,10 @@ on the same host can never collide on a port.
 ## Stack
 
 - **Express 5** + ESM + **TypeScript**
-- **PostgreSQL 16** — single source of truth for `port_slot` allocations (1–999)
-- **Yup** — request body / params validation at the API edge
-- **dotenv** — config from `.env`
-- **Docker-out-of-Docker** — the API container spawns `bash deploy.sh ...`,
+- **PostgreSQL 16**, the single source of truth for `port_slot` allocations (1 to 999)
+- **Yup**, request body and params validation at the API edge
+- **dotenv**, config from `.env`
+- **Docker-out-of-Docker**: the API container spawns `bash deploy.sh ...`,
   which calls `docker compose` against the host daemon via a mounted
   `/var/run/docker.sock`
 
@@ -65,7 +65,7 @@ nginx forwards, or a TLS connection to the manager itself. Over the plain HTTP
 of the SSH tunnel it is left off, because a browser drops a `Secure` cookie
 that did not arrive over TLS and the sign-in would loop.
 
-The token is 32 random bytes; the database stores only its SHA-256, so a dump of
+The token is 32 random bytes. The database stores only its SHA-256, so a dump of
 the sessions table signs nobody in. A session ends after twelve hours of
 inactivity, and fourteen days after it started whatever happens in between.
 
@@ -109,9 +109,9 @@ All command endpoints stream output as Server-Sent Events
 | Method | Path              | Body                                              | Notes                                                         |
 | ------ | ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
 | POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds from `.env`. |
-| GET    | `/profiles`       | —                                                 | List ordered by `port_slot`.                                  |
-| GET    | `/profiles/:name` | —                                                 | Single profile.                                               |
-| DELETE | `/profiles/:name` | —                                                 | Releases the slot.                                            |
+| GET    | `/profiles`       | none                                              | List ordered by `port_slot`.                                  |
+| GET    | `/profiles/:name` | none                                              | Single profile.                                               |
+| DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
 
 ### Actions (per profile, SSE)
 
@@ -119,7 +119,7 @@ All command endpoints stream output as Server-Sent Events
 | ------ | ------------------------ | ------------------------- | ------------------------------------------------------ |
 | POST   | `/profiles/:name/deploy` | `{ services?: string[] }` | `deploy.sh --profile=<name> --portSlot=<n> [services]` |
 | POST   | `/profiles/:name/stop`   | `{ services?: string[] }` | `stop.sh   --profile=<name> --portSlot=<n> [services]` |
-| GET    | `/profiles/:name/health` | —                         | `health.sh --profile=<name> --portSlot=<n>`            |
+| GET    | `/profiles/:name/health` | none                      | `health.sh --profile=<name> --portSlot=<n>`            |
 
 When `services` is omitted:
 
@@ -127,16 +127,17 @@ When `services` is omitted:
 - `viewer` → `client bee-gateway`
 - `custom` → empty (the script then uses everything enabled in `config.json`)
 
-Media engines: `srs` (default) and `ome` are mutually exclusive — a profile's
+Media engines: `srs` (default) and `ome` are mutually exclusive, so a profile's
 `components` may contain at most one of them. Including `ome` makes the manager
 write `ENGINE=ome` (plus slot-shifted `OME_SRT_PORT`/`OME_HLS_PORT`) into the
 profile's `.env.<name>` so the stream-uploader runs the OvenMediaEngine plugin.
 
 SRT passphrase: a profile may carry its own `srt_passphrase`, written to
 `.env.<name>` as `SRT_PASSPHRASE` so SRS encrypts that deployment's SRT listener
-with it. Left unset, the base `.env`'s host-wide value applies — the behaviour
-before the field existed. SRS only; OME's SRT listener takes no passphrase.
-Accepted values are 10–79 characters of `A-Z a-z 0-9 . _ ~ -`; the bounds are
+with it. Left unset, the base `.env`'s host-wide value applies, which is the
+behaviour before the field existed. This is SRS only. OME's SRT listener takes
+no passphrase. Accepted values are 10 to 79 characters of
+`A-Z a-z 0-9 . _ ~ -`. The bounds are
 libsrt's and the character set keeps the value intact through the `sed` in
 `engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
 `srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
@@ -174,6 +175,16 @@ malformed value stops the process rather than silently reverting to the default.
 `GET /config` answers it as `chequebookFloorBzz` so the UI shows the number the
 gate uses.
 
+Two more process settings decide whether a transfer can be made at all, and
+neither is ever accepted from a request, a profile or a Bee response.
+**`CHEQUEBOOK_RPC_ENDPOINTS`** is a JSON object keyed by chain id, naming the
+chain the manager reads receipts from. **`CHEQUEBOOK_DOCKER_TRANSPORTS`** names,
+per deploy target alias, the Docker socket the manager reaches the node's Bee
+through and the qualification ids the container image must match. With either
+missing, saved operations stay readable and recoverable and new transfers refuse
+rather than guess. `docs/testing/t09-money-api.md` has their exact shapes and
+the rules the registry applies to them.
+
 ### Engine control
 
 The media server of one deployment: what it is configured with, and the two
@@ -205,12 +216,13 @@ Saving settings redeploys the engine service alone, so the profile goes
 below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
-Live status (what is publishing right now) is not read yet. On the bundled
-stack SRS's HTTP API listens on 1985 inside the container and the compose file
-publishes no such port, and OvenMediaEngine's API needs a `<Managers>` block
-the template does not carry. `main-v3` publishes the SRS port and the manager
-does not read it yet. `GET /profiles/:name/engine` answers `live: null` with
-the reason for that deployment's version in `liveUnavailableReason`.
+Live status (what is publishing right now) is not read yet. The bundled
+stack, `main-v3`, publishes SRS's HTTP API port per deployment as
+`SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
+`main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
+API needs a `<Managers>` block the template does not carry on either.
+`GET /profiles/:name/engine` answers `live: null` with the reason for that
+deployment's version in `liveUnavailableReason`.
 
 #### A config file of the deployment's own
 
@@ -227,8 +239,9 @@ setting the drawer marks as not read (`notInConfig`).
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
 `deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-`main-v3` from the commit that added them. The bundled `main-v2` renders its
-template and the editor says so. At deploy the orchestrator writes the file to
+`main-v3` from the commit that added them, which the bundled version is on. A
+version without the hook, such as the stack's `main-v2`, renders its template
+and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
 `SRS_CONF_FILE` or `OME_CONF_FILE` in `.env.<name>`, which the stack's
 `build_compose_files` turns into a read-only mount. The data root survives a
@@ -264,11 +277,17 @@ ceiling from `deploy.sh`, the secrets the containers refuse to start without
 from the `.env.sample` files, and the engine defaults from the entrypoints. A
 moving branch changes nothing until `update` is called.
 
-The **bundled** version is the submodule the manager ships with. It is the
-default until another is chosen, and it cannot be removed or updated here: it
-moves when the manager itself is deployed. Its commit comes from
-`manager/.stack-commit`, which `deploy/deploy.sh` writes before the rsync,
-because the tree reaches the server without a `.git`.
+The **bundled** version is the stack commit the manager pins, and the host
+fetches and builds it there like any other version. The pin is
+`manager/.stack-commit`, which `deploy/deploy.sh` writes from the repository
+with `git rev-parse HEAD:manager/swarm-hls-stream`, so it is the submodule pin
+whether or not the submodule is checked out. The API reads it at boot and builds
+that commit when it has no complete build of it, and **Update** on the bundled
+card builds it again. It is the default until another is chosen, and it cannot
+be removed. A manager that pins no commit, which is a developer machine, keeps
+the row on the tree in the checkout and refuses the rebuild, saying so. The
+stack's `main-v2` is obsolete and is kept only as a second version to test
+version selection with.
 
 Every deployment runs one version, chosen in the new deployment wizard when
 more than one has finished building and preselected to the default. `POST
@@ -281,10 +300,10 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on `main-v3`, 999 on the bundled version), the engine defaults the settings
+(99 on `main-v3`, the bundled version, 999 on the older `main-v2`), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
-`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on `main-v3`, are generated the first
+`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on the bundled `main-v3`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.
@@ -293,10 +312,84 @@ answered by the API.
 | ------ | ----------------------- | --------------- | --------------------------------------------------------------- |
 | GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, builtAt, lastError, contract, deployments }]` |
 | POST   | `/versions`             | `{ name, ref }` | SSE build log, then `version.changed` on `/events`.              |
-| POST   | `/versions/:id/update`  |                 | SSE build log. Refused for `bundled`.                            |
+| POST   | `/versions/:id/update`  |                 | SSE build log. On `bundled` it builds the commit the manager pins, and refuses when it pins none. |
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
-| PATCH  | `/versions/:id`         | `{ tested }`    | 200 and the row.                                                 |
-| DELETE | `/versions/:id`         |                 | 204, or 409 with the deployment names when it is in use.         |
+| PATCH  | `/versions/:id`         | `{ tested, commitSha?, buildId? }` | 200 and the row. Marking tested requires the commit the page showed, and the build id too unless the row is legacy. |
+| DELETE | `/versions/:id`         |                 | 204, or 409: the deployment names when it is in use, or the bundled version, the default, one that is building, one with an unresolved build reference or execution, or one whose identity moved while removal waited. |
+| GET    | `/versions/:id/settings` |                | `{ generation, buildGeneration, buildId, files, leftAlone }`, or 409 `settings_not_ready`. `Cache-Control: no-store`. |
+| PUT    | `/versions/:id/settings` | `{ expectedGeneration, files }` | `{ generation }`, or 409 `settings_changed`, 409 `settings_locked`, 400 on a value, 413 `payload_too_large`. |
+| POST   | `/versions/:id/settings/apply` |          | `{ buildId, reused }`, or 409 `stack_build_busy`, 409 `settings_not_ready`, 409 `settings_locked`. |
+
+#### The settings page
+
+Every version keeps three kinds of file the operator owns, beside its checkout:
+the base `.env`, `deploy/config.json` and one `.env` per engine. They are seeded
+from the version's own samples by its first build and no build ever writes over
+them. **Settings** on a version card opens `#/versions/<id>/settings`, one
+section per file, in the order base env, deploy config, engines.
+
+Each key of an env file shows what the version's `.env.sample` says about it,
+which is the comment block directly above the key in that sample. That block
+ends at a commented out assignment of another key, because those lines document
+that key, and a section rule such as `# --- Logging ---` is dropped. A value
+that still equals the sample's is marked `default`. A secret-like key is masked
+until **Reveal** is pressed: the values do come back in the clear, because the
+routes are behind the session gate and a value the operator cannot see is one
+they cannot check, and nothing logs one, nothing caches the answer and no
+browser is asked to remember a masked field. A key the manager fills per
+deployment says so. A key the version's sample does not declare carries
+**Remove**, which takes the line out of the file on the next save.
+
+A value has to be one the stack's own env loader and the manager read the same
+way, which is `settingValueProblem` in `common`. Padding at either end, an
+unquoted space before a `#`, a quote that does not close at the end and a
+control character are all refused, by the field before the save goes out and by
+the route with a 400 naming the key. `SRS_CONF_FILE` and `OME_CONF_FILE` take
+only an absolute path or nothing, because the version's compose override mounts
+whatever they hold into the engine container.
+
+**Save** writes the files as one revision, and refuses with 409
+`settings_changed` when anything moved since the page loaded, so a page and an
+`ssh` editing session cannot write over each other. An env file is rewritten
+from its own current bytes: the named lines get the new value, and every
+comment, blank line and spacing survives byte for byte. One save carries at most
+sixteen files and 512 keys per file, names each file once, and a body over the
+request limit comes back as 413 rather than as a fault. While an editing session
+holds the lock every one of these routes answers 409 `settings_locked` with what
+holds it and how to get it back, and the page offers **Try again**.
+
+The header says which revision the files are at and, when the current build
+already carries it, `applied`. When it does not, the page says which revision
+the build carries and that new deployments do not have the change until Apply
+makes a build. A path of the set that holds a link or a directory rather than a
+file is named as left alone rather than dropped, because nothing here reads or
+writes one.
+
+**Save and apply** saves and then publishes another build of the same commit
+carrying the new revision, rather than fetching and building the stack again for
+one changed line. The new build is the current build's tree with the settings
+files replaced, its unchanged files hard linked to the build it was made from
+where the filesystem allows and copied otherwise, which the manifest records as
+`treeSharing`. It takes the build mutex for its whole run and refuses with 409
+`stack_build_busy` while a build runs. New deployments run the new build.
+Deployments already running keep the settings they started with until they are
+deployed again. A build of the same commit already carrying this revision is
+answered as it stands, with `reused` true and nothing published, so applying
+twice makes one build rather than two and the version's approval survives. Every
+build's copy of a settings file is written owner only, as the deployment's own
+`.env.<profile>` is, and no `.env.<profile>` is ever shared between two builds.
+
+A version still deploying from a flat checkout has no build to make another one
+from, so its **Settings** button says to Update it first.
+
+A generated secret the version's own base or engine env already sets is neither
+generated nor written per deployment, so the version's line is what the
+containers read. The base env decides every key it assigns, blank included,
+because the root file wins over the engine's in the stack's deploy script, and
+the engine env decides only a key the base env does not assign at all. An empty
+one is generated per deployment as before, and a value already in
+`profiles.stack_secrets` still wins over both, because rotating the token a
+running container was started with is a decision rather than a side effect.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
 <repo-url>`, which clones or fetches, exports the fetched commit into a staging
@@ -328,7 +421,7 @@ profile).
 | Method | Path              | Notes                                                              |
 | ------ | ----------------- | ----------------------------------------------------------------- |
 | GET    | `/metrics`        | Latest snapshot as JSON. `503` until the first sample is ready.    |
-| GET    | `/metrics/stream` | Server-Sent Events; one `snapshot` event every ~2s while watching. |
+| GET    | `/metrics/stream` | Server-Sent Events, one `snapshot` event every ~2s while watching. |
 
 Sampling is gated: the collector only polls Docker while at least one client is
 connected to `/metrics/stream` (or immediately after a `/metrics` request).
@@ -363,12 +456,13 @@ Notes:
   from deltas, so they read `0` on the first sample after (re)connecting.
 - **Host CPU/RAM/disk need read-only host mounts** (`/proc → /host/proc`,
   `/ → /host/rootfs`, already wired in `docker-compose.yml`). Without them,
-  host fields fall back to capacity-only / `null`; infra and per-container
+  host fields fall back to capacity only or `null`. Infra and per-container
   numbers still work from the docker socket alone. Adding the mounts requires a
   redeploy.
 
 Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
-exposes the web port; for the API use the manager port directly on the host):
+exposes the web port, and for the API use the manager port directly on the
+host):
 
 ```bash
 # one-shot (cookies.txt comes from the sign-in under Example session)
@@ -427,8 +521,8 @@ key. The two that decide where the streaming stack lives:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `SHLS_ROOT`           | the submodule next to the manager source           | The bundled version's checkout. Set by `docker-compose.yml` to the host bind mount. |
-| `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where added versions are checked out, one directory each.                           |
+| `SHLS_ROOT`           | the submodule next to the manager source           | The legacy bundled checkout, read once to carry its settings over and still mounted by engines that were deployed from it. Set by `docker-compose.yml` to the host bind mount. |
+| `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
 
 Both are bind-mounted into the api container at the same absolute path they
 have on the host, because the docker daemon runs on the host and reads every
@@ -436,13 +530,13 @@ path in a compose file as a host path.
 
 ## Limitations (intentional, v1)
 
-- **Max 999 managed profiles per host** — `--portSlot` is an integer 1–999.
+- **Max 999 managed profiles per host.** `--portSlot` is an integer from 1 to 999.
 - **No HTTPS of its own.** The sign-in gate is only as good as the transport in
   front of it. The `edge` service in `docker-compose.yml` is that transport: a
   Caddy container in the `public` compose profile that terminates TLS and gets
   its own certificate for `MANAGER_DOMAIN`. It starts only when that name is
   set, and `deploy/README.md` has the steps for turning it on.
-- **Synchronous SSE.** A deploy holds an HTTP connection open for its duration;
-  client disconnect kills the child.
+- **Synchronous SSE.** A deploy holds an HTTP connection open for its whole
+  duration, and a client disconnect kills the child.
 - **Local target only.** This iteration assumes `config.json` deploys to
   `localhost`, which matches the "one manager per host" plan.

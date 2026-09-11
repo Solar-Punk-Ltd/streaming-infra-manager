@@ -12,10 +12,11 @@
  * failed one.
  */
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { cpSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { scratchVersionsRoot } from '../support/stackFixtures.js';
+import { scratchVersionsRoot, V3_FIXTURE } from '../support/stackFixtures.js';
 import {
   nextVersionChange,
   readSseFrames,
@@ -23,8 +24,26 @@ import {
   type VersionsTestApp,
 } from '../support/versionsTestApp.js';
 
+const ROUTE_COMMIT = 'be440d65e0e82bcf9000a8a0dde905dc215255d6';
+/** The commit a manager deploy would have pinned beside the bundled checkout. */
+const PINNED_COMMIT = 'a'.repeat(40);
+
+function pinStackCommit(commit: string): void {
+  writeFileSync(join(dirname(app.bundledRoot), '.stack-commit'), `${commit}\n`);
+}
+
+/** What the build script leaves in the attempt's staging directory, from the script's own arguments. */
+function builtInStaging(args: string[]): void {
+  const staging = args[1] ?? '';
+  cpSync(V3_FIXTURE, staging, { recursive: true });
+  writeFileSync(join(staging, '.stack-commit'), `${ROUTE_COMMIT}\n`);
+}
+
 let app: VersionsTestApp;
 let versionsRoot: string;
+
+/** The commit a page showed when the operator clicked Tested. */
+const SHOWN_COMMIT = 'b'.repeat(40);
 
 beforeEach(async () => {
   versionsRoot = scratchVersionsRoot();
@@ -71,6 +90,7 @@ async function build(path: string, body?: unknown, code = 0) {
   // hide which assertion actually failed.
   const started = app.runner.spawned.length > 0;
   if (started) {
+    if (code === 0) builtInStaging(app.runner.last.args);
     app.runner.finish(code, 'cloning\ndone\n');
   }
 
@@ -155,12 +175,28 @@ describe('POST /versions/:id/update', () => {
     );
   });
 
-  it('refuses the bundled version, which the manager deploy moves', async () => {
+  it('rebuilds the bundled version from the commit this manager pins', async () => {
+    pinStackCommit(PINNED_COMMIT);
+    const bundled = await app.repository.findByName('bundled');
+
+    const { res, frames } = await build(`/versions/${bundled?.id}/update`);
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      frames.map((frame) => frame.event),
+      ['start', 'stdout', 'done'],
+    );
+    assert.equal(app.runner.last.args[2], PINNED_COMMIT, 'the build follows the pinned commit');
+    assert.equal((await app.repository.findByName('bundled'))?.gitRef, PINNED_COMMIT);
+  });
+
+  it('refuses to rebuild the bundled version when this manager pins no commit', async () => {
     const bundled = await app.repository.findByName('bundled');
     const answer = await callJson('POST', `/versions/${bundled?.id}/update`);
 
     assert.equal(answer.status, 409);
     assert.equal((answer.body as { error: string }).error, 'bundled_version');
+    assert.equal(app.runner.spawned.length, 0);
   });
 
   it('answers 404 for an id that names nothing', async () => {
@@ -190,7 +226,11 @@ describe('POST /versions/:id/default', () => {
   it('answers 204 and moves the badge', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+      buildId: added?.buildId,
+    });
 
     const answer = await callJson('POST', `/versions/${added?.id}/default`);
     assert.equal(answer.status, 204);
@@ -206,14 +246,93 @@ describe('POST /versions/:id/default', () => {
 });
 
 describe('PATCH /versions/:id', () => {
-  it('sets the tested flag and answers the row', async () => {
+  it('approves only the immutable build the page showed, including same-commit rebuilds', async () => {
+    await build('/versions', { name: 'v3', ref: 'main-v3' });
+    const shown = (await app.repository.findByName('v3'))!;
+    const rebuilt = `${shown.buildId}-r1`;
+    await app.repository.publish(shown.id, { buildId: rebuilt, commitSha: shown.commitSha!, contract: shown.contract! });
+    const stale = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: shown.buildId });
+    assert.equal(stale.status, 409, JSON.stringify(stale.body));
+    assert.equal((await app.repository.findById(shown.id))?.tested, false);
+    const current = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: rebuilt });
+    assert.equal(current.status, 200, JSON.stringify(current.body));
+    assert.equal((current.body as { tested: boolean }).tested, true);
+  });
+
+  it('refuses a builds row without its shown build id and a stale click while building', async () => {
+    await build('/versions', { name: 'v3', ref: 'main-v3' });
+    const shown = (await app.repository.findByName('v3'))!;
+    for (const buildId of [undefined, null]) {
+      const answer = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId });
+      assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    }
+    await app.repository.markBuilding(shown.id);
+    const answer = await callJson('PATCH', `/versions/${shown.id}`, { tested: true, commitSha: shown.commitSha, buildId: shown.buildId });
+    assert.equal(answer.status, 400);
+    assert.equal((await app.repository.findById(shown.id))?.tested, false);
+  });
+
+  it('does not treat a legacy row as an immutable build named by a caller', async () => {
+    const bundled = (await app.repository.findByName('bundled'))!;
+    await app.repository.setCommitSha(bundled.id, SHOWN_COMMIT);
+    const answer = await callJson('PATCH', `/versions/${bundled.id}`, { tested: true, commitSha: SHOWN_COMMIT, buildId: SHOWN_COMMIT });
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal((await app.repository.findById(bundled.id))?.tested, false);
+  });
+
+  it('approves the commit the page showed, and answers the row', async () => {
     const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
     const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
 
-    assert.equal(answer.status, 200);
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
     assert.equal((answer.body as { tested: boolean }).tested, true);
+  });
+
+  it('refuses a click made for a commit the version has moved past, and changes nothing', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, 'e'.repeat(40));
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal((answer.body as { error: string }).error, 'stack_version_changed');
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
+  });
+
+  it('refuses to approve a version at a commit this host cannot tell', async () => {
+    const bundled = await app.repository.findByName('bundled');
+
+    const answer = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: SHOWN_COMMIT,
+    });
+    const body = answer.body as { errors?: string[] };
+
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.match(body.errors?.[0] ?? '', /cannot tell/);
+  });
+
+  it('refuses to approve without naming the commit, left out or null', async () => {
+    const bundled = await app.repository.findByName('bundled');
+    await app.repository.setCommitSha(bundled?.id ?? 0, SHOWN_COMMIT);
+
+    const leftOut = await callJson('PATCH', `/versions/${bundled?.id}`, { tested: true });
+    const asNull = await callJson('PATCH', `/versions/${bundled?.id}`, {
+      tested: true,
+      commitSha: null,
+    });
+
+    assert.equal(leftOut.status, 400, JSON.stringify(leftOut.body));
+    assert.equal(asNull.status, 400, JSON.stringify(asNull.body));
+    assert.equal((await app.repository.findByName('bundled'))?.tested, false);
   });
 
   it('refuses a body with no tested flag', async () => {
@@ -229,6 +348,7 @@ describe('PATCH /versions/:id', () => {
 
     const answer = await callJson('PATCH', `/versions/${failed?.id}`, {
       tested: true,
+      commitSha: SHOWN_COMMIT,
     });
     const body = answer.body as { error: string; errors: string[] };
 
@@ -276,7 +396,11 @@ describe('DELETE /versions/:id', () => {
   it('answers 409 for the version that is the default', async () => {
     await build('/versions', { name: 'v3', ref: 'main-v3' });
     const added = await app.repository.findByName('v3');
-    await callJson('PATCH', `/versions/${added?.id}`, { tested: true });
+    await callJson('PATCH', `/versions/${added?.id}`, {
+      tested: true,
+      commitSha: added?.commitSha,
+      buildId: added?.buildId,
+    });
     await callJson('POST', `/versions/${added?.id}/default`);
 
     const answer = await callJson('DELETE', `/versions/${added?.id}`);

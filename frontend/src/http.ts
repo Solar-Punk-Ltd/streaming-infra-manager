@@ -49,6 +49,7 @@ export interface ApiRequest {
   allowUnauthorized?: boolean;
   /** Ends the request and its body stream, for a call nobody is waiting on. */
   signal?: AbortSignal;
+  cache?: RequestCache;
 }
 
 export async function apiFetch(
@@ -68,6 +69,7 @@ export async function apiFetch(
     headers,
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
     signal: request.signal,
+    cache: request.cache,
   });
 
   if (res.status === 401 && !request.allowUnauthorized) {
@@ -165,8 +167,8 @@ export async function failWith(
   throw new ApiError(failure.message, failure.code, res.status);
 }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const res = await apiFetch(path);
+export async function getJson<T>(path: string, request: Pick<ApiRequest, 'cache' | 'signal'> = {}): Promise<T> {
+  const res = await apiFetch(path, request);
   if (!res.ok) await failWith(res, `request failed (${res.status})`);
   return (await res.json()) as T;
 }

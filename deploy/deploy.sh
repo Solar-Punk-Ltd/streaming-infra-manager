@@ -10,24 +10,54 @@
 #     LocalForward 8080 localhost:8080
 #
 # What it does:
-#   1. Builds swarm-hls-stream locally so its dist/ artifacts ship over rsync
-#      (the host docker daemon mounts those into sibling containers spawned
-#      by the manager, so they must exist on the server filesystem).
-#   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager.
-#      Excludes node_modules, build caches and .git. Both .env files (the
-#      manager's and swarm-hls-stream's) DO ship, and --delete means this
-#      checkout is the only source of truth for them.
-#   3. SSHes in and runs `docker compose up -d --build --remove-orphans`.
-#      Builds happen on the server, so the image tags match the server's
-#      docker engine. With MANAGER_DOMAIN set, the `public` profile joins in
-#      and starts the TLS edge. With it cleared, the edge is removed by name
+#   1. Writes the stack commit this repository pins into manager/.stack-commit,
+#      read from the repository itself rather than from a checkout, so a laptop
+#      that never initialised the submodule still ships the right pin. That file
+#      is the only thing about the streaming stack a deploy carries. The host
+#      fetches that commit from GitHub and builds it there, through the same
+#      path a version added in the UI takes.
+#   2. rsyncs the repo to /home/solarpunk/streaming-infra-manager, without
+#      manager/swarm-hls-stream: the tree the engines of existing deployments
+#      mount is never written over again, so a container restart keeps the
+#      files it was started with. Excludes node_modules, build caches and
+#      .git. The manager's .env DOES ship, and --delete means this checkout
+#      is the only source of truth for it.
+#   3. Builds the images on the server, decides there whether this host has
+#      ever run the manager, and then runs `manager:upgrade` in a one-off
+#      container of the image just built. The first use question is answered
+#      before that container exists, because preparing it can create the
+#      project's volumes, and it stops the deploy when the data volume is gone
+#      from under an installed manager. The command owns the rest:
+#      it holds one directory for the whole run so a second upgrade cannot
+#      start beside it, stops the old api, migrates, starts the project, waits
+#      for the api to answer, and then waits for the api's own boot to finish
+#      building the pinned stack commit. With MANAGER_DOMAIN set the upgrade is
+#      asked for the public TLS edge, and without it the edge is removed by name
 #      and the removal is checked, because dropping a profile does not stop a
 #      container already running under it.
+#
+# The streaming stack's own settings live on the server, under the versions
+# root, and no deploy reads or writes them. See deploy/README.md.
 
 set -euo pipefail
 
 SSH_TARGET="${1:-viewer}"
+# It is handed to ssh as the destination, where a leading dash is an option.
+if [[ "$SSH_TARGET" == -* ]]; then
+    echo "ERROR: the ssh target must not start with a dash (got: $SSH_TARGET)" >&2
+    exit 1
+fi
 REMOTE_PATH="/home/solarpunk/streaming-infra-manager"
+# How long the upgrade waits for the host to fetch and build the pinned stack
+# commit before it reports a failure. A first build on a cold host pulls the
+# node image and installs the whole workspace.
+BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-1200}"
+# It is interpolated into a single quoted word of the remote heredoc, so a
+# value carrying a quote would close that quoting on the host.
+if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: BUNDLED_TIMEOUT must be a whole number of seconds (got: $BUNDLED_TIMEOUT)" >&2
+    exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -60,10 +90,10 @@ MANAGER_DOMAIN="$(
 HOSTNAME_PATTERN='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 
 if [ -z "$MANAGER_DOMAIN" ]; then
-    COMPOSE_PROFILE_FLAG=""
+    PUBLIC_EDGE_FLAG=""
     echo "==> MANAGER_DOMAIN is empty: no public edge, SSH tunnel only"
 elif [[ "$MANAGER_DOMAIN" =~ $HOSTNAME_PATTERN ]]; then
-    COMPOSE_PROFILE_FLAG="--profile public"
+    PUBLIC_EDGE_FLAG="--public-edge"
     echo "==> MANAGER_DOMAIN=${MANAGER_DOMAIN}: starting the public HTTPS edge too"
 else
     echo "ERROR: MANAGER_DOMAIN in $ENV_FILE is not a host name: '${MANAGER_DOMAIN}'." >&2
@@ -72,31 +102,33 @@ else
     exit 1
 fi
 
-echo "==> Building swarm-hls-stream locally (so dist/ ships over rsync)"
-# swarm-hls-stream has its own pnpm workspace, separate from the parent repo.
-pnpm -C manager/swarm-hls-stream install --frozen-lockfile
-pnpm -C manager/swarm-hls-stream -r build
+echo "==> Recording the stack commit this manager pins"
+# The submodule pin, taken from the repository rather than from the working
+# tree, so it is right whether or not the submodule is checked out here. The
+# host reads this file at boot and builds that commit if it has no complete
+# build of it. Written next to the checkout rather than inside it, because the
+# submodule's own .gitignore does not cover it and a file in there would show
+# up as an untracked change.
+git rev-parse HEAD:manager/swarm-hls-stream > manager/.stack-commit
+echo "[deploy] pinned stack commit: $(cat manager/.stack-commit)"
 
-echo "==> Recording the bundled stack commit"
-# The rsync below excludes .git, so on the server the submodule tree carries no
-# way of saying which commit it is. The manager reads this file at boot and
-# shows it as the bundled version's commit. Written next to the checkout rather
-# than inside it, because the submodule's own .gitignore does not cover it and a
-# file in there would show up as an untracked change in the submodule.
-git -C manager/swarm-hls-stream rev-parse HEAD > manager/.stack-commit
-echo "[deploy] bundled stack commit: $(cat manager/.stack-commit)"
+# What the upgrade records as the manager it installed: the commit of this
+# checkout and a digest of the tree that commit names.
+MANAGER_COMMIT="$(git rev-parse HEAD)"
+MANAGER_DIGEST="$(git ls-tree -r --full-tree HEAD | shasum -a 256 | cut -c1-64)"
 
-echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH}"
+echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH} (manager/swarm-hls-stream left as it is)"
 rsync -avz --delete \
     --exclude '.git/' \
     --exclude 'node_modules/' \
+    --exclude '.scratch/' \
+    --exclude 'manager/swarm-hls-stream/' \
     --exclude '**/dist/.tsbuildinfo' \
     --exclude '*.tsbuildinfo' \
     --exclude '.DS_Store' \
-    --exclude 'manager/swarm-hls-stream/deploy/data/' \
     ./ "${SSH_TARGET}:${REMOTE_PATH}/"
 
-echo "==> Remote build + up"
+echo "==> Remote build + upgrade"
 # Detect the server's primary IP on the host (the manager runs in a container,
 # so it can't see the host's real address itself) and pass it through as
 # PUBLIC_HOST for building component URLs.
@@ -104,44 +136,84 @@ ssh "$SSH_TARGET" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_PATH}/manager
 
-PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}')"
+# The || true is what keeps this line from ending the whole remote block: it runs
+# under pipefail, so a host without ip, or a route that cannot be read, would
+# fail the substitution and none of the lines below would run.
+PUBLIC_HOST="\$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i=="src"){print \$(i+1); exit}}' || true)"
 echo "[deploy] resolved PUBLIC_HOST='\${PUBLIC_HOST}' (default-route src IP)"
 if [ -z "\${PUBLIC_HOST}" ]; then
-    echo "[deploy] WARNING: PUBLIC_HOST is empty; component URLs will fall back to localhost" >&2
+    echo "[deploy] WARNING: PUBLIC_HOST is empty, so component URLs will fall back to localhost" >&2
 fi
 
 export PUBLIC_HOST
 export BEE_DATA_ROOT="\${HOME}/streaming-infra-manager-data"
 
 # Added stack versions live here, a sibling of the data root and outside the
-# tree the rsync above deletes into, so a manager deploy cannot wipe them.
+# tree the rsync above deletes into, so a manager deploy cannot wipe them. The
+# bundled version's own build and its settings live here too.
 export STACK_VERSIONS_ROOT="\${HOME}/streaming-infra-manager-versions"
 mkdir -p "\${STACK_VERSIONS_ROOT}"
 echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
 
-# --remove-orphans reaches a service renamed or deleted in the compose file,
-# and only inside the manager compose project, each deployment having its own
-# project name. It does not reach the edge: Compose counts a service whose
-# profile is inactive as one it knows about rather than an orphan, so a
-# container started under --profile public keeps running once the profile is
-# dropped. Naming the profile is the only way to reach it, so with no domain
-# set the edge is removed by name and the removal is checked. It publishes 80,
-# 443 and 443/udp, so a deploy that leaves it up leaves the host public.
-docker compose ${COMPOSE_PROFILE_FLAG} up -d --build --remove-orphans
+docker compose build
+IMAGE_ID="\$(docker image inspect --format '{{.Id}}' manager-api)"
+echo "[deploy] built api image \${IMAGE_ID}"
 
-if [ -z "${COMPOSE_PROFILE_FLAG}" ]; then
-    docker compose --profile public rm -sf edge
-    if [ -n "\$(docker compose --profile public ps -q edge)" ]; then
-        echo "[deploy] ERROR: MANAGER_DOMAIN is empty and the edge is still running." >&2
-        echo "[deploy] The host is still answering on 80 and 443." >&2
-        echo "[deploy] Stop it by hand: cd ${REMOTE_PATH}/manager && docker compose --profile public rm -sf edge" >&2
+# Whether this host has ever run the manager is decided here, before the one-off
+# container below exists. Preparing that container can create the project's
+# volumes, so the same question asked from inside it would find a data volume
+# nothing has ever written to and call an old database a new one.
+POSTGRES_VOLUME="manager_manager-pg"
+service_containers() {
+    docker ps -aq \
+        --filter "label=com.docker.compose.project=manager" \
+        --filter "label=com.docker.compose.service=\$1" \
+        --filter "label=com.docker.compose.oneoff=False"
+}
+# Each answer is read into a variable of its own before it is looked at. A
+# substitution inside a [ ... ] condition reports what it printed rather than
+# that it failed, so a daemon that could not be asked would read as a host with
+# nothing on it and this deploy would call an old database new.
+DATA_VOLUME="\$(docker volume ls -q --filter name=^\${POSTGRES_VOLUME}\$)"
+API_CONTAINERS="\$(service_containers api)"
+POSTGRES_CONTAINERS="\$(service_containers postgres)"
+FIRST_USE_FLAG=""
+if [ -z "\${DATA_VOLUME}" ]; then
+    if [ -n "\${API_CONTAINERS}" ]; then
+        echo "[deploy] ERROR: this host has an api container but no \${POSTGRES_VOLUME} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again." >&2
         exit 1
     fi
-    echo "[deploy] no public edge running"
+    if [ -z "\${POSTGRES_CONTAINERS}" ]; then
+        FIRST_USE_FLAG="--first-use"
+        echo "[deploy] no data volume and no containers of this project: this host has never run the manager"
+    fi
+fi
+
+# --no-deps is deliberate. This one-off container decides for itself whether
+# Postgres may be started, because a host that has never run the manager and a
+# host whose database was removed are different situations and only one of them
+# may be treated as an empty database. The container joins the project network,
+# so postgres and api resolve by name inside it.
+# The status is taken rather than left to end the block, because the receipt
+# is the one line the upgrade prints and a failed bundled build is in it.
+UPGRADE_STATUS=0
+RECEIPT="\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade \
+    --manager-commit '${MANAGER_COMMIT}' \
+    --manager-digest '${MANAGER_DIGEST}' \
+    --image-id "\${IMAGE_ID}" \
+    --project manager \
+    --compose-file ${REMOTE_PATH}/manager/docker-compose.yml \
+    --mutable-root ${REMOTE_PATH} \
+    --bundled-timeout '${BUNDLED_TIMEOUT}' \
+    \${FIRST_USE_FLAG} ${PUBLIC_EDGE_FLAG} < /dev/null)" || UPGRADE_STATUS=\$?
+echo "[deploy] upgrade receipt: \${RECEIPT}"
+if [ "\${UPGRADE_STATUS}" -ne 0 ]; then
+    echo "[deploy] the upgrade exited with \${UPGRADE_STATUS}" >&2
+    exit "\${UPGRADE_STATUS}"
 fi
 
 echo "[deploy] PUBLIC_HOST seen inside api container:"
-docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' || \
+docker compose exec -T api sh -c 'echo "  PUBLIC_HOST=\${PUBLIC_HOST}"' < /dev/null || \
     echo "[deploy] (could not exec into api container to verify)"
 REMOTE
 

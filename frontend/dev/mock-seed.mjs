@@ -6,9 +6,11 @@
  * and so no file here outgrows what is comfortable to read. Every key, address
  * and batch id is generated at startup: nothing 64-hex is committed here.
  */
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
+
+import { commitOfVersion } from './mock-versions.mjs';
 
 /** The hostname this fake manager publishes its deployments on. */
 export const PUBLIC_HOST = 'lab-host-1';
@@ -33,7 +35,10 @@ export const bzz = (whole, hundredths = 0) =>
 export const hex = (bytes) => randomBytes(bytes).toString('hex');
 /** A readable fake SRT passphrase, distinct per run like every other secret here. */
 export const passphrase = (label) => `${label}-${hex(6)}`;
-export const HOST_PASSPHRASE = passphrase('lab-host');
+// MOCK_HOST_PASSPHRASE='' runs the mock as a host without a shared passphrase,
+// which is the host the wizard's passphrase default is about.
+export const HOST_PASSPHRASE =
+  process.env.MOCK_HOST_PASSPHRASE === '' ? null : passphrase('lab-host');
 const key = () => `0x${hex(32)}`;
 const address = () => `0x${hex(20)}`;
 const batchId = () => hex(32);
@@ -118,9 +123,17 @@ function portsFor(service, slot) {
 }
 
 export function containersFor(profile, { withUploader = true } = {}) {
+  // What the containers were seen to run: this mock's deploys always land on
+  // the version's commit, so every container agrees with it.
+  const commit = commitOfVersion(profile.stack_version_id);
   return servicesOf(profile)
     .filter((service) => withUploader || service !== 'stream-uploader')
-    .map((service) => ({ service, ports: portsFor(service, profile.port_slot) }));
+    .map((service) => ({
+      service,
+      ports: portsFor(service, profile.port_slot),
+      buildId: commit,
+      buildCommit: commit,
+    }));
 }
 
 export function makeProfile(input) {
@@ -130,6 +143,7 @@ export function makeProfile(input) {
     port_slot: input.port_slot ?? nextSlot++,
     kind: input.kind ?? 'custom',
     notes: input.notes ?? null,
+    notes_revision: 0,
     host: input.host ?? 'localhost',
     components: input.components ?? null,
     feed_owner: input.feed_owner ?? null,
@@ -143,9 +157,14 @@ export function makeProfile(input) {
     engine_settings: input.engine_settings ?? {},
     has_engine_config: false,
     engine_config_error: null,
+    engine_config_state: null,
+    instance_id: randomUUID(),
+    engine_config_revision: 0,
+    intent_revision: 0,
     status: input.status ?? 'RUNNING',
     last_error: input.last_error ?? null,
     last_error_at: input.last_error_at ?? null,
+    last_full_deploy_commit: null,
     created_at: input.created_at ?? now,
     updated_at: now,
     containers: [],

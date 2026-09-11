@@ -2,12 +2,14 @@
 **/dist
 **/.tsbuildinfo
 npm-debug.log
-.env
-.env.*
+**/.env
+**/.env.*
 *.log
 .DS_Store
 
-!manager/swarm-hls-stream/.env
-!manager/swarm-hls-stream/.env.*
+# The local issue scratch AGENTS.md defines. Never a source, and never sent:
+# only *.log above was excluded, so its markdown, JSON and screenshots were
+# still handed to the daemon with every build.
+.scratch
 
-swarm-hls-stream
+manager/swarm-hls-stream

@@ -10,7 +10,7 @@
  * deploy script then refuses it.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -26,14 +26,18 @@ import {
 } from '../../src/domain/versions/portTable.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import type { OrchestratorHarness } from '../support/orchestratorHarness.js';
-import { profileServiceHarness } from '../support/profileServiceHarness.js';
 
-const root = mkdtempSync(join(tmpdir(), 'port-table-'));
+const root = join(mkdtempSync(join(tmpdir(), 'port-table-')), 'main-v3');
+mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
+// Both harnesses reach envUtils, which reads SHLS_ROOT once at import time, so
+// a static import here would give every deployment below the real checkout
+// this manager ships with and write its env file into it.
 const { orchestratorHarness, untilRunning } = await import(
   '../support/orchestratorHarness.js'
 );
+const { profileServiceHarness } = await import('../support/profileServiceHarness.js');
 
 const V3_CONTRACT: StackContract = {
   ports: [
@@ -41,16 +45,17 @@ const V3_CONTRACT: StackContract = {
       ...port,
       defaultPort: [3000, 10080, 1935, 8080, 5173, 1633, 1634, 1733, 1734][index]!,
     })),
-    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009 },
+    { name: 'SRS_HTTP_API_PORT', defaultPort: 1985, slotBase: 10009, protocol: 'tcp', service: 'srs' },
   ],
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
   warnings: [],
+  allocationProblem: null,
 };
 
 async function v3On(harness: { versions: OrchestratorHarness['versions'] }): Promise<number> {
@@ -125,6 +130,10 @@ describe('the container snapshot after a deploy', () => {
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
     assert.equal(srs?.ports.SRS_HTTP_API_PORT, undefined);
+    assert.ok(
+      existsSync(join(root, '.env.plain')),
+      'the deployment env file belongs in this run own root, and a unit test that writes one anywhere else has reached a real checkout',
+    );
   });
 });
 
@@ -150,7 +159,7 @@ describe('the slot ceiling on creation', () => {
         kind: 'viewer',
         stack_version_id: capped.id,
       }),
-      (err: unknown) => err instanceof AllSlotsUsedError && /1-2 /.test(err.message),
+      (err: unknown) => err instanceof AllSlotsUsedError && /from 1 to 2 is taken/.test(err.message),
     );
     assert.equal(harness.profiles.rows.has('three'), false);
   });
