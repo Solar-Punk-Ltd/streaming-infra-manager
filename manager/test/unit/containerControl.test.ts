@@ -368,7 +368,14 @@ describe('ContainerControl.logs: when a followed read stops', () => {
     const took = Date.now() - started;
 
     assert.ok(text.startsWith('still going'), 'with what arrived kept');
-    assert.ok(took >= 250, `stopped after ${took} ms, not before the bound`);
+    // Two clocks. The timer runs on the loop's cached millisecond count and
+    // `Date.now()` on the wall, so a 250 ms bound measures as 249 often enough
+    // to redden a run: it did once in five here on 2026-09-11. The tolerance is
+    // for that and for nothing else, because with the idle gap at five seconds
+    // and the cap at a megabyte no other exit is reachable this early.
+    const CLOCK_SKEW_MS = 5;
+    assert.ok(took >= REACHABLE_ONLY_BY_THE_TOTAL_BOUND.totalMs - CLOCK_SKEW_MS,
+      `stopped after ${took} ms, which is before the bound rather than at it`);
     assert.equal(feed.stream.destroyed, true);
   });
 });
