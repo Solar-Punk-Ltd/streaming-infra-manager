@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, it } from 'node:test';
 
-import { copyExecutionRoot } from '../../src/domain/versions/executionRootFiles.js';
+import { copyExecutionRoot, removeExecutionRoot } from '../../src/domain/versions/executionRootFiles.js';
 import { inventoryOwnedTree, sha256 } from '../../src/domain/versions/ownedTreeInventory.js';
 
 const commit = 'a'.repeat(40);
@@ -167,4 +167,48 @@ it('refuses a composed link escape without reading or modifying the sibling sent
   await assert.rejects(copyExecutionRoot(item, executions), /escape|link|changed|digest/i);
   assert.equal(await readFile(join(dirname(source), 'outside.txt'), 'utf8'), 'keep');
   assert.equal(existsSync(dirname(item.root)), false);
+});
+
+it('removes the whole owner root of the copy it made, and nothing beside it', async () => {
+  const item = await record();
+  const unrelated = join(executions, randomUUID());
+  await mkdir(unrelated);
+  await writeFile(join(unrelated, 'keep'), 'keep');
+  await copyExecutionRoot(item, executions);
+
+  await removeExecutionRoot(item, executions);
+
+  assert.equal(existsSync(dirname(item.root)), false);
+  assert.equal(await readFile(join(unrelated, 'keep'), 'utf8'), 'keep');
+});
+
+it('removes a copy that never finished, and treats one already gone as done', async () => {
+  const item = await record();
+  await mkdir(dirname(item.root), { recursive: true, mode: 0o700 });
+  await mkdir(item.root, { mode: 0o700 });
+
+  await removeExecutionRoot(item, executions);
+  assert.equal(existsSync(dirname(item.root)), false);
+  await removeExecutionRoot(item, executions);
+});
+
+it('refuses a record whose root is not the configured UUID path, leaving the tree', async () => {
+  const item = await record();
+  await copyExecutionRoot(item, executions);
+
+  await assert.rejects(
+    removeExecutionRoot({ ...item, root: join(executions, 'elsewhere', 'tree') }, executions),
+    /configured UUID path/,
+  );
+  assert.equal(existsSync(item.root), true);
+});
+
+it('refuses to remove an owner root that names another execution', async () => {
+  const item = await record();
+  await copyExecutionRoot(item, executions);
+  const owner = JSON.parse(await readFile(join(dirname(item.root), 'owner.json'), 'utf8'));
+  await writeFile(join(dirname(item.root), 'owner.json'), JSON.stringify({ ...owner, executionId: randomUUID() }));
+
+  await assert.rejects(removeExecutionRoot(item, executions), /another execution/);
+  assert.equal(existsSync(item.root), true);
 });
