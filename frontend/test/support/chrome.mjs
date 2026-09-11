@@ -63,13 +63,27 @@ export function buttonWithText(text) {
  * @param {string} description what this is waiting for, which is all a timeout prints.
  * @param {number} [timeoutMs]
  */
-export function clickWhenEnabled(evaluate, finder, description, timeoutMs) {
-  return waitFor(() => evaluate(`(() => {
-    const element = ${finder};
-    if (!element || element.disabled) return false;
-    element.click();
-    return true;
-  })()`), Boolean, description, timeoutMs);
+export async function clickWhenEnabled(evaluate, finder, description, timeoutMs) {
+  let seen = 'nothing, the page was never read';
+  const clicked = async () => {
+    const state = await evaluate(`(() => {
+      const element = ${finder};
+      if (!element) return { found: false };
+      if (element.disabled) return { found: true, enabled: false };
+      element.click();
+      return { found: true, enabled: true };
+    })()`);
+    seen = !state.found ? 'no such element on the page'
+      : state.enabled ? 'the element, enabled' : 'the element, disabled';
+    return state.found && state.enabled;
+  };
+  try {
+    return await waitFor(clicked, Boolean, description, timeoutMs);
+  } catch (error) {
+    // Which of the two it was decides where to look, and a bare timeout says
+    // neither. The runner's log is often the only evidence a failure leaves.
+    throw new Error(`${error.message}. The last read saw ${seen}.`);
+  }
 }
 
 /**
