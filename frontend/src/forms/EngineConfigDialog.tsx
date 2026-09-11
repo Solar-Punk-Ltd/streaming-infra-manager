@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -99,6 +99,14 @@ export function EngineConfigDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const errorBox = useRef<HTMLDivElement>(null);
+
+  // A refusal lands below a config file that is taller than the dialog, so
+  // without this the button looks like it did nothing. Measured on 2026-09-11:
+  // the reason for a refused apply sat 450 pixels below the visible area.
+  useEffect(() => {
+    if (error) errorBox.current?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
 
   useEffect(() => {
     let current = true;
@@ -229,7 +237,7 @@ export function EngineConfigDialog({
                 version fills, so the engine would read {unknown.length === 1 ? 'it' : 'them'} as written.
               </Alert>
             )}
-            {error && <Alert severity="error">{error}</Alert>}
+            {error && <Alert ref={errorBox} severity="error">{error}</Alert>}
             <Typography variant="caption" color="text.secondary">
               {WHAT_APPLYING_DOES[view.engine]}{' '}
               {view.references.map((reference) => (
