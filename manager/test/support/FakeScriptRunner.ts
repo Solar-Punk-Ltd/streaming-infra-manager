@@ -29,10 +29,15 @@ export class FakeScriptRunner extends ScriptRunner {
     options: RunOptions = {},
   ): RunHandle {
     const emitter = new EventEmitter();
-    this.runs.push({ script, args, options });
+    const run = { script, args, options };
+    this.runs.push(run);
     this.emitters.push(emitter);
+    this.onStart?.(run);
     return { emitter, kill: () => undefined };
   }
+
+  /** Runs as a run is created: the state of the world at the moment of the spawn. */
+  onStart?: (run: RecordedScriptRun) => void;
 
   /** Runs before a finish is reported, with the run: what the script would have left behind. */
   onFinish?: (run: RecordedScriptRun) => void;

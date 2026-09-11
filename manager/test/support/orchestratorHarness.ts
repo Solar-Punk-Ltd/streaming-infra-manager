@@ -6,6 +6,7 @@ import {
   UploaderGate,
 } from '../../src/domain/DeploymentOrchestrator.js';
 import { EventBus } from '../../src/domain/EventBus.js';
+import type { ExecutionRoots } from '../../src/domain/versions/ExecutionRootService.js';
 import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import type { PublishedPortsSnapshot } from '../../src/domain/ports/PublishedPortsProbe.js';
 import { Profile } from '../../src/types/index.js';
@@ -65,6 +66,7 @@ export function orchestratorHarness(
   versionsRoot = '/srv/stack-versions',
   targets?: DeployTargets,
   inventoryTargets?: DeployTargets,
+  executions?: ExecutionRoots,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -124,6 +126,7 @@ export function orchestratorHarness(
     profiles.reservations,
     { publishedPorts: async () => published },
     inventoryTargets,
+    executions,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published, operations };
