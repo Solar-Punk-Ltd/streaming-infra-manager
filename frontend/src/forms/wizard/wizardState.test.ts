@@ -13,11 +13,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import type { StackVersion } from '@streaming-infra-manager/common';
+
 import {
   chosenPassphrase,
   initialWizardState,
   needsPassphrase,
   passphraseSummary,
+  withDefaultVersion,
   withGoal,
   type WizardContext,
 } from './wizardState';
@@ -96,5 +99,44 @@ describe('what the Review step says about the passphrase', () => {
       passphraseSummary({ ...generated, passMode: 'custom' }, context),
       'a passphrase of your own',
     );
+  });
+});
+
+
+describe('the stack version of a wizard opened before the versions arrived', () => {
+  const ready = (id: number, isDefault: boolean) =>
+    ({ id, status: 'ready', isDefault, tested: true }) as StackVersion;
+  const withVersions = (versions: StackVersion[]): WizardContext => ({
+    ...hostWith(null),
+    versions,
+  });
+
+  it('has none while the list the default is named in is still empty', () => {
+    const state = initialWizardState({ goal: 'stream' }, hostWith(null));
+
+    assert.equal(state.versionId, null);
+  });
+
+  it('takes the default once that list arrives', () => {
+    const opened = initialWizardState({ goal: 'stream' }, hostWith(null));
+
+    const settled = withDefaultVersion(opened, withVersions([ready(7, true)]));
+
+    assert.equal(settled.versionId, 7);
+  });
+
+  it('leaves a version the operator chose alone', () => {
+    const opened = initialWizardState({ goal: 'stream' }, hostWith(null));
+    const chosen = { ...opened, versionId: 9 };
+
+    const settled = withDefaultVersion(chosen, withVersions([ready(7, true), ready(9, false)]));
+
+    assert.equal(settled.versionId, 9);
+  });
+
+  it('answers the state it was given when there is no default to adopt', () => {
+    const opened = initialWizardState({ goal: 'stream' }, hostWith(null));
+
+    assert.equal(withDefaultVersion(opened, withVersions([ready(7, false)])), opened);
   });
 });
