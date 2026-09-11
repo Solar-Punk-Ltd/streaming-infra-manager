@@ -107,6 +107,38 @@ function closes(state: EngineConfigOperationState): boolean {
 }
 
 /**
+ * A state no recovery can follow, so the build a revert would have deployed
+ * from has nothing left to protect.
+ *
+ * `interrupted` is not one of these. It ends the rollout's activity and leaves
+ * the recovery to a later boot or to the operator, and that recovery deploys
+ * from the held build.
+ */
+function endsRecovery(state: EngineConfigOperationState): boolean {
+  return closes(state) && state !== 'interrupted';
+}
+
+/**
+ * Lets go of the build holds of rollouts that have just ended.
+ *
+ * Levi ruled on 2026-09-11, after a walkthrough found what leaving them costs:
+ * an applied config file left a hold nothing resolves, `hasRemovalHold` counts
+ * it for ever, and the deployment could not be removed at all, with no page
+ * offering a way to clear it. A hold outlives its rollout only while a
+ * recovery may still want the build: the interrupted state, and the saved
+ * source an explicit restore keeps reaching for, which `beginExplicitRestore`
+ * deliberately leaves held across restore attempts.
+ */
+async function releaseEndedHolds(client: PoolClient, operationIds: readonly number[]): Promise<void> {
+  if (operationIds.length === 0) return;
+  await client.query(
+    `UPDATE build_references SET resolved_at = NOW()
+      WHERE holder_kind = 'operation' AND resolved_at IS NULL AND holder_id = ANY($1::text[])`,
+    [operationIds.map(String)],
+  );
+}
+
+/**
  * The rollout rows in Postgres.
  *
  * Every write that acts on a rollout runs in a transaction that locks the
@@ -139,11 +171,12 @@ export class PostgresEngineConfigOperationRepository
       validateCapturedRecovery(recovery, request.version, versionsRoot);
       const previous = (await client.query<{ engine_config: string | null }>('SELECT engine_config FROM profiles WHERE name = $1', [locked.profile.name])).rows[0]!.engine_config;
       const attempt = await reserveRolloutDeploy(client, locked);
-      await client.query(
+      const superseded = await client.query<{ id: number }>(
         `UPDATE engine_config_operations SET state = 'superseded', finished_at = NOW(), message = $2
-          WHERE profile_instance_id = $1 AND state = ANY($3::text[])`,
+          WHERE profile_instance_id = $1 AND state = ANY($3::text[]) RETURNING id`,
         [locked.profile.instance_id, `Superseded by a new ${request.kind}.`, OPEN_OPERATION_STATES],
       );
+      await releaseEndedHolds(client, superseded.rows.map(row => row.id));
       const profile = (await client.query<Profile>(
         `UPDATE profiles SET status = 'DEPLOYING', deployment_phase = ${DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL},
             engine_config = $2, engine_config_error = NULL, engine_config_revision = engine_config_revision + 1,
@@ -339,12 +372,13 @@ export class PostgresEngineConfigOperationRepository
       if (!current || current.engine_config_revision !== input.expectedRevision) {
         return null;
       }
-      await client.query(
+      const replaced = await client.query<{ id: number }>(
         `UPDATE engine_config_operations
             SET state = 'superseded', finished_at = NOW(), message = $2
-          WHERE profile_instance_id = $1 AND state = ANY($3::text[])`,
+          WHERE profile_instance_id = $1 AND state = ANY($3::text[]) RETURNING id`,
         [current.instance_id, `Superseded by a new ${input.kind}.`, OPEN_OPERATION_STATES],
       );
+      await releaseEndedHolds(client, replaced.rows.map(row => row.id));
       const written = await client.query<Profile>(
         `UPDATE profiles
             SET engine_config = $2,
@@ -413,13 +447,14 @@ export class PostgresEngineConfigOperationRepository
         'SELECT name FROM profiles WHERE instance_id = $1 FOR UPDATE',
         [profileInstanceId],
       );
-      const closed = await client.query<{ profile_name: string }>(
+      const closed = await client.query<{ id: number; profile_name: string }>(
         `UPDATE engine_config_operations
             SET state = 'superseded', finished_at = NOW(), message = $2
           WHERE profile_instance_id = $1 AND state = ANY($3::text[])
-          RETURNING profile_name`,
+          RETURNING id, profile_name`,
         [profileInstanceId, message, OPEN_OPERATION_STATES],
       );
+      await releaseEndedHolds(client, closed.rows.map(row => row.id));
       if (closed.rowCount) {
         await client.query(
           `UPDATE profiles
@@ -468,6 +503,7 @@ export class PostgresEngineConfigOperationRepository
           closes(to),
         ],
       );
+      if (endsRecovery(to)) await releaseEndedHolds(client, [ownership.operationId]);
       await client.query(
         `UPDATE profiles
             SET engine_config_state = $2,

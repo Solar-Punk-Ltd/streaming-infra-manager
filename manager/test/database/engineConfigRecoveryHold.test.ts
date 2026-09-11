@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { PostgresEngineConfigOperationRepository } from '../../src/domain/engineConfig/PostgresEngineConfigOperationRepository.js';
+import { PostgresPortReservationRepository } from '../../src/domain/ports/PostgresPortReservationRepository.js';
 import { ownershipOf } from '../../src/domain/engineConfig/operations.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
@@ -180,8 +181,12 @@ describe('config rollout recovery representation and holds in PostgreSQL', { ski
     assert.equal(await profiles.engineConfigOf(initial.name), 'synthetic new config');
   });
 
-  for (const state of ['watching', 'reverting', 'interrupted', 'applied', 'reverted', 'failed', 'superseded'] as const) {
-    it(`does not infer safe hold release from the ${state} label alone`, async () => {
+  // Levi ruled on 2026-09-11: a rollout that has ended lets go of its hold,
+  // because nothing can revert from it any more. These three have not ended.
+  // `interrupted` is the one that matters: its recovery still deploys from the
+  // build the hold protects.
+  for (const state of ['watching', 'reverting', 'interrupted'] as const) {
+    it(`keeps the hold while a rollout is ${state}`, async () => {
       const result = (await operations.beginDeploy(await request()))!;
       assert.ok(await operations.transition(ownershipOf(result.operation), ['applying'], state));
       const hold = (await pool.query("SELECT * FROM build_references WHERE holder_kind = 'operation' AND holder_id = $1", [String(result.operation.id)])).rows[0];
@@ -189,6 +194,41 @@ describe('config rollout recovery representation and holds in PostgreSQL', { ski
       assert.equal(hold.resolved_at, null);
     });
   }
+
+  /**
+   * What leaving them cost, measured on 2026-09-11 against a real manager: one
+   * config file applied through the interface left a deployment that could not
+   * be removed at all, and no page offered a way to clear the hold.
+   */
+  for (const terminal of ['applied', 'reverted', 'failed', 'superseded'] as const) {
+    it(`releases the hold when a rollout ends ${terminal}`, async () => {
+      const reservations = new PostgresPortReservationRepository(pool);
+      const result = (await operations.beginDeploy(await request()))!;
+      assert.equal(await reservations.hasRemovalHold(initial.name), true, 'the open rollout holds its deployment');
+
+      assert.ok(await operations.transition(ownershipOf(result.operation), ['applying'], terminal));
+
+      const hold = (await pool.query('SELECT * FROM build_references WHERE id = $1', [result.operation.recoveryReferenceId])).rows[0];
+      assert.equal(hold.holder_id, String(result.operation.id), 'the resolved hold is the one this rollout took');
+      assert.notEqual(hold.resolved_at, null, 'the hold goes with the rollout that took it');
+      await pool.query("UPDATE deploy_attempts SET state = 'released', resolved_at = NOW() WHERE project = $1", [initial.name]);
+      assert.equal(await reservations.hasRemovalHold(initial.name), false, 'and the deployment can be removed');
+    });
+  }
+
+  it('releases the hold of a rollout a new one supersedes', async () => {
+    const first = (await operations.beginDeploy(await request()))!;
+    await pool.query("UPDATE profiles SET status = 'RUNNING' WHERE name = $1", [initial.name]);
+    await pool.query("UPDATE deploy_attempts SET state = 'released', resolved_at = NOW() WHERE project = $1", [initial.name]);
+    initial = (await profiles.findByName(initial.name))!;
+
+    const second = (await operations.beginDeploy(await request()))!;
+
+    const old = (await pool.query('SELECT * FROM build_references WHERE id = $1', [first.operation.recoveryReferenceId])).rows[0];
+    const current = (await pool.query('SELECT * FROM build_references WHERE id = $1', [second.operation.recoveryReferenceId])).rows[0];
+    assert.notEqual(old.resolved_at, null, 'the superseded rollout let go');
+    assert.equal(current.resolved_at, null, 'and the one that replaced it holds instead');
+  });
 
   for (const field of ['recovery_descriptor', 'recovery_reference_id']) {
     it(`keeps committed ${field} immutable through subsequent operation writes`, async () => {
