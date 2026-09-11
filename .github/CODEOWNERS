@@ -1,5 +1,5 @@
 # The files under .github define what a green pull request means. A change here
 # can make a branch report success while the checks it names no longer run, so
-# these paths need the repository owner's review even when the rest of the
-# pull request does not.
-/.github/ @LevilkTheReal
+# these paths need an owner's review even when the rest of the pull request
+# does not.
+/.github/ @LevilkTheReal @nandibaa
