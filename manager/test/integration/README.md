@@ -26,11 +26,11 @@ These are **not** unit tests. They start real containers through the deploy scri
    `WEB_PORT`. Set both target URL variables to that proxy URL when using it.
    Do not use the development API URL for an unpublished container port.
 
-2. A user to sign in as. The manager has no sign-up. Create one with the manager's CLI and keep the pair in 1Password (see [Authentication and public access](../../../docs/features/auth-and-public-access.md)). In the api container:
+2. A user to sign in as. The manager has no sign-up. The pair is in 1Password as `solarpunk-streaming-infra-manager-itest` in the SolarPunk vault, username `itest`, and the same password is the repository secret `ITEST_PASSWORD` the Docker-backed workflow signs in with (see [Authentication and public access](../../../docs/features/auth-and-public-access.md)). The user itself is per manager, so create it on whichever manager you are testing. In the api container:
 
    ```sh
    # from manager/, for the configured Docker stack
-   op read "op://<vault>/<item>/password" | docker compose -p streaming-infra-manager -f ./docker-compose.yml exec -T api node dist/cli.js user:add itest --password-stdin
+   op read "op://SolarPunk/solarpunk-streaming-infra-manager-itest/password" | docker compose -p streaming-infra-manager -f ./docker-compose.yml exec -T api node dist/cli.js user:add itest --password-stdin
    ```
 
    Against a manager started with `pnpm dev`, the same CLI runs from `manager/` as `pnpm exec tsx --conditions=development src/cli.ts user:add itest --password-stdin`.
@@ -45,7 +45,7 @@ These are **not** unit tests. They start real containers through the deploy scri
    | `MANAGER_TEST_PASSWORD` | Its password, as an `op://` reference. |
    | `MANAGER_TEST_RUN` | Optional, one to eight lowercase letters or digits. Gives every suite file the same run id. Without it each file is a run of its own, which is fine. |
 
-   Copy `env.example` to `env.itest` in this directory, which git ignores, and fill in the vault references.
+   Copy `env.example` to `env.itest` in this directory, which git ignores. It already names the vault item, so nothing in it needs filling in.
 
 ## Run
 
