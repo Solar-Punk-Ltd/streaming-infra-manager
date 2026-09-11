@@ -533,3 +533,25 @@ bash manager/test/docker/shared-image-race.sh
 The deployment integration suite needs a running manager, a user and the
 environment `op run --env-file` fills. See
 [manager/test/integration/README.md](../manager/test/integration/README.md).
+
+### A failure only the runner sees
+
+This laptop is not the machine the browser job runs on, and three races reached
+`main-v2` that only a runner could show, each costing a push to see and another
+to test a guess at. The fourth was caught here instead:
+
+```sh
+sh frontend/test/docker/browser-on-two-cores.sh pool-draft-browser.test.mjs
+```
+
+Two pinned cores, 7 GB and the same Chrome major as the runner, with the
+checkout copied in read-only. Pass a suite file to run one, nothing to run them
+all. It reproduced that failure at about one run in three and then passed six
+times with the fix, which is the shape of evidence worth pushing on.
+
+Two things about it. Pinning cores rather than granting core-time is the whole
+trick, because Vite and esbuild start a worker per core the kernel reports, so
+a time quota alone makes a machine much harsher than the runner and fails
+suites the runner passes. And the connected transfer suite is not served a
+PostgreSQL there, so it skips and the runner refuses it; that one refusal is
+expected and means nothing.
