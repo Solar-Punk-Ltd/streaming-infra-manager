@@ -34,10 +34,10 @@ export function currentExecutionOf(
 /**
  * The copies this deployment no longer wants, oldest last.
  *
- * D11: the current copy and the one before it stay, so a deploy that fails
- * leaves the tree that last worked in place. `keepPrevious` is true while a
- * deploy is in flight and false once one has succeeded, which is the moment
- * the previous copy stops being worth keeping.
+ * D11 in one number. `keep` is 2 while a deploy is in flight, the current copy
+ * and the one before it, so a deploy that fails leaves the tree that last
+ * worked in place. It is 1 once a deploy has succeeded, which is when the
+ * previous copy stops being worth keeping, and 0 once the deployment is gone.
  *
  * Copies of an earlier instance of the same name are offered too, because a
  * removed deployment's copies belong to nobody. Every offer is only an offer.
@@ -48,7 +48,7 @@ export function currentExecutionOf(
  */
 export function executionsToRetire(
   records: readonly ExecutionRootRecord[],
-  input: { profileName: string; keepPrevious: boolean },
+  input: { profileName: string; keep: number },
 ): ExecutionRootRecord[] {
-  return launchedFor(records, input.profileName).slice(input.keepPrevious ? 2 : 1);
+  return launchedFor(records, input.profileName).slice(Math.max(0, input.keep));
 }

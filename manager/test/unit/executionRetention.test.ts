@@ -52,22 +52,31 @@ const idsOf = (records: readonly ExecutionRootRecord[]) => records.map(record =>
 
 describe('which copies a deployment retires', () => {
   it('offers none when it has no copies at all', () => {
-    assert.deepEqual(executionsToRetire([], { profileName: 'stage', keepPrevious: true }), []);
-    assert.deepEqual(executionsToRetire([], { profileName: 'stage', keepPrevious: false }), []);
+    for (const keep of [2, 1, 0]) assert.deepEqual(executionsToRetire([], { profileName: 'stage', keep }), []);
   });
 
   it('never offers the copy it is running from', () => {
     const only = copy({ minute: 1 });
-    assert.deepEqual(executionsToRetire([only], { profileName: 'stage', keepPrevious: true }), []);
-    assert.deepEqual(executionsToRetire([only], { profileName: 'stage', keepPrevious: false }), []);
+    assert.deepEqual(executionsToRetire([only], { profileName: 'stage', keep: 2 }), []);
+    assert.deepEqual(executionsToRetire([only], { profileName: 'stage', keep: 1 }), []);
   });
 
   it('keeps the one previous copy while a deploy is in flight, and takes it once one succeeds', () => {
     const previous = copy({ minute: 1 });
     const current = copy({ minute: 2 });
 
-    assert.deepEqual(executionsToRetire([previous, current], { profileName: 'stage', keepPrevious: true }), []);
-    assert.deepEqual(idsOf(executionsToRetire([previous, current], { profileName: 'stage', keepPrevious: false })), [previous.executionId]);
+    assert.deepEqual(executionsToRetire([previous, current], { profileName: 'stage', keep: 2 }), []);
+    assert.deepEqual(idsOf(executionsToRetire([previous, current], { profileName: 'stage', keep: 1 })), [previous.executionId]);
+  });
+
+  it('offers every copy of a deployment that is gone, the last one included', () => {
+    const previous = copy({ minute: 1 });
+    const last = copy({ minute: 2 });
+
+    assert.deepEqual(
+      idsOf(executionsToRetire([previous, last], { profileName: 'stage', keep: 0 })),
+      [last.executionId, previous.executionId],
+    );
   });
 
   it('offers everything older than the previous one, so repeated failures do not grow the disk', () => {
@@ -77,9 +86,9 @@ describe('which copies a deployment retires', () => {
     const current = copy({ minute: 4 });
     const records = [current, oldest, previous, older];
 
-    assert.deepEqual(idsOf(executionsToRetire(records, { profileName: 'stage', keepPrevious: true })), [older.executionId, oldest.executionId]);
+    assert.deepEqual(idsOf(executionsToRetire(records, { profileName: 'stage', keep: 2 })), [older.executionId, oldest.executionId]);
     assert.deepEqual(
-      idsOf(executionsToRetire(records, { profileName: 'stage', keepPrevious: false })),
+      idsOf(executionsToRetire(records, { profileName: 'stage', keep: 1 })),
       [previous.executionId, older.executionId, oldest.executionId],
     );
   });
@@ -95,8 +104,8 @@ describe('which copies a deployment retires', () => {
       copy({ minute: 6, state: 'released' }),
     ];
 
-    assert.deepEqual(executionsToRetire(records, { profileName: 'stage', keepPrevious: false }), []);
-    assert.deepEqual(idsOf(executionsToRetire([...records, copy({ minute: 7 })], { profileName: 'stage', keepPrevious: false })), [launched.executionId]);
+    assert.deepEqual(executionsToRetire(records, { profileName: 'stage', keep: 1 }), []);
+    assert.deepEqual(idsOf(executionsToRetire([...records, copy({ minute: 7 })], { profileName: 'stage', keep: 1 })), [launched.executionId]);
   });
 
   it('never offers another deployment its copies', () => {
@@ -104,22 +113,22 @@ describe('which copies a deployment retires', () => {
     const current = copy({ minute: 2 });
     const theirs = copy({ minute: 3, name: 'other' });
 
-    assert.deepEqual(idsOf(executionsToRetire([mine, current, theirs], { profileName: 'stage', keepPrevious: false })), [mine.executionId]);
+    assert.deepEqual(idsOf(executionsToRetire([mine, current, theirs], { profileName: 'stage', keep: 1 })), [mine.executionId]);
   });
 
   it('offers a copy left by an earlier instance of the same name, which no longer exists', () => {
     const beforeRemoval = copy({ minute: 1, instanceId: randomUUID() });
     const current = copy({ minute: 2 });
 
-    assert.deepEqual(idsOf(executionsToRetire([beforeRemoval, current], { profileName: 'stage', keepPrevious: false })), [beforeRemoval.executionId]);
+    assert.deepEqual(idsOf(executionsToRetire([beforeRemoval, current], { profileName: 'stage', keep: 1 })), [beforeRemoval.executionId]);
   });
 
   it('breaks a tie on the same timestamp by identity, so two runs agree', () => {
     const first = copy({ minute: 1, executionId: '11111111-1111-1111-1111-111111111111' });
     const second = copy({ minute: 1, executionId: '22222222-2222-2222-2222-222222222222' });
 
-    assert.deepEqual(idsOf(executionsToRetire([first, second], { profileName: 'stage', keepPrevious: false })), [first.executionId]);
-    assert.deepEqual(idsOf(executionsToRetire([second, first], { profileName: 'stage', keepPrevious: false })), [first.executionId]);
+    assert.deepEqual(idsOf(executionsToRetire([first, second], { profileName: 'stage', keep: 1 })), [first.executionId]);
+    assert.deepEqual(idsOf(executionsToRetire([second, first], { profileName: 'stage', keep: 1 })), [first.executionId]);
   });
 });
 
