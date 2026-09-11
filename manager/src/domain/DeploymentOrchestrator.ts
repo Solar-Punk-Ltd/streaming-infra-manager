@@ -70,6 +70,7 @@ import {
   type StackPaths,
   stackPathsForRoot,
 } from './versions/stackPaths.js';
+import type { ExecutionRoots, PreparedExecution } from './versions/ExecutionRootService.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
 import { versionSuppliedSecrets } from './versions/versionSuppliedSecrets.js';
 import type {
@@ -159,6 +160,12 @@ interface JobConfig {
 
   beforeRun?: () => Promise<void>;
 
+  /**
+   * The last thing before the spawn, and the only place a launch is recorded.
+   * A step that throws leaves nothing started.
+   */
+  beforeLaunch?: () => Promise<void>;
+
   onLaunch?: () => void;
 
   onSuccess: (attempt: DeployAttempt | null) => Promise<void>;
@@ -240,6 +247,7 @@ export class DeploymentOrchestrator {
     private readonly ports?: PortReservationRepository,
     private readonly portObserver?: PublishedPortsProbe,
     private readonly inventoryTargets?: DeployTargets,
+    private readonly executions?: ExecutionRoots,
   ) {}
 
   /**
@@ -335,6 +343,22 @@ export class DeploymentOrchestrator {
    */
   private async pathsFor(profile: Profile): Promise<StackPaths> {
     return stackPaths((await this.versionFor(profile)) ?? { rootPath: null });
+  }
+
+  /**
+   * The tree this deployment's scripts run in right now: its own copy of the
+   * build once a deploy has made one, and the version's tree when it has none.
+   *
+   * Stop, health and remove have to agree with the deploy about this. The
+   * compose files, the scripts and the deployment's own env file are all in
+   * the copy, so a stop run from the version's tree would be stopping from a
+   * checkout that never started anything. A deployment made before copies
+   * existed, or one on a version that keeps no immutable builds, has none and
+   * runs where it always did.
+   */
+  private async currentPathsFor(profile: Profile): Promise<StackPaths> {
+    const root = await this.executions?.currentRootFor({ name: profile.name, instanceId: profile.instance_id });
+    return root ? stackPathsForRoot(root) : this.pathsFor(profile);
   }
 
   /**
@@ -701,6 +725,19 @@ export class DeploymentOrchestrator {
     }
   }
 
+  /**
+   * A copy whose deploy never spawned anything. A tree left behind is a
+   * nuisance and a failed removal is not a second failure, so this says so and
+   * lets the boot sweep have another go.
+   */
+  private async retireQuietly(execution: PreparedExecution): Promise<void> {
+    try {
+      await this.executions?.retireUnstarted(execution.executionId);
+    } catch (err) {
+      logger.warn(`[Orchestrator] execution copy ${execution.executionId} was not removed: ${getErrorMessage(err)}`);
+    }
+  }
+
   private async startReservedJob(
     reservation: CapturedDeployReservation,
     profile: Profile,
@@ -737,84 +774,118 @@ export class DeploymentOrchestrator {
     // again: a deploy that selected build A must not read version B.
     const build = reservation.build;
     const version = build.version;
-    const paths = stackPathsForRoot(build.root);
 
     // An empty service filter would make deploy.sh deploy every configured service.
     if (reservation.services.length === 0) {
-      return this.completeWithoutScript(profile, paths, build.referenceId);
+      return this.completeWithoutScript(profile, stackPathsForRoot(build.root), build.referenceId);
     }
-    await this.ensureStackDefaults(paths);
 
-    // .env.<profile> carries the per-profile keys deploy.sh reads from its env
-    // file: ENGINE selects the uploader's engine plugin (and OME ports when
-    // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
-    const engine = engineForComponents(profile.components);
-    const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
-    const written = writeProfileEnv(paths.root, profile.name, {
-      engine,
-      stampId: profile.stamp_id,
-      beePublishers: profile.bee_publishers,
-      beeUrl: profile.bee_url,
-      srtPassphrase: profile.srt_passphrase,
-      streamKey: profile.private_key,
-      engineSettings: profile.engine_settings,
-      stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
-      stackEngineDefaults: version?.contract?.engineDefaults,
-      engineConfigFile,
-      // From the profile's own components, deliberately not from the reserved
-      // services: a held-back uploader is deployed on its own, and deploy.sh
-      // must still resolve the local Bee address for it.
-      localBeeUploader: ownsBeeNode(profile),
-      ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
-    });
-    logger.info(
-      `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
-    );
+    // Everything after this writes into the tree it names: the bootstrapped
+    // defaults, this deployment's own env file, and the per-deployment files
+    // the stack's scripts add. They go into a copy of the build rather than
+    // into the build, which is what keeps an artifact the bytes it was
+    // published as and keeps two deployments of one build out of each other's
+    // files.
+    const owner = reservation.claimedProfile ?? profile;
+    const execution = build.referenceId === null ? null : await this.executions?.prepare({
+      // DEPLOYING, and not the status this profile object carries: the claim
+      // put the row there, and a caller may hold the row as it was before.
+      profile: { name: owner.name, instanceId: owner.instance_id, intentRevision: owner.intent_revision, status: REDEPLOY_STATUS },
+      build: { versionId: version.id, buildId: build.buildId, root: build.root, layout: version.layout },
+      jobReferenceId: build.referenceId,
+      target: { alias: targetAlias(reservation.host ?? profile.host), daemonId },
+      services: reservation.services,
+    }) ?? null;
+    const paths = stackPathsForRoot(execution?.root ?? build.root);
+    try {
+      await this.ensureStackDefaults(paths);
 
-    const services = [...reservation.services];
-    return this.runJob({
-      profileName: profile.name,
-      target: targetAlias(reservation.host ?? profile.host),
-      reservedDaemonId: daemonId,
-      deployFailure: failure,
-      onLaunch,
-      paths,
-      script: paths.deploy,
-      args: this.buildScriptArgs(profile, services, reservation.host),
-      guard: { kind: this.attemptKindOf(version), services },
-      reservedAttempt: reservation.attempt,
-      onSuccess: async (attempt) => {
-        await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
-        await this.observeMounts(profile, services);
-        if (attempt && this.ports && this.portObserver) {
-          const claimed = await this.profiles.findByName(profile.name);
-          if (claimed) {
-            try {
-              await new PortHandover(this.ports, this.portObserver, this.daemon).reconcile(claimed, build, attempt);
-            } catch (err) {
-              logger.warn(`[Orchestrator] port handover for ${profile.name} could not be verified: ${getErrorMessage(err)}. Reservations were retained.`);
+      // .env.<profile> carries the per-profile keys deploy.sh reads from its env
+      // file: ENGINE selects the uploader's engine plugin (and OME ports when
+      // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
+      const engine = engineForComponents(profile.components);
+      const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
+      const written = writeProfileEnv(paths.root, profile.name, {
+        engine,
+        stampId: profile.stamp_id,
+        beePublishers: profile.bee_publishers,
+        beeUrl: profile.bee_url,
+        srtPassphrase: profile.srt_passphrase,
+        streamKey: profile.private_key,
+        engineSettings: profile.engine_settings,
+        stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
+        stackEngineDefaults: version?.contract?.engineDefaults,
+        engineConfigFile,
+        // From the profile's own components, deliberately not from the reserved
+        // services: a held-back uploader is deployed on its own, and deploy.sh
+        // must still resolve the local Bee address for it.
+        localBeeUploader: ownsBeeNode(profile),
+        ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
+      });
+      logger.info(
+        `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
+      );
+
+      const services = [...reservation.services];
+        return await this.runJob({
+        profileName: profile.name,
+        target: targetAlias(reservation.host ?? profile.host),
+        reservedDaemonId: daemonId,
+        deployFailure: failure,
+        onLaunch,
+        paths,
+        script: paths.deploy,
+        args: this.buildScriptArgs(profile, services, reservation.host),
+        guard: { kind: this.attemptKindOf(version), services },
+        reservedAttempt: reservation.attempt,
+        beforeLaunch: execution && this.executions
+          ? async () => {
+            await this.executions!.claimLaunch(execution.executionId);
+            await this.executions!.retireSuperseded(profile.name, { keep: 2 });
+          }
+          : undefined,
+        onSuccess: async (attempt) => {
+          await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
+          await this.observeMounts(profile, services);
+          if (attempt && this.ports && this.portObserver) {
+            const claimed = await this.profiles.findByName(profile.name);
+            if (claimed) {
+              try {
+                await new PortHandover(this.ports, this.portObserver, this.daemon).reconcile(claimed, build, attempt);
+              } catch (err) {
+                logger.warn(`[Orchestrator] port handover for ${profile.name} could not be verified: ${getErrorMessage(err)}. Reservations were retained.`);
+              }
             }
           }
-        }
-        await removeStaleEngineConfigs(
-          engineConfigDirFor(profile.name),
-          engine,
-          engineConfigFile === null ? null : basename(engineConfigFile),
-        );
-        // Last, because RUNNING is what tells everyone the deploy is over.
-        const updated = await this.profiles.markTerminal(
-          profile.name,
-          'RUNNING',
-        );
-        if (updated) {
-          await this.publishChanged(updated);
-        }
-        await runHook('after it came up', () => hooks.afterRunning?.());
-      },
-      onFailure: hooks.afterFailure
-        ? (message) => runHook('after it failed', () => hooks.afterFailure?.(message))
-        : undefined,
-    });
+          await removeStaleEngineConfigs(
+            engineConfigDirFor(profile.name),
+            engine,
+            engineConfigFile === null ? null : basename(engineConfigFile),
+          );
+          // Last, because RUNNING is what tells everyone the deploy is over.
+          const updated = await this.profiles.markTerminal(
+            profile.name,
+            'RUNNING',
+          );
+          if (updated) {
+            await this.publishChanged(updated);
+          }
+          // The deploy is over, so the copy it replaced has done its job. D11
+          // keeps one previous copy until a deploy comes up, and this is that.
+          await this.executions?.retireSuperseded(profile.name, { keep: 1 });
+          await runHook('after it came up', () => hooks.afterRunning?.());
+        },
+        onFailure: hooks.afterFailure
+          ? (message) => runHook('after it failed', () => hooks.afterFailure?.(message))
+          : undefined,
+      });
+    } catch (err) {
+      // A copy nothing ran from goes with the job it was made for.
+      // `retireUnstarted` matches only a copy still waiting to launch, so one
+      // the job may already have spawned under is left exactly as it is.
+      if (execution) await this.retireQuietly(execution);
+      throw err;
+    }
   }
 
   private async completeWithoutScript(profile: Profile, paths: StackPaths, referenceId: number | null): Promise<RunHandle> {
@@ -836,7 +907,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     services: string[] | undefined,
   ): Promise<RunHandle> {
-    const paths = await this.pathsFor(profile);
+    const paths = await this.currentPathsFor(profile);
     return this.runJob({
       profileName: profile.name,
       target: targetAlias(profile.host),
@@ -883,7 +954,7 @@ export class DeploymentOrchestrator {
     try {
       await this.publishChanged(claimed);
       await this.operations.supersedeOpen(claimed.instance_id, 'The deployment was removed.');
-      const paths = await this.pathsFor(claimed);
+      const paths = await this.currentPathsFor(claimed);
       const args = [`--profile=${claimed.name}`, `--host=${targetAlias(claimed.host)}`, `--portSlot=${claimed.port_slot}`, '--yes', '--volumes'];
       if (input.all) args.push('--all');
       const handle = await this.runJob({
@@ -901,6 +972,8 @@ export class DeploymentOrchestrator {
             deleteProfileEnv(paths.root, claimed.name);
           });
           if (!removed) return;
+          // Nothing runs from them any more and no profile row claims them.
+          await this.executions?.retireSuperseded(claimed.name, { keep: 0 });
           this.eventBus.publish({ type: 'profile.deleted', name: claimed.name });
           logger.info(`[Orchestrator] Removed profile ${claimed.name} (released slot ${removed.port_slot})`);
           await this.cleanupGroup(claimed.group_id);
@@ -966,7 +1039,7 @@ export class DeploymentOrchestrator {
   }
 
   async startHealth(profile: Profile): Promise<RunHandle> {
-    const paths = await this.pathsFor(profile);
+    const paths = await this.currentPathsFor(profile);
     await this.ensureStackDefaults(paths);
     return this.runner.run(paths.health, this.buildScriptArgs(profile, []), {
       cwd: paths.root,
@@ -1041,6 +1114,7 @@ export class DeploymentOrchestrator {
       `[Orchestrator] ${cfg.profileName} running: bash ${cfg.script} ${describeArgsForLog(cfg.args)}`,
     );
 
+    await cfg.beforeLaunch?.();
     cfg.onLaunch?.();
     const handle = this.runner.run(cfg.script, cfg.args, {
       cwd: cfg.paths.root,
