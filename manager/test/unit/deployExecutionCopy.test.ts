@@ -155,6 +155,10 @@ describe('the copies a deployment keeps', () => {
     await deploy(harness, row);
     await deploy(harness, row);
 
+    // Retiring happens after the deploy is RUNNING and is not awaited by it,
+    // so this waits for the state it is about rather than for the machine.
+    await until(() => store.records.filter(record => record.state !== 'released').length === 1,
+      'the copies this deploy replaced were never retired');
     const live = store.records.filter(record => record.state !== 'released');
     assert.equal(live.length, 1, 'a deploy that came up leaves only the copy it runs from');
     assert.equal(live[0]!.executionId, store.records[store.records.length - 1]!.executionId);
@@ -169,6 +173,8 @@ describe('the copies a deployment keeps', () => {
     harness.daemon.containers.delete('stage');
     harness.runner.finish(harness.runner.runs.length - 1);
     await until(() => !harness.profiles.rows.has('stage'), 'stage was never removed');
+    await until(() => store.records.every(record => record.state === 'released'),
+      'the copy of a removed deployment was never released');
 
     assert.deepEqual(store.records.map(record => record.state), ['released']);
     assert.deepEqual(await readdir(executionsRootFor(versionsRoot)), []);
