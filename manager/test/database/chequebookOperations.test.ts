@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import http from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import express from 'express';
 import { REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME } from '@streaming-infra-manager/common';
@@ -865,6 +866,10 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     const submitted = await submittedOperation();
     const first = await repository.recordReceipt(submitted, { kind: 'pending', reason: 'awaiting_receipt' });
     assert.equal(first.revision, String(BigInt(submitted.revision) + 1n));
+    // The column keeps microseconds and the driver hands over a Date, so two
+    // checks inside one millisecond come back as the same instant and the
+    // assertion below cannot tell a recorded check from a skipped one.
+    await delay(2);
     const second = await repository.recordReceipt(first, { kind: 'pending', reason: 'awaiting_receipt' });
     assert.equal(second.revision, first.revision, 'an unchanged observation leaves the revision where it was');
     assert.equal(second.updatedAt, first.updatedAt, 'and leaves the record update time alone');
