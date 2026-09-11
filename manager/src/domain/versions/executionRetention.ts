@@ -40,9 +40,11 @@ export function currentExecutionOf(
  * the previous copy stops being worth keeping.
  *
  * Copies of an earlier instance of the same name are offered too, because a
- * removed deployment's copies belong to nobody. Every offer is only an offer:
- * the row's own job must have finished, and the database refuses the ones
- * whose have not.
+ * removed deployment's copies belong to nobody. Every offer is only an offer.
+ * The database refuses one whose job has not finished, and refuses the newest
+ * copy by its own ordering, which is what makes an offer safe even where this
+ * ordering and the database's disagree: a timestamp read into JavaScript keeps
+ * milliseconds where the column keeps microseconds.
  */
 export function executionsToRetire(
   records: readonly ExecutionRootRecord[],

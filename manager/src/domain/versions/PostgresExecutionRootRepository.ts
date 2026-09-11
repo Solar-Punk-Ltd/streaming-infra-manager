@@ -105,6 +105,64 @@ export class PostgresExecutionRootRepository {
     return result.rows[0] ? toRecord(result.rows[0]) : null;
   }
 
+  /**
+   * Claims a copy a restart interrupted while it was being written.
+   *
+   * Boot only, and safe only there: a copy may hold an exclusive token that no
+   * process holds any more, and nothing can have run from it, because no
+   * script runs until a copy is ready. The same reasoning as the interrupted
+   * build attempts and builds the boot already reclaims.
+   */
+  async claimInterruptedCopyCleanup(id: string): Promise<ExecutionRootRecord | null> {
+    assertExecutionId(id);
+    const result = await this.pool.query<ExecutionRow>(
+      "UPDATE execution_roots SET state = 'deleting' WHERE execution_id = $1 AND state = 'copying' RETURNING *", [id],
+    );
+    return result.rows[0] ? toRecord(result.rows[0]) : null;
+  }
+
+  /**
+   * Claims a launched copy its deployment has moved on from.
+   *
+   * This is the only way out of `launch-uncertain`, and the authority is here
+   * rather than in the caller: the copy's own job must have finished, and the
+   * deployment must have moved on, which is a newer launched copy, a profile
+   * that is gone, or one whose instance is not this copy's. Anything else
+   * keeps the copy and keeps its hold on the build, which is the safe side.
+   *
+   * The target daemon is deliberately not consulted. Removing a copy is local
+   * filesystem work, and a target that cannot be reached must not be what
+   * leaves a deployment's old trees on the disk for good.
+   */
+  async claimRetiredCleanup(id: string): Promise<ExecutionRootRecord | null> {
+    assertExecutionId(id);
+    const snapshot = await this.find(id);
+    if (!snapshot || snapshot.state !== 'launch-uncertain') return null;
+    return this.transaction(async client => {
+      // The shared order: the profile, then the references, then the execution row.
+      const profile = (await client.query<{ instance_id: string }>(
+        'SELECT instance_id FROM profiles WHERE name = $1 FOR SHARE', [snapshot.profile.name],
+      )).rows[0];
+      const job = (await client.query<{ resolved_at: Date | null }>(
+        'SELECT resolved_at FROM build_references WHERE id = $1 FOR SHARE', [snapshot.jobReferenceId],
+      )).rows[0];
+      const record = await this.readLocked(client, id);
+      if (!record || record.state !== 'launch-uncertain' || job?.resolved_at === null) return null;
+      // The comparison stays inside the database on purpose. A timestamp read
+      // into JavaScript keeps milliseconds and the column keeps microseconds,
+      // so a row sent back as a parameter compares as newer than itself.
+      const replaced = (await client.query(
+        `SELECT 1 FROM execution_roots newer, execution_roots current
+          WHERE current.execution_id = $1 AND newer.profile_name = current.profile_name
+            AND newer.state = 'launch-uncertain'
+            AND (newer.created_at, newer.execution_id) > (current.created_at, current.execution_id)`,
+        [record.executionId],
+      )).rowCount;
+      if (!replaced && profile?.instance_id === record.profile.instanceId) return null;
+      return this.updateState(client, record, 'deleting', record.copyToken);
+    });
+  }
+
   async completeCleanup(id: string, removeOwnedRoot: (record: ExecutionRootRecord) => Promise<void>): Promise<ExecutionRootRecord> {
     assertExecutionId(id);
     return this.transaction(async client => {
