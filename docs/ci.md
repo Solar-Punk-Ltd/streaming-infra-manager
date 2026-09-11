@@ -287,6 +287,23 @@ each shows by name in the run.
 first run is Levi's, and it is the check of the workflow itself: paths,
 timings and image pulls may need a fix.
 
+**It could not have run before 2026-09-11.** From the day the file was written
+it set two of the integration job's paths from `${{ runner.temp }}` in a
+job-level `env:` block. The runner context does not exist there, only inside a
+step, and GitHub rejects a workflow that reads it whole rather than at the job
+that does it. Every push therefore produced a red run named by the file path
+instead of by the workflow name, and a manual dispatch would have refused to
+start. The two paths are now written to `$GITHUB_ENV` from a step. A rejected
+file announces itself the same way every time, so after any edit under
+`.github/workflows` one command is the check:
+
+```sh
+gh run list --limit 5
+```
+
+A run whose workflow column reads `.github/workflows/<file>` rather than the
+workflow's own name is a rejected file, whatever its title says.
+
 Three of the four jobs check out the stack submodule with the default token.
 That works because `Solar-Punk-Ltd/swarm-hls-stream` is public, recorded under
 D12. If it is ever made private, give the job a deploy key for that repository
