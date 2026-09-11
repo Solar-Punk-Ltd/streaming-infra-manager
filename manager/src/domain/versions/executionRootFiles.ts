@@ -67,3 +67,27 @@ export async function copyExecutionRoot(
     throw error;
   }
 }
+
+/**
+ * Removes one copy and the ownership files beside it, and nothing else.
+ *
+ * The directory is never taken from the record: it is rebuilt from the
+ * configured parent and the execution's own UUID, so a record that names any
+ * other path is refused rather than followed. `owner.json` is the second
+ * reading of the same question. A copy that never finished has none, and one
+ * that cannot be read says nothing either way, so both remove. Only a file
+ * that parses and names a different execution refuses, because that directory
+ * is somebody else's.
+ */
+export async function removeExecutionRoot(input: ExecutionRootRecord, executionsParent: string): Promise<void> {
+  const record = structuredClone(input);
+  assertExecutionRegistration(record);
+  const root = executionRootPath(executionsParent, record.executionId);
+  if (record.root !== root) throw new Error('Execution root differs from its configured UUID path.');
+  const ownerRoot = dirname(root);
+  const owned = await readOwnedFile(ownerRoot, 'owner.json')
+    .then(bytes => (JSON.parse(bytes.toString('utf8')) as { executionId?: unknown }).executionId)
+    .catch(() => undefined);
+  if (owned !== undefined && owned !== record.executionId) throw new Error('The owner file names another execution.');
+  await rm(ownerRoot, { recursive: true, force: true });
+}

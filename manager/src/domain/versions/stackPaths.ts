@@ -167,6 +167,23 @@ export function configRootFor(versionsRoot: string, name: string): string {
   return versionRootFor(versionsRoot, name);
 }
 
+const EXECUTIONS_DIR = '.executions';
+
+/**
+ * The parent of every deployment's private execution copy, one directory per
+ * execution under it.
+ *
+ * Under the versions root on purpose, and not beside it: that root is
+ * bind-mounted into the api container at the same absolute path it has on the
+ * host, which is what lets a compose file inside a copy resolve its own
+ * relative volumes. A version name cannot contain a dot (migration 010), so
+ * this name cannot be a version's, and the boot scan of interrupted attempts
+ * only walks the build directories.
+ */
+export function executionsRootFor(versionsRoot: string): string {
+  return join(versionsRoot, EXECUTIONS_DIR);
+}
+
 const MANAGER_UPGRADE_GUARD_DIR = '.manager-upgrade';
 
 /**
