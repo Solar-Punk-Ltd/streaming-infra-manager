@@ -121,6 +121,7 @@ echo "==> rsync → ${SSH_TARGET}:${REMOTE_PATH} (manager/swarm-hls-stream left 
 rsync -avz --delete \
     --exclude '.git/' \
     --exclude 'node_modules/' \
+    --exclude '.scratch/' \
     --exclude 'manager/swarm-hls-stream/' \
     --exclude '**/dist/.tsbuildinfo' \
     --exclude '*.tsbuildinfo' \

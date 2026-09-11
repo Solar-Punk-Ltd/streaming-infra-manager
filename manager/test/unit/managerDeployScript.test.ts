@@ -37,6 +37,17 @@ describe('deploy/deploy.sh', () => {
     assert.match(repo, /--exclude 'manager\/swarm-hls-stream\/'/);
   });
 
+  /**
+   * Measured on 2026-09-11: one deploy carried 1504 files of session scratch to
+   * the public host, nearly half of everything it sent. The directory is
+   * ignored by git, so it is by definition not part of what a host runs.
+   */
+  it('leaves the working notes of whoever deployed on the machine they wrote them on', () => {
+    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${REMOTE_PATH}/"'));
+    assert.ok(repo, 'the rsync into the repository');
+    assert.match(repo, /--exclude '\.scratch\/'/);
+  });
+
   it('has nothing left of the staging tree the api used to publish at boot', () => {
     assert.equal(script.includes('bundled.incoming'), false);
   });
