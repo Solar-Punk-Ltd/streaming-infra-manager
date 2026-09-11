@@ -323,4 +323,90 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
     assert.equal(existsSync(buildDirFor(root, 'bundled', A)), false);
     assert.deepEqual(await counts(), { roots: 0, holds: 0 });
   });
+
+  /**
+   * Retirement, which is what lets a launched copy ever be deleted. Before
+   * this the state had no way out, so every deploy pinned its build for good.
+   */
+  async function launched(input = proposal()) {
+    const record = await ready(input);
+    return (await repository.claimLaunch(record.executionId))!;
+  }
+  /** The next deploy of the same deployment: the old job finishes, a new one takes the profile. */
+  async function nextDeployJob(): Promise<number> {
+    await pool.query('UPDATE build_references SET resolved_at = NOW() WHERE id = $1 AND resolved_at IS NULL', [jobReferenceId]);
+    jobReferenceId = (await pool.query<{ id: number }>(
+      "INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision) VALUES ($1, $2, 'job', 'owned', ARRAY['srs'], $3, 3) RETURNING id",
+      [versionId, A, instanceId],
+    )).rows[0]!.id;
+    await pool.query("UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = 'owned'", [jobReferenceId]);
+    return jobReferenceId;
+  }
+
+  it('keeps a replaced copy while its own job is still running', async () => {
+    const replaced = await launched();
+    jobReferenceId = (await pool.query<{ id: number }>(
+      "INSERT INTO build_references (version_id, build_id, holder_kind, holder_id, services, profile_instance_id, intent_revision) VALUES ($1, $2, 'job', 'owned', ARRAY['srs'], $3, 3) RETURNING id",
+      [versionId, A, instanceId],
+    )).rows[0]!.id;
+    await pool.query("UPDATE profiles SET deploy_job_reference_id = $1 WHERE name = 'owned'", [jobReferenceId]);
+    await launched();
+
+    assert.equal(await repository.claimRetiredCleanup(replaced.executionId), null);
+    assert.equal((await repository.find(replaced.executionId))!.state, 'launch-uncertain');
+  });
+
+  it('keeps the copy a deployment is still running from, however old its job is', async () => {
+    const only = await launched();
+    await pool.query('UPDATE build_references SET resolved_at = NOW() WHERE id = $1', [only.jobReferenceId]);
+
+    assert.equal(await repository.claimRetiredCleanup(only.executionId), null);
+    assert.equal((await repository.find(only.executionId))!.state, 'launch-uncertain');
+  });
+
+  it('retires a replaced copy once its job has finished, and releases the build it held', async () => {
+    const replaced = await launched();
+    await nextDeployJob();
+    const current = await launched();
+
+    const claimed = await repository.claimRetiredCleanup(replaced.executionId);
+    assert.equal(claimed?.state, 'deleting');
+    let removed: string | null = null;
+    const released = await repository.completeCleanup(replaced.executionId, async record => { removed = record.root; });
+    assert.equal(removed, replaced.root);
+    assert.equal(released.state, 'released');
+    assert.deepEqual(await counts(), { roots: 2, holds: 2 });
+    const holds = (await ledger.openReferences(versionId)).filter(row => row.holderKind === 'execution');
+    assert.deepEqual(holds.map(row => row.holderId), [current.executionId], 'only the current copy still holds its build');
+  });
+
+  it('retires the copies of a deployment that was removed', async () => {
+    const orphan = await launched();
+    await pool.query('UPDATE build_references SET resolved_at = NOW() WHERE id = $1', [orphan.jobReferenceId]);
+    await pool.query("DELETE FROM profiles WHERE name = 'owned'");
+
+    assert.equal((await repository.claimRetiredCleanup(orphan.executionId))?.state, 'deleting');
+  });
+
+  it('retires a copy left by an earlier instance of the same name', async () => {
+    const beforeRecreation = await launched();
+    await pool.query('UPDATE build_references SET resolved_at = NOW() WHERE id = $1', [beforeRecreation.jobReferenceId]);
+    await pool.query("UPDATE profiles SET instance_id = $1, deploy_job_reference_id = NULL WHERE name = 'owned'", [randomUUID()]);
+
+    assert.equal((await repository.claimRetiredCleanup(beforeRecreation.executionId))?.state, 'deleting');
+  });
+
+  it('retires a copy a restart interrupted mid-copy, and refuses any other state', async () => {
+    const registered = await repository.register(proposal());
+    assert.equal(await repository.claimInterruptedCopyCleanup(registered.executionId), null, 'a registration made no files to remove yet');
+
+    const copying = (await repository.beginCopy(registered.executionId))!;
+    assert.equal(copying.state, 'copying');
+    assert.equal((await repository.claimInterruptedCopyCleanup(registered.executionId))?.state, 'deleting');
+    assert.equal(await repository.claimInterruptedCopyCleanup(registered.executionId), null, 'a claim is taken once');
+
+    await nextDeployJob();
+    const running = await launched();
+    assert.equal(await repository.claimInterruptedCopyCleanup(running.executionId), null, 'a launched copy is never an interrupted one');
+  });
 });
