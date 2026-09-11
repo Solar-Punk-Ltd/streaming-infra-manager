@@ -8,7 +8,7 @@ Line numbers in this brief were re-read at `007260f` on 2026-09-11. The earlier 
 
 D11 (2026-09-09, "A: nice ok as recommended", reaffirmed 2026-09-11): one private execution copy per deployment, replaced on the next successful deploy, the previous copy kept until the new deploy is healthy.
 
-## What is true today
+## What was true before this slice
 
 A deployment runs the stack's scripts with the working directory set to the version's **build** directory, and writes into it. `DeploymentOrchestrator.prepareReservedJob` (manager/src/domain/DeploymentOrchestrator.ts:740) takes `stackPathsForRoot(build.root)` from the descriptor the claim captured, and every verb that follows uses those paths: `ensureStackDefaults` at :746 and again inside `runJob` at :993 copies `.env.sample` to `.env` and `deploy/config.sample.json` to `deploy/config.json` there, `writeProfileEnv` at :753 writes `.env.<profile>` there, and the stack's own scripts add `engines/<engine>/.env.<profile>` and `deploy/.env.deploy.<profile>` under the same root. `runJob` spawns with `cwd: cfg.paths.root` at :1046, and the stack's `_lib.sh` derives its own `ROOT_DIR` from the script path, so both agree on the build directory.
 
@@ -41,7 +41,7 @@ A version whose layout is not `builds` (a legacy flat tree, which is mutable by 
 
 - When a deploy **succeeds**, after RUNNING is committed and its containers are recorded, every copy of that deployment older than the new one is retired.
 - When a deploy **launches**, every copy older than the one previous is retired, so repeated failures cannot grow the disk. A failed deploy therefore leaves the last copy that worked in place, which is the point of keeping a previous one.
-- Retiring means `claimSupersededCleanup` (a new repository method: `launch-uncertain` to `deleting`, only for a row whose own job reference is resolved and whose profile now owns a newer launched copy), then `removeExecutionRoot` on disk, then `completeCleanup`, which resolves the `execution` hold so the build can be pruned.
+- Retiring means `claimRetiredCleanup` (a new repository method: `launch-uncertain` to `deleting`, only for a row whose own job reference is resolved and whose deployment has moved on, which is a newer launched copy, a profile that is gone, or one on a different instance), then `removeExecutionRoot` on disk, then `completeCleanup`, which resolves the `execution` hold so the build can be pruned.
 - A copy that never launched is retired through the existing `claimUnstartedCleanup`, inline when the deploy fails before the spawn and at boot for what a gone manager left.
 - Anything uncertain keeps the copy and keeps the hold. A cleanup that throws is logged and the deploy is not failed for it.
 
