@@ -45,6 +45,9 @@ import { TargetDocker } from './domain/ports/TargetDocker.js';
 import { PortInventory } from './domain/ports/PortInventory.js';
 import { PostgresPortReservationRepository } from './domain/ports/PostgresPortReservationRepository.js';
 import { StackVersionService } from './domain/versions/StackVersionService.js';
+import { ExecutionRootService } from './domain/versions/ExecutionRootService.js';
+import { PostgresExecutionRootRepository } from './domain/versions/PostgresExecutionRootRepository.js';
+import { executionsRootFor } from './domain/versions/stackPaths.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
@@ -166,6 +169,14 @@ async function main(): Promise<void> {
     containerControl,
     config.stackVersionsRoot,
   );
+  // The private copy each deployment runs its scripts from, so a build is
+  // never written into by a deploy. Under the versions root, which the api
+  // container sees at the same absolute path the host does.
+  const executionsParent = executionsRootFor(config.stackVersionsRoot);
+  const executionRoots = new ExecutionRootService(
+    new PostgresExecutionRootRepository(database.pool, executionsParent),
+    executionsParent,
+  );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,
     scriptRunner,
@@ -206,6 +217,13 @@ async function main(): Promise<void> {
     );
   } catch (err) {
     logger.warn(`[Boot] the bundled version was not synced: ${getErrorMessage(err)}`);
+  }
+  // Before the prune: a copy taken back here releases its hold on a build, and
+  // a build nothing holds any more is what the prune is looking for.
+  try {
+    await executionRoots.reclaimInterrupted();
+  } catch (err) {
+    logger.warn(`[Boot] the execution copies were not reclaimed: ${getErrorMessage(err)}. Nothing was deleted.`);
   }
   try {
     await stackVersionService.pruneAll();
@@ -304,6 +322,7 @@ async function main(): Promise<void> {
     portReservations,
     targetDocker,
     portInventory,
+    executionRoots,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();
