@@ -27,10 +27,10 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | Row | Included head | State and remaining acceptance |
 | --- | --- | --- |
 | T01a restart count | `115b194` | Correct top-level Docker restart count and regression are included. |
-| T01 configuration operations | `82e2d08` | Atomic claims, retained-build recovery and apply/reset/recovery service callers are connected. Immutable execution, exact successful finalization and operation-hold release remain. |
+| T01 configuration operations | `82e2d08`, execution copies `939dd30` | Atomic claims, retained-build recovery and apply/reset/recovery service callers are connected. Immutable execution landed on 2026-09-11: a deploy runs in a private copy of its build and the build is never written into. Exact successful finalization and operation-hold release remain. |
 | T02 isolated SRS validation | `1ab3e72` | Concurrent checks have private files. The real concurrent parser harness still needs CI execution. |
 | T03 OME validation | `be10c3b` | XML parser, protected paths and harness are included. Recorded arm64 evidence is historical. Stack pin, amd64 and CI qualification remain. |
-| T04a immutable builds | `c55c9d9` | Immutable publication, retained references, guarded removal and durable removal markers are included. Complete retention acceptance depends on T01/T04b execution. |
+| T04a immutable builds | `c55c9d9` | Immutable publication, retained references, guarded removal and durable removal markers are included. A build is now immutable in fact as well as in name: since 2026-09-11 no deploy writes into one. |
 | T04b bundled publication/runtime | `c61ac5e` | Durable publication command, registered candidates, receipt replay and legacy metadata CAS exist. Production CLI/upgrade adapters, private execution copies, complete observation and retirement remain. Twelve obsolete boot-publication tests remain red. |
 | T05a creation guard | `3220114` | Durable admission/recovery guard and release UI are included. Matching Engine 29.1.3 and Compose v5.1.4 harness remains unrun. |
 | T05b stack image changes | No task branch here | Levi owns the external stack image-name/cleanup commits and bundled submodule update under D09. |
@@ -54,15 +54,16 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 
 ## The next work
 
-Rewritten on 2026-09-10, on `feat/ai-remediation` at `6dc33d1`. The four items this list used to hold were written the day of the merge. Three of them are done and are described in the dated sections below. What is left, in order:
+Rewritten on 2026-09-11. Everything this list used to hold has either been built, described in the dated sections below, or closed by Levi. What is left, in order:
 
-1. **Exact execution and recovery completion.** This is the next slice of work, and it is the one thing still blocking T01. Today a deployment runs out of the immutable build directory rather than out of a private execution copy of its own. The decision is recorded in `../consensus/BUNDLED-ON-HOST-BRIEF.md` as D11, one private execution copy per deployment. Carry the final deployment owner, job and build reference and existing attempt into that copy. Persist launcher identity before possible creation. An immutable creator receipt proves the creator cannot create more work, and a complete fresh daemon observation proves attribution separately. T01 records outcomes only under exact ownership. Release proven operation ancestry only after the required successful watch and complete service coverage. Uncertainty retains holds. T11 must execute the same captured host-input revision it validated.
-2. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
-3. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+1. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
+2. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
+
+Private execution copies were here and landed on 2026-09-11, described in its own section at the end of this file. What that slice leaves for T01 is its own remaining work rather than a dependency: the atomic begin and revert of a config rollout, the creator receipt, and the release of operation holds after a proven watch. Those repository APIs exist and nothing calls them, and none of them is needed for a deployment to stop writing into its build.
 
 T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling today.
 
-With that closed, exact execution and recovery is the only engineering slice left on this roadmap. Everything after it needs the host.
+With that closed and private execution copies landed, no engineering slice of this roadmap is outstanding. Everything left needs the host.
 
 What remains of T09 is real SSH and real image qualification, both of which need a host. Do not populate the production qualification catalog merely because synthetic tests pass.
 
@@ -986,3 +987,23 @@ than the host-wide one. Each degrades to a usable alternative on the step in
 front of the operator, and the passphrase one fails to the encrypted side. To
 see any of them, hold the matching request in a fixture and open the wizard
 before releasing it, as `pool-draft-browser.test.mjs` does for the pool.
+
+## Private execution copies, 2026-09-11
+
+Merged into `feat/ai-remediation` on 2026-09-11. The brief is `../consensus/EXACT-EXECUTION-BRIEF.md` and it holds the design and the two points it settled.
+
+**What was wrong.** A deploy ran the stack's scripts with the version's build directory as its working directory, and wrote into it. `ensureStackDefaults` bootstrapped `.env` and `deploy/config.json` there, `writeProfileEnv` put `.env.<profile>` there, and the stack's own scripts added `engines/<engine>/.env.<profile>` and `deploy/.env.deploy.<profile>` under the same root. Three things followed. A build stopped being the bytes it was published as, so every artifact digest taken at publication was void after the first deploy from it. Two deployments of one build shared one mutable tree and left their env files beside each other. And nothing could say afterwards which bytes a launched job had actually run.
+
+**What it does now.** Between the port reservation and the first write, a deploy registers an execution root against the job reference its claim already holds, copies the build into `<STACK_VERSIONS_ROOT>/.executions/<execution-id>/tree`, and takes its paths from the copy. The copy is exact, verified against the source before, during and after, and its directories are owner only. Stop, health and remove follow the same copy, because the compose files, the scripts and the deployment's env file are all there now. A version that keeps no immutable builds gets no copy and runs where it always did.
+
+**Retention, which is D11.** A deployment keeps the copy it runs from and the one before it, so a deploy that fails leaves the tree that last worked in place. A deploy that comes up takes the previous one. Anything older goes as soon as a new deploy launches, which is what stops repeated failures growing the disk, and a removed deployment keeps none. Retiring a copy releases its hold on its build, so the build becomes prunable. The state a launched copy sits in had no way out before this, so the authority for leaving it is one predicate in the database: the copy's own job has finished and the deployment has moved on, which is a newer launched copy, a profile that is gone, or one on a different instance. Anything uncertain keeps the copy and the hold.
+
+**Recovery.** A copy whose deploy never spawned anything goes with that deploy. At boot, every copy that never reached ready is taken back, before the prune so the holds it releases are gone by then, and a copy a job may have spawned under is left exactly as it is.
+
+**Two guards that could never fire now can.** `buildJobClaim.ts` refuses to cancel a job whose execution may have launched, and the version-removal and config-operation guards read the same table. Nothing had ever inserted a row into it.
+
+**Two defects found while proving it.** A row comparison sent a timestamp back to PostgreSQL as a parameter, and the column keeps microseconds where a JavaScript Date keeps milliseconds, so a row compared as newer than itself and every launched copy looked replaced. It is fixed by keeping the comparison inside the database. Separately, a chequebook case asserted that a receipt check time strictly advanced between two calls that can land in the same millisecond. It passed alone and failed under the load the new cases added to the parallel database run, which is load the runner has too. It now takes a two millisecond gap.
+
+**Verified.** Manager unit 2354 cases, the whole `manager/test/database` directory 524 cases against nine disposable databases, the shared package 321, the frontend unit suites 100, the native transport suites 7, every typecheck clean, none skipped. Both mutations were checked: running from the build instead of the copy fails the copy case, and dropping the launch record fails four. On a laptop, against a disposable PostgreSQL.
+
+**Not in this slice, and named so it is not mistaken for done.** T01's atomic begin and revert, the creator receipt and the release of operation holds. The full-daemon mount observation is still unused: it attributes a container to a copy by its compose working directory, which only holds for a local target, because `deploy.sh` rsyncs the tree to a remote base before running compose there. Retirement is authorised by the replacing deploy's own success instead, which holds for both. And a build already deployed from before this change still carries the files those deploys left, which the first copy of it copies too. They are inert and no new writes reach a build.

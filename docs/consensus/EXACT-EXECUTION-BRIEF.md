@@ -1,6 +1,6 @@
 # Brief: every deployment runs from its own private copy, 2026-09-11
 
-Status: active. The last engineering slice of the main-v2 remediation roadmap. Branch `feat/ai-remediation`. Tests first, one logical change per commit, `test:` then `feat:`/`fix:`. No em-dashes or semicolons in prose, comments, docs, log lines or commit messages. Never touch the host, never run `deploy/deploy.sh`, never push without Levi's word for a remote that is not his own.
+Status: done, merged on `feat/ai-remediation` on 2026-09-11. The last engineering slice of the main-v2 remediation roadmap. Branch `feat/ai-remediation`. Tests first, one logical change per commit, `test:` then `feat:`/`fix:`. No em-dashes or semicolons in prose, comments, docs, log lines or commit messages. Never touch the host, never run `deploy/deploy.sh`, never push without Levi's word for a remote that is not his own.
 
 Line numbers in this brief were re-read at `007260f` on 2026-09-11. The earlier map in the session memory (`exact-execution-map.md`) was read at `3f7a265` and its line numbers have moved.
 
@@ -81,6 +81,8 @@ Named so Levi can rule on them rather than find them missing. None of them is re
 5. **Database.** `claimSupersededCleanup` refuses a row whose job is unresolved, refuses when no newer launched copy exists, and succeeds when both hold. `completeCleanup` resolves the `execution` hold so `pruneBuilds` can then remove the build. The boot sweep retires `registered`, `ready` and `copying` and leaves `launch-uncertain`. `cancelBuildJob` refuses once a row is `launch-uncertain`, which is the guard that could never fire before.
 6. **Mutation checks.** Removing the copy step must fail test 3. Removing the `launch-uncertain` transition must fail the cancel test in 5.
 
-## Definition of done
+## Definition of done, and what it came to
 
-The manager unit suite and the database suite green, `pnpm test` green, the three CI jobs green on the pushed head, a handover section in `docs/handover/main-v2-remediation.md` with the dated result, and this brief updated to `status: done` with the commit that closed it.
+The manager unit suite and the database suite green, `pnpm test` green, the three CI jobs green on the pushed head, a handover section in `docs/handover/main-v2-remediation.md` with the dated result, and this brief updated to done.
+
+All of it. Manager unit 2354 cases, the whole database directory 524 against nine disposable databases, the shared package 321, the frontend unit suites 100, the native transport suites 7, none skipped, every typecheck clean. The result and the two defects the proving turned up are in the handover's own section.

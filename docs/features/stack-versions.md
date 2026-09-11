@@ -49,6 +49,7 @@ Under `STACK_VERSIONS_ROOT`, a registered version uses sibling paths:
 | `<name>.builds/<build-id>/` | A published application tree |
 | `<name>.builds/tmp-<attempt>/` | One attempt's unpublished staging tree |
 | `<name>/` | Host-owned configuration and the retained legacy root |
+| `.executions/<execution-id>/tree/` | One deployment's private copy of the build it is running, with `owner.json` and `ready.json` beside it |
 
 A published build carries `.stack-manifest.json` and a `.complete` marker written last. Its identity includes the commit and build id. A build of the same commit and captured inputs can reuse the existing complete artifact. A distinct rebuild receives an identity such as `<commit>-r1`. Published application payloads are not replaced in place.
 
@@ -75,6 +76,14 @@ Build or job capture takes the same lock and validates the captured inputs again
 These files carry the stream passphrase, the API token, the webhook token and the Bee passphrase, so a file the manager writes into a config root or into a build is owner only, and a file it replaces keeps the mode an operator gave it. Every path of the set is checked for links before it is read, and what was passed by is logged.
 
 Per-profile runtime files are written atomically for the deployment. They are distinct from the immutable application identity. No credential is returned in the version list or printed as build evidence. The settings page below is the one route that answers these values, and the manager logs key names only.
+
+## The tree a deployment runs in
+
+A deploy does not run in the build. It copies the build it was admitted on into a directory of its own under `.executions`, registered against the job reference the claim already took, and runs the stack's scripts there. So the bootstrapped `.env` and `deploy/config.json`, the deployment's own `.env.<profile>`, and the `engines/<engine>/.env.<profile>` and `deploy/.env.deploy.<profile>` the stack's scripts write all land in that copy, and a published build keeps the bytes it was verified as however many deployments run from it. Two deployments of one build no longer share one tree. Stop, health and remove run in the same copy, because the compose files, the scripts and that env file are all there.
+
+The copy is exact: its tree is inventoried and its digest compared to the source before, during and after, and the source is re-read at the end to prove it did not change while it was being read. The directories are owner only. Nothing in the current stack bind-mounts the tree into a container, so no engine uid needs to reach it, and a version that keeps no immutable builds gets no copy and runs from its flat tree as it always did.
+
+A copy is recorded as launched before anything can be spawned from it, and from that moment only its own deployment moving on retires it. Levi's decision D11 sets how many are kept: the copy a deployment is running from and the one before it, so a deploy that fails leaves the tree that last worked in place, and a deploy that comes up takes the previous one. Anything older goes as soon as a new deploy launches, a removed deployment keeps none, and a copy nothing ever ran from goes with its failed deploy or at the next boot. Retiring one releases its hold on its build, which is what lets the build be pruned.
 
 ## Settings for one version
 
@@ -130,7 +139,7 @@ Where the branch stands, 2026-09-10, at `6dc33d1`. The last full run recorded on
 
 Nothing on this branch has been deployed. The bundled build on the host, the settings page and Apply have been exercised only against fixtures and disposable trees on a laptop. The first real deploy is a session of its own, waiting for Levi to name a time, and its runbook is `../consensus/FIRST-DEPLOY-SESSION.md`.
 
-Still open for the retention model. Exact execution and recovery completion is the next slice: a deployment still runs out of the immutable build directory rather than a private execution copy of its own, so T01's operation holds and the release of a build a deploy still needs cannot be closed yet. T06's Linux firewall checks and T05a's harness on the matching Docker Engine 29.1.3 and Compose v5.1.4 are separate acceptance items that nothing here discharges.
+Private execution copies landed on 2026-09-11, so a deployment no longer runs out of the immutable build directory. What is still open on top of them is T01's own slice: the atomic begin and revert of a config rollout, the creator receipt and the release of operation holds. Those repository APIs exist and nothing calls them. T06's Linux firewall checks and T05a's harness on the matching Docker Engine 29.1.3 and Compose v5.1.4 are separate acceptance items that nothing here discharges.
 
 The task checkpoints behind this page, as they were recorded during the work. T08's approval and wizard behaviour passed unit, browser and type checks, and its eight real PostgreSQL regressions passed at `347c7dd`, including publication between read and write and a competing row lock. T18 carried those semantics into the responsive cards at `5f835ca`. T04a's guarded removal and durable markers were reviewed through `c55c9d9`. T06's no-op reference cleanup was reviewed at `b65f8d9`, and T12's direct ledger phase correction was committed at `2966ab3`. Those are the numbers of the branches as they were merged, not a rerun of the branch as it stands.
 
