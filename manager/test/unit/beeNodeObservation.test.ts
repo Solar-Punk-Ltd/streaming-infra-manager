@@ -11,7 +11,19 @@ afterEach(async () => {
   })));
 });
 
-async function client(reply: (path: string, res: ServerResponse) => void, timeout = 500) {
+/**
+ * A budget the cases that are not about timing cannot reach.
+ *
+ * These fakes answer over loopback in about a millisecond, so the budget only
+ * ever decides anything when the machine is too busy to get to them. At 500 ms
+ * the initializing case crossed it on a loaded verification box runner and
+ * reported unknown, which is what an unreachable node looks like: a red run
+ * about the runner's load rather than about Bee. The two cases that are about
+ * the bound pass their own.
+ */
+const AMPLE_TIMEOUT_MS = 10_000;
+
+async function client(reply: (path: string, res: ServerResponse) => void, timeout = AMPLE_TIMEOUT_MS) {
   const server = createServer((req, res) => reply(req.url!, res));
   servers.push(server);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
