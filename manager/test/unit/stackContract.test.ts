@@ -294,14 +294,16 @@ describe('readStackContract and the protocol of each port', () => {
 
     assert.equal(protocolOf(contract, 'SRS_SRT_PORT'), 'udp');
     assert.equal(protocolOf(contract, 'SRS_RTMP_PORT'), 'tcp');
-    assert.equal(contract.allocationProblem, null);
+    assert.doesNotMatch(contract.allocationProblem ?? "", /docker-compose\.yml line/);
   });
 
-  it('takes tcp for a port the compose file does not map', () => {
+  it('takes tcp for a port the compose file does not map, and refuses allocation because no slot then passes the policy', () => {
     const contract = readStackContract(withCompose('services:\n  srs:\n    image: ossrs/srs:6\n'));
 
     assert.ok(contract.ports.every((port) => port.protocol === 'tcp'));
-    assert.equal(contract.allocationProblem, null);
+    assert.match(contract.allocationProblem ?? '', /No port slot from 1 to 99/);
+    assert.match(contract.allocationProblem ?? '', /CLIENT_PORT/);
+    assert.match(contract.allocationProblem ?? '', /could not read which service publishes/);
   });
 
   it('refuses allocation, naming the file and the line, for a mapping it cannot read, and still reads the rest', () => {

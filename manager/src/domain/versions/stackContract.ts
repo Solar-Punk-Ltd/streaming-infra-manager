@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import {
   type PortProtocol,
+  MANAGER_SLOT_CAP,
+  portExposureProblem,
   DEFAULT_MAX_SLOT,
   OME_PORT_SOURCES,
   type EngineConfigSupport,
@@ -10,6 +12,8 @@ import {
   type StackContract,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
+
+import { portFor } from './portTable.js';
 
 /**
  * What the manager reads out of a version's checkout rather than assuming it.
@@ -90,6 +94,7 @@ export function readStackContract(root: string): StackContract {
   const sharedTags = compose === '' ? { shared: true, warning: null } : readSharedImageTags(compose);
   if (sharedTags.warning) warnings.push(sharedTags.warning);
   const mappings = readPortMappings(compose);
+  const maxSlot = parseMaxSlot(readOptional(root, DEPLOY_SCRIPT));
   const portsWithProtocol = ports.map((port) => ({
     ...port,
     protocol: mappings.published.get(port.name)?.protocol ?? 'tcp',
@@ -103,7 +108,7 @@ export function readStackContract(root: string): StackContract {
       const mapping = mappings.published.get(name);
       return source && mapping ? [{ ...source, name, protocol: mapping.protocol, service: mapping.service }] : [];
     }),
-    maxSlot: parseMaxSlot(readOptional(root, DEPLOY_SCRIPT)),
+    maxSlot,
     requiredSecrets: readRequiredSecrets(root),
     engineDefaults: readEngineDefaults(root),
     features: {
@@ -115,14 +120,42 @@ export function readStackContract(root: string): StackContract {
     engineConfig: readEngineConfigSupport(root),
     engineImages: readEngineImages(compose),
     warnings,
-    allocationProblem: allocationProblemOf(ports, mappings.problems),
+    allocationProblem: allocationProblemOf(portsWithProtocol, mappings.problems, maxSlot),
   };
 }
 
 /** Why no slot can be allocated on this version, or null. The first problem is the one named. */
-function allocationProblemOf(ports: PortTableEntry[], problems: string[]): string | null {
+function allocationProblemOf(ports: StackPortVar[], problems: string[], maxSlot: number): string | null {
   if (ports.length === 0) return `${LIB_SCRIPT} has no port table the manager could read, so it cannot reserve this version's ports.`;
-  return problems[0] ?? null;
+  return problems[0] ?? placementProblemOf(ports, maxSlot);
+}
+
+/**
+ * Why the port policy refuses every slot this version could use, or null.
+ *
+ * A version whose compose file the manager could not read carries no service
+ * against any of its ports, and the policy refuses a public port whose owning
+ * service it cannot name, so every slot fails for the same reason. Saying it
+ * here means a create refuses in one sentence before it inventories anything,
+ * and every page that reads the contract can say it before an operator tries.
+ * On the live host on 2026-09-13 the alternative was the allocator's own "every
+ * port slot from 1 to 99 is taken", which reads as a full machine and invites
+ * removing a working deployment, which would not have helped at all.
+ */
+function placementProblemOf(ports: StackPortVar[], maxSlot: number): string | null {
+  const cap = Math.min(maxSlot, MANAGER_SLOT_CAP);
+  let refusal: string | undefined;
+  for (let slot = 1; slot <= cap; slot += 1) {
+    const problem = ports
+      .map((port) => portExposureProblem({ protocol: port.protocol, port: portFor(port, slot), portVar: port.name, service: port.service }))
+      .find((entry) => entry !== null);
+    if (!problem) return null;
+    refusal ??= problem;
+  }
+  const unnamed = ports.every((port) => port.service === null)
+    ? ' The manager could not read which service publishes each port, which is what a version built on this host carries. Press Update to rebuild it.'
+    : '';
+  return `No port slot from 1 to ${cap} passes this version's port policy, so no deployment can be created from it. ${refusal}${unnamed}`;
 }
 
 // ------------------------------------------------------------- the sources
