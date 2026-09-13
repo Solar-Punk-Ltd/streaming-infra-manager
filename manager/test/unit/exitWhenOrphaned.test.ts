@@ -16,7 +16,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,6 +54,27 @@ function alive(pid: number): boolean {
   }
 }
 
+/**
+ * Whether the pid is still a process, rather than one that has ended and not
+ * been reaped.
+ *
+ * `process.kill(pid, 0)` cannot tell those two apart, and an orphan whose new
+ * parent does not reap stays a zombie: pid 1 of a job container is the job's
+ * own command, not an init, so this suite read its child as alive for the
+ * whole timeout while the watchdog had ended it on time. A host with a real
+ * init reaps at once and has no zombie to report, so it reads the same. Linux
+ * is where both cases arise and the only place the state can be read.
+ */
+function running(pid: number): boolean {
+  if (!alive(pid)) return false;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z';
+  } catch {
+    return true;
+  }
+}
+
 async function until(satisfied: () => boolean, description: string): Promise<void> {
   const deadline = Date.now() + GIVE_UP_MS;
   while (Date.now() < deadline) {
@@ -80,12 +101,12 @@ describe('a fixture whose parent is gone', () => {
     await until(() => reported.includes('\n'), 'the parent to report the pid of the child it started');
     orphan = Number(reported.trim());
     await until(() => existsSync(join(directory, 'armed')), 'the child to arm its watchdog');
-    assert.equal(alive(orphan), true, 'the child is running before its parent is killed');
+    assert.equal(running(orphan), true, 'the child is running before its parent is killed');
     assert.equal(await readFile(join(directory, 'armed'), 'utf8'), String(orphan), 'and it is the child that armed it');
 
     parent.kill('SIGKILL');
 
-    await until(() => !alive(orphan), `the orphaned child ${orphan} to end itself`);
+    await until(() => !running(orphan), `the orphaned child ${orphan} to end itself`);
   });
 
   it('is armed by the connected browser fixture, which is the fork that would be left', async () => {
