@@ -25,8 +25,37 @@ export interface BeeBridgeQualificationRecord extends Omit<BeeBridgeExecution, '
 }
 export type QualifiedBeeBridgeExecution = (execution: BeeBridgeExecution) => boolean;
 
-/** Filled only after a separately reviewed exact-image harness run. Synthetic records are injected by tests. */
-export const PRODUCTION_BEE_BRIDGE_QUALIFICATIONS: readonly BeeBridgeQualificationRecord[] = Object.freeze([]);
+/**
+ * The images somebody has checked the bridge shell against, one entry per image
+ * and Docker engine pair. Synthetic records are injected by tests.
+ *
+ * Each is produced by `manager/scripts/qualify-bee-bridge.mjs`, which reads an
+ * image the way this file needs it read: the four absolute paths the bridge
+ * script names, and a bash that really carries /dev/tcp. `evidenceDigest` is
+ * the hash of what that run saw, and `harnessRevision` is the git object id of
+ * the script that saw it, so a later reader can tell with one command whether
+ * the same check would be made again. A node started from a listed image needs
+ * nothing further: an entry is about the image, never about the container.
+ *
+ * An entry stops matching the moment anything it pins moves, the image, the
+ * Docker engine, the platform or the bridge script itself, and transfers
+ * through it refuse again until the script has been run against the new pair.
+ */
+export const PRODUCTION_BEE_BRIDGE_QUALIFICATIONS: readonly BeeBridgeQualificationRecord[] = Object.freeze([
+  Object.freeze({
+    // ethersphere/bee:2.8.2 as it runs on 157.90.34.105, qualified 2026-09-14.
+    id: 'bee-2.8.2-docker-29.1.3',
+    imageId: 'sha256:b97defc2c32cdc72bfefccd73fc5b4615d0f78d56f3f701dcd2a17029edccab4',
+    engineVersion: '29.1.3',
+    platform: Object.freeze({ os: 'linux', architecture: 'amd64', variant: '' }),
+    bridgeRevision: DOCKER_BEE_BRIDGE_REVISION,
+    harnessRevision: 'ce9ef1a6b01273c4eb2759ba0ea32f01416356f0',
+    evidenceDigest: 'sha256:ff368ea1c36ab4700c61cf32e46015d3de7fc40a4d5e3ba4cfc02c34fbfc0d43',
+    bridgeLifetimeSeconds: Object.freeze({ min: 1, max: 270 }),
+    cleanupGraceMs: Object.freeze({ min: 1, max: 10_000 }),
+    streamBounds: DOCKER_BEE_STREAM_BOUNDS,
+  }),
+]);
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const TOKEN = /^[a-zA-Z0-9][a-zA-Z0-9.+_-]{0,127}$/;
 const PLATFORM = /^[a-z0-9][a-z0-9._-]{0,31}$/;

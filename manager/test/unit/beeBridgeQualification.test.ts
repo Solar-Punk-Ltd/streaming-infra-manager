@@ -13,9 +13,30 @@ const record = (): BeeBridgeQualificationRecord => ({ id: 'synthetic-qualified-b
   bridgeLifetimeSeconds: { min: 1, max: 270 }, cleanupGraceMs: { min: 1, max: 5000 }, streamBounds: { ...DOCKER_BEE_STREAM_BOUNDS } });
 
 describe('trusted Bee bridge execution qualification', () => {
-  it('ships no qualified production records and refuses by default', () => {
-    assert.deepEqual(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS, []); assert.ok(Object.isFrozen(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS));
+  it('ships the images that were checked, and still refuses one that was not', () => {
+    assert.ok(Object.isFrozen(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS));
+    assert.ok(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS.length > 0, 'the catalogue is what makes a transfer possible at all');
+    // An image nobody checked is still refused, selected or not, which is the
+    // whole point of the list.
     assert.equal(createBeeBridgeQualifier()(execution()), false);
+    assert.equal(createBeeBridgeQualifier(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS,
+      PRODUCTION_BEE_BRIDGE_QUALIFICATIONS.map((entry) => entry.id))(execution()), false);
+  });
+
+  it('pins every shipped record to the bridge script as it stands, so editing the script requalifies', () => {
+    for (const entry of PRODUCTION_BEE_BRIDGE_QUALIFICATIONS) {
+      assert.equal(entry.bridgeRevision, DOCKER_BEE_BRIDGE_REVISION,
+        `${entry.id} was qualified against another bridge script. Run manager/scripts/qualify-bee-bridge.mjs again.`);
+    }
+  });
+
+  it('qualifies an execution of a shipped image, which is what lets a transfer run at all', () => {
+    for (const entry of PRODUCTION_BEE_BRIDGE_QUALIFICATIONS) {
+      const qualify = createBeeBridgeQualifier(PRODUCTION_BEE_BRIDGE_QUALIFICATIONS, [entry.id]);
+      assert.equal(qualify({ ...execution(), imageId: entry.imageId, engineVersion: entry.engineVersion,
+        platform: { ...entry.platform }, bridgeLifetimeSeconds: entry.bridgeLifetimeSeconds.max,
+        cleanupGraceMs: entry.cleanupGraceMs.max }), true, entry.id);
+    }
   });
 
   it('accepts only a selected exact record and the tested bounds', () => {
