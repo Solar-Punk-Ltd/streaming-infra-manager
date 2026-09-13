@@ -7,9 +7,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { StackVersion } from '@streaming-infra-manager/common';
+import type { StackContract, StackVersion } from '@streaming-infra-manager/common';
 
-import { describeBuild, describeVersion, updateHint } from './versionText';
+import { describeBuild, describeVersion, updateHint, versionPlacementProblem } from './versionText';
 
 const COMMIT = 'ee99c368bd45c12defcb10ca726f0db0777defb0';
 
@@ -60,5 +60,20 @@ describe('where a version deploys from', () => {
 
   it('names a version and its commit', () => {
     assert.equal(describeVersion(version()), 'bundled @ ee99c36');
+  });
+});
+
+describe('why a version can place no deployment', () => {
+  const withContract = (allocationProblem: string | null) =>
+    version({ contract: { allocationProblem } as StackContract });
+
+  it('hands over the contract sentence, so the card and the wizard say the same thing', () => {
+    const problem = 'No port slot from 1 to 99 passes this version\'s port policy, so no deployment can be created from it.';
+    assert.equal(versionPlacementProblem(withContract(problem)), problem);
+  });
+
+  it('says nothing for a version that can place one, and nothing for a version with no contract yet', () => {
+    assert.equal(versionPlacementProblem(withContract(null)), null);
+    assert.equal(versionPlacementProblem(version()), null);
   });
 });

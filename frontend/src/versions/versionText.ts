@@ -83,3 +83,16 @@ export function describeRunning(containers: readonly ObservedContainer[]): strin
     .map(({ service, commit }) => `${service} ${commit ? shortCommit(commit) : NOT_OBSERVED}`)
     .join(', ')}`;
 }
+
+/**
+ * Why no deployment can be created from this version, or null.
+ *
+ * The contract decides it, so the card and the wizard's version picker say the
+ * same sentence and neither has to know what makes a version unusable. Before
+ * this the operator learned it only by filling in the whole wizard and pressing
+ * Deploy, and the answer then came from the slot allocator, which knows nothing
+ * beyond having found no slot.
+ */
+export function versionPlacementProblem(version: StackVersion): string | null {
+  return version.contract?.allocationProblem ?? null;
+}

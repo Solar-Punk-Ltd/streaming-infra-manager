@@ -21,7 +21,7 @@ import { ShapePill } from '../components/ShapePill';
 import type { Tone } from '../components/tone';
 import { formatDateTime, shortCommit } from '../format';
 import { ANOTHER_BUILDING } from './buildSlot';
-import { describeBuild, describePreviousBuild, lostApprovalWarning, updateHint } from './versionText';
+import { describeBuild, describePreviousBuild, lostApprovalWarning, updateHint, versionPlacementProblem } from './versionText';
 
 const STATUS_LABELS: Record<StackVersion['status'], string> = {
   building: 'Building',
@@ -286,6 +286,14 @@ export function VersionCard({
             {version.lastError.split('\n').slice(-1)[0]}
           </Typography>
         )}
+
+      {/* Outside the details below on purpose: a version that can place nothing
+          is the first thing to know about it, not a line in a collapsed list. */}
+      {versionPlacementProblem(version) && (
+        <Typography variant="caption" color="error.main">
+          {versionPlacementProblem(version)}
+        </Typography>
+      )}
 
       <Box component="details">
         <Box

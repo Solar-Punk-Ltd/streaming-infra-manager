@@ -14,7 +14,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../../../app/theme';
-import { approvalStatusText, describeVersion } from '../../../versions/versionText';
+import { approvalStatusText, describeVersion, versionPlacementProblem } from '../../../versions/versionText';
 import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField, messageIdFor } from '../../FormField';
 import { NOTES_MAX, notesProblem } from '../../validation';
@@ -113,6 +113,7 @@ export function BasicsStep({ state, context, update }: WizardStepProps) {
           label="Stack version"
           aside="the swarm-hls-stream it runs"
           hint={versionHint(version)}
+          error={version ? versionPlacementProblem(version) : null}
           htmlFor="wizard-version"
         >
           <TextField
