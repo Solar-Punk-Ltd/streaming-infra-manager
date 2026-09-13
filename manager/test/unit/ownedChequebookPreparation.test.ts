@@ -50,10 +50,15 @@ describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 },
   });
 
   it('checks the monotonic step deadline after a blocking preflight recheck before another Bee read or claim', async t => {
-    const h = harness(t, { timeoutMs: 100 });
+    // The only case here whose setup runs a preparation that has to succeed
+    // under the same budget the tested step then has to exceed, so the budget
+    // carries five times the headroom an in-memory run needs. At 100 ms the
+    // verification box, which shares its processor with a chain node and seven
+    // other job slots, spent the whole budget on the setup and read a refusal.
+    const h = harness(t, { timeoutMs: 500 });
     const intent = transferIntent();
     const prepared = await h.preparation.prepare(intent);
-    h.onCapture(async () => blockTurn(120));
+    h.onCapture(async () => blockTurn(600));
     const beforeReads = h.docker.beeRequests.length;
     let claims = 0; const claim = h.repository.claimDispatch.bind(h.repository);
     h.repository.claimDispatch = async id => { claims++; return claim(id); };
