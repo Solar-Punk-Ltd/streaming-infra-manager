@@ -28,12 +28,25 @@ export function ContainerRow({
     <TableRow>
       <TableCell sx={{ pl: 6 }}>{c.service ?? c.name}</TableCell>
       <TableCell>
-        <Chip
-          size="small"
-          label={c.state}
-          color={c.state === 'running' ? 'success' : 'default'}
-          variant="outlined"
-        />
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
+          <Chip
+            size="small"
+            label={c.state}
+            color={c.state === 'running' ? 'success' : 'default'}
+            variant="outlined"
+          />
+          {/* A container that dies and comes back reads as running between its
+              restarts, so the count is the only thing that tells a recovery
+              from a loop. */}
+          {c.restartCount > 0 && (
+            <Chip
+              size="small"
+              label={`restarted ${c.restartCount.toLocaleString()}x`}
+              color={c.restartCount > 1 ? 'warning' : 'default'}
+              variant="outlined"
+            />
+          )}
+        </Stack>
       </TableCell>
       <TableCell sx={{ minWidth: 160 }}>
         <Stack direction="row" alignItems="center" spacing={1}>

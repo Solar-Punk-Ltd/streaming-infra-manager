@@ -77,7 +77,10 @@ class FakeDockerEngine implements MetricsDockerEngine {
   constructor(
     private readonly containers: readonly Docker.ContainerInfo[],
     private readonly silentIds: ReadonlySet<string> = new Set(),
+    private readonly restartsById: ReadonlyMap<string, number> = new Map(),
   ) {}
+
+  inspects = 0;
 
   listContainers(): Promise<Docker.ContainerInfo[]> {
     return Promise.resolve([...this.containers]);
@@ -85,7 +88,13 @@ class FakeDockerEngine implements MetricsDockerEngine {
 
   getContainer(id: string): StatsHandle {
     const silent = this.silentIds.has(id);
-    return { stats: () => (silent ? never() : Promise.resolve(containerStats())) };
+    return {
+      stats: () => (silent ? never() : Promise.resolve(containerStats())),
+      inspect: () => {
+        this.inspects += 1;
+        return Promise.resolve({ RestartCount: this.restartsById.get(id) ?? 0 } as Docker.ContainerInspectInfo);
+      },
+    };
   }
 }
 
@@ -138,6 +147,27 @@ describe('MetricsCollector', () => {
       assert.equal(seen[0].infra.containerCount, 1);
 
       await waitFor(() => seen.length >= 2, 1_000, 'the next snapshot');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('reports how often the daemon restarted a container, and asks again rarely', async () => {
+    const docker = new FakeDockerEngine(
+      [containerInfo('bee-uploader')],
+      new Set(),
+      new Map([['id-bee-uploader', 2760]]),
+    );
+    const collector = new MetricsCollector(docker, new FakeHost(), DOCKER_TIMEOUT_MS * 3, DOCKER_TIMEOUT_MS);
+
+    const seen: MetricsSnapshot[] = [];
+    const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot));
+
+    try {
+      await waitFor(() => seen.length >= 3, 2_000, 'three snapshots');
+      assert.equal(seen[0].containers[0]?.restartCount, 2760);
+      assert.equal(seen[2].containers[0]?.restartCount, 2760);
+      assert.equal(docker.inspects, 1, 'a count that changes in minutes is not worth an inspect every sample');
     } finally {
       unsubscribe();
     }

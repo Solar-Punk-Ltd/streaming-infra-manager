@@ -37,6 +37,7 @@ export function metricsSnapshot() {
         project: profile.name,
         service: container.service,
         state: 'running',
+        restartCount: container.service === 'bee-uploader' ? 2760 : 0,
         cpuPercent: cpu,
         memUsageBytes: Math.round(mem * (0.8 + Math.random() * 0.4)),
         memLimitBytes: 2 * GB,

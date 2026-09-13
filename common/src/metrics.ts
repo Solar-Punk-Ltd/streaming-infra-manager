@@ -36,6 +36,16 @@ export interface ContainerMetrics {
   project: string | null;
   service: string | null;
   state: string;
+  /**
+   * How many times the daemon has restarted this container.
+   *
+   * A container that dies and comes back reads as "running" between its
+   * restarts, which is how a Bee node that had never been funded sat in a
+   * restart loop on the live host for six days, 2,760 times, while every page
+   * called it running. Read on a slower cadence than the rest of this row,
+   * because it changes in minutes and the rest changes in seconds.
+   */
+  restartCount: number;
   cpuPercent: number;
   memUsageBytes: number;
   memLimitBytes: number;

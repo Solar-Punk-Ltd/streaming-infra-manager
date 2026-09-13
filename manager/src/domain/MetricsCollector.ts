@@ -26,9 +26,11 @@ type Listener = (snapshot: MetricsSnapshot) => void;
 
 type ManagedProjectsProvider = () => Promise<Set<string>>;
 
-/** The one call this makes on a container. */
+/** What this reads on a container: its stats every sample, its restart count rarely. */
 export interface StatsHandle {
   stats(options: { stream: false }): Promise<Docker.ContainerStats>;
+  /** Only RestartCount is read, and only every RESTART_REFRESH_MS. */
+  inspect(): Promise<Pick<Docker.ContainerInspectInfo, 'RestartCount'>>;
 }
 
 /**
@@ -48,6 +50,14 @@ export interface HostSampler {
   sample(): Promise<HostMetrics>;
 }
 
+
+/**
+ * How often a container's restart count is read again.
+ *
+ * It changes in minutes where the rest of a row changes in seconds, and it
+ * costs an inspect per container, so it is not worth a call every sample.
+ */
+const RESTART_REFRESH_MS = 30_000;
 interface PrevCounters {
   netRxBytes: number;
   netTxBytes: number;
@@ -59,6 +69,7 @@ interface PrevCounters {
 export class MetricsCollector {
   private readonly listeners = new Set<Listener>();
   private readonly prev = new Map<string, PrevCounters>();
+  private readonly restarts = new Map<string, { count: number; readMs: number }>();
   private timer: NodeJS.Timeout | null = null;
   private latest: MetricsSnapshot | null = null;
   private samplingStartedAt: number | null = null;
@@ -185,6 +196,9 @@ export class MetricsCollector {
     for (const id of this.prev.keys()) {
       if (!liveIds.has(id)) this.prev.delete(id);
     }
+    for (const id of this.restarts.keys()) {
+      if (!liveIds.has(id)) this.restarts.delete(id);
+    }
 
     const results = await Promise.all(
       scoped.map((info) => this.statContainer(info)),
@@ -206,6 +220,25 @@ export class MetricsCollector {
     }
   }
 
+  /**
+   * What the daemon says this container has been restarted, re-read at most
+   * every RESTART_REFRESH_MS. A read that fails keeps the last answer, because
+   * one inspect failing is not news about the container.
+   */
+  private async restartCountOf(id: string): Promise<number> {
+    const held = this.restarts.get(id);
+    const nowMs = Date.now();
+    if (held && nowMs - held.readMs < RESTART_REFRESH_MS) return held.count;
+    try {
+      const inspected = await answeredInTime(this.docker.getContainer(id).inspect(), this.dockerTimeoutMs);
+      const count = Number.isSafeInteger(inspected.RestartCount) ? inspected.RestartCount : 0;
+      this.restarts.set(id, { count, readMs: nowMs });
+      return count;
+    } catch {
+      return held?.count ?? 0;
+    }
+  }
+
   private async statContainer(
     info: Docker.ContainerInfo,
   ): Promise<ContainerMetrics | null> {
@@ -214,7 +247,7 @@ export class MetricsCollector {
         this.docker.getContainer(info.Id).stats({ stream: false }),
         this.dockerTimeoutMs,
       );
-      return this.toMetrics(info, stats);
+      return this.toMetrics(info, stats, await this.restartCountOf(info.Id));
     } catch (err) {
       logger.debug(
         `[MetricsCollector] stats failed for ${info.Id.slice(0, 12)}: ${getErrorMessage(err)}`,
@@ -226,6 +259,7 @@ export class MetricsCollector {
   private toMetrics(
     info: Docker.ContainerInfo,
     stats: Docker.ContainerStats,
+    restartCount: number,
   ): ContainerMetrics {
     const cpuPercent = computeCpuPercent(stats);
     const { memUsageBytes, memLimitBytes, memPercent } = computeMemory(stats);
@@ -247,6 +281,7 @@ export class MetricsCollector {
       project: info.Labels?.[COMPOSE_PROJECT_LABEL] ?? null,
       service: info.Labels?.[COMPOSE_SERVICE_LABEL] ?? null,
       state: info.State ?? 'unknown',
+      restartCount,
       cpuPercent,
       memUsageBytes,
       memLimitBytes,
