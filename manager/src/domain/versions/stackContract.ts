@@ -127,7 +127,7 @@ export function readStackContract(root: string): StackContract {
 /** Why no slot can be allocated on this version, or null. The first problem is the one named. */
 function allocationProblemOf(ports: StackPortVar[], problems: string[], maxSlot: number): string | null {
   if (ports.length === 0) return `${LIB_SCRIPT} has no port table the manager could read, so it cannot reserve this version's ports.`;
-  return problems[0] ?? placementProblemOf(ports, maxSlot);
+  return problems[0] ?? portPlacementProblem(ports, maxSlot);
 }
 
 /**
@@ -142,7 +142,7 @@ function allocationProblemOf(ports: StackPortVar[], problems: string[], maxSlot:
  * port slot from 1 to 99 is taken", which reads as a full machine and invites
  * removing a working deployment, which would not have helped at all.
  */
-function placementProblemOf(ports: StackPortVar[], maxSlot: number): string | null {
+export function portPlacementProblem(ports: readonly StackPortVar[], maxSlot: number): string | null {
   const cap = Math.min(maxSlot, MANAGER_SLOT_CAP);
   let refusal: string | undefined;
   for (let slot = 1; slot <= cap; slot += 1) {

@@ -89,6 +89,7 @@ import { beePublicApiUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
 import { deployOwnerOf } from './versions/buildLedger.js';
+import { portPlacementProblem } from './versions/stackContract.js';
 import { portTableOf } from './versions/portTable.js';
 import type { NewProfilePlacement } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
@@ -313,7 +314,8 @@ export class ProfileService {
       throw err;
     }
     if (!row) {
-      throw new AllSlotsUsedError(slotCapFor(version.contract));
+      const cap = slotCapFor(version.contract);
+      throw new AllSlotsUsedError(cap, portPlacementProblem(version.contract?.ports ?? [], cap));
     }
 
     logger.info(

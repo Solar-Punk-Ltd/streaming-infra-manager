@@ -145,3 +145,16 @@ describe('allocating a port slot', () => {
     assert.equal((await reservations.listByDaemon('daemon-1')).length, 4);
   });
 });
+
+describe('what the allocator says when it found no slot', () => {
+  it('blames the machine only when the machine is the reason', () => {
+    assert.match(new AllSlotsUsedError(99).message, /Every port slot from 1 to 99 is taken/);
+    assert.match(new AllSlotsUsedError(99).message, /Remove a deployment to free one/);
+  });
+
+  it('gives the version its own reason instead, so nobody removes a deployment that would not help', () => {
+    const reason = 'No port slot from 1 to 99 passes this version\'s port policy, so no deployment can be created from it.';
+    assert.equal(new AllSlotsUsedError(99, reason).message, reason);
+    assert.doesNotMatch(new AllSlotsUsedError(99, reason).message, /Remove a deployment/);
+  });
+});

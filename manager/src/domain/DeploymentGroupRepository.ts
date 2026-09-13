@@ -4,6 +4,7 @@ import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
+import { portPlacementProblem } from './versions/stackContract.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 
 export interface SharedProfileParams {
@@ -191,7 +192,7 @@ export class DeploymentGroupRepository {
     const placement = { slotCap: shared.slot_cap, daemonId: shared.daemon_id, table: shared.table };
     const slot = await reserveSlotFor(client, name, placement);
     if (slot === null) {
-      throw new AllSlotsUsedError(shared.slot_cap);
+      throw new AllSlotsUsedError(shared.slot_cap, portPlacementProblem(shared.table, shared.slot_cap));
     }
     const r = await client.query<Profile>(
       `INSERT INTO profiles (
