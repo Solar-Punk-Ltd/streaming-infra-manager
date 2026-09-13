@@ -10,7 +10,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { stampCostPlur, stampTtlSeconds } from '@streaming-infra-manager/common';
+import { minimumStampAmountPlur, stampCostPlur, stampTtlSeconds } from '@streaming-infra-manager/common';
 
 import type { BuyStampInput } from './stampApi';
 import {
@@ -45,7 +45,15 @@ export function BuyStampForm({
   const [label, setLabel] = useState('');
   const [immutable, setImmutable] = useState(false);
 
-  const amountValid = /^[1-9][0-9]*$/.test(amount.trim());
+  const amountShaped = /^[1-9][0-9]*$/.test(amount.trim());
+  /**
+   * Bee refuses a batch that would not last a day and buys nothing, so the form
+   * refuses it here rather than after the operator has committed to spending.
+   */
+  const minimumAmount = minimumStampAmountPlur(currentPrice);
+  const belowMinimum =
+    amountShaped && minimumAmount !== null && BigInt(amount.trim()) < BigInt(minimumAmount);
+  const amountValid = amountShaped && !belowMinimum;
   const depthNum = Number(depth);
   const depthValid =
     Number.isInteger(depthNum) && depthNum >= 17 && depthNum <= 40;
@@ -84,11 +92,7 @@ export function BuyStampForm({
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           error={amount.length > 0 && !amountValid}
-          helperText={
-            amount.length > 0 && !amountValid
-              ? 'positive integer'
-              : 'per-chunk amount. Higher buys a longer life'
-          }
+          helperText={amountHint(amount, minimumAmount, belowMinimum)}
           slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
         />
         <TextField
@@ -169,4 +173,17 @@ export function BuyStampForm({
       </Typography>
     </Box>
   );
+}
+
+/** What to say under the amount, the floor Bee will not go below included. */
+function amountHint(
+  amount: string,
+  minimum: string | null,
+  belowMinimum: boolean,
+): string {
+  if (belowMinimum) return `at least ${minimum}, one day of life at today's price`;
+  if (amount.length > 0 && !/^[1-9][0-9]*$/.test(amount.trim())) return 'positive integer';
+  return minimum === null
+    ? 'per-chunk amount. Higher buys a longer life'
+    : `per-chunk amount, ${minimum} or more today. Higher buys a longer life`;
 }

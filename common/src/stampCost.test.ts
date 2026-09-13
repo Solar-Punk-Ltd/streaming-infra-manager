@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { BLOCK_TIME_SECONDS, stampCostPlur, stampTtlSeconds } from './stampCost.js';
+import { BLOCK_TIME_SECONDS, minimumStampAmountPlur, stampCostPlur, stampTtlSeconds } from './stampCost.js';
 
 describe('stampTtlSeconds', () => {
   it('computes seconds as (amount / price) blocks × block time', () => {
@@ -82,5 +82,18 @@ describe('stampCostPlur', () => {
     assert.equal(stampCostPlur('1', undefined), null);
     assert.equal(stampCostPlur('1', 1.5), null);
     assert.equal(stampCostPlur('1', -1), null);
+  });
+});
+
+describe('the smallest batch this node will accept', () => {
+  it('is the twenty four hours of validity Bee insists on, at the price of the minute', () => {
+    assert.equal(minimumStampAmountPlur('90968'), '1571927040');
+    assert.equal(minimumStampAmountPlur('24000'), '414720000');
+  });
+
+  it('is unknown until the price is', () => {
+    assert.equal(minimumStampAmountPlur(null), null);
+    assert.equal(minimumStampAmountPlur('0'), null);
+    assert.equal(minimumStampAmountPlur('not a price'), null);
   });
 });
