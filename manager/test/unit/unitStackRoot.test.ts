@@ -21,7 +21,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   FORWARDED_SIGNALS,
+  LOCAL_HOST_VARIABLE,
   PLACEHOLDER_DATABASE_URL,
+  PINNED_LOCAL_HOST,
   STACK_ROOT_VARIABLE,
   UNIT_ARGS,
   forwardSignals,
@@ -60,6 +62,11 @@ describe('the runner that hands it that root', () => {
     const env = sandboxedEnv({}, '/tmp/throwaway');
     assert.equal(env.DATABASE_URL, PLACEHOLDER_DATABASE_URL);
     assert.match(env.DATABASE_URL, /unused/);
+  });
+
+  it('pins the host a local Bee is reached on, so a container answers like a laptop', () => {
+    const env = sandboxedEnv({ [LOCAL_HOST_VARIABLE]: 'host.docker.internal' }, '/tmp/throwaway');
+    assert.equal(env[LOCAL_HOST_VARIABLE], PINNED_LOCAL_HOST);
   });
 
   it('runs the unit glob and nothing else', () => {

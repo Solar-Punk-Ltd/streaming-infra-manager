@@ -15,7 +15,7 @@
  *
  * To run a single file, give it a root of its own the same way:
  *
- *   SHLS_ROOT="$(mktemp -d)" tsx --conditions=development --test test/unit/<file>
+ *   SHLS_ROOT="$(mktemp -d)" BEE_LOCAL_HOST=127.0.0.1 tsx --conditions=development --test test/unit/<file>
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -37,6 +37,19 @@ export const STACK_ROOT_VARIABLE = 'SHLS_ROOT';
  */
 export const PLACEHOLDER_DATABASE_URL = 'postgres://unused@localhost/unused';
 
+/**
+ * The host a locally published port is reached on, pinned for the whole run.
+ *
+ * src/domain/localHost.ts answers host.docker.internal when /.dockerenv is
+ * there, which is what the manager needs inside its own container and what
+ * makes a unit file's expectation depend on where the suite runs: the Bee
+ * target locator's own test passed on a laptop and failed on the verification
+ * box, whose jobs are containers. This is the override that module already
+ * documents, so the suite states the answer it was written against.
+ */
+export const LOCAL_HOST_VARIABLE = 'BEE_LOCAL_HOST';
+export const PINNED_LOCAL_HOST = '127.0.0.1';
+
 export const UNIT_ARGS = ['--conditions=development', '--test', 'test/unit/**/*.test.ts'];
 
 const ROOT_PREFIX = 'manager-unit-stack-';
@@ -50,12 +63,16 @@ const PACKAGE = fileURLToPath(new URL('../../', import.meta.url));
  * point is that no unit test writes into a checkout anyone else can see. A
  * database URL, by contrast, is only filled in when the caller has none, so a
  * run against a real one is still possible.
+ * The host a local Bee is reached on is replaced for the same reason as the
+ * root: an answer the suite inherits from its surroundings is not one it can
+ * assert on.
  */
 export function sandboxedEnv(env, root) {
   return {
     ...env,
     DATABASE_URL: env.DATABASE_URL ?? PLACEHOLDER_DATABASE_URL,
     [STACK_ROOT_VARIABLE]: root,
+    [LOCAL_HOST_VARIABLE]: PINNED_LOCAL_HOST,
   };
 }
 
