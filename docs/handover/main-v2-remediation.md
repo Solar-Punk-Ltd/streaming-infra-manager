@@ -1047,3 +1047,68 @@ Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.1
 **What the fixes proved after landing.** Both rulings of the same day hold on the live host. A redeploy that changed only the notes, which is the case that used to leave a blocked attempt and refuse the next deploy, came up running with no blocked attempt at all. Removing the test deployment took its containers, its data directory and all three of its execution copies, and left zero open build holds. The host ended with the five deployments it started with and nothing of the test.
 
 **Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 today. The paid part is still T22 and still waits on the D05 numbers.
+
+## The second live pass, and the first money spent, 2026-09-13
+
+Levi asked for everything to be tried. This pass ran against the manager on its
+own public domain, `streamtestinfra.swarmens.limo`, rather than through an SSH
+tunnel, so it exercised the same front door an operator uses. It found four
+defects, two of them in paths no laptop can reach, and it stopped at the one
+gate a session must not open by itself.
+
+**What was verified live and is working.** The Transfers page, which had no
+route in production until 2026-09-11, reads its record list and reports an empty
+history. The Host page shows live per-container figures for eleven containers.
+The Versions page and the version settings editor read real data, and main-v3's
+Settings stay disabled with the reason a flat checkout gives. User
+administration lists both accounts with their sessions. The wizard's own
+validation works, name check included. Execution copies are mounted from
+`.executions` and are unreadable to the deploy user, which is the 0700 root
+ownership doing its job. A cross-origin write was refused by the Origin check,
+which a local proxy proved by accident.
+
+**A version that can place nothing said the host was full.** Creating a
+deployment on main-v3, the default version that three deployments already run,
+was refused with "Every port slot from 1 to 99 is taken, remove a deployment to
+free one". The host publishes ports for six slots and no more, so the advice was
+wrong and would have cost a working deployment. The cause is a version whose
+compose file the manager cannot read: every port then falls back to tcp with no
+service against it, no problem is recorded, and the port policy afterwards
+refuses every public port whose owning service it cannot name. Running the
+product's own rule over its own contracts: bundled passes 99 slots of 99, main-v3
+passes none. Fixed at the contract, which now names the port, the rule and the
+way out, and says it before the create inventories anything. The Versions page
+and the wizard's version picker say it too, so nobody meets it at the end of a
+wizard.
+
+**Creating a deployment looks like it failed.** The create call takes over a
+minute on the host, and the generic API location in `frontend/nginx.conf` keeps
+nginx's default sixty second read timeout, so the browser gets a 504 while the
+manager accepts the work and deploys. The wizard then re-checks the name, finds
+the deployment that now exists, and says the name is taken. Not fixed. P2, and
+the fix is a timeout on that location beside the ones the chequebook routes
+already carry.
+
+**Nothing can be published until the node is funded.** A real SRT feed was sent
+at the address the deployment page gives. It reached the media server, which
+parsed the stream id correctly and then refused, because SRS asks the uploader
+for permission on every publish and the uploader is held down until the node is
+funded and stamped. The wizard's last screen says "The OBS URL is ready". It is
+not, and the manager shows the operator nothing about the refusal. Not fixed.
+
+**The stamp purchase, the first money this project has spent.** Levi funded the
+node with 5 BZZ and 0.1 xDAI, and Bee deployed its own chequebook contract
+unaided. The first purchase was refused by Bee with a plain 400: a batch must be
+good for 24 hours, which at the price of the day meant at least 1,571,927,040
+per chunk, and the manager's own estimate had offered 500,000,000 as "7h 58m".
+So the manager endorses amounts the node will not accept, and it turned Bee's
+clear 400 into a 502 with nothing shown on the page, which reads as a button
+that does nothing. Both unfixed and both worth a line of work. The second
+attempt at 2,000,000,000 and depth 17 cost 0.0262 BZZ, became usable in about a
+minute, and the manager set it on the deployment by itself.
+
+**Where it stopped.** Readiness reached two of five. The remaining gate is the
+chequebook, which this version wants filled with half a BZZ before it will start
+an uploader. Filling it moves a crypto asset, which is the one class of action a
+session does not perform, so it waits for Levi. Ingest, storage and playback
+therefore remain unproven, and everything up to them is proven.
