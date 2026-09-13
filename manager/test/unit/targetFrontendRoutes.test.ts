@@ -50,3 +50,23 @@ it('routes Host target requests to the API in development and production', () =>
     .filter(match => match[2]!.includes('proxy_pass http://manager_api;'));
   assert.ok(apiBlocks.some(match => match[1]!.includes('targets')), 'nginx must send targets to the manager');
 });
+
+/**
+ * A location that inherits nginx's sixty second default is a request the
+ * operator watches fail while the manager is still working on it.
+ *
+ * On the live host on 2026-09-13 creating a deployment took longer than that.
+ * The browser was told 504, the wizard then found the deployment that had in
+ * fact been created and said the name was taken, and the deployment deployed
+ * happily throughout. Stating the number in every block is what stops the next
+ * slow route being found the same way.
+ */
+it('states a read timeout on every location that reaches the manager', () => {
+  const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
+  const inheriting = [...nginx.matchAll(/location\s+([^\n{]+)\{([^}]+)\}/g)]
+    .filter(match => match[2]!.includes('proxy_pass http://manager_api;'))
+    .filter(match => !/proxy_read_timeout\s+\S+;/.test(match[2]!))
+    .map(match => match[1]!.trim());
+
+  assert.deepEqual(inheriting, [], `these take nginx's sixty second default: ${inheriting.join(', ')}`);
+});
