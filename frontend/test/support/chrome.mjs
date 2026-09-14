@@ -392,6 +392,20 @@ export function browserIdentity(currentUid, passwd) {
   return { runAs: null, sandbox: false };
 }
 
+/**
+ * The environment a browser running as somebody else needs.
+ *
+ * Handing the browser to `pwuser` fixed Chrome's refusal to run as root and
+ * revealed the next one: it was killed by SIGTRAP with
+ * `chrome_crashpad_handler: --database is required`, because the crash handler
+ * wants a writable home and the process had inherited root's. The profile
+ * directory is the one place the new user certainly owns, because the launcher
+ * hands it over before spawning.
+ */
+export function browserEnvironment(identity, profile, environment) {
+  return identity.runAs ? { ...environment, HOME: profile } : environment;
+}
+
 /** Whatever the browser printed, or a plain statement that it printed nothing. */
 function saidOrNothing(said) {
   return said.trim() === '' ? '(nothing on stdout or stderr)' : said.trim();
@@ -429,7 +443,8 @@ export async function launchChrome(t, origin) {
     ...(identity.sandbox ? [] : ['--no-sandbox']),
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(identity.runAs ?? {}) });
+  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(identity.runAs ?? {}),
+    env: browserEnvironment(identity, profile, process.env) });
   // Chrome explains a refusal on its own standard error, at once and in one
   // line, and then exits. Discarding that stream leaves a run with nothing but
   // the absence of a port file fifteen seconds later, which is how sixteen

@@ -18,36 +18,36 @@
  * behaves the way a refusing Chrome behaves.
  */
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
-import { browserIdentity, launchChrome } from './chrome.mjs';
+import { browserEnvironment, browserIdentity, launchChrome } from './chrome.mjs';
 
-/** Chrome's own words when it is asked to run as root without a sandbox. */
-const REFUSAL = 'Running as root without --no-sandbox is not supported. See https://crbug.com/638180.';
-
-/** A stand-in that refuses on standard error and exits, which is what a refusing Chrome does. */
-async function browserThatRefuses(code = 1) {
-  const directory = await mkdtemp(join(tmpdir(), 'chrome-launch-'));
-  const script = join(directory, 'chrome');
-  await writeFile(script, `#!/bin/sh\necho '${REFUSAL}' >&2\nexit ${code}\n`);
-  await chmod(script, 0o755);
-  return script;
-}
+/**
+ * A stand-in that refuses on standard error and exits, which is what a refusing
+ * Chrome does.
+ *
+ * It is the Node binary rather than a script written for the occasion. The
+ * verification box mounts its temporary directory `noexec`, so a shell script
+ * created there cannot be executed at all and the case fails with EACCES before
+ * it reaches the behaviour under test. Node is already executable wherever this
+ * suite runs, and it refuses Chrome's flags on standard error and exits, which
+ * is the shape the case needs.
+ */
+const browserThatRefuses = () => process.execPath;
 
 test('says what the browser said when it refuses to start', async (t) => {
-  process.env.CHROME_BIN = await browserThatRefuses();
+  process.env.CHROME_BIN = browserThatRefuses();
 
   const failure = await launchChrome(t, 'http://127.0.0.1:1').then(() => null, (error) => error);
 
   assert.ok(failure, 'a browser that exited must not look like a browser that started');
-  assert.match(failure.message, /crbug\.com\/638180/, `the browser's own reason is missing: ${failure.message}`);
+  // Whatever it objected to, it objected in its own words about our own first
+  // flag, so finding that flag in the failure proves the stream reached us.
+  assert.match(failure.message, /--headless=new/, `the browser's own reason is missing: ${failure.message}`);
 });
 
 test('gives up when the browser is gone rather than waiting out the budget', async (t) => {
-  process.env.CHROME_BIN = await browserThatRefuses();
+  process.env.CHROME_BIN = browserThatRefuses();
   const startedAt = Date.now();
 
   await launchChrome(t, 'http://127.0.0.1:1').then(() => null, () => null);
@@ -58,11 +58,11 @@ test('gives up when the browser is gone rather than waiting out the budget', asy
 });
 
 test('reports the exit status, because a refusal and a crash are different faults', async (t) => {
-  process.env.CHROME_BIN = await browserThatRefuses(127);
+  process.env.CHROME_BIN = browserThatRefuses();
 
   const failure = await launchChrome(t, 'http://127.0.0.1:1').then(() => null, (error) => error);
 
-  assert.match(failure.message, /127/, `the exit status is missing: ${failure.message}`);
+  assert.match(failure.message, /(exited \d+|was killed by \w+)/, `the exit status is missing: ${failure.message}`);
 });
 
 /**
@@ -102,4 +102,26 @@ test('does not mistake another account for pwuser', () => {
 
 test('ignores a line it cannot read rather than inventing an account', () => {
   assert.deepEqual(browserIdentity(0, 'pwuser:x:notanumber:1001::/home/pwuser:/bin/sh'), { runAs: null, sandbox: false });
+});
+
+/**
+ * Where the browser is allowed to write when it is somebody else.
+ *
+ * Running as `pwuser` fixed the root refusal and revealed the next one: Chrome
+ * was killed by SIGTRAP with `chrome_crashpad_handler: --database is required`,
+ * because its crash handler wants a writable home and the process had inherited
+ * root's. The profile directory is the one place the new user certainly owns,
+ * since the launcher hands it over before spawning.
+ */
+test('gives a browser running as somebody else a home it can write', () => {
+  const identity = { runAs: { uid: 1001, gid: 1001 }, sandbox: true };
+
+  assert.equal(browserEnvironment(identity, '/tmp/profile', { HOME: '/root', PATH: '/usr/bin' }).HOME, '/tmp/profile');
+  assert.equal(browserEnvironment(identity, '/tmp/profile', { HOME: '/root', PATH: '/usr/bin' }).PATH, '/usr/bin');
+});
+
+test('leaves the environment alone when the browser runs as us', () => {
+  const environment = { HOME: '/Users/someone', PATH: '/usr/bin' };
+
+  assert.deepEqual(browserEnvironment({ runAs: null, sandbox: true }, '/tmp/profile', environment), environment);
 });
