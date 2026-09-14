@@ -6,7 +6,7 @@ const { default: vite } = await import(new URL('../../../frontend/vite.config.ts
 /** Every location block that hands the request to the manager. */
 function apiLocations(nginx: string): string[] {
   return [...nginx.matchAll(/location\s+([^\n{]+)\{([^}]+)\}/g)]
-    .filter(match => match[2]!.includes('proxy_pass http://manager_api;'))
+    .filter(match => match[2]!.includes('proxy_pass http://$manager_api;'))
     .map(match => match[1]!.trim());
 }
 
@@ -47,7 +47,7 @@ it('routes Host target requests to the API in development and production', () =>
   assert.ok(config.server.proxy['/targets']?.target, 'Vite must proxy targets instead of returning the SPA');
   const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
   const apiBlocks = [...nginx.matchAll(/location\s+([^\n{]+)\{([^}]+)\}/g)]
-    .filter(match => match[2]!.includes('proxy_pass http://manager_api;'));
+    .filter(match => match[2]!.includes('proxy_pass http://$manager_api;'));
   assert.ok(apiBlocks.some(match => match[1]!.includes('targets')), 'nginx must send targets to the manager');
 });
 
@@ -64,9 +64,30 @@ it('routes Host target requests to the API in development and production', () =>
 it('states a read timeout on every location that reaches the manager', () => {
   const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
   const inheriting = [...nginx.matchAll(/location\s+([^\n{]+)\{([^}]+)\}/g)]
-    .filter(match => match[2]!.includes('proxy_pass http://manager_api;'))
+    .filter(match => match[2]!.includes('proxy_pass http://$manager_api;'))
     .filter(match => !/proxy_read_timeout\s+\S+;/.test(match[2]!))
     .map(match => match[1]!.trim());
 
   assert.deepEqual(inheriting, [], `these take nginx's sixty second default: ${inheriting.join(', ')}`);
+});
+
+/**
+ * nginx resolves a plain upstream name once, when it starts, and holds that
+ * address for the life of the process. A deploy that rebuilds only the manager
+ * recreates the api container and leaves the web container running, so the
+ * address nginx holds belongs to a container that is gone and every API call
+ * is a 502 while the manager itself is healthy. That is how the live host read
+ * on 2026-09-14: the sign-in page loaded and said the manager did not answer.
+ *
+ * Naming the host in a variable makes nginx ask again, which is the whole fix,
+ * and it only works when a resolver is there to ask.
+ */
+it('reaches the manager by a name it resolves again, so a recreated api is found', () => {
+  const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
+  assert.match(nginx, /^\s*resolver\s+\S+/m, 'without a resolver nginx cannot look the api up at all');
+  assert.match(nginx, /^\s*set\s+\$manager_api\s/m, 'the api host belongs in a variable, so nginx resolves it per request');
+  const fixed = [...nginx.matchAll(/location\s+([^\n{]+)\{([^}]+)\}/g)]
+    .filter(match => /proxy_pass\s+http:\/\/(?!\$)/.test(match[2]!))
+    .map(match => match[1]!.trim());
+  assert.deepEqual(fixed, [], `these hold one address for the life of nginx: ${fixed.join(', ')}`);
 });
