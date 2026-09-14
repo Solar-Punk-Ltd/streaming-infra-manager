@@ -20,7 +20,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { browserEnvironment, browserIdentity, launchChrome } from './chrome.mjs';
+import { browserArguments, browserEnvironment, browserIdentity, launchChrome } from './chrome.mjs';
 
 /**
  * A stand-in that refuses on standard error and exits, which is what a refusing
@@ -124,4 +124,38 @@ test('leaves the environment alone when the browser runs as us', () => {
   const environment = { HOME: '/Users/someone', PATH: '/usr/bin' };
 
   assert.deepEqual(browserEnvironment({ runAs: null, sandbox: true }, '/tmp/profile', environment), environment);
+});
+
+/**
+ * The flags that belong to a browser in a container, and to no other.
+ *
+ * With the launcher finally able to say what it saw, the seven files that
+ * failed on the box turned out not to be slow: every one had read an empty
+ * page for the whole fifteen seconds. The first load of each suite worked and
+ * the reload after it produced nothing at all, which is what a renderer that
+ * cannot allocate shared memory looks like from the outside. A container gets
+ * 64 MiB of /dev/shm by default and Chrome wants more, so it puts its shared
+ * memory in a temporary directory instead when told to.
+ *
+ * It is tied to the same fact that decides the sandbox, being root, because
+ * that is what tells us we are in that container rather than on a laptop where
+ * /dev/shm is the machine's own and nothing needs redirecting.
+ */
+test('a browser in the container is told not to rely on a tiny /dev/shm', () => {
+  const args = browserArguments({ runAs: { uid: 1001, gid: 1001 }, sandbox: false }, '/tmp/profile');
+
+  assert.ok(args.includes('--no-sandbox'), args.join(' '));
+  assert.ok(args.includes('--disable-dev-shm-usage'), args.join(' '));
+});
+
+test('a browser on a laptop is told neither, and keeps both', () => {
+  const args = browserArguments({ runAs: null, sandbox: true }, '/tmp/profile');
+
+  assert.equal(args.includes('--no-sandbox'), false, args.join(' '));
+  assert.equal(args.includes('--disable-dev-shm-usage'), false, args.join(' '));
+});
+
+test('every browser is given the profile it was told to use', () => {
+  assert.ok(browserArguments({ runAs: null, sandbox: true }, '/tmp/p').includes('--user-data-dir=/tmp/p'));
+  assert.ok(browserArguments({ runAs: null, sandbox: false }, '/tmp/p').includes('--user-data-dir=/tmp/p'));
 });

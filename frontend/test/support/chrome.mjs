@@ -419,6 +419,30 @@ export function browserIdentity(currentUid, passwd) {
 }
 
 /**
+ * The flags a browser is started with, which depend on where it is running.
+ *
+ * `--disable-dev-shm-usage` travels with `--no-sandbox` because both follow
+ * from the same fact, that we are root and therefore in the box's container. A
+ * container gets 64 MiB of /dev/shm by default, which is not enough for
+ * Chrome's renderers, and a renderer that cannot allocate there dies leaving a
+ * blank page and no error in the page itself. That is what seven browser files
+ * looked like on the box once their waits could say what they saw: an empty
+ * document for the whole budget, after a first load that had worked.
+ *
+ * A laptop keeps both, because its /dev/shm is the machine's own.
+ */
+export function browserArguments(identity, profile) {
+  return [
+    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    '--disable-background-networking', '--disable-component-update',
+    '--disable-default-apps', '--disable-extensions', '--disable-sync',
+    ...(identity.sandbox ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
+    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`, 'about:blank',
+  ];
+}
+
+/**
  * The environment a browser running as somebody else needs.
  *
  * Handing the browser to `pwuser` fixed Chrome's refusal to run as root and
@@ -462,15 +486,9 @@ export async function launchChrome(t, origin) {
   // browser running as somebody else cannot write the very directory it was
   // told to keep its profile in.
   if (identity.runAs) await chown(profile, identity.runAs.uid, identity.runAs.gid);
-  const child = spawn(executable, [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--disable-background-networking', '--disable-component-update',
-    '--disable-default-apps', '--disable-extensions', '--disable-sync',
-    ...(identity.sandbox ? [] : ['--no-sandbox']),
-    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
-    `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(identity.runAs ?? {}),
-    env: browserEnvironment(identity, profile, process.env) });
+  const child = spawn(executable, browserArguments(identity, profile),
+    { stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(identity.runAs ?? {}),
+      env: browserEnvironment(identity, profile, process.env) });
   // Chrome explains a refusal on its own standard error, at once and in one
   // line, and then exits. Discarding that stream leaves a run with nothing but
   // the absence of a port file fifteen seconds later, which is how sixteen
