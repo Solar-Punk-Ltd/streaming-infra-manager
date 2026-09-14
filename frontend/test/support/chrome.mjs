@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, chown, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -360,6 +360,38 @@ export async function endChromeSession(reporter, child, profile, removal = {}) {
   if (failure) throw failure;
 }
 
+/** The account table, or empty where there is none, which is every macOS laptop. */
+async function passwdFile() {
+  try { return await readFile('/etc/passwd', 'utf8'); }
+  catch { return ''; }
+}
+
+/**
+ * Who should run the browser, and whether the sandbox has to be given up.
+ *
+ * Chrome refuses to run as root unless the sandbox is disabled, which is why
+ * every browser suite refused inside the verification box's container. Passing
+ * `--no-sandbox` unconditionally is the usual answer and the worse one: it
+ * drops the sandbox on a laptop that never needed it. The box's browser image
+ * ships a `pwuser` account for exactly this, so where that account exists the
+ * browser runs as it and keeps its sandbox in both places, and the sandbox is
+ * given up only where root has nobody else to be.
+ *
+ * Takes the password file as text rather than reading it, so the decision can
+ * be checked off a fixture from a process that is neither root nor in that
+ * image.
+ */
+export function browserIdentity(currentUid, passwd) {
+  if (currentUid !== 0) return { runAs: null, sandbox: true };
+  for (const line of String(passwd).split('\n')) {
+    const [name, , uid, gid] = line.split(':');
+    if (name !== 'pwuser') continue;
+    if (!/^\d+$/.test(uid ?? '') || !/^\d+$/.test(gid ?? '')) break;
+    return { runAs: { uid: Number(uid), gid: Number(gid) }, sandbox: true };
+  }
+  return { runAs: null, sandbox: false };
+}
+
 /** Whatever the browser printed, or a plain statement that it printed nothing. */
 function saidOrNothing(said) {
   return said.trim() === '' ? '(nothing on stdout or stderr)' : said.trim();
@@ -385,13 +417,19 @@ export async function launchChrome(t, origin) {
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   await access(executable);
   const profile = await mkdtemp(join(tmpdir(), 't15-chrome-'));
+  const identity = browserIdentity(process.getuid?.() ?? -1, await passwdFile());
+  // mkdtemp makes the profile 0700 and owned by whoever asked for it, so a
+  // browser running as somebody else cannot write the very directory it was
+  // told to keep its profile in.
+  if (identity.runAs) await chown(profile, identity.runAs.uid, identity.runAs.gid);
   const child = spawn(executable, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update',
     '--disable-default-apps', '--disable-extensions', '--disable-sync',
+    ...(identity.sandbox ? [] : ['--no-sandbox']),
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(identity.runAs ?? {}) });
   // Chrome explains a refusal on its own standard error, at once and in one
   // line, and then exits. Discarding that stream leaves a run with nothing but
   // the absence of a port file fifteen seconds later, which is how sixteen
