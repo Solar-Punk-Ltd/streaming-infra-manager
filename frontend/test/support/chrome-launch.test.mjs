@@ -116,14 +116,14 @@ test('ignores a line it cannot read rather than inventing an account', () => {
 test('gives a browser running as somebody else a home it can write', () => {
   const identity = { runAs: { uid: 1001, gid: 1001 }, sandbox: true };
 
-  assert.equal(browserEnvironment(identity, '/tmp/profile', { HOME: '/root', PATH: '/usr/bin' }).HOME, '/tmp/profile');
-  assert.equal(browserEnvironment(identity, '/tmp/profile', { HOME: '/root', PATH: '/usr/bin' }).PATH, '/usr/bin');
+  assert.equal(browserEnvironment(identity, '/nowhere/profile', { HOME: '/root', PATH: '/usr/bin' }).HOME, '/nowhere/profile');
+  assert.equal(browserEnvironment(identity, '/nowhere/profile', { HOME: '/root', PATH: '/usr/bin' }).PATH, '/usr/bin');
 });
 
 test('leaves the environment alone when the browser runs as us', () => {
-  const environment = { HOME: '/Users/someone', PATH: '/usr/bin' };
+  const environment = { HOME: '/nowhere/a-home', PATH: '/usr/bin' };
 
-  assert.deepEqual(browserEnvironment({ runAs: null, sandbox: true }, '/tmp/profile', environment), environment);
+  assert.deepEqual(browserEnvironment({ runAs: null, sandbox: true }, '/nowhere/profile', environment), environment);
 });
 
 /**
@@ -142,20 +142,20 @@ test('leaves the environment alone when the browser runs as us', () => {
  * /dev/shm is the machine's own and nothing needs redirecting.
  */
 test('a browser in the container is told not to rely on a tiny /dev/shm', () => {
-  const args = browserArguments({ runAs: { uid: 1001, gid: 1001 }, sandbox: false }, '/tmp/profile');
+  const args = browserArguments({ runAs: { uid: 1001, gid: 1001 }, sandbox: false }, '/nowhere/profile');
 
   assert.ok(args.includes('--no-sandbox'), args.join(' '));
   assert.ok(args.includes('--disable-dev-shm-usage'), args.join(' '));
 });
 
 test('a browser on a laptop is told neither, and keeps both', () => {
-  const args = browserArguments({ runAs: null, sandbox: true }, '/tmp/profile');
+  const args = browserArguments({ runAs: null, sandbox: true }, '/nowhere/profile');
 
   assert.equal(args.includes('--no-sandbox'), false, args.join(' '));
   assert.equal(args.includes('--disable-dev-shm-usage'), false, args.join(' '));
 });
 
 test('every browser is given the profile it was told to use', () => {
-  assert.ok(browserArguments({ runAs: null, sandbox: true }, '/tmp/p').includes('--user-data-dir=/tmp/p'));
-  assert.ok(browserArguments({ runAs: null, sandbox: false }, '/tmp/p').includes('--user-data-dir=/tmp/p'));
+  assert.ok(browserArguments({ runAs: null, sandbox: true }, '/nowhere/p').includes('--user-data-dir=/nowhere/p'));
+  assert.ok(browserArguments({ runAs: null, sandbox: false }, '/nowhere/p').includes('--user-data-dir=/nowhere/p'));
 });
