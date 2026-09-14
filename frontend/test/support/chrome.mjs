@@ -19,12 +19,32 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
     throw new Error('A wait says what it is waiting for, since that is all a timeout here prints.');
   }
   const until = Date.now() + timeoutMs;
+  let last;
+  let readAnything = false;
   while (Date.now() < until) {
     const value = await read();
+    last = value;
+    readAnything = true;
     if (accepts(value)) return value;
     await delay(30);
   }
-  throw new Error(`Timed out waiting for ${description}`);
+  throw new Error(`Timed out waiting for ${description}, and last saw ${lastReading(last, readAnything)}`);
+}
+
+/**
+ * What a wait that ran out had in front of it, short enough for a log.
+ *
+ * The description says what was wanted and nothing says what arrived instead,
+ * which is the difference between a page that never loaded and a page that
+ * loaded and said something else. On the verification box seven files ended on
+ * waits that could not tell those apart, and all seven pass on a laptop, so
+ * the missing half is exactly the half that decides whose fault it is.
+ */
+function lastReading(value, readAnything) {
+  if (!readAnything) return 'nothing: it never read anything at all';
+  if (value === undefined || value === null) return String(value);
+  const text = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
+  return text.length > 300 ? `${JSON.stringify(text.slice(0, 300))} (cut, ${text.length} characters)` : JSON.stringify(text);
 }
 
 /**
