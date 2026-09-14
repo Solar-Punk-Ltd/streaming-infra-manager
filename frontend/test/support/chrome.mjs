@@ -360,6 +360,22 @@ export async function endChromeSession(reporter, child, profile, removal = {}) {
   if (failure) throw failure;
 }
 
+/** Whatever the browser printed, or a plain statement that it printed nothing. */
+function saidOrNothing(said) {
+  return said.trim() === '' ? '(nothing on stdout or stderr)' : said.trim();
+}
+
+/**
+ * What a browser that exited before opening a port has already told us.
+ *
+ * The exit status is in here beside the output because a refusal and a crash
+ * are different faults and read identically once the reason is gone.
+ */
+function browserGone(executable, ended, said) {
+  const how = ended.signal ? `was killed by ${ended.signal}` : `exited ${ended.code}`;
+  return `${executable} ${how} before it opened a debugging port, and said: ${saidOrNothing(said)}`;
+}
+
 /**
  * Runs an isolated Chrome profile. Only the process group this starts and the
  * profile it was given are cleaned up.
@@ -375,7 +391,18 @@ export async function launchChrome(t, origin) {
     '--disable-default-apps', '--disable-extensions', '--disable-sync',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: 'ignore', detached: true });
+  ], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  // Chrome explains a refusal on its own standard error, at once and in one
+  // line, and then exits. Discarding that stream leaves a run with nothing but
+  // the absence of a port file fifteen seconds later, which is how sixteen
+  // suites on the verification box each reported the same timeout and no
+  // reason among them.
+  let said = '';
+  const collect = (chunk) => { said += chunk; };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
+  let ended = null;
+  child.on('exit', (code, signal) => { ended = { code, signal }; });
   let socket;
   t.after(async () => {
     socket?.close();
@@ -383,9 +410,15 @@ export async function launchChrome(t, origin) {
   });
   const portFile = join(profile, 'DevToolsActivePort');
   const port = await waitFor(async () => {
+    // A process that has exited is never going to write the file this is
+    // waiting for, so the budget is spent learning nothing.
+    if (ended) throw new Error(browserGone(executable, ended, said));
     try { return Number((await readFile(portFile, 'utf8')).split('\n')[0]); }
     catch { return null; }
-  }, Boolean, 'Chrome debugging port');
+  }, Boolean, 'Chrome debugging port').catch((error) => {
+    if (ended) throw error;
+    throw new Error(`${error.message}. The browser is still running and said: ${saidOrNothing(said)}`);
+  });
   const tabs = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json());
   socket = new WebSocket(tabs.find((tab) => tab.type === 'page').webSocketDebuggerUrl);
   await once(socket, 'open', { signal: AbortSignal.timeout(5000) });
