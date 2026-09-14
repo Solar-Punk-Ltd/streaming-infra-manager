@@ -88,11 +88,11 @@ test('runs as ourselves and keeps the sandbox when we are not root', () => {
   assert.deepEqual(browserIdentity(501, PASSWD), { runAs: null, sandbox: true });
 });
 
-test('runs as pwuser and keeps the sandbox when we are root and it exists', () => {
-  assert.deepEqual(browserIdentity(0, PASSWD), { runAs: { uid: 1001, gid: 1001 }, sandbox: true });
+test('drops root to pwuser where it exists, and the sandbox either way', () => {
+  assert.deepEqual(browserIdentity(0, PASSWD), { runAs: { uid: 1001, gid: 1001 }, sandbox: false });
 });
 
-test('gives up the sandbox only where root has nobody else to be', () => {
+test('still drops the sandbox where root has nobody else to be', () => {
   assert.deepEqual(browserIdentity(0, 'root:x:0:0:root:/root:/bin/bash'), { runAs: null, sandbox: false });
 });
 

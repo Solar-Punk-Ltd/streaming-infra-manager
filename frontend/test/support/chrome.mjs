@@ -372,10 +372,16 @@ async function passwdFile() {
  * Chrome refuses to run as root unless the sandbox is disabled, which is why
  * every browser suite refused inside the verification box's container. Passing
  * `--no-sandbox` unconditionally is the usual answer and the worse one: it
- * drops the sandbox on a laptop that never needed it. The box's browser image
- * ships a `pwuser` account for exactly this, so where that account exists the
- * browser runs as it and keeps its sandbox in both places, and the sandbox is
- * given up only where root has nobody else to be.
+ * drops the sandbox on a laptop that never needed it.
+ *
+ * ⛔ Keeping the sandbox in that container is not on offer, and this is a
+ * reading rather than an assumption. Running as the image's `pwuser` cleared
+ * the root refusal and Chrome then died saying "No usable sandbox!", because
+ * the container permits no unprivileged user namespaces. So the sandbox is
+ * given up where we are root, which is that container and nowhere else, and
+ * the browser still stops being root wherever there is another account to be:
+ * a sandboxless browser running as nobody in particular is better than a
+ * sandboxless browser running as root.
  *
  * Takes the password file as text rather than reading it, so the decision can
  * be checked off a fixture from a process that is neither root nor in that
@@ -387,7 +393,7 @@ export function browserIdentity(currentUid, passwd) {
     const [name, , uid, gid] = line.split(':');
     if (name !== 'pwuser') continue;
     if (!/^\d+$/.test(uid ?? '') || !/^\d+$/.test(gid ?? '')) break;
-    return { runAs: { uid: Number(uid), gid: Number(gid) }, sandbox: true };
+    return { runAs: { uid: Number(uid), gid: Number(gid) }, sandbox: false };
   }
   return { runAs: null, sandbox: false };
 }
