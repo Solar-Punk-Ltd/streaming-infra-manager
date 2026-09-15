@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createServer, type ServerResponse } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
-import { BeeClient } from '../../src/domain/BeeClient.js';
+import { BeeClient, DEFAULT_TIMEOUT_MS } from '../../src/domain/BeeClient.js';
+import { MAX_PROBE_TIMEOUT_MS } from '../../src/domain/beeNodeObservation.js';
 
 const servers: ReturnType<typeof createServer>[] = [];
 afterEach(async () => {
@@ -108,5 +109,28 @@ describe('Bee startup observations', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+
+  // The cap used to sit at 3 s while every caller asked for 10 s, so a node
+  // that took four seconds to answer was reported as not ready and this file's
+  // own AMPLE_TIMEOUT_MS was quietly a third of what it says. A cap is a
+  // backstop against an absurd caller, never a policy that overrules one.
+  it('never shortens the budget its callers ask for', () => {
+    assert.ok(
+      MAX_PROBE_TIMEOUT_MS >= DEFAULT_TIMEOUT_MS,
+      `a cap of ${MAX_PROBE_TIMEOUT_MS}ms silently shortens the ${DEFAULT_TIMEOUT_MS}ms every BeeClient asks for`,
+    );
+    assert.ok(MAX_PROBE_TIMEOUT_MS >= AMPLE_TIMEOUT_MS, String(MAX_PROBE_TIMEOUT_MS));
+  });
+
+  it('waits out a node slower than the old cap when its caller allowed for it', { timeout: 20_000 }, async () => {
+    const slow = await client((path, res) => {
+      const body = path === '/readiness'
+        ? JSON.stringify({ status: 'ready' })
+        : JSON.stringify({ status: 'ok', version: '2.8.2', apiVersion: '8.1.1' });
+      setTimeout(() => res.end(body), 4_000);
+    });
+
+    assert.equal((await slow.getNodeObservation()).state, 'ready');
   });
 });

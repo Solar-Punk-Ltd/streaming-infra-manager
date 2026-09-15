@@ -7,7 +7,8 @@ import type {
 import { observeBeeNode } from './beeNodeObservation.js';
 import { BeeHttpError } from './errors/BeeHttpError.js';
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+/** What every caller that does not name its own budget gets. */
+export const DEFAULT_TIMEOUT_MS = 10_000;
 // Buying a stamp, filling a chequebook and emptying one all submit a
 // transaction to Gnosis Chain, and bee holds the request until it has one to
 // answer with.

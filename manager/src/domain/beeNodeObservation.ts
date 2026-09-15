@@ -1,7 +1,16 @@
 import type { BeeNodeObservation } from '@streaming-infra-manager/common';
 
 const MAX_PROBE_BYTES = 64 * 1024;
-const MAX_PROBE_TIMEOUT_MS = 3_000;
+/**
+ * A backstop against a caller naming an absurd budget, not a policy over them.
+ *
+ * It sat at 3 s while every caller asked for 10 s, so it was the real budget
+ * rather than the limit on one, and nothing said so: a node that took four
+ * seconds to answer was reported as not ready, and this file's own tests passed
+ * a budget they never got. Kept clear of DEFAULT_TIMEOUT_MS, which is what the
+ * callers ask for.
+ */
+export const MAX_PROBE_TIMEOUT_MS = 30_000;
 
 type ProbeResult = { kind: 'response'; status: number; body: Record<string, unknown> | null } | { kind: 'unreachable' };
 
