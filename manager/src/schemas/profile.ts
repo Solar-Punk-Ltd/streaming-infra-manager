@@ -100,6 +100,12 @@ const rpcEndpointField = () =>
   string()
     .nullable()
     .notRequired()
+    // Blank is null and nothing else, because the column carries a CHECK that
+    // the value looks like an address, so a blank one reaching the write is a
+    // raw database error rather than an answer. `nullify` maps only undefined.
+    .transform((value: unknown) =>
+      typeof value === 'string' ? value.trim() || null : value,
+    )
     .max(255)
     .test('rpc-endpoint', 'invalid rpc_endpoint', function (value) {
       const problem = rpcEndpointProblem(value);

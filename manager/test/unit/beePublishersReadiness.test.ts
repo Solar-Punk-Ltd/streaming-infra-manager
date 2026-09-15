@@ -68,6 +68,7 @@ function member(rung: string, index: number): Profile {
     stamp_id: BATCH(rung),
     bee_publishers: null,
     bee_url: null,
+    rpc_endpoint: null,
     srt_passphrase: null,
     engine_settings: {},
     has_engine_config: false,

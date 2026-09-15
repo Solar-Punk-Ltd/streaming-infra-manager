@@ -56,6 +56,7 @@ function streamer(over: Partial<Profile> = {}): Profile {
     stamp_id: null,
     bee_publishers: null,
     bee_url: null,
+    rpc_endpoint: null,
     srt_passphrase: null,
     engine_settings: {},
     has_engine_config: false,
@@ -134,6 +135,7 @@ describe('bee_url — an external node for a single-node uploader', () => {
       kind: 'custom',
       components: ['srs', 'stream-uploader'],
       bee_url: 'http://10.0.0.7:1633',
+      rpc_endpoint: null,
     });
     assert.equal(out.bee_url, 'http://10.0.0.7:1633');
   });
@@ -146,6 +148,7 @@ describe('bee_url — an external node for a single-node uploader', () => {
         name: 'stage',
         kind: 'streamer',
         bee_url: 'http://10.0.0.7:1633',
+        rpc_endpoint: null,
       }),
       /only applies to a deployment that runs no bee-uploader/,
     );
@@ -170,6 +173,7 @@ describe('bee_url — an external node for a single-node uploader', () => {
         kind: 'abr-uploader',
         bee_publishers: PUBLISHERS,
         bee_url: 'http://10.0.0.7:1633',
+        rpc_endpoint: null,
       }),
       /bee_url is not used when bee_publishers is set/,
     );
