@@ -78,34 +78,48 @@ describe('the body the Edit drawer sends', () => {
   });
 });
 
+/** A deployment that runs a Bee node of its own, which is what reaches a chain. */
+function uploader(over: Partial<Profile> = {}): Profile {
+  return viewer({ kind: 'streamer', components: ['srs', 'stream-uploader', 'bee-uploader'], ...over });
+}
+
 describe('the chain endpoint a deployment names for itself', () => {
   /**
-   * Every Bee node reads RPC_ENDPOINT, and the only place to set it used to be
-   * the stack version, so every deployment on a version shared one. The shipped
-   * default is a public RPC that answered a single node 4568 HTTP 429s in two
-   * hours on 2026-09-15, so a deployment running a node of its own has to be
-   * able to name its own endpoint.
+   * Every Bee node that reaches a chain reads RPC_ENDPOINT, and the only place
+   * to set it used to be the stack version, so every deployment on a version
+   * shared one. The shipped default is a public RPC that answered a single node
+   * 4568 HTTP 429s in two hours on 2026-09-15.
    */
-  it('is asked of a deployment that runs a Bee node, and not of one that does not', () => {
-    assert.equal(fieldsFor(viewer()).rpcEndpoint, true);
+  it('is asked of a deployment that runs an uploader node', () => {
+    assert.equal(fieldsFor(uploader()).rpcEndpoint, true);
+  });
+
+  /**
+   * A viewer's gateway is an ultra-light node, and bee reads that mode off an
+   * EMPTY --blockchain-rpc-endpoint (pkg/node/node.go:1605 isChainEnabled). The
+   * stack states it empty, so there is nowhere for an endpoint to go and asking
+   * for one would offer a setting that changes nothing.
+   */
+  it('is not asked of a viewer, whose node reaches no chain at all', () => {
+    assert.equal(fieldsFor(viewer()).rpcEndpoint, false);
     assert.equal(fieldsFor(viewer({ components: ['srs'] })).rpcEndpoint, false);
   });
 
   it('starts from what the deployment already holds, and empty when it holds none', () => {
-    assert.equal(initialEdits(viewer({ rpc_endpoint: 'http://host.docker.internal:9000' })).rpcEndpoint,
+    assert.equal(initialEdits(uploader({ rpc_endpoint: 'http://host.docker.internal:9000' })).rpcEndpoint,
       'http://host.docker.internal:9000');
-    assert.equal(initialEdits(viewer()).rpcEndpoint, '');
+    assert.equal(initialEdits(uploader()).rpcEndpoint, '');
   });
 
   it('refuses an address that is not one before it is sent', () => {
-    const profile = viewer();
+    const profile = uploader();
     const edits = { ...initialEdits(profile), rpcEndpoint: 'rpc.gnosischain.com' };
 
     assert.match(editProblem(edits, fieldsFor(profile)) ?? '', /http/);
   });
 
   it('clears back to the version endpoint when the field is emptied', () => {
-    const profile = viewer({ rpc_endpoint: 'http://host.docker.internal:9000' });
+    const profile = uploader({ rpc_endpoint: 'http://host.docker.internal:9000' });
     const initial = initialEdits(profile);
 
     const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: '   ' }, fieldsFor(profile), profile.notes_revision);
@@ -114,7 +128,7 @@ describe('the chain endpoint a deployment names for itself', () => {
   });
 
   it('sends the endpoint the operator typed', () => {
-    const profile = viewer();
+    const profile = uploader();
     const initial = initialEdits(profile);
 
     const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: 'http://host.docker.internal:9000' }, fieldsFor(profile), profile.notes_revision);

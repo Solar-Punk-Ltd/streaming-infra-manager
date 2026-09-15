@@ -153,7 +153,7 @@ export function EditDeploymentDrawer({
       {shown.rpcEndpoint && (
         <FormField
           label="Chain endpoint"
-          hint="Where this deployment's Bee nodes read the chain. Leave it empty to use the endpoint the stack version carries, which ships as a public Gnosis RPC that rate-limits. An endpoint running on the server is reached at http://host.docker.internal:PORT."
+          hint="Where this deployment's Bee node reads the chain. Leave it empty to use the endpoint the stack version carries, which ships as a public Gnosis RPC that rate-limits. An endpoint running on the server is reached at http://host.docker.internal:PORT."
           error={rpcEndpointProblem(edits.rpcEndpoint)}
         >
           <TextField

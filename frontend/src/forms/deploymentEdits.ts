@@ -2,7 +2,6 @@ import {
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
   beeUrlProblem,
-  BEE_GATEWAY_SERVICE,
   rpcEndpointProblem,
   CLIENT_SERVICE,
   DEFAULT_ABR_RUNGS,
@@ -58,11 +57,12 @@ export function fieldsFor(profile: Profile): ShownFields {
     key: hasService(profile, STREAM_UPLOADER_SERVICE),
     stamp: streamLike,
     beeUrl: streamLike && !hasService(profile, BEE_UPLOADER_SERVICE),
-    // Any Bee node reads the endpoint, an uploader's and a viewer's gateway
-    // alike, and a deployment that runs neither has no chain to reach.
-    rpcEndpoint:
-      hasService(profile, BEE_UPLOADER_SERVICE) ||
-      hasService(profile, BEE_GATEWAY_SERVICE),
+    // An uploader node only. A viewer's gateway is ultra-light, which bee reads
+    // off an EMPTY --blockchain-rpc-endpoint (pkg/node/node.go:1605
+    // isChainEnabled), and the stack states it empty, so there is nowhere for an
+    // endpoint to go and offering the field would offer a setting that changes
+    // nothing.
+    rpcEndpoint: hasService(profile, BEE_UPLOADER_SERVICE),
     poolString: shape === 'abr-uploader',
     feedOwner: hasService(profile, CLIENT_SERVICE),
   };
