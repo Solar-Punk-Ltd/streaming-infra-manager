@@ -266,6 +266,7 @@ export class ProfileService {
     stamp_id?: string | null;
     bee_publishers?: string | null;
     bee_url?: string | null;
+    rpc_endpoint?: string | null;
     srt_passphrase?: string | null;
     /** Absent means the default version. */
     stack_version_id?: number | null;
@@ -307,6 +308,7 @@ export class ProfileService {
           stamp_id: input.stamp_id,
           bee_publishers: input.bee_publishers,
           bee_url: input.bee_url,
+          rpc_endpoint: input.rpc_endpoint,
           srt_passphrase: input.srt_passphrase,
         },
         await this.placementFor(version, input.host ?? null, input.components),
@@ -367,6 +369,7 @@ export class ProfileService {
       stamp_id?: string | null;
       bee_publishers?: string | null;
       bee_url?: string | null;
+      rpc_endpoint?: string | null;
       srt_passphrase?: string | null;
     },
   ): Promise<ProfileWithContainers> {
@@ -403,6 +406,7 @@ export class ProfileService {
       stamp_id: input.stamp_id,
       bee_publishers: input.bee_publishers,
       bee_url: input.bee_url,
+      rpc_endpoint: input.rpc_endpoint,
       srt_passphrase: input.srt_passphrase,
     });
     const proposed: Profile = { ...existing, ...edits };

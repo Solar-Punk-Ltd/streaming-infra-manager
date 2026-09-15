@@ -23,6 +23,7 @@ export interface ProfileWriteData {
   stamp_id?: string | null;
   bee_publishers?: string | null;
   bee_url?: string | null;
+  rpc_endpoint?: string | null;
   srt_passphrase?: string | null;
   group_id?: number | null;
 }
@@ -126,9 +127,9 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, stack_version_id, deployment_phase
+           srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, stack_version_id, deployment_phase
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
                  CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
@@ -148,6 +149,7 @@ export class ProfileRepository {
           dataWithNullFields.group_id,
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
+          dataWithNullFields.rpc_endpoint,
           placement.stackVersionId,
         ],
       );
@@ -191,11 +193,12 @@ export class ProfileRepository {
              stamp_id = $9,
              bee_publishers = $10,
              bee_url = $11,
-             srt_passphrase = $12,
-             engine_settings = COALESCE($13::jsonb, engine_settings),
+             rpc_endpoint = $12,
+             srt_passphrase = $13,
+             engine_settings = COALESCE($14::jsonb, engine_settings),
              updated_at = NOW()
        WHERE name = $1
-         AND ($14::int IS NULL OR notes_revision = $14::int)
+         AND ($15::int IS NULL OR notes_revision = $15::int)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -209,6 +212,7 @@ export class ProfileRepository {
         data.stamp_id,
         data.bee_publishers,
         data.bee_url,
+        data.rpc_endpoint,
         data.srt_passphrase,
         engineSettings === undefined ? null : JSON.stringify(engineSettings),
         expectedNotesRevision ?? null,

@@ -32,6 +32,7 @@ export interface Profile {
   bee_publishers?: string | null;
   /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
   bee_url?: string | null;
+  rpc_endpoint?: string | null;
   /** SRS only; null falls back to the host-wide SRT_PASSPHRASE. */
   srt_passphrase?: string | null;
   /**
@@ -88,6 +89,7 @@ export interface CreateProfileBody {
   /** null clears it on update, the uploader goes back to its own node + stamp. */
   bee_publishers?: string | null;
   bee_url?: string | null;
+  rpc_endpoint?: string | null;
   srt_passphrase?: string;
   /** The stack version to run. Absent means the manager's default one. */
   stack_version_id?: number;

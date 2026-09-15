@@ -145,6 +145,27 @@ export function beeUrlProblem(
   }
 }
 
+/**
+ * Why this is not an address a Bee node could reach the chain through, or null.
+ *
+ * Empty is not a problem and never becomes one: a deployment that names none
+ * takes the endpoint its stack version carries, which is how every deployment
+ * worked before this was settable per node.
+ */
+export function rpcEndpointProblem(
+  value: string | null | undefined,
+): string | null {
+  if (!value || !value.trim()) return null;
+  switch (classifyPublishUrl(value.trim())) {
+    case 'malformed':
+      return 'expected an http(s) URL, like http://host.docker.internal:9000';
+    case 'ssh-target':
+      return 'this address carries ssh user info, so it is a deploy target rather than a chain endpoint';
+    default:
+      return null;
+  }
+}
+
 /** Why a URL is worth a second look although it does not block. */
 export function publishUrlWarning(state: PublishUrlState): string | null {
   return state === 'unreachable'

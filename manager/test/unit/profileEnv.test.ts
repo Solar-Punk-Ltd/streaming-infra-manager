@@ -326,3 +326,47 @@ describe('writeProfileEnv, the mode of the file it writes', () => {
     assert.equal(modeOf(path), '600');
   });
 });
+
+describe('the chain endpoint a deployment names for itself', () => {
+  /**
+   * Every Bee node reads RPC_ENDPOINT, and until now the only place to set it
+   * was the stack version, so every deployment on a version shared one
+   * endpoint. The shipped default is a public RPC that answered one node 4568
+   * HTTP 429s in two hours on 2026-09-15, so an operator running their own
+   * needs to be able to point one deployment at it without moving the rest.
+   */
+  it('overrides the one the version carries', () => {
+    writeBaseEnv('ENGINE=srs\nRPC_ENDPOINT=https://rpc.gnosischain.com\n');
+
+    const path = writeProfileEnv(root, 'own-rpc', {
+      engine: 'srs',
+      rpcEndpoint: 'http://host.docker.internal:9000',
+    });
+
+    assert.equal(lineFor(path, 'RPC_ENDPOINT'), 'RPC_ENDPOINT=http://host.docker.internal:9000');
+    assert.equal(
+      lines(path).filter((line) => line.startsWith('RPC_ENDPOINT=')).length,
+      1,
+      'the version value is replaced rather than joined by a second line compose would read instead',
+    );
+  });
+
+  it('leaves the version value alone when the deployment names none', () => {
+    writeBaseEnv('ENGINE=srs\nRPC_ENDPOINT=https://rpc.gnosischain.com\n');
+
+    for (const value of [undefined, '', '   ']) {
+      const path = writeProfileEnv(root, 'no-rpc', { engine: 'srs', rpcEndpoint: value });
+      assert.equal(lineFor(path, 'RPC_ENDPOINT'), 'RPC_ENDPOINT=https://rpc.gnosischain.com');
+    }
+  });
+
+  it('refuses an address that is not one, rather than writing it for compose to find', () => {
+    writeBaseEnv();
+
+    assert.throws(
+      () => writeProfileEnv(root, 'bad-rpc', { engine: 'srs', rpcEndpoint: 'rpc.gnosischain.com' }),
+      /RPC_ENDPOINT/,
+    );
+  });
+});
+

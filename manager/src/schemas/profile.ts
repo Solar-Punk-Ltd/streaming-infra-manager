@@ -3,6 +3,7 @@ import {
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
   beeUrlProblem,
+  rpcEndpointProblem,
   defaultServicesFor,
   engineForComponents,
   hasConflictingEngines,
@@ -90,6 +91,24 @@ const beeUrlField = () =>
     });
 
 /**
+ * The chain endpoint this deployment's Bee nodes reach, or nothing for the one
+ * its stack version carries. Per deployment because the shipped default is a
+ * public RPC that throttles, and an operator running their own endpoint has to
+ * be able to move one deployment onto it without moving the rest.
+ */
+const rpcEndpointField = () =>
+  string()
+    .nullable()
+    .notRequired()
+    .max(255)
+    .test('rpc-endpoint', 'invalid rpc_endpoint', function (value) {
+      const problem = rpcEndpointProblem(value);
+      return problem
+        ? this.createError({ message: `rpc_endpoint: ${problem}` })
+        : true;
+    });
+
+/**
  * The stack version a new deployment runs. Absent means the default one.
  * Whether the id names a version, and whether that version has finished
  * building, is the service's to answer.
@@ -172,6 +191,7 @@ export const createProfileSchema = object({
       return engineForComponents(components) !== OME_SERVICE;
     },
   ),
+  rpc_endpoint: rpcEndpointField(),
   bee_url: beeUrlField().test(
     'bee-url-needs-no-local-node',
     'bee_url has no effect alongside a local bee-uploader',
@@ -237,6 +257,7 @@ export const updateProfileSchema = object({
   // the first deploy so the bee-uploader check cannot newly fail here.
   bee_publishers: beePublishersField(),
   bee_url: beeUrlField(),
+  rpc_endpoint: rpcEndpointField(),
   srt_passphrase: string()
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),

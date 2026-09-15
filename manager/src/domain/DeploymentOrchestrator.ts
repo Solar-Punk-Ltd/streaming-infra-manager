@@ -813,6 +813,7 @@ export class DeploymentOrchestrator {
         stampId: profile.stamp_id,
         beePublishers: profile.bee_publishers,
         beeUrl: profile.bee_url,
+        rpcEndpoint: profile.rpc_endpoint,
         srtPassphrase: profile.srt_passphrase,
         streamKey: profile.private_key,
         engineSettings: profile.engine_settings,

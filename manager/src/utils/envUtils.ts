@@ -8,6 +8,7 @@ import {
   applicableEngineSettings,
   beePublishersProblem,
   beeUrlProblem,
+  rpcEndpointProblem,
   effectiveEngineDefaults,
   ENGINE_CONFIG_ENV_KEYS,
   ENGINE_CONFIG_FILE_RE,
@@ -219,6 +220,11 @@ export interface ProfileEnvValues {
    * uploader pointed at the base env's address.
    */
   localBeeUploader?: boolean;
+  /**
+   * The chain endpoint this deployment's Bee nodes use, or nothing to take the
+   * one its stack version carries.
+   */
+  rpcEndpoint?: string | null;
 }
 
 // deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
@@ -290,6 +296,23 @@ export function writeProfileEnv(
     // is only ever read by `BeePublisherPool.single()`, which pool mode does not
     // call. Making STAMP conditional belongs upstream; until then a stray value
     // is inert and an empty one is fatal.
+  }
+
+  // Every Bee node reads this, and the only place to set it used to be the
+  // stack version, so every deployment on a version shared one endpoint. The
+  // shipped default is a public RPC that answered one node 4568 HTTP 429s in
+  // two hours on 2026-09-15, so a deployment has to be able to name its own.
+  // Absent leaves the version value standing, which is what every deployment
+  // did before this existed.
+  const rpcEndpoint = values.rpcEndpoint?.trim();
+  if (rpcEndpoint) {
+    const problem = rpcEndpointProblem(rpcEndpoint);
+    if (problem) {
+      throw new Error(
+        `refusing to write RPC_ENDPOINT to the env file: ${problem}`,
+      );
+    }
+    contents = upsertEnvLine(contents, 'RPC_ENDPOINT', rpcEndpoint);
   }
 
   const beeUrl = values.beeUrl?.trim();

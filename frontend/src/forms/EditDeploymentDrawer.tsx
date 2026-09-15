@@ -5,6 +5,7 @@ import {
   beePublishersProblem,
   beeUrlProblem,
   getErrorMessage,
+  rpcEndpointProblem,
 } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../app/theme';
@@ -144,6 +145,23 @@ export function EditDeploymentDrawer({
             value={edits.beeUrl}
             onChange={(event) => update({ beeUrl: event.target.value })}
             placeholder="http://10.0.0.7:1633"
+            inputProps={{ style: { fontFamily: MONO_STACK } }}
+          />
+        </FormField>
+      )}
+
+      {shown.rpcEndpoint && (
+        <FormField
+          label="Chain endpoint"
+          hint="Where this deployment's Bee nodes read the chain. Leave it empty to use the endpoint the stack version carries, which ships as a public Gnosis RPC that rate-limits. An endpoint running on the server is reached at http://host.docker.internal:PORT."
+          error={rpcEndpointProblem(edits.rpcEndpoint)}
+        >
+          <TextField
+            size="small"
+            fullWidth
+            value={edits.rpcEndpoint}
+            onChange={(event) => update({ rpcEndpoint: event.target.value })}
+            placeholder="http://host.docker.internal:9000"
             inputProps={{ style: { fontFamily: MONO_STACK } }}
           />
         </FormField>

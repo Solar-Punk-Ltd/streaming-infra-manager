@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { Profile } from '../types';
-import { bodyFor, fieldsFor, initialEdits } from './deploymentEdits';
+import { bodyFor, editProblem, fieldsFor, initialEdits } from './deploymentEdits';
 
 function viewer(over: Partial<Profile> = {}): Profile {
   return {
@@ -77,3 +77,49 @@ describe('the body the Edit drawer sends', () => {
     assert.equal(body.notes_revision, undefined);
   });
 });
+
+describe('the chain endpoint a deployment names for itself', () => {
+  /**
+   * Every Bee node reads RPC_ENDPOINT, and the only place to set it used to be
+   * the stack version, so every deployment on a version shared one. The shipped
+   * default is a public RPC that answered a single node 4568 HTTP 429s in two
+   * hours on 2026-09-15, so a deployment running a node of its own has to be
+   * able to name its own endpoint.
+   */
+  it('is asked of a deployment that runs a Bee node, and not of one that does not', () => {
+    assert.equal(fieldsFor(viewer()).rpcEndpoint, true);
+    assert.equal(fieldsFor(viewer({ components: ['srs'] })).rpcEndpoint, false);
+  });
+
+  it('starts from what the deployment already holds, and empty when it holds none', () => {
+    assert.equal(initialEdits(viewer({ rpc_endpoint: 'http://host.docker.internal:9000' })).rpcEndpoint,
+      'http://host.docker.internal:9000');
+    assert.equal(initialEdits(viewer()).rpcEndpoint, '');
+  });
+
+  it('refuses an address that is not one before it is sent', () => {
+    const profile = viewer();
+    const edits = { ...initialEdits(profile), rpcEndpoint: 'rpc.gnosischain.com' };
+
+    assert.match(editProblem(edits, fieldsFor(profile)) ?? '', /http/);
+  });
+
+  it('clears back to the version endpoint when the field is emptied', () => {
+    const profile = viewer({ rpc_endpoint: 'http://host.docker.internal:9000' });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: '   ' }, fieldsFor(profile), profile.notes_revision);
+
+    assert.equal(body.rpc_endpoint, null);
+  });
+
+  it('sends the endpoint the operator typed', () => {
+    const profile = viewer();
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: 'http://host.docker.internal:9000' }, fieldsFor(profile), profile.notes_revision);
+
+    assert.equal(body.rpc_endpoint, 'http://host.docker.internal:9000');
+  });
+});
+

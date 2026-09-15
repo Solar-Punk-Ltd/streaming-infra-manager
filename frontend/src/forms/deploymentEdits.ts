@@ -2,6 +2,8 @@ import {
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
   beeUrlProblem,
+  BEE_GATEWAY_SERVICE,
+  rpcEndpointProblem,
   CLIENT_SERVICE,
   DEFAULT_ABR_RUNGS,
   parseBeePublishers,
@@ -30,6 +32,8 @@ export interface DeploymentEdits {
   key: string;
   stampId: string;
   beeUrl: string;
+  /** Empty means the endpoint this deployment's stack version carries. */
+  rpcEndpoint: string;
   poolString: string;
   feedOwner: string;
   notes: string;
@@ -41,6 +45,7 @@ export interface ShownFields {
   key: boolean;
   stamp: boolean;
   beeUrl: boolean;
+  rpcEndpoint: boolean;
   poolString: boolean;
   feedOwner: boolean;
 }
@@ -53,6 +58,11 @@ export function fieldsFor(profile: Profile): ShownFields {
     key: hasService(profile, STREAM_UPLOADER_SERVICE),
     stamp: streamLike,
     beeUrl: streamLike && !hasService(profile, BEE_UPLOADER_SERVICE),
+    // Any Bee node reads the endpoint, an uploader's and a viewer's gateway
+    // alike, and a deployment that runs neither has no chain to reach.
+    rpcEndpoint:
+      hasService(profile, BEE_UPLOADER_SERVICE) ||
+      hasService(profile, BEE_GATEWAY_SERVICE),
     poolString: shape === 'abr-uploader',
     feedOwner: hasService(profile, CLIENT_SERVICE),
   };
@@ -65,6 +75,7 @@ export function initialEdits(profile: Profile | null): DeploymentEdits {
     key: profile?.private_key ?? '',
     stampId: profile?.stamp_id ?? '',
     beeUrl: profile?.bee_url ?? '',
+    rpcEndpoint: profile?.rpc_endpoint ?? '',
     poolString: profile?.bee_publishers ?? '',
     feedOwner: profile?.feed_owner ?? '',
     notes: profile?.notes ?? '',
@@ -87,6 +98,10 @@ export function editProblem(edits: DeploymentEdits, shown: ShownFields): string 
   if (shown.beeUrl) {
     const problem = beeUrlProblem(edits.beeUrl);
     if (problem) return problem;
+  }
+  if (shown.rpcEndpoint && edits.rpcEndpoint.trim()) {
+    const problem = rpcEndpointProblem(edits.rpcEndpoint);
+    if (problem) return `Chain endpoint: ${problem}`;
   }
   if (shown.poolString) {
     if (!edits.poolString.trim()) {
@@ -140,6 +155,7 @@ export function bodyFor(
     stamp_id: profile.stamp_id ?? undefined,
     bee_publishers: profile.bee_publishers ?? undefined,
     bee_url: profile.bee_url ?? undefined,
+    rpc_endpoint: profile.rpc_endpoint ?? undefined,
     srt_passphrase: profile.srt_passphrase ?? undefined,
   };
 
@@ -163,6 +179,11 @@ export function bodyFor(
   }
   if (shown.beeUrl && changed('beeUrl')) {
     body.bee_url = edits.beeUrl.trim() || null;
+  }
+  // Emptied is a real choice rather than an omission: it puts the deployment
+  // back on the endpoint its stack version carries.
+  if (shown.rpcEndpoint && changed('rpcEndpoint')) {
+    body.rpc_endpoint = edits.rpcEndpoint.trim() || null;
   }
   if (shown.poolString && changed('poolString')) {
     body.bee_publishers = edits.poolString.trim() || null;

@@ -36,6 +36,8 @@ export interface Profile {
    * one is enabled. NULL: whatever deploy.sh resolves.
    */
   bee_url: string | null;
+  /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */
+  rpc_endpoint: string | null;
   /** SRS only; null falls back to the base .env. See migrations/007. */
   srt_passphrase: string | null;
   /**
