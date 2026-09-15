@@ -9,6 +9,7 @@ import {
 
 import { ApiError } from '../http';
 import type { Profile } from '../types';
+import { NODE_REFRESH_INTERVAL_MS } from './beeReadiness';
 import { fetchChequebook } from './chequebookApi';
 import {
   type BeeAddress,
@@ -124,14 +125,12 @@ export function useBeeUtils(
   // StrictMode's double mount or the operator pressing Refresh. The slower one must not land last.
   const latestReload = useRef(0);
 
-  const reload = useCallback(async () => {
+  const runChecks = useCallback(async (announce: boolean) => {
     const seq = ++latestReload.current;
-    setLoading(true);
-    setLoadError(null);
-    setWallet(null);
-    setStamps(null);
-    setChainState(null);
-    if (withChequebook) setChequebook(null);
+    if (announce) {
+      setLoading(true);
+      setLoadError(null);
+    }
 
     const [
       observationResult,
@@ -151,16 +150,26 @@ export function useBeeUtils(
 
     if (seq !== latestReload.current) return;
 
+    // Every live reading is written from this round's own result, a failure
+    // included, rather than blanked before the round starts. Blanking first
+    // put all of them back to "not checked" for the length of a round trip,
+    // which on a cadence is a warning on screen every few seconds about a node
+    // that is answering in under a millisecond. The invariant that blanking
+    // protected is kept: a reading nobody could confirm this round is null,
+    // never a stale value still being shown as current.
     setNodeObservation(observationResult.status === 'fulfilled' ? observationResult.value.value : null);
     setObservationReceivedAt(observationResult.status === 'fulfilled' ? observationResult.value.receivedAt : null);
     setObservationNow(performance.now());
+    // The address is the node's identity rather than a reading of it, so a
+    // round that could not ask keeps the one already known.
     if (addressResult.status === 'fulfilled') setAddress(addressResult.value);
-    if (walletResult.status === 'fulfilled') setWallet(walletResult.value);
+    setWallet(walletResult.status === 'fulfilled' ? walletResult.value : null);
     setStamps(
       stampsResult.status === 'fulfilled' ? stampsResult.value : null,
     );
-    if (chainStateResult.status === 'fulfilled')
-      setChainState(chainStateResult.value);
+    setChainState(
+      chainStateResult.status === 'fulfilled' ? chainStateResult.value : null,
+    );
     if (withChequebook) {
       setChequebook(
         chequebookResult.status === 'fulfilled' ? chequebookResult.value : null,
@@ -170,17 +179,27 @@ export function useBeeUtils(
     const failure = [addressResult, walletResult, stampsResult].find(
       isRejected,
     );
-    if (failure) {
-      setLoadError(beeLoadError(failure.reason));
-    }
+    setLoadError(failure ? beeLoadError(failure.reason) : null);
 
     setLoading(false);
   }, [profileName, profileRevision, withChequebook]);
 
+  /** What the Retry action and the first paint call: it says it is checking. */
+  const reload = useCallback(() => runChecks(true), [runChecks]);
+
   useEffect(() => {
-    void reload();
+    void runChecks(true);
     return () => { latestReload.current += 1; };
-  }, [reload]);
+  }, [runChecks]);
+
+  // A stopped deployment has nothing to ask, and the readiness view already
+  // treats one as unverified whatever the last round said.
+  const running = profile.status === 'RUNNING';
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => void runChecks(false), NODE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [running, runChecks]);
 
   useEffect(() => {
     if (!waitingBatch) return;

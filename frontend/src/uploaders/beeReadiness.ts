@@ -6,7 +6,21 @@ export interface BeeReadinessView {
   detail: string;
 }
 
-const OBSERVATION_MAX_AGE_MS = 30_000;
+/** How old a reading may get before this view stops vouching for it. */
+export const OBSERVATION_MAX_AGE_MS = 30_000;
+
+/**
+ * How often a running deployment's node readings are taken again.
+ *
+ * It lives next to the age above because neither number means anything alone:
+ * a cadence at or above the expiry spends part of every cycle reporting a node
+ * that answered as unverified, and there was no cadence here at all until
+ * 2026-09-15, so a reading was taken once and then aged into that warning for
+ * good. Nodes answering their probes in under a millisecond showed as "Bee
+ * observation stale" thirty seconds after the page opened, and stayed that way
+ * until an operator pressed Retry.
+ */
+export const NODE_REFRESH_INTERVAL_MS = 10_000;
 const LABELS: Record<BeeNodeState, string> = {
   ready: 'Bee API ready',
   initializing: 'Bee initializing',
