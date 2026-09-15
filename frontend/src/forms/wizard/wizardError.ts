@@ -54,6 +54,24 @@ export function wizardError(
 }
 
 /**
+ * The line beside the footer button, which goes quiet while a create is in
+ * flight.
+ *
+ * The manager publishes a created deployment on the events stream before the
+ * request that created it has answered, so the wizard's own list gains the name
+ * it is submitting and `wizardError` then reports that name as taken. It is
+ * taken, by the deployment being created, which is not something an operator
+ * can act on and not something to say while they wait.
+ */
+export function footerError(
+  state: WizardState,
+  context: WizardContext,
+  submitting: boolean,
+): string | null {
+  return submitting ? null : wizardError(state, context);
+}
+
+/**
  * What is wrong with the name, or null.
  *
  * One answer for the line under the field and for the footer next to the

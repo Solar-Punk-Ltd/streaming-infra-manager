@@ -178,8 +178,9 @@ export async function sendJson<T>(
   method: string,
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const res = await apiFetch(path, { method, body: body ?? {} });
+  const res = await apiFetch(path, { method, body: body ?? {}, signal });
   if (!res.ok) await failWith(res, `request failed (${res.status})`);
   return (await res.json()) as T;
 }

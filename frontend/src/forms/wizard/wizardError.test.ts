@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { Profile } from '../../types';
-import { nameError, poolStringError, wizardError } from './wizardError';
+import { footerError, nameError, poolStringError, wizardError } from './wizardError';
 import { initialWizardState, type WizardContext } from './wizardState';
 
 /** A deployment that exists already. The name is all the taken-name check reads. */
@@ -94,5 +94,25 @@ describe('what is wrong with a pasted pool string', () => {
 
     assert.equal(poolStringError(''), null);
     assert.equal(wizardError(state, context), 'Paste the pool string, copied from a pool page');
+  });
+});
+
+describe('the footer while a deployment is being created', () => {
+  it('stops claiming the name is taken by the deployment being created', () => {
+    // The manager announces a created deployment on the events stream before
+    // the request that created it answers, so the wizard's own list gains the
+    // name it is submitting and the footer read "That name is taken" about the
+    // thing in flight. Levi hit this on 2026-09-15, next to a Deploy button
+    // that had gone grey and a close button that refused.
+    const state = { ...basics('main-stage'), step: 4 };
+
+    assert.equal(footerError(state, context, false), 'That name is taken');
+    assert.equal(footerError(state, context, true), null);
+  });
+
+  it('is the ordinary answer whenever nothing is in flight', () => {
+    const state = { ...basics(''), step: 4 };
+
+    assert.equal(footerError(state, context, false), wizardError(state, context));
   });
 });

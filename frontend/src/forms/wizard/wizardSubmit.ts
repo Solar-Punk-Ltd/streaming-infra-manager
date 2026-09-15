@@ -38,6 +38,7 @@ export interface WizardOutcome {
 export async function submitWizard(
   state: WizardState,
   context: WizardContext,
+  signal?: AbortSignal,
 ): Promise<WizardOutcome> {
   if (!chosenVersion(state, context)) throw new Error('Pick a stack version');
   const toast = `Deploying ${state.name}…`;
@@ -51,7 +52,7 @@ export async function submitWizard(
       host: chosenHost(state),
       notes: notesOf(state),
       stack_version_id: versionOf(state),
-    });
+    }, signal);
     const createdPool = matchingPool(result, state.name);
     if (!createdPool) throw new PoolResponseError();
     return { profiles: createdPool.profiles, route: routes.group(createdPool.group.id), toast, createdPool };
@@ -63,7 +64,7 @@ export async function submitWizard(
       group_name: state.name,
       size: Number(state.size),
       host: chosenHost(state),
-    });
+    }, signal);
     return { profiles: result.profiles, route: routes.group(result.group.id), toast };
   }
 
@@ -71,7 +72,7 @@ export async function submitWizard(
     ...profileBody(state, context),
     name: state.name,
     host: chosenHost(state),
-  });
+  }, signal);
   return { profiles: [profile], route: routes.deployment(profile.name), toast };
 }
 

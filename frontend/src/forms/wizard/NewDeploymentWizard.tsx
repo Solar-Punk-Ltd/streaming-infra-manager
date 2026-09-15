@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -26,11 +27,16 @@ import { matchingPool } from './poolIdentity';
 import { PoolResponseError } from './PoolResponseError';
 import { readPoolMembership } from './poolMembership';
 import { StepRail } from './StepRail';
+import {
+  CREATE_TIMEOUT_MS,
+  createTimedOutMessage,
+  isSubmissionTimeout,
+} from './submissionLimit';
 import { BasicsStep } from './steps/BasicsStep';
 import { GoalStep } from './steps/GoalStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { SettingsStep } from './steps/SettingsStep';
-import { wizardError } from './wizardError';
+import { footerError } from './wizardError';
 import {
   deployLabel,
   initialWizardState,
@@ -139,7 +145,7 @@ export function NewDeploymentWizard({
     setState((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const stepError = wizardError(state, context);
+  const stepError = footerError(state, context, submitting);
   const createPool = () => {
     if (inFlight.current || state.goal !== 'abr-uploader') return;
     const setup = beginPoolSetup(state, context);
@@ -172,8 +178,14 @@ export function NewDeploymentWizard({
   };
   const stepProps = { state, context, update, onCreatePool: createPool };
 
+  // A close always closes. It used to refuse while a request was in flight,
+  // which meant one request that never came back left the dialog with a dead
+  // close button, a disabled Deploy button and no way out but a page reload.
+  // Nothing is lost by leaving: the manager has already published the new
+  // deployment on the events stream by the time it answers, so the deployments
+  // page is where the result shows up either way, and a refusal that arrives
+  // after this point is spoken as a toast below.
   const close = () => {
-    if (inFlight.current && !poolSetup) return;
     generation.current += 1;
     mounted.current = false;
     uploaderDraft.current = null;
@@ -188,7 +200,7 @@ export function NewDeploymentWizard({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const outcome = await submitWizard(state, context);
+      const outcome = await submitWizard(state, context, AbortSignal.timeout(CREATE_TIMEOUT_MS));
       if (!current()) return;
       if (poolSetup) {
         returnToUploader({ kind: 'accepted', expectedName: state.name, value: outcome.createdPool });
@@ -202,14 +214,28 @@ export function NewDeploymentWizard({
       toast(outcome.toast);
       navigate(outcome.route);
     } catch (caught) {
-      if (!current() || caught instanceof SessionEndedError) return;
+      if (caught instanceof SessionEndedError) return;
+      const timedOut = isSubmissionTimeout(caught);
+      const message = timedOut
+        ? createTimedOutMessage(state.name)
+        : getErrorMessage(caught, 'failed to create the deployment');
+      // The dialog can now be closed while this is still running, so a refusal
+      // that lands afterwards has no Alert left to go in. It still has to reach
+      // somebody, and the toast outlives the dialog.
+      if (!mounted.current) {
+        toast(message);
+        return;
+      }
+      if (!current()) return;
       if (poolSetup && caught instanceof PoolResponseError) {
         returnToUploader({ kind: 'accepted', expectedName: state.name, value: null });
       } else if (state.goal === 'abr-pool' && !(caught instanceof ApiError)) {
         setUncertainSubmission(true);
-        setSubmitError(caught instanceof PoolResponseError ? caught.message : 'The pool request did not finish with a readable response. It may already exist. Check the deployment list before creating another pool.');
+        setSubmitError(caught instanceof PoolResponseError ? caught.message
+          : timedOut ? message
+          : 'The pool request did not finish with a readable response. It may already exist. Check the deployment list before creating another pool.');
       } else {
-        setSubmitError(getErrorMessage(caught, 'failed to create the deployment'));
+        setSubmitError(message);
       }
       setSubmitFailures((count) => count + 1);
     } finally {
@@ -281,10 +307,18 @@ export function NewDeploymentWizard({
           </Button>
         )}
         <Box sx={{ flex: 1 }}>
-          {state.step > 1 && stepError && (
-            <Typography variant="caption" color="warning.main">
-              {stepError}
+          {submitting ? (
+            <Typography variant="caption" color="text.secondary">
+              Creating {state.name}. The manager answers once the deploy has
+              started, which takes longer on a version it has to build first.
             </Typography>
+          ) : (
+            state.step > 1 &&
+            stepError && (
+              <Typography variant="caption" color="warning.main">
+                {stepError}
+              </Typography>
+            )
           )}
         </Box>
         {state.step < LAST_STEP ? (
@@ -299,9 +333,10 @@ export function NewDeploymentWizard({
           <Button
             variant="contained"
             disabled={submitting || uncertainSubmission || stepError !== null}
+            startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
             onClick={() => void deploy()}
           >
-            {deployLabel(state)}
+            {submitting ? 'Creating…' : deployLabel(state)}
           </Button>
         )}
       </DialogActions>

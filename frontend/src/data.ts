@@ -98,8 +98,11 @@ export function deleteProfile(name: string): Promise<void> {
   return send('DELETE', `/profiles/${encodeURIComponent(name)}`);
 }
 
-export function createProfile(body: CreateProfileBody): Promise<Profile> {
-  return sendJson<Profile>('POST', '/profiles', body);
+export function createProfile(
+  body: CreateProfileBody,
+  signal?: AbortSignal,
+): Promise<Profile> {
+  return sendJson<Profile>('POST', '/profiles', body, signal);
 }
 
 export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'> & {
@@ -127,8 +130,9 @@ export interface CreateGroupBody {
 
 export function createDeploymentGroup(
   body: CreateGroupBody,
+  signal?: AbortSignal,
 ): Promise<GroupWithMembers> {
-  return sendJson<GroupWithMembers>('POST', '/groups', body);
+  return sendJson<GroupWithMembers>('POST', '/groups', body, signal);
 }
 
 export interface UpdateGroupConfigBody {
