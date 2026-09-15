@@ -57,7 +57,7 @@ describe('the field lists', () => {
 
   it('keeps the ABR fields out of a deployment that does not encode a ladder', () => {
     const plain = engineSettingsFieldsFor(SRS_SERVICE, PLAIN).map((f) => f.key);
-    assert.deepEqual(plain, ['HLS_FRAGMENT', 'HLS_WINDOW']);
+    assert.deepEqual(plain, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW']);
     assert.equal(
       engineSettingsFieldsFor(SRS_SERVICE, ABR).length,
       engineSettingsFields(SRS_SERVICE).length,
@@ -383,3 +383,43 @@ describe('effectiveEngineSettings on a deployment whose config file dropped a ke
     assert.equal('HLS_WINDOW' in effective, false);
   });
 });
+
+describe('what an operator can see about the force-close ceiling', () => {
+  const field = (key: string) =>
+    SRS_SETTINGS.find((candidate) => candidate.key === key);
+
+  /**
+   * The engine cuts a piece without a keyframe once it runs past
+   * `HLS_FRAGMENT * hls_aof_ratio`. That ratio was in no field here and in no
+   * env sample, so the ceiling it produced was invisible AND it scaled with the
+   * segment length, which is a field. Levi set the segment length to 2 on
+   * 2026-09-15 and the ceiling went from 2.5s to 10s without a word anywhere.
+   */
+  it('is a field, in seconds, rather than a hidden multiple of another field', () => {
+    const ceiling = field('HLS_SEGMENT_MAX');
+
+    assert.ok(ceiling, 'the drawer offers nothing about the force-close ceiling');
+    assert.equal(ceiling.unit, 'seconds');
+    assert.doesNotMatch(ceiling.label, /ratio/i);
+  });
+
+  it('reaches SRS, so changing it recreates the container that reads it', () => {
+    const env = engineSettingsEnv(SRS_SERVICE, { HLS_SEGMENT_MAX: '3.5' }, PLAIN);
+
+    assert.equal(env.HLS_SEGMENT_MAX, '3.5');
+  });
+
+  // The segment is `ceil(HLS_FRAGMENT / GOP) * GOP`, measured over 20 arms, so
+  // the keyframe interval decides the length and this field is a floor under
+  // it. The help used to say to keep the keyframe interval at or below the
+  // field, which is the opposite, and is the advice that produced the 10s
+  // ceiling.
+  it('no longer tells the operator to publish keyframes under the segment length', () => {
+    const fragment = field('HLS_FRAGMENT');
+
+    assert.ok(fragment);
+    assert.doesNotMatch(fragment.help, /at or below this/i);
+    assert.match(fragment.help, /floor|shortest/i);
+  });
+});
+

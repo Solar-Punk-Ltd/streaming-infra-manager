@@ -47,7 +47,9 @@ describe('unknownPlaceholders', () => {
 
 describe('settingsNotInConfig', () => {
   it('names the SRS settings whose token the file dropped', () => {
-    assert.deepEqual(settingsNotInConfig(SRS_SERVICE, SRS_FILE), ['HLS_WINDOW']);
+    // The fixture carries the fragment token and nothing else, so the window and
+    // the force-close ceiling are both settings this file has stopped reading.
+    assert.deepEqual(settingsNotInConfig(SRS_SERVICE, SRS_FILE), ['HLS_SEGMENT_MAX', 'HLS_WINDOW']);
   });
 
   it('names every ABR setting when the transcode line is gone', () => {

@@ -84,9 +84,24 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     defaultValue: '1.5',
     min: 0.5,
     max: 30,
-    help: "How long each piece of the stream is. SRS can only cut on a keyframe, so keep the publisher's keyframe interval at or below this, otherwise the pieces come out longer than you asked for.",
+    help: 'The shortest a piece of the stream may be. The engine cuts on a keyframe, so the piece you actually get is the first keyframe at or after this, which means the interval the publisher sends decides the real length and this only puts a floor under it. Set your publisher to the length you want, and leave this at or below it.',
     abrOnly: false,
     placeholder: 'HLS_FRAGMENT_PLACEHOLDER',
+  },
+  {
+    key: 'HLS_SEGMENT_MAX',
+    label: 'Force-close a piece after',
+    unit: 'seconds',
+    kind: 'number',
+    defaultValue: '2.5',
+    min: 0.5,
+    max: 30,
+    help: 'The longest a piece may run before the engine cuts it without waiting for a keyframe. Keep it above both the segment length and the keyframe interval your publisher sends, with a little room, because a piece overruns its settled length by about 0.135 seconds. A piece cut off a keyframe cannot be decoded on its own, which breaks seeking and quality switching, so this is a last resort rather than a target.',
+    abrOnly: false,
+    // The config carries the engine's own knob, a multiple of the fragment,
+    // which the stack entrypoint derives from this. Named here so a custom
+    // config file that drops the token is reported as no longer reading it.
+    placeholder: 'HLS_AOF_RATIO_PLACEHOLDER',
   },
   {
     key: 'HLS_WINDOW',

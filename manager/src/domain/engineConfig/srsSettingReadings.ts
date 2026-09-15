@@ -10,7 +10,9 @@ interface Entry {
   unique: boolean;
 }
 
-const HLS_DIRECTIVES: Record<string, string> = { HLS_FRAGMENT: 'hls_fragment', HLS_WINDOW: 'hls_window' };
+/** The field whose config directive is stated in a different unit than the field. */
+const SEGMENT_MAX_KEY = 'HLS_SEGMENT_MAX';
+const HLS_DIRECTIVES: Record<string, string> = { HLS_FRAGMENT: 'hls_fragment', HLS_WINDOW: 'hls_window', [SEGMENT_MAX_KEY]: 'hls_aof_ratio' };
 const ENCODER_DIRECTIVES: Record<string, string> = {
   ABR_FPS: 'vfps', ABR_PRESET: 'vpreset', ABR_PROFILE: 'vprofile', ABR_THREADS: 'vthreads', ABR_ACODEC: 'acodec',
 };
@@ -116,7 +118,16 @@ export function srsSettingReadings(
   const opaqueEncoder = activeMarker('TRANSCODE_PLACEHOLDER') || hasIncludeFor(file, [ENCODER_SCOPE]);
   const encoders = file.filter(entry => entry.node.children !== null && sameNames(scopeNames(entry), ENCODER_SCOPE));
   return Object.fromEntries(fields.map(field => {
-    if (field.key in HLS_DIRECTIVES) return [field.key, hlsReadings(field, template, file, opaqueVhost, fileText ?? '')];
+    if (field.key in HLS_DIRECTIVES) {
+      const readings = hlsReadings(field, template, file, opaqueVhost, fileText ?? '');
+      // `hls_aof_ratio` is a multiple of `hls_fragment`, and the field is the
+      // seconds the entrypoint derives that multiple from. A config that writes
+      // a number there rather than the token is therefore not stating this
+      // setting, and reading it back would report a ratio as a duration.
+      return [field.key, field.key === SEGMENT_MAX_KEY
+        ? readings.map(reading => reading.kind === 'literal' ? unknown('unsupported-syntax') : reading)
+        : readings];
+    }
     if (field.key === 'ABR_VBV_SECONDS' || opaqueEncoder) return [field.key, [unknown('unsupported-syntax')]];
     if (!encoders.length) return [field.key, [{ kind: 'omitted' }]];
     if (field.key === 'ABR_AUDIO_BITRATE') return [field.key, bitrateReadings(encoders)];
