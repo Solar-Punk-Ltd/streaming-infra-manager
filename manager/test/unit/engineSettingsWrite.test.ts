@@ -20,9 +20,30 @@ describe('updateEngineSettings: which containers come back', () => {
   it('recreates the engine alone for a key only the engine reads', async () => {
     const { service, deploys } = harnessFor(profileRow());
 
-    await service.updateEngineSettings('stream1', { HLS_FRAGMENT: '2' });
+    await service.updateEngineSettings('stream1', { HLS_WINDOW: '12' });
 
     assert.deepEqual(deploys, [{ name: 'stream1', services: ['srs'] }]);
+  });
+
+  /**
+   * ⛔ This case used to be the one above, with HLS_FRAGMENT as the example of a
+   * key only the engine reads. It is not one: `deploy/docker-compose.yml` sets it
+   * in the stream-uploader block as well as the engine's, and the uploader dates
+   * every segment from it. Recreating the engine alone left the two containers
+   * cutting and dating at different lengths, which a cross-provider review saw
+   * live on 2026-09-15 on a recording whose timeline ran at half speed.
+   *
+   * Measured against the compose file rather than assumed: of the twelve engine
+   * settings fields, HLS_FRAGMENT is the only one both containers read.
+   */
+  it('recreates the uploader too when the segment length changes, because both read it', async () => {
+    const { service, deploys } = harnessFor(profileRow());
+
+    await service.updateEngineSettings('stream1', { HLS_FRAGMENT: '2' });
+
+    assert.deepEqual(deploys, [
+      { name: 'stream1', services: ['srs', 'stream-uploader'] },
+    ]);
   });
 
   it('recreates the uploader too when the poll interval changes', async () => {

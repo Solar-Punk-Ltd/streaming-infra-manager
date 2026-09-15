@@ -55,7 +55,10 @@ import { parseBaseEnv } from '../utils/envUtils.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
-import { UPLOADER_ENGINE_SETTING_KEYS } from './containerKeysSpec.js';
+import {
+  SHARED_ENGINE_SETTING_KEYS,
+  UPLOADER_ENGINE_SETTING_KEYS,
+} from './containerKeysSpec.js';
 import {
   DeploymentOrchestrator,
   DeployReservation,
@@ -147,10 +150,14 @@ const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
 /**
  * The containers a settings change has to bring back with the new values.
  *
- * The engine always, and the uploader as well when one of the keys compose
- * hands to the uploader rather than to the engine has a different value than
- * before. Recreating the engine alone in that case leaves the value the
- * operator typed sitting in the database, applied to nothing.
+ * The engine always, and the uploader as well when a key the uploader also
+ * reads has a different value than before. That is the keys compose hands to
+ * the uploader rather than to the engine, and the keys it hands to BOTH.
+ *
+ * ⛔ The second half was missing until 2026-09-15: only the first list was
+ * consulted, so changing the segment length recreated the engine and left the
+ * uploader dating segments by the old one. The intent stated here was always
+ * right. The list it read was the wrong list.
  */
 /** What is left of the stored settings once this profile stops encoding a ladder. */
 function withoutLadderSettings(profile: Profile): EngineSettings {
@@ -166,9 +173,10 @@ function servicesToRecreate(
   before: EngineSettings,
   after: EngineSettings,
 ): string[] {
-  const uploaderChanged = UPLOADER_ENGINE_SETTING_KEYS.some(
-    (key) => before[key] !== after[key],
-  );
+  const uploaderChanged = [
+    ...UPLOADER_ENGINE_SETTING_KEYS,
+    ...SHARED_ENGINE_SETTING_KEYS,
+  ].some((key) => before[key] !== after[key]);
   return uploaderChanged ? [engine, STREAM_UPLOADER_SERVICE] : [engine];
 }
 

@@ -25,6 +25,23 @@ export const UPLOADER_ENGINE_SETTING_KEYS: readonly string[] = [
   'OME_HLS_POLL_INTERVAL_MS',
 ];
 
+/**
+ * Engine settings that BOTH the engine and the uploader read, so a change to one
+ * has to bring both containers back.
+ *
+ * ⛔ A separate list rather than an addition to
+ * {@link UPLOADER_ENGINE_SETTING_KEYS}, because that one is filtered OUT of the
+ * engine's own keys just below. A key both containers read, put there, would
+ * disappear from the engine's environment.
+ *
+ * `HLS_FRAGMENT` is the only one of the twelve settings fields in this position,
+ * read off `deploy/docker-compose.yml` rather than assumed: the engine is asked
+ * to cut at it and the uploader dates every segment by it. The other keys both
+ * blocks set, ABR_ENABLED, ABR_LADDER, ABR_VHOST and SRS_WEBHOOK_TOKEN, are not
+ * settings fields and never reach this decision.
+ */
+export const SHARED_ENGINE_SETTING_KEYS: readonly string[] = ['HLS_FRAGMENT'];
+
 function engineSettingKeysFor(engine: EngineName): string[] {
   return engineSettingsFields(engine)
     .map((field) => field.key)
@@ -76,6 +93,7 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'ABR_ENABLED',
     'ABR_LADDER',
     ...UPLOADER_ENGINE_SETTING_KEYS,
+    ...SHARED_ENGINE_SETTING_KEYS,
   ],
   [BEE_UPLOADER_SERVICE]: [
     'BEE_UPLOADER_API_PORT',

@@ -53,8 +53,11 @@ describe('updateEngineSettings and the claim', () => {
     await harness.service.updateEngineSettings('stream1', { HLS_FRAGMENT: '2' });
 
     assert.deepEqual(harness.orchestrator.reserved, ['stream1']);
+    // Both containers, because HLS_FRAGMENT is read by both. This case is about
+    // the order of claim, store and recreate, and it carries the service list
+    // only so that a change to who comes back cannot pass here unnoticed.
     assert.deepEqual(harness.orchestrator.deploys, [
-      { profileName: 'stream1', services: ['srs'] },
+      { profileName: 'stream1', services: ['srs', 'stream-uploader'] },
     ]);
   });
 });
