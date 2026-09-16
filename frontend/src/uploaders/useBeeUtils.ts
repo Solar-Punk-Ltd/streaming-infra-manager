@@ -100,9 +100,11 @@ export interface BeeUtilsOptions {
  *
  * A round asks six things of the node: its readiness observation, its address,
  * its wallet, its batches, the chain state, and the chequebook. Each is fetched
- * independently, so one that fails still lets the others render, and a failed
- * address, wallet or batches read becomes `loadError`. The other three report
- * their own absence instead, because each of them has a reason to show for it.
+ * independently, so one that fails still lets the others render. A failed
+ * address, wallet or batches read becomes `loadError`, and the batches read
+ * also keeps its own failure as `stampsFailure`, for the card that shows them.
+ * The readiness observation carries its own reason for being absent. The chain
+ * state and the chequebook are written as null when their read fails.
  *
  * A reading that failed is written as null from the round's own result rather
  * than blanked before the round starts, which is what the comment beside the
