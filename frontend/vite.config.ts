@@ -22,6 +22,12 @@ export default defineConfig({
     port: 5080,
     proxy: {
       '/auth': managerApi(),
+      // The four deployment actions answer with a stream that lives as long as
+      // the run does, so they need the same cleared timeouts as the streams
+      // below. Above '/profiles' because vite takes the first entry whose key
+      // matches and that one matches these by prefix. The regex is the nginx
+      // location in front of production, written again.
+      '^/profiles/[^/]+/(deploy|deploy-uploader|stop|health)$': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
       '/profiles': managerApi(),
       '/chequebook': managerApi(),
       '/groups': managerApi(),

@@ -12,6 +12,12 @@
  *
  * nginx takes the FIRST regex location that matches, so covering these routes
  * means a block above the generic JSON one rather than a wider timeout on it.
+ *
+ * The dev server has the same shape and the same trap. Vite takes the first
+ * proxy entry whose key matches, and '/profiles' matches every action path by
+ * prefix, so an entry that clears the timeouts only counts while it sits above
+ * that one. The cases below resolve each route the way vite resolves it rather
+ * than looking for the text, so an entry added in the wrong place fails here.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const NGINX_CONF = join(here, '..', '..', '..', 'frontend', 'nginx.conf');
+const VITE_CONFIG = join(here, '..', '..', '..', 'frontend', 'vite.config.ts');
 const ACTIONS_ROUTER = join(here, '..', '..', 'src', 'api', 'routes', 'actions.ts');
 
 const JSON_API_LOCATION = 'location ~ ^/(auth|';
@@ -79,5 +86,58 @@ describe('the proxy in front of the deployment actions', () => {
       stream.at < json.at,
       'the JSON location matches /profiles first, so the stream block never runs',
     );
+  });
+});
+
+describe('the dev server proxy in front of the same routes', () => {
+  interface ProxyEntry {
+    key: string;
+    options: string;
+  }
+
+  /** The proxy map of vite.config.ts, in the order vite consults it. */
+  function proxyEntries(): ProxyEntry[] {
+    const config = readFileSync(VITE_CONFIG, 'utf8');
+    return [...config.matchAll(/^\s*'(\^?\/[^']*)':\s*(.+?),?\s*$/gm)].map((entry) => ({
+      key: entry[1]!,
+      options: entry[2]!,
+    }));
+  }
+
+  /**
+   * The entry vite would use for a URL: the first whose key matches, by regex
+   * when it starts with ^ and by prefix otherwise. This is
+   * doesProxyContextMatchUrl, restated, because the ordering is the whole point.
+   */
+  function proxyFor(url: string): ProxyEntry | undefined {
+    return proxyEntries().find(
+      (entry) =>
+        (entry.key.startsWith('^') && new RegExp(entry.key).test(url)) ||
+        url.startsWith(entry.key),
+    );
+  }
+
+  it('reads the map at all, so a rewritten config cannot pass by being unreadable', () => {
+    assert.ok(proxyEntries().length >= 8, 'found no proxy entries in vite.config.ts');
+    assert.ok(proxyFor('/config'), "the generic entries are gone from vite.config.ts");
+  });
+
+  it('gives every action route an entry with no timeouts, as the actions stream', () => {
+    const paths = actionPaths();
+    assert.ok(paths.length >= 4, `only found ${paths.length} action paths in the router`);
+    for (const path of paths) {
+      const url = `/profiles/stage/${path}`;
+      const entry = proxyFor(url);
+      assert.ok(entry, `vite.config.ts proxies nothing for ${url}`);
+      assert.match(entry.options, /proxyTimeout:\s*0/, `${url} is taken by '${entry.key}'`);
+      assert.match(entry.options, /\btimeout:\s*0/, `${url} is taken by '${entry.key}'`);
+    }
+  });
+
+  it('leaves the ordinary JSON routes on the generic entry', () => {
+    // The streaming entry is above '/profiles' and must not swallow it: a list
+    // or a single deployment is a one-shot JSON reply and wants the default.
+    assert.equal(proxyFor('/profiles')?.key, '/profiles');
+    assert.equal(proxyFor('/profiles/stage')?.key, '/profiles');
   });
 });

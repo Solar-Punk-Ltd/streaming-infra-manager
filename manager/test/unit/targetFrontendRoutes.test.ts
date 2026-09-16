@@ -24,6 +24,22 @@ function takes(location: string, path: string): boolean {
 }
 
 /**
+ * A URL the dev server would hand to the manager under this key.
+ *
+ * A prefix key names one outright. A regex key is sampled instead: the anchors
+ * come off, a segment class stands for one segment, and a group gives up its
+ * first alternative. One URL is all the case needs, the same as for a prefix.
+ */
+function probeFor(key: string): string {
+  if (!key.startsWith('^')) return `${key}/probe`;
+  return key
+    .replace(/^\^/, '')
+    .replace(/\$$/, '')
+    .replace(/\[\^\/\]\+/g, 'probe')
+    .replace(/\((?:\?:)?([^)]*)\)/g, (_whole, group: string) => group.split('|')[0]!);
+}
+
+/**
  * The dev server and the production edge route the same paths, or a page works
  * on a laptop and returns the SPA's own HTML on a host.
  *
@@ -38,7 +54,7 @@ it('routes every path the dev server proxies to the API in production too', () =
   const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
   const locations = apiLocations(nginx);
   const missing = Object.keys(config.server.proxy)
-    .filter(prefix => !locations.some(location => takes(location, `${prefix}/probe`)));
+    .filter(key => !locations.some(location => takes(location, probeFor(key))));
   assert.deepEqual(missing, [], 'nginx sends these to the SPA instead of to the manager');
 });
 
