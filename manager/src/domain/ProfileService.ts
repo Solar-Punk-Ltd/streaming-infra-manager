@@ -64,6 +64,12 @@ import {
   DeployReservation,
 } from './DeploymentOrchestrator.js';
 import {
+  NodeReadLog,
+  readLogKey,
+  spellSuffix,
+  spellText,
+} from './nodeReadLog.js';
+import {
   AllSlotsUsedError,
   TargetNotVerifiedError,
   ReservationInventoryPendingError,
@@ -207,6 +213,9 @@ function servicesToRecreate(
 }
 
 export class ProfileService {
+  /** One spell per probe, so a node that stays down says so once, not per read. */
+  private readonly readLog = new NodeReadLog();
+
   constructor(
     private readonly repo: ProfileRepository,
     private readonly containers: ContainerRepository,
@@ -919,24 +928,47 @@ export class ProfileService {
     const since = () => Date.now() - probedAt;
     const [stamps, urlStates] = await Promise.all([
       Promise.all(
-        members.map(({ profile }) =>
-          this.probeStampHealth(profile, profile.stamp_id).catch((err) => {
-            logger.warn(
-              `[ProfileService] ${profile.name}: stamp probe threw after ${since()}ms: ${getErrorMessage(err)}`,
-            );
-            return stampHealthFrom(profile.stamp_id, null);
-          }),
-        ),
+        members.map(({ profile }) => {
+          const key = readLogKey(profile.name, 'stamp-probe');
+          return this.probeStampHealth(profile, profile.stamp_id)
+            .then((health) => {
+              this.readLog.noteRecovery(
+                key,
+                (note) => `[ProfileService] ${profile.name}: the stamp probe returns again, after ${spellText(note)}`,
+              );
+              return health;
+            })
+            .catch((err) => {
+              this.readLog.noteFailure(
+                key,
+                (note) =>
+                  `[ProfileService] ${profile.name}: stamp probe threw after ${since()}ms: ${getErrorMessage(err)}${spellSuffix(note)}`,
+              );
+              return stampHealthFrom(profile.stamp_id, null);
+            });
+        }),
       ),
       Promise.all(
-        urls.map((url, index) =>
-          this.probePublishUrl(url).catch((err) => {
-            logger.warn(
-              `[ProfileService] ${members[index]!.profile.name}: url probe threw after ${since()}ms: ${getErrorMessage(err)}`,
-            );
-            return 'unknown' as PublishUrlState;
-          }),
-        ),
+        urls.map((url, index) => {
+          const name = members[index]!.profile.name;
+          const key = readLogKey(name, 'url-probe');
+          return this.probePublishUrl(url)
+            .then((state) => {
+              this.readLog.noteRecovery(
+                key,
+                (note) => `[ProfileService] ${name}: the url probe returns again, after ${spellText(note)}`,
+              );
+              return state;
+            })
+            .catch((err) => {
+              this.readLog.noteFailure(
+                key,
+                (note) =>
+                  `[ProfileService] ${name}: url probe threw after ${since()}ms: ${getErrorMessage(err)}${spellSuffix(note)}`,
+              );
+              return 'unknown' as PublishUrlState;
+            });
+        }),
       ),
     ]);
 

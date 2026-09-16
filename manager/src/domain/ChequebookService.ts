@@ -28,6 +28,12 @@ import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { NodeReadCache, nodeReadKey } from './nodeReadCache.js';
 import {
+  NodeReadLog,
+  readLogKey,
+  spellSuffix,
+  spellText,
+} from './nodeReadLog.js';
+import {
   failureOf,
   type NodeRead,
   readNode,
@@ -60,6 +66,7 @@ export class ChequebookService {
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
       new BeeClient(url, timeoutMs),
     private readonly reads: NodeReadCache = new NodeReadCache(),
+    private readonly readLog: NodeReadLog = new NodeReadLog(),
   ) {}
 
   /** The floor as an operator reads it, so the UI can quote the gate's number. */
@@ -254,12 +261,22 @@ export class ChequebookService {
    *
    * Logged at warn rather than debug: at debug the page showed "Funding not
    * checked" and the manager's own account of why was in a stream nobody
-   * opens.
+   * opens. Written once a spell rather than once a read, because the page asks
+   * again every three seconds while the node stays down. See `NodeReadLog`.
    */
   private reported<T>(name: string, read: NodeRead<T>, what: string): T | null {
-    if (read.ok) return read.value;
-    logger.warn(
-      `[ChequebookService] ${name}: ${what} not read after ${read.elapsedMs}ms (${reasonOf(read)}): ${getErrorMessage(read.error)}`,
+    const key = readLogKey(name, what);
+    if (read.ok) {
+      this.readLog.noteRecovery(
+        key,
+        (note) => `[ChequebookService] ${name}: ${what} read again, after ${spellText(note)}`,
+      );
+      return read.value;
+    }
+    this.readLog.noteFailure(
+      key,
+      (note) =>
+        `[ChequebookService] ${name}: ${what} not read after ${read.elapsedMs}ms (${reasonOf(read)}): ${getErrorMessage(read.error)}${spellSuffix(note)}`,
     );
     return null;
   }

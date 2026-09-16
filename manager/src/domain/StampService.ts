@@ -30,6 +30,12 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { NodeReadCache, nodeReadKey } from './nodeReadCache.js';
+import {
+  NodeReadLog,
+  readLogKey,
+  spellSuffix,
+  spellText,
+} from './nodeReadLog.js';
 import { readFailureFrom } from './nodeReadFailure.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { LOCAL_PUBLISHED_HOST } from './localHost.js';
@@ -130,6 +136,7 @@ export class StampService {
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
       new BeeClient(url, timeoutMs),
     private readonly reads: NodeReadCache = new NodeReadCache(),
+    private readonly readLog: NodeReadLog = new NodeReadLog(),
   ) {}
 
   async getNodeObservation(name: string): Promise<BeeNodeObservation> {
@@ -202,19 +209,29 @@ export class StampService {
     return this.reads.read(this.stampKey(profile.name, stampId), async () => {
       const client = this.clientFactory(beeApiUrlFor(profile), PROBE_TIMEOUT_MS);
       const started = Date.now();
+      const logKey = readLogKey(profile.name, 'stamp');
+      const answered = <T,>(health: T): T => {
+        this.readLog.noteRecovery(
+          logKey,
+          (note) => `[StampService] ${profile.name}: the node answers about its stamps again, after ${spellText(note)}`,
+        );
+        return health;
+      };
       try {
         const stamp = await client.getStamp(batchIdOf(stampId));
-        return stampHealthFrom(stampId, [stamp]);
+        return answered(stampHealthFrom(stampId, [stamp]));
       } catch (err) {
         // A 404 is bee saying it has no such batch — expired long enough ago that
         // it was dropped. That is an answer, not a failure to answer, so it maps to
         // an empty list (`gone`) rather than to no list at all (`unknown`).
         if (err instanceof BeeHttpError && err.status === 404) {
-          return stampHealthFrom(stampId, []);
+          return answered(stampHealthFrom(stampId, []));
         }
         const failure = readFailureFrom(err, Date.now() - started);
-        logger.warn(
-          `[StampService] ${profile.name}: stamp ${stampId} not verified after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}`,
+        this.readLog.noteFailure(
+          logKey,
+          (note) =>
+            `[StampService] ${profile.name}: stamp ${stampId} not verified after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}${spellSuffix(note)}`,
         );
         return stampHealthFrom(stampId, null, failure);
       }
@@ -242,6 +259,7 @@ export class StampService {
 
     return this.reads.read(PUBLISH_URL_PROBE_KEY(url), async () => {
       const started = Date.now();
+      const logKey = readLogKey(url, 'probe');
       try {
         const res = await fetch(`${url.replace(/\/$/, '')}/health`, {
           signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
@@ -250,11 +268,17 @@ export class StampService {
         // /health is the best signal, but a non-2xx from *something* still tells us
         // the address is not the problem.
         await res.text().catch(() => undefined);
+        this.readLog.noteRecovery(
+          logKey,
+          (note) => `[StampService] ${url} answers again, after ${spellText(note)}`,
+        );
         return 'ok' as PublishUrlState;
       } catch (err) {
         const failure = readFailureFrom(err, Date.now() - started);
-        logger.warn(
-          `[StampService] nothing answered at ${url} after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}`,
+        this.readLog.noteFailure(
+          logKey,
+          (note) =>
+            `[StampService] nothing answered at ${url} after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}${spellSuffix(note)}`,
         );
         return 'unreachable' as PublishUrlState;
       }
