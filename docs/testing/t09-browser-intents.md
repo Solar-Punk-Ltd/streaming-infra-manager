@@ -1,6 +1,6 @@
 # T09 browser intent contract
 
-**Status, 2026-09-10.** This work is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. The sections of this page are in the order they were built, and each one is the checkpoint it says it is. The last three, "Following the manager without a click", "Connected browser acceptance" and the money dialog wiring above them, are the current state. Every browser suite named here runs through `frontend/test/run-all.mjs`, which the checks workflow's browser job takes whole. Running one file with bare `node --test`, as the sections below do, works for these files but not for the set: `mock-engine-observations.test.mjs` needs `node --import tsx --conditions=development`, which is why the runner exists. See [../ci.md](../ci.md).
+**Status, 2026-09-16.** This work is merged to `main-v2`. It was written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed. The sections of this page are in the order they were built, and each one is the checkpoint it says it is. The last three, "Following the manager without a click", "Connected browser acceptance" and the money dialog wiring above them, are the current state. Every browser suite named here runs through `frontend/test/run-all.mjs`, which the checks workflow's browser job takes whole. Running one file with bare `node --test`, as the sections below do, works for these files but not for the set: `mock-engine-observations.test.mjs` needs `node --import tsx --conditions=development`, which is why the runner exists. See [../ci.md](../ci.md).
 
 The browser store and injected controller save an immutable transfer intent before any submission is allowed. The production API adapter and money components were not wired at the checkpoint this section records. They are now, and the sections below follow that work in order.
 
@@ -32,7 +32,7 @@ Exact by-request reads and fresh profile reads use `cache: 'no-store'` through t
 
 Run `node --test frontend/test/transfer-api-browser.test.mjs` from the worktree root. These adapter tests own their synthetic API, Vite and Chrome processes. API and Vite bind dynamic loopback ports, and Vite uses a separate cache. `RUNNER_TEMP` selects the evidence parent directory, otherwise the operating system temporary directory is used. Each run reports its evidence path. The intent-browser suite owns its listeners the same way.
 
-This checkpoint did not wire the money dialog or global history, and T06 current target ownership integration was still required. Both landed in the sections below. The historical 0.5 BZZ fill on the funded `review-20260907` deployment remains unverified, and nothing since has changed that.
+This checkpoint did not wire the money dialog or global history, and T06 current target ownership integration was still required. Both landed in the sections below. The historical 0.5 BZZ fill on the funded `review-20260907` deployment remains unverified. The 2026-09-11 pass found why no record exists, the operations table arrived with migration 020 that same day, and the 2026-09-13 pass funded the node and bought a batch. Both are in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
 
 ## Offline journal mock
 
@@ -42,7 +42,7 @@ A receipt observation changes the recorded outcome. A balance change does not. T
 
 The automatic settlement that makes `pnpm dev:mock` show the whole flow is not in the journal mock. It lives in `frontend/dev/mock-manager.mjs`, which schedules `observeReceipt(..., settled)` a few seconds after a submission. A reader looking for it in `mock-chequebook.mjs` will not find it.
 
-Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. Five synthetic HTTP cases cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal and unknown response retention. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
+Run `node --import tsx --conditions=development --test ../frontend/test/mock-chequebook.test.mjs` from `manager/`. `frontend/test/mock-chequebook.test.mjs` holds eleven synthetic HTTP cases. They cover immutable replay after deletion, busy admission, account and instance refusals, strict request fields, explicit transaction evidence, terminal conflict protection, preflight refusal, unknown response retention, global history paging after a profile is removed, malformed pagination, recovery account and revision guards, ambiguous retained candidates, and delayed recovery. This mock does not replace the real PostgreSQL concurrency and chain-verification tests.
 
 ## Money dialog wiring
 

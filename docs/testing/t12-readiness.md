@@ -1,6 +1,6 @@
 # T12 readiness evidence
 
-**Status, 2026-09-10.** This work is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. The runs recorded under "Final checks" below are that task branch's own, taken one file at a time before any runner existed. Every suite named there now has a home: the manager unit files run through `manager/test/unit/run.mjs`, `deploymentPhase.test.ts` runs with the other 32 SQL files through `manager/test/database/run-all.mjs`, and `readiness-browser.test.mjs` and `chrome-protocol.test.mjs` run with the other browser suites through `frontend/test/run-all.mjs`. What the checks workflow declares for each of those is in [../ci.md](../ci.md). The counts below are the branch's numbers, not a rerun of the repository as it stands.
+**Status, 2026-09-16.** This work is merged to `main-v2`. It was written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed. The runs recorded under "Final checks" below are that task branch's own, taken one file at a time before any runner existed. Every suite named there now has a home: the manager unit files run through `manager/test/unit/run.mjs`, `deploymentPhase.test.ts` runs with the rest of `manager/test/database/` through `manager/test/database/run-all.mjs`, and `readiness-browser.test.mjs` and `chrome-protocol.test.mjs` run with the other browser suites through `frontend/test/run-all.mjs`. What the checks workflow declares for each of those is in [../ci.md](../ci.md). The counts below are the branch's numbers, not a rerun of the repository as it stands.
 
 The checklist orders container state, the Bee API observation, node funding, postage and uploader prerequisites. Its first incomplete step supplies the detailed headline and the primary action. A running container is not evidence of receiving, uploading or playback.
 
@@ -26,7 +26,7 @@ A refresh immediately clears the balances, stamp list and chain state used by th
 
 Migration 021 persists starting or restarting in the same database update that claims DEPLOYING. RUNNING becomes restarting. STOPPED and a new direct DEPLOYING insert become starting. ERROR and legacy rows have no known phase and display Deploying. The phase describes manager intent only. Terminal and error writes clear it. Group members are inserted STOPPED and receive their phase when subsequently claimed.
 
-T04a and T06 add a separate direct claim in PostgresBuildLedger. Integration must apply and test the same prior-status rule there before T12 acceptance is complete.
+T04a and T06 add a separate direct claim in PostgresBuildLedger. That rule is applied and tested there: `manager/test/database/buildClaimPhase.test.ts` covers a competing claim recording the prior status's intent, a stale selected build refused without changing phase, status, errors or references, a rollback when recording the job reference fails, and the phase cleared when an admitted build finishes. It runs on `T12_TEST_PG_PORT` with the rest of the nine-database set.
 
 ## Validation and remaining integration
 
@@ -38,7 +38,7 @@ T04a and T06 add a separate direct claim in PostgresBuildLedger. Integration mus
 
 ## TDD checkpoints
 
-The source is the agreed T12 issue and consensus document under the root repository's `.scratch/main-v2-review-consensus/`. The journeys are finding the next prerequisite, diagnosing Bee initialization, opening the correct container logs, and identifying current versus previous observations during deployment changes.
+The source is the agreed T12 issue, `../consensus/issues/t12-readiness-and-diagnostics.md`, and the review it came from in `../consensus/PRD.md`. (This pointed at `.scratch/main-v2-review-consensus/`, which is gitignored and therefore resolves to nothing on any other checkout.) The journeys are finding the next prerequisite, diagnosing Bee initialization, opening the correct container logs, and identifying current versus previous observations during deployment changes.
 
 | Behavior | RED commit | GREEN commit | Evidence |
 |---|---|---|---|
@@ -67,6 +67,6 @@ Commit 8702ccb introduced passing browser acceptance coverage. Its message uses 
 
 Scoped Node coverage reports 97.06 percent line and 96.61 percent branch coverage for the new Bee probe module. The new frontend observation, deployment phase and Logs selection helpers together report 96.30 percent line and 90 percent branch coverage. These are scoped helper results, not whole-project or browser coverage claims.
 
-The browser test copied the existing T18 Chrome helper at 9187429 into its own tree. It uses a separate headless profile, a dynamic loopback Vite port and an API fixture without any upstream proxy. Non-GET fixture requests and off-origin browser requests are rejected and asserted absent. Only exact owned processes and temporary profiles are cleaned up. The final Chrome PID and its debug port, Vite port and PostgreSQL port were verified gone after testing.
+The browser test used to carry its own copy of the T18 Chrome helper. There is one shared helper now, and `frontend/test/readiness-browser.test.mjs` imports `support/chrome.mjs`, `support/teardown.mjs`, `support/evidence.mjs` and `support/vite-cache.mjs` like every other browser suite. It uses a separate headless profile, a dynamic loopback Vite port and an API fixture without any upstream proxy. Non-GET fixture requests and off-origin browser requests are rejected and asserted absent. Only exact owned processes and temporary profiles are cleaned up. The final Chrome PID and its debug port, Vite port and PostgreSQL port were verified gone after testing.
 
 No host, live Bee node, wallet, chain RPC or GitHub surface was used. The earlier 0.5 BZZ fill remains unverified and is outside this row.
