@@ -43,7 +43,9 @@ describe('captured contract port admission', () => {
     assert.deepEqual(h.profiles.reservations.rows.find(row => row.port === 10013)?.heldServices, ['ome']);
   });
 
-  for (const base of [11002, 20000]) {
+  // 10006 puts the first port on the bee-uploader peer band, which belongs to
+  // another service, and 20000 puts it outside the protected range entirely.
+  for (const base of [10006, 20000]) {
     it(`refuses private port mappings at ${base + 10} before reserving or launching`, async () => {
       const h = await setup();
       await h.versions.markBuilt(1, { commitSha: 'unsafe', contract: contract(base) });

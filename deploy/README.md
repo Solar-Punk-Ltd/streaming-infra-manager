@@ -354,12 +354,21 @@ The shell wrapper needs its sibling Node files and `common/src/portPolicy.js`.
 
 Both new allocation and the generator use a maximum of 100 slots. Allocation
 also honors a lower stack limit. Existing deployments keep their slots and
-reservations. A stopped slot-101 RTMP endpoint on TCP 11012 causes generation
-to refuse, because that port is also a legitimate v3 rung peer endpoint.
-It is not treated as a closed port merely because `--max-slot` is at most 100.
-Fix the conflicting ownership through the reviewed remediation process before
-generating another candidate. Do not renumber a funded deployment to bypass
-this refusal.
+reservations.
+
+Four public bands are opened, one per role: the SRT ingest on UDP, the viewer
+page, and the two Bee peer ports. Each covers 100 slots. The three per-rung Bee
+peer ports were bands here until 2026-09-16 and are not any more, because this
+manager starts no rung service, so 297 ports that never carried a listener are
+now closed like any other private port. The slot algebra still reserves them,
+which costs nothing and keeps the numbering free for a version that does run
+them.
+
+An endpoint that lands on a tuple one of those bands opens causes generation to
+refuse, whatever its own port variable is. It is not treated as a closed port
+merely because `--max-slot` is at most 100. Fix the conflicting ownership
+through the reviewed remediation process before generating another candidate.
+Do not renumber a funded deployment to bypass this refusal.
 
 The candidate replaces only the `inet streaming_infra_manager` table. It
 does not clear Docker's chains or another application's tables. Its input

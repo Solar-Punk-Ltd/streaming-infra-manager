@@ -6,15 +6,20 @@ export const PROTECTED_PORT_MAX = 19999;
 export const PORT_POLICY_VERSION = 1;
 export const OME_PORT_SOURCES = Object.freeze({ OME_SRT_PORT: 'SRS_SRT_PORT', OME_HLS_PORT: 'SRS_HTTP_PORT' });
 
-/** Public roles supported by the bundled and main-v3 layouts. Private endpoints cannot reuse these tuples. */
+/** Public roles supported by the bundled and main-v3 layouts. Private endpoints cannot reuse these tuples.
+ *
+ * Every service named here is one this manager starts, which is what keeps the
+ * list to ports a deployment actually binds. Three per-rung peer roles were
+ * here and opened 297 ports between them for bee-uploader-480p, -720p and
+ * -1080p, services ALL_SERVICES has never carried and the stack's sample
+ * config leaves commented out. The slot algebra still reserves their ports,
+ * which costs nothing and keeps a later rung deployment's numbering free.
+ */
 export const PUBLIC_PORT_ROLES = Object.freeze([
   { group: 'bee_p2p', protocol: 'tcp', base: 10006, maxSlot: MANAGER_SLOT_CAP, portVar: 'BEE_UPLOADER_P2P_PORT', service: 'bee-uploader' },
   { group: 'bee_p2p', protocol: 'tcp', base: 10008, maxSlot: MANAGER_SLOT_CAP, portVar: 'BEE_GATEWAY_P2P_PORT', service: 'bee-gateway' },
   { group: 'viewer', protocol: 'tcp', base: 10004, maxSlot: MANAGER_SLOT_CAP, portVar: 'CLIENT_PORT', service: 'client' },
   { group: 'srt_ingest', protocol: 'udp', base: 10001, maxSlot: MANAGER_SLOT_CAP, portVar: 'SRS_SRT_PORT', service: 'srs', aliases: [{ portVar: 'OME_SRT_PORT', service: 'ome' }] },
-  { group: 'rung_p2p', protocol: 'tcp', base: 11002, maxSlot: 99, portVar: 'BEE_RUNG_480P_P2P_PORT', service: 'bee-uploader-480p' },
-  { group: 'rung_p2p', protocol: 'tcp', base: 11004, maxSlot: 99, portVar: 'BEE_RUNG_720P_P2P_PORT', service: 'bee-uploader-720p' },
-  { group: 'rung_p2p', protocol: 'tcp', base: 11006, maxSlot: 99, portVar: 'BEE_RUNG_1080P_P2P_PORT', service: 'bee-uploader-1080p' },
 ]);
 
 /** @typedef {{port: number, protocol: string, portVar: string, service: string | null}} ExposureEntry */

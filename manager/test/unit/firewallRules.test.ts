@@ -127,10 +127,10 @@ describe('firewall rules from shared policy and complete inventory', () => {
     assert.ok(!text.includes('ct status != dnat'));
   });
 
-  it('keeps legitimate v3 rung P2P on 11012', () => {
+  it('leaves a v3 rung peer port closed, because no rung service runs here', () => {
     const result = run(peerInventory());
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(verdict(result.stdout, 'forward', { family: 'ipv6', protocol: 'tcp', originalPort: 11012, destinationPort: 1634, dnat: true }), 'accept');
+    assert.equal(verdict(result.stdout, 'forward', { family: 'ipv6', protocol: 'tcp', originalPort: 11012, destinationPort: 1634, dnat: true }), 'drop');
   });
   it('replaces only the manager table and uses both-family hooks before Docker filtering', () => {
     const text = rules();
@@ -144,16 +144,15 @@ describe('firewall rules from shared policy and complete inventory', () => {
       assert.equal(portSets.get('bee_p2p')!.length, maxSlot * 2);
       assert.equal(portSets.get('viewer')!.length, maxSlot);
       assert.equal(portSets.get('srt_ingest')!.length, maxSlot);
-      assert.equal(portSets.get('rung_p2p')!.length, 99 * 3);
-      assert.ok(portSets.get('rung_p2p')!.includes(11996));
-      assert.ok(!portSets.get('rung_p2p')!.includes(12006));
+      assert.equal(portSets.has('rung_p2p'), false);
+      assert.deepEqual([...portSets.keys()].sort(), ['bee_p2p', 'srt_ingest', 'viewer']);
     });
   }
   for (const family of ['ipv4', 'ipv6'] as const) {
     it('leaves every supported RTMP and API endpoint closed on ' + family, () => {
       const text = rules();
       for (let slot = 1; slot <= 100; slot++) {
-        const bases = [10000, 10002, 10003, 10005, 10007, 10009, ...(slot <= 99 ? [11001, 11003, 11005] : [])];
+        const bases = [10000, 10002, 10003, 10005, 10007, 10009, ...(slot <= 99 ? [11001, 11002, 11003, 11004, 11005, 11006] : [])];
         for (const base of bases) {
           const port = base + slot * 10;
           for (const hook of ['input', 'forward'] as const) {
@@ -192,7 +191,11 @@ describe('firewall rules from shared policy and complete inventory', () => {
     assert.equal(result.stdout, '');
     assert.match(result.stderr, /ssh-port.*protected/i);
   });
-  it('refuses a stopped slot 101 whose private RTMP collides with the rung allowance', () => {
+  it('generates for a stopped slot 101 whose private RTMP no band claims now', () => {
+    // 11012 was a slot-101 RTMP port and a rung peer port at once, and the
+    // overlap was the whole of the refusal. With the rung band gone the port
+    // belongs to nobody in particular, so the draft is written and simply
+    // leaves it closed.
     const value = peerInventory();
     value.profiles[0]!.slot = 101;
     value.claims[0]!.portVar = 'SRS_RTMP_PORT';
@@ -200,9 +203,22 @@ describe('firewall rules from shared policy and complete inventory', () => {
     value.reservations[0]!.heldServices = ['srs'];
     value.bindings = [];
     const result = run(value);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(verdict(result.stdout, 'forward', { family: 'ipv4', protocol: 'tcp', originalPort: 11012, destinationPort: 1935, dnat: true }), 'drop');
+  });
+
+  it('still refuses a private endpoint parked on a tuple a public band opens', () => {
+    const value = peerInventory();
+    value.claims[0]!.port = 10016;
+    value.claims[0]!.portVar = 'SRS_RTMP_PORT';
+    value.claims[0]!.service = 'srs';
+    value.reservations[0]!.port = 10016;
+    value.reservations[0]!.heldServices = ['srs'];
+    value.bindings = [{ project: 'a', service: 'srs', port: 10016, protocol: 'tcp' }];
+    const result = run(value);
     assert.equal(result.status, 2);
     assert.equal(result.stdout, '');
-    assert.match(result.stderr, /11012.*public|public.*11012/);
+    assert.match(result.stderr, /10016.*public|public.*10016/);
   });
   for (const missing of ['owner', 'claim', 'reservation', 'binding', 'daemon', 'version', 'shape'] as const) {
     it('refuses inconsistent ' + missing + ' evidence with no partial output', () => {
@@ -210,7 +226,7 @@ describe('firewall rules from shared policy and complete inventory', () => {
       if (missing === 'owner') value.reservations[0]!.heldServices = [null];
       if (missing === 'claim') value.claims = [];
       if (missing === 'reservation') value.reservations = [];
-      if (missing === 'binding') value.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 11012 }];
+      if (missing === 'binding') value.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 10016 }];
       if (missing === 'daemon') value.reservations[0]!.daemonId = 'other';
       if (missing === 'version') value.policyVersion = 999;
       const result = run(missing === 'shape' ? { complete: true } : value);

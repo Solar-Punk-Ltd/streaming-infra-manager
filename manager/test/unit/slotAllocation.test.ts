@@ -63,7 +63,9 @@ function tables(stored: readonly ReturnType<typeof makeProfile>[] = []) {
 describe('allocating a port slot', () => {
   it('does not allocate a private service onto publicly allowed peer ports', async () => {
     const { reservations, profiles } = tables();
-    const unsafe = [{ ...TABLE_X[0]!, slotBase: 11002 }];
+    // 10006 is the bee-uploader peer band's base, so every slot of this table
+    // lands on a tuple the firewall opens for somebody else.
+    const unsafe = [{ ...TABLE_X[0]!, slotBase: 10006 }];
     assert.equal(await profiles.insertWithFreeSlot('a', 'custom', 'DEPLOYING', {}, placement(unsafe, 2)), null);
     assert.equal(reservations.rows.length, 0);
   });

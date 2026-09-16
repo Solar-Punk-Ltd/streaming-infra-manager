@@ -11,7 +11,8 @@
  *
  * The keys checked are the ones a deployment can show: the bundled port table,
  * the OME variables the engine swap resolves to, and every variable a public
- * role names.
+ * role names. A per-rung Bee peer port is not among them, because the manager
+ * starts no rung service, and `publicPortRoleServices` is the check for that.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -65,9 +66,6 @@ describe('what the port cell calls public', () => {
       calledPublic().sort(),
       [
         'BEE_GATEWAY_P2P_PORT',
-        'BEE_RUNG_1080P_P2P_PORT',
-        'BEE_RUNG_480P_P2P_PORT',
-        'BEE_RUNG_720P_P2P_PORT',
         'BEE_UPLOADER_P2P_PORT',
         'CLIENT_PORT',
         'OME_SRT_PORT',

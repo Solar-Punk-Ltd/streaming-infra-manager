@@ -152,9 +152,8 @@ export const DEFAULT_MAX_SLOT = 999;
  * it by `slotCapFor`, so this number bounds a version that names none rather
  * than standing in for the stack's own rule.
  *
- * The firewall generator defaults `--max-slot` to this same number, but its
- * three `rung_p2p` roles carry a `maxSlot` of 99 of their own, so the two
- * bands stop one apart there too.
+ * The firewall generator defaults `--max-slot` to this same number, and every
+ * public role it opens runs to it.
  *
  * The cap counts every stored deployment record, stopped ones included,
  * because a stopped deployment keeps its slot.

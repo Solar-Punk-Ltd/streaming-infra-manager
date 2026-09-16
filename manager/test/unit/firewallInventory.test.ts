@@ -6,14 +6,14 @@ import type { StackPortVar } from '@streaming-infra-manager/common';
 import type { PublishedPortsSnapshot } from '../../src/domain/ports/PublishedPortsProbe.js';
 
 function setup() {
-  const peer: StackPortVar = { name: 'BEE_RUNG_480P_P2P_PORT', slotBase: 11002, defaultPort: 11002, protocol: 'tcp', service: 'bee-uploader-480p' };
+  const peer: StackPortVar = { name: 'BEE_GATEWAY_P2P_PORT', slotBase: 10008, defaultPort: 10008, protocol: 'tcp', service: 'bee-gateway' };
   const state: FirewallState = {
     inventoryReady: true, seededDaemons: ['daemon'],
     targets: [{ alias: 'localhost', daemonId: 'daemon', verified: true }],
     profiles: [{ name: 'a', slot: 1, status: 'STOPPED', target: 'localhost', versionId: 1 }],
     versions: [{ id: 1, name: 'v3', layout: 'builds', rootPath: '/fake/v3', buildId: 'a'.repeat(40), previousBuildId: null }],
     references: [], attempts: [],
-    reservations: [{ daemonId: 'daemon', profileName: 'a', port: 11012, protocol: 'tcp', heldServices: ['bee-uploader-480p'] }],
+    reservations: [{ daemonId: 'daemon', profileName: 'a', port: 10018, protocol: 'tcp', heldServices: ['bee-gateway'] }],
   };
   const snapshot: PublishedPortsSnapshot = { daemonId: 'daemon', bindings: [] };
   const contracts = new Map([['a'.repeat(40), [peer]]]);
@@ -131,21 +131,21 @@ describe('firewall evidence export', () => {
     const h = setup();
     h.state.versions[0]!.previousBuildId = 'b'.repeat(40);
     h.contracts.set('b'.repeat(40), [{ ...h.peer, name: 'SRS_RTMP_PORT', service: 'srs' }]);
-    h.state.reservations[0]!.heldServices = ['bee-uploader-480p', 'srs'];
-    await assert.rejects(h.exporter.export('localhost'), /a.*11012.*public/);
+    h.state.reservations[0]!.heldServices = ['bee-gateway', 'srs'];
+    await assert.rejects(h.exporter.export('localhost'), /a.*10018.*public/);
   });
 
   it('uses snapshot X when version Y is published but has never been admitted', async () => {
     const h = setup();
     const oldId = 'a'.repeat(40);
     const newId = 'b'.repeat(40);
-    h.state.references.push({ versionId: 1, buildId: oldId, holderKind: 'snapshot', holderId: 'a/bee-uploader-480p', services: ['bee-uploader-480p'] });
+    h.state.references.push({ versionId: 1, buildId: oldId, holderKind: 'snapshot', holderId: 'a/bee-gateway', services: ['bee-gateway'] });
     h.state.versions[0]!.buildId = newId;
     h.state.versions[0]!.previousBuildId = oldId;
     h.contracts.set(newId, [{ ...h.peer, slotBase: 14002 }]);
     const result = await h.exporter.export('localhost');
     assert.ok(result.claims.length > 0);
-    assert.ok(result.claims.every(claim => claim.port === 11012));
+    assert.ok(result.claims.every(claim => claim.port === 10018));
   });
 
   it('does not require released ports merely because their old build is still the previous version', async () => {
@@ -153,7 +153,7 @@ describe('firewall evidence export', () => {
     h.state.versions[0]!.previousBuildId = 'b'.repeat(40);
     h.contracts.set('b'.repeat(40), [{ ...h.peer, slotBase: 14002 }]);
     const result = await h.exporter.export('localhost');
-    assert.ok(result.claims.every(claim => claim.port === 11012));
+    assert.ok(result.claims.every(claim => claim.port === 10018));
   });
 
   it('requires each snapshot service owner in the reservation, not merely a row on the same tuple', async () => {
@@ -166,12 +166,18 @@ describe('firewall evidence export', () => {
     await assert.rejects(h.exporter.export('localhost'), /old-service|coverage|reservation/);
   });
 
-  it('refuses existing bundled slot 101 without renumbering or deleting its record', async () => {
+  it('exports an existing bundled slot 101 now that no band claims its port', async () => {
+    // TCP 11012 was a slot-101 RTMP port and a rung peer port at once, and the
+    // overlap was the whole of the refusal. With no rung band left the port is
+    // nobody's public tuple, so the record stands as it is and the generated
+    // draft leaves the port closed.
     const h = setup();
     h.state.profiles[0]!.slot = 101;
+    h.state.reservations[0]!.port = 11012;
     h.state.reservations[0]!.heldServices = ['srs'];
     h.contracts.set('a'.repeat(40), [{ ...h.peer, name: 'SRS_RTMP_PORT', service: 'srs', slotBase: 10002 }]);
-    await assert.rejects(h.exporter.export('localhost'), /a.*11012.*public/);
+    const result = await h.exporter.export('localhost');
+    assert.ok(result.claims.some(claim => claim.port === 11012 && claim.service === 'srs'));
     assert.equal(h.state.profiles[0]!.slot, 101);
   });
 
@@ -183,7 +189,7 @@ describe('firewall evidence export', () => {
       if (missing === 'build') h.contracts.clear();
       if (missing === 'owner') h.state.reservations[0]!.heldServices = [null];
       if (missing === 'reference') h.state.reservations[0]!.port = 13010;
-      if (missing === 'binding') h.snapshot.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 11012 }];
+      if (missing === 'binding') h.snapshot.bindings = [{ project: 'outside', service: 'web', protocol: 'tcp', port: 10016 }];
       if (missing === 'target') h.state.targets[0]!.verified = false;
       if (missing === 'host-network') h.snapshot.unverifiedProjects = ['outside'];
       await assert.rejects(h.exporter.export('localhost'));
