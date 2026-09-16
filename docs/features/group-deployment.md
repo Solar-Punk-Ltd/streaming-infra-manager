@@ -1,5 +1,8 @@
 # Group Deployment
 
+Status, 2026-09-16: built and merged to `main-v2`. The page opens with the prototype scope it was
+written for, and the paragraph after it records what has been built since.
+
 Provision N deployments at once from a single form, grouped under a user-named umbrella, sharing all configuration parameters.
 
 ## Motivation

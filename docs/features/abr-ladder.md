@@ -1,5 +1,7 @@
 # ABR Ladder
 
+Status, 2026-09-16: built and merged to `main-v2`, page checked against the code at ecaea40.
+
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader` running elsewhere (GCP).
 
