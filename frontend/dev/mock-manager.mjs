@@ -385,7 +385,6 @@ const EDITABLE_FIELDS = [
   'notes',
   'feed_owner',
   'feed_topic',
-  'private_key',
   'public_key',
   'stamp_id',
   'bee_publishers',
@@ -406,9 +405,19 @@ function notesConflict(profile) {
   };
 }
 
+/**
+ * The signing key, which is not an editable field like the others: the manager
+ * never answers it, so no page can send it back, and a body that says nothing
+ * about it keeps the stored one.
+ */
+function applyStreamKey(profile, body) {
+  if (body.private_key) profile.has_private_key = true;
+}
+
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
+  applyStreamKey(profile, body);
 }
 
 /** PATCH semantics: only the fields present in the body change. */
@@ -416,6 +425,7 @@ function applyEdits(profile, body) {
   for (const field of EDITABLE_FIELDS) {
     if (field in body) profile[field] = body[field] ?? null;
   }
+  applyStreamKey(profile, body);
 }
 
 function createFromBody(body, extra = {}) {
