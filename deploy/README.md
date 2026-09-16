@@ -178,10 +178,16 @@ Host bee-eu-1
   IdentityFile /root/.ssh/deploy_key
 ```
 
-`docker-compose.yml` mounts the directory at `/root/.ssh`, and that one file
-again at `/etc/ssh/ssh_config`, read-only. The second mount is what makes it
-usable: ssh refuses a per-user config it does not own, and a bind-mounted file
-keeps the host's uid, so the config is only read as the system-wide one.
+`docker-compose.yml` mounts the directory at `/root/.ssh`, and the api image
+links `/etc/ssh/ssh_config` to the `ssh_config` inside it, so the aliases are
+read as the system-wide config. That link is what makes the file usable: ssh
+refuses a per-user config it does not own, and a bind-mounted file keeps the
+host's uid. `deploy.sh` creates the directory on every deploy, empty, as the
+user it deploys as, so a manager that deploys only to itself needs nothing here
+and the link points at nothing, which ssh treats as no config. Until 2026-09-16
+the file itself was bind-mounted too, and a host without it could not start the
+upgrade container: Docker made a root-owned directory at the missing path and
+refused to mount it onto a file.
 
 Put the target's host key in `~/manager-ssh/known_hosts` before the first
 deploy. The manager's own ssh calls pass `StrictHostKeyChecking=yes` on the

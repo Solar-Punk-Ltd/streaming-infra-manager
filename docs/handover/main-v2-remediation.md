@@ -1212,10 +1212,28 @@ is gone. The fourteen Dependabot alerts stay as they are on Levi's word.
 disposable Postgres with the nine task databases, one case more than the second round for the
 group repository's new column. The commits after that head change documentation only.
 
-**Open, Levi's.** Fourteen Dependabot alerts in lockfiles, twelve high, left as
-they are for now. Three history collisions among concurrent implementers,
-accepted as they stand. The deploy round on the host. Decided the same evening:
-the 36 MB of review logs and captures left the repository's untracked `.scratch`
+**Deployed to the live host the same evening.** Levi read the host first: after
+his wipe and rebuild of 2026-09-15 it ran the manager alone, four containers up
+for 21 hours, no deployments, the bundled version built at the stack commit
+76318d1a. The first deploy of e364e33 stopped before it touched anything: the
+remote-host port had added a bind mount of `manager-ssh/ssh_config` onto
+`/etc/ssh/ssh_config`, the fresh host had no such file, Docker created a
+root-owned directory at the path and refused to mount a directory onto a file,
+so the upgrade container never started, no migration ran and the old manager
+kept serving. Levi gave the host an empty file by hand and the second run went
+through at 11:15 UTC: migrations 032, 033 and 034 applied, the receipt
+completed, the bundled build ready at 7e2de6f7 inside the run. The fix so no
+fresh host needs that step: the image links the system-wide ssh config to the
+mounted directory, the compose file mounts the directory alone, and
+`deploy.sh` creates it as the deploying user, with the tests that hold it.
+
+**Open, Levi's.** Sixty Dependabot alerts, not fourteen as first reported:
+twelve high, thirty-nine medium and nine low, the same advisories counted for
+three manifests, one of them a stale `frontend/pnpm-lock.yaml` nothing reads.
+Left as they are for now on his word, re-asked with the true count. Three
+history collisions among concurrent implementers, accepted as they stand.
+Decided the same evening: the 36 MB of review logs and captures left the
+repository's untracked `.scratch`
 for `~/Documents/estate-state/evidence/streaming-infra-manager/`, with a tombstone
 at the old path and a row in the estate's data map, so state a rebuild cannot
 recreate lives outside the repository.
