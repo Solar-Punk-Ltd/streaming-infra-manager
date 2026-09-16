@@ -155,10 +155,12 @@ function writeVersionEnv(base: string, engine = ''): void {
   writeFileSync(join(root, 'engines', 'srs', '.env'), engine, 'utf8');
 }
 
-async function deployOn(harness: OrchestratorHarness, profile: Partial<Profile> = {}) {
+async function deployOn(harness: OrchestratorHarness, profile: Partial<Profile> = {}, privateKey?: string) {
   const v3 = await versionRequiringSecrets(harness);
-  const stored = makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64), stack_version_id: v3, ...profile });
+  const stored = makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64), stack_version_id: v3,
+    has_private_key: privateKey !== undefined, ...profile });
   harness.profiles.rows.set('stage', stored);
+  if (privateKey) harness.profiles.privateKeys.set('stage', privateKey);
   await harness.orchestrator.startDeploy(stored, undefined);
   return stored;
 }
@@ -249,7 +251,7 @@ describe('a per deployment key the version already sets', () => {
     writeVersionEnv(`ENGINE=srs\nSTREAM_KEY=0x${'c'.repeat(64)}\nAPI_AUTH_TOKEN=\n`, 'SRS_WEBHOOK_TOKEN=\n');
     const harness = orchestratorHarness([]);
 
-    await deployOn(harness, { private_key: own });
+    await deployOn(harness, {}, own);
 
     assert.equal(envLine('stage', 'STREAM_KEY'), `STREAM_KEY=${own}`);
   });

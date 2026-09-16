@@ -21,7 +21,12 @@ export interface Profile {
   host: string | null;
   feed_owner: string | null;
   feed_topic: string | null;
-  private_key: string | null;
+  /**
+   * Whether a signing key is stored, never the key itself. The value is read
+   * on its own through `ProfileRepository.privateKeyOf`, at the one place that
+   * writes it into a deployment's env file.
+   */
+  has_private_key: boolean;
   public_key: string | null;
   stamp_id: string | null;
   /**

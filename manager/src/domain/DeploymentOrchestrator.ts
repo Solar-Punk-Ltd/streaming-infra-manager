@@ -965,6 +965,10 @@ export class DeploymentOrchestrator {
       // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
       const engine = engineForComponents(profile.components);
       const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
+      // Read here and nowhere else: the key is not a column of the row, so
+      // that no page and no event carries it. This is where it becomes a line
+      // in a file the containers read.
+      const streamKey = await this.profiles.privateKeyOf(profile.name);
       const written = writeProfileEnv(paths.root, profile.name, {
         engine,
         stampId: profile.stamp_id,
@@ -972,7 +976,7 @@ export class DeploymentOrchestrator {
         beeUrl: profile.bee_url,
         rpcEndpoint: profile.rpc_endpoint,
         srtPassphrase: profile.srt_passphrase,
-        streamKey: profile.private_key,
+        streamKey,
         engineSettings: profile.engine_settings,
         stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
         stackEngineDefaults: version?.contract?.engineDefaults,
@@ -1006,7 +1010,7 @@ export class DeploymentOrchestrator {
           }
           : undefined,
         onSuccess: async (attempt) => {
-          await this.snapshotContainers(profile, paths, version, services, engineConfigFile);
+          await this.snapshotContainers(profile, paths, version, services, engineConfigFile, streamKey);
           await this.observeMounts(profile, services);
           if (attempt && this.ports && this.portObserver) {
             const claimed = await this.profiles.findByName(profile.name);
@@ -1506,9 +1510,10 @@ export class DeploymentOrchestrator {
     version: DeployVersionSnapshot | null,
     services: string[],
     engineConfigFile: string | null,
+    streamKey: string | null,
   ): Promise<void> {
     try {
-      const env = this.buildEffectiveEnv(profile, paths, version);
+      const env = this.buildEffectiveEnv(profile, paths, version, streamKey);
       if (engineConfigFile) {
         env[ENGINE_CONFIG_ENV_KEYS[engineForComponents(profile.components)]] =
           engineConfigFile;
@@ -1534,6 +1539,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     paths: StackPaths,
     version: DeployVersionSnapshot | null,
+    streamKey: string | null,
   ): Record<string, string> {
     const env = parseBaseEnv(paths.root);
 
@@ -1568,8 +1574,8 @@ export class DeploymentOrchestrator {
       env.STREAM_LIST_TOPIC = profile.feed_topic;
       env.VITE_APP_RAW_TOPIC = profile.feed_topic;
     }
-    if (profile.private_key) {
-      env.STREAM_KEY = profile.private_key;
+    if (streamKey) {
+      env.STREAM_KEY = streamKey;
     }
     if (profile.stamp_id) {
       env.STAMP = profile.stamp_id.replace(/^0x/, '');

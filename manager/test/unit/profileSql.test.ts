@@ -70,6 +70,22 @@ function profileFields(): string[] {
   return fields;
 }
 
+/**
+ * Columns whose value must never be selected onto a profile row.
+ *
+ * Each is read on its own, beside the row: `private_key` through
+ * ProfileRepository.privateKeyOf, `stack_secrets` through stackSecretsOf and
+ * `engine_config` through engineConfigOf.
+ *
+ * `srt_passphrase` is deliberately not on this list. The UI hands it to the
+ * broadcaster inside the SRT URL, so it is on the row on purpose.
+ */
+const SECRET_COLUMNS: readonly string[] = [
+  'private_key',
+  'stack_secrets',
+  'engine_config',
+];
+
 describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
   it('selects every field the Profile row type declares', () => {
     const missing = profileFields().filter((f) => !selected().includes(f));
@@ -100,6 +116,25 @@ describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
       'bee_publishers must be selected',
     );
     assert.ok(selected().includes('bee_url'), 'bee_url must be selected');
+  });
+
+  it('selects no column whose value is a secret', () => {
+    const leaked = SECRET_COLUMNS.filter((column) => selected().includes(column));
+    assert.deepEqual(
+      leaked,
+      [],
+      `PROFILE_COLUMNS selects ${leaked.join(', ')}. A row is answered to the ` +
+        'browser and published to every event subscriber, so a secret selected ' +
+        'here reaches every signed-in user on every list and every status change.',
+    );
+  });
+
+  it('says whether the deployment holds a signing key, without the key', () => {
+    assert.ok(
+      selected().includes('has_private_key'),
+      'the row has to say whether a key is stored, so the edit drawer can mask ' +
+        'the field it must not be sent',
+    );
   });
 
   it('carries the port-slot advisory lock key, shared by both repositories', () => {

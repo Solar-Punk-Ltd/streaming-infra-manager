@@ -36,7 +36,7 @@ const EDITABLE_FIELDS = [
   'notes',
   'feed_owner',
   'feed_topic',
-  'private_key',
+  'has_private_key',
   'public_key',
   'stamp_id',
   'bee_publishers',

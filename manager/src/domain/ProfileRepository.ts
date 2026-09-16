@@ -18,6 +18,7 @@ export interface ProfileWriteData {
   host?: string | null;
   feed_owner?: string | null;
   feed_topic?: string | null;
+  /** Absent or null keeps the key already stored. See `updateEditable`. */
   private_key?: string | null;
   public_key?: string | null;
   stamp_id?: string | null;
@@ -170,6 +171,12 @@ export class ProfileRepository {
    * @param expectedNotesRevision the notes revision the caller's page loaded.
    *   Given, the write happens only while that is still the current one, and
    *   null comes back when it moved, the same as for a row that is gone.
+   *
+   * Every field here is replaced, so one the body leaves out becomes null.
+   * `private_key` is the exception, for the reason `engine_settings` is: the
+   * key is never answered to a page, so no page can send it back, and a PUT
+   * that says nothing about it would otherwise clear the feed's identity on
+   * the next save of a note.
    */
   async updateEditable(
     name: string,
@@ -188,7 +195,7 @@ export class ProfileRepository {
              components = $4,
              feed_owner = $5,
              feed_topic = $6,
-             private_key = $7,
+             private_key = COALESCE($7::text, private_key),
              public_key = $8,
              stamp_id = $9,
              bee_publishers = $10,
@@ -300,6 +307,19 @@ export class ProfileRepository {
       [name, config, error],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
+  }
+
+  /**
+   * The key this deployment signs its feed with, read on its own for the same
+   * reason `stackSecretsOf` is, and answered to nobody: the one caller writes
+   * it straight into the deployment's env file.
+   */
+  async privateKeyOf(name: string): Promise<string | null> {
+    const result = await this.pool.query<{ private_key: string | null }>(
+      'SELECT private_key FROM profiles WHERE name = $1',
+      [name],
+    );
+    return result.rows[0]?.private_key ?? null;
   }
 
   /**

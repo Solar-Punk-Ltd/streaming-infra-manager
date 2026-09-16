@@ -11,10 +11,19 @@
  * while the database and the UI still show it set.
  *
  * One definition, so the next column added cannot repeat that.
+ *
+ * What the list leaves out matters as much as what it carries. A row travels:
+ * every profile read answers it to the browser and every `profile.changed`
+ * event publishes it to every subscriber, so a secret selected here reaches
+ * every signed-in user on every list and every status change. `private_key`,
+ * `stack_secrets` and `engine_config` are read on their own instead, and the
+ * row carries only whether each is set. `srt_passphrase` is the deliberate
+ * exception: the UI hands it to the broadcaster inside the SRT URL.
  */
 export const PROFILE_COLUMNS = `
   name, port_slot, kind, notes, notes_revision,
-  components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
+  components, host, feed_owner, feed_topic, public_key, stamp_id,
+  (private_key IS NOT NULL) AS has_private_key,
   bee_publishers, bee_url, rpc_endpoint, srt_passphrase, engine_settings,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error, engine_config_state,
   instance_id, engine_config_revision, intent_revision,

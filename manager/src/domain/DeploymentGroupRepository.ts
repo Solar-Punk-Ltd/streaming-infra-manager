@@ -32,6 +32,11 @@ export interface MemberSeed {
   name: string;
 }
 
+/**
+ * What a group config edit writes to every member. The signing key is not
+ * here: a group edit never changes it, and the member rows this is built from
+ * do not carry it, so the column keeps what it holds.
+ */
 export interface MemberConfigWrite {
   name: string;
   kind: ProfileKind;
@@ -39,7 +44,6 @@ export interface MemberConfigWrite {
   components: string[] | null;
   feed_owner: string | null;
   feed_topic: string | null;
-  private_key: string | null;
   public_key: string | null;
   stamp_id: string | null;
   srt_passphrase: string | null;
@@ -144,10 +148,9 @@ export class DeploymentGroupRepository {
                  components = $4,
                  feed_owner = $5,
                  feed_topic = $6,
-                 private_key = $7,
-                 public_key = $8,
-                 stamp_id = $9,
-                 srt_passphrase = $10,
+                 public_key = $7,
+                 stamp_id = $8,
+                 srt_passphrase = $9,
                  updated_at = NOW()
            WHERE name = $1
            RETURNING ${PROFILE_COLUMNS}`,
@@ -158,7 +161,6 @@ export class DeploymentGroupRepository {
             w.components,
             w.feed_owner,
             w.feed_topic,
-            w.private_key,
             w.public_key,
             w.stamp_id,
             w.srt_passphrase,

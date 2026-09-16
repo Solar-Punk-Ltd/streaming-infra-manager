@@ -63,7 +63,7 @@ function member(rung: string, index: number): Profile {
     host: '10.0.0.9',
     feed_owner: null,
     feed_topic: null,
-    private_key: null,
+    has_private_key: false,
     public_key: null,
     stamp_id: BATCH(rung),
     bee_publishers: null,
