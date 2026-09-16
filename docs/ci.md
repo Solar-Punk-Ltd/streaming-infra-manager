@@ -109,8 +109,8 @@ image's own `createdb`, so the runner needs no client of its own and a service
 that did not come up fails in seconds.
 
 What it proves: every one of those tests runs against a real PostgreSQL, and
-none of them was skipped or quietly never started. The count was 518 when this
-was measured on 2026-09-10 and has grown with the suites since.
+none of them was skipped or quietly never started. The count was 526 when this
+was measured on 2026-09-16 against a disposable Postgres, and it grows with the suites.
 
 What it does not prove: anything about a deployment database. Every suite
 connects to `127.0.0.1` and creates a schema of its own with synthetic rows.
@@ -287,10 +287,10 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 6 s |
-| unit suites, common 354, manager 2466, frontend 132 (2026-09-16) | 25 s |
+| unit suites, common 354, manager 2474, frontend 153 (2026-09-16) | 25 s |
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
-| SQL suites, one file at a time. Case count last measured 518 on 2026-09-10 and not re-measured since, so read it as a floor | 235 s |
+| SQL suites, one file at a time. 526 cases across 34 files, measured 2026-09-16 against a disposable Postgres | 235 s |
 | browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 32 now | 360 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
