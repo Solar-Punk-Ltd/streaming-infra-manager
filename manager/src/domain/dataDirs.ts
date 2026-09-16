@@ -10,11 +10,12 @@ import {
 import { isLocalTarget } from './ports/DeployTargets.js';
 
 /**
- * Where a deployment's state lives on the host: one directory per profile
- * under the data root, bind-mounted into the api container at the same
- * absolute path, which is what lets both the compose files and the manager
+ * Where a deployment on the manager's own host keeps its state: one directory
+ * per profile under the data root, bind-mounted into the api container at the
+ * same absolute path, which is what lets both the compose files and the manager
  * name the same files. It survives a manager deploy, which rsyncs only the
- * checkout, and goes when the deployment is removed.
+ * checkout, and goes when the deployment is removed. A deployment on a remote
+ * target gets no directory here at all, `beeDataDirsFor` below says why.
  */
 export const BEE_DATA_ROOT =
   process.env.BEE_DATA_ROOT ?? '/home/solarpunk/streaming-infra-manager-data';
