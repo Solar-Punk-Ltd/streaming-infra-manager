@@ -218,13 +218,16 @@ stdin-less runner.
 |---|---|
 | `src/schemas/profile.ts` | `abr_ladder` flag, and the group-name length rule that applies only to ladders. |
 | `src/domain/ProfileService.ts` | Ladder member seeding (names fixed, components fixed to `bee-uploader`), `ladderMembersOf`, `beePublishersForGroup`, and guards on `updateGroupConfig` and `addGroupMembers`. |
-| `src/domain/StampService.ts` | `stampHealthFor`, what a rung's own node says about its recorded batch (state *and* TTL, so expiry can be warned about early), on a short timeout, never throwing. A 404 is an answer (`gone`), anything else is `unknown`. `publishUrlStateFor` asks whether anything answers at the *published* address. `networkHostOf` strips ssh user info out of a deploy target. Plus `beePublicApiUrlFor`, the URL an off-host uploader can reach, as opposed to `beeApiUrlFor`, which resolves a local profile to `host.docker.internal`. |
+| `src/domain/StampService.ts` | `stampHealthFor`, what a rung's own node says about its recorded batch (state *and* TTL, so expiry can be warned about early), on a short timeout, never throwing. A 404 is an answer (`gone`), anything else is `unknown`. `publishUrlStateFor` asks whether anything answers at the *published* address. `networkHostOf` turns a deploy target into an address, through `resolveNetworkHost`. Plus `beePublicApiUrlFor`, the URL an off-host uploader can reach, as opposed to `beeApiUrlFor`, which resolves a local profile to `host.docker.internal`. |
+| `src/utils/deployHost.ts` (new) | `resolveNetworkHost`: ssh user info dropped, a dotless alias resolved through `ssh -G` against the config the api container mounts, results cached for 60s. The same semantics as `host_from_target` in swarm-hls-stream's `deploy/scripts/_lib.sh`, so both halves of a deploy agree on what an alias means. |
+| `src/domain/ContainerRepository.ts` | `withContainers` derives `network_host` onto every profile the API returns, so the UI composes links from an address rather than from a deploy target. |
 | `src/domain/errors/LadderGroupError.ts` (new) | 409 `ladder_group_invalid_operation`. |
 | `src/api/routes/groups.ts` | `GET /groups/:id/bee-publishers`. |
 | `test/unit/ladderSchema.test.ts` (new) | Pins the cross-field name rule, which uses yup's `this.parent` and would fail silently if the schema shape changed. |
 | `test/unit/beePublishersReadiness.test.ts` (new) | 18 tests: the endpoint asks every rung, probes the exact address it publishes, refuses the value on a dead batch / stopped node / unusable address, and stays ready, with the value, for anything it merely could not confirm. |
 | `test/unit/stampHealthFor.test.ts` (new) | 10 tests over the bee-answer mapping, above all that a timeout is `unknown` and not `expired`, and that the TTL survives. |
-| `test/unit/beeApiUrl.test.ts` (new) | 7 tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an ssh alias deliberately left alone. |
+| `test/unit/beeApiUrl.test.ts` (new) | 7 tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an unresolvable alias still composing to the address it names. |
+| `test/unit/deployHost.test.ts` (new) | 12 tests on target resolution with `ssh -G` injected: an alias resolved, an unknown name echoed back and kept, ssh failing without throwing, literals and dotted names never reaching the exec, a non-name refused at the exec boundary, and the TTL cache. |
 
 `beePublishersForGroup` asks each rung's node whether its recorded batch is still
 alive, all four in parallel on a 3s timeout. It first did not. Every field came
@@ -249,6 +252,7 @@ request or block the value.
 | `src/deployments/PoolTargetCard.tsx` | On an ABR uploader's own page, where its four rungs land. |
 | `src/data.ts` | `fetchBeePublishers`, returning `null` for a group that is not a ladder so callers can probe cheaply. The response types are re-exported from `common` rather than redeclared. The local copy had already gone stale, with the per-rung verification fields arriving in the JSON and invisible to the compiler. |
 | `src/uploaders/useBeeUtils.ts` | `stamps` is nullable, null meaning "not asked, or no answer", like `address`, `wallet` and `chainState` beside it, and any failed fetch clears it. Without that distinction a slow or briefly unreachable node reads as a node with a dead batch. |
+| `src/urls.ts` | `hostFor` prefers the profile's `network_host`, the deploy target already resolved server-side, over the raw `host`, so component links and the SRT publish URL point at an address rather than at an ssh alias. |
 
 The components this table named when it was written, `LadderCard`, `UploaderCard`,
 `UploadersView`, `AbrPoolForm` and `NewDeploymentDrawer`, were replaced by the UX
@@ -349,11 +353,22 @@ otherwise silent:
   `http://deploy@1.2.3.4:10055`, not a bee base URL, and a stray `@` inside an
   entry format that already separates the rung from the URL on `@`.
 
-The second is now *fixed* rather than merely detected: `networkHostOf` strips the
-userinfo when composing either URL, because the ssh account provably is not part
-of the address. An ssh *alias* is left alone, because it may well resolve for the
-uploader, and refusing it would be a guess dressed as a verdict. The structural
+The second is now *fixed* rather than merely detected: `resolveNetworkHost`
+composes both URLs out of the target's address half. The userinfo is dropped,
+because the ssh account provably is not part of the address. A *dotless* name is
+resolved as an ssh alias: `ssh -G <name>` against the config the api container
+mounts, reading back the `hostname` it would dial, which is exactly what
+deploy.sh's `host_from_target` does with the same value, so a rung is dialled at
+the address it was deployed to. A literal or a dotted name is taken as given, and
+a name no Host block matches comes back unchanged, so resolution can only improve
+on the address and never lose one. Results are cached for 60s, since the config is
+a bind mount an operator edits without restarting the manager. The structural
 check in `classifyPublishUrl` stays as the guard on a permissive field.
+
+The same resolved value reaches the browser as `network_host` on each profile,
+which is what the component links and the SRT publish URL are built from. An
+alias resolves in the manager's ssh config and nowhere else, least of all in a
+browser.
 
 The third way, well-formed but nothing listening, needs a probe, and the probe
 targets the **published** URL, not `beeApiUrlFor`. That is the whole point: the

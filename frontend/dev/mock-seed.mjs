@@ -145,6 +145,9 @@ export function makeProfile(input) {
     notes: input.notes ?? null,
     notes_revision: 0,
     host: input.host ?? 'localhost',
+    // Derived by the real API from host. Nothing here is an ssh alias, so it is
+    // the same value. Present so mock rows have the shape the UI reads.
+    network_host: input.host ?? 'localhost',
     components: input.components ?? null,
     feed_owner: input.feed_owner ?? null,
     feed_topic: null,

@@ -150,6 +150,66 @@ another go, and a lock whose editor is gone comes off with
 page still works too: it builds the version again and captures whatever
 revision is current.
 
+## Deploying Bee nodes to other hosts
+
+A deployment's **Host** field is a deploy target: `localhost`, an ssh alias, or
+`user@host`. Only the exact value `localhost` means the manager's own machine:
+`deploy.sh` reaches anything that names another host over `ssh`, and so does the
+manager, from inside the api container, which has no ssh identity of its own.
+
+That identity lives on the manager host in `/home/solarpunk/manager-ssh/`
+(`MANAGER_SSH_DIR` in `manager/.env` overrides the path). It holds the deploy
+key pair, an `ssh_config` and a `known_hosts`:
+
+```sh
+# As solarpunk@manager-host
+mkdir -p ~/manager-ssh
+ssh-keygen -t ed25519 -N '' -f ~/manager-ssh/deploy_key
+ssh-copy-id -i ~/manager-ssh/deploy_key.pub deploy@203.0.113.7
+```
+
+One `Host` block per target in `~/manager-ssh/ssh_config`. `IdentityFile` is the
+path *inside the container*, where the directory is mounted at `/root/.ssh`:
+
+```
+Host bee-eu-1
+  HostName 203.0.113.7
+  User deploy
+  IdentityFile /root/.ssh/deploy_key
+```
+
+`docker-compose.yml` mounts the directory at `/root/.ssh`, and that one file
+again at `/etc/ssh/ssh_config`, read-only. The second mount is what makes it
+usable: ssh refuses a per-user config it does not own, and a bind-mounted file
+keeps the host's uid, so the config is only read as the system-wide one.
+
+Put the target's host key in `~/manager-ssh/known_hosts` before the first
+deploy. The manager's own ssh calls pass `StrictHostKeyChecking=yes` on the
+command line, which overrides an `accept-new` in the config file and refuses a
+host it does not already know:
+
+```sh
+ssh-keyscan -H 203.0.113.7 >> ~/manager-ssh/known_hosts
+```
+
+The manager verifies a target by running `docker info` over that same ssh path
+and recording the daemon id it reads back, then re-checks that id on every
+deploy, stop, remove and port observation, so the alias must resolve in
+`ssh_config`, the key must authenticate without a prompt (`BatchMode=yes`), and
+the host key must already be in `known_hosts`.
+
+Links and addresses do not go through ssh at all. The manager resolves the alias
+with `ssh -G` against the same config and puts the result on every profile as
+`network_host`, which is what the UI's component links and a rung's Bee API
+address in `BEE_PUBLISHERS` are built from. A browser never sees `bee-eu-1`.
+
+`BEE_DATA_ROOT` describes the manager's host only. A Bee node on a remote target
+keeps its data where the stack's own default puts it on that host,
+`deploy/data/` under the rsynced stack directory (`~/swarm-hls-stream-<name>`
+of the ssh user), and the manager exports no data directory for such a deploy
+at all. Neither the disk figure it reports nor the data-directory cleanup it
+runs on removal reaches that host.
+
 ## A deploy that stopped half way
 
 If a deploy failed after the upgrade started, the guard directory is still

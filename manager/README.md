@@ -128,6 +128,12 @@ shipped default is a public RPC, and one node on it drew 4568 HTTP 429s in two
 hours on 2026-09-15, which is a rate limit rather than a fault anybody could see
 from the manager.
 
+Every profile in a response carries derived fields beside its stored columns.
+One of them is `network_host`: the deploy target in `host` with the ssh layer
+resolved away, so a client has an address to build links from rather than an
+alias only the manager's ssh config can read. It equals `host` when there is
+nothing to resolve.
+
 ### Actions (per profile, SSE)
 
 | Method | Path                     | Body                      | Maps to                                                |
@@ -596,16 +602,18 @@ recoverable and every new transfer refuses rather than guessing. Their exact
 shapes are in `docs/testing/t09-money-api.md`. Neither belongs in a file that is
 committed: route the value into the process rather than writing it down.
 
-The two keys that decide where the streaming stack lives:
+The keys that decide where the streaming stack lives, and the ssh identity the
+manager deploys to other hosts with:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `SHLS_ROOT`           | the submodule next to the manager source           | The legacy bundled checkout, read once to carry its settings over and still mounted by engines that were deployed from it. Set by `docker-compose.yml` to the host bind mount. |
 | `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
+| `MANAGER_SSH_DIR`     | `/home/solarpunk/manager-ssh`                      | The ssh identity the manager deploys to other hosts with: the deploy key, `known_hosts`, and an `ssh_config` with a `Host` block per target alias. Mounted at `/root/.ssh` in the api container, and the config file again at `/etc/ssh/ssh_config`. Only needed when a deployment's host is not `localhost`. See [deploy/README.md](../deploy/README.md). |
 
-Both are bind-mounted into the api container at the same absolute path they
-have on the host, because the docker daemon runs on the host and reads every
-path in a compose file as a host path.
+The first two are bind-mounted into the api container at the same absolute path
+they have on the host, because the docker daemon runs on the host and reads
+every path in a compose file as a host path.
 
 ## Limitations (intentional, v1)
 
@@ -622,4 +630,5 @@ path in a compose file as a host path.
 - **A target is verified before it is used.** `localhost` is the ordinary case.
   Another alias is refused until the target table has read a Docker daemon
   identity on it over ssh, and an alias that cannot be verified is refused
-  rather than assumed.
+  rather than assumed. The ssh identity that makes this possible is described
+  in "Deploying Bee nodes to other hosts" in `deploy/README.md`.

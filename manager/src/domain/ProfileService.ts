@@ -502,6 +502,7 @@ export class ProfileService {
       ...row,
       containers: existing.containers,
       pendingStamp: isPendingStamp(row),
+      network_host: existing.network_host,
     };
 
     this.publishChanged(withContainers);
@@ -725,6 +726,7 @@ export class ProfileService {
       ...row,
       containers: existing.containers,
       pendingStamp: isPendingStamp(row),
+      network_host: existing.network_host,
     });
 
     await this.orchestrator.runReserved(reservation, row);
@@ -741,7 +743,7 @@ export class ProfileService {
       throw new ProfileBusyError(name, profile.status);
     }
     const removal = await this.orchestrator.startRemove(profile, input);
-    return { ...removal.profile, containers: profile.containers, pendingStamp: profile.pendingStamp };
+    return { ...removal.profile, containers: profile.containers, pendingStamp: profile.pendingStamp, network_host: profile.network_host };
   }
 
   async listGroups(): Promise<DeploymentGroup[]> {

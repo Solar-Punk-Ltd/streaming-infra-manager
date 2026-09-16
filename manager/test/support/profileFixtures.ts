@@ -428,6 +428,13 @@ export class FakeContainers {
   }
 
   async withContainers(profile: Profile): Promise<ProfileWithContainers> {
-    return { ...profile, containers: [], pendingStamp: isPendingStamp(profile) };
+    // The real repository resolves this through the ssh config. A fixture takes
+    // the host as declared, so no unit test ever forks ssh.
+    return {
+      ...profile,
+      containers: [],
+      pendingStamp: isPendingStamp(profile),
+      network_host: profile.host ?? '',
+    };
   }
 }

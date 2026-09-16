@@ -43,7 +43,7 @@ export interface ConnectedServerReady {
 const syntheticProfile = {
   name: CONNECTED_PROFILE, instance_id: instanceForProfile(CONNECTED_PROFILE), kind: 'streamer', status: 'RUNNING', containers: [],
   port_slot: 1, stamp_id: null, engine_settings: {}, has_engine_config: false, engine_config_error: null, engine_config_state: null,
-  engine_config_revision: 0, intent_revision: 0, group_id: null, pendingStamp: false, stack_version_id: 1,
+  engine_config_revision: 0, intent_revision: 0, group_id: null, pendingStamp: false, stack_version_id: 1, network_host: 'localhost',
   created_at: '2026-09-08T00:00:00.000Z', updated_at: '2026-09-08T00:00:00.000Z',
 };
 

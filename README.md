@@ -45,6 +45,12 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
   `engine/` the config file of its own when it runs on one. Survives a manager
   deploy, removed with the deployment. See
   [docs/features/engine-config.md](docs/features/engine-config.md).
+- `/home/solarpunk/manager-ssh/` on the deploy host (`MANAGER_SSH_DIR`): the ssh
+  identity the manager deploys to *other* hosts with (the deploy key, an
+  `ssh_config` with a `Host` block per target alias, and `known_hosts`),
+  bind-mounted into the api container at `/root/.ssh`. Another sibling outside
+  the tree `deploy/deploy.sh` rsyncs, and only needed when a deployment's host
+  is not `localhost`. See [deploy/README.md](deploy/README.md).
 
 ## Checks
 
