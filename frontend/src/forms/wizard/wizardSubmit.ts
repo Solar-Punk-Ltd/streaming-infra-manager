@@ -169,15 +169,11 @@ function groupBody(
   state: WizardState,
   context: WizardContext,
 ): Omit<CreateGroupBody, 'group_name' | 'size' | 'host'> {
-  // `POST /groups` takes none of these three: an external Bee node is per
-  // member, a pool string belongs to a kind that has no group form, and engine
-  // settings are not a field of that body yet, so every member of a group runs
-  // on its version's own segment length. Dropped here rather than sent and
+  // `POST /groups` takes neither of these two: an external Bee node is chosen
+  // per member rather than for the group, and a pool string belongs to the ABR
+  // uploader, which has no group form. Dropped here rather than sent and
   // silently ignored.
-  const { bee_url, bee_publishers, engine_settings, ...shared } = profileBody(
-    state,
-    context,
-  );
+  const { bee_url, bee_publishers, ...shared } = profileBody(state, context);
   return shared;
 }
 

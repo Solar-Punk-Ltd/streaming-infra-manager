@@ -6,6 +6,7 @@ import { FormField, messageIdFor } from '../../FormField';
 import { poolStringError } from '../wizardError';
 import { poolsIn, poolValueIn, type WizardStepProps } from '../wizardState';
 import { PassphraseChoice } from './PassphraseChoice';
+import { SegmentLength } from './SegmentLength';
 import { StreamKeyChoice } from './StreamKeyChoice';
 import { PoolPrerequisites } from './PoolPrerequisites';
 
@@ -91,6 +92,7 @@ export function UploaderSettings(props: WizardStepProps) {
 
       {state.poolMode === 'pick' && state.poolId !== null && <PoolPrerequisites key={state.poolId} poolId={state.poolId} context={context} />}
 
+      <SegmentLength {...props} />
       <PassphraseChoice {...props} />
       <StreamKeyChoice {...props} />
     </Stack>

@@ -2,6 +2,7 @@ import {
   type BeePublishersResult,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   defaultServicesFor,
+  type EngineSettings,
   hasBeePublishers,
   hasStampId,
   servicesNeedStamp,
@@ -191,6 +192,8 @@ export interface CreateGroupBody {
   srt_passphrase?: string;
   /** The stack version every member runs. Absent means the manager's default one. */
   stack_version_id?: number;
+  /** What every member is created with. Absent leaves the version's own fallbacks standing. */
+  engine_settings?: EngineSettings;
 }
 
 export function createDeploymentGroup(

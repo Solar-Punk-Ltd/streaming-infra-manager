@@ -116,6 +116,20 @@ describe('what is wrong with the segment length', () => {
     assert.equal(wizardError(settings('2'), context), null);
     assert.equal(wizardError(settings(''), context), null);
   });
+
+  it('stops an ABR uploader on it too, now that it offers the field', () => {
+    const uploader = {
+      ...initialWizardState({ goal: 'abr-uploader' }, context),
+      step: 3,
+      name: 'stage',
+      segmentSeconds: 'two',
+    };
+
+    assert.match(
+      wizardError(uploader, context) ?? '',
+      /Segment length must be a positive number/,
+    );
+  });
 });
 
 describe('the footer while a deployment is being created', () => {

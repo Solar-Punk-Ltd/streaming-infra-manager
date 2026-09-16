@@ -301,7 +301,8 @@ export function usesExternalBee(state: WizardState): boolean {
 
 /**
  * A segment length is offered where the deployment runs the engine that reads
- * it, and nowhere else.
+ * it, and nowhere else: a stream or a custom deployment that picked SRS, and an
+ * ABR uploader, which always runs SRS. A viewer and a node pool run none.
  *
  * `HLS_FRAGMENT` is an SRS key. OME cuts to a duration of its own, which the
  * drawer offers and the wizard does not, so picking OME takes the question away
@@ -309,6 +310,7 @@ export function usesExternalBee(state: WizardState): boolean {
  */
 export function offersSegmentLength(state: WizardState): boolean {
   if (state.goal === 'stream') return state.engine === SRS_SERVICE;
+  if (state.goal === 'abr-uploader') return true;
   return state.goal === 'custom' && state.components.includes(SRS_SERVICE);
 }
 
