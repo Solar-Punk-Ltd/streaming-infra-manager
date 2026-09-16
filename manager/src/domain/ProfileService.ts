@@ -154,18 +154,6 @@ const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
 
-/**
- * The containers a settings change has to bring back with the new values.
- *
- * The engine always, and the uploader as well when a key the uploader also
- * reads has a different value than before. That is the keys compose hands to
- * the uploader rather than to the engine, and the keys it hands to BOTH.
- *
- * ⛔ The second half was missing until 2026-09-15: only the first list was
- * consulted, so changing the segment length recreated the engine and left the
- * uploader dating segments by the old one. The intent stated here was always
- * right. The list it read was the wrong list.
- */
 /** What is left of the stored settings once this profile stops encoding a ladder. */
 function withoutLadderSettings(profile: Profile): EngineSettings {
   const engine = engineOfServices(defaultServicesFor(profile));
@@ -201,6 +189,18 @@ function nextFreeMemberNames(
   return names;
 }
 
+/**
+ * The containers a settings change has to bring back with the new values.
+ *
+ * The engine always, and the uploader as well when a key the uploader also
+ * reads has a different value than before. That is the keys compose hands to
+ * the uploader rather than to the engine, and the keys it hands to BOTH.
+ *
+ * ⛔ The second half was missing until 2026-09-15: only the first list was
+ * consulted, so changing the segment length recreated the engine and left the
+ * uploader dating segments by the old one. The intent stated here was always
+ * right. The list it read was the wrong list.
+ */
 function servicesToRecreate(
   engine: EngineName,
   before: EngineSettings,
@@ -573,13 +573,6 @@ export class ProfileService {
   }
 
   /**
-   * The engine this deployment runs, and whether it encodes the ABR ladder.
-   *
-   * ABR-ness follows the pool string, because that is what `writeProfileEnv`
-   * turns `ABR_ENABLED=true` on for. Reading it any other way would let the
-   * settings route accept a value the deploy then refuses.
-   */
-  /**
    * The version a new deployment runs: the one asked for, else the default.
    *
    * Only a version that finished building can be chosen. A building one has no
@@ -614,6 +607,10 @@ export class ProfileService {
    *
    * Takes the shape both doors have rather than a stored row, because the
    * create path has to answer the same question before there is a row.
+   *
+   * ABR-ness follows the pool string, because that is what `writeProfileEnv`
+   * turns `ABR_ENABLED=true` on for. Reading it any other way would let the
+   * settings route accept a value the deploy then refuses.
    */
   private engineFacts(
     profile: { name: string } & StampGatedProfile,
