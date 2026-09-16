@@ -161,7 +161,7 @@ export function EditDeploymentDrawer({
             fullWidth
             value={edits.rpcEndpoint}
             onChange={(event) => update({ rpcEndpoint: event.target.value })}
-            placeholder="http://host.docker.internal:9000"
+            placeholder="https://rpc.example.org"
             inputProps={{ style: { fontFamily: MONO_STACK } }}
           />
         </FormField>

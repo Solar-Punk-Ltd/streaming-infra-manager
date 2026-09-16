@@ -158,7 +158,7 @@ export function rpcEndpointProblem(
   if (!value || !value.trim()) return null;
   switch (classifyPublishUrl(value.trim())) {
     case 'malformed':
-      return 'expected an http(s) URL, like http://host.docker.internal:9000';
+      return 'expected an http(s) URL, like https://rpc.example.org, or http://host.docker.internal:<port> for a proxy on the host';
     case 'ssh-target':
       return 'this address carries ssh user info, so it is a deploy target rather than a chain endpoint';
     default:
