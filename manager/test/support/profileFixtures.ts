@@ -22,6 +22,7 @@ import {
   ProfileKind,
   ProfileStatus,
   ProfileWithContainers,
+  TRANSITIONAL_STATUSES,
 } from '../../src/types/index.js';
 
 import { InMemoryPortReservations } from './InMemoryPortReservations.js';
@@ -225,6 +226,25 @@ export class InMemoryProfiles {
     if (await this.reservations.hasRemovalHold(claim.name)) throw new Error('An unresolved removal hold remains');
     await cleanFiles();
     return this.deleteByName(claim.name);
+  }
+
+  async orphanedTransitions(): Promise<Profile[]> {
+    return [...this.rows.values()].filter((row) => TRANSITIONAL_STATUSES.includes(row.status));
+  }
+
+  async settleOrphanedTransition(
+    name: string,
+    status: ProfileStatus,
+    message: string | null,
+  ): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (!row || !TRANSITIONAL_STATUSES.includes(row.status)) return null;
+    return this.write(name, {
+      status,
+      deployment_phase: null,
+      last_error: message,
+      last_error_at: message === null ? null : new Date(),
+    });
   }
 
   async markError(name: string, message: string): Promise<Profile | null> {

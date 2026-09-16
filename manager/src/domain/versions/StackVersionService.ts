@@ -230,8 +230,9 @@ export class StackVersionService {
    * A build lives in the manager process that spawned it, so a row still
    * building at boot belongs to a process that is gone. Left alone it stays
    * building forever, and a building version can be neither updated, made the
-   * default nor removed. The same repair `resetOrphanedTransitions` makes for
-   * the profiles a deploy was interrupted on.
+   * default nor removed. The same repair `reconcileOrphanedTransitions` makes
+   * for the deployments a restart interrupted, without their evidence: a build
+   * leaves no container to be judged by.
    */
   async failInterruptedBuilds(): Promise<string[]> {
     const interrupted =

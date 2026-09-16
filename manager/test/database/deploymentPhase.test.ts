@@ -59,6 +59,6 @@ describe('deployment intent in isolated PostgreSQL', { skip: !Number.isInteger(p
     await repository.transitionStatus('test-stream', 'DEPLOYING', ['RUNNING']);
     assert.equal((await repository.markError('test-stream', 'test failure'))?.deployment_phase, null);
     await repository.transitionStatus('test-stream', 'DEPLOYING', ['ERROR']);
-    assert.equal((await repository.resetOrphanedTransitions())[0]?.deployment_phase, null);
+    assert.equal((await repository.settleOrphanedTransition('test-stream', 'ERROR', 'the manager restarted'))?.deployment_phase, null);
   });
 });

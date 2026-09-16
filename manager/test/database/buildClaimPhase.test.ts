@@ -120,7 +120,7 @@ describe('build claims preserve deployment intent in isolated PostgreSQL', { ski
       assert.equal(claim?.profile.deployment_phase, 'restarting');
       if (finish === 'terminal') await profiles.markTerminal('test-stream', 'RUNNING');
       else if (finish === 'failure') await profiles.markError('test-stream', 'synthetic failure');
-      else await profiles.resetOrphanedTransitions();
+      else await profiles.settleOrphanedTransition('test-stream', 'ERROR', 'the manager restarted');
       assert.equal((await profiles.findByName('test-stream'))?.deployment_phase, null);
       assert.equal((await references()).length, 1, 'status completion alone does not resolve an uncertain job');
       assert.equal((await references())[0]?.resolved_at, null);

@@ -128,6 +128,46 @@ async function runHook(when: string, hook: () => Promise<void> | undefined): Pro
   }
 }
 
+/** What boot made of a row a gone manager left mid-transition, and why. */
+export interface OrphanRecovery {
+  status: ProfileStatus;
+  /** Null where there is nothing to report, which is a deployment that is up. */
+  message: string | null;
+}
+
+/**
+ * What a deployment the manager was restarted in the middle of actually is,
+ * read from the containers its services have rather than from the status it
+ * was interrupted in.
+ *
+ * The same reading `attemptOutcome` makes of a deploy: a service is accounted
+ * for by a container of its own in the project, and one with none is named.
+ *
+ * @param expected the services the deployment runs, from its kind or its
+ *   components. A deployment that names none has nothing to be judged by.
+ * @param containers the project's containers by service, or null when the
+ *   daemon did not answer, which keeps the older rule of marking it failed.
+ */
+export function orphanRecoveryOf(
+  profile: Pick<Profile, 'status'>,
+  expected: readonly string[],
+  containers: ReadonlyMap<string, readonly string[]> | null,
+): OrphanRecovery {
+  const restarted = `The manager restarted while this deployment was ${profile.status}`;
+  if (!containers) {
+    return { status: 'ERROR', message: `${restarted}, and the Docker daemon did not answer, so what it left is unknown.` };
+  }
+  if (expected.length === 0) {
+    return { status: 'ERROR', message: `${restarted}, and it runs no service whose containers could say how far it got.` };
+  }
+  const missing = expected.filter((service) => (containers.get(service) ?? []).length === 0);
+  if (missing.length === 0) return { status: 'RUNNING', message: null };
+  if (profile.status === 'STOPPING' && missing.length === expected.length) {
+    return { status: 'STOPPED', message: null };
+  }
+  return { status: 'ERROR', message: `${restarted}, and ${missing.join(', ')} has no container.` };
+}
+
 /** What a caller asks to run once the deploy it started has settled. */
 export interface DeployHooks {
   /** After RUNNING is committed, which is when a watch on the result may begin. */
@@ -312,6 +352,44 @@ export class DeploymentOrchestrator {
       logger.warn(`[Orchestrator] deploy attempts left blocked at boot: ${outcome.blocked.join(', ')}`);
     }
     return outcome;
+  }
+
+  /**
+   * What boot does with the rows a gone manager left in DEPLOYING, STOPPING
+   * or REMOVING: each is judged by the containers its services have now and
+   * written to what that says, so a restart inside a deploy that compose
+   * finished no longer reports a streaming deployment as failed.
+   *
+   * Answers the rows it settled, newest status included, for boot to log.
+   */
+  async reconcileOrphanedTransitions(): Promise<Profile[]> {
+    const settled: Profile[] = [];
+    for (const orphan of await this.profiles.orphanedTransitions()) {
+      const recovery = orphanRecoveryOf(orphan, defaultServicesFor(orphan), await this.projectContainers(orphan));
+      const updated = await this.profiles.settleOrphanedTransition(orphan.name, recovery.status, recovery.message);
+      if (!updated) continue;
+      await this.publishChanged(updated);
+      settled.push(updated);
+    }
+    return settled;
+  }
+
+  /** The project's containers by service, or null when the daemon did not answer for it. */
+  private async projectContainers(profile: Profile): Promise<Map<string, string[]> | null> {
+    const target = targetAlias(profile.host);
+    try {
+      const daemonId = await this.targetDaemon(target);
+      const snapshot = await this.daemon.snapshot(profile.name, target);
+      if (snapshot.daemonId !== daemonId) {
+        throw new TargetNotVerifiedError(target, 'The container snapshot came from a different Docker daemon');
+      }
+      return snapshot.containers;
+    } catch (err) {
+      logger.warn(
+        `[Orchestrator] the containers of ${profile.name} could not be read: ${getErrorMessage(err)}`,
+      );
+      return null;
+    }
   }
 
   /**

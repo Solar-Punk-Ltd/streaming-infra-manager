@@ -482,17 +482,39 @@ export class ProfileRepository {
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
 
-  async resetOrphanedTransitions(): Promise<Profile[]> {
+  /**
+   * Every row a gone manager left mid-transition, read rather than written.
+   *
+   * Boot judges each of these against the containers its services have now,
+   * because a deploy takes minutes and a restart inside one says nothing
+   * about how far the deploy got. See `reconcileOrphanedTransitions`.
+   */
+  async orphanedTransitions(): Promise<Profile[]> {
     const result = await this.pool.query<Profile>(
-      `UPDATE profiles
-         SET status = 'ERROR',
-             deployment_phase = NULL,
-             last_error = 'manager restarted while ' || status,
-             last_error_at = NOW(),
-             updated_at = NOW()
-       WHERE status IN ('DEPLOYING', 'STOPPING', 'REMOVING')
-       RETURNING ${PROFILE_COLUMNS}`,
+      `SELECT ${PROFILE_COLUMNS} FROM profiles
+        WHERE status IN ('DEPLOYING', 'STOPPING', 'REMOVING')
+        ORDER BY port_slot ASC`,
     );
     return result.rows;
+  }
+
+  /** What boot judged one of those rows to be. Null when it has moved on since. */
+  async settleOrphanedTransition(
+    name: string,
+    status: ProfileStatus,
+    message: string | null,
+  ): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+         SET status = $2,
+             deployment_phase = NULL,
+             last_error = $3,
+             last_error_at = CASE WHEN $3::text IS NULL THEN NULL ELSE NOW() END,
+             updated_at = NOW()
+       WHERE name = $1 AND status IN ('DEPLOYING', 'STOPPING', 'REMOVING')
+       RETURNING ${PROFILE_COLUMNS}`,
+      [name, status, message],
+    );
+    return result.rows[0] ?? null;
   }
 }

@@ -239,22 +239,6 @@ async function main(): Promise<void> {
     logger.warn(`[Boot] the pinned stack commit was not built: ${getErrorMessage(err)}. The api starts either way.`);
   }
 
-  const orphans = await profileRepository.resetOrphanedTransitions();
-  if (orphans.length > 0) {
-    logger.warn(
-      `[Boot] reset orphaned transitional states: ${orphans
-        .map((p) => p.name)
-        .join(', ')}`,
-    );
-    for (const profile of orphans) {
-      const withContainers = await containerRepository.withContainers(profile);
-      eventBus.publish({
-        type: 'profile.changed',
-        profile: withContainers,
-      });
-    }
-  }
-
   const deploymentGroupRepository = new DeploymentGroupRepository(
     database.pool,
   );
@@ -331,6 +315,22 @@ async function main(): Promise<void> {
     }
   } catch (err) {
     logger.warn(`[Boot] the deploy attempts were not judged: ${getErrorMessage(err)}. They stay as they are.`);
+  }
+  // A deployment the manager was restarted in the middle of, judged by the
+  // containers its services have now. Here rather than before the orchestrator
+  // exists, because the judgement is the daemon's to make, and before the
+  // config rollouts are reconciled below, which read what these rows say.
+  try {
+    const settled = await orchestrator.reconcileOrphanedTransitions();
+    if (settled.length > 0) {
+      logger.warn(
+        `[Boot] deployments the restart interrupted, judged by their containers: ${settled
+          .map((profile) => `${profile.name} is ${profile.status}`)
+          .join(', ')}`,
+      );
+    }
+  } catch (err) {
+    logger.warn(`[Boot] the interrupted deployments were not judged: ${getErrorMessage(err)}. They stay as they are.`);
   }
   const profileService = new ProfileService(
     profileRepository,
