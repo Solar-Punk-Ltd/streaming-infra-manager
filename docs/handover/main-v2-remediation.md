@@ -1227,11 +1227,17 @@ fresh host needs that step: the image links the system-wide ssh config to the
 mounted directory, the compose file mounts the directory alone, and
 `deploy.sh` creates it as the deploying user, with the tests that hold it.
 
-**Open, Levi's.** Sixty Dependabot alerts, not fourteen as first reported:
-twelve high, thirty-nine medium and nine low, the same advisories counted for
-three manifests, one of them a stale `frontend/pnpm-lock.yaml` nothing reads.
-Left as they are for now on his word, re-asked with the true count. Three
-history collisions among concurrent implementers, accepted as they stand.
+**Dependabot, Levi's.** Sixty alerts, not fourteen as first reported: twelve
+high, thirty-nine medium and nine low, the same advisories counted for three
+manifests. Twenty of them were filed against `frontend/pnpm-lock.yaml`, a copy
+pnpm never read: a workspace keeps one lockfile at its root, and this one sat
+unchanged from 2026-05-19 while the package gained three dependencies. Ruled
+the same evening: the alerts stay as they are for now, and the stale lockfile
+goes. It went with a test in the manager's unit suite that keeps the root
+lockfile the only one. GitHub counts alerts on `master`, the default branch,
+which still carries the file, so those twenty close once the deletion reaches
+master and not before. Three history collisions among concurrent implementers,
+accepted as they stand.
 Decided the same evening: the 36 MB of review logs and captures left the
 repository's untracked `.scratch`
 for `~/Documents/estate-state/evidence/streaming-infra-manager/`, with a tombstone
