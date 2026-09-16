@@ -23,9 +23,14 @@ suites are `find frontend/test -name '*.test.mjs'`.
 
 ### checks
 
-Install from the frozen lockfile, build common, type checks in every package
-with the test files included, the unit suites of common, manager and frontend,
-the native transport suites, the frontend build.
+Check out the repository with the stack submodule, install from the frozen
+lockfile, build common, type checks in every package with the test files
+included, the unit suites of common, manager and frontend, the native transport
+suites, the frontend build. The submodule is there because four manager unit
+tests compare the guides and the contract fixtures against the branch the pin
+names, and a checkout without it fails them for a reason unrelated to the code
+(run 35069103361, 2026-09-16). The submodule URL is HTTPS and the stack
+repository is public, so the default token fetches it.
 
 What it proves: the code compiles, the unit-level guarantees hold, the
 transport code that owns Unix sockets and forks children works, the frontend
