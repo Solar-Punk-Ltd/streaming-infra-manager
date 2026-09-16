@@ -51,11 +51,17 @@ From your local checkout:
 ./deploy/deploy.sh manager-host
 ```
 
-This rsyncs the repo (minus `node_modules`, `.git` and build caches), then
-builds the images on the server and runs the upgrade command that brings the
-project back up. Both `.env` files travel with the repo rsync, and
-`rsync --delete` means your checkout is the only source of truth for them: an
-edit made on the server is undone by the next deploy.
+This rsyncs the repo, then builds the images on the server and runs the upgrade
+command that brings the project back up. The rsync leaves out `node_modules`,
+`.git`, build caches, `.scratch/` and `manager/swarm-hls-stream/`.
+
+`manager/.env` is the one env file that travels with it, and `rsync --delete`
+means your checkout is the only source of truth for that file: an edit made on
+the server is undone by the next deploy. **The streaming stack's own `.env` is
+the opposite, and editing it in your checkout does nothing.** The submodule
+directory is excluded from the rsync, so nothing under it reaches the server.
+The stack's settings live on the server and are edited there, as "Where the
+streaming stack's settings live" below describes.
 
 ## What a deploy does to the bundled stack
 
@@ -454,7 +460,11 @@ docker compose down -v            # nuke postgres data too, so be sure
   reachable through the SSH tunnel and from the edge over the compose network,
   never directly from outside. It serves the built React SPA and
   reverse-proxies `/auth`, `/profiles`, `/groups`, `/health`, `/services`,
-  `/config`, `/metrics` and `/events` to `api:9876`.
+  `/config`, `/targets`, `/versions`, `/chequebook`, `/metrics` and `/events`
+  to `api:9876`. Every path the dev server proxies has to appear here too. A
+  path wired in one place and not the other is how the whole transfer history
+  had no route in production until 2026-09-11, and a test now checks the two
+  lists against each other.
 - **`api`** has no published port at all. The `web` proxy on the internal
   compose network is the only thing that reaches it.
 - **`postgres`** is bound to `127.0.0.1:5432` so a host-side `pnpm dev`
