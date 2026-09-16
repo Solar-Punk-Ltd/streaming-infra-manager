@@ -356,9 +356,10 @@ async function main(): Promise<void> {
     eventBus,
     engineConfigOperations,
   );
-  // After the orphan reset above, which is what an interrupted apply's row
-  // looks like by now, and before the API answers, so no card sees a rollout
-  // a gone manager left open as though it were still under way.
+  // After the interrupted deployments are judged above, which is what an
+  // interrupted apply's row has been through by now, and before the API
+  // answers, so no card sees a rollout a gone manager left open as though it
+  // were still under way.
   await engineConfigService.reconcileAtBoot();
 
   metricsCollector = new MetricsCollector();

@@ -42,7 +42,7 @@ function userIdOf(req: Request): number {
 /**
  * Signing in, signing out, and who may do either.
  *
- * `POST /login` and `GET /session` are the only routes in the manager that
+ * `POST /login` and `GET /session` are the only routes past `/health` that
  * answer without a session, and `/session` answers 401 either way: it exists so
  * the frontend can tell "signed out" from "no users have been created yet".
  */

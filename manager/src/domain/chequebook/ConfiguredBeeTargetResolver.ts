@@ -7,7 +7,15 @@ import { ChequebookPreparationError } from '../errors/ChequebookPreparationError
 import type { ChequebookEndpointMode } from './ChequebookChainRegistry.js';
 import type { ConfiguredBeeTarget } from './ChequebookTransferPreparation.js';
 
-/** Uses a configured snapshot only. T06 must supply current reservation ownership at aggregate integration. */
+/**
+ * The bee API address a chequebook transfer is prepared against, worked out
+ * from the deployment's own row and its running containers.
+ *
+ * TODO: the port it takes is the one the container reports, which is not the
+ * same as the port the reservation says this deployment owns. Until the two are
+ * checked against each other, a transfer can be prepared against a port another
+ * deployment has since been given.
+ */
 export class ConfiguredBeeTargetResolver {
   constructor(private readonly profiles: Pick<ProfileRepository, 'findByName'>,
     private readonly containers: Pick<ContainerRepository, 'listApiContainers'>,

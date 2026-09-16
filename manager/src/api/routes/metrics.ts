@@ -15,9 +15,10 @@ const MAX_METRICS_CLIENTS = 50;
  *   GET /metrics         → latest snapshot as JSON (one-shot, for initial paint)
  *   GET /metrics/stream  → Server-Sent Events, one `snapshot` event per sample
  *
- * Both are testable without the frontend:
- *   curl localhost:9876/metrics | jq
- *   curl -N localhost:9876/metrics/stream
+ * Mounted after the session gate, so both need a cookie jar to read by hand:
+ *   curl -b cookies.txt localhost:9876/metrics | jq
+ *   curl -N -b cookies.txt localhost:9876/metrics/stream
+ * The manager's README shows how the jar is filled.
  */
 export function createMetricsRouter(
   collector: MetricsCollector,

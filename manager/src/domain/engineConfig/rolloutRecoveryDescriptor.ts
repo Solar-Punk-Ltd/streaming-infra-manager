@@ -128,8 +128,8 @@ export async function captureRolloutRecovery(
   // The stamps the inventory recorded, read back as a stat of each path and no
   // payload at all. A write, a chmod, a replacement and a path that arrives or
   // leaves each move one, so a tree that matches stamp for stamp is the tree
-  // that was inventoried, and a second read-and-hash pass over 432 MB is not
-  // what proves it.
+  // that was inventoried, and a second read-and-hash pass over the whole build
+  // tree is not what proves it.
   if (!isDeepStrictEqual(await stampOwnedTree(evidence.root), inventory.stamps) ||
       !isDeepStrictEqual(evidenceOf(version, versionsRoot), evidence)) throw new Error('Recovery source changed during capture.');
   return parseRolloutRecoveryDescriptor({ format: 1, kind: 'immutable-build', version,

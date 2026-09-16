@@ -252,7 +252,7 @@ export class ChequebookService {
   /**
    * The value, or null with the failure on the record an operator reads.
    *
-   * At debug until 2026-09-16, which meant the page showed "Funding not
+   * Logged at warn rather than debug: at debug the page showed "Funding not
    * checked" and the manager's own account of why was in a stream nobody
    * opens.
    */

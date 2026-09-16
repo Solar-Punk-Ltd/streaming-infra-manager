@@ -1,6 +1,6 @@
 import { Response } from 'express';
 
-import { RunHandle } from '../domain/ScriptRunner.js';
+import { RunHandle, RunOutcome } from '../domain/ScriptRunner.js';
 
 /**
  * Ends a stream from the server's side, so the browser sees it stop now.
@@ -22,7 +22,10 @@ export function endEventStream(res: Response): void {
  *   - stdout { chunk }
  *   - stderr { chunk }
  *   - error  { message }          spawn / runtime failures
- *   - done   { code }             always last; closes the connection
+ *   - done   { code, signal }     always last, and closes the connection.
+ *                                 `signal` is what says a run was killed
+ *                                 rather than finished, because a killed run
+ *                                 has no exit code of its own and reports -1.
  */
 export function pipeRunHandleToSSE(
   res: Response,
@@ -50,7 +53,7 @@ export function pipeRunHandleToSSE(
   const onStdout = (chunk: string): void => send('stdout', { chunk });
   const onStderr = (chunk: string): void => send('stderr', { chunk });
   const onError = (err: Error): void => send('error', { message: err.message });
-  const onDone = (payload: { code: number }): void => {
+  const onDone = (payload: RunOutcome): void => {
     send('done', payload);
     detach();
     if (!res.writableEnded) {

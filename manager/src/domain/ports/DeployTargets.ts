@@ -27,8 +27,11 @@ export function isLocalTarget(host: string | null): boolean {
 }
 
 /**
- * The local daemon only: every other alias is unverified until the target
- * table verifies it over ssh, which is what the next slice adds.
+ * The local daemon only, for a manager wired without the target table.
+ *
+ * `VerifiedDeployTargets` is what production runs, and it is what `index.ts`
+ * constructs: it probes an alias over ssh and stores what it found, so every
+ * alias but the local one is unverified here and refused.
  */
 export class LocalOnlyTargets implements DeployTargets {
   constructor(private readonly daemon: { daemonId(): Promise<string> }) {}

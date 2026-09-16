@@ -70,7 +70,16 @@ function readingsAcrossApplications(placeholder: string, template: ParsedPaths, 
   return readings;
 }
 
-/** Observe mapped leaves without changing T03's independent config-admission rules. */
+/**
+ * What each settings field is read from, for an OvenMediaEngine deployment
+ * with a config file of its own.
+ *
+ * Answers per field: the environment where the stack passes the value in
+ * whatever the file says, and otherwise what the file's own XML carries at the
+ * template's placeholder, or why the question could not be answered. Decides
+ * nothing about whether the file is admissible, which is its own rule
+ * elsewhere.
+ */
 export function omeSettingReadings(templateXml: string | null, fileXml: string | null, fields: readonly EngineSettingField[]): EngineSettingReadings {
   const template = parsedPaths(templateXml);
   const file = parsedPaths(fileXml);

@@ -34,8 +34,8 @@ export const UPLOADER_ENGINE_SETTING_KEYS: readonly string[] = [
  * engine's own keys just below. A key both containers read, put there, would
  * disappear from the engine's environment.
  *
- * `HLS_FRAGMENT` is the only one of the twelve settings fields in this position,
- * read off `deploy/docker-compose.yml` rather than assumed: the engine is asked
+ * `HLS_FRAGMENT` is the only settings field in this position, read off
+ * `deploy/docker-compose.yml` rather than assumed: the engine is asked
  * to cut at it and the uploader dates every segment by it. The other keys both
  * blocks set, ABR_ENABLED, ABR_LADDER, ABR_VHOST and SRS_WEBHOOK_TOKEN, are not
  * settings fields and never reach this decision.
@@ -49,6 +49,7 @@ function engineSettingKeysFor(engine: EngineName): string[] {
 }
 
 /**
+ * The env keys each compose service reads, by service name.
  *
  * Mirrors the variable groupings in swarm-hls-stream/.env.sample.
  */

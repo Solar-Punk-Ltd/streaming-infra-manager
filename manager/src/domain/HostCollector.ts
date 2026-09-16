@@ -260,7 +260,8 @@ export class HostCollector {
         return cores;
       }
     } catch {
-      // fall through to os.cpus()
+      // There is no /proc off Linux, which is every developer laptop here, so
+      // this is the ordinary path rather than a failure.
     }
     this.cachedNcpu = os.cpus().length;
     return this.cachedNcpu;

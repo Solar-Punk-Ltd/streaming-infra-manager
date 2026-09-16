@@ -3,9 +3,10 @@
  *
  * A deployment page asks six readiness routes per node card on a ten second
  * cadence, and every one of them used to build a client and ask the node
- * itself. Two open pages on a four rung pool cost the node about eighty
- * requests every ten seconds, four of which make it call its chain RPC, which
- * the stack documents as a public endpoint that rate limits hard.
+ * itself. Those six are about eight calls to a node, four of which make it
+ * reach its chain RPC, which the stack documents as a public endpoint that
+ * rate limits hard. Two open pages on a four rung pool therefore cost sixty
+ * four calls every ten seconds and thirty two trips to that endpoint.
  *
  * So callers that only render a reading share one: concurrent asks join the
  * call already in flight, and its answer stands for a short window afterwards.

@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto';
 
 /**
  * The per deployment values a stack version's containers refuse to start
- * without, by env key. `API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on main-v3.
+ * without, by env key. Which keys those are is the version's own statement,
+ * read from its samples into `REQUIRED_SECRETS` in `stackContract.ts`, so this
+ * type carries whatever that names rather than a list kept here.
  */
 export type StackSecrets = Record<string, string>;
 

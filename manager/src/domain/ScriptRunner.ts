@@ -70,12 +70,16 @@ export interface ScriptSpawner {
 }
 
 /**
- * Pure-process wrapper. No HTTP, no DB knowledge — just spawn a bash script,
- * stream output via EventEmitter, and let the caller decide what to do (SSE,
- * collect into a buffer, write to disk, etc.).
+ * Spawns a bash script and streams its output, leaving the caller to decide
+ * what to do with it (SSE, a buffer, a file). No HTTP and no database.
+ *
+ * It does read the filesystem for one thing: `scriptEnv` opens the checkout at
+ * `cwd` and its `engines/*` samples to work out which names belong to the
+ * deployment rather than to the manager, so the script is not handed the
+ * manager's own environment.
  *
  * Always invoked via /bin/bash (never `shell: true`) so caller-supplied args
- * can't be interpreted as shell metacharacters.
+ * cannot be interpreted as shell metacharacters.
  */
 export class ScriptRunner implements ScriptSpawner {
   run(scriptPath: string, args: string[], options: RunOptions = {}): RunHandle {

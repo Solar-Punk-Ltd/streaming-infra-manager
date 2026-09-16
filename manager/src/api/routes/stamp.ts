@@ -12,9 +12,13 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 
 /**
- * Postage-stamp management against a profile's bee-uploader node. Read endpoints
- * proxy the bee HTTP API; buy creates a batch; set persists a stamp id on the
- * profile (no redeploy — the "deploy uploader" action brings the uploader up).
+ * Postage-stamp management against a profile's bee-uploader node.
+ *
+ * A read answers from a shared window over the bee HTTP API rather than a call
+ * of its own: concurrent callers join the call in flight and its answer stands
+ * for the length of `NODE_READ_WINDOW_MS`. See `NodeReadCache`. Buy creates a
+ * batch. Set persists a stamp id on the profile and starts no redeploy, because
+ * the "deploy uploader" action is what brings the uploader up.
  */
 export function createStampRouter(stampService: StampService): Router {
   const router = Router();
