@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, it } from 'node:test';
+import { allContainerIds } from '../../src/domain/DeployAttemptRepository.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 
 const root = throwawayRoot('t01-prepared-attempt-');
@@ -20,7 +21,7 @@ async function prepared() {
   const reservation = await h.orchestrator.reserveDeploy(h.profiles.rows.get('prepared-owner')!, ['srs']);
   const before = await h.daemon.snapshot('prepared-owner', 'localhost');
   const attempt = await h.attempts.open({ daemonId: h.daemon.id, target: 'localhost', project: 'prepared-owner',
-    jobId: 'synthetic-config-attempt', kind: 'shared', services: ['srs'], preJobContainerIds: [...before.containers.values()].flat() });
+    jobId: 'synthetic-config-attempt', kind: 'shared', services: ['srs'], preJobContainerIds: allContainerIds(before.containers) });
   return { h, reservation: { ...reservation, attempt: structuredClone(attempt) } };
 }
 

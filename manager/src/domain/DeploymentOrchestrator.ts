@@ -48,7 +48,13 @@ import {
   attemptOutcome,
   whyAdmissionIsRefused,
 } from './deployAttempts.js';
-import type { DaemonObserver, DeployAttemptRepository } from './DeployAttemptRepository.js';
+import {
+  allContainerIds,
+  containerIdsByService,
+  type DaemonObserver,
+  type DeployAttemptRepository,
+  type ObservedContainer,
+} from './DeployAttemptRepository.js';
 import type { EngineConfigOperationRepository } from './engineConfig/EngineConfigOperationRepository.js';
 import type { PreparedRolloutDeploy, RolloutAdmissionProof } from './engineConfig/rolloutDeployAdmission.js';
 import { EventBus } from './EventBus.js';
@@ -162,27 +168,35 @@ export interface OrphanRecovery {
   message: string | null;
 }
 
+/** Docker's word for a container that is up. Every other state is not up. */
+const RUNNING_STATE = 'running';
+
+/** A service is up when at least one of its containers is running. */
+const isUp = (observed: readonly ObservedContainer[]): boolean =>
+  observed.some((container) => container.state === RUNNING_STATE);
+
+/** Why a service does not count as up, in Docker's own word for what was found. */
+const whatWasFound = (service: string, observed: readonly ObservedContainer[]): string => {
+  const first = observed[0];
+  return first ? `${service} has a container that is ${first.state}` : `${service} has no container`;
+};
+
 /**
  * What a deployment the manager was restarted in the middle of actually is,
- * read from the containers its services have rather than from the status it
- * was interrupted in.
+ * read from what its services are doing rather than from the status it was
+ * interrupted in.
  *
- * The same reading `attemptOutcome` makes of a deploy: a service is accounted
- * for by a container of its own in the project, and one with none is named.
+ * A service is up when at least one of its containers is running. A deploy or a
+ * removal that left every service up is RUNNING, and one that did not is ERROR
+ * naming each service that is not up and what Docker had for it instead. A stop
+ * that left nothing up is STOPPED, which is what a finished `docker compose
+ * stop` looks like, and one that left something up is ERROR naming it, so an
+ * operator knows what to stop again.
  *
  * A removal interrupted before it removed anything therefore reads as RUNNING,
  * which is what such a deployment is. Ruled acceptable: the row is back where
  * an operator can act on it, and Remove is one click, where keeping REMOVING
  * refuses every later action as busy.
- *
- * **Limit.** A snapshot carries container ids and nothing else, so a service
- * whose container has exited is counted exactly like one that is up and a
- * deployment crash looping after a restart reads as RUNNING. Closing it means a
- * snapshot that carries each container's state: `DaemonSnapshot` in
- * DeployAttemptRepository.ts, both readers in ports/TargetDocker.ts, which have
- * the state in hand today and drop it, and `attemptOutcome`, whose own
- * deploy-time reading assert-started.sh already covers. A tripwire in
- * test/unit/orphanedBootRecovery.test.ts stops compiling the day that lands.
  *
  * @param expected the services the deployment runs, from its kind or its
  *   components. A deployment that names none has nothing to be judged by.
@@ -192,7 +206,7 @@ export interface OrphanRecovery {
 export function orphanRecoveryOf(
   profile: Pick<Profile, 'status'>,
   expected: readonly string[],
-  containers: ReadonlyMap<string, readonly string[]> | null,
+  containers: ReadonlyMap<string, readonly ObservedContainer[]> | null,
 ): OrphanRecovery {
   const restarted = `The manager restarted while this deployment was ${profile.status}`;
   if (!containers) {
@@ -201,12 +215,18 @@ export function orphanRecoveryOf(
   if (expected.length === 0) {
     return { status: 'ERROR', message: `${restarted}, and it runs no service whose containers could say how far it got.` };
   }
-  const missing = expected.filter((service) => (containers.get(service) ?? []).length === 0);
-  if (missing.length === 0) return { status: 'RUNNING', message: null };
-  if (profile.status === 'STOPPING' && missing.length === expected.length) {
-    return { status: 'STOPPED', message: null };
+  const up = expected.filter((service) => isUp(containers.get(service) ?? []));
+  if (profile.status === 'STOPPING') {
+    if (up.length === 0) return { status: 'STOPPED', message: null };
+    if (up.length === expected.length) return { status: 'RUNNING', message: null };
+    return { status: 'ERROR', message: `${restarted}, and ${up.join(', ')} is still running.` };
   }
-  return { status: 'ERROR', message: `${restarted}, and ${missing.join(', ')} has no container.` };
+  if (up.length === expected.length) return { status: 'RUNNING', message: null };
+  const notUp = expected.filter((service) => !isUp(containers.get(service) ?? []));
+  return {
+    status: 'ERROR',
+    message: `${restarted}, and ${notUp.map((service) => whatWasFound(service, containers.get(service) ?? [])).join(', ')}.`,
+  };
 }
 
 /** What a caller asks to run once the deploy it started has settled. */
@@ -437,7 +457,7 @@ export class DeploymentOrchestrator {
   }
 
   /** The project's containers by service, or null when the daemon did not answer for it. */
-  private async projectContainers(profile: Profile): Promise<Map<string, string[]> | null> {
+  private async projectContainers(profile: Profile): Promise<Map<string, ObservedContainer[]> | null> {
     const target = targetAlias(profile.host);
     try {
       const daemonId = await this.targetDaemon(target);
@@ -587,7 +607,7 @@ export class DeploymentOrchestrator {
     if (snapshot.daemonId !== daemonId) {
       throw new TargetNotVerifiedError(target, 'The container snapshot came from a different Docker daemon. No deploy was started.');
     }
-    return { daemonId, containerIds: [...snapshot.containers.values()].flat() };
+    return { daemonId, containerIds: allContainerIds(snapshot.containers) };
   }
 
   private async publishChanged(profile: Profile): Promise<void> {
@@ -1317,7 +1337,7 @@ export class DeploymentOrchestrator {
         jobId: `job-${randomBytes(6).toString('hex')}`,
         kind: cfg.guard.kind,
         services: cfg.guard.services,
-        preJobContainerIds: [...before.containers.values()].flat(),
+        preJobContainerIds: allContainerIds(before.containers),
         snapshotToken,
       });
       this.eventBus.publish({ type: 'attempt.changed' });
@@ -1387,7 +1407,7 @@ export class DeploymentOrchestrator {
       if (snapshot.daemonId !== attempt.daemonId) {
         throw new TargetNotVerifiedError(target, 'The attempt target now reaches a different Docker daemon');
       }
-      const judged: AttemptOutcome = attemptOutcome(attempt, snapshot.containers, scriptFinished);
+      const judged: AttemptOutcome = attemptOutcome(attempt, containerIdsByService(snapshot.containers), scriptFinished);
       await this.attempts.resolve(attempt.id, judged);
       if (judged.state === 'blocked') {
         logger.warn(`[Orchestrator] attempt ${attempt.jobId} on ${attempt.project} is blocked: ${judged.reason}`);

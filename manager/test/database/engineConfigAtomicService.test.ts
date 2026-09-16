@@ -166,7 +166,7 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
   function serviceHarness() {
     const containers = new ContainerRepository(pool), events = new EventBus();
     const daemon = { daemonId: async () => 'synthetic-daemon', containerIdsOf: async () => new Map([['srs', ['synthetic-before']]]),
-      snapshot: async () => ({ daemonId: 'synthetic-daemon', containers: new Map([['srs', ['synthetic-before']]]) }) };
+      snapshot: async () => ({ daemonId: 'synthetic-daemon', containers: new Map([['srs', [{ id: 'synthetic-before', state: 'running' }]]]) }) };
     const ports = new PostgresPortReservationRepository(pool);
     const orchestrator = new DeploymentOrchestrator(profiles, containers, { run: () => { throw new Error('No physical script may run'); } }, events,
       new DeploymentGroupRepository(pool), versions, ledger, attempts, daemon, operations, undefined,
@@ -260,7 +260,7 @@ describe('real engine config service atomic admission', { skip: !Number.isIntege
       snapshots++;
       const intervening = await attempts.open({ daemonId: 'synthetic-daemon', project: initial.name, jobId: 'synthetic-intervening', kind: 'fixed', services: ['srs'], preJobContainerIds: [] });
       await attempts.resolve(intervening.id, { state: 'released', reason: null });
-      return { daemonId: 'synthetic-daemon', containers: new Map([['srs', ['synthetic-before']]]) };
+      return { daemonId: 'synthetic-daemon', containers: new Map([['srs', [{ id: 'synthetic-before', state: 'running' }]]]) };
     };
     await assert.rejects(h.service.apply(initial.name, 'listen 1935; # synthetic candidate'), /history|snapshot|attempt/i);
     assert.equal(snapshots, 1);

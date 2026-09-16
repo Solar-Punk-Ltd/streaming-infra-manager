@@ -32,8 +32,8 @@ export class PortHandover {
     const planned = portPlanFor(portTableForEngine(contract, engineForComponents(profile.components)), profile.port_slot);
     const before = new Set(attempt.preJobContainerIds);
     const services = attempt.services.filter(service => {
-      const ids = containers.containers.get(service) ?? [];
-      if (!ids.length || ids.some(id => before.has(id))) return false;
+      const observed = containers.containers.get(service) ?? [];
+      if (!observed.length || observed.some(container => before.has(container.id))) return false;
       return planned.filter(port => port.service === service).every(port => published.bindings.some(binding =>
         binding.project === profile.name && binding.service === service && portKeyOf(binding) === portKeyOf(port),
       ));

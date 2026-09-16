@@ -57,7 +57,7 @@ describe('deploy attempts on their target daemon', () => {
     const older = await h.ledger.seedJob('remote', await h.versions.findById(1), ['srs', 'stream-uploader']);
     h.daemon.snapshot = async () => ({
       daemonId: 'different-daemon',
-      containers: new Map([['srs', ['other-new']]]),
+      containers: new Map([['srs', [{ id: 'other-new', state: 'running' }]]]),
     });
     await assert.rejects(h.orchestrator.startDeploy(h.row('remote'), ['srs']), /different Docker daemon/);
     assert.equal(h.runner.runs.length, 0);
@@ -79,7 +79,7 @@ describe('deploy attempts on their target daemon', () => {
     h.recreate();
     h.daemon.snapshot = async () => ({
       daemonId: 'different-daemon',
-      containers: new Map([['srs', ['other-new']]]),
+      containers: new Map([['srs', [{ id: 'other-new', state: 'running' }]]]),
     });
     await h.orchestrator.reconcileAttempts();
     assert.equal(h.attempts.rows[0]!.state, 'open');
