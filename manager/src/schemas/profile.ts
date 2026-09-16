@@ -17,6 +17,8 @@ import { array, boolean, number, object, string, InferType } from 'yup';
 
 import { ALL_SERVICES, PROFILE_KINDS } from '../types/index.js';
 
+import { ENGINE_SETTING_VALUE_FIELDS } from './engineSettingValues.js';
+
 const ONE_ENGINE_MESSAGE =
   'components may include at most one engine (srs or ome, not both)';
 
@@ -128,6 +130,29 @@ const stackVersionIdField = () =>
     .integer('stack_version_id must be a whole number')
     .positive('stack_version_id must be a positive number');
 
+/**
+ * The engine settings a new deployment is created with, or nothing at all.
+ *
+ * Nothing is not an empty object. An absent field leaves the column at its
+ * default and the container starts on whatever the version's own entrypoints
+ * fall back to, which is what an API create with no opinion has always got and
+ * still gets. The wizard is the caller that has one, because it offers a
+ * segment length before the deployment exists and the settings route cannot
+ * take the value a moment later: a profile is DEPLOYING from the instant create
+ * returns, and that route refuses a busy deployment.
+ *
+ * `noUnknown` strips a key neither engine reads, as the settings route does.
+ * The bounds, the choices and the cross-field rules are not here either, for
+ * the same reason: `engineSettingsProblem` owns them, and ProfileService calls
+ * it with the version's own defaults so the pair is judged against the host
+ * this deployment will run on.
+ */
+const engineSettingsField = () =>
+  object(ENGINE_SETTING_VALUE_FIELDS)
+    .notRequired()
+    .default(undefined)
+    .noUnknown(true);
+
 export const profileNameSchema = object({
   name: string()
     .required()
@@ -226,6 +251,7 @@ export const createProfileSchema = object({
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
   stack_version_id: stackVersionIdField(),
+  engine_settings: engineSettingsField(),
 }).noUnknown(true);
 
 export type CreateProfileInput = InferType<typeof createProfileSchema>;

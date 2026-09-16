@@ -9,6 +9,7 @@ import {
   engineSettingsSchema,
   logsQuerySchema,
 } from '../../schemas/engine.js';
+import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import { profileNameSchema } from '../../schemas/profile.js';
 import { TRANSITIONAL_STATUSES } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -48,7 +49,7 @@ export function createEngineRouter(
       const { expectedInstanceId, ...settings } = req.body as EngineSettingsBody;
       const profile = await profileService.updateEngineSettings(
         req.params.name as string,
-        definedValues(settings),
+        definedSettingValues(settings),
         expectedInstanceId,
       );
       res.status(202).json(profile);
@@ -112,19 +113,4 @@ export function createEngineRouter(
   );
 
   return router;
-}
-
-/**
- * Drops the keys yup left as `undefined`.
- *
- * The schema declares every known key so unknown ones are stripped, and yup
- * hands back the absent ones as `undefined`. Stored as they are, they would
- * become JSON nulls in the column and then values the engine tries to read.
- */
-function definedValues(body: EngineSettingsBody): Record<string, string> {
-  const settings: Record<string, string> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (typeof value === 'string') settings[key] = value;
-  }
-  return settings;
 }

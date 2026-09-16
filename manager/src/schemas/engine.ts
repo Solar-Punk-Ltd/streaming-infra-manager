@@ -1,37 +1,18 @@
-import {
-  engineSettingsFields,
-  OME_SERVICE,
-  SRS_SERVICE,
-} from '@streaming-infra-manager/common';
 import { number, object, string, InferType } from 'yup';
 
 import { ALL_SERVICES } from '../types/index.js';
 
+import { ENGINE_SETTING_VALUE_FIELDS } from './engineSettingValues.js';
 import { profileNameSchema } from './profile.js';
-
-/**
- * Every engine setting key either engine reads, as an optional string.
- *
- * Built from the shared field list rather than written out, so a key added
- * there is accepted here without a second edit. The values stay strings because
- * that is what they are in an env file: coercing `1.50` to a number and back
- * would write a different line than the operator typed.
- *
- * The bounds, the choices and the keyframe rule are deliberately not here.
- * `engineSettingsProblem` owns them, the drawer and the deploy both call it,
- * and a yup copy would be a third rule to keep in step.
- */
-const settingValueFields = Object.fromEntries(
-  [...engineSettingsFields(SRS_SERVICE), ...engineSettingsFields(OME_SERVICE)]
-    .map((field) => field.key)
-    .map((key) => [key, string().notRequired()]),
-);
 
 // noUnknown strips a key neither engine reads, so a stale drawer cannot store
 // one. Anything it lets through is checked again by engineSettingsProblem,
-// which names the engine that does not read it.
+// which names the engine that does not read it. The bounds, the choices and
+// the keyframe rule are deliberately not here: engineSettingsProblem owns them,
+// the drawer and the deploy both call it, and a yup copy would be a third rule
+// to keep in step.
 export const engineSettingsSchema = object({
-  ...settingValueFields,
+  ...ENGINE_SETTING_VALUE_FIELDS,
   expectedInstanceId: string().optional().strict().uuid('expectedInstanceId must be a deployment instance UUID'),
 }).noUnknown(true);
 

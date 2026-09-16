@@ -154,6 +154,7 @@ export class InMemoryProfiles {
     status: ProfileStatus,
     data: ProfileWriteData,
     placement: NewProfilePlacement,
+    engineSettings: EngineSettings = {},
   ): Promise<Profile | null> {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
     const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
@@ -168,6 +169,7 @@ export class InMemoryProfiles {
       ...definedFields(rest),
       has_private_key: Boolean(key),
       has_srt_passphrase: Boolean(passphrase),
+      engine_settings: { ...engineSettings },
       port_slot: slot,
       stack_version_id: placement.stackVersionId,
     });

@@ -107,12 +107,20 @@ export class ProfileRepository {
     return result.rows;
   }
 
+  /**
+   * `engineSettings` is a parameter of its own rather than a `ProfileWriteData`
+   * field, for the reason `updateEngineSettings` gives: that shape is written
+   * from a full-replace PUT body, and a body that has never heard of engine
+   * settings would clear them. An empty object is what an API create with no
+   * opinion sends, and it leaves the column at the default the migration set.
+   */
   async insertWithFreeSlot(
     name: string,
     kind: ProfileKind,
     status: ProfileStatus,
     data: ProfileWriteData,
     placement: NewProfilePlacement,
+    engineSettings: EngineSettings = {},
   ): Promise<Profile | null> {
     const dataWithNullFields = nullify(data);
     const client = await this.pool.connect();
@@ -132,9 +140,10 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, stack_version_id, deployment_phase
+           srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, stack_version_id,
+           engine_settings, deployment_phase
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
                  CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
@@ -156,6 +165,7 @@ export class ProfileRepository {
           dataWithNullFields.bee_url,
           dataWithNullFields.rpc_endpoint,
           placement.stackVersionId,
+          JSON.stringify(engineSettings),
         ],
       );
       await client.query('COMMIT');

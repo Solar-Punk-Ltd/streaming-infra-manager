@@ -31,6 +31,7 @@ import {
   rungFromMemberName,
   rungOrder,
   type StackContract,
+  type StampGatedProfile,
   type StampHealth,
   stampHealthFrom,
   STANDARD_GROUP_KIND,
@@ -305,6 +306,8 @@ export class ProfileService {
     srt_passphrase?: string | null;
     /** Absent means the default version. */
     stack_version_id?: number | null;
+    /** Absent leaves the column empty, so the version's own fallbacks stand. */
+    engine_settings?: EngineSettings | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
@@ -324,6 +327,11 @@ export class ProfileService {
     });
     if (configProblem) {
       throw new ProfileConfigError(input.name, configProblem);
+    }
+
+    const engineSettings = input.engine_settings ?? {};
+    if (Object.keys(engineSettings).length > 0) {
+      this.assertCreatableEngineSettings(input, version, engineSettings);
     }
 
     let row;
@@ -347,6 +355,7 @@ export class ProfileService {
           srt_passphrase: input.srt_passphrase,
         },
         await this.placementFor(version, input.host ?? null, input.components),
+        engineSettings,
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -599,7 +608,15 @@ export class ProfileService {
     return version;
   }
 
-  private engineFacts(profile: Profile): { engine: EngineName; abr: boolean } {
+  /**
+   * Which media server a deployment runs and whether it encodes a ladder.
+   *
+   * Takes the shape both doors have rather than a stored row, because the
+   * create path has to answer the same question before there is a row.
+   */
+  private engineFacts(
+    profile: { name: string } & StampGatedProfile,
+  ): { engine: EngineName; abr: boolean } {
     const engine = engineOfServices(defaultServicesFor(profile));
     if (!engine) {
       throw new ProfileConfigError(
@@ -632,6 +649,36 @@ export class ProfileService {
       );
     }
     return defaults;
+  }
+
+  /**
+   * The gate the settings drawer passes, applied before the row exists.
+   *
+   * A value sent with the create body is written into `.env.<profile>` on the
+   * very first deploy, so a pair the engine refuses puts a brand new deployment
+   * straight into a crash loop with the reason only in its container logs. The
+   * settings route cannot catch it a moment later either, because it refuses a
+   * deployment that is still DEPLOYING. The version's own fallbacks are read
+   * for the same reason the update path reads them: either half of a pair may
+   * be unset, and judging one against the stack's own numbers passes a pair the
+   * host then refuses.
+   */
+  private assertCreatableEngineSettings(
+    input: { name: string } & StampGatedProfile,
+    version: StackVersionRecord,
+    settings: EngineSettings,
+  ): void {
+    const { engine, abr } = this.engineFacts(input);
+    const defaults = this.engineDefaultsAt(
+      stackRootOf(version),
+      engine,
+      version.contract,
+    );
+    const problem = engineSettingsProblem(engine, settings, {
+      abr,
+      defaults: defaults.values,
+    });
+    if (problem) throw new ProfileConfigError(input.name, problem);
   }
 
   /** What `GET /profiles/:name/engine` answers, minus the live block. */
