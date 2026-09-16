@@ -30,6 +30,7 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { NodeReadCache, nodeReadKey } from './nodeReadCache.js';
+import { readFailureFrom } from './nodeReadFailure.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { LOCAL_PUBLISHED_HOST } from './localHost.js';
 
@@ -200,6 +201,7 @@ export class StampService {
 
     return this.reads.read(this.stampKey(profile.name, stampId), async () => {
       const client = this.clientFactory(beeApiUrlFor(profile), PROBE_TIMEOUT_MS);
+      const started = Date.now();
       try {
         const stamp = await client.getStamp(batchIdOf(stampId));
         return stampHealthFrom(stampId, [stamp]);
@@ -213,7 +215,11 @@ export class StampService {
         logger.debug(
           `[StampService] ${profile.name}: could not verify stamp ${stampId}: ${getErrorMessage(err)}`,
         );
-        return stampHealthFrom(stampId, null);
+        return stampHealthFrom(
+          stampId,
+          null,
+          readFailureFrom(err, Date.now() - started),
+        );
       }
     });
   }

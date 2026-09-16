@@ -5,6 +5,8 @@ import {
   isStampExpiringSoon,
   parseBeePublishers,
   plurToBzz,
+  type ReadFailure,
+  type ReadFailureReason,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
   ownsBeeNode,
@@ -101,7 +103,7 @@ function nodeStep(observed: BeeReadinessView): ChecklistStep {
   return { title: 'Bee API observation', problem: observed.label,
     state: observed.state === 'ready' ? 'ok' : observed.state === 'unhealthy' ? 'err' : observed.state === 'initializing' ? 'busy' : 'warn',
     detail: observed.detail,
-    action: observed.state === 'ready' ? undefined : { label: 'Retry node checks', kind: 'refresh-node' } };
+    action: observed.state === 'ready' ? undefined : RETRY_NODE_CHECKS };
 }
 
 function containersStep(profile: Profile): ChecklistStep {
@@ -144,6 +146,45 @@ const FILL_CHEQUEBOOK: StepAction = {
   primary: true,
 };
 
+const RETRY_NODE_CHECKS: StepAction = {
+  label: 'Retry node checks',
+  kind: 'refresh-node',
+};
+
+/**
+ * What a reading that is missing says instead of "not checked".
+ *
+ * The four are the node's answer, not the page's guess, and they send an
+ * operator to four different places: wait, go and look at the node, read its
+ * logs, or report what it said back. "Not checked" sends them nowhere, which
+ * is what a node answering in under a millisecond looked like on this page.
+ */
+const READ_FAILURE_PROBLEM: Record<ReadFailureReason, string> = {
+  timeout: 'Node did not answer in time',
+  unreachable: 'Node did not answer',
+  refused: 'Node refused the check',
+  malformed: 'Answer could not be read',
+};
+
+/** How long the node had, in a form a sentence can carry. */
+function secondsOf(elapsedMs: number): string {
+  return `${(elapsedMs / 1000).toFixed(1)} seconds`;
+}
+
+function readFailureDetail(what: string, failure: ReadFailure): string {
+  const took = secondsOf(failure.elapsedMs);
+  switch (failure.reason) {
+    case 'timeout':
+      return `The node did not answer the ${what} within ${took}.`;
+    case 'unreachable':
+      return `Nothing answered at the node's API for the ${what}, after ${took}.`;
+    case 'refused':
+      return `The node refused the ${what} after ${took}.`;
+    case 'malformed':
+      return `The node answered the ${what} in ${took} with something this manager could not read.`;
+  }
+}
+
 /**
  * Whether this node can pay for its uploads at all, which takes two pots: the
  * wallet, which buys stamps and refills the chequebook, and the chequebook,
@@ -171,7 +212,7 @@ function fundingStep({
       detail: isRunning(profile)
         ? 'Waiting for the node to report its balances.'
         : 'Start the deployment to read its balances.',
-      action: { label: 'Retry node checks', kind: 'refresh-node' },
+      action: RETRY_NODE_CHECKS,
     };
   }
 
@@ -210,9 +251,18 @@ function fundingStep({
   }
 
   if (!chequebook || chequebook.state === 'unknown') {
-    return { title: FUNDING_TITLE, problem: 'Funding not checked', state: 'warn',
-      detail: 'The node has not confirmed its chequebook balance. Retry the node checks before starting an uploader.',
-      action: { label: 'Retry node checks', kind: 'refresh-node' } };
+    const failure = chequebook?.failure;
+    return {
+      title: FUNDING_TITLE,
+      problem: failure
+        ? READ_FAILURE_PROBLEM[failure.reason]
+        : 'Funding not checked',
+      state: 'warn',
+      detail: failure
+        ? `${readFailureDetail('chequebook read', failure)} Retry the node checks before starting an uploader.`
+        : 'The node has not confirmed its chequebook balance. Retry the node checks before starting an uploader.',
+      action: RETRY_NODE_CHECKS,
+    };
   }
 
   return {
@@ -279,14 +329,21 @@ function stampStep({
         detail:
           'Bought, waiting for the network to confirm it. It is set automatically.',
       };
-    case 'unknown':
+    case 'unknown': {
+      const failure = stampHealth.failure;
+      const batch = shortHex(profile.stamp_id ?? '');
       return {
         title,
-        problem: 'Stamp not checked',
-        action: { label: 'Retry node checks', kind: 'refresh-node' },
+        problem: failure
+          ? READ_FAILURE_PROBLEM[failure.reason]
+          : 'Stamp not checked',
+        action: RETRY_NODE_CHECKS,
         state: isRunning(profile) ? 'warn' : 'off',
-        detail: `A batch is recorded (${shortHex(profile.stamp_id ?? '')}) but its node could not be asked whether it still pays.`,
+        detail: failure
+          ? `${readFailureDetail('stamp check', failure)} The batch recorded here (${batch}) is neither confirmed nor ruled out.`
+          : `A batch is recorded (${batch}) but its node could not be asked whether it still pays.`,
       };
+    }
     case 'active':
       return {
         title,

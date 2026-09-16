@@ -14,6 +14,8 @@
  * (frontend), and the deploy gate.
  */
 
+import type { ReadFailure } from './nodeReading.js';
+
 /** The fields of bee's `/stamps` entry that decide whether a batch can still pay. */
 export interface StampLike {
   batchID: string;
@@ -48,6 +50,8 @@ export interface StampHealth {
   dead: boolean;
   /** Seconds left, when the node said. */
   ttl: number | null;
+  /** Why the node was not asked successfully, where it was asked and failed. */
+  failure?: ReadFailure;
 }
 
 const DEAD_STATES: readonly StampState[] = ['expired', 'gone'];
@@ -107,9 +111,10 @@ export function sameBatchId(a: string, b: string): boolean {
 export function stampHealthFrom(
   stampId: string | null | undefined,
   stamps: readonly StampLike[] | null,
+  failure?: ReadFailure,
 ): StampHealth {
   if (!stampId || !stampId.trim()) return health('none', null);
-  if (stamps === null) return health('unknown', null);
+  if (stamps === null) return health('unknown', null, failure);
 
   const found = stamps.find((stamp) => sameBatchId(stamp.batchID, stampId));
   // A node that disowns the batch is telling us the same thing as one that has
@@ -120,12 +125,17 @@ export function stampHealthFrom(
   return health('active', found.batchTTL);
 }
 
-function health(state: StampState, ttl: number | null): StampHealth {
+function health(
+  state: StampState,
+  ttl: number | null,
+  failure?: ReadFailure,
+): StampHealth {
   return {
     state,
     ok: state === 'active',
     dead: DEAD_STATES.includes(state),
     ttl,
+    ...(failure ? { failure } : {}),
   };
 }
 

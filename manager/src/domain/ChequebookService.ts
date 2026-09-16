@@ -3,12 +3,14 @@ import {
   type ChequebookBalance,
   chequebookHealthFrom,
   chequebookHealthPayload,
+  type ChequebookReads,
   type ChequebookSummary,
   depositOverWalletReason,
   getErrorMessage,
   isChequebookShort,
   NO_XDAI_FOR_GAS_REASON,
   parsePlur,
+  type ReadFailure,
   plurToBzz,
   withdrawalOverChequebookReason,
 } from '@streaming-infra-manager/common';
@@ -25,6 +27,11 @@ import {
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { NodeReadCache, nodeReadKey } from './nodeReadCache.js';
+import {
+  failureOf,
+  type NodeRead,
+  readNode,
+} from './nodeReadFailure.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beeApiUrlFor, type BeeClientFactory } from './StampService.js';
 
@@ -76,15 +83,23 @@ export class ChequebookService {
 
   private async askForSummary(name: string): Promise<ChequebookSummary> {
     const client = await this.clientFor(name);
-    const [address, balance, settlements] = await Promise.allSettled([
-      client.getChequebookAddress(),
-      client.getChequebookBalance(),
-      client.getSettlements(),
+    const [address, balance, settlements] = await Promise.all([
+      readNode(() => client.getChequebookAddress()),
+      readNode(() => client.getChequebookBalance()),
+      readNode(() => client.getSettlements()),
     ]);
 
     const reportedAddress = this.reported(name, address, 'chequebook address');
     const reportedBalance = this.reported(name, balance, 'chequebook balance');
     const reportedSettlements = this.reported(name, settlements, 'settlements');
+    const addressFailure = failureOf(address);
+    const balanceRead = balanceFailure(balance);
+    const settlementsFailure = failureOf(settlements);
+    const reads: ChequebookReads = {
+      ...(addressFailure ? { address: addressFailure } : {}),
+      ...(balanceRead ? { balance: balanceRead } : {}),
+      ...(settlementsFailure ? { settlements: settlementsFailure } : {}),
+    };
 
     return {
       address: reportedAddress?.chequebookAddress ?? null,
@@ -93,8 +108,9 @@ export class ChequebookService {
       totalSent: reportedSettlements?.totalSent ?? null,
       totalReceived: reportedSettlements?.totalReceived ?? null,
       health: chequebookHealthPayload(
-        chequebookHealthFrom(reportedBalance, this.floorPlur),
+        chequebookHealthFrom(reportedBalance, this.floorPlur, reads.balance),
       ),
+      reads,
     };
   }
 
@@ -233,15 +249,28 @@ export class ChequebookService {
     }
   }
 
-  private reported<T>(
-    name: string,
-    result: PromiseSettledResult<T>,
-    what: string,
-  ): T | null {
-    if (result.status === 'fulfilled') return result.value;
+  private reported<T>(name: string, read: NodeRead<T>, what: string): T | null {
+    if (read.ok) return read.value;
     logger.debug(
-      `[ChequebookService] ${name}: no ${what}: ${getErrorMessage(result.reason)}`,
+      `[ChequebookService] ${name}: no ${what}: ${getErrorMessage(read.error)}`,
     );
     return null;
   }
+}
+
+/**
+ * Why there is no balance to classify: the call, or an answer that was not a
+ * number.
+ *
+ * A node that answers `/chequebook/balance` in time with something the manager
+ * cannot parse has nothing wrong with its call, and saying "not checked" there
+ * sends an operator to look at the network.
+ */
+function balanceFailure(
+  read: NodeRead<ChequebookBalance>,
+): ReadFailure | undefined {
+  if (!read.ok) return failureOf(read);
+  return parsePlur(read.value.availableBalance) === null
+    ? { reason: 'malformed', elapsedMs: read.elapsedMs }
+    : undefined;
 }

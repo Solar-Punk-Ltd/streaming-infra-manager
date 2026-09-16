@@ -29,6 +29,7 @@ import {
   type TransferExpectation,
   transferOutcome,
 } from './chequebook.js';
+import type { ReadFailure } from './nodeReading.js';
 
 const FLOOR = 5n * 10n ** 15n;
 
@@ -300,6 +301,38 @@ describe('the health payload', () => {
       chequebookHealthFromPayload(chequebookHealthPayload(health)),
       health,
     );
+  });
+});
+
+describe('why a reading is missing', () => {
+  const TIMED_OUT: ReadFailure = { reason: 'timeout', elapsedMs: 3_012 };
+
+  it('keeps the reason next to the reading that is missing', () => {
+    const health = chequebookHealthFrom(null, FLOOR, TIMED_OUT);
+
+    assert.equal(health.state, 'unknown');
+    assert.deepEqual(health.failure, TIMED_OUT);
+  });
+
+  it('carries the reason through JSON to the page', () => {
+    const wire = JSON.parse(
+      JSON.stringify(chequebookHealthPayload(chequebookHealthFrom(null, FLOOR, TIMED_OUT))),
+    ) as ReturnType<typeof chequebookHealthPayload>;
+
+    assert.deepEqual(chequebookHealthFromPayload(wire).failure, TIMED_OUT);
+  });
+
+  it('says nothing about a node that answered', () => {
+    // A reason next to a reading that is there would be a reason for nothing,
+    // and the page words it as the state of the node.
+    const health = chequebookHealthFrom(
+      { totalBalance: '1', availableBalance: '1200000000000000' },
+      FLOOR,
+      TIMED_OUT,
+    );
+
+    assert.equal(health.state, 'low');
+    assert.equal(health.failure, undefined);
   });
 });
 

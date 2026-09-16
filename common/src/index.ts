@@ -16,6 +16,7 @@ export * from './engines.js';
 export * from './envSafeValue.js';
 export * from './errorUtils.js';
 export * from './metrics.js';
+export * from './nodeReading.js';
 export * from './nullify.js';
 export * from './profileReconcile.js';
 export * from './publishUrl.js';

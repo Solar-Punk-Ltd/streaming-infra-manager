@@ -9,6 +9,8 @@
  * offline mock read one number and reach one answer, and cannot drift apart.
  */
 
+import type { ReadFailure } from './nodeReading.js';
+
 /** BZZ is quoted in PLUR, its integer unit. 1 BZZ is 10^16 PLUR. */
 export const PLUR_PER_BZZ = 10n ** 16n;
 
@@ -136,6 +138,8 @@ export interface ChequebookHealth {
   /** What the node said it can still pay with, or null when it did not say. */
   availablePlur: bigint | null;
   floorPlur: bigint;
+  /** Why there is no reading, where the node was asked and did not give one. */
+  failure?: ReadFailure;
 }
 
 /**
@@ -144,15 +148,25 @@ export interface ChequebookHealth {
  * `balance` is null for "not asked, or did not answer", which is deliberately
  * not the same as a zero balance: a node that is down says nothing about its
  * chequebook, and reporting it as empty would be inventing a reading.
+ *
+ * `failure` says why there is no reading, and is kept only where there is none
+ * to have: attached to an answer the node did give, it would be a reason for
+ * nothing.
  */
 export function chequebookHealthFrom(
   balance: ChequebookBalance | null,
   floorPlur: bigint,
+  failure?: ReadFailure,
 ): ChequebookHealth {
   const availablePlur = balance ? parsePlur(balance.availableBalance) : null;
 
   if (availablePlur === null) {
-    return { state: 'unknown', availablePlur: null, floorPlur };
+    return {
+      state: 'unknown',
+      availablePlur: null,
+      floorPlur,
+      ...(failure ? { failure } : {}),
+    };
   }
   if (availablePlur === 0n) {
     return { state: 'empty', availablePlur, floorPlur };
@@ -246,6 +260,7 @@ export interface ChequebookHealthPayload {
   state: ChequebookState;
   availablePlur: string | null;
   floorPlur: string;
+  failure?: ReadFailure;
 }
 
 export function chequebookHealthPayload(
@@ -255,6 +270,7 @@ export function chequebookHealthPayload(
     state: health.state,
     availablePlur: health.availablePlur?.toString() ?? null,
     floorPlur: health.floorPlur.toString(),
+    ...(health.failure ? { failure: health.failure } : {}),
   };
 }
 
@@ -265,6 +281,7 @@ export function chequebookHealthFromPayload(
     state: payload.state,
     availablePlur: parsePlur(payload.availablePlur),
     floorPlur: parsePlur(payload.floorPlur) ?? 0n,
+    ...(payload.failure ? { failure: payload.failure } : {}),
   };
 }
 
@@ -283,6 +300,20 @@ export interface ChequebookSummary {
   totalSent: string | null;
   totalReceived: string | null;
   health: ChequebookHealthPayload;
+  reads?: ChequebookReads;
+}
+
+/**
+ * Why each missing reading is missing, absent where the node answered.
+ *
+ * The balance entry is on `health` as well, because that is what the readiness
+ * list is handed, and a state of 'unknown' with no reason beside it is the
+ * "not checked" this exists to replace.
+ */
+export interface ChequebookReads {
+  address?: ReadFailure;
+  balance?: ReadFailure;
+  settlements?: ReadFailure;
 }
 
 /** Which way a submitted transfer moves the chequebook's total. */

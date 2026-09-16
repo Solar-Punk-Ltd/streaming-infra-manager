@@ -482,6 +482,7 @@ describe('ChequebookService.summary', () => {
         availablePlur: '12400000000000000',
         floorPlur: FLOOR.toString(),
       },
+      reads: {},
     });
   });
 
@@ -512,6 +513,74 @@ describe('ChequebookService.summary', () => {
     assert.equal(summary.health.state, 'unknown');
     assert.equal(summary.health.availablePlur, null);
     assert.equal(summary.availableBalance, null);
+  });
+});
+
+describe('why the storage card has no reading', () => {
+  /** A node that takes the headers and never finishes, the way a hung one does. */
+  const timingOut = () => async () => {
+    throw new Error(
+      'bee request GET /chequebook/balance failed: The operation was aborted due to timeout',
+    );
+  };
+
+  it('reports a balance read that ran out of time as one, with how long it took', async () => {
+    const service = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: timingOut(),
+      getSettlements: async () => ({ totalSent: '0', totalReceived: '0' }),
+    });
+
+    const summary = await service.summary(PROFILE.name);
+
+    assert.equal(summary.health.state, 'unknown');
+    assert.equal(summary.health.failure?.reason, 'timeout');
+    assert.equal(typeof summary.health.failure?.elapsedMs, 'number');
+    assert.ok((summary.health.failure?.elapsedMs ?? -1) >= 0);
+    assert.equal(summary.reads?.balance?.reason, 'timeout');
+  });
+
+  it('tells a node that refused apart from one nothing answered at', async () => {
+    const refusing = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: async () => {
+        throw new BeeHttpError(500, 'bee GET /chequebook/balance → 500: boom');
+      },
+      getSettlements: failing('GET /settlements'),
+    });
+
+    const summary = await refusing.summary(PROFILE.name);
+
+    assert.equal(summary.health.failure?.reason, 'refused');
+    assert.equal(summary.reads?.settlements?.reason, 'unreachable');
+  });
+
+  it('calls a balance that is not a number an answer it could not read', async () => {
+    // The node answered in time. Nothing was wrong with the call, only with
+    // what came back, and "not checked" would blame the wrong thing.
+    const service = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: async () => balance('not a number'),
+      getSettlements: async () => ({ totalSent: '0', totalReceived: '0' }),
+    });
+
+    const summary = await service.summary(PROFILE.name);
+
+    assert.equal(summary.health.state, 'unknown');
+    assert.equal(summary.health.failure?.reason, 'malformed');
+  });
+
+  it('says nothing about a node that answered everything', async () => {
+    const service = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: async () => balance(ONE_BZZ.toString()),
+      getSettlements: async () => ({ totalSent: '0', totalReceived: '0' }),
+    });
+
+    const summary = await service.summary(PROFILE.name);
+
+    assert.equal(summary.health.failure, undefined);
+    assert.deepEqual(summary.reads, {});
   });
 });
 
