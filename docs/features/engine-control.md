@@ -97,7 +97,10 @@ and Storage:
 
 Group page for a standard group of streams: **Apply engine settings to all** is not in this
 round. Groups share settings through the existing shared settings drawer, and engine settings
-join it only if Levi asks.
+join it only if Levi asks. Creating a group is the other door and it does carry them: `POST
+/groups` takes `engine_settings` and writes them to every member, and a member added later
+takes what its siblings run. So a group starts on one segment length even though it cannot yet
+be moved to another in a single write.
 
 ## Manager changes
 

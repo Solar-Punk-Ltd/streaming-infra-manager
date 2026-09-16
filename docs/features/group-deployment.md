@@ -61,8 +61,16 @@ All form fields filled in group mode are applied verbatim to every member:
 - `kind`, `components`, `host`, `notes`
 - `feed_owner`, `feed_topic` (when `client` is selected)
 - `private_key`, `stamp_id` (when `stream-uploader` is selected), and `public_key` is derived
+- `engine_settings`, so every member cuts the same segments
 
 Members differ only in `name` and `group_id`.
+
+A group's members start with the engine settings the create body carries, and the wizard
+pre-fills a two-second segment length wherever the deployment runs SRS, so the whole group
+cuts the same lengths instead of falling back to whatever its stack version does. A member
+added later takes the settings its siblings already run. An ABR node pool carries none, because
+it is Bee nodes and no media server, and a create body that sends settings for one is refused
+with the sentence a single deployment with no engine gets.
 
 ### Known caveat: shared streamer identity
 

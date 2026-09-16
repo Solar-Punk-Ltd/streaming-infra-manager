@@ -118,9 +118,16 @@ All command endpoints stream output as Server-Sent Events
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
-`stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint` and
-`abr_ladder`. `manager/src/schemas/profile.ts` is the whole contract and its
-rules are the ones the route enforces.
+`stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
+`engine_settings` and `abr_ladder`. `manager/src/schemas/profile.ts` is the
+whole contract and its rules are the ones the route enforces.
+
+`engine_settings` is create-only and `POST /groups` takes it on the same terms,
+writing it to every member of the group, because a deployment is `DEPLOYING`
+from the moment create returns and the settings route refuses a busy one. It is
+held to the rule the settings drawer applies, so a deployment that runs no media
+server, an ABR node pool among them, is refused rather than storing keys nothing
+would read.
 
 `rpc_endpoint` is the chain endpoint this deployment's own Bee nodes use, and
 empty means the one its stack version carries. It exists because the stack's
