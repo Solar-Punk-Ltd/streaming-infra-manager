@@ -51,6 +51,7 @@ const ENGINE_CONFIG_OVERRIDES: Record<keyof EngineConfigSupport, string> = {
 };
 const ROOT_ENV_SAMPLE = '.env.sample';
 const SRS_ENV_SAMPLE = join('engines', 'srs', '.env.sample');
+const OME_ENV_SAMPLE = join('engines', 'ome', '.env.sample');
 
 const SRS_API_PORT_VAR = 'SRS_HTTP_API_PORT';
 const CHEQUEBOOK_FLOOR_KEY = 'CHEQUEBOOK_MIN_BZZ';
@@ -62,6 +63,7 @@ const CHEQUEBOOK_FLOOR_KEY = 'CHEQUEBOOK_MIN_BZZ';
 const REQUIRED_SECRETS: readonly { key: string; sample: string }[] = [
   { key: 'API_AUTH_TOKEN', sample: ROOT_ENV_SAMPLE },
   { key: 'SRS_WEBHOOK_TOKEN', sample: SRS_ENV_SAMPLE },
+  { key: 'OME_ADMISSION_SECRET', sample: OME_ENV_SAMPLE },
 ];
 
 /** Engine knobs worth showing, and the entrypoint that decides each default. */

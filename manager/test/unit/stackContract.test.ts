@@ -116,8 +116,20 @@ describe('readStackContract on main-v3', () => {
     assert.equal(v3.maxSlot, 99);
   });
 
-  it('finds the two secrets the containers refuse to start without', () => {
+  it('finds the three secrets the containers refuse to start without', () => {
     assert.deepEqual(v3.requiredSecrets, [
+      'API_AUTH_TOKEN',
+      'SRS_WEBHOOK_TOKEN',
+      'OME_ADMISSION_SECRET',
+    ]);
+  });
+
+  it('asks for no OME secret from a version that ships no OME sample', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stack-contract-'));
+    cpSync(fixture('v3'), root, { recursive: true });
+    rmSync(join(root, 'engines', 'ome', '.env.sample'));
+
+    assert.deepEqual(readStackContract(root).requiredSecrets, [
       'API_AUTH_TOKEN',
       'SRS_WEBHOOK_TOKEN',
     ]);
@@ -141,7 +153,7 @@ describe('readStackContract on main-v3', () => {
   it('reads in plain words as the Versions page shows it', () => {
     assert.equal(
       describeStackContract(v3),
-      '16 ports, slots 1 to 99, needs 2 generated secrets, SRS API published, chequebook gate 0.5 BZZ, own config file for both engines',
+      '16 ports, slots 1 to 99, needs 3 generated secrets, SRS API published, chequebook gate 0.5 BZZ, own config file for both engines',
     );
   });
 
