@@ -160,7 +160,9 @@ echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
 # the path manager/.env names or the compose default under this home, because a
 # bind mount whose source is missing is created by Docker as a root-owned
 # directory that nobody can put a key or a config into afterwards.
-export MANAGER_SSH_DIR="\$(sed -n 's/^MANAGER_SSH_DIR=//p' .env | tail -n 1)"
+# Read the way compose reads the env file: the last assignment wins, a carriage
+# return and surrounding quotes are not part of the value.
+export MANAGER_SSH_DIR="\$(sed -n 's/^MANAGER_SSH_DIR=//p' .env | tail -n 1 | tr -d '\r"' | tr -d "'")"
 export MANAGER_SSH_DIR="\${MANAGER_SSH_DIR:-\${HOME}/manager-ssh}"
 mkdir -p -m 700 "\${MANAGER_SSH_DIR}"
 echo "[deploy] ssh identity for other hosts: \${MANAGER_SSH_DIR}"
