@@ -59,6 +59,20 @@ describe('what a port is, by its key', () => {
   it('knows RTMP ingest as its own protocol, and not a page', () => {
     assert.equal(endpointKindOf('SRS_RTMP_PORT').protocol, 'rtmp');
     assert.equal(endpointKindOf('SRS_RTMP_PORT').opensInBrowser, false);
+    assert.equal(
+      endpointAddress(endpointKindOf('SRS_RTMP_PORT'), 'stream.example', 10012),
+      'rtmp://stream.example:10012',
+    );
+  });
+
+  it('does not call RTMP ingest public, because the firewall keeps it closed', () => {
+    // PUBLIC_PORT_ROLES carries no RTMP role, so the generated rules drop the
+    // port from outside. The cell said public anyway, which is the one thing an
+    // operator cannot check from the screen.
+    const kind = endpointKindOf('SRS_RTMP_PORT');
+
+    assert.equal(kind.audience, 'internal');
+    assert.match(kind.label, /the firewall does not open it/);
   });
 
   it('claims nothing about a key it does not know', () => {

@@ -42,8 +42,8 @@ export function endpointKindOf(portKey: string): EndpointKind {
   if (key.includes('RTMP')) {
     return {
       protocol: 'rtmp',
-      audience: 'public',
-      label: 'RTMP ingest, TCP, public',
+      audience: 'internal',
+      label: 'RTMP ingest, TCP, internal, the firewall does not open it',
       opensInBrowser: false,
     };
   }
