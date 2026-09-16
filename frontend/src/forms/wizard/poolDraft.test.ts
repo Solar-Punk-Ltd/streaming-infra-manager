@@ -79,6 +79,18 @@ describe('uploader draft round trip through pool creation', () => {
     assert.equal(finishPoolSetup(uploader, { kind: 'cancelled' }).notice, null);
   });
 
+  it('warns that the pool may exist when the cancel follows an answer nobody could read', () => {
+    // After an uncertain submission the Deploy button is disabled and Return to
+    // uploader is the only button left, so a cancellation that says nothing
+    // erases the one warning the operator was given.
+    const restored = finishPoolSetup(uploader, { kind: 'cancelled', uncertain: true });
+
+    assert.deepEqual(restored.state, uploader);
+    assert.equal(restored.created, null);
+    assert.match(restored.notice ?? '', /may already exist/i);
+    assert.match(restored.notice ?? '', /deployment list/i);
+  });
+
   it('keeps the exact returned identity while the global list is delayed without replacing fresher members', () => {
     const created = { group, profiles };
     const overlay = overlayCreatedPool([], [], created);

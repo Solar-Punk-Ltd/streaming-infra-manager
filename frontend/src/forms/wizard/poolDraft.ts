@@ -4,7 +4,17 @@ import { matchingPool, type CreatedPool } from './poolIdentity';
 export type { CreatedPool } from './poolIdentity';
 import { POOL_RESPONSE_NOTICE } from './PoolResponseError';
 
-export type PoolSetupOutcome = { kind: 'cancelled' } | { kind: 'accepted'; expectedName: string; value: unknown };
+export type PoolSetupOutcome =
+  /**
+   * `uncertain` for a cancellation that follows a pool request whose answer
+   * nobody could read, so the warning that request earned survives the return
+   * to the uploader.
+   */
+  | { kind: 'cancelled'; uncertain?: boolean }
+  | { kind: 'accepted'; expectedName: string; value: unknown };
+
+const UNCERTAIN_POOL_NOTICE =
+  'The pool request did not finish with a readable answer, so the pool may already exist. Check the deployment list before creating another one.';
 
 export function beginPoolSetup(uploader: WizardState, context: WizardContext): { uploader: WizardState; pool: WizardState } {
   return {
@@ -23,7 +33,9 @@ export function finishPoolSetup(
   uploader: WizardState,
   result: PoolSetupOutcome,
 ): { state: WizardState; created: CreatedPool | null; notice: string | null } {
-  if (result.kind === 'cancelled') return { state: uploader, created: null, notice: null };
+  if (result.kind === 'cancelled') {
+    return { state: uploader, created: null, notice: result.uncertain ? UNCERTAIN_POOL_NOTICE : null };
+  }
   const created = matchingPool(result.value, result.expectedName);
   if (!created) {
     return { state: uploader, created: null, notice: POOL_RESPONSE_NOTICE };

@@ -302,7 +302,11 @@ export function NewDeploymentWizard({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-        {poolSetup && <Button onClick={() => returnToUploader({ kind: 'cancelled' })}>Return to uploader</Button>}
+        {poolSetup && (
+          <Button onClick={() => returnToUploader({ kind: 'cancelled', uncertain: uncertainSubmission })}>
+            Return to uploader
+          </Button>
+        )}
         {state.step > 1 && (
           <Button onClick={() => update({ step: state.step - 1 })} disabled={submitting}>
             Back
