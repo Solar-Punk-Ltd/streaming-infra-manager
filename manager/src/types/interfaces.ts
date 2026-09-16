@@ -32,8 +32,10 @@ export interface Profile {
   bee_publishers: string | null;
   /**
    * An explicit bee API URL for the stream-uploader. Only has effect when the
-   * profile runs no `bee-uploader` — deploy.sh resolves BEE_URL itself whenever
-   * one is enabled. NULL: whatever deploy.sh resolves.
+   * profile runs no `bee-uploader`, because deploy.sh resolves BEE_URL itself
+   * whenever one is enabled. NULL is then the address deploy.sh resolves, and
+   * on a profile that uploads through no node of its own it is refused: see
+   * beeTargetProblem, which makes such a deployment name a node or a pool.
    */
   bee_url: string | null;
   /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */

@@ -36,7 +36,10 @@ after(() => {
   else process.env.SHLS_ROOT = previousRoot;
 });
 
-const BASE_ENV = 'ENGINE=srs\nHLS_FRAGMENT=6\nAPI_PORT=10000\n';
+// The base carries a force-close ceiling above its segment length, because the
+// entrypoint refuses the other way round and a base that could not start is
+// not a base any of this is true of.
+const BASE_ENV = 'ENGINE=srs\nHLS_FRAGMENT=6\nHLS_SEGMENT_MAX=7\nAPI_PORT=10000\n';
 
 function withBaseEnv(contents: string = BASE_ENV): void {
   writeFileSync(join(root, '.env'), contents, 'utf8');

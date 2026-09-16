@@ -154,13 +154,24 @@ export interface BeeTargetProfile extends StampGatedProfile {
  *    next deploy writes no BEE_PUBLISHERS/ABR_ENABLED/ABR_LADDER, the uploader
  *    falls back to BEE_URL, and it crash-loops while the manager says RUNNING.
  *
+ * The fourth rule is the one the three left open. An uploader that runs no Bee
+ * node of its own and names neither an address nor a pool is stored as
+ * perfectly valid, and `.env.<profile>` is a full copy of the stack's `.env`,
+ * itself copied from `.env.sample`, whose `BEE_URL` is `http://localhost:1633`.
+ * deploy.sh refuses an EMPTY BEE_URL beside LOCAL_BEE_UPLOADER=false, so that
+ * placeholder is not refused: the uploader starts, publishes to port 1633 of
+ * its own container, and crash-loops. The stack states the rule in its own
+ * refusal, and this is the same rule one step earlier, at the request.
+ *
  * Stated once, over the *resulting* profile rather than over a patch, and
- * checked by ProfileService on both create and update — so the two paths cannot
+ * checked by ProfileService on both create and update, so the paths cannot
  * disagree about what a valid destination is.
  */
 export function beeTargetProblem(profile: BeeTargetProfile): string | null {
   const publishers = hasBeePublishers(profile);
   const beeUrl = Boolean(profile.bee_url && profile.bee_url.trim());
+  const services = defaultServicesFor(profile);
+  const runsOwnNode = services.includes(BEE_UPLOADER_SERVICE);
 
   if (profile.kind === ABR_UPLOADER_KIND && !publishers) {
     return `bee_publishers is required for a ${ABR_UPLOADER_KIND} — paste it from an ABR node pool`;
@@ -168,8 +179,11 @@ export function beeTargetProblem(profile: BeeTargetProfile): string | null {
   if (beeUrl && publishers) {
     return 'bee_url is not used when bee_publishers is set — the uploader publishes to the pool';
   }
-  if (beeUrl && defaultServicesFor(profile).includes(BEE_UPLOADER_SERVICE)) {
+  if (beeUrl && runsOwnNode) {
     return 'bee_url only applies to a deployment that runs no bee-uploader — remove that component to point the uploader at an external node';
+  }
+  if (services.includes(STREAM_UPLOADER_SERVICE) && !runsOwnNode && !publishers && !beeUrl) {
+    return 'bee_url is required here. A deployment that runs no Bee node of its own has to name the one it publishes through, or paste an ABR node pool into bee_publishers.';
   }
   return null;
 }

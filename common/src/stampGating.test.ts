@@ -104,6 +104,40 @@ describe('beeTargetProblem', () => {
     );
   });
 
+  it('refuses an uploader that runs no node of its own and names none either', () => {
+    // LOCAL_BEE_UPLOADER=false leaves BEE_URL in .env.<profile> as the only
+    // address the uploader has, and that file is a full copy of the stack's
+    // .env, itself copied from .env.sample, where BEE_URL is
+    // http://localhost:1633: inside the container, the container itself. The
+    // stack refuses an EMPTY BEE_URL, so the placeholder walks straight past
+    // the refusal and the uploader crash-loops against port 1633 of itself.
+    assert.match(
+      beeTargetProblem({ kind: 'custom', components: ['srs', 'stream-uploader'] }) ?? '',
+      /bee_url is required/,
+    );
+  });
+
+  it('accepts that uploader once it names where it publishes', () => {
+    // Either answer settles it: an address of its own, or a pool whose rungs
+    // are the addresses.
+    assert.equal(
+      beeTargetProblem({
+        kind: 'custom',
+        components: ['srs', 'stream-uploader'],
+        bee_url: EXTERNAL,
+      }),
+      null,
+    );
+    assert.equal(
+      beeTargetProblem({
+        kind: 'custom',
+        components: ['srs', 'stream-uploader'],
+        bee_publishers: PUBLISHERS,
+      }),
+      null,
+    );
+  });
+
   it('reports the missing pool before anything else', () => {
     // Ordered by what has to be fixed first: an abr-uploader with neither a
     // pool nor a usable bee_url has one real problem, not two.

@@ -405,6 +405,30 @@ function gopProblem(
   );
 }
 
+/**
+ * The engine force-closes a piece it has run past without a keyframe, so a
+ * ceiling under the segment length cuts every piece before one can end it. The
+ * SRS entrypoint exits 1 on that pair rather than starting, and compose
+ * supplies 2.5 whenever the profile sets no ceiling of its own, which is why an
+ * unset ceiling is checked at what the host falls back to.
+ */
+function forceCloseCeilingProblem(
+  settings: EngineSettings,
+  defaults: EngineSettings,
+): string | null {
+  const effective = effectiveEngineSettings(SRS_SERVICE, settings, defaults);
+  const fragment = effective.HLS_FRAGMENT ?? '';
+  const ceiling = effective.HLS_SEGMENT_MAX ?? '';
+  if (!NUMBER_RE.test(fragment) || !NUMBER_RE.test(ceiling)) return null;
+  if (Number(ceiling) >= Number(fragment)) return null;
+
+  return (
+    `The force-close ceiling of ${ceiling} seconds is below the segment length of ${fragment} seconds, ` +
+    'so every piece would be cut before a keyframe could end one and the engine refuses to start. ' +
+    'Raise the ceiling to at least the segment length, or lower the segment length.'
+  );
+}
+
 export interface EngineSettingsCheckOptions {
   /**
    * The ABR ladder is on for this profile, which decides both whether the ABR
@@ -413,8 +437,8 @@ export interface EngineSettingsCheckOptions {
   abr: boolean;
   /**
    * What an unset field falls back to on the host this deployment runs on, from
-   * `effectiveEngineDefaults`. The keyframe rule spans two fields and either of
-   * them may be unset, so checking it against the stack's own values passes a
+   * `effectiveEngineDefaults`. Each cross-field rule spans two fields and either
+   * of them may be unset, so checking one against the stack's own values passes a
    * pair the host then refuses, and refuses a pair it would have started with.
    */
   defaults?: EngineSettings;
@@ -449,8 +473,11 @@ export function engineSettingsProblem(
     if (problem) return problem;
   }
 
-  if (engine === SRS_SERVICE && options.abr) {
-    return gopProblem(settings, options.defaults ?? {});
+  if (engine === SRS_SERVICE) {
+    const defaults = options.defaults ?? {};
+    const ceiling = forceCloseCeilingProblem(settings, defaults);
+    if (ceiling) return ceiling;
+    if (options.abr) return gopProblem(settings, defaults);
   }
   return null;
 }

@@ -118,9 +118,16 @@ describe('update: clearing the ABR pool string', () => {
   it('takes the rung settings out with it', async () => {
     // Left behind, ABR_FPS fails the settings check on every later deploy and
     // the deployment lands in ERROR over a field no drawer renders.
+    //
+    // The bee_url goes with the clearing because this deployment runs no Bee
+    // node of its own: beeTargetProblem refuses an uploader left with nowhere
+    // to publish, so moving off the pool means naming a node instead.
     const { service, stored } = withLadder();
 
-    await service.update('stream1', { bee_publishers: null });
+    await service.update('stream1', {
+      bee_publishers: null,
+      bee_url: 'http://10.0.0.7:1633',
+    });
 
     assert.deepEqual(stored().engine_settings, { HLS_FRAGMENT: '2' });
   });

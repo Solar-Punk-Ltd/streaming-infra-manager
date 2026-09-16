@@ -384,6 +384,55 @@ describe('effectiveEngineSettings on a deployment whose config file dropped a ke
   });
 });
 
+describe('the force-close ceiling against the segment length', () => {
+  // The SRS entrypoint exits 1 when the ceiling is below the segment length,
+  // and compose supplies 2.5 whenever the profile sets none, so a 4 second
+  // segment on its own takes a running deployment into a crash loop.
+  const STACK_CEILING = { abr: false, defaults: { HLS_SEGMENT_MAX: '2.5' } };
+
+  it('refuses a segment length raised past the ceiling it falls back to', () => {
+    assert.match(
+      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '4' }, STACK_CEILING) ?? '',
+      /2\.5 seconds is below the segment length of 4 seconds/,
+    );
+  });
+
+  it('accepts the same segment length once the ceiling moves with it', () => {
+    assert.equal(
+      engineSettingsProblem(
+        SRS_SERVICE,
+        { HLS_FRAGMENT: '4', HLS_SEGMENT_MAX: '4' },
+        STACK_CEILING,
+      ),
+      null,
+    );
+  });
+
+  it('accepts a segment length equal to the ceiling, as the entrypoint does', () => {
+    assert.equal(
+      engineSettingsProblem(
+        SRS_SERVICE,
+        { HLS_FRAGMENT: '2.5' },
+        STACK_CEILING,
+      ),
+      null,
+    );
+  });
+
+  it('applies to a deployment without the ABR ladder', () => {
+    // The only cross-field rule before this one ran under the ladder alone, and
+    // this pair is read by every SRS deployment.
+    assert.notEqual(
+      engineSettingsProblem(
+        SRS_SERVICE,
+        { HLS_FRAGMENT: '3', HLS_SEGMENT_MAX: '2' },
+        PLAIN,
+      ),
+      null,
+    );
+  });
+});
+
 describe('what an operator can see about the force-close ceiling', () => {
   const field = (key: string) =>
     SRS_SETTINGS.find((candidate) => candidate.key === key);
