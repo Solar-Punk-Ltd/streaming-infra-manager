@@ -81,7 +81,7 @@ describe('createGroupSchema — ABR ladder', () => {
   });
 });
 
-describe('createGroupSchema — engine settings', () => {
+describe('what a group create body accepts as engine settings', () => {
   it('accepts the segment length every member is created with', async () => {
     const body = await createGroupSchema.validate(
       { group_name: 'studio', size: 2, engine_settings: { HLS_FRAGMENT: '2' } },
