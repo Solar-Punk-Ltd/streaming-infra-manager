@@ -54,10 +54,15 @@ export interface RecordedDeploy {
 }
 
 /**
- * A DeploymentOrchestrator that records instead of deploying, keeping the two
- * rules the real one is bound by: a claim moves the profile into DEPLOYING or
- * is refused outright, and a failure once the claim is held marks the profile
- * ERROR through the repository.
+ * A DeploymentOrchestrator that records instead of deploying, keeping the claim
+ * rule the real one is bound by: a claim moves the profile into DEPLOYING or is
+ * refused outright.
+ *
+ * It does not model the real failure write, which is guarded twice, first by the
+ * claim still owning every column it captured and then by the row still being
+ * DEPLOYING. This one marks ERROR whatever the row says, so a test about a row
+ * that moved under a running deploy belongs against the repository fake rather
+ * than here.
  */
 export class FakeOrchestrator {
   rolloutAttempts?: InMemoryDeployAttempts;
@@ -174,7 +179,8 @@ export class FakeOrchestrator {
     this.exitCodes.delete(profile.name);
     const handle = finishedHandle(code);
     // The real success hook marks RUNNING and only then runs what was asked
-    // to run after it, and a failed script marks ERROR with its reason.
+    // to run after it. A failed script marks ERROR with its reason here, and
+    // under the guards named above in the real one.
     handle.emitter.once('done', () => {
       void (async () => {
         if (reservation.attempt) await this.rolloutAttempts?.resolve(reservation.attempt.id, { state: 'released', reason: null });
@@ -299,7 +305,6 @@ export class InMemoryGroups {
         components: write.components,
         feed_owner: write.feed_owner,
         feed_topic: write.feed_topic,
-        private_key: write.private_key,
         public_key: write.public_key,
         stamp_id: write.stamp_id,
         srt_passphrase: write.srt_passphrase,
@@ -324,6 +329,7 @@ export class InMemoryGroups {
     if (slot === null) {
       throw new AllSlotsUsedError(shared.slot_cap);
     }
+    if (shared.private_key) this.profiles.privateKeys.set(name, shared.private_key);
     const row = makeProfile({
       name,
       kind: shared.kind,
@@ -332,7 +338,7 @@ export class InMemoryGroups {
       host: shared.host,
       feed_owner: shared.feed_owner,
       feed_topic: shared.feed_topic,
-      private_key: shared.private_key,
+      has_private_key: Boolean(shared.private_key),
       public_key: shared.public_key,
       stamp_id: shared.stamp_id,
       srt_passphrase: shared.srt_passphrase,

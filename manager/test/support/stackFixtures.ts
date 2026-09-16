@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** The cut-down checkouts of both branches, read-only. */
+/** The cut-down checkouts the contract tests read: `v2`, `v3` and `unparsable`. */
 export const STACK_FIXTURES = join(here, '..', 'fixtures', 'stack');
 
 export const V2_FIXTURE = join(STACK_FIXTURES, 'v2');
