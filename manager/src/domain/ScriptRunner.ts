@@ -2,11 +2,18 @@ import { ChildProcess, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
 import { Logger } from './Logger.js';
+import { scriptEnv } from './scriptEnv.js';
 
 const logger = Logger.getInstance();
 
 export interface RunOptions {
+  /**
+   * The directory the script runs in, and for a stack script the root of the
+   * checkout being deployed, whose samples say which names belong to the
+   * deployment rather than to the manager. See `scriptEnv`.
+   */
   cwd?: string;
+  /** Set for the script to read, over anything the environment already says. */
   env?: Record<string, string>;
 }
 
@@ -66,7 +73,7 @@ export class ScriptRunner implements ScriptSpawner {
     try {
       child = spawn('bash', [scriptPath, ...args], {
         cwd: options.cwd,
-        env: { ...process.env, ...(options.env ?? {}) },
+        env: scriptEnv(process.env, options.cwd, options.env),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
