@@ -222,6 +222,15 @@ passphrase. Today that is by design: the operator needs the publish URL. Once se
 share the tool it is worth a follow-up that returns the key only on the deployment page and
 never in the list. Noted, not in this PR.
 
+**Changed on 2026-09-16.** The profile JSON carries neither value any more. Two flags,
+`has_private_key` and `has_srt_passphrase`, say whether a deployment holds them. The private key is
+never returned at all. The SRT passphrase is answered one deployment at a time by
+`GET /profiles/:name/srt-passphrase`, which the publish URL fetches when it is opened or copied, and
+the manager logs who read which deployment's. Reading a deployment's effective engine config, which
+carries the passphrase in clear, logs its reader the same way. `GET /config` still answers the
+host-wide passphrase to a signed-in user. So the follow-up above landed, and went further than the
+list-versus-page split it proposed.
+
 ## PR split
 
 1. **Login gate**: migration, hashing, sessions, limiter, middleware, routes, CLI, sign-in page,
