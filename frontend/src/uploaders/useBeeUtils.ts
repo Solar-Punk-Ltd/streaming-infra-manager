@@ -4,6 +4,7 @@ import {
   type ChequebookSummary,
   type BeeNodeObservation,
   hasStampId,
+  type ReadFailure,
   sameBatchId,
 } from '@streaming-infra-manager/common';
 
@@ -11,6 +12,7 @@ import { ApiError } from '../http';
 import type { Profile } from '../types';
 import { BeeCheckRounds, shouldRunTick } from './beeCheckRounds';
 import { NODE_REFRESH_INTERVAL_MS } from './beeReadiness';
+import { NODE_NOT_READY_CODE, readFailureFrom } from './readFailure';
 import { fetchChequebook } from './chequebookApi';
 import {
   type BeeAddress,
@@ -26,9 +28,6 @@ import {
 
 const STAMP_POLL_INTERVAL_MS = 5_000;
 const STAMP_POLL_MAX_ATTEMPTS = 120;
-
-/** The manager's code for a node that answered 503: up, still syncing. */
-const NODE_NOT_READY_CODE = 'bee_node_not_ready';
 
 function beeLoadError(reason: unknown): string {
   if (reason instanceof ApiError && reason.code === NODE_NOT_READY_CODE) {
@@ -58,6 +57,15 @@ export interface BeeUtils {
    * under a "node unreachable" banner is a contradiction.
    */
   stamps: BeeStamp[] | null;
+  /**
+   * Why `stamps` is null, and absent whenever it is not.
+   *
+   * Without it the recorded batch renders as "Stamp not checked", which reads
+   * as nobody having asked. It travels beside the list rather than inside
+   * `loadError`, because that one sentence covers a whole round and this has to
+   * reach the one step the read belongs to.
+   */
+  stampsFailure: ReadFailure | undefined;
   chainState: BeeChainState | null;
   /**
    * What the node can still pay peers with, or null when it did not say. The
@@ -121,6 +129,7 @@ export function useBeeUtils(
   const [address, setAddress] = useState<BeeAddress | null>(null);
   const [wallet, setWallet] = useState<BeeWallet | null>(null);
   const [stamps, setStamps] = useState<BeeStamp[] | null>(null);
+  const [stampsFailure, setStampsFailure] = useState<ReadFailure | undefined>(undefined);
   const [chainState, setChainState] = useState<BeeChainState | null>(null);
   const [chequebook, setChequebook] = useState<ChequebookSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,6 +148,7 @@ export function useBeeUtils(
       setLoadError(null);
     }
 
+    const askedAt = performance.now();
     const [
       observationResult,
       addressResult,
@@ -174,6 +184,11 @@ export function useBeeUtils(
     setWallet(walletResult.status === 'fulfilled' ? walletResult.value : null);
     setStamps(
       stampsResult.status === 'fulfilled' ? stampsResult.value : null,
+    );
+    setStampsFailure(
+      stampsResult.status === 'fulfilled'
+        ? undefined
+        : readFailureFrom(stampsResult.reason, performance.now() - askedAt),
     );
     setChainState(
       chainStateResult.status === 'fulfilled' ? chainStateResult.value : null,
@@ -265,6 +280,7 @@ export function useBeeUtils(
     address,
     wallet,
     stamps,
+    stampsFailure,
     chainState,
     chequebook,
     loading,

@@ -136,7 +136,11 @@ function DeploymentBody({
   const version =
     versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
-  const stampHealth = stampHealthFrom(profile.stamp_id, bee?.stamps ?? null);
+  const stampHealth = stampHealthFrom(
+    profile.stamp_id,
+    bee?.stamps ?? null,
+    bee?.stampsFailure,
+  );
   const chequebookHealth: ChequebookHealth | null = bee?.chequebook
     ? chequebookHealthFromPayload(bee.chequebook.health)
     : null;
