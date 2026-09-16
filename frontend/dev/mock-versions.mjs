@@ -83,9 +83,13 @@ const BUNDLED_CONTRACT = {
   ports: portsFrom(V2_PORTS),
   maxSlot: 999,
   requiredSecrets: [],
+  // What the submodule this manager ships actually falls back to, which is
+  // main-v3's half second and not the 1.5 and 22.5 main-v2 had. The mock is
+  // where the drawer's "the stack falls back to" line is read without a stack,
+  // so a number here that no branch cuts is a number nobody can check.
   engineDefaults: {
-    HLS_FRAGMENT: '1.5',
-    HLS_WINDOW: '22.5',
+    HLS_FRAGMENT: '0.5',
+    HLS_WINDOW: '15',
     HLS_SEGMENT_DURATION: '2',
     HLS_SEGMENT_COUNT: '5',
   },

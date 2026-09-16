@@ -189,7 +189,9 @@ settings, restart, logs and effective config for OME regardless.
   `ConfirmDialog`.
 - `EditorsContext` gains `openEngineSettings(name)`. `useDeploymentActions` gains
   `restartContainer(name, service)` with its toast.
-- `AtAGlanceCard` shows `Engine: SRS · segment 1.5 s · window 22.5 s`.
+- `AtAGlanceCard` shows `Engine: SRS · segment 2 s · window 15 s` for a deployment created with
+  the manager's own defaults, off the same observations the engine card reads, so a deployment
+  that stores neither shows whatever its own stack version falls back to instead.
 - Mock manager: engine settings stored per profile and echoed, restart bumps a fake uptime,
   logs and config return generated text, live status invents a publisher for running streams.
 
