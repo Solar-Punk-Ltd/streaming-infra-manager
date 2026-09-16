@@ -72,7 +72,9 @@ export function initialEdits(profile: Profile | null): DeploymentEdits {
   return {
     passMode: profile?.srt_passphrase?.trim() ? 'own' : 'host',
     passphrase: profile?.srt_passphrase ?? '',
-    key: profile?.private_key ?? '',
+    // Empty whatever the deployment holds: the key is never answered, so the
+    // box starts blank and only what the operator types goes in it.
+    key: '',
     stampId: profile?.stamp_id ?? '',
     beeUrl: profile?.bee_url ?? '',
     rpcEndpoint: profile?.rpc_endpoint ?? '',
@@ -80,6 +82,27 @@ export function initialEdits(profile: Profile | null): DeploymentEdits {
     feedOwner: profile?.feed_owner ?? '',
     notes: profile?.notes ?? '',
   };
+}
+
+/** What the stream key field is looking at, which decides whether it shows dots. */
+export interface StreamKeyState {
+  /** Whether the deployment holds a key, which is all the manager answers. */
+  hasStoredKey: boolean;
+  /** What the operator has typed or generated, empty until they do. */
+  typed: string;
+  /** Whether they asked to replace the stored key, which opens the empty box. */
+  replacing: boolean;
+}
+
+/**
+ * Whether the field shows dots instead of a value.
+ *
+ * There is no key to show: the manager answers whether one is stored and never
+ * the key. So the field is masked exactly while a key is stored, nothing has
+ * been typed, and the operator has not asked to replace it.
+ */
+export function streamKeyMasked(state: StreamKeyState): boolean {
+  return state.hasStoredKey && !state.replacing && state.typed === '';
 }
 
 export function editProblem(edits: DeploymentEdits, shown: ShownFields): string | null {
@@ -150,7 +173,6 @@ export function bodyFor(
     components: profile.components ?? undefined,
     notes: changed('notes') ? edits.notes.trim() || null : profile.notes ?? null,
     feed_owner: profile.feed_owner ?? undefined,
-    private_key: profile.private_key ?? undefined,
     public_key: profile.public_key ?? undefined,
     stamp_id: profile.stamp_id ?? undefined,
     bee_publishers: profile.bee_publishers ?? undefined,

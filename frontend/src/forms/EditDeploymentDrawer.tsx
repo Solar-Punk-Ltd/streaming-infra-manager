@@ -109,7 +109,7 @@ export function EditDeploymentDrawer({
       {shown.key && (
         <StreamKeyField
           value={edits.key}
-          storedKey={profile.private_key ?? ''}
+          hasStoredKey={profile.has_private_key}
           storedAddress={profile.public_key ?? null}
           onChange={(key) => update({ key })}
         />

@@ -25,7 +25,12 @@ export interface Profile {
   components?: string[] | null;
   feed_owner?: string | null;
   feed_topic?: string | null;
-  private_key?: string | null;
+  /**
+   * Whether a signing key is stored. The key itself is never answered: it
+   * signs the feed, and whoever holds it can publish as this deployment for
+   * good, with nothing to revoke.
+   */
+  has_private_key: boolean;
   public_key?: string | null;
   stamp_id?: string | null;
   /** Pasted BEE_PUBLISHERS: publishes to an ABR node pool instead of its own node. */

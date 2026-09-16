@@ -11,7 +11,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { Profile } from '../types';
-import { bodyFor, editProblem, fieldsFor, initialEdits } from './deploymentEdits';
+import {
+  bodyFor,
+  editProblem,
+  fieldsFor,
+  initialEdits,
+  streamKeyMasked,
+} from './deploymentEdits';
+import { addressForKey } from './validation';
 
 function viewer(over: Partial<Profile> = {}): Profile {
   return {
@@ -23,6 +30,7 @@ function viewer(over: Partial<Profile> = {}): Profile {
     components: ['client', 'bee-gateway'],
     feed_owner: '0x1111111111111111111111111111111111111111',
     engine_settings: {},
+    has_private_key: false,
     has_engine_config: false,
     engine_config_error: null,
     engine_config_state: null,
@@ -153,3 +161,78 @@ describe('the chain endpoint a deployment names for itself', () => {
   });
 });
 
+/** A key an operator pastes into the drawer. */
+const TYPED_KEY = `0x${'11'.repeat(32)}`;
+
+describe('the stream key in the Edit drawer', () => {
+  /**
+   * The manager answers whether a key is stored and never the key, so there is
+   * nothing to put in the box. The assertion holds the drawer to that even if
+   * something upstream starts answering one again.
+   */
+  it('starts empty, so a stored key is never on screen', () => {
+    const holdsAKey = uploader({
+      has_private_key: true,
+      private_key: `0x${'ab'.repeat(32)}`,
+    } as Partial<Profile>);
+
+    assert.equal(initialEdits(holdsAKey).key, '');
+  });
+
+  it('shows dots while a key is stored and the operator has typed nothing', () => {
+    assert.equal(
+      streamKeyMasked({ hasStoredKey: true, typed: '', replacing: false }),
+      true,
+    );
+  });
+
+  it('opens the field when the operator asks to paste another, or types one', () => {
+    assert.equal(
+      streamKeyMasked({ hasStoredKey: true, typed: '', replacing: true }),
+      false,
+    );
+    assert.equal(
+      streamKeyMasked({ hasStoredKey: true, typed: TYPED_KEY, replacing: false }),
+      false,
+    );
+  });
+
+  it('leaves the field open when the deployment holds no key at all', () => {
+    assert.equal(
+      streamKeyMasked({ hasStoredKey: false, typed: '', replacing: false }),
+      false,
+    );
+  });
+
+  it('sends the key the operator typed, with the address it derives', () => {
+    const profile = uploader({ has_private_key: true });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, key: TYPED_KEY },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.private_key, TYPED_KEY);
+    assert.equal(body.public_key, addressForKey(TYPED_KEY));
+  });
+
+  /** The manager keeps the stored key when a save says nothing about it. */
+  it('sends no key when the operator did not touch the field', () => {
+    const profile = uploader({ has_private_key: true });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, notes: 'only the note changed' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.private_key, undefined);
+  });
+});
