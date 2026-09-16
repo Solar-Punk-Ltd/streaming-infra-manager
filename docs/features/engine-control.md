@@ -72,8 +72,8 @@ and Storage:
   seconds while the page is open. When the API is not reachable the block says `Live status
   needs the SRS API port, which this stack version does not publish.`
 - **Settings** opens a right drawer, the same frame the Edit drawer uses, with only the fields
-  the engine has. For SRS: **Segment length** (`HLS_FRAGMENT`, seconds), **Playlist window**
-  (`HLS_WINDOW`, seconds), **SRT latency** (`SRT_LATENCY`, milliseconds, `main-v3` only), and
+  the engine has. For SRS: **Segment length** (`HLS_FRAGMENT`, seconds), **Force-close a piece
+  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), and
   under **Transcoding (ABR uploaders only)**: frame rate, preset, profile, threads, audio codec,
   audio bitrate, VBV seconds (`ABR_FPS`, `ABR_PRESET`, `ABR_PROFILE`, `ABR_THREADS`, `ABR_ACODEC`,
   `ABR_AUDIO_BITRATE`, `ABR_VBV_SECONDS`). The ladder itself stays fixed, it is the contract with
@@ -112,7 +112,9 @@ stack version, and validation lives in code:
 
 - `common/src/engineSettings.ts`, new, tested: the field list per engine (`SRS_SETTINGS`,
   `OME_SETTINGS`) with key, label, unit, kind (`number | integer | choice`), default, min, max,
-  help text, and `whichVersions` for fields that only newer stacks read. `engineSettingsProblem
+  help text and, for a field the engine's config template carries, the placeholder its value
+  fills. Which keys a version reads comes from that version's contract, not from the field.
+  `engineSettingsProblem
   (engine, settings)` returns the first human readable problem or null, including the GOP rule.
   `engineSettingsEnv(engine, settings)` returns the `KEY=value` pairs to write. Shared, so the
   drawer and the deploy validate identically.
@@ -142,8 +144,9 @@ uses:
   demultiplexed, capped at 2000 lines, returned as text.
 - `effectiveConfig(profile)`: `container.exec` with `cat /usr/local/srs/conf/srs.conf` (SRS) or
   `cat /opt/ovenmediaengine/bin/origin_conf/Server.xml` (OME), captured, capped at 256 KiB. The
-  SRS config contains the SRT passphrase in clear, which the profile JSON already carries, so
-  nothing new leaks, but the response is marked no-store.
+  SRS config contains the SRT passphrase in clear. Since the passphrase left the profile JSON on
+  2026-09-16 this route is one of the two doors the value leaves by, so it logs who read which
+  deployment's config, and the response is marked no-store.
 
 Routes, `manager/src/api/routes/engine.ts`:
 
