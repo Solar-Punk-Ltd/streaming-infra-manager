@@ -27,7 +27,7 @@ The allocator counts slots from a `generate_series` join under an advisory lock,
 - Publish contract Y after A reserved X: the job runs on X throughout.
 - Seed an existing profile and race a new allocation for its port: allocation stays gated.
 - Two aliases of one daemon allow exactly one reservation of p. Distinct daemons reserve p independently. A local and a remote alias of one daemon share one namespace.
-- Bundled slot 101 cannot become public through a rung-peer allowance. Firewall tests evaluate the whole generated policy.
+- Bundled slot 101 cannot become public through a rung-peer allowance. Firewall tests evaluate the whole generated policy. Closed on 2026-09-16 by 33ea4e1: the generator has no rung-peer allowance at all any more, and 00377b6, 6b9aa90 and e01dc3b hold the line.
 
 ## Where the design lives
 

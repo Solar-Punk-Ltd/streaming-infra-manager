@@ -8,6 +8,10 @@ Baseline d046ebf, branch main-v2. Design and acceptance text: ../PRD.md (revisio
 
 `frontend/src/deployments/engineText.ts:26` calls `effectiveEngineSettings` without the version's defaults, and `AtAGlanceCard.tsx:51` shows the result, so a main-v3 deployment reads 1.5 and 22.5 where the engine runs 0.5 and 15.
 
+Closed. T11 landed at ef269a8, and on 2026-09-16 the field defaults became 2 and 15 (d15c5e3), so
+1.5 and 22.5 are no longer anywhere in the code. The acceptance line below that names them describes
+the state this record was written against.
+
 ## Scope
 
 - The manager answers `effective_engine_settings` on each profile, computed from the version's defaults (`ProfileService.engineDefaults` at :431), host overrides and deployment overrides. Every surface reads it: engine card, At a glance, editor help, generated config.
