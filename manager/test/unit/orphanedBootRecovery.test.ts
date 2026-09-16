@@ -3,20 +3,25 @@
  *
  * Unit test, no database and no Docker. `pnpm test` in manager/.
  *
- * A deploy takes minutes, so a restart inside one is ordinary. Boot used to
- * write ERROR over every row it found in DEPLOYING, STOPPING or REMOVING
- * without asking Docker anything, so a stack compose had already brought up
- * was reported as a failed deployment while it was streaming. Nothing later
- * repairs that: the containers a page shows are written from the environment
- * the manager computed, never compared with the daemon, so the wrong status
- * stands until somebody deploys again.
+ * A deploy takes minutes, so a restart inside one is ordinary. Boot judges each
+ * row it finds in DEPLOYING, STOPPING or REMOVING by whether that deployment's
+ * services are running now, and a service is running when at least one of its
+ * containers is. Nothing later repairs a wrong answer: the containers a page
+ * shows are written from the environment the manager computed, never compared
+ * with the daemon, so the status boot writes stands until somebody deploys
+ * again.
+ *
+ * Two earlier readings were both wrong in that lasting way. Boot first wrote
+ * ERROR over every such row without asking Docker anything, which reported a
+ * stack compose had already brought up as a failed deployment while it was
+ * streaming. It then asked for container ids alone, which counted a container
+ * that had exited or was crash looping exactly like one that was up.
  */
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { DaemonSnapshot } from '../../src/domain/DeployAttemptRepository.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 
 const root = throwawayRoot('orphaned-boot-recovery-');
@@ -94,30 +99,54 @@ describe('a deployment the manager restarted under', () => {
     assert.equal(h.profiles.rows.get('stage')!.status, 'RUNNING');
   });
 
-  /**
-   * A recorded limit, not a behaviour anybody wants.
-   *
-   * The snapshot this judgement reads carries container ids and nothing else,
-   * so a service whose container has exited is counted exactly like one that
-   * is up, and a deployment crash looping after a restart reads as RUNNING
-   * with nothing to say otherwise. Closing it means the snapshot carrying each
-   * container's state: `DaemonSnapshot` in DeployAttemptRepository.ts, both
-   * readers in ports/TargetDocker.ts, which have the state in hand today and
-   * drop it, and `attemptOutcome`, which the deploy path judges with and which
-   * assert-started.sh already covers.
-   *
-   * The assignment below is the tripwire. It stops compiling the day a
-   * snapshot says more than an id, so the judgement is revisited then rather
-   * than left as it is.
-   */
-  it('judges from container ids alone, whatever state those containers are in', async () => {
+  it('is ERROR naming the service whose container has exited, and not the one that is up', async () => {
     const h = interrupted('DEPLOYING');
-    const idsAlone: (snapshot: DaemonSnapshot) => Map<string, string[]> = (snapshot) => snapshot.containers;
+    h.daemon.set('stage', 'srs', ['stage-srs-0'], 'exited');
 
-    const seen = idsAlone(await h.daemon.snapshot('stage'));
+    await h.orchestrator.reconcileOrphanedTransitions();
 
-    assert.deepEqual([...seen.keys()].sort(), ['srs', 'stream-uploader']);
-    assert.deepEqual(seen.get('stream-uploader'), ['stage-stream-uploader-0']);
+    const row = h.profiles.rows.get('stage')!;
+    assert.equal(row.status, 'ERROR');
+    assert.match(row.last_error ?? '', /srs/);
+    assert.match(row.last_error ?? '', /exited/);
+    assert.doesNotMatch(row.last_error ?? '', /stream-uploader/);
+  });
+
+  it('is ERROR naming a service that is crash looping, in the word Docker uses for it', async () => {
+    const h = interrupted('DEPLOYING');
+    h.daemon.set('stage', 'srs', ['stage-srs-0'], 'restarting');
+
+    await h.orchestrator.reconcileOrphanedTransitions();
+
+    const row = h.profiles.rows.get('stage')!;
+    assert.equal(row.status, 'ERROR');
+    assert.match(row.last_error ?? '', /srs/);
+    assert.match(row.last_error ?? '', /restarting/);
+  });
+
+  /** A finished `docker compose stop` leaves the containers there and exited. */
+  it('is STOPPED when it was stopping and every container has exited', async () => {
+    const h = interrupted('STOPPING');
+    for (const service of ['srs', 'stream-uploader']) {
+      h.daemon.set('stage', service, [`stage-${service}-0`], 'exited');
+    }
+
+    await h.orchestrator.reconcileOrphanedTransitions();
+
+    const row = h.profiles.rows.get('stage')!;
+    assert.equal(row.status, 'STOPPED');
+    assert.equal(row.last_error, null);
+  });
+
+  it('is ERROR naming what a half finished stop left running', async () => {
+    const h = interrupted('STOPPING');
+    h.daemon.set('stage', 'stream-uploader', ['stage-stream-uploader-0'], 'exited');
+
+    await h.orchestrator.reconcileOrphanedTransitions();
+
+    const row = h.profiles.rows.get('stage')!;
+    assert.equal(row.status, 'ERROR');
+    assert.match(row.last_error ?? '', /srs/);
   });
 
   it('leaves a settled deployment alone', async () => {

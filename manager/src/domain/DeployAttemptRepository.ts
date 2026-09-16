@@ -46,10 +46,33 @@ export interface DeployAttemptRepository {
   releaseProject(daemonId: string, project: string, by: string): Promise<DeployAttempt[]>;
 }
 
+/** One container of a project, as Docker has it now. */
+export interface ObservedContainer {
+  id: string;
+  /** Docker's own word: running, restarting, paused, exited, created, dead or removing. */
+  state: string;
+}
+
 /** What Docker says about the project an attempt is about. */
 export interface DaemonSnapshot {
   daemonId: string;
-  containers: Map<string, string[]>;
+  containers: Map<string, ObservedContainer[]>;
+}
+
+/** Each service's container ids, for the callers that need identity rather than state. */
+export function containerIdsByService(
+  containers: ReadonlyMap<string, readonly ObservedContainer[]>,
+): Map<string, string[]> {
+  return new Map(
+    [...containers].map(([service, observed]) => [service, observed.map((container) => container.id)]),
+  );
+}
+
+/** Every container id in a snapshot, for the callers that compare identity across a job. */
+export function allContainerIds(
+  containers: ReadonlyMap<string, readonly ObservedContainer[]>,
+): string[] {
+  return [...containers.values()].flat().map((container) => container.id);
 }
 
 export interface DaemonObserver {

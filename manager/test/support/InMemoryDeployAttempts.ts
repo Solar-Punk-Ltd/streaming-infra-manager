@@ -3,12 +3,14 @@ import {
   type DeployAttempt,
   whyAdmissionIsRefused,
 } from '../../src/domain/deployAttempts.js';
-import type {
-  DaemonObserver,
-  DaemonSnapshot,
-  DeployAttemptRepository,
-  NewDeployAttempt,
-  AttemptSnapshotToken,
+import {
+  containerIdsByService,
+  type DaemonObserver,
+  type DaemonSnapshot,
+  type DeployAttemptRepository,
+  type NewDeployAttempt,
+  type AttemptSnapshotToken,
+  type ObservedContainer,
 } from '../../src/domain/DeployAttemptRepository.js';
 import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
 
@@ -115,7 +117,7 @@ export class FakeDaemon implements DaemonObserver {
 
   autoRecreate = true;
 
-  readonly containers = new Map<string, Map<string, string[]>>();
+  readonly containers = new Map<string, Map<string, ObservedContainer[]>>();
 
 
   async daemonId(_target?: string): Promise<string> {
@@ -123,16 +125,22 @@ export class FakeDaemon implements DaemonObserver {
   }
 
   async snapshot(project: string, target = 'localhost'): Promise<DaemonSnapshot> {
-    return { daemonId: await this.daemonId(target), containers: await this.containerIdsOf(project, target) };
+    return { daemonId: await this.daemonId(target), containers: this.observed(project) };
   }
 
   async containerIdsOf(project: string, _target?: string): Promise<Map<string, string[]>> {
-    return new Map([...(this.containers.get(project) ?? new Map())].map(([service, ids]) => [service, [...ids]]));
+    return containerIdsByService(this.observed(project));
   }
 
-  set(project: string, service: string, ids: string[]): void {
-    const byService = this.containers.get(project) ?? new Map<string, string[]>();
-    byService.set(service, ids);
+  /** Containers a test did not give a state of its own are up, which is the ordinary case. */
+  set(project: string, service: string, ids: string[], state = 'running'): void {
+    const byService = this.containers.get(project) ?? new Map<string, ObservedContainer[]>();
+    byService.set(service, ids.map((id) => ({ id, state })));
     this.containers.set(project, byService);
+  }
+
+  private observed(project: string): Map<string, ObservedContainer[]> {
+    const byService = this.containers.get(project) ?? new Map<string, ObservedContainer[]>();
+    return new Map([...byService].map(([service, observed]) => [service, [...observed]]));
   }
 }
