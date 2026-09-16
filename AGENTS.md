@@ -18,7 +18,9 @@ Source: R01. Priority: P1. Depends on: T01a. Decision: none. Size: M.
 
 The five triage labels the review used, `needs-triage`, `needs-info`, `ready-for-agent`,
 `ready-for-human` and `wontfix`, are defined and applied in `docs/consensus/PRD.md`, which also
-carries every review round, the task table and Levi's decisions D01 to D14.
+carries every review round, the task table and Levi's decisions D01 to D10. Decisions D11 to D14
+were taken during the slices built after the merge and live in their briefs and fixes files in the
+same directory, which `docs/consensus/README.md` lists in order.
 
 `docs/consensus/prs/` holds one draft pull request body per row, kept as the per-row record of
 what was built and checked. `docs/consensus/README.md` maps the whole directory.
