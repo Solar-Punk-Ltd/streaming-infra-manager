@@ -858,6 +858,10 @@ two files that name them as something to read, `AGENTS.md` and
 `docs/agents/domain.md`, describe the convention rather than asserting the
 files are there, and the consensus records that mention them only record this
 same investigation, so nothing was created and nothing is flagged.
+(Revisited on 2026-09-16 and settled the other way. `AGENTS.md` did assert both
+paths, and `docs/agents/domain.md` printed a file tree containing them, so a
+session reading either was told they exist. The three pages under `docs/agents/`
+were deleted and `AGENTS.md` rewritten to say what this repository has.)
 `docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
 T22 with T01a and the a/b splits among them, plus its README, and the README's
 order section names all 25.
