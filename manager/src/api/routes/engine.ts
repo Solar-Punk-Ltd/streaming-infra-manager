@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 
 import { ContainerControl } from '../../domain/ContainerControl.js';
 import { ProfileBusyError } from '../../domain/errors/index.js';
+import { Logger } from '../../domain/Logger.js';
 import { ProfileService } from '../../domain/ProfileService.js';
 import {
   containerParamsSchema,
@@ -13,7 +14,10 @@ import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import { profileNameSchema } from '../../schemas/profile.js';
 import { TRANSITIONAL_STATUSES } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { signedInUser } from '../middleware/requireSession.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
+
+const logger = Logger.getInstance();
 
 const DEFAULT_LOG_LINES = 200;
 
@@ -99,6 +103,9 @@ export function createEngineRouter(
     '/profiles/:name/engine/config',
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
+      // Before the read, so a request that arrived without a session is refused
+      // rather than answered and then logged, as the reveal route does it.
+      const { username } = signedInUser(req);
       const name = req.params.name as string;
       const { engine } = await profileService.engineOverview(name);
       const text = await containers.effectiveConfig(name, engine);
@@ -106,7 +113,11 @@ export function createEngineRouter(
       // engine's entrypoint splices it into the file. The profile row no
       // longer carries it, so this is the other door that value leaves by,
       // one deployment at a time and on request, and there is no reason for it
-      // to sit in a browser or proxy cache.
+      // to sit in a browser or proxy cache. Both doors leave the same line, so
+      // who read a passphrase is one search rather than two.
+      logger.info(
+        `[Engine] ${username} read the effective ${engine} config of ${name}, which carries its SRT passphrase`,
+      );
       res.setHeader('Cache-Control', 'no-store');
       res.type(TEXT_PLAIN).send(text);
     }),
