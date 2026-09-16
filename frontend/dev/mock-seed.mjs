@@ -106,7 +106,30 @@ export const state = {
   versions: [],
   /** Per profile: what its Bee node would answer. */
   nodes: new Map(),
+  /**
+   * Per profile: its own SRT passphrase, kept apart from the rows the way the
+   * manager keeps it off the shared SELECT list. Only the reveal route reads
+   * it.
+   */
+  srtPassphrases: new Map(),
 };
+
+/** What GET /profiles/:name/srt-passphrase answers. Null is the host-wide one. */
+export function srtPassphraseOf(name) {
+  return state.srtPassphrases.get(name) ?? null;
+}
+
+/**
+ * Stores or clears one deployment's passphrase. Undefined keeps what is
+ * stored, which is what the manager does for a body that never names the
+ * field, and null is the operator choosing the host-wide passphrase.
+ */
+export function setSrtPassphrase(profile, passphrase) {
+  if (passphrase === undefined) return;
+  if (passphrase === null) state.srtPassphrases.delete(profile.name);
+  else state.srtPassphrases.set(profile.name, passphrase);
+  profile.has_srt_passphrase = state.srtPassphrases.has(profile.name);
+}
 
 export function servicesOf(profile) {
   return profile.components?.length
@@ -138,6 +161,7 @@ export function containersFor(profile, { withUploader = true } = {}) {
 
 export function makeProfile(input) {
   const now = new Date().toISOString();
+  if (input.srt_passphrase) state.srtPassphrases.set(input.name, input.srt_passphrase);
   return {
     name: input.name,
     port_slot: input.port_slot ?? nextSlot++,
@@ -155,7 +179,9 @@ export function makeProfile(input) {
     stamp_id: input.stamp_id ?? null,
     bee_publishers: input.bee_publishers ?? null,
     bee_url: input.bee_url ?? null,
-    srt_passphrase: input.srt_passphrase ?? null,
+    // Whether one is stored, never the value: the manager answers this and
+    // hands the passphrase over only to the page building a publish URL.
+    has_srt_passphrase: Boolean(input.srt_passphrase),
     engine_settings: input.engine_settings ?? {},
     has_engine_config: false,
     engine_config_error: null,

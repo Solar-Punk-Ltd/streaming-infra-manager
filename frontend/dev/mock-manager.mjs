@@ -72,6 +72,8 @@ import {
   RUNGS,
   seed,
   servicesOf,
+  setSrtPassphrase,
+  srtPassphraseOf,
   state,
   takeGroupId,
 } from './mock-seed.mjs';
@@ -156,6 +158,7 @@ function remove(profile) {
     forgetEngineConfig(profile);
     state.profiles = state.profiles.filter((entry) => entry.name !== profile.name);
     state.nodes.delete(profile.name);
+    state.srtPassphrases.delete(profile.name);
     publish({ type: 'profile.deleted', name: profile.name });
     if (profile.group_id != null && membersOf(profile.group_id).length === 0) {
       state.groups = state.groups.filter((group) => group.id !== profile.group_id);
@@ -389,7 +392,6 @@ const EDITABLE_FIELDS = [
   'stamp_id',
   'bee_publishers',
   'bee_url',
-  'srt_passphrase',
 ];
 
 /** The manager's rule: a note saved from a page that loaded before another save is refused. */
@@ -406,18 +408,21 @@ function notesConflict(profile) {
 }
 
 /**
- * The signing key, which is not an editable field like the others: the manager
- * never answers it, so no page can send it back, and a body that says nothing
- * about it keeps the stored one.
+ * The two secrets, which are not editable fields like the others: the manager
+ * answers neither on the row, so no page can send one back, and a body that
+ * says nothing about them keeps what is stored. The passphrase differs in
+ * being one an operator may also give up, by sending an explicit null for the
+ * host-wide one.
  */
-function applyStreamKey(profile, body) {
+function applySecrets(profile, body) {
   if (body.private_key) profile.has_private_key = true;
+  setSrtPassphrase(profile, body.srt_passphrase);
 }
 
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
-  applyStreamKey(profile, body);
+  applySecrets(profile, body);
 }
 
 /** PATCH semantics: only the fields present in the body change. */
@@ -425,7 +430,7 @@ function applyEdits(profile, body) {
   for (const field of EDITABLE_FIELDS) {
     if (field in body) profile[field] = body[field] ?? null;
   }
-  applyStreamKey(profile, body);
+  applySecrets(profile, body);
 }
 
 function createFromBody(body, extra = {}) {
@@ -473,6 +478,17 @@ const ROUTES = [
     },
   ],
   ['GET', /^\/profiles\/([^/]+)$/, withProfile((_req, res, p) => send(res, 200, p))],
+  // One deployment's passphrase, on request, the way the manager answers it:
+  // never on a list, never on an event, and never cached.
+  [
+    'GET',
+    /^\/profiles\/([^/]+)\/srt-passphrase$/,
+    withProfile((_req, res, p) =>
+      send(res, 200, { srt_passphrase: srtPassphraseOf(p.name) }, {
+        'cache-control': 'no-store',
+      }),
+    ),
+  ],
   [
     'PUT',
     /^\/profiles\/([^/]+)$/,
@@ -693,7 +709,7 @@ const ROUTES = [
             components: template.components ?? null,
             feed_owner: template.feed_owner ?? null,
             notes: template.notes ?? null,
-            srt_passphrase: template.srt_passphrase ?? null,
+            srt_passphrase: srtPassphraseOf(template.name),
           },
           { group_id: group.id },
         ),
