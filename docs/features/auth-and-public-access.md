@@ -284,6 +284,16 @@ moved and are marked where they do.
    script refuses to print without it. So the three controls are: the API binds of step 2 close
    those ports at the source, the forward chain closes everything else that is published, and the
    input chain covers the host itself.
+
+   **The per-rung band closed on 2026-09-16.** The step above lists a second band for the three
+   per-rung Bee nodes. The generator opens it no longer, because this manager starts no rung
+   service, so those 297 ports never carried a listener and now fall to the drop policy like every
+   other private port. Four bands stay open, one per role: SRT ingest on UDP, the viewer page, and
+   the two Bee peer ports, each for 100 slots. With the rung band gone, the slot-101 argument above
+   is gone with it: `--max-slot` refuses anything above 100 because that is the manager's own slot
+   cap, not because a second band would meet RTMP there. `deploy/README.md` step 3 carries the
+   current wording, and a port the deployment page calls public has to be one of those four bands,
+   which a test holds.
 4. Point a DNS A record at the host, set `MANAGER_DOMAIN` in `manager/.env`, deploy PR 2.
    `deploy.sh` reads that name, adds `--profile public` so the edge starts, and says which of the
    two it did. Watch `docker compose logs -f edge` for the certificate, open the domain, sign in.
