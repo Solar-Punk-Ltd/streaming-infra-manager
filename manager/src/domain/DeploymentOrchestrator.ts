@@ -170,6 +170,20 @@ export interface OrphanRecovery {
  * The same reading `attemptOutcome` makes of a deploy: a service is accounted
  * for by a container of its own in the project, and one with none is named.
  *
+ * A removal interrupted before it removed anything therefore reads as RUNNING,
+ * which is what such a deployment is. Ruled acceptable on 2026-09-16: the row
+ * is back where an operator can act on it, and Remove is one click, where
+ * keeping REMOVING refuses every later action as busy.
+ *
+ * **Limit, recorded 2026-09-16.** A snapshot carries container ids and nothing
+ * else, so a service whose container has exited is counted exactly like one
+ * that is up and a deployment crash looping after a restart reads as RUNNING.
+ * Closing it means a snapshot that carries each container's state:
+ * `DaemonSnapshot`, both readers in ports/TargetDocker.ts, which have the
+ * state in hand today and drop it, and `attemptOutcome`, whose own deploy-time
+ * reading assert-started.sh already covers. A tripwire in
+ * test/unit/orphanedBootRecovery.test.ts stops compiling the day that lands.
+ *
  * @param expected the services the deployment runs, from its kind or its
  *   components. A deployment that names none has nothing to be judged by.
  * @param containers the project's containers by service, or null when the
