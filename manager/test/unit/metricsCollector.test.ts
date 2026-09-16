@@ -73,23 +73,50 @@ function containerStats(): Docker.ContainerStats {
 
 const never = <T,>(): Promise<T> => new Promise<T>(() => undefined);
 
+/** Long enough to answer within the deadline one call carries, and not twice over. */
+const SLOW_STATS_MS = 25;
+
+const nine = (): Docker.ContainerInfo[] =>
+  Array.from({ length: 9 }, (_unused, index) => containerInfo(`srs-${index}`));
+
+/** Settles after the event loop has turned, so calls made together overlap. */
+const soon = <T,>(value: T, afterMs: number): Promise<T> =>
+  new Promise<T>((resolve) => setTimeout(() => resolve(value), afterMs));
+
 class FakeDockerEngine implements MetricsDockerEngine {
   constructor(
     private readonly containers: readonly Docker.ContainerInfo[],
     private readonly silentIds: ReadonlySet<string> = new Set(),
     private readonly restartsById: ReadonlyMap<string, number> = new Map(),
+    private readonly statsMs: number = 1,
   ) {}
 
   inspects = 0;
 
+  /** One per sample, so a second sample started is a second list. */
+  lists = 0;
+
+  statsInFlight = 0;
+
+  mostStatsInFlight = 0;
+
   listContainers(): Promise<Docker.ContainerInfo[]> {
+    this.lists += 1;
     return Promise.resolve([...this.containers]);
   }
 
   getContainer(id: string): StatsHandle {
     const silent = this.silentIds.has(id);
     return {
-      stats: () => (silent ? never() : Promise.resolve(containerStats())),
+      stats: async () => {
+        this.statsInFlight += 1;
+        this.mostStatsInFlight = Math.max(this.mostStatsInFlight, this.statsInFlight);
+        try {
+          return silent ? await never<Docker.ContainerStats>() : await soon(containerStats(), this.statsMs);
+        } finally {
+          this.statsInFlight -= 1;
+        }
+      },
       inspect: () => {
         this.inspects += 1;
         return Promise.resolve({ RestartCount: this.restartsById.get(id) ?? 0 } as Docker.ContainerInspectInfo);
@@ -173,7 +200,49 @@ describe('MetricsCollector', () => {
     }
   });
 
-  it('takes over from a sample that never finishes', async () => {
+  it('asks the daemon about four containers at a time, whatever the sample covers', async () => {
+    const docker = new FakeDockerEngine(nine());
+    const collector = new MetricsCollector(docker, new FakeHost(), 1_000, DOCKER_TIMEOUT_MS * 10);
+
+    const seen: MetricsSnapshot[] = [];
+    const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot));
+
+    try {
+      await waitFor(() => seen.length >= 1, 2_000, 'the sample over nine containers');
+      assert.equal(seen[0].containers.length, 9, 'every container is still sampled');
+      assert.equal(
+        docker.mostStatsInFlight,
+        4,
+        'twenty five containers must not mean twenty five calls at the daemon at once',
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  /**
+   * A sample of nine containers four at a time outlasts the deadline one call
+   * carries, which is the shape a slow daemon puts every sample in. The ticks
+   * that fall inside it are skipped rather than stacked on top of it, because
+   * a second full sample is more load on the daemon a deploy is waiting for.
+   */
+  it('lets one sample finish before the next starts, however many ticks pass', async () => {
+    const docker = new FakeDockerEngine(nine(), new Set(), new Map(), SLOW_STATS_MS);
+    const collector = new MetricsCollector(docker, new FakeHost(), 5, DOCKER_TIMEOUT_MS);
+
+    const unsubscribe = collector.subscribe(() => undefined);
+
+    try {
+      await waitFor(() => docker.lists >= 1, 2_000, 'the first sample');
+      await new Promise((resolve) => setTimeout(resolve, DOCKER_TIMEOUT_MS + 15));
+      assert.equal(docker.lists, 1, 'a tick inside a running sample is skipped, not stacked on top of it');
+      await waitFor(() => docker.lists >= 2, 2_000, 'the sample after that one');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('ends a sample whose host reading never answers, and samples again', async () => {
     const host = new FakeHost(true);
     const collector = new MetricsCollector(
       new FakeDockerEngine([containerInfo('srs')]),
@@ -187,7 +256,7 @@ describe('MetricsCollector', () => {
 
     try {
       await waitFor(() => seen.length >= 1, 1_000, 'a snapshot after the stuck one');
-      assert.ok(host.calls >= 2, 'the stuck sample should not be the last one');
+      assert.ok(host.calls >= 2, 'a reading that never answers must not end the sampling');
     } finally {
       unsubscribe();
     }

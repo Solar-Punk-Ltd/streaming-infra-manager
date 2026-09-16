@@ -58,6 +58,36 @@ export interface HostSampler {
  * costs an inspect per container, so it is not worth a call every sample.
  */
 const RESTART_REFRESH_MS = 30_000;
+
+/**
+ * How many containers one sample asks the daemon about at once.
+ *
+ * A sample used to ask about every managed container together, so twenty five
+ * containers meant twenty five calls arriving at the daemon at the same
+ * moment, every two seconds, and the daemon a deploy is waiting for is the
+ * same one.
+ */
+const STATS_AT_A_TIME = 4;
+
+/** Runs over the items in order, never more than `limit` of them at a time. */
+async function mapAtMost<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await run(items[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 interface PrevCounters {
   netRxBytes: number;
   netTxBytes: number;
@@ -72,7 +102,9 @@ export class MetricsCollector {
   private readonly restarts = new Map<string, { count: number; readMs: number }>();
   private timer: NodeJS.Timeout | null = null;
   private latest: MetricsSnapshot | null = null;
-  private samplingStartedAt: number | null = null;
+  private sampleInFlight = false;
+  /** Ticks that fell inside a running sample, reported when sampling picks up. */
+  private skippedTicks = 0;
   private managedProjects: ManagedProjectsProvider | null = null;
   private lastManagedProjects: Set<string> | null = null;
 
@@ -117,31 +149,35 @@ export class MetricsCollector {
       this.timer = null;
       logger.info('[MetricsCollector] sampling stopped');
     }
-    this.samplingStartedAt = null;
+    // A sample still in flight keeps the flag until it settles, so a collector
+    // started again cannot end up with two of them asking at once.
+    this.skippedTicks = 0;
     this.prev.clear();
   }
 
   /**
    * One sample, and only one at a time.
    *
-   * The sample in flight blocks the next tick, but only until it is past the
-   * deadline every call inside it already carries. Otherwise anything that
-   * never settles would end sampling for the life of the process, and the
-   * resource cards would sit on old numbers through the failure they exist to
-   * show.
+   * A tick that lands inside a running sample is skipped and counted, never
+   * started beside it: a sample takes longer exactly when the daemon is slow,
+   * and a second one asking the same daemon the same questions is load on the
+   * thing a deploy is waiting for. Every call a sample makes carries the
+   * deadline below, so the sample it skips for cannot outlive that by much,
+   * and the skips are reported when sampling picks up again.
    */
   private async tick(): Promise<void> {
-    const startedAt = Date.now();
-    const inFlightSince = this.samplingStartedAt;
-    if (inFlightSince !== null) {
-      const runningForMs = startedAt - inFlightSince;
-      if (runningForMs < this.dockerTimeoutMs) return;
+    if (this.sampleInFlight) {
+      this.skippedTicks += 1;
+      return;
+    }
+    if (this.skippedTicks > 0) {
       logger.warn(
-        `[MetricsCollector] previous sample abandoned after ${runningForMs}ms`,
+        `[MetricsCollector] skipped ${this.skippedTicks} sample(s) while the one before them was still running`,
       );
+      this.skippedTicks = 0;
     }
 
-    this.samplingStartedAt = startedAt;
+    this.sampleInFlight = true;
     try {
       const snapshot = await this.collect();
       this.latest = snapshot;
@@ -157,14 +193,17 @@ export class MetricsCollector {
     } catch (err) {
       logger.warn(`[MetricsCollector] sample failed: ${getErrorMessage(err)}`);
     } finally {
-      // An abandoned sample may still settle, long after a later one took over.
-      if (this.samplingStartedAt === startedAt) this.samplingStartedAt = null;
+      this.sampleInFlight = false;
     }
   }
 
   private async collect(): Promise<MetricsSnapshot> {
     const [host, containers] = await Promise.all([
-      this.host.sample(),
+      // The same deadline the Docker calls carry. Nothing else ends a host
+      // reading, and one sample that never settles is now one that never
+      // samples again.
+      answeredInTime(this.host.sample(), this.dockerTimeoutMs, () =>
+        new Error(`the host readings did not answer within ${this.dockerTimeoutMs}ms`)),
       this.collectContainers(),
     ]);
 
@@ -200,8 +239,8 @@ export class MetricsCollector {
       if (!liveIds.has(id)) this.restarts.delete(id);
     }
 
-    const results = await Promise.all(
-      scoped.map((info) => this.statContainer(info)),
+    const results = await mapAtMost(scoped, STATS_AT_A_TIME, (info) =>
+      this.statContainer(info),
     );
     return results.filter((c): c is ContainerMetrics => c !== null);
   }
@@ -209,7 +248,11 @@ export class MetricsCollector {
   private async resolveManagedProjects(): Promise<Set<string> | null> {
     if (!this.managedProjects) return null;
     try {
-      const set = await this.managedProjects();
+      // Bounded like every other call a sample makes, so a database that
+      // stops answering cannot hold the sample open indefinitely. The last
+      // answer stands meanwhile, which is what the catch below is for.
+      const set = await answeredInTime(this.managedProjects(), this.dockerTimeoutMs, () =>
+        new Error(`the deployments did not answer within ${this.dockerTimeoutMs}ms`));
       this.lastManagedProjects = set;
       return set;
     } catch (err) {
