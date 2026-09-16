@@ -42,10 +42,10 @@ export class FakeScriptRunner extends ScriptRunner {
   /** Runs before a finish is reported, with the run: what the script would have left behind. */
   onFinish?: (run: RecordedScriptRun) => void;
 
-  finish(index: number, code = 0): void {
+  finish(index: number, code = 0, signal: NodeJS.Signals | null = null): void {
     const run = this.runs[index];
     if (run) this.onFinish?.(run);
-    this.emitters[index]?.emit('done', { code });
+    this.emitters[index]?.emit('done', { code, signal });
   }
 
   /** The script never started: what a bad path or a missing bash looks like from the runner. */

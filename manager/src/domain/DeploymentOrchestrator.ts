@@ -54,7 +54,7 @@ import type { PreparedRolloutDeploy, RolloutAdmissionProof } from './engineConfi
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
-import { describeArgsForLog, RunHandle, ScriptRunner } from './ScriptRunner.js';
+import { describeArgsForLog, type RunHandle, type RunOutcome, ScriptRunner } from './ScriptRunner.js';
 import {
   defaultServicesFor,
   hasBeePublishers,
@@ -116,6 +116,29 @@ function stripDockerWarnings(text: string): string {
     .split('\n')
     .filter((line) => !/\blevel=(warning|info)\b/.test(line))
     .join('\n');
+}
+
+/** How a run ended, and the last of what it printed on the way. */
+interface JobOutcome extends RunOutcome {
+  stderrTail: string;
+  stdoutTail: string;
+}
+
+/**
+ * Why a run that did not succeed did not, in the words an operator reads.
+ *
+ * A run ended by a signal has no output that explains it, because it was
+ * stopped rather than refused, and its last four kilobytes of ordinary
+ * progress read as though they were the failure.
+ */
+function failureReason(script: string, outcome: JobOutcome): string {
+  if (outcome.signal) return `${script} was killed by ${outcome.signal}`;
+  return (
+    stripDockerWarnings(outcome.stderrTail).trim() ||
+    outcome.stdoutTail.trim() ||
+    outcome.stderrTail.trim() ||
+    `${script} exited with code ${outcome.code}`
+  );
 }
 
 /**
@@ -1045,7 +1068,7 @@ export class DeploymentOrchestrator {
       await this.publishChanged(updated);
     }
     const emitter = new EventEmitter();
-    setImmediate(() => emitter.emit('done', { code: 0 }));
+    setImmediate(() => emitter.emit('done', { code: 0, signal: null } satisfies RunOutcome));
     return { emitter, kill: () => undefined };
   }
 
@@ -1277,18 +1300,18 @@ export class DeploymentOrchestrator {
     });
 
     let finalizationStarted = false;
-    const finish = (code: number, errorText: string) => {
+    const finish = (outcome: RunOutcome, errorText: string) => {
       if (finalizationStarted) return;
       finalizationStarted = true;
       void (async () => {
-        if (attempt) await this.judgeAttempt(attempt, code === 0);
-        await this.finalizeJob(cfg, code, errorText, stdoutTail, attempt);
+        if (attempt) await this.judgeAttempt(attempt, outcome.code === 0);
+        await this.finalizeJob(cfg, { ...outcome, stderrTail: errorText, stdoutTail }, attempt);
       })();
     };
-    handle.emitter.on('done', ({ code }: { code: number }) => finish(code, stderrTail));
+    handle.emitter.on('done', (outcome: RunOutcome) => finish(outcome, stderrTail));
     // A script that never started ends the attempt the same way: nothing new
     // was created, so it blocks, and the host is not held open for nothing.
-    handle.emitter.on('error', (err: Error) => finish(-1, err.message));
+    handle.emitter.on('error', (err: Error) => finish({ code: -1, signal: null }, err.message));
 
     return handle;
   }
@@ -1337,22 +1360,16 @@ export class DeploymentOrchestrator {
 
   private async finalizeJob(
     cfg: JobConfig,
-    code: number,
-    stderrTail: string,
-    stdoutTail: string,
+    outcome: JobOutcome,
     attempt: DeployAttempt | null,
   ): Promise<void> {
     try {
-      if (code === 0) {
+      if (outcome.code === 0) {
         await cfg.onSuccess(attempt);
         logger.info(`[Orchestrator] ${cfg.profileName} ← success`);
         return;
       }
-      const message =
-        stripDockerWarnings(stderrTail).trim() ||
-        stdoutTail.trim() ||
-        stderrTail.trim() ||
-        `${cfg.script} exited with code ${code}`;
+      const message = failureReason(cfg.script, outcome);
       if (cfg.markFailure) {
         await cfg.markFailure(message);
         await cfg.onFailure?.(message);
@@ -1360,7 +1377,7 @@ export class DeploymentOrchestrator {
         await cfg.onFailure?.(message);
       }
       logger.warn(
-        `[Orchestrator] ${cfg.profileName} ← ERROR (code=${code})\n${message}`,
+        `[Orchestrator] ${cfg.profileName} ← ERROR (code=${outcome.code})\n${message}`,
       );
     } catch (err) {
       const message = getErrorMessage(err);

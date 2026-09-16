@@ -40,13 +40,25 @@ export function describeArgsForLog(args: readonly string[]): string {
     .join(' ');
 }
 
+/**
+ * How a run ended.
+ *
+ * A process ended by a signal has no exit code of its own, so the code is -1
+ * and the signal is the whole of what happened to it. Nothing else says a run
+ * was killed rather than finished.
+ */
+export interface RunOutcome {
+  code: number;
+  signal: NodeJS.Signals | null;
+}
+
 export interface RunHandle {
   /**
    * Emits:
    *  - 'stdout' (chunk: string)
    *  - 'stderr' (chunk: string)
    *  - 'error'  (err: Error)
-   *  - 'done'   ({ code: number })
+   *  - 'done'   (RunOutcome)
    */
   emitter: EventEmitter;
   kill(): void;
@@ -89,7 +101,7 @@ export class ScriptRunner implements ScriptSpawner {
     child.stdout?.on('data', (b: Buffer) => emitter.emit('stdout', b.toString('utf8')));
     child.stderr?.on('data', (b: Buffer) => emitter.emit('stderr', b.toString('utf8')));
     child.on('error', (err) => emitter.emit('error', err));
-    child.on('close', (code) => emitter.emit('done', { code: code ?? -1 }));
+    child.on('close', (code, signal) => emitter.emit('done', { code: code ?? -1, signal }));
 
     return {
       emitter,
