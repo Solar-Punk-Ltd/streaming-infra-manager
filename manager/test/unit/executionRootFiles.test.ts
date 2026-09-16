@@ -77,6 +77,25 @@ it('shares every regular file with the build, and nothing else', async () => {
   }
 });
 
+it('gives the copy its own inode for every settings file the build carries, and shares the rest', async () => {
+  const settings = ['.env', 'deploy/config.json', 'engines/srs/.env'];
+  for (const path of settings) await writeFile(join(source, path), `SYNTHETIC=${path}\n`, { mode: 0o640 });
+  const item = await record();
+
+  await copyExecutionRoot(item, executions);
+
+  for (const path of settings) {
+    const copied = await lstat(join(item.root, path));
+    const built = await lstat(join(source, path));
+    assert.notEqual(copied.ino, built.ino, `${path} shares the build's inode, so a deploy writing it writes the build`);
+    assert.equal(copied.mode & 0o7777, built.mode & 0o7777, `${path} did not keep the mode the build gave it`);
+    assert.equal(await readFile(join(item.root, path), 'utf8'), await readFile(join(source, path), 'utf8'));
+  }
+  assert.equal((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).ino, (await lstat(join(source, 'deploy/scripts/deploy.sh'))).ino,
+    'a file that is not a setting stopped being shared');
+  assert.equal(await treeDigest(item.root), item.source.artifactDigest);
+});
+
 it('copies the bytes of a file the filesystem will not link, so a versions root on another volume still works', async t => {
   const refused = t.mock.method(fsPromises, 'link', async () => {
     throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' });

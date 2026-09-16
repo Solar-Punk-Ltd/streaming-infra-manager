@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord } from './ExecutionRoot.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
 import { COPY_INSTEAD } from './buildTreeClone.js';
+import { hostConfigFilesOf } from './hostConfigCapture.js';
 import { inventoryOwnedTree, ownedTreeDigest, pathStamp, stampOwnedTree, type OwnedTreeInventory } from './ownedTreeInventory.js';
 import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
@@ -22,6 +23,11 @@ export interface ExecutionCopyOptions {
   sourceInventory?: OwnedTreeInventory;
 }
 
+async function copyFileInto(from: string, to: string, mode: number): Promise<void> {
+  await copyFile(from, to, constants.COPYFILE_EXCL);
+  await chmod(to, mode);
+}
+
 /**
  * Puts the build's file at a path of the copy's own, answering whether the two
  * paths are now the one inode.
@@ -36,8 +42,7 @@ async function shareOrCopyFile(from: string, to: string, mode: number): Promise<
   } catch (err) {
     if (!COPY_INSTEAD.has((err as NodeJS.ErrnoException).code ?? '')) throw err;
   }
-  await copyFile(from, to, constants.COPYFILE_EXCL);
-  await chmod(to, mode);
+  await copyFileInto(from, to, mode);
   return false;
 }
 
@@ -47,6 +52,13 @@ async function shareOrCopyFile(from: string, to: string, mode: number): Promise<
  * The copy's regular files are hard links to the build's, the way one build is
  * cloned from another, because a published build is never written to again and
  * the files a deployment writes are ones the build does not have.
+ *
+ * The settings files are the exception, so they are copied. A build carries
+ * whichever of them its version had committed when it was published, and they
+ * are the ones a deploy reaches for: `bootstrapStackDefaults` narrows the base
+ * env's mode in the copy on every deploy, and the stack's scripts write the
+ * per-profile files beside them. A chmod or a truncation through a link is one
+ * on the build, which would change the digest the build is admitted on.
  *
  * Every link moves the build inode's status-change time, so what the build is
  * compared against when the copy is made is the stamp read back through the
@@ -88,11 +100,15 @@ export async function copyExecutionRoot(
     await writeFile(join(ownerRoot, 'owner.json'), JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
     await mkdir(root, { mode: 0o700 });
     for (const entry of source.entries.filter(entry => entry.type === 'directory')) await mkdir(join(root, entry.path), { mode: 0o700 });
+    const settings = new Set(hostConfigFilesOf(record.source.root));
     const shared: string[] = [];
     let copied = 0;
     for (const entry of source.entries) {
       if (entry.type === 'file') {
-        if (await shareOrCopyFile(join(record.source.root, entry.path), join(root, entry.path), entry.mode)) shared.push(entry.path);
+        const from = join(record.source.root, entry.path);
+        const to = join(root, entry.path);
+        if (settings.has(entry.path)) await copyFileInto(from, to, entry.mode);
+        else if (await shareOrCopyFile(from, to, entry.mode)) shared.push(entry.path);
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
         await symlink(entry.target, join(root, entry.path));
