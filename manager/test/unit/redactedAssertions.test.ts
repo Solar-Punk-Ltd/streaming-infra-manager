@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 import { inspect } from 'node:util';
 
 import { assertMatchesRedacted, assertNull } from '../support/redactedAssertions.js';
-import { REDACTED } from '../support/redactEngineOutput.js';
+import { REDACTED } from '../../src/domain/redactEngineOutput.js';
 
 /** A stored engine config, in the shape the SRS template leaves it. */
 const PASSPHRASE = 's3cretpassphrase16';

@@ -45,7 +45,7 @@ import {
   rolloutNotice,
 } from '@streaming-infra-manager/common';
 
-import { redactEngineOutput } from '../support/redactEngineOutput.js';
+import { redactEngineOutput } from '../../src/domain/redactEngineOutput.js';
 import { assertMatchesRedacted, assertNull } from '../support/redactedAssertions.js';
 import {
   BEE_UPLOADER,

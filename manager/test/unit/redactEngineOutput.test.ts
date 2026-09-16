@@ -1,17 +1,19 @@
 /**
- * What a printed engine tail keeps and what it hides.
+ * What an engine tail keeps and what it hides, before it becomes a message.
  *
- * T01's integration file asserts on a revert whose reason embeds the engine's
- * own last lines, and prints that reason when an assertion fails. The file SRS
- * was started on carries the deployment's SRT passphrase and its webhook
- * token, and an assertion message on a runner is a log anyone with the
- * repository can read. That file cannot run here, so what proves the
- * redaction is this.
+ * Unit test, no database and no Docker. `pnpm test` in manager/.
+ *
+ * A revert puts the engine's own last lines on the deployment's row, where an
+ * operator reads them, and the same text reaches the manager's log and an
+ * assertion message on a runner. The file SRS was started on carries the
+ * deployment's SRT passphrase and its webhook token, and SRS quotes the line
+ * it could not parse, so the values travel with the reason unless they are
+ * taken out here.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { REDACTED, redactEngineOutput } from '../support/redactEngineOutput.js';
+import { REDACTED, redactEngineOutput } from '../../src/domain/redactEngineOutput.js';
 
 describe('printing what the engine said', () => {
   it('hides an SRT passphrase written the way the template writes it', () => {

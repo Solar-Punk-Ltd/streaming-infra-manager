@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { redactEngineOutput } from './redactEngineOutput.js';
+import { redactEngineOutput } from '../../src/domain/redactEngineOutput.js';
 
 /**
  * Assertions that keep the value they are about out of the failure they print.

@@ -24,11 +24,12 @@ export const REDACTED = '<redacted>';
  * The engine's last lines with every secret-shaped value taken out.
  *
  * A rollout that reverts carries the engine's own output as its reason, which
- * is the point: an operator has to see why. The same text ends up in an
- * assertion message, and an assertion message on a runner is a public log,
- * while the file SRS was started on carries the deployment's SRT passphrase
- * and its webhook token. Safe for the failure this test is about, not as a
- * habit.
+ * is the point: an operator has to see why. But the file SRS was started on
+ * carries the deployment's SRT passphrase and its webhook token, and SRS
+ * quotes the line it could not parse, so the reason that reaches the row, the
+ * page and the manager's own log carries them too. Every reader of that text
+ * is wider than the deployment, so the values come out before it becomes a
+ * message.
  */
 export function redactEngineOutput(text: string): string {
   return text

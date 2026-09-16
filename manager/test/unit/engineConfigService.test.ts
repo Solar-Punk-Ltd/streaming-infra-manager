@@ -294,6 +294,52 @@ describe('an engine that will not stay up on the new file', () => {
   });
 });
 
+describe('what the engine said, on its way to an operator', () => {
+  /**
+   * SRS quotes the line it could not parse, and the file it was started on
+   * carries the deployment's passphrase and its webhook token. Both shapes
+   * below match the reason filter, so both are kept rather than dropped.
+   */
+  class TalkativeWatcher extends ScriptedWatcher {
+    async logs(): Promise<string> {
+      return [
+        'parse file failed, line=12, content=    passphrase s3cretpassphrase16;',
+        'invalid directive, content=on_publish http://stream-uploader:3000/streams?token=a1b2c3d4e5;',
+      ].join('\n');
+    }
+  }
+
+  /** A tail no line of which reads as a reason, so its last lines are kept whole. */
+  class QuietWatcher extends ScriptedWatcher {
+    async logs(): Promise<string> {
+      return [
+        'srs.conf generated from the custom config file',
+        '    passphrase s3cretpassphrase16;',
+        'on_publish http://stream-uploader:3000/streams?token=a1b2c3d4e5;',
+      ].join('\n');
+    }
+  }
+
+  const restarting = [RUNNING, { ...RUNNING, status: 'restarting' as const, restartCount: 2 }];
+
+  for (const [what, watcher] of [
+    ['a line it kept as the reason', () => new TalkativeWatcher(restarting)],
+    ['the last lines of a tail that names no reason', () => new QuietWatcher(restarting)],
+  ] as const) {
+    it(`keeps no secret out of ${what}`, async () => {
+      const { service, harness } = await setup({ watcher: watcher() });
+
+      await service.apply('stream1', 'listen 1935;\nhls_window 5;\n');
+      await settle();
+
+      const reason = harness.profiles.rows.get('stream1')?.engine_config_error ?? '';
+      assert.match(reason, /passphrase|token/, 'the engine\'s own words still reach the operator');
+      assert.equal(reason.includes('s3cretpassphrase16'), false, reason);
+      assert.equal(reason.includes('a1b2c3d4e5'), false, reason);
+    });
+  }
+});
+
 describe('the watch over the real Docker adapter', () => {
   it('sees a container that restarted on the new file and puts the previous one back', async () => {
     // The scripted watcher hands the watch a count already read out of the

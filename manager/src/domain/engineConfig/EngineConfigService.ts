@@ -33,6 +33,7 @@ import {
 import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { ProfileRepository } from '../ProfileRepository.js';
+import { redactEngineOutput } from '../redactEngineOutput.js';
 import { omePortsFor, portTableOf } from '../versions/portTable.js';
 import type {
   StackVersionRecord,
@@ -640,12 +641,17 @@ function describeState(state: ContainerState | null): string {
   return `is ${state.status}`;
 }
 
-/** The reasons in a log tail, else its last lines, in the size a card can show. */
+/**
+ * The reasons in a log tail, else its last lines, in the size a card can show,
+ * with the deployment's own secrets taken out. SRS quotes the line it could
+ * not parse and the file it was started on carries the passphrase and the
+ * webhook token, and from here the text reaches the row, the page and the log.
+ */
 function reasonLines(tail: string): string {
   const lines = tail.split('\n').filter((line) => line.trim().length > 0);
   const reasons = lines.filter((line) => LOG_REASON_RE.test(line));
   const kept = (reasons.length > 0 ? reasons : lines).slice(-LOG_KEPT_LINES);
-  return kept.join('\n').slice(-LOG_TAIL_BYTES);
+  return redactEngineOutput(kept.join('\n').slice(-LOG_TAIL_BYTES));
 }
 
 function revertMessage(
