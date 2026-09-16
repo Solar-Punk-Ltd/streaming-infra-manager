@@ -84,7 +84,7 @@ const logger = Logger.getInstance();
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
-/** What a deployment with no service of its own is told after a deploy of it. */
+/** What a deployment that was in ERROR is told when a deploy had nothing to start. */
 const NOTHING_TO_DEPLOY =
   'This deployment has no service to deploy, so nothing was started and it is as it was.';
 
@@ -171,17 +171,17 @@ export interface OrphanRecovery {
  * for by a container of its own in the project, and one with none is named.
  *
  * A removal interrupted before it removed anything therefore reads as RUNNING,
- * which is what such a deployment is. Ruled acceptable on 2026-09-16: the row
- * is back where an operator can act on it, and Remove is one click, where
- * keeping REMOVING refuses every later action as busy.
+ * which is what such a deployment is. Ruled acceptable: the row is back where
+ * an operator can act on it, and Remove is one click, where keeping REMOVING
+ * refuses every later action as busy.
  *
- * **Limit, recorded 2026-09-16.** A snapshot carries container ids and nothing
- * else, so a service whose container has exited is counted exactly like one
- * that is up and a deployment crash looping after a restart reads as RUNNING.
- * Closing it means a snapshot that carries each container's state:
- * `DaemonSnapshot`, both readers in ports/TargetDocker.ts, which have the
- * state in hand today and drop it, and `attemptOutcome`, whose own deploy-time
- * reading assert-started.sh already covers. A tripwire in
+ * **Limit.** A snapshot carries container ids and nothing else, so a service
+ * whose container has exited is counted exactly like one that is up and a
+ * deployment crash looping after a restart reads as RUNNING. Closing it means a
+ * snapshot that carries each container's state: `DaemonSnapshot` in
+ * DeployAttemptRepository.ts, both readers in ports/TargetDocker.ts, which have
+ * the state in hand today and drop it, and `attemptOutcome`, whose own
+ * deploy-time reading assert-started.sh already covers. A tripwire in
  * test/unit/orphanedBootRecovery.test.ts stops compiling the day that lands.
  *
  * @param expected the services the deployment runs, from its kind or its

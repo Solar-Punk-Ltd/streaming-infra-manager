@@ -107,7 +107,5 @@ export interface ProfileWithContainers extends Profile {
 export interface ActionInput {
   services?: string[];
   /** clean only */
-  volumes?: boolean;
-  /** clean only */
   all?: boolean;
 }
