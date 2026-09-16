@@ -5,13 +5,14 @@ its selected stack version advertises support. The manager checks the file,
 recreates the engine, then records the outcome of startup verification.
 Recovery can fail. Saving a file is not proof that publishing or playback works.
 
-Status, 2026-09-10. Everything on this page is on the branch
-`feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into
-`main-v2`. It carries T01's service caller integration, the isolated SRS checks,
-the OvenMediaEngine validation and T11's effective settings. Exact execution and
-recovery completion is the next slice and is described at the end of this page.
-Nothing on this branch has been deployed, so no behaviour here has been seen on
-a host. The engine-configuration decisions were accepted on 2026-09-07.
+Status, 2026-09-16. Everything on this page is merged to `main-v2`. It was
+written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40,
+which landed. It carries T01's service caller integration, the isolated SRS
+checks, the OvenMediaEngine validation and T11's effective settings. The branch
+has since been deployed twice, on 2026-09-11 and 2026-09-13, recorded in
+[../handover/main-v2-remediation.md](../handover/main-v2-remediation.md), so
+some of this has now been seen on a host. The engine-configuration decisions
+were accepted on 2026-09-07.
 
 ## File editing and effective settings
 
@@ -189,15 +190,12 @@ result, and it has not been repeated since.
 
 ## What is still open
 
-Exact execution and recovery completion is the next slice of work on this
-branch. Today a deployment runs out of the immutable build directory rather than
-out of a private execution copy of its own, which is what the recorded decision
-in [../consensus/BUNDLED-ON-HOST-BRIEF.md](../consensus/BUNDLED-ON-HOST-BRIEF.md)
-asks for. Until that lands, three things here stay open: an operation cannot
-carry the final deployment owner, job reference and existing attempt into a copy
-of its own, the release of a build hold cannot be proven against a successful
-watch, and a settings write cannot execute the same captured host inputs it
-validated.
+Private execution copies landed on 2026-09-11, so a deployment now runs out of a
+copy of its build rather than out of the immutable build directory. See "The
+tree a deployment runs in" in [stack-versions.md](stack-versions.md). What that
+leaves open here is T01's own remaining slice: the atomic begin and revert of a
+config rollout, the creator receipt, and the release of operation holds after a
+proven watch. Those repository APIs exist and nothing calls them.
 
 T22 separately verifies authorised live Swarm delivery, and it waits for Levi's
 D05 numbers and a separate authorisation to spend. Unit tests do not substitute

@@ -5,16 +5,19 @@ from the node's wallet into its chequebook. A withdrawal moves it back. The
 manager presents these transfers as recorded operations whose outcome must be
 checked from transaction evidence. A balance change cannot confirm a transfer.
 
-Status, 2026-09-10. Everything on this page is on the branch
-`feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into
-`main-v2`. It carries the journal, receipt recovery, the durable browser
-workflow, history, the account and instance guards, the owned transport factory
-and the automatic receipt polling. New submission preparation captures T06's SQL
-target proof and uses one qualified Docker and Bee connection. Local Unix and
-supervised SSH adapters are implemented, but the production qualification
-catalog is empty, and acquisition refuses without a matching qualified record.
-Actual SSH and exact-image qualification have not run. Nothing on this branch
-has been deployed, and no transfer has been made with real money.
+Status, 2026-09-16. Everything on this page is merged to `main-v2`. It was
+written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40,
+which landed, and `main-v2` has moved a long way past it since. It carries the
+journal, receipt recovery, the durable browser workflow, history, the account
+and instance guards, the owned transport factory and the automatic receipt
+polling. New submission preparation captures T06's SQL target proof and uses one
+qualified Docker and Bee connection. Local Unix and supervised SSH adapters are
+implemented, and acquisition refuses a transport with no matching qualified
+record. The branch has been deployed twice, on 2026-09-11 and 2026-09-13, and
+what those passes found is in
+[../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). A
+postage batch was bought with real money on the second. No chequebook transfer
+has been made with real money.
 
 ## Balances and new uploader starts
 
@@ -209,13 +212,17 @@ of that workflow had run on a GitHub runner when this page was written.
 against a synthetic Bee. They do not qualify a real Bee image, they do not open
 a real SSH connection, and they move no money.
 
-**The production qualification catalog is empty.**
+**The production qualification catalog has one entry, from a real host.**
 `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` in
-`manager/src/domain/chequebook/beeBridgeQualification.ts` is a frozen empty
-list, and a unit test pins it that way. Acquisition refuses a transport with no
-matching qualified record, so on a real host this feature does nothing until a
-recorded qualification run puts an entry there. A synthetic pass qualifies
-nothing and must never be used to populate it.
+`manager/src/domain/chequebook/beeBridgeQualification.ts` carries
+`bee-2.8.2-docker-29.1.3`, qualified on 2026-09-14 by
+`manager/scripts/qualify-bee-bridge.mjs` against the Bee image the deployment
+host runs, with its image id, engine version, platform, harness revision and
+evidence digest recorded. A unit test now pins the list as non-empty. An entry
+stops matching the moment anything it pins moves, the image, the Docker engine,
+the platform or the bridge script, and transfers refuse again until the script
+has been run against the new pair. A synthetic pass qualifies nothing and must
+never be used to populate it.
 
 **What completion still requires.** The exact immutable-image bridge
 qualification and an actual SSH qualification, both of which need a host and

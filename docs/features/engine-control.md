@@ -3,10 +3,11 @@
 Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first). D12 is on hold, so PR 1 (settings,
 restart, logs, effective config) proceeds and PR 2 (live status) waits for the upstream port change.
 
-PR 1 was built on `feat/engine-control` and is now on `feat/ai-remediation` at `6dc33d1`, pull
-request #40 into `main-v2`. It was written against the stack as pinned at the time, `main-v2`
-`ee99c36`. The pin today is `main-v3` at `9f1255b`, which the update below explains. `SRT_LATENCY`
-is left out with the rest of what a later stack reads. PR 2 is not started.
+PR 1 was built on `feat/engine-control`, went in with pull request #40, and is merged to
+`main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
+submodule now tracks `main-v3` and its pin has moved several times since, which the update
+below explains. `SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is
+not started.
 
 Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is the default,
 main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
@@ -166,9 +167,9 @@ The upstream change this needs on `main-v2` (D7), in swarm-hls-stream: add `SRS_
 `${SRS_HTTP_API_PORT:-1985}:${SRS_HTTP_API_PORT:-1985}` in `deploy/docker-compose.yml`, pass it
 into the container environment, and make the template's `http_api { listen }` a placeholder the
 entrypoint fills. That is what `main-v3` already has (commit range `bbfb8bf..be440d6`), so the
-backport is a cherry-pick with conflicts resolved by hand. The manager side mirrors the new port
-in `PORT_VAR_DEFAULTS` and `containerKeysSpec`, until [stack-versions.md](stack-versions.md)
-makes that table come from the stack version.
+backport is a cherry-pick with conflicts resolved by hand. The manager side no longer needs a mirror: the stack versions work landed, so the port table
+comes from the selected version's own contract (`manager/src/domain/versions/portTable.ts`),
+and `containerKeysSpec` already carries `SRS_HTTP_API_PORT`.
 
 The SRS API has an optional Basic auth block (`http_api { auth { enabled on; username;
 password; } }`). Once the port is published it is one more unauthenticated port on the host,
