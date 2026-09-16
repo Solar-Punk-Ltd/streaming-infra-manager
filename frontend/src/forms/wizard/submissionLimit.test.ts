@@ -5,6 +5,7 @@ import {
   CREATE_TIMEOUT_MS,
   createTimedOutMessage,
   isSubmissionTimeout,
+  refreshAfterFailedCreate,
 } from './submissionLimit';
 
 describe('a create the dialog stops waiting for', () => {
@@ -17,6 +18,15 @@ describe('a create the dialog stops waiting for', () => {
     assert.ok(!isSubmissionTimeout(new Error('request failed (500)')));
     assert.ok(!isSubmissionTimeout(new DOMException('aborted', 'AbortError')));
     assert.ok(!isSubmissionTimeout(null));
+  });
+
+  it('reads the deployments list again, because no event announces a new pool', () => {
+    // The events stream carries profile, engine, version and attempt events
+    // and nothing about a group, so the four rungs of a pool turn up on their
+    // own and the pool they belong to stays invisible until the list is read.
+    assert.ok(refreshAfterFailedCreate(new DOMException('timed out', 'TimeoutError')));
+    assert.ok(!refreshAfterFailedCreate(new Error('request failed (400)')));
+    assert.ok(!refreshAfterFailedCreate(new DOMException('aborted', 'AbortError')));
   });
 
   it('says the deployment may exist rather than that it failed, because the manager keeps working', () => {

@@ -21,6 +21,19 @@ export function isSubmissionTimeout(caught: unknown): boolean {
   return isTimeout(caught);
 }
 
+/**
+ * Whether the deployments list has to be read again after a create that failed.
+ *
+ * A create that ran out of time may have been carried out anyway, and for a
+ * pool nothing else brings it in: the events stream carries profile, engine,
+ * version and attempt events and nothing about a group, so the four rungs turn
+ * up on their own and the pool they belong to is absent from the page until
+ * the list is read again.
+ */
+export function refreshAfterFailedCreate(caught: unknown): boolean {
+  return isSubmissionTimeout(caught);
+}
+
 export function createTimedOutMessage(name: string): string {
   const seconds = Math.round(CREATE_TIMEOUT_MS / 1_000);
   return `The manager has not answered in ${seconds} seconds. ${name} may already have been created and may still be starting. Close this and check the deployments list before trying again.`;

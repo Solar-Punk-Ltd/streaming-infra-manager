@@ -31,6 +31,7 @@ import {
   CREATE_TIMEOUT_MS,
   createTimedOutMessage,
   isSubmissionTimeout,
+  refreshAfterFailedCreate,
 } from './submissionLimit';
 import { BasicsStep } from './steps/BasicsStep';
 import { GoalStep } from './steps/GoalStep';
@@ -219,6 +220,7 @@ export function NewDeploymentWizard({
       const message = timedOut
         ? createTimedOutMessage(state.name)
         : getErrorMessage(caught, 'failed to create the deployment');
+      if (refreshAfterFailedCreate(caught)) reload();
       // The dialog can now be closed while this is still running, so a refusal
       // that lands afterwards has no Alert left to go in. It still has to reach
       // somebody, and the toast outlives the dialog.
