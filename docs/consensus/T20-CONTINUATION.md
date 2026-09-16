@@ -1,5 +1,7 @@
 # T20 continuation, 2026-09-09
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 Latest added SQL coverage,2026-09-09: include `engineConfigExplicitRestore.test.ts` from T01, using the existing owned `t01_test` setup, and the legacy metadata CAS file from T04b once its exact committed path and GREEN are accepted. Their initial missing-API REDs are specifications, not passing coverage. Current local validation runs remain serialized while workers share this machine. This does not by itself require serializing every CI job.
 
 ## Newly required local entrypoints

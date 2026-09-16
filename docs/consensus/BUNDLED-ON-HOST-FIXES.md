@@ -1,5 +1,7 @@
 # Fixes after review: the bundled stack built on the host, 2026-09-09
 
+Status: record, done. This slice merged as `1a9cfd2` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 Branch `feat/bundled-on-host` at 349c841 (22 commits over 44d1fb5). Two reviews ran in parallel on a detached copy: a security review (section S) and a correctness review (section C). Each item is one test-first commit unless it says otherwise. The rules of the brief `BUNDLED-ON-HOST-BRIEF.md` still apply.
 
 ## S. Security review findings

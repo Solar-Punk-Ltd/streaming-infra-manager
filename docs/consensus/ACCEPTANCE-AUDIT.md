@@ -1,5 +1,7 @@
 # Acceptance audit, 2026-09-08
 
+Status: record, closed. Every row it audits is merged into `main-v2`, and the branch was deployed on 2026-09-11. Nothing here is an open instruction.
+
 ## Latest bounded acceptances, 2026-09-09
 
 Current accepted heads supersede older progress below. T01 `c31e06d` restores its operation's retained build after later publications, with40 actual SQL cases and manager types passing. Prior descriptor/hold and exact T01a checks remain recorded. Explicit restore RED `2c75ef7` is committed and its implementation is under validation. The incomplete broad SQL run and two inactive caller failures remain recorded. T11 `ef269a8` binds validation/admission to the same build, with28 focused, three SQL,31 ordinary-deploy controls and manager types. T09 qualification `0489dc8` passes221 focused/native checks and types, with no actual image qualification. T04b observation `aa360e8` and exact T04a merge `67051e8` are accepted. The merge passed136/139 with three setup failures, followed by an unchanged26-case affected-file rerun and types. T21 `c640b10` is independently reviewed documentation only. These are bounded acceptances, not completion of the entire set.

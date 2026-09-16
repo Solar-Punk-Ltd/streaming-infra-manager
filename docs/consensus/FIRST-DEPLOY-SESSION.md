@@ -1,5 +1,7 @@
 # The first real deploy and the signed-in live test, 2026-09-10
 
+Status: executed on 2026-09-11. The deploy, the one-way migration and the signed-in pass all ran, and what happened is recorded in the dated section of `../handover/main-v2-remediation.md`. The host inventory below describes the host as it was before that session, not as it is now.
+
 A runbook for one session with Levi present. It deploys `feat/ai-remediation` to the live test host for the first time since the remediation began, then proves the manager end to end while signed in, without spending. The paid part is a later step.
 
 ## What the host holds today

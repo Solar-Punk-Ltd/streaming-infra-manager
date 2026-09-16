@@ -1,5 +1,7 @@
 # Brief: the bundled stack is fetched and built on the host, 2026-09-09
 
+Status: record, done. This slice merged as `1a9cfd2` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 For the implementing agent. Branch: a task branch off `feat/ai-remediation` (head 3f7a265 or later). Tests first, one logical change per commit, `test:` commit then `fix:`/`feat:` commit. No `Co-Authored-By`. No em-dashes or semicolons in prose, comments, docs or commit messages. Never touch the host 157.90.34.105, never run `deploy/deploy.sh`, never push. Docker is allowed only where the existing test suites already use it (none of the unit suites do). The database suite needs a disposable Postgres: `docker run --rm -d --name t04b-cli-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:16-alpine` and `createdb -h 127.0.0.1 -p 55432 -U postgres t04b_test`, then the `*_TEST_PG_PORT` variables the test files name.
 
 ## Levi's decisions this brief implements

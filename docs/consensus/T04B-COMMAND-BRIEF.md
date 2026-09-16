@@ -1,5 +1,7 @@
 # Brief: the bundled publication command and the deploy that runs it (T04b, slice "command")
 
+Status: record, superseded. The seal and ship path this describes was removed at `d44f14c` on 2026-09-09 by the bundled-on-host slice, so most of the files named below no longer exist. Kept for the design and the review trail.
+
 Written by Fable on 2026-09-09 for an Opus implementation agent. Branch `fix/t04b-publication-command`, cut from `feat/ai-remediation` at `3c779a9`. Work in the main checkout `/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager`, which is already on that branch. Levi's decision 1 of 2026-09-09: keep the durable publication design and build the command.
 
 ## What this closes

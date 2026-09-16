@@ -1,5 +1,7 @@
 # T06 completed checkpoint, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 **Latest integration:** Accepted at clean `b65f8d9`. Merge `efa6cd5` brings reviewed T04a `5577c94` into the existing T06 branch. RED `74114e9` and GREEN `4e3f53b` ensure fallback reservations resolve one captured descriptor before port work and carry it through start and cancellation. RED `b39fd30` and GREEN `b65f8d9` cancel the exact unused reference after defaults preparation when no script is needed. Older references and port reservations remain intact.
 
 Evidence: 800 manager tests in `/private/tmp/t06-noop-manager-full-green.log`, 24 focused tests in `/private/tmp/t06-noop-reference-green.log`, earlier integrated 280 common tests in `/private/tmp/t06-t04a-common-full.log` and 53 actual PostgreSQL cases in `/private/tmp/t06-t04a-sql-final.log`. All types pass. The last no-op correction did not change SQL, so that suite was not repeated. Root reviewed source and evidence in its separate review tree. Linux kernel firewall validation and the matching-version shared-image harness remain unexecuted. T12 has merged this branch at `fe7899e`, with its direct-ledger phase correction currently paused at RED `53d1724` after an automatic source-edit rejection.

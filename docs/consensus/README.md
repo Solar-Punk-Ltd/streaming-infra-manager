@@ -4,7 +4,9 @@ What this directory is: the written record of the cross-provider review of `main
 
 The review files, the issue drafts, the pull request drafts and the continuations were written under `.scratch/main-v2-review-consensus/`, which stays untracked and keeps the originals together with the logs and browser evidence. They were copied here unchanged on 2026-09-09 so the pull request carries the record. Everything in the second table below was written here from the start. The directory sits two levels below the repository root on purpose: every relative link inside these files, such as `../../manager/src/domain/ProfileService.ts`, resolves the same way it did in the scratch directory.
 
-Where the work stands, 2026-09-10: it is on the branch `feat/ai-remediation`, at commit `6dc33d1`, which is pull request #40 into `main-v2`. Nothing on that branch has been deployed to a host.
+Where the work stands: `feat/ai-remediation` is merged into `main-v2`, and it was deployed to the live test host on 2026-09-11 along with its one-way migration and a signed-in pass. What that session found is the dated section at the end of `../handover/main-v2-remediation.md`. Everything in this directory is therefore a record of finished work rather than an instruction, and each file now says so on its own first lines. Read a brief for what was asked and a fixes file for what the reviewers measured, and treat the branches, worktrees, commits and line numbers inside them as the state at the time of writing.
+
+How to follow an evidence citation: these files cite their logs by the path they were written to at the time, `/private/tmp/<name>.log`. Those logs now live under `.scratch/main-v2-review-consensus/evidence/private-tmp/` with the same file names, so read the last path segment and look for it there. That directory is untracked and local to the machine the work was done on, which means a citation cannot be followed from a fresh clone.
 
 | File or directory | What it holds |
 | --- | --- |
@@ -13,7 +15,7 @@ Where the work stands, 2026-09-10: it is on the branch `feat/ai-remediation`, at
 | `prs/` | One draft per row of the pull request body it would have had, with its test evidence. Superseded as pull requests by the single integration PR, kept as the per-row record of what was built and checked. |
 | `ACCEPTANCE-AUDIT.md` | Which acceptance conditions were met at which commit, and which remain open, as audited during the work. |
 | `T01-CONTINUATION.md` and the other `T*-CONTINUATION.md` files | The working contract of each larger row: the boundaries agreed between reviewer and implementer, the RED and GREEN evidence, and the obligations left. The newest paragraphs supersede the older ones where they disagree. |
-| `FIRST-DEPLOY-SESSION.md` | The runbook for the first real deploy of this branch and the signed-in live test after it. That session waits for Levi to name a time. Nothing on this branch has reached the host. |
+| `FIRST-DEPLOY-SESSION.md` | The runbook for the first real deploy of this branch and the signed-in live test after it. That session ran on 2026-09-11. The host inventory in it describes the host before the deploy, not after. |
 
 ## The slices built after the merge, in order
 

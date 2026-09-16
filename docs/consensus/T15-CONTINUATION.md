@@ -1,5 +1,7 @@
 # T15 preparation, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Accepted local checkpoint, 2026-09-09
 
 Cross-provider review, OpenAI-hosted. T15 is clean and lead-approved at `8d326aa229607aea0abd111ac3e6ada17d2107f2`. Levi explicitly approved the reviewer-only override for the remaining agreed local work, including this final commit. The commit exactly matches the previously reviewed and tested staged wizard correction. A fresh diff check passes. No code changed between the final browser/type verification and this commit, so those checks were not repeated solely to commit it.

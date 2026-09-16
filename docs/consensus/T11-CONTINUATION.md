@@ -1,5 +1,7 @@
 # T11 custom-file source correction, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Active cross-row dependency integration
 
 Cross-provider review, OpenAI-hosted. Captured-version correction `ef269a861d0a7e80a6585f89ff71ae1e3c8e2ca8` is clean and accepted after RED `c0f1521`. One cloned version supplies root and contract defaults and is passed to admission without reselection. The existing locked ledger comparison refuses a newly published build before settings, status, intent or job mutation. Supplied captures are cloned before waits. Four actual HTTP/unit failures and a real SQL publication failure establish RED. Cancelled load-bound SQL runs are retained, not counted as passes.

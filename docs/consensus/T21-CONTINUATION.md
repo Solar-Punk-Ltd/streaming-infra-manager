@@ -1,5 +1,7 @@
 # T21 documentation checkpoint, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Latest update, 2026-09-09
 
 Latest documentation commit `c640b10` records the accepted T11 captured-build correction `ef269a8`. Its validation and admission share the selected build, with publication refused before state changes. Mutable inputs remain open. The T11 worker independently accepted the exact factual diff and its distinction between 28 focused checks, three SQL cases, manager types and the earlier full 1095/1097 run. No application tests were needed for this prose change. The T21 tree is clean at `c640b10`.

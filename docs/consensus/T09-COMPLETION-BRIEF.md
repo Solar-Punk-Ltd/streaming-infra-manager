@@ -1,5 +1,7 @@
 # T09 completion brief: receipt polling, a portable harness, connected acceptance
 
+Status: record, done. This slice merged as `8f48fb0` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 Written by Fable on 2026-09-10 for the Opus implementation session. Baseline: `feat/ai-remediation` at 64563da. Task branch: `feat/t09-receipt-polling`, cut from that head. The PR is #40 into `main-v2`.
 
 ## What T09 is, and what is still missing

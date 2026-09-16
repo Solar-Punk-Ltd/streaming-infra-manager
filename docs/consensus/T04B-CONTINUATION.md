@@ -1,5 +1,7 @@
 # T04b continuation, 2026-09-09
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Latest boot and guard checkpoint,2026-09-09
 
 Exact boot/legacy CAS GREEN `15c9565` is source-reviewed with5 actual SQL and3 behavioral startup cases passing. Guard `6b14265` passes9 focused cases. Neither is called fully accepted yet because manager types exposed two fixture errors, a missing contract in a PublishOutcome and a heterogeneous method-wrapper assignment. The worker is correcting them. Its separate strict-envelope regression has2 actual failures and10 controls. No runtime CLI/deploy adapter is active yet.

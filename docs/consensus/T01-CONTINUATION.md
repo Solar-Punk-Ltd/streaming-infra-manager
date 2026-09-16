@@ -1,5 +1,7 @@
 # T01 operation ownership continuation, 2026-09-09
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Active instance-scope correction,2026-09-09
 
 **Accepted:** GREEN `b33aab817fd4eacad79acd58ceadaac65302cc5e`, parent RED `e988149`, is independently reviewed. It changes three source files through one shared instance predicate and resolves no holds. All18 new and25 existing affected SQL cases pass, plus manager types. Logs `/private/tmp/t01-operation-hold-scope-green.log`, `/private/tmp/t01-operation-hold-scope-existing-sql.log` and `/private/tmp/t01-operation-hold-scope-manager-types.log`. Both sessions69016/94326 ended. T04b received the validation slot for corrected types. Real caller admission RED is now the active step.

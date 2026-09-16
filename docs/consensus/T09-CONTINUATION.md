@@ -1,5 +1,7 @@
 # T09 continuation, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Accepted independent supervisor,2026-09-09
 
 Cross-provider review, OpenAI-hosted. Exact GREEN `e0416a9` is accepted after separate-worktree source review and inspection of final native cleanup evidence. REDs are `6b29ba6`, behavioral `5a13046` and native `99a20b8`. All80 resource/lifecycle compatibility cases and4 native Node parent-death tests pass, with manager types. Logs `/private/tmp/t09-ssh-supervisor-resource-green.log`, `/private/tmp/t09-ssh-supervisor-native-final.log`, `/private/tmp/t09-ssh-supervisor-types-green.log` and `/private/tmp/t09-ssh-supervisor-cleanup.log`. Earlier type/native fixture mistakes and their corrected reruns remain recorded. The final four owned fixture directories and all recorded manager, supervisor and child PIDs are independently absent. The earlier retained failed fixture was removed only after exact identity and process checks.

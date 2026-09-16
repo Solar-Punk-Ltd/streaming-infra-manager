@@ -1,5 +1,7 @@
 # T08 remaining work, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Current reviewed checkpoint
 
 Verification update: Levi explicitly approved local edits/commits and disposable test databases. All eight PostgreSQL regressions passed at unchanged `347c7dd`, with zero failures or skips, in `/private/tmp/t08-sql-approval-r2.log`. The database contained only synthetic schemas. Exact container `c07a7b5061811a81c3b508a20408bbe514842d2f8286db2ab8782c04659fdc8e` was stopped and its removal verified after automatic cleanup completed. The former SQL permission gap is closed. Earlier pending statements below retain the original review timeline.

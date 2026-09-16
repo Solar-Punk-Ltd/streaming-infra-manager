@@ -1,5 +1,7 @@
 # T20 completion slice: what the reviews found and what changes
 
+Status: record, done. This slice merged as `ab8776c` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 Written by Fable on 2026-09-10 after the Opus implementation (branch `feat/t20-ci-completion`, head 722f103, 16 commits over febaf9e) and two parallel reviews on detached worktrees at that head.
 
 ## F. Fable's own findings

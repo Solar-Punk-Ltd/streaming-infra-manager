@@ -1,6 +1,6 @@
 # main-v2 review consensus and remediation roadmap
 
-Status: needs-triage
+Status: done. All 25 rows are implemented and merged into `main-v2`, and the branch was deployed on 2026-09-11. This is the design record of the review, not an open task list. The `needs-triage` label it carried until then belonged to the review, not to the code.
 
 Review label: **cross-provider review, OpenAI-hosted**
 

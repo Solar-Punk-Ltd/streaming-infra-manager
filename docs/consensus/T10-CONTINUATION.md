@@ -1,5 +1,7 @@
 # T10 continuation, 2026-09-09
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 Cross-provider review, OpenAI-hosted. Local implementation is committed, tested and independently accepted through `284790c96547a0a3d6f75e4d120d676257874fc0`. Worktree `/private/tmp/t10-codex`, branch `fix/t10-integration-client`, clean. Main-v2 remains `d046ebf`. Nothing was pushed or merged there.
 
 Levi explicitly authorized the reviewer-only override for local edits, commits and disposable tests. Pushes, GitHub writes, main-v2 merges, host access and live integration remain excluded.

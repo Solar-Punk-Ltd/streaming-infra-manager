@@ -1,5 +1,7 @@
 # T04a correction handoff, 2026-09-08
 
+Status: record. The row it carries is merged into `main-v2`, and the branch was deployed on 2026-09-11. Its working instructions, branches, worktrees and line numbers were live when it was written and are not to be resumed.
+
 ## Guarded removal and marker checkpoints
 
 Cross-provider review, OpenAI-hosted. Final clean `c55c9d93b17b75619b239104099de28cdfff2a43` is accepted. SQL/callback guard `635bfd7`, marker `6a34810`, new-version insert `bf86a73`, future-ID refusal `63febb4` and ancestor validation `a003d83` are independently reviewed. Fixture correction `e11f16a` and fixed malformed-marker diagnostic `4ca688c` passed the complete compatibility run: 194 actual SQL cases across 11 files, 999 manager tests, 289 common tests, 18 frontend tests and workspace types. Logs `/private/tmp/t04a-removal-all-sql.log`, `/private/tmp/t04a-removal-all-manager-final.log` and `/private/tmp/t04a-removal-all-final-types.log`.

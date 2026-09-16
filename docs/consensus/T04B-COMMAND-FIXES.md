@@ -1,5 +1,7 @@
 # Brief: review fixes for the publication command slice (round 2)
 
+Status: record, superseded. The seal and ship path this describes was removed at `d44f14c` on 2026-09-09 by the bundled-on-host slice, so most of the files named below no longer exist. Kept for the design and the review trail.
+
 Written by Fable on 2026-09-09 after a TypeScript review and a security review of branch `fix/t04b-publication-command` (head `4e95942`, 16 commits over `feat/ai-remediation` at `af5e402`). Same branch, same checkout `/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager`, same rules as `T04B-COMMAND-BRIEF.md` next to this file. Every item below is a separate RED then GREEN pair of commits unless it says "same commit as". Work through them in the order given, because the earlier ones change code the later ones test.
 
 Line numbers refer to the branch head. Paths are relative to the repository root.

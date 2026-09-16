@@ -1,5 +1,7 @@
 # Fixes for the version settings slice, from the reviews of 637d758 (2026-09-10)
 
+Status: record, done. This slice merged as `7d9af23` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 For the implementing agent, on branch `feat/version-settings`. Same rules as the brief: tests first, one fix per commit (a `test:` commit then a `fix:` commit, or one commit when they are one logical unit), no em-dashes or semicolons in prose, never the host, never push, never a `.env` of the submodule except the samples, never a value in a log or a test's failure output. Every item names what the reviewer measured. Where a fix says "test", the test is written first and seen red.
 
 ## F. Fable's findings

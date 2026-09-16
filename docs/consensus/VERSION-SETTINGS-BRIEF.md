@@ -1,5 +1,7 @@
 # Brief: a settings page for every stack version, 2026-09-10
 
+Status: record, done. This slice merged as `7d9af23` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 For the implementing agent. Branch: a task branch off `feat/ai-remediation` after the bundled-on-host slice is merged. Tests first, one logical change per commit, `test:` then `feat:`/`fix:`. No `Co-Authored-By`. No em-dashes or semicolons in prose, comments, docs, log lines, UI copy or commit messages. Never touch the host, never run `deploy/deploy.sh`, never push. The database suite runs the nine-database way described in `BUNDLED-ON-HOST-FIXES.md` section C2.
 
 ## Levi's decisions this brief implements

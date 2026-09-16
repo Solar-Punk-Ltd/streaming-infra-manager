@@ -1,5 +1,7 @@
 # T21 completion brief: the documentation says what the code does
 
+Status: record, done. This slice merged as `47b6a6c` on 2026-09-10 and reached the host on 2026-09-11. The instructions below were live at the time and are not to be followed now. Paths, commits and line numbers are as they were when it was written.
+
 Written by Fable on 2026-09-10 for the Opus implementation session. Baseline: `feat/ai-remediation` at 79546dc, the T20 completion merge (ab8776c) plus its handover line. Task branch: `docs/t21-reconciliation`. The PR is #40 into `main-v2`. This slice changes prose only. It runs no test suite except the prose checks, and it changes no code.
 
 ## What T21 is
