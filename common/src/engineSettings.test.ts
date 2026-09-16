@@ -188,7 +188,7 @@ describe('out of range and non numeric values', () => {
   it('refuses an empty value, and says how to go back to the default', () => {
     assert.match(
       engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN) ?? '',
-      /cannot be empty.*stack default of 2/,
+      /cannot be empty.*default of 2/,
     );
   });
 

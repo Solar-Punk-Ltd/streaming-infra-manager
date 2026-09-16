@@ -38,7 +38,11 @@ export interface EngineSettingField {
   /** Shown after the input. Null for a choice, which has no unit. */
   unit: string | null;
   kind: EngineSettingKind;
-  /** The stack's own value when nothing is stored. Always a string, as env is. */
+  /**
+   * What applies when nothing is stored and no contract was read: the
+   * manager's own number, not the stack's, as the header says. Always a
+   * string, as env is.
+   */
   defaultValue: string;
   min?: number;
   max?: number;
@@ -286,7 +290,8 @@ export function applicableEngineSettings(
  *
  * `defaults` is what an unset field falls back to on the host this deployment
  * runs on, which `effectiveEngineDefaults` answers. Left out, every field falls
- * back to the stack's own value. `omitted` names the keys a config file of the
+ * back to its own `defaultValue`, the manager's number rather than the stack's.
+ * `omitted` names the keys a config file of the
  * deployment's own no longer reads: nothing in that file takes the value, so
  * what the engine runs with for them is not known from here, and they are
  * left out rather than guessed.
@@ -332,7 +337,7 @@ export function engineSettingFieldProblem(
 ): string | null {
   const value = rawValue.trim();
   if (!value) {
-    return `${field.label} cannot be empty. Clear the whole field to go back to the stack default of ${field.defaultValue}.`;
+    return `${field.label} cannot be empty. Clear the whole field to go back to the default of ${field.defaultValue}.`;
   }
 
   if (field.kind === 'choice') {
@@ -436,7 +441,7 @@ export interface EngineSettingsCheckOptions {
   /**
    * What an unset field falls back to on the host this deployment runs on, from
    * `effectiveEngineDefaults`. Each cross-field rule spans two fields and either
-   * of them may be unset, so checking one against the stack's own values passes a
+   * of them may be unset, so checking one against the field defaults passes a
    * pair the host then refuses, and refuses a pair it would have started with.
    */
   defaults?: EngineSettings;
