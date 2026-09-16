@@ -52,9 +52,29 @@ The `checks` workflow declares three jobs on every pull request and push to
 `main-v2`: the build and the unit suites, the SQL suites against nine
 disposable databases, and the browser suites against a real headless Chrome. A
 second workflow, started by hand, runs the container-backed regressions and the
-signed-in integration suite. That second one has never been dispatched. What
-each job proves, what it does not, and how to run any of it on a laptop:
-[docs/ci.md](docs/ci.md).
+signed-in integration suite. Checked on GitHub on 2026-09-16: nobody has ever
+dispatched that second workflow by hand. It has run five times on its own, on
+push events between 2026-09-10 and 2026-09-11, and every one of those five runs
+failed. There has been none since, so no successful run of the container-backed
+regressions is recorded here. What each job proves, what it does not, and how to
+run any of it on a laptop: [docs/ci.md](docs/ci.md).
+
+## Documents
+
+- [docs/features/](docs/features/): one page per feature, what the operator
+  sees and how the code behaves. Start here to understand a capability.
+- [docs/ci.md](docs/ci.md): what each CI job proves, what it does not, and how
+  to run any suite on a laptop.
+- [docs/testing/](docs/testing/): what particular suites cover and, as
+  importantly, what they do not model.
+- [docs/handover/](docs/handover/): the narrative of the main-v2 remediation,
+  one dated section per slice, including what the first real deploy found.
+- [docs/consensus/](docs/consensus/): the record of the cross-provider review
+  that produced that remediation. The PRD, the 25 rows, the briefs and the
+  acceptance trail. These are records of finished work and not instructions,
+  and each one says so on its first lines. Its README is the index.
+- [docs/ux/](docs/ux/): the UX rework brief and the clickable mockup it was
+  decided from. Merged 2026-09-05.
 
 ## Cloning this repository
 
