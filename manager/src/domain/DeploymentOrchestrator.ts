@@ -1256,7 +1256,7 @@ export class DeploymentOrchestrator {
     await this.ensureStackDefaults(paths);
     return this.runner.run(paths.health, this.buildScriptArgs(profile, []), {
       cwd: paths.root,
-      env: beeDataDirsFor(profile.name),
+      env: beeDataDirsFor(profile.name, targetAlias(profile.host)),
     });
   }
 
@@ -1331,7 +1331,7 @@ export class DeploymentOrchestrator {
     cfg.onLaunch?.();
     const handle = this.runner.run(cfg.script, cfg.args, {
       cwd: cfg.paths.root,
-      env: beeDataDirsFor(cfg.profileName),
+      env: beeDataDirsFor(cfg.profileName, cfg.target),
     });
 
     let stderrTail = '';
@@ -1569,7 +1569,7 @@ export class DeploymentOrchestrator {
   ): Record<string, string> {
     const env = parseBaseEnv(paths.root);
 
-    Object.assign(env, beeDataDirsFor(profile.name));
+    Object.assign(env, beeDataDirsFor(profile.name, targetAlias(profile.host)));
 
     env.ENGINE = engineForComponents(profile.components);
 

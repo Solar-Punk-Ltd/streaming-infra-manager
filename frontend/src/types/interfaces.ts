@@ -22,6 +22,12 @@ export interface Profile {
   /** Moves with every change of the notes. A save carries the revision its page loaded. */
   notes_revision: number;
   host?: string | null;
+  /**
+   * Derived server-side: `host` with the ssh layer resolved away. `host` is a
+   * deploy target, so it may be an ssh alias that only the manager's ssh config
+   * can turn into an address. This is what to build links from.
+   */
+  network_host?: string | null;
   components?: string[] | null;
   feed_owner?: string | null;
   feed_topic?: string | null;

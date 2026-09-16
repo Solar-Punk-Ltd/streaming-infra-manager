@@ -65,6 +65,7 @@ export interface Profile {
   bee_url: string | null;
   containers: Container[];
   pendingStamp: boolean;
+  network_host: string;
   group_id: number | null;
   last_error: string | null;
 }

@@ -49,6 +49,19 @@ services:
       #   /host/rootfs → host disk used/total (statfs on the root filesystem)
       - /proc:/host/proc:ro
       - /:/host/rootfs:ro
+      # Deploying to other hosts: target verification and deploy.sh both shell
+      # out to ssh/rsync from inside this container, which has no identity of
+      # its own. manager-ssh/ on the host holds the deploy key, an ssh_config
+      # with a Host block per target alias, and a known_hosts the operator seeds
+      # with each target's host key. Verification runs with
+      # StrictHostKeyChecking=yes, so an unseeded target is refused, not trusted
+      # on first connect. See deploy/README.md for the ssh-keyscan step.
+      - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}:/root/.ssh
+      # Host aliases for deploy targets (bee hosts, GCP stage hosts), as a
+      # system-wide ssh config file rather than /root/.ssh/config: ssh refuses a
+      # per-user config not owned by the running user, and a bind-mounted file
+      # keeps the host's uid.
+      - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}/ssh_config:/etc/ssh/ssh_config:ro
 
   web:
     build:
