@@ -215,17 +215,18 @@ export function orphanRecoveryOf(
   if (expected.length === 0) {
     return { status: 'ERROR', message: `${restarted}, and it runs no service whose containers could say how far it got.` };
   }
-  const up = expected.filter((service) => isUp(containers.get(service) ?? []));
+  const observedOf = (service: string): readonly ObservedContainer[] => containers.get(service) ?? [];
+  const up = expected.filter((service) => isUp(observedOf(service)));
   if (profile.status === 'STOPPING') {
     if (up.length === 0) return { status: 'STOPPED', message: null };
     if (up.length === expected.length) return { status: 'RUNNING', message: null };
     return { status: 'ERROR', message: `${restarted}, and ${up.join(', ')} is still running.` };
   }
   if (up.length === expected.length) return { status: 'RUNNING', message: null };
-  const notUp = expected.filter((service) => !isUp(containers.get(service) ?? []));
+  const notUp = expected.filter((service) => !isUp(observedOf(service)));
   return {
     status: 'ERROR',
-    message: `${restarted}, and ${notUp.map((service) => whatWasFound(service, containers.get(service) ?? [])).join(', ')}.`,
+    message: `${restarted}, and ${notUp.map((service) => whatWasFound(service, observedOf(service))).join(', ')}.`,
   };
 }
 
