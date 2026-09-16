@@ -16,6 +16,7 @@ import {
   editProblem,
   fieldsFor,
   initialEdits,
+  srtPassphraseMasked,
   streamKeyMasked,
 } from './deploymentEdits';
 import { addressForKey } from './validation';
@@ -31,6 +32,7 @@ function viewer(over: Partial<Profile> = {}): Profile {
     feed_owner: '0x1111111111111111111111111111111111111111',
     engine_settings: {},
     has_private_key: false,
+    has_srt_passphrase: false,
     has_engine_config: false,
     engine_config_error: null,
     engine_config_state: null,
@@ -139,7 +141,7 @@ describe('the chain endpoint a deployment names for itself', () => {
     const profile = uploader();
     const edits = { ...initialEdits(profile), rpcEndpoint: 'rpc.gnosischain.com' };
 
-    assert.match(editProblem(edits, fieldsFor(profile)) ?? '', /http/);
+    assert.match(editProblem(edits, fieldsFor(profile), profile.has_srt_passphrase) ?? '', /http/);
   });
 
   it('clears back to the version endpoint when the field is emptied', () => {
@@ -234,5 +236,125 @@ describe('the stream key in the Edit drawer', () => {
     );
 
     assert.equal(body.private_key, undefined);
+  });
+});
+
+/** A deployment whose SRT ingest is encrypted with a passphrase of its own. */
+function stage(over: Partial<Profile> = {}): Profile {
+  return viewer({ kind: 'streamer', components: ['srs', 'stream-uploader'], ...over });
+}
+
+const TYPED_PASSPHRASE = 'stage-passphrase-2026';
+
+describe('the SRT passphrase in the Edit drawer', () => {
+  /**
+   * The manager answers whether one is stored and hands the value over only to
+   * the page about to put it in a publish URL, so the drawer has nothing to
+   * put in the box and reads the flag for the mode instead.
+   */
+  it('reads the mode off the flag, and starts with an empty box', () => {
+    const own = initialEdits(stage({ has_srt_passphrase: true }));
+    assert.equal(own.passMode, 'own');
+    assert.equal(own.passphrase, '', 'a stored passphrase is never on screen');
+
+    assert.equal(initialEdits(stage()).passMode, 'host');
+  });
+
+  it('shows dots while one is stored and the operator has typed nothing', () => {
+    assert.equal(
+      srtPassphraseMasked({ hasStoredPassphrase: true, typed: '', replacing: false }),
+      true,
+    );
+  });
+
+  it('opens the box when the operator asks to replace it, or types one', () => {
+    assert.equal(
+      srtPassphraseMasked({ hasStoredPassphrase: true, typed: '', replacing: true }),
+      false,
+    );
+    assert.equal(
+      srtPassphraseMasked({
+        hasStoredPassphrase: true,
+        typed: TYPED_PASSPHRASE,
+        replacing: false,
+      }),
+      false,
+    );
+  });
+
+  it('leaves the box open when the deployment holds none at all', () => {
+    assert.equal(
+      srtPassphraseMasked({ hasStoredPassphrase: false, typed: '', replacing: false }),
+      false,
+    );
+  });
+
+  /** The manager keeps the stored passphrase when a save says nothing about it. */
+  it('sends no passphrase when the operator did not touch the field', () => {
+    const profile = stage({ has_srt_passphrase: true });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, notes: 'only the note changed' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.srt_passphrase, undefined);
+    assert.ok(
+      !('srt_passphrase' in body),
+      'an absent field is what tells the manager to keep the stored one',
+    );
+  });
+
+  it('does not call dots an invalid passphrase', () => {
+    const profile = stage({ has_srt_passphrase: true });
+    const initial = initialEdits(profile);
+
+    assert.equal(editProblem(initial, fieldsFor(profile), true), null);
+  });
+
+  it('refuses an empty box on a deployment that holds no passphrase', () => {
+    const profile = stage();
+    const edits = { ...initialEdits(profile), passMode: 'own' as const };
+
+    assert.match(editProblem(edits, fieldsFor(profile), false) ?? '', /passphrase/i);
+  });
+
+  it('sends the passphrase the operator typed', () => {
+    const profile = stage({ has_srt_passphrase: true });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, passphrase: TYPED_PASSPHRASE },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.srt_passphrase, TYPED_PASSPHRASE);
+  });
+
+  /**
+   * Null rather than an absent field, because absent now means keep. Sending
+   * nothing for the host-wide choice would leave a deployment that once had
+   * its own passphrase unable to go back.
+   */
+  it('sends null when the operator chooses the host-wide passphrase', () => {
+    const profile = stage({ has_srt_passphrase: true });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, passMode: 'host' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.srt_passphrase, null);
   });
 });

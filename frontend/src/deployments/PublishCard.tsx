@@ -22,7 +22,7 @@ function passphraseNote(
   if (engineOf(profile) === OME_SERVICE) {
     return 'OvenMediaEngine ingest. Its SRT listener takes no passphrase.';
   }
-  if (profile.srt_passphrase?.trim()) {
+  if (profile.has_srt_passphrase) {
     return "Encrypted with this deployment's own passphrase, already in the URL.";
   }
   return hostPassphrase

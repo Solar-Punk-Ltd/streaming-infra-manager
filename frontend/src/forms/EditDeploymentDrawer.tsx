@@ -60,7 +60,7 @@ export function EditDeploymentDrawer({
     setEdits((prev) => ({ ...prev, ...patch }));
 
   const shown = fieldsFor(profile);
-  const problem = editProblem(edits, shown);
+  const problem = editProblem(edits, shown, profile.has_srt_passphrase);
   const streams = streamersOf(profiles ?? []);
 
   const save = async () => {
@@ -101,6 +101,7 @@ export function EditDeploymentDrawer({
         <PassphraseField
           mode={edits.passMode}
           value={edits.passphrase}
+          hasStoredPassphrase={profile.has_srt_passphrase}
           onModeChange={(passMode) => update({ passMode })}
           onValueChange={(passphrase) => update({ passphrase })}
         />

@@ -20,7 +20,7 @@ import { useMetrics } from '../useMetrics';
 import { beeReadinessView } from '../uploaders/beeReadiness';
 import { useBeeUtils, type BeeUtils } from '../uploaders/useBeeUtils';
 import type { Profile } from '../types';
-import { clientUrl, srtPublishUrl } from '../urls';
+import { clientUrl } from '../urls';
 import { attemptHolding } from '../versions/attemptHold';
 import { ReleaseAttemptDialog } from '../versions/ReleaseAttemptDialog';
 import { useAttemptRelease } from '../versions/useAttemptRelease';
@@ -36,6 +36,7 @@ import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
+import { usePublishUrl } from './usePublishUrl';
 import { useEngineOverview } from './useEngineOverview';
 import { HeldAttemptCard } from './HeldAttemptCard';
 import { LastErrorCard } from './LastErrorCard';
@@ -122,6 +123,10 @@ function DeploymentBody({
   const release = useAttemptRelease();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
+  // The Publish card puts this URL on screen, which is the operator opening
+  // it, so the passphrase is asked for as the page loads rather than on a
+  // click. It goes no further than this page.
+  const publish = usePublishUrl(profile, true);
 
   useEffect(() => {
     if (focus !== 'storage') return;
@@ -151,7 +156,7 @@ function DeploymentBody({
     null;
 
   const heldBy = attemptHolding(profile.name, attempts, profiles);
-  const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
+  const publishUrl = publish.url;
   const watchUrl = clientUrl(profile, serverHost);
   const streamers = streamersOf(profiles ?? []);
   const streamer = streamerFor(profile.feed_owner, streamers);

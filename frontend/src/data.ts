@@ -70,6 +70,22 @@ export async function fetchProfiles(): Promise<Profile[]> {
   return body.profiles;
 }
 
+/**
+ * One deployment's SRT passphrase, or null when it publishes under the
+ * host-wide one.
+ *
+ * Asked for at the moment an operator opens or copies that deployment's
+ * publish URL, because the passphrase goes in the URL's query. It is not on
+ * the profile row, and what comes back belongs to the view that asked: never
+ * merged into the deployments store, where every page would hold it.
+ */
+export async function fetchSrtPassphrase(name: string): Promise<string | null> {
+  const body = await getJson<{ srt_passphrase: string | null }>(
+    `/profiles/${encodeURIComponent(name)}/srt-passphrase`,
+  );
+  return body.srt_passphrase;
+}
+
 function uploaderDeployed(profile: Profile): boolean {
   return profile.containers.some(
     (c) => c.service === STREAM_UPLOADER_SERVICE,
@@ -140,9 +156,19 @@ export function createProfile(
   return sendJson<Profile>('POST', '/profiles', body, signal);
 }
 
-export type UpdateProfileBody = Omit<CreateProfileBody, 'name' | 'host'> & {
+export type UpdateProfileBody = Omit<
+  CreateProfileBody,
+  'name' | 'host' | 'srt_passphrase'
+> & {
   /** The revision the drawer loaded the notes at, sent along with an edited note. */
   notes_revision?: number;
+  /**
+   * Absent keeps the passphrase the deployment holds, because no page is given
+   * the value and so no page can send it back. An explicit null is the
+   * operator putting the deployment back on the host-wide passphrase, which is
+   * the only way left to clear it.
+   */
+  srt_passphrase?: string | null;
 };
 
 export interface CreateGroupBody {

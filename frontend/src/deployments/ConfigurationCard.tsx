@@ -18,6 +18,7 @@ import { SectionCard } from '../components/SectionCard';
 import { ServiceChip } from '../components/ServiceChip';
 import { shortHex } from '../format';
 import type { Profile } from '../types';
+import { fetchSrtPassphrase } from '../data';
 import { beeApiUrl, hostFor } from '../urls';
 import { isStreamLike } from './readiness';
 import { hasService, servicesOf, SHAPE_LABEL, shapeOf } from './shape';
@@ -61,14 +62,17 @@ export function ConfigurationCard({
   ];
 
   if (hasService(profile, SRS_SERVICE)) {
-    const own = profile.srt_passphrase?.trim();
     entries.push({
       key: 'SRT passphrase',
-      value: own ? (
+      value: profile.has_srt_passphrase ? (
         <Stack direction="row" spacing={0.5} alignItems="center">
           <Mono>{HIDDEN}</Mono>
           <span>own passphrase</span>
-          <CopyButton value={own} label="SRT passphrase" />
+          {/* Asked for on the click. The card is told one is stored, never which. */}
+          <CopyButton
+            value={() => fetchSrtPassphrase(profile.name)}
+            label="SRT passphrase"
+          />
         </Stack>
       ) : hostPassphrase ? (
         <span>host-wide passphrase (default)</span>

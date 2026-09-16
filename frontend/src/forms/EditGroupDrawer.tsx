@@ -20,7 +20,7 @@ import {
 import { updateGroupConfig, type UpdateGroupConfigBody } from '../data';
 import type { Profile } from '../types';
 import { hostFor } from '../urls';
-import { hasEdits } from './deploymentEdits';
+import { hasEdits, srtPassphraseMasked } from './deploymentEdits';
 import { EditDrawerFrame } from './EditDrawerFrame';
 import { FixedAtCreation } from './FixedAtCreation';
 import { FormField } from './FormField';
@@ -65,7 +65,7 @@ export function EditGroupDrawer({
 
   const showsPassphrase = hasService(first, SRS_SERVICE);
   const showsFeedOwner = hasService(first, CLIENT_SERVICE);
-  const problem = groupProblem(edits, showsPassphrase, showsFeedOwner);
+  const problem = groupProblem(edits, showsPassphrase, showsFeedOwner, first.has_srt_passphrase);
   const streams = streamersOf(profiles ?? []);
 
   const save = async () => {
@@ -121,6 +121,7 @@ export function EditGroupDrawer({
         <PassphraseField
           mode={edits.passMode}
           value={edits.passphrase}
+          hasStoredPassphrase={first.has_srt_passphrase}
           appliesToAll
           onModeChange={(passMode) => update({ passMode })}
           onValueChange={(passphrase) => update({ passphrase })}
@@ -178,20 +179,31 @@ export function EditGroupDrawer({
 
 function initialEdits(first: Profile | undefined): GroupEdits {
   return {
-    passMode: first?.srt_passphrase?.trim() ? 'own' : 'host',
-    passphrase: first?.srt_passphrase ?? '',
+    // The flag, because the value is not on the row, and the box starts empty
+    // for the same reason: only what the operator types goes in it.
+    passMode: first?.has_srt_passphrase ? 'own' : 'host',
+    passphrase: '',
     feedOwner: first?.feed_owner ?? '',
     notes: first?.notes ?? '',
   };
 }
 
+/** @param hasStoredPassphrase whether the members hold one, from the row. */
 function groupProblem(
   edits: GroupEdits,
   showsPassphrase: boolean,
   showsFeedOwner: boolean,
+  hasStoredPassphrase: boolean,
 ): string | null {
   if (showsPassphrase && edits.passMode === 'own') {
-    const problem = passphraseProblem(edits.passphrase);
+    // Dots standing for the stored passphrase are not a value to check: the
+    // save says nothing about it and every member keeps its own.
+    const keepsStored = srtPassphraseMasked({
+      hasStoredPassphrase,
+      typed: edits.passphrase,
+      replacing: false,
+    });
+    const problem = keepsStored ? null : passphraseProblem(edits.passphrase);
     if (problem) return problem;
   }
   if (showsFeedOwner) {
@@ -214,9 +226,6 @@ function bodyFor(
   showsPassphrase: boolean,
   showsFeedOwner: boolean,
 ): UpdateGroupConfigBody {
-  const passphraseChanged =
-    edits.passMode !== initial.passMode ||
-    edits.passphrase !== initial.passphrase;
   return {
     notes:
       edits.notes !== initial.notes ? edits.notes.trim() || null : undefined,
@@ -224,11 +233,23 @@ function bodyFor(
       showsFeedOwner && edits.feedOwner !== initial.feedOwner
         ? edits.feedOwner.trim()
         : undefined,
-    srt_passphrase:
-      showsPassphrase && passphraseChanged
-        ? edits.passMode === 'own'
-          ? edits.passphrase.trim()
-          : null
-        : undefined,
+    srt_passphrase: passphraseFor(initial, edits, showsPassphrase),
   };
+}
+
+/**
+ * Undefined leaves every member's own passphrase alone, and it is what an
+ * empty box under the own-passphrase mode means too, because that box stands
+ * for the stored value rather than holding it.
+ */
+function passphraseFor(
+  initial: GroupEdits,
+  edits: GroupEdits,
+  showsPassphrase: boolean,
+): string | null | undefined {
+  if (!showsPassphrase) return undefined;
+  if (edits.passMode === 'host') {
+    return edits.passMode === initial.passMode ? undefined : null;
+  }
+  return edits.passphrase.trim() || undefined;
 }

@@ -29,14 +29,14 @@ import { StaleReadings } from '../resources/StaleReadings';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
 import { useChequebookHealths } from '../uploaders/useChequebookHealths';
-import { srtPublishUrl } from '../urls';
+import { usePublishUrl } from '../deployments/usePublishUrl';
 import { useMetrics } from '../useMetrics';
 import { ActivityCard } from './ActivityCard';
 import { AttentionList, type PoolAlert } from './AttentionList';
 import { HostCard } from './HostCard';
 
 export function OverviewPage() {
-  const { profiles, groups, activity, hostPassphrase } = useDeployments();
+  const { profiles, groups, activity } = useDeployments();
   const serverHost = useServerHost();
   const { snapshot, stale, staleSeconds } = useMetrics();
   const poolResults = usePoolResults(groups, profiles);
@@ -132,7 +132,6 @@ export function OverviewPage() {
                     key={profile.name}
                     profile={profile}
                     chequebook={chequebooks.get(profile.name) ?? null}
-                    publishUrl={srtPublishUrl(profile, serverHost, hostPassphrase)}
                   />
                 ))}
               </TableBody>
@@ -149,15 +148,16 @@ export function OverviewPage() {
 function StreamRow({
   profile,
   chequebook,
-  publishUrl,
 }: {
   profile: Profile;
   /** What this page's own poll of the node said, so the pill matches the alert. */
   chequebook: ChequebookHealth | null;
-  publishUrl: string | null;
 }) {
+  const publish = usePublishUrl(profile);
   const readiness = readinessOf(profile, undefined, chequebook);
-  const copyable = publishUrl && readiness.tone === 'ok' ? publishUrl : null;
+  // The passphrase is asked for by the copy rather than by the row, so the
+  // overview renders without asking for any deployment's.
+  const copyable = publish.url !== null && readiness.tone === 'ok';
 
   return (
     <TableRow
@@ -181,12 +181,7 @@ function StreamRow({
       </TableCell>
       <TableCell align="right" onClick={(event) => event.stopPropagation()}>
         {copyable && (
-          <Button
-            size="small"
-            onClick={() => {
-              void navigator.clipboard.writeText(copyable).catch(() => undefined);
-            }}
-          >
+          <Button size="small" onClick={() => void publish.copy()}>
             Copy publish URL
           </Button>
         )}

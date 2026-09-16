@@ -16,10 +16,10 @@ import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { StatusDot } from '../components/StatusDot';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
-import { useDeployments } from '../app/useDeploymentsStore';
-import { clientUrl, hostFor, srtPublishUrl } from '../urls';
+import { clientUrl, hostFor } from '../urls';
 import { PrimaryAction } from './PrimaryAction';
 import { readinessOf } from './readiness';
+import { usePublishUrl } from './usePublishUrl';
 import {
   isRunning,
   isTransitional,
@@ -40,15 +40,16 @@ export function DeploymentRow({
   indented?: boolean;
 }) {
   const serverHost = useServerHost();
-  const { hostPassphrase } = useDeployments();
   const actions = useActions();
   const { openWizard, openEditDeployment } = useEditors();
+  const publish = usePublishUrl(profile);
 
   const readiness = readinessOf(profile);
   const shape = shapeOf(profile);
-  const publishUrl = srtPublishUrl(profile, serverHost, hostPassphrase);
   const watchUrl = clientUrl(profile, serverHost);
-  const copyable = publishUrl && readiness.tone === 'ok' ? publishUrl : null;
+  // The passphrase is asked for by the copy rather than by the row, so a page
+  // of rows renders without asking for any deployment's.
+  const copyable = publish.url !== null && readiness.tone === 'ok';
 
   const subParts = [
     SHAPE_LABEL[shape] + (rung ? ` · ${rung} rung` : ''),
@@ -76,7 +77,7 @@ export function DeploymentRow({
     menuItems.push({
       label: 'Copy publish URL',
       onSelect: () => {
-        void navigator.clipboard.writeText(copyable).catch(() => undefined);
+        void publish.copy();
       },
     });
   }
@@ -113,14 +114,7 @@ export function DeploymentRow({
       <TableCell onClick={(event) => event.stopPropagation()}>
         <Stack direction="row" spacing={0.5} alignItems="center">
           {copyable && (
-            <Button
-              size="small"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(copyable)
-                  .catch(() => undefined);
-              }}
-            >
+            <Button size="small" onClick={() => void publish.copy()}>
               Copy publish URL
             </Button>
           )}

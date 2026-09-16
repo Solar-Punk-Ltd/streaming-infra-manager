@@ -38,8 +38,14 @@ export interface Profile {
   /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
   bee_url?: string | null;
   rpc_endpoint?: string | null;
-  /** SRS only. Null falls back to the host-wide SRT_PASSPHRASE. */
-  srt_passphrase?: string | null;
+  /**
+   * Whether an SRT passphrase of this deployment's own is stored. The value is
+   * never on the row: whoever holds it can publish into this ingest, and every
+   * page would hold every deployment's. The page about to show or copy a
+   * publish URL asks for that one through GET /profiles/:name/srt-passphrase.
+   * False falls back to the host-wide SRT_PASSPHRASE.
+   */
+  has_srt_passphrase: boolean;
   /**
    * Engine settings this deployment overrides, by env key. An absent key means
    * the stack default. The column is NOT NULL, so the object is always there.

@@ -70,10 +70,13 @@ export function fieldsFor(profile: Profile): ShownFields {
 
 export function initialEdits(profile: Profile | null): DeploymentEdits {
   return {
-    passMode: profile?.srt_passphrase?.trim() ? 'own' : 'host',
-    passphrase: profile?.srt_passphrase ?? '',
-    // Empty whatever the deployment holds: the key is never answered, so the
-    // box starts blank and only what the operator types goes in it.
+    // The flag, because the value is not on the row. A deployment that holds
+    // one is on its own passphrase whatever that passphrase turns out to be.
+    passMode: profile?.has_srt_passphrase ? 'own' : 'host',
+    // Empty whatever the deployment holds, for the reason the key box is: the
+    // value is not answered onto the row, so only what the operator types goes
+    // in it.
+    passphrase: '',
     key: '',
     stampId: profile?.stamp_id ?? '',
     beeUrl: profile?.bee_url ?? '',
@@ -105,9 +108,44 @@ export function streamKeyMasked(state: StreamKeyState): boolean {
   return state.hasStoredKey && !state.replacing && state.typed === '';
 }
 
-export function editProblem(edits: DeploymentEdits, shown: ShownFields): string | null {
+/** What the SRT passphrase field is looking at, which decides whether it shows dots. */
+export interface SrtPassphraseState {
+  /** Whether the deployment holds a passphrase, which is all the row says. */
+  hasStoredPassphrase: boolean;
+  /** What the operator has typed or generated, empty until they do. */
+  typed: string;
+  /** Whether they asked to replace the stored one, which opens the empty box. */
+  replacing: boolean;
+}
+
+/**
+ * Whether the field shows dots instead of a value.
+ *
+ * There is no passphrase to show: the row says only whether one is stored, and
+ * the value is answered to the page building a publish URL rather than to a
+ * drawer. So the field is masked exactly while one is stored, nothing has been
+ * typed, and the operator has not asked to replace it.
+ */
+export function srtPassphraseMasked(state: SrtPassphraseState): boolean {
+  return state.hasStoredPassphrase && !state.replacing && state.typed === '';
+}
+
+/** @param hasStoredPassphrase whether the deployment holds one, from the row. */
+export function editProblem(
+  edits: DeploymentEdits,
+  shown: ShownFields,
+  hasStoredPassphrase: boolean,
+): string | null {
   if (shown.passphrase && edits.passMode === 'own') {
-    const problem = passphraseProblem(edits.passphrase);
+    // Dots standing for a stored passphrase are not a value to check: the save
+    // says nothing about it and the manager keeps it. Anything else in the box
+    // has to be a passphrase the engine will take.
+    const keepsStored = srtPassphraseMasked({
+      hasStoredPassphrase,
+      typed: edits.passphrase,
+      replacing: false,
+    });
+    const problem = keepsStored ? null : passphraseProblem(edits.passphrase);
     if (problem) return problem;
   }
   if (shown.key && edits.key.trim()) {
@@ -178,16 +216,21 @@ export function bodyFor(
     bee_publishers: profile.bee_publishers ?? undefined,
     bee_url: profile.bee_url ?? undefined,
     rpc_endpoint: profile.rpc_endpoint ?? undefined,
-    srt_passphrase: profile.srt_passphrase ?? undefined,
   };
 
   if (changed('notes')) {
     body.notes_revision = loadedNotesRevision;
   }
-  if (shown.passphrase && (changed('passMode') || changed('passphrase'))) {
-    // The host-wide choice is an omitted field, which the PUT stores as null.
-    body.srt_passphrase =
-      edits.passMode === 'own' ? edits.passphrase.trim() : undefined;
+  if (shown.passphrase) {
+    // Absent is what keeps the stored passphrase, so the host-wide choice has
+    // to be an explicit null. An own passphrase is sent only when the operator
+    // typed one, because an empty box under that mode stands for the stored
+    // one and sending nothing is what keeps it.
+    if (edits.passMode === 'host') {
+      if (changed('passMode')) body.srt_passphrase = null;
+    } else if (edits.passphrase.trim()) {
+      body.srt_passphrase = edits.passphrase.trim();
+    }
   }
   const key = edits.key.trim();
   // Re-deriving an unchanged key would quietly rewrite a public_key that

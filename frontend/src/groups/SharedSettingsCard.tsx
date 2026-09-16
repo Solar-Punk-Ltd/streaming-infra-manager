@@ -56,7 +56,7 @@ export function SharedSettingsCard({
   if (hasService(first, SRS_SERVICE)) {
     entries.push({
       key: 'SRT passphrase',
-      value: first.srt_passphrase?.trim()
+      value: first.has_srt_passphrase
         ? 'own passphrase'
         : 'host-wide passphrase (default)',
     });
