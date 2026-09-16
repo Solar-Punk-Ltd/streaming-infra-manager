@@ -154,6 +154,21 @@ describe('deploy/deploy.sh', () => {
     assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
   });
 
+  /**
+   * A bind mount whose source does not exist is created by Docker as a
+   * root-owned directory, which the deploying user then cannot write a key or
+   * a config into, and which on 2026-09-16 turned a missing ssh_config into a
+   * directory the upgrade container could not start over. So the script makes
+   * the directory itself, empty, as the user it runs as, before compose sees it.
+   */
+  it('creates the ssh identity directory as the deploying user before any container is made', () => {
+    const remote = script.slice(script.indexOf('<<REMOTE'), script.indexOf('\nREMOTE\n'));
+    const made = remote.indexOf('mkdir -p -m 700 "\\${MANAGER_SSH_DIR}"');
+    assert.notEqual(made, -1, 'the ssh identity directory is created with mode 700');
+    assert.ok(made < remote.indexOf('docker compose build'), 'before the images are built');
+    assert.match(remote, /export MANAGER_SSH_DIR=/);
+  });
+
   it('refuses an ssh target that would read as an option to ssh', () => {
     const taken = script.indexOf('SSH_TARGET="${1:-');
     const checked = script.indexOf('if [[ "$SSH_TARGET" == -* ]]');

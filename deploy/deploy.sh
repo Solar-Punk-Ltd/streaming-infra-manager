@@ -155,6 +155,16 @@ export STACK_VERSIONS_ROOT="\${HOME}/streaming-infra-manager-versions"
 mkdir -p "\${STACK_VERSIONS_ROOT}"
 echo "[deploy] stack versions root: \${STACK_VERSIONS_ROOT}"
 
+# The ssh identity the api container mounts for deployments on other hosts,
+# empty on a manager that deploys only to itself. Made here, as this user, with
+# the path manager/.env names or the compose default under this home, because a
+# bind mount whose source is missing is created by Docker as a root-owned
+# directory that nobody can put a key or a config into afterwards.
+export MANAGER_SSH_DIR="\$(sed -n 's/^MANAGER_SSH_DIR=//p' .env | tail -n 1)"
+export MANAGER_SSH_DIR="\${MANAGER_SSH_DIR:-\${HOME}/manager-ssh}"
+mkdir -p -m 700 "\${MANAGER_SSH_DIR}"
+echo "[deploy] ssh identity for other hosts: \${MANAGER_SSH_DIR}"
+
 docker compose build
 IMAGE_ID="\$(docker image inspect --format '{{.Id}}' manager-api)"
 echo "[deploy] built api image \${IMAGE_ID}"
