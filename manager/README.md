@@ -165,6 +165,15 @@ libsrt's and the character set keeps the value intact through the `sed` in
 `engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
 `srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
 
+A deploy takes minutes, so a manager restarted in the middle of one is ordinary.
+Every deployment still recorded as `DEPLOYING`, `STOPPING` or `REMOVING` at boot
+is judged by what its services are doing on the target, and a service counts as
+up when at least one of its containers is running. A deploy or a removal that
+left every service up becomes `RUNNING`, and one that did not becomes `ERROR`
+naming each service that is not up and the state Docker has for it, while a stop
+becomes `STOPPED` when nothing is up and `ERROR` naming what is still running
+otherwise. A daemon that cannot be reached leaves the row `ERROR` saying so.
+
 ### Why the uploader is held back
 
 A postage stamp is prepaid Swarm storage, bought on a running, funded Bee node.
