@@ -127,7 +127,24 @@ export async function bootstrapStackDefaults(root: string): Promise<string[]> {
   return created;
 }
 
+/**
+ * The one gate every field passes, in front of the writer rather than on each
+ * field.
+ *
+ * `.env.<profile>` is read a line at a time, by docker compose as its env file
+ * and by the stack's deploy script as its defaults, so a value carrying a line
+ * break is a second assignment and the key it assigns belongs to whoever wrote
+ * the value. A field that checks its own shape is then covered twice, and a
+ * field added later is covered without anybody remembering to cover it.
+ */
+const LINE_BREAK_RE = /[\r\n]/;
+
 function upsertEnvLine(text: string, key: string, value: string): string {
+  if (LINE_BREAK_RE.test(value)) {
+    throw new Error(
+      `refusing to write ${key} to the env file: a value with a line break becomes a second line, and a second line is a second key`,
+    );
+  }
   const line = `${key}=${value}`;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`^${escapedKey}=.*$`, 'm');

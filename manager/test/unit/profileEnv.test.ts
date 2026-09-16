@@ -372,6 +372,54 @@ describe('writeProfileEnv, the mode of the file it writes', () => {
   });
 });
 
+/**
+ * A value that carries a line break is a second line in a file two readers
+ * parse by line: docker compose takes `.env.<profile>` as its env file and
+ * deploy.sh takes it as its defaults. So the injected key is the writer's to
+ * choose, and `SRS_CONF_FILE` is the one that pays: the version's compose
+ * override bind-mounts whatever it names into the engine container.
+ *
+ * The addresses got here because the URL constructor drops a tab, a carriage
+ * return and a line feed before it parses, so the value that was checked and
+ * the value that was written were not the same string.
+ */
+describe('writeProfileEnv, a value that would become a second line', () => {
+  it('refuses a BEE_URL carrying a line break', () => {
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'inject-bee', {
+          engine: 'srs',
+          beeUrl: 'http://h:1633/a\nFOO=bar',
+        }),
+      /refusing to write BEE_URL/,
+    );
+  });
+
+  it('refuses an RPC_ENDPOINT carrying a line break', () => {
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'inject-rpc', {
+          engine: 'srs',
+          rpcEndpoint: 'http://h:8545/a\nFOO=bar',
+        }),
+      /refusing to write RPC_ENDPOINT/,
+    );
+  });
+
+  it('refuses it in a field that has no rule of its own', () => {
+    // ENGINE is written first and has never been checked, because its type says
+    // it can only be one of two words. The guard sits in front of the writer
+    // rather than on each field, so a field nobody thought about is covered too.
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'inject-any', {
+          engine: 'srs\nSRS_CONF_FILE=/etc/passwd' as unknown as 'srs',
+        }),
+      /refusing to write ENGINE/,
+    );
+  });
+});
+
 describe('the chain endpoint a deployment names for itself', () => {
   /**
    * Every Bee node reads RPC_ENDPOINT, and until now the only place to set it

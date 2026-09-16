@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  beeUrlProblem,
   classifyPublishUrl,
   isInvalidUrlState,
   publishUrlHealth,
   publishUrlReason,
   publishUrlWarning,
+  rpcEndpointProblem,
 } from './publishUrl.js';
 
 describe('classifyPublishUrl', () => {
@@ -86,5 +88,43 @@ describe('publishUrlReason / publishUrlWarning', () => {
     assert.ok(publishUrlWarning('unreachable'));
     assert.equal(publishUrlWarning('ok'), null);
     assert.equal(publishUrlWarning('loopback'), null);
+  });
+});
+
+/**
+ * Both of these addresses are written into `.env.<profile>` as a bare
+ * `KEY=value` line, which docker compose reads as an env file and the stack's
+ * deploy script reads as its defaults.
+ *
+ * The URL constructor strips every tab, carriage return and line feed out of
+ * its input before it parses, so an address carrying one came back sound while
+ * the stored string kept it. The line break then started a second key of the
+ * writer's choosing, and `SRS_CONF_FILE` is the one that matters: the version's
+ * compose override bind-mounts whatever it names into the engine container.
+ */
+describe('an address that has to survive an env file', () => {
+  const NOT_ONE_LINE = [
+    ['a line feed', 'http://10.0.0.7:1633/x\nSRS_CONF_FILE=/etc/passwd'],
+    ['a carriage return', 'http://10.0.0.7:1633/x\rSRS_CONF_FILE=/etc/passwd'],
+    ['a tab', 'http://10.0.0.7:1633/x\tSRS_CONF_FILE=/etc/passwd'],
+    ['a space', 'http://10.0.0.7:1633/x SRS_CONF_FILE=/etc/passwd'],
+  ] as const;
+
+  for (const [label, value] of NOT_ONE_LINE) {
+    it(`refuses ${label} in a bee address`, () => {
+      assert.ok(beeUrlProblem(value), `${label} was accepted as a bee address`);
+    });
+
+    it(`refuses ${label} in a chain endpoint`, () => {
+      assert.ok(
+        rpcEndpointProblem(value),
+        `${label} was accepted as a chain endpoint`,
+      );
+    });
+  }
+
+  it('accepts a plain address of either kind', () => {
+    assert.equal(beeUrlProblem('http://10.0.0.7:1633'), null);
+    assert.equal(rpcEndpointProblem('https://rpc.example.org'), null);
   });
 });

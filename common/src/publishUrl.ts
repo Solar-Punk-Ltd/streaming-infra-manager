@@ -25,6 +25,8 @@
  * it.
  */
 
+import { envValueProblem } from './settingValues.js';
+
 export type PublishUrlState =
   /** Structurally sound, and a bee node answered there. */
   | 'ok'
@@ -122,26 +124,60 @@ export function publishUrlReason(state: PublishUrlState): string | null {
   }
 }
 
+/** An address is one word, and the stack's loader cuts an unquoted value at a space. */
+const WHITESPACE_RE = /\s/;
+
+const ADDRESS_WHITESPACE_MESSAGE =
+  'this address must be a single line with no spaces, because it is written into an env file where a line break starts a second key';
+
+/**
+ * Why this address cannot be written where an address goes, or null.
+ *
+ * Asked of every address the URL parse let through, because the parse cannot
+ * see this: the WHATWG URL
+ * constructor strips every tab, carriage return and line feed out of its input
+ * and parses what is left, so `http://10.0.0.7:1633/x\nSRS_CONF_FILE=/etc/passwd`
+ * comes back a sound URL while the stored string keeps the break. The stored
+ * string is what becomes a `KEY=value` line in `.env.<profile>`, which docker
+ * compose reads as an env file and the stack's deploy script reads as its
+ * defaults, so the break is a second key of the address writer's choosing, and
+ * `SRS_CONF_FILE` is the one that pays: the compose override bind-mounts
+ * whatever it names into the engine container.
+ *
+ * `envValueProblem` already owns the line break and control character rules
+ * every value of an env file answers to, and states them in its own words. The
+ * space is this rule's own, because an address has none.
+ */
+function addressShapeProblem(value: string): string | null {
+  return (
+    envValueProblem(value) ??
+    (WHITESPACE_RE.test(value) ? ADDRESS_WHITESPACE_MESSAGE : null)
+  );
+}
+
 /**
  * Why an explicitly configured `BEE_URL` cannot be used, or null.
  *
  * Laxer than a ladder rung's address on purpose: this is the operator naming a
  * node deliberately, and `localhost` is right whenever the uploader runs on the
- * host network or natively. Only the two that cannot be meant are refused — a
- * string that is not an http(s) URL, and an ssh target pasted where a network
- * address goes.
+ * host network or natively. Only what cannot be meant is refused: a string that
+ * is not an http(s) URL, an ssh target pasted where a network address goes, and
+ * a value that would not survive the env file it is written into.
  */
 export function beeUrlProblem(
   value: string | null | undefined,
 ): string | null {
   if (!value || !value.trim()) return null;
-  switch (classifyPublishUrl(value.trim())) {
+  const address = value.trim();
+  switch (classifyPublishUrl(address)) {
     case 'malformed':
       return 'expected an http(s) URL, like http://10.0.0.7:1633';
     case 'ssh-target':
       return 'this address carries ssh user info, so it is a deploy target rather than a bee API URL';
     default:
-      return null;
+      // A value the URL parser accepted is not yet a value the env file
+      // survives, and this is the only way out of here that says yes.
+      return addressShapeProblem(address);
   }
 }
 
@@ -156,13 +192,14 @@ export function rpcEndpointProblem(
   value: string | null | undefined,
 ): string | null {
   if (!value || !value.trim()) return null;
-  switch (classifyPublishUrl(value.trim())) {
+  const address = value.trim();
+  switch (classifyPublishUrl(address)) {
     case 'malformed':
       return 'expected an http(s) URL, like https://rpc.example.org, or http://host.docker.internal:<port> for a proxy on the host';
     case 'ssh-target':
       return 'this address carries ssh user info, so it is a deploy target rather than a chain endpoint';
     default:
-      return null;
+      return addressShapeProblem(address);
   }
 }
 
