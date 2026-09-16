@@ -2,9 +2,11 @@
  * Runs every suite in this directory, one file at a time, and refuses
  * anything short of all of them running.
  *
- * Fourteen of them drive a real headless Chrome against a real Vite, one
- * drives a Chrome and no Vite, several need neither, and one drives the
- * protocol client itself. They live outside
+ * 18 of the 32 drive a real headless Chrome, 9 of those against a real Vite
+ * they start themselves and the rest against a fixture server, 14 need no
+ * browser, and one drives the protocol client itself. Those counts were taken
+ * on 2026-09-16 and drift as suites are added, so re-measure rather than
+ * trusting them. They live outside
  * `pnpm test`, which only takes src, so until the browser job existed they
  * ran nowhere on a pull request. Two things can turn that job green while it
  * proves nothing: transfer-connected-browser.test.mjs skips its three cases
@@ -15,7 +17,7 @@
  *
  * Each file gets a child of its own and a bound of its own, because on the
  * job's first run one file never ended and took the whole thirty minute job
- * with it, reporting nothing about the other twenty-two. A file that outruns
+ * with it, reporting nothing about any of the others. A file that outruns
  * its bound is killed with its process group and named here instead.
  *
  * Chrome is proved before anything starts, because a browser that is not

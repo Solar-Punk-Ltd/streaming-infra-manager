@@ -9,11 +9,17 @@ Three jobs, all on `ubuntu-latest`. Decision D06 of 2026-09-07: turning the
 requirement on is a repository setting Levi makes after the workflow has run
 once, and he keeps a bypass. Agents never push to `main-v2`.
 
-**Where this stands, 2026-09-10, on `feat/ai-remediation` at `6dc33d1`.** The
-requirement is not on yet, because the setting waits on a first run. Every
-number on this page below was measured on a laptop. Everything else here
-describes what the workflow files declare, which is a different thing from what
-a runner has done.
+**Where this stands, 2026-09-16, on `main-v2`.** This page was written at
+`6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed.
+The required-checks setting is not on yet, because it waits on a first run.
+Every number below says where it was measured, on this laptop, in a Debian
+container or on a runner. Everything else here describes what the workflow files
+declare, which is a different thing from what a runner has done.
+
+**The file counts in this page drift, because suites are added.** Those below
+were measured on 2026-09-16. Re-measure rather than trusting them: the SQL
+suites are `find manager/test/database -name '*.test.ts'`, and the browser
+suites are `find frontend/test -name '*.test.mjs'`.
 
 ### checks
 
@@ -42,9 +48,19 @@ deployment writes its env file into the root of the checkout it deploys, and
 the variable after an import which reaches it deployed into
 `manager/swarm-hls-stream` and left a `.env.<profile>` there, merged from the
 developer's own `.env`. One did. `unitStackRoot.test.ts` fails in words when a
-run goes around the runner, and to run a single file by hand give it a root of
-its own: `SHLS_ROOT="$(mktemp -d)" tsx --conditions=development --test
-test/unit/<file>`.
+run goes around the runner, and to run a single file by hand give it both of the
+variables the runner pins:
+
+```sh
+SHLS_ROOT="$(mktemp -d)" BEE_LOCAL_HOST=127.0.0.1 \
+  tsx --conditions=development --test test/unit/<file>
+```
+
+`BEE_LOCAL_HOST` matters as much as the root. `src/domain/localHost.ts` answers
+`host.docker.internal` when `/.dockerenv` is there, so the Bee target locator's
+own test passes on a laptop and fails inside a container unless the variable is
+pinned. The runner pins both, which is why a file run through it behaves the
+same in either place.
 
 Two unit files hold cases that used to read the clock while a timer raced a
 loaded machine, `acquireDockerBeeStream.test.ts` and `containerControl.test.ts`.
@@ -58,8 +74,8 @@ runner: diagnose it, never retry it.
 
 ### database
 
-The 33 SQL suites in `manager/test/database/`, each against the task database
-it owns, through `manager/test/database/run-all.mjs`.
+The 34 SQL suites in `manager/test/database/` (2026-09-16), each against the
+task database it owns, through `manager/test/database/run-all.mjs`.
 
 Every one of those files gates itself on a task port variable and skips
 silently when the variable is unset. Nothing set them before this job existed,
@@ -72,7 +88,7 @@ a skipped test, a suite that skipped itself whole, a run that took no test at
 all, a missing summary, a signal and a non-zero exit.
 
 Those last four matter because the counts alone cannot tell a full run from an
-empty one. A suite skipped at the describe level registers no test, so 33
+empty one. A suite skipped at the describe level registers no test, so 34
 skipped files come back as 0 tests, 0 failed, 0 skipped with a `# SKIP` marker
 on each result line, and a glob that matches no file prints the same clean
 zero. The rules that read those markers live in
@@ -92,8 +108,9 @@ authentication, and a first step creates the nine databases through the
 image's own `createdb`, so the runner needs no client of its own and a service
 that did not come up fails in seconds.
 
-What it proves: those 518 tests run against a real PostgreSQL, and none of
-them was skipped or quietly never started.
+What it proves: every one of those tests runs against a real PostgreSQL, and
+none of them was skipped or quietly never started. The count was 518 when this
+was measured on 2026-09-10 and has grown with the suites since.
 
 What it does not prove: anything about a deployment database. Every suite
 connects to `127.0.0.1` and creates a schema of its own with synthetic rows.
@@ -111,9 +128,9 @@ that fails half the time is worth more than the difference.
 
 ### browser
 
-The thirty suites under `frontend/test/`, of which sixteen drive a real
-headless Chrome against a real Vite, one drives a Chrome and no Vite, and
-thirteen need no browser. They live outside `pnpm test`, which only takes `src`,
+The 32 suites under `frontend/test/` (2026-09-16), of which 18 drive a real
+headless Chrome, 9 of those against a real Vite they start themselves and the
+rest against a fixture server, and 14 need no browser. They live outside `pnpm test`, which only takes `src`,
 so they ran nowhere on a pull request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
@@ -163,7 +180,7 @@ itself when the pid that started it is gone. **The runner bounds each suite
 file at 600 seconds**, in a child of its own, kills it with its process group
 if it outruns that, and refuses the run naming the file. A suite that hangs is
 a named failure rather than a cancelled job that says nothing about the other
-twenty-four files.
+thirty-one files.
 
 Checked on Linux before any of it went anywhere: the whole set in a Debian
 container against Chromium 152.0.7977.82, which is the version the runner's
@@ -180,8 +197,8 @@ completed requests through a `PerformanceObserver`, which is handed every
 entry whatever that list holds, and every browser session caps the list at ten
 entries so a wait that reads it fails on a laptop rather than only on a
 runner. The same run printed `Re-optimizing dependencies because vite config
-has changed` at the start of five suites, because six suites start a Vite with
-a plugin set of their own and all of them shared one cache directory, so each
+has changed` at the start of five suites, because the suites that start a Vite
+with a plugin set of their own all shared one cache directory, so each
 one now builds in `frontend/node_modules/.vite-t09/<suite>` and that line
 appears in neither of two full runs measured here.
 
@@ -194,8 +211,8 @@ after `Page.navigate`, when the committed document has no body yet, so a read
 that would have polled again threw instead. That shape was everywhere: reads
 of a `querySelector` result that can be null, and waits that found a control in
 one evaluate and clicked it in the next, which on a slow machine is two reads
-of a page that renders in between. Every one of them in all fourteen Chrome
-suites is now a wait naming what it waits for, or a read that answers rather
+of a page that renders in between. Every one of them in every Chrome
+suite is now a wait naming what it waits for, or a read that answers rather
 than throwing when the element is absent, through shared helpers in
 `frontend/test/support/chrome.mjs`.
 
@@ -228,7 +245,7 @@ either would turn three passing cases into three invisible ones.
 
 A failing suite ends at once rather than at the runner's bound. Node runs a
 test's `after` hooks in registration order and stops at the first one that
-throws, and every hook behind it is then left undone. The five suites that own
+throws, and every hook behind it is then left undone. The suites that own
 a Vite server directly registered its teardown before `launchChrome` registers
 Chrome's, so anything that went wrong closing Vite left a detached browser
 running and its socket open, and the file never exited. On 2026-09-11
@@ -236,8 +253,11 @@ running and its socket open, and the file never exited. On 2026-09-11
 reported its cases, and was killed by the runner with its process group ten
 minutes later. Ten billed minutes for one failing case.
 
-`endViteServer` in `frontend/test/support/teardown.mjs` is the answer and the
-five suites go through it. It never throws, so the Chrome teardown behind it
+`endViteServer` in `frontend/test/support/teardown.mjs` is the answer, and 8 of
+the 9 suites that own a Vite server go through it. The exception is
+`frontend/test/version-approval.test.mjs`, which still closes its own server in
+a `t.after` of its own, which is the shape this paragraph describes as the bug.
+It has not bitten yet and it is the one file left to move. It never throws, so the Chrome teardown behind it
 always runs, and it gives the close a bound so a server that will not finish
 costs a suite ten seconds rather than the run its remaining minutes. What went
 wrong reaches the log as a diagnostic, which is evidence without being a
@@ -267,11 +287,11 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 6 s |
-| unit suites, common 321, manager 2325, frontend 100 | 25 s |
+| unit suites, common 354, manager 2466, frontend 132 (2026-09-16) | 25 s |
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
-| SQL suites, 518, one file at a time | 235 s |
-| browser suites, 208, one child per file | 360 s |
+| SQL suites, one file at a time. Case count last measured 518 on 2026-09-10 and not re-measured since, so read it as a floor | 235 s |
+| browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 32 now | 360 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on
@@ -290,7 +310,7 @@ required on every push, or the browser job moves to a schedule or a manual
 dispatch, is a spend question. Keeping all three required is what the D06
 agreement says and what this slice built. Moving the browser job off every
 push would take roughly half the minutes back and would mean a pull request
-can go green while fifteen Chrome suites have not run on it.
+can go green while every Chrome suite has not run on it.
 
 **Measured on the runner, 2026-09-10.** The first two runs of this workflow on
 `ubuntu-latest` took 1.7 and 1.8 minutes for `checks`, 3.8 and 4.1 minutes for
@@ -305,9 +325,13 @@ core. The estimate stays for the reasoning, the measurement is the number.
 `workflow_dispatch` only, four jobs, so one failure never hides another and
 each shows by name in the run.
 
-**Not run yet.** No job in this workflow has ever run on a GitHub runner. The
-first run is Levi's, and it is the check of the workflow itself: paths,
-timings and image pulls may need a fix.
+**Never dispatched, and every run it has had failed.** Checked on GitHub on
+2026-09-16: the workflow has five runs, all of them triggered by push events
+between 2026-09-10 and 2026-09-11, and all five failed. There has been no run
+since 2026-09-11, and no `workflow_dispatch` is recorded at all. So no job in it
+has ever completed on a runner, and the four container harnesses it names have
+never executed anywhere but a laptop. The first real run is Levi's, and it is
+the check of the workflow itself: paths, timings and image pulls may need a fix.
 
 **It could not have run before 2026-09-11.** From the day the file was written
 it set two of the integration job's paths from `${{ runner.temp }}` in a
@@ -465,15 +489,20 @@ the end of this page name too.
 
 ## What nothing here guards
 
-Nothing in this repository reads these two workflow files. There is no
-CODEOWNERS entry, no workflow lint and no secret scanner, so the person
-reading a diff is the whole control over them. A pull request could empty the
-three required jobs while keeping their names, and every check would go green.
+`.github/CODEOWNERS` covers `/.github/`, so a change to either workflow file
+needs an owner's review. It was added on 2026-09-11 and is broader than the
+`.github/workflows/` this section first recommended, which is the right way
+round: a change to any file under `.github` can alter what a green pull request
+means.
 
-**A recommendation for Levi, not something this slice did.** A CODEOWNERS
-entry covering `.github/workflows/` with "require review from code owners"
-turned on in branch protection closes it. Both are his: his handle, his
-settings.
+There is still no workflow lint and no secret scanner, so beyond that review the
+person reading a diff is the whole control. A pull request could empty the three
+required jobs while keeping their names, and every check would go green.
+
+**One thing is still open and it is Levi's**, because it is a repository
+setting rather than a file: "require review from code owners" has to be turned
+on in branch protection for the CODEOWNERS entry to block rather than merely
+request.
 
 ## Pinning
 
@@ -575,5 +604,5 @@ Two things about it. Pinning cores rather than granting core-time is the whole
 trick, because Vite and esbuild start a worker per core the kernel reports, so
 a time quota alone makes a machine much harsher than the runner and fails
 suites the runner passes. And the connected transfer suite is not served a
-PostgreSQL there, so it skips and the runner refuses it; that one refusal is
+PostgreSQL there, so it skips and the runner refuses it. That one refusal is
 expected and means nothing.

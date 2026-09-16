@@ -1,6 +1,7 @@
 # The checks main-v2 requires before a merge, D06. Three jobs: the build and
-# unit suites, the SQL suites against nine disposable databases, and the
-# browser suites against a real headless Chrome. What they prove and what they
+# unit suites, the 34 SQL suites against nine disposable databases, and the
+# browser suites against a real headless Chrome.
+# Counts drift as suites are added. Re-measure rather than trusting them. What they prove and what they
 # do not: docs/ci.md.
 name: checks
 
@@ -133,8 +134,9 @@ jobs:
         run: pnpm --filter @streaming-infra-manager/api test:database
 
   browser:
-    # The twenty-five suites under frontend/test, fourteen of which drive a
-    # real headless Chrome against a real Vite. They live outside pnpm test and
+    # The 32 suites under frontend/test (2026-09-16), 18 of which drive a real
+    # headless Chrome. Counts drift as suites are added, so re-measure rather
+    # than trusting them. They live outside pnpm test and
     # so ran nowhere on a pull request. One at a time, each in a child of its
     # own bounded at 600 seconds, because each starts its own Vite and its own
     # Chrome, through a runner that refuses a skip the same way the SQL one
