@@ -1,4 +1,6 @@
 import { ENGINE_CONFIG_FILE_MESSAGE, ENGINE_CONFIG_FILE_RE, isEngineConfigFileKey } from './engineConfig.js';
+import { isValidSrtPassphrase, SRT_PASSPHRASE_MESSAGE } from './srtPassphrase.js';
+import { isSecretSettingKey } from './stackSettings.js';
 
 /**
  * What a value of a version's settings may be, for the page and the manager.
@@ -66,17 +68,50 @@ export function envValueProblem(value: string): string | null {
   return null;
 }
 
+const SRT_PASSPHRASE_KEY = 'SRT_PASSPHRASE';
+
+const SED_SYNTAX_RE = /[/\\&|]/;
+
+/**
+ * The engine entrypoints' own words, because the operator who reads this here
+ * and the operator who reads it in a container log are the same person.
+ */
+const SECRET_SYNTAX_MESSAGE =
+  'must not contain / \\ & or |, which sed reads as syntax where this value is written into the engine config. Generate it with openssl rand -hex 32.';
+
+/**
+ * Why this key cannot hold this credential, or null. Empty is left alone: an
+ * unset secret is how encryption is turned off, and the entrypoints pass it.
+ */
+function secretValueProblem(key: string, value: string): string | null {
+  if (value === '') return null;
+  if (SED_SYNTAX_RE.test(value)) return SECRET_SYNTAX_MESSAGE;
+  if (key === SRT_PASSPHRASE_KEY && !isValidSrtPassphrase(value)) {
+    return SRT_PASSPHRASE_MESSAGE;
+  }
+  return null;
+}
+
 /**
  * Why this key cannot hold this value, or null.
  *
- * Two keys carry more than the env rule: `SRS_CONF_FILE` and `OME_CONF_FILE`
- * become the source of a Docker bind mount in the version's compose override,
- * so a value that is not a plain absolute path is a mount of something else or
- * a compose file that will not parse.
+ * Two kinds of key carry more than the env rule. `SRS_CONF_FILE` and
+ * `OME_CONF_FILE` become the source of a Docker bind mount in the version's
+ * compose override, so a value that is not a plain absolute path is a mount of
+ * something else or a compose file that will not parse. And a key that holds a
+ * credential is spliced into the engine's config by `sed`, which reads four
+ * characters as syntax and writes the value in as something else: the engine
+ * then starts and the component that verifies the credential rejects
+ * everything, with nothing anywhere saying the value was mangled. The version's
+ * own SRT passphrase answers to the passphrase rule as well, the same one a
+ * deployment's field has always answered to, because libsrt refuses a length
+ * outside 10 to 79 and the value reaches four readers that each punctuate
+ * differently.
  */
 export function settingValueProblem(key: string, value: string): string | null {
   const problem = envValueProblem(value);
   if (problem) return problem;
+  if (isSecretSettingKey(key)) return secretValueProblem(key, value);
   if (!isEngineConfigFileKey(key) || value === '' || ENGINE_CONFIG_FILE_RE.test(value)) return null;
   return ENGINE_CONFIG_FILE_MESSAGE;
 }

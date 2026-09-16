@@ -81,3 +81,51 @@ describe('settingValueProblem', () => {
     }
   });
 });
+
+describe('settingValueProblem on a key that holds a credential', () => {
+  const HEX = 'a3'.repeat(32);
+
+  it('refuses the four characters the engine entrypoints refuse', () => {
+    // sed expands a bare & to the whole match and / is its delimiter, so a
+    // token carrying one is written into the engine config as something else
+    // and the engine starts on it. Both entrypoints exit 1 rather than let
+    // that happen, and every one of the four reaches here as a plain value.
+    assert.match(settingValueProblem('SRS_WEBHOOK_TOKEN', 'aB3/xY9+Kk=') ?? '', /must not contain/);
+    assert.match(settingValueProblem('OME_ADMISSION_SECRET', 'ab&cd') ?? '', /must not contain/);
+    assert.match(settingValueProblem('API_AUTH_TOKEN', 'ab|cd') ?? '', /must not contain/);
+    assert.match(settingValueProblem('PUBLISH_KEY_SECRET', 'ab\\cd') ?? '', /must not contain/);
+  });
+
+  it('says how to make one, without repeating the value', () => {
+    const problem = settingValueProblem('SRS_WEBHOOK_TOKEN', 'aB3/xY9+Kk=') ?? '';
+
+    assert.match(problem, /openssl rand -hex 32/);
+    assert.equal(problem.includes('xY9'), false);
+  });
+
+  it('takes a 64 hex value, which is what the manager generates', () => {
+    for (const key of ['SRS_WEBHOOK_TOKEN', 'OME_ADMISSION_SECRET', 'SRT_PASSPHRASE']) {
+      assert.equal(settingValueProblem(key, HEX), null, key);
+    }
+  });
+
+  it('holds a version-wide SRT passphrase to the rule a deployment is held to', () => {
+    // libsrt refuses a passphrase outside 10 to 79 characters, and the value
+    // is spliced into four places that read punctuation differently, so the
+    // per-deployment field has taken the unreserved set alone since it existed.
+    assert.match(settingValueProblem('SRT_PASSPHRASE', 'abc') ?? '', /10-79 characters/);
+    assert.match(settingValueProblem('SRT_PASSPHRASE', 'a'.repeat(80)) ?? '', /10-79 characters/);
+    assert.match(settingValueProblem('SRT_PASSPHRASE', 'passphrase!') ?? '', /letters, digits/);
+  });
+
+  it('still takes an empty value, which is how a secret is left unset', () => {
+    for (const key of ['SRT_PASSPHRASE', 'SRS_WEBHOOK_TOKEN', 'OME_ADMISSION_SECRET']) {
+      assert.equal(settingValueProblem(key, ''), null, key);
+    }
+  });
+
+  it('leaves a key that holds no credential alone', () => {
+    assert.equal(settingValueProblem('HLS_FRAGMENT', '1.5'), null);
+    assert.equal(settingValueProblem('BEE_URL', 'http://10.0.0.7:1633/'), null);
+  });
+});
