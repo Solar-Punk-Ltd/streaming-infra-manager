@@ -24,10 +24,14 @@ import {
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { NodeReadCache, nodeReadKey } from './nodeReadCache.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { beeApiUrlFor, type BeeClientFactory } from './StampService.js';
 
 const logger = Logger.getInstance();
+
+/** The one reading the storage card takes, and the one the start gate acts on. */
+const CHEQUEBOOK_ROUTE = 'chequebook';
 
 /**
  * What a deployment's own bee node can still pay its peers with, and the two
@@ -48,6 +52,7 @@ export class ChequebookService {
     private readonly events: EventBus,
     private readonly clientFactory: BeeClientFactory = (url, timeoutMs) =>
       new BeeClient(url, timeoutMs),
+    private readonly reads: NodeReadCache = new NodeReadCache(),
   ) {}
 
   /** The floor as an operator reads it, so the UI can quote the gate's number. */
@@ -64,6 +69,12 @@ export class ChequebookService {
    * error for the whole page.
    */
   async summary(name: string): Promise<ChequebookSummary> {
+    return this.reads.read(nodeReadKey(name, CHEQUEBOOK_ROUTE), () =>
+      this.askForSummary(name),
+    );
+  }
+
+  private async askForSummary(name: string): Promise<ChequebookSummary> {
     const client = await this.clientFor(name);
     const [address, balance, settlements] = await Promise.allSettled([
       client.getChequebookAddress(),
@@ -117,7 +128,7 @@ export class ChequebookService {
   async withdraw(name: string, amountPlur: bigint): Promise<BeeTransaction> {
     return this.asTheOnlyTransfer(name, async () => {
       const client = await this.clientFor(name);
-      const balance = await this.ask(name, () => client.getChequebookBalance());
+      const balance = await this.ask(name, () => this.freshBalance(name, client));
 
       const available = parsePlur(balance.availableBalance) ?? 0n;
       if (available < amountPlur) {
@@ -150,7 +161,7 @@ export class ChequebookService {
 
     let balance: ChequebookBalance;
     try {
-      balance = await client.getChequebookBalance();
+      balance = await this.freshBalance(name, client);
     } catch (err) {
       throw new BeeNodeError(
         name,
@@ -191,6 +202,21 @@ export class ChequebookService {
     } finally {
       this.transfersInFlight.delete(name);
     }
+  }
+
+  /**
+   * The balance from the node itself, for a caller that is about to act on it.
+   *
+   * Starting an uploader, or refusing to, on a reading the storage card took
+   * three seconds ago is the one thing the window must not be allowed to do.
+   */
+  private freshBalance(
+    name: string,
+    client: BeeClient,
+  ): Promise<ChequebookBalance> {
+    return this.reads.readFresh(nodeReadKey(name, CHEQUEBOOK_ROUTE), () =>
+      client.getChequebookBalance(),
+    );
   }
 
   private async clientFor(name: string): Promise<BeeClient> {
