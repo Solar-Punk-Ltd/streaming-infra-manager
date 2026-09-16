@@ -125,11 +125,21 @@ export class FakeDaemon implements DaemonObserver {
   }
 
   async snapshot(project: string, target = 'localhost'): Promise<DaemonSnapshot> {
-    return { daemonId: await this.daemonId(target), containers: this.observed(project) };
+    return { daemonId: await this.daemonId(target), containers: await this.observe(project, target) };
   }
 
-  async containerIdsOf(project: string, _target?: string): Promise<Map<string, string[]>> {
-    return containerIdsByService(this.observed(project));
+  async containerIdsOf(project: string, target?: string): Promise<Map<string, string[]>> {
+    return containerIdsByService(await this.observe(project, target));
+  }
+
+  /**
+   * What Docker has for the project, which both readers above answer from. A
+   * test whose containers depend on the target replaces this rather than either
+   * of them, so the two cannot disagree.
+   */
+  async observe(project: string, _target?: string): Promise<Map<string, ObservedContainer[]>> {
+    const byService = this.containers.get(project) ?? new Map<string, ObservedContainer[]>();
+    return new Map([...byService].map(([service, observed]) => [service, [...observed]]));
   }
 
   /** Containers a test did not give a state of its own are up, which is the ordinary case. */
@@ -137,10 +147,5 @@ export class FakeDaemon implements DaemonObserver {
     const byService = this.containers.get(project) ?? new Map<string, ObservedContainer[]>();
     byService.set(service, ids.map((id) => ({ id, state })));
     this.containers.set(project, byService);
-  }
-
-  private observed(project: string): Map<string, ObservedContainer[]> {
-    const byService = this.containers.get(project) ?? new Map<string, ObservedContainer[]>();
-    return new Map([...byService].map(([service, observed]) => [service, [...observed]]));
   }
 }

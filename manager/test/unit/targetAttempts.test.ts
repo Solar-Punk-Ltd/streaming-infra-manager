@@ -23,8 +23,8 @@ function setup(expectedId?: string) {
   let remoteId = 'remote-daemon';
   let remoteContainer = 'remote-old';
   h.daemon.daemonId = async (target = 'localhost') => target === 'localhost' ? 'local-daemon' : remoteId;
-  h.daemon.containerIdsOf = async (_project, target = 'localhost') =>
-    new Map([['srs', [target === 'localhost' ? 'local-new' : remoteContainer]]]);
+  h.daemon.observe = async (_project, target = 'localhost') =>
+    new Map([['srs', [{ id: target === 'localhost' ? 'local-new' : remoteContainer, state: 'running' }]]]);
   return {
     ...h,
     row: (name: string) => h.profiles.rows.get(name)!,
