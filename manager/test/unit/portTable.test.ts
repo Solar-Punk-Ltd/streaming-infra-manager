@@ -111,6 +111,7 @@ describe('the container snapshot after a deploy', () => {
 
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
+    assert.equal(srs?.ports.SRS_HTTP_PORT, 10033);
     assert.equal(srs?.ports.SRS_HTTP_API_PORT, 10039);
   });
 
@@ -129,6 +130,7 @@ describe('the container snapshot after a deploy', () => {
 
     const srs = harness.containers.snapshots.find((s) => s.service === 'srs');
     assert.equal(srs?.ports.SRS_SRT_PORT, 10031);
+    assert.equal(srs?.ports.SRS_HTTP_PORT, 10033);
     assert.equal(srs?.ports.SRS_HTTP_API_PORT, undefined);
     assert.ok(
       existsSync(join(root, '.env.plain')),
