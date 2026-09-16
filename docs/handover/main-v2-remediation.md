@@ -37,7 +37,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 | T06 port reservations | `b65f8d9` | Reservation and target admission are included. Combined execution verification and Linux firewall qualification remain. |
 | T07 proposed deployment row | `24b85bf` | Validation, admission and write use the proposed row. Unknown critical prerequisites refuse. |
 | T08 build approval | `347c7dd` | Approval names the displayed commit/build and the wizard requires an explicit valid choice. Integrated with T18 and both publication writers. |
-| T09 money by transaction | `8f48fb0` | Merged. Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and the connected SQL and browser acceptance suites are all in, with both reviews of that slice acted on. What remains is real SSH and real image qualification, which need a host and have not run. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` is a frozen empty list and a synthetic pass never fills it. |
+| T09 money by transaction | `8f48fb0` | Merged. Journal, recovery, durable UI, exact target ownership, owned transport factory, bounded receipt polling, the portable intent harness and the connected SQL and browser acceptance suites are all in, with both reviews of that slice acted on. What remains is real SSH and real image qualification, which need a host and have not run. `PRODUCTION_BEE_BRIDGE_QUALIFICATIONS` was a frozen empty list when this row was written. One real qualification ran on 2026-09-14 and the record is in the file. A synthetic pass still never fills it. |
 | T10 authenticated integration client | `284790c` | Confirmed-instance cleanup and atomic profile/group removal are included. Real deployment integration has not run. |
 | T11 effective engine settings | `ef269a8` | Observations, draft preservation, exact-job save and captured-build validation are included. Mutable host-input execution integration remains. |
 | T12 readiness and diagnostics | `2966ab3` | Readiness, diagnostics and lifecycle phase behavior are included. Complete lifecycle acceptance remains with execution integration. |
@@ -56,7 +56,7 @@ The heads below are the task checkpoints included in this merge, not a claim tha
 
 Rewritten on 2026-09-11. Everything this list used to hold has either been built, described in the dated sections below, or closed by Levi. What is left, in order:
 
-1. **The first real deploy, when Levi names a time.** Nothing on this branch has reached the host. The runbook for that session, and for the signed-in live test after it, is `../consensus/FIRST-DEPLOY-SESSION.md`. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
+1. ~~**The first real deploy, when Levi names a time.**~~ Done on 2026-09-11, and a second live pass on 2026-09-13, both in the dated sections at the end of this file. The runbook was `../consensus/FIRST-DEPLOY-SESSION.md`. What is left of this item is the chequebook fill, which moves a crypto asset and is therefore Levi's. Two things of T20's also wait on Levi: dispatching the docker-backed workflow so its four jobs run once, which is the only way the T01 startup-failure file ever executes, and turning the required checks on after the `checks` workflow has run.
 2. **T22, the controlled live acceptance run.** It waits for Levi's D05 numbers, for the deploy above to have happened, and for a separate authorisation to spend.
 
 Private execution copies were here and landed on 2026-09-11, described in its own section at the end of this file. What that slice leaves for T01 is its own remaining work rather than a dependency: the atomic begin and revert of a config rollout, the creator receipt, and the release of operation holds after a proven watch. Those repository APIs exist and nothing calls them, and none of them is needed for a deployment to stop writing into its build.
@@ -65,7 +65,7 @@ T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guid
 
 With that closed and private execution copies landed, no engineering slice of this roadmap is outstanding. Everything left needs the host.
 
-What remains of T09 is real SSH and real image qualification, both of which need a host. Do not populate the production qualification catalog merely because synthetic tests pass.
+What remained of T09 when this was written was real SSH and real image qualification, both of which need a host. The image half ran on 2026-09-14 and `bee-2.8.2-docker-29.1.3` is in the catalogue. Do not populate that catalogue merely because synthetic tests pass: only a recorded run against a real image may add to it.
 
 D14 is open for Levi: whether the version settings page and version management become admin-only. Today any signed-in account can read and set those values, which is what every other version route does.
 
@@ -103,7 +103,7 @@ The SQL reviewer used the exact merged production code plus fixture correction `
 
 The original sandboxed manager run failed because local test listeners were refused. Its log is retained as `manager-unit-initial.log` and is not product evidence. The first authorized aggregate run then exposed four OME fixture failures in addition to the 12 known bundled tests. Those four are fixed and pass. The browser logs retain the missing mock attempts endpoint, explicit late-version selection and render-timing failures preceding their corrections.
 
-The T03 draft already records all four provenance checks for the introduced `saxes` 6.0.0 and `xmlchars` 2.2.0 versions. It records 2021-11-07 and 2019-09-06 publish dates, verified registry signatures, installed-tree signature verification and no listed advisories including malware. Neither package has a provenance attestation. This is carried historical evidence from `.scratch/main-v2-review-consensus/prs/t03-ome-xml.md`, not a fresh registry query during this merge. No dependency version was changed by the conflict resolutions.
+The T03 draft already records all four provenance checks for the introduced `saxes` 6.0.0 and `xmlchars` 2.2.0 versions. It records 2021-11-07 and 2019-09-06 publish dates, verified registry signatures, installed-tree signature verification and no listed advisories including malware. Neither package has a provenance attestation. This is carried historical evidence from [../consensus/prs/t03-ome-xml.md](../consensus/prs/t03-ome-xml.md), not a fresh registry query during this merge. No dependency version was changed by the conflict resolutions.
 
 No full real deployment suite, Linux firewall qualification, actual SRS/OME/shared-image container harness, production SSH/image qualification, funded transfer, upload, playback or T22 run occurred. CI is still a partial draft. The merged branch is therefore **not release-ready**.
 
@@ -1082,19 +1082,23 @@ and the wizard's version picker say it too, so nobody meets it at the end of a
 wizard.
 
 **Creating a deployment looks like it failed.** The create call takes over a
-minute on the host, and the generic API location in `frontend/nginx.conf` keeps
-nginx's default sixty second read timeout, so the browser gets a 504 while the
-manager accepts the work and deploys. The wizard then re-checks the name, finds
-the deployment that now exists, and says the name is taken. Not fixed. P2, and
-the fix is a timeout on that location beside the ones the chequebook routes
-already carry.
+minute on the host, and the generic API location in `frontend/nginx.conf` kept
+nginx's default sixty second read timeout, so the browser got a 504 while the
+manager accepted the work and deployed. The wizard then re-checked the name,
+found the deployment that now existed, and said the name is taken. **Fixed**: that
+location carries `proxy_read_timeout 300s` now, beside the ones the chequebook
+routes already had, and the four deployment action routes stream with no timeout
+at all.
 
 **Nothing can be published until the node is funded.** A real SRT feed was sent
 at the address the deployment page gives. It reached the media server, which
 parsed the stream id correctly and then refused, because SRS asks the uploader
 for permission on every publish and the uploader is held down until the node is
-funded and stamped. The wizard's last screen says "The OBS URL is ready". It is
-not, and the manager shows the operator nothing about the refusal. Not fixed.
+funded and stamped. The wizard's last screen said "The OBS URL is ready", which it
+was not. **The copy is fixed**: the review step now says the uploader is held back
+until the node is funded and a stamp bought, and that the OBS URL is ready after
+that. Still open: the manager shows the operator nothing about the refusal
+itself.
 
 **The stamp purchase, the first money this project has spent.** Levi funded the
 node with 5 BZZ and 0.1 xDAI, and Bee deployed its own chequebook contract

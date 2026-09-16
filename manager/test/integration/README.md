@@ -1,9 +1,9 @@
 # Integration tests
 
-This setup describes the authenticated T10 harness as it stands on
-`feat/ai-remediation` on 2026-09-10. It is not on `main-v2`. These instructions
-are not authorization for a deployment run, and no run of this suite against a
-real deployment has happened.
+This setup describes the authenticated T10 harness. It was written on 2026-09-10
+on `feat/ai-remediation`, which has since merged into `main-v2`, so it is on
+`main-v2` now. These instructions are not authorization for a deployment run,
+and no run of this suite against a real deployment has happened.
 
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
