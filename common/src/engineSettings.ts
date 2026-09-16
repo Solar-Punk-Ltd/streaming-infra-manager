@@ -281,15 +281,6 @@ export function applicableEngineSettings(
   return applicable;
 }
 
-/** Every field's stack default, for the drawer to show beside what is stored. */
-export function engineSettingsDefaults(engine: EngineName): EngineSettings {
-  const defaults: EngineSettings = {};
-  for (const field of engineSettingsFields(engine)) {
-    defaults[field.key] = field.defaultValue;
-  }
-  return defaults;
-}
-
 /**
  * What the engine actually runs with: what is stored, else the default.
  *

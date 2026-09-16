@@ -6,7 +6,6 @@ import { isEnvSafeValue } from './envSafeValue.js';
 import {
   applicableEngineSettings,
   effectiveEngineSettings,
-  engineSettingsDefaults,
   engineSettingsEnv,
   engineSettingsFields,
   engineSettingsFieldsFor,
@@ -18,16 +17,20 @@ import {
 const ABR = { abr: true };
 const PLAIN = { abr: false };
 
+/** Every field of the engine at its own default, as a settings object. */
+const ownDefaults = (engine: typeof SRS_SERVICE | typeof OME_SERVICE) =>
+  Object.fromEntries(engineSettingsFields(engine).map((field) => [field.key, field.defaultValue]));
+
 describe('the field lists', () => {
   it('accepts its own defaults, on both engines', () => {
     // The list is the only place these numbers exist. A default outside its own
     // bounds would open the drawer already showing an error.
     assert.equal(
-      engineSettingsProblem(SRS_SERVICE, engineSettingsDefaults(SRS_SERVICE), ABR),
+      engineSettingsProblem(SRS_SERVICE, ownDefaults(SRS_SERVICE), ABR),
       null,
     );
     assert.equal(
-      engineSettingsProblem(OME_SERVICE, engineSettingsDefaults(OME_SERVICE), PLAIN),
+      engineSettingsProblem(OME_SERVICE, ownDefaults(OME_SERVICE), PLAIN),
       null,
     );
   });
