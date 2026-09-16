@@ -16,7 +16,7 @@ describe('effectiveEngineDefaults', () => {
   it('answers the stack default for every key when the base env sets none', () => {
     const { values, sources, rejected } = effectiveEngineDefaults(SRS_SERVICE);
 
-    assert.equal(values.HLS_FRAGMENT, '1.5');
+    assert.equal(values.HLS_FRAGMENT, '2');
     assert.equal(values.ABR_PRESET, 'veryfast');
     assert.equal(sources.HLS_FRAGMENT, 'stack');
     assert.deepEqual(rejected, []);
@@ -24,13 +24,13 @@ describe('effectiveEngineDefaults', () => {
 
   it('takes the base env value, and says the host set it', () => {
     const { values, sources } = effectiveEngineDefaults(SRS_SERVICE, {
-      HLS_FRAGMENT: '2',
+      HLS_FRAGMENT: '3',
     });
 
-    assert.equal(values.HLS_FRAGMENT, '2');
+    assert.equal(values.HLS_FRAGMENT, '3');
     assert.equal(sources.HLS_FRAGMENT, 'host');
     // Untouched keys keep the stack's own value and say so.
-    assert.equal(values.HLS_WINDOW, '22.5');
+    assert.equal(values.HLS_WINDOW, '15');
     assert.equal(sources.HLS_WINDOW, 'stack');
   });
 
@@ -39,7 +39,7 @@ describe('effectiveEngineDefaults', () => {
       HLS_FRAGMENT: '90',
     });
 
-    assert.equal(values.HLS_FRAGMENT, '1.5');
+    assert.equal(values.HLS_FRAGMENT, '2');
     assert.equal(sources.HLS_FRAGMENT, 'stack');
     assert.deepEqual(rejected, ['HLS_FRAGMENT']);
   });
@@ -49,7 +49,7 @@ describe('effectiveEngineDefaults', () => {
       HLS_FRAGMENT: '   ',
     });
 
-    assert.equal(values.HLS_FRAGMENT, '1.5');
+    assert.equal(values.HLS_FRAGMENT, '2');
     assert.equal(sources.HLS_FRAGMENT, 'stack');
     assert.deepEqual(rejected, []);
   });

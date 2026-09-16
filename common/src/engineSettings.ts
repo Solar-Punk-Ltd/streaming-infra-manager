@@ -85,7 +85,9 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     label: 'Segment length',
     unit: 'seconds',
     kind: 'number',
-    defaultValue: '1.5',
+    // The manager's own default segment length is two seconds, by the owner's
+    // decision of 2026-09-16, rather than anything a stack version cuts.
+    defaultValue: '2',
     min: 0.5,
     max: 30,
     help: 'The shortest a piece of the stream may be. The engine cuts on a keyframe, so the piece you actually get is the first keyframe at or after this, which means the interval the publisher sends decides the real length and this only puts a floor under it. Set your publisher to the length you want, and leave this at or below it.',
@@ -112,7 +114,8 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     label: 'Playlist window',
     unit: 'seconds',
     kind: 'number',
-    defaultValue: '22.5',
+    // The window follows the stack, whose compose keeps fifteen seconds.
+    defaultValue: '15',
     min: 1,
     max: 600,
     help: 'How much of the stream the playlist keeps. It is a duration and not a count, so raising the segment length on its own leaves fewer pieces in the playlist. Move the two together. The player aims about 10 seconds behind live and that has to stay comfortably inside this.',

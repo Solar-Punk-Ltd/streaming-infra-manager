@@ -55,6 +55,14 @@ describe('the field lists', () => {
     }
   });
 
+  it("names two seconds as the manager's own segment length", () => {
+    const field = (key: string) =>
+      SRS_SETTINGS.find((candidate) => candidate.key === key);
+
+    assert.equal(field('HLS_FRAGMENT')?.defaultValue, '2');
+    assert.equal(field('HLS_WINDOW')?.defaultValue, '15');
+  });
+
   it('keeps the ABR fields out of a deployment that does not encode a ladder', () => {
     const plain = engineSettingsFieldsFor(SRS_SERVICE, PLAIN).map((f) => f.key);
     assert.deepEqual(plain, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW']);
@@ -87,14 +95,36 @@ describe('the keyframe rule', () => {
   });
 
   it('reads the stack default for whichever of the two is not stored', () => {
-    // Only the frame rate is set, so the rule has to pick up HLS_FRAGMENT=1.5
-    // from the field's own default, which is what answers where no version
-    // contract and no host value were read.
+    // Only the frame rate is set, so the rule has to pick up HLS_FRAGMENT from
+    // the field's own default, which is what answers where no version contract
+    // and no host value were read. Two seconds is a whole number of frames at
+    // every whole frame rate, so what the rule used is named by the pair that
+    // stores a shorter one.
+    assert.equal(engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, ABR), null);
     assert.match(
-      engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, ABR) ?? '',
-      /not a whole number/,
+      engineSettingsProblem(
+        SRS_SERVICE,
+        { ABR_FPS: '25', HLS_FRAGMENT: '1.5' },
+        ABR,
+      ) ?? '',
+      /segment length 1\.5 is 37\.5 frames/,
     );
-    assert.equal(engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '30' }, ABR), null);
+  });
+
+  it('accepts two second segments at every frame rate an operator names', () => {
+    // Two seconds is the manager's own default, so a whole number of frames at
+    // the rates a publisher actually sends is what makes that default usable.
+    for (const fps of ['25', '30', '60']) {
+      assert.equal(
+        engineSettingsProblem(
+          SRS_SERVICE,
+          { ABR_FPS: fps, HLS_FRAGMENT: '2' },
+          ABR,
+        ),
+        null,
+        `${fps} frames against a 2 second segment should be accepted`,
+      );
+    }
   });
 
   it('does not apply to a deployment without the ladder', () => {
@@ -155,7 +185,7 @@ describe('out of range and non numeric values', () => {
   it('refuses an empty value, and says how to go back to the default', () => {
     assert.match(
       engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN) ?? '',
-      /cannot be empty.*stack default of 1\.5/,
+      /cannot be empty.*stack default of 2/,
     );
   });
 
@@ -332,24 +362,24 @@ describe('effectiveEngineSettings', () => {
 });
 
 describe('the keyframe rule against a host default', () => {
-  // The host runs 2 second segments, so 25 frames a second is 50 frames a
-  // segment and the pair the field's own default refuses is one the container
-  // starts with.
-  const HOST_TWO_SECOND = { abr: true, defaults: { HLS_FRAGMENT: '2' } };
+  // The field's own two seconds is whole at every whole frame rate, so it is a
+  // host running something shorter that the rule has to read. main-v3 cuts half
+  // second pieces, and a host may set a length of its own on top of that.
+  const HOST_SHORT = { abr: true, defaults: { HLS_FRAGMENT: '1.5' } };
 
-  it('accepts a frame rate the stack default would refuse', () => {
+  it('refuses a frame rate the field default would accept', () => {
+    assert.equal(engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, ABR), null);
     assert.match(
-      engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, ABR) ?? '',
+      engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, HOST_SHORT) ?? '',
       /37\.5 frames/,
-    );
-    assert.equal(
-      engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, HOST_TWO_SECOND),
-      null,
     );
   });
 
-  it('refuses a frame rate the stack default would accept', () => {
-    assert.equal(engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '30' }, ABR), null);
+  it('accepts a frame rate the host leaves whole, and refuses one it does not', () => {
+    assert.equal(
+      engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '30' }, HOST_SHORT),
+      null,
+    );
     assert.match(
       engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '30' }, {
         abr: true,
@@ -364,7 +394,7 @@ describe('the keyframe rule against a host default', () => {
       engineSettingsProblem(
         SRS_SERVICE,
         { ABR_FPS: '25', HLS_FRAGMENT: '1.5' },
-        HOST_TWO_SECOND,
+        { abr: true, defaults: { HLS_FRAGMENT: '2' } },
       ) ?? '',
       /37\.5 frames/,
     );
@@ -406,6 +436,19 @@ describe('the force-close ceiling against the segment length', () => {
         STACK_CEILING,
       ),
       null,
+    );
+  });
+
+  it("accepts the manager's own segment length under the ceiling it falls back to", () => {
+    assert.equal(
+      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '2' }, STACK_CEILING),
+      null,
+    );
+    // Unstored, the rule reads the field's own two seconds, so a ceiling set
+    // under that is refused in those words.
+    assert.match(
+      engineSettingsProblem(SRS_SERVICE, { HLS_SEGMENT_MAX: '1' }, PLAIN) ?? '',
+      /below the segment length of 2 seconds/,
     );
   });
 
