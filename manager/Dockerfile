@@ -49,6 +49,13 @@ RUN apk add --no-cache \
       rsync openssh-client \
       ca-certificates
 
+# The ssh identity for deployments on other hosts is a directory the host mounts
+# at /root/.ssh, and the ssh_config in it is read through this link as the
+# system-wide config, because ssh refuses a per-user config file another uid
+# owns. A host with no such file leaves the link pointing at nothing, which ssh
+# treats as no config, so a manager that deploys only to itself prepares nothing.
+RUN ln -sf /root/.ssh/ssh_config /etc/ssh/ssh_config
+
 COPY --from=build /out ./
 # Copied explicitly rather than left to what `pnpm deploy` decides to pack: a
 # missing build script is a Versions page that fails on its first Add, at

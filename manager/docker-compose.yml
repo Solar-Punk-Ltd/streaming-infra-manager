@@ -56,12 +56,14 @@ services:
       # with each target's host key. Verification runs with
       # StrictHostKeyChecking=yes, so an unseeded target is refused, not trusted
       # on first connect. See deploy/README.md for the ssh-keyscan step.
+      #
+      # The directory alone is mounted. The image links /etc/ssh/ssh_config to
+      # the ssh_config in it, so the aliases are read as the system-wide config
+      # (ssh refuses a per-user config another uid owns) and a host without the
+      # file starts with no config at all. deploy.sh creates the directory as
+      # the deploying user, because Docker would create a missing bind source
+      # as a root-owned directory nobody can write a key into.
       - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}:/root/.ssh
-      # Host aliases for deploy targets (bee hosts, GCP stage hosts), as a
-      # system-wide ssh config file rather than /root/.ssh/config: ssh refuses a
-      # per-user config not owned by the running user, and a bind-mounted file
-      # keeps the host's uid.
-      - ${MANAGER_SSH_DIR:-/home/solarpunk/manager-ssh}/ssh_config:/etc/ssh/ssh_config:ro
 
   web:
     build:
