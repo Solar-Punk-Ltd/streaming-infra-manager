@@ -226,12 +226,35 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     const shared: SharedProfileParams = {
       kind: 'viewer', notes: null, components: null, host: null,
       feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
-      stack_version_id: 1, slot_cap: 1, daemon_id: 'daemon', table,
+      stack_version_id: 1, engine_settings: {}, slot_cap: 1, daemon_id: 'daemon', table,
     };
     await assert.rejects(new DeploymentGroupRepository(pool).createGroupWithMembers('pool', 'standard',
       [{ name: 'a' }, { name: 'b' }], shared), AllSlotsUsedError);
     assert.equal((await profiles.list()).length, 0);
     assert.equal((await ports.listByDaemon('daemon')).length, 0);
     assert.equal((await pool.query('SELECT * FROM deployment_groups')).rowCount, 0);
+  });
+
+  it('writes the shared engine settings onto every member row', async () => {
+    // The column is JSONB and the group insert is its own statement, so the
+    // shape only proves itself against a real database. A member reading back
+    // as {} is the half-second fallback the group was created to replace.
+    const shared: SharedProfileParams = {
+      kind: 'streamer', notes: null, components: null, host: null,
+      feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
+      stack_version_id: 1, engine_settings: { HLS_FRAGMENT: '2' }, slot_cap: 100, daemon_id: 'daemon', table,
+    };
+
+    const { profiles: members } = await new DeploymentGroupRepository(pool).createGroupWithMembers(
+      'studio', 'standard', [{ name: 'a' }, { name: 'b' }], shared);
+
+    assert.deepEqual(
+      members.map((member) => member.engine_settings),
+      [{ HLS_FRAGMENT: '2' }, { HLS_FRAGMENT: '2' }],
+    );
+    assert.deepEqual(
+      (await profiles.list()).map((row) => row.engine_settings),
+      [{ HLS_FRAGMENT: '2' }, { HLS_FRAGMENT: '2' }],
+    );
   });
 });

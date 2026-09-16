@@ -49,6 +49,7 @@ const shared = (table: StackPortVar[], slotCap: number): SharedProfileParams => 
   stamp_id: null,
   srt_passphrase: null,
   stack_version_id: 1,
+  engine_settings: {},
   slot_cap: slotCap,
   daemon_id: 'daemon-1',
   table,

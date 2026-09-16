@@ -1,4 +1,4 @@
-import type { GroupKind, StackPortVar } from '@streaming-infra-manager/common';
+import type { EngineSettings, GroupKind, StackPortVar } from '@streaming-infra-manager/common';
 import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
@@ -20,6 +20,11 @@ export interface SharedProfileParams {
   srt_passphrase: string | null;
   /** Every member of a group runs one version, the one the group was made on. */
   stack_version_id: number;
+  /**
+   * Every member starts with the same engine settings. An empty object writes
+   * no key, so the version's own fallbacks stand for the whole group.
+   */
+  engine_settings: EngineSettings;
   /** The highest slot a member may get: the version's own maximum, never above the manager's. */
   slot_cap: number;
   /** The daemon the members' ports belong to, from `docker info`. */
@@ -207,9 +212,9 @@ export class DeploymentGroupRepository {
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-         srt_passphrase, group_id, stack_version_id
+         srt_passphrase, group_id, stack_version_id, engine_settings
        )
-       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -226,6 +231,7 @@ export class DeploymentGroupRepository {
         shared.srt_passphrase,
         groupId,
         shared.stack_version_id,
+        JSON.stringify(shared.engine_settings),
       ],
     );
     return r.rows[0]!;

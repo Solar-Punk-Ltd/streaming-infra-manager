@@ -873,6 +873,11 @@ export class ProfileService {
     abr_ladder?: boolean;
     /** Absent means the default version. */
     stack_version_id?: number | null;
+    /**
+     * What every member is created with. Absent leaves each column empty, so
+     * the version's own fallbacks stand for the whole group.
+     */
+    engine_settings?: EngineSettings | null;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
@@ -893,6 +898,24 @@ export class ProfileService {
     }
 
     const version = await this.versionForNewDeployment(input.stack_version_id);
+
+    const memberComponents = input.abr_ladder
+      ? [...ABR_RUNG_COMPONENTS]
+      : input.components && input.components.length > 0
+        ? input.components
+        : null;
+
+    // The gate the single create applies, over the services the members are
+    // actually given. A node pool is bee-uploaders alone, so this is where it
+    // is told that it runs no engine to read them.
+    const engineSettings = input.engine_settings ?? {};
+    if (Object.keys(engineSettings).length > 0) {
+      this.assertCreatableEngineSettings(
+        { name: input.group_name, kind: input.kind, components: memberComponents },
+        version,
+        engineSettings,
+      );
+    }
 
     const usedNames = new Set((await this.repo.list()).map((p) => p.name));
 
@@ -915,15 +938,11 @@ export class ProfileService {
       );
     }
 
-    const placement = await this.placementFor(version, input.host ?? null, input.abr_ladder ? ABR_RUNG_COMPONENTS : input.components);
+    const placement = await this.placementFor(version, input.host ?? null, memberComponents);
     const shared: SharedProfileParams = {
       kind: input.kind,
       notes: input.notes ?? null,
-      components: input.abr_ladder
-        ? [...ABR_RUNG_COMPONENTS]
-        : input.components && input.components.length > 0
-          ? input.components
-          : null,
+      components: memberComponents,
       host: input.host ?? null,
       feed_owner: input.feed_owner ?? null,
       feed_topic: input.feed_topic ?? null,
@@ -932,6 +951,7 @@ export class ProfileService {
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
       stack_version_id: version.id,
+      engine_settings: engineSettings,
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,
@@ -1305,6 +1325,8 @@ export class ProfileService {
       // on its own too, because the member rows do not carry it either.
       srt_passphrase: await this.repo.srtPassphraseOf(canonical.name),
       stack_version_id: canonical.stack_version_id,
+      // So an appended member cuts the same segments as the siblings it joins.
+      engine_settings: canonical.engine_settings,
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,

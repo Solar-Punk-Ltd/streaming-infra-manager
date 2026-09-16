@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 
 import { ProfileService } from '../../domain/ProfileService.js';
+import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import {
   AddMembersInput,
   CreateGroupInput,
@@ -39,6 +40,8 @@ export function createGroupsRouter(profileService: ProfileService): Router {
         stamp_id: body.stamp_id ?? undefined,
         srt_passphrase: body.srt_passphrase ?? undefined,
         stack_version_id: body.stack_version_id,
+        engine_settings:
+          body.engine_settings && definedSettingValues(body.engine_settings),
       });
       res.status(202).json(result);
     }),

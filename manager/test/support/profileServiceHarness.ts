@@ -346,6 +346,7 @@ export class InMemoryGroups {
       stamp_id: shared.stamp_id,
       has_srt_passphrase: Boolean(shared.srt_passphrase),
       stack_version_id: shared.stack_version_id,
+      engine_settings: shared.engine_settings,
       status: 'STOPPED',
       port_slot: slot,
       group_id: groupId,
