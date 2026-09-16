@@ -1,9 +1,11 @@
-import { chmod, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { chmod, copyFile, link, lstat, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord } from './ExecutionRoot.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
-import { inventoryOwnedTree, ownedTreeDigest, sha256, stampOwnedTree, type OwnedTreeInventory } from './ownedTreeInventory.js';
+import { COPY_INSTEAD } from './buildTreeClone.js';
+import { inventoryOwnedTree, ownedTreeDigest, pathStamp, stampOwnedTree, type OwnedTreeInventory } from './ownedTreeInventory.js';
 import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
 export interface ExecutionCopyOptions {
@@ -20,7 +22,38 @@ export interface ExecutionCopyOptions {
   sourceInventory?: OwnedTreeInventory;
 }
 
-/** The registered copy token is held exclusively. No script or builder may run until this copy is ready. */
+/**
+ * Puts the build's file at a path of the copy's own, answering whether the two
+ * paths are now the one inode.
+ *
+ * A filesystem that will not link, because the copy is on another volume from
+ * the build or because it holds too many links already, gets the bytes.
+ */
+async function shareOrCopyFile(from: string, to: string, mode: number): Promise<boolean> {
+  try {
+    await link(from, to);
+    return true;
+  } catch (err) {
+    if (!COPY_INSTEAD.has((err as NodeJS.ErrnoException).code ?? '')) throw err;
+  }
+  await copyFile(from, to, constants.COPYFILE_EXCL);
+  await chmod(to, mode);
+  return false;
+}
+
+/**
+ * The registered copy token is held exclusively. No script or builder may run until this copy is ready.
+ *
+ * The copy's regular files are hard links to the build's, the way one build is
+ * cloned from another, because a published build is never written to again and
+ * the files a deployment writes are ones the build does not have.
+ *
+ * Every link moves the build inode's status-change time, so what the build is
+ * compared against when the copy is made is the stamp read back through the
+ * copy's own path. That is the same inode, so the one comparison says both that
+ * the build did not move and that the copy holds the very file the inventory
+ * read.
+ */
 export async function copyExecutionRoot(
   input: ExecutionRootRecord,
   executionsParent: string,
@@ -55,13 +88,11 @@ export async function copyExecutionRoot(
     await writeFile(join(ownerRoot, 'owner.json'), JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
     await mkdir(root, { mode: 0o700 });
     for (const entry of source.entries.filter(entry => entry.type === 'directory')) await mkdir(join(root, entry.path), { mode: 0o700 });
+    const shared: string[] = [];
     let copied = 0;
     for (const entry of source.entries) {
       if (entry.type === 'file') {
-        const bytes = await readOwnedFile(record.source.root, entry.path);
-        if (sha256(bytes) !== entry.sha256) throw new Error('Execution source changed during copying.');
-        await writeFile(join(root, entry.path), bytes, { flag: 'wx', mode: entry.mode });
-        await chmod(join(root, entry.path), entry.mode);
+        if (await shareOrCopyFile(join(record.source.root, entry.path), join(root, entry.path), entry.mode)) shared.push(entry.path);
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
         await symlink(entry.target, join(root, entry.path));
@@ -69,7 +100,9 @@ export async function copyExecutionRoot(
     }
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);
     await chmod(root, source.rootMode);
-    if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), source.stamps)) throw new Error('Execution source changed during copying.');
+    const expected = { ...source.stamps };
+    for (const path of shared) expected[path] = await pathStamp(join(root, path));
+    if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), expected)) throw new Error('Execution source changed during copying.');
     if (ownedTreeDigest(await inventoryOwnedTree(root)) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
     await writeFile(join(ownerRoot, 'ready.json'), JSON.stringify({ copyToken: record.copyToken, artifactDigest: record.source.artifactDigest }), { flag: 'wx', mode: 0o600 });
     return { root, artifactDigest: record.source.artifactDigest };

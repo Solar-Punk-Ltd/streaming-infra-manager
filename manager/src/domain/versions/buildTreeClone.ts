@@ -26,7 +26,7 @@ export interface ClonedBuildTree {
 }
 
 /** Why a link cannot stand in for a copy, rather than why the copy would fail too. */
-const COPY_INSTEAD = new Set(['EXDEV', 'EPERM', 'EMLINK', 'ENOTSUP', 'EOPNOTSUPP']);
+export const COPY_INSTEAD = new Set(['EXDEV', 'EPERM', 'EMLINK', 'ENOTSUP', 'EOPNOTSUPP']);
 
 /**
  * A deployment's own env file, at the root as `.env.<profile>` and beside each

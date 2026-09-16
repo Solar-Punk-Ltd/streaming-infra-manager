@@ -87,3 +87,11 @@ export async function stampOwnedTree(root: string, excludedRootFile?: string): P
   await walk('');
   return stamps;
 }
+
+/**
+ * The stamp `stampOwnedTree` would record for one path.
+ *
+ * For a caller that has moved a few of a tree's stamps itself and needs to say
+ * what a later comparison of the whole tree should find where it did.
+ */
+export const pathStamp = async (path: string): Promise<string> => stamp(await lstat(path, { bigint: true }));

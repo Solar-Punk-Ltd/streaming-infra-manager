@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, it } from 'node:test';
@@ -45,13 +47,12 @@ async function record() {
   };
 }
 
-it('copies the exact source to independent files and records ownership outside the writable tree', async () => {
+it('links the exact source into the copy and records ownership outside the writable tree', async () => {
   const item = await record();
-  const before = await inventoryOwnedTree(source);
   await copyExecutionRoot(item, executions);
   assert.equal(await treeDigest(item.root), item.source.artifactDigest);
-  assert.deepEqual(await inventoryOwnedTree(source), before);
-  assert.notEqual((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).ino, (await lstat(join(source, 'deploy/scripts/deploy.sh'))).ino);
+  assert.equal(await treeDigest(source), item.source.artifactDigest, 'the build was written into');
+  assert.equal((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).ino, (await lstat(join(source, 'deploy/scripts/deploy.sh'))).ino);
   assert.equal((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).mode & 0o777, 0o755);
   assert.equal(await readlink(join(item.root, 'entry')), 'deploy/scripts/deploy.sh');
   const owner = JSON.parse(await readFile(join(dirname(item.root), 'owner.json'), 'utf8'));
@@ -62,6 +63,48 @@ it('copies the exact source to independent files and records ownership outside t
   assert.equal(owner.jobReferenceId, item.jobReferenceId);
   assert.equal((await lstat(dirname(item.root))).mode & 0o777, 0o700);
   assert.equal((await lstat(join(dirname(item.root), 'owner.json'))).mode & 0o777, 0o600);
+});
+
+it('shares every regular file with the build, and nothing else', async () => {
+  const item = await record();
+  const { entries } = await inventoryOwnedTree(source);
+
+  await copyExecutionRoot(item, executions);
+
+  for (const entry of entries) {
+    const shared = (await lstat(join(item.root, entry.path))).ino === (await lstat(join(source, entry.path))).ino;
+    assert.equal(shared, entry.type === 'file', `${entry.path}, a ${entry.type}, ${shared ? 'shares' : 'does not share'} the build's inode`);
+  }
+});
+
+it('copies the bytes of a file the filesystem will not link, so a versions root on another volume still works', async t => {
+  const refused = t.mock.method(fsPromises, 'link', async () => {
+    throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
+  });
+  syncBuiltinESMExports();
+  t.after(() => { refused.mock.restore(); syncBuiltinESMExports(); });
+  const item = await record();
+
+  await copyExecutionRoot(item, executions);
+
+  assert.ok(refused.mock.calls.length > 0, 'nothing tried to link at all, so this test proves nothing');
+  assert.equal(await treeDigest(item.root), item.source.artifactDigest);
+  assert.equal(await treeDigest(source), item.source.artifactDigest, 'the build was written into');
+  assert.notEqual((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).ino, (await lstat(join(source, 'deploy/scripts/deploy.sh'))).ino);
+  assert.equal((await lstat(join(item.root, 'deploy/scripts/deploy.sh'))).mode & 0o777, 0o755);
+});
+
+it('keeps the bytes a removed build was holding, and leaves the build when a copy goes', async () => {
+  const kept = await record();
+  const going = await record();
+  await copyExecutionRoot(kept, executions);
+  await copyExecutionRoot(going, executions);
+
+  await removeExecutionRoot(going, executions);
+  assert.equal(await treeDigest(source), kept.source.artifactDigest, 'retiring a copy took the build with it');
+
+  await rm(source, { recursive: true, force: true });
+  assert.equal(await treeDigest(kept.root), kept.source.artifactDigest, 'the copy lost the bytes the build was holding');
 });
 
 it('copies a symbolic link as it stands, without touching the mode the platform gave it', async () => {
@@ -79,7 +122,6 @@ it('copies a symbolic link as it stands, without touching the mode the platform 
 
 it('contains manager env, engine env, deploy env and generated output writes without restoring absent base inputs', async () => {
   const item = await record();
-  const before = await inventoryOwnedTree(source);
   await copyExecutionRoot(item, executions);
   for (const path of ['.env.owned', 'engines/srs/.env.owned', 'deploy/.env.deploy.owned', 'packages/stream-uploader/dist/index.js']) {
     await mkdir(dirname(join(item.root, path)), { recursive: true });
@@ -89,7 +131,7 @@ it('contains manager env, engine env, deploy env and generated output writes wit
     assert.equal(existsSync(join(source, path)), false);
     assert.equal(existsSync(join(item.root, path)), false);
   }
-  assert.deepEqual(await inventoryOwnedTree(source), before);
+  assert.equal(await treeDigest(source), item.source.artifactDigest, 'the build was written into');
 });
 
 for (const kind of ['empty-directory', 'nonempty-directory', 'file', 'symlink'] as const) {

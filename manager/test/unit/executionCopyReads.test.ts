@@ -3,16 +3,16 @@
  *
  * Preparing the private copy a deploy runs from used to read and hash the whole
  * build tree four times over and then copy it, all awaited inside the HTTP
- * request that creates the deployment. The tree is now hashed once, copied
- * once, and the proofs that it did not move while that happened compare the
- * stamps the first inventory recorded instead of reading it again.
+ * request that creates the deployment. The tree is now hashed once, hard linked
+ * rather than written, and the proofs that it did not move while that happened
+ * compare the stamps the first inventory recorded instead of reading it again.
  *
- * Two things have to hold together, so both are here. The build is read at most
- * twice, and a build that changes in the window between the inventory and the
- * copy is still refused. The second is the one a stamp comparison could quietly
- * lose: a file added after the inventory is copied by nobody and missed by
- * every digest, because the copy and its digest are both made from the
- * inventory itself.
+ * Two things have to hold together, so both are here. The build is read once,
+ * and a build that changes in the window between the inventory and the copy is
+ * still refused. The second is the one a stamp comparison could quietly lose: a
+ * file added after the inventory is linked by nobody and missed by every
+ * digest, because the copy and its digest are both made from the inventory
+ * itself.
  *
  * Unit test, no database and no Docker, but the copies are real files.
  */
@@ -30,8 +30,12 @@ import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/ver
 import { inventoryOwnedTree, stampOwnedTree } from '../../src/domain/versions/ownedTreeInventory.js';
 import { InMemoryExecutionRoots } from '../support/InMemoryExecutionRoots.js';
 
-/** One inventory of the build and one read of each file as it is written. */
-const READS_PER_PREPARE = 2;
+/**
+ * One inventory of the build. The copy links the bytes rather than reading
+ * them, and the inventory of the finished copy reaches the same inodes through
+ * the copy's own paths rather than the build's.
+ */
+const READS_PER_PREPARE = 1;
 /** Read once more on their own to prove the build identity, which is two files rather than a pass over the tree. */
 const IDENTITY_FILES: string[] = [BUILD_MANIFEST_FILE, BUILD_COMPLETE_MARKER];
 
@@ -78,7 +82,7 @@ it('stamps the paths an inventory stamps, so a later comparison is of like with 
   assert.deepEqual(await stampOwnedTree(build, BUILD_COMPLETE_MARKER), inventory.stamps);
 });
 
-it('reads each file of the build twice for one prepare and copy, not once for every proof', async t => {
+it('reads each file of the build once for one prepare and copy, not once for every proof', async t => {
   const opened = t.mock.method(fsPromises, 'open');
   syncBuiltinESMExports();
   t.after(() => { opened.mock.restore(); syncBuiltinESMExports(); });
@@ -99,7 +103,7 @@ it('reads each file of the build twice for one prepare and copy, not once for ev
 });
 
 for (const change of ['is rewritten', 'gains a file nothing inventoried'] as const) {
-  it(`refuses a build that ${change} between its inventory and its copy`, async () => {
+  it(`refuses a build that ${change} between its inventory and the links made from it`, async () => {
     const store = storeFor();
     changeWhenTheCopyTakesItsToken(store, () => change === 'is rewritten'
       ? fsPromises.writeFile(join(build, '.env.sample'), 'ENGINE=synthetic-and-changed\n')

@@ -33,7 +33,7 @@ writeFileSync(join(root, 'bundled', '.env'), 'ENGINE=srs\n');
 
 const { ExecutionRootService } = await import('../../src/domain/versions/ExecutionRootService.js');
 const { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } = await import('../../src/domain/versions/buildManifest.js');
-const { inventoryOwnedTree } = await import('../../src/domain/versions/ownedTreeInventory.js');
+const { inventoryOwnedTree, ownedTreeDigest } = await import('../../src/domain/versions/ownedTreeInventory.js');
 const { buildDirFor, executionsRootFor } = await import('../../src/domain/versions/stackPaths.js');
 const { InMemoryExecutionRoots } = await import('../support/InMemoryExecutionRoots.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
@@ -94,7 +94,7 @@ describe('the tree a deploy runs in', () => {
   it('is a private copy of the captured build, and the build is left exactly as it was', async () => {
     const { harness, store, row, versionsRoot } = await setup();
     const build = buildDirFor(versionsRoot, 'v3', COMMIT_A);
-    const before = await inventoryOwnedTree(build);
+    const before = ownedTreeDigest(await inventoryOwnedTree(build));
 
     const run = await deploy(harness, row);
 
@@ -102,7 +102,7 @@ describe('the tree a deploy runs in', () => {
     assert.equal(run.options.cwd, record.root, 'the job ran in its own copy');
     assert.equal(run.script, join(record.root, 'deploy', 'scripts', 'deploy.sh'));
     assert.notEqual(record.root, build);
-    assert.deepEqual(await inventoryOwnedTree(build), before, 'the build was not written into');
+    assert.equal(ownedTreeDigest(await inventoryOwnedTree(build)), before, 'the build was written into');
     assert.equal(await readFile(join(record.root, '.env.sample'), 'utf8'), 'ENGINE=srs\n');
     assert.match(await readFile(join(record.root, '.env.stage'), 'utf8'), /ENGINE=/);
   });
