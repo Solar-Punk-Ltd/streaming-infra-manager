@@ -1,17 +1,45 @@
 # AGENTS.md
 
-This file is read by AI coding agents working in this repository. It describes the conventions, tooling, and reference docs those agents should follow. Edit it directly when those conventions change — re-running `/setup-matt-pocock-skills` is only needed if the structure beneath `## Agent skills` has to change.
+This file is read by AI coding agents working in this repository. It describes where this
+repository keeps its issues, its decisions and its reference documentation. Edit it directly when
+those conventions change.
 
-## Agent skills
+## Issues and decisions
 
-### Issue tracker
+Issues live as tracked markdown files under `docs/consensus/issues/`, one per remediation row,
+named `t<NN><a|b>-<slug>.md`. Each opens with a title line and then a single header line of the
+form:
 
-Issues live as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+```
+Source: R01. Priority: P1. Depends on: T01a. Decision: none. Size: M.
+```
 
-### Triage labels
+`Priority` is the estate's P1 to P3 scale. There is no separate `Status:` line on an issue file.
 
-Five canonical roles, default strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) used as `Status:` values in each issue file. See `docs/agents/triage-labels.md`.
+The five triage labels the review used, `needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human` and `wontfix`, are defined and applied in `docs/consensus/PRD.md`, which also
+carries every review round, the task table and Levi's decisions D01 to D14.
 
-### Domain docs
+`docs/consensus/prs/` holds one draft pull request body per row, kept as the per-row record of
+what was built and checked. `docs/consensus/README.md` maps the whole directory.
 
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Sessions also write working notes under `.scratch/`. That directory is gitignored and local to
+one machine, so nothing there can be cited as a source. When a scratch file matters, its tracked
+copy under `docs/consensus/` is the one to reference.
+
+## Reference documentation
+
+This repository has no `CONTEXT.md` and no `docs/adr/`. Domain vocabulary and architectural
+reasoning live in the pages that describe the feature they belong to:
+
+- `README.md` for the layout and the submodule.
+- `deploy/README.md` for putting the manager on a server and opening it to the internet.
+- `manager/README.md` for the API, the authentication model and the environment.
+- `docs/features/` for one page per feature.
+- `docs/ci.md` for what the two workflows run and what they prove.
+- `docs/testing/` for the test topology of individual remediation rows.
+- `docs/handover/main-v2-remediation.md` for the dated record of what was built and what was
+  found on the live host.
+
+A statement in any of these carries the date and the commit it was true at. When you change
+behaviour, change the page that describes it in the same branch.
