@@ -4,8 +4,9 @@ import type {
 
 import { getJson } from '../http';
 
-export function fetchChequebook(name: string): Promise<ChequebookSummary> {
+export function fetchChequebook(name: string, signal?: AbortSignal): Promise<ChequebookSummary> {
   return getJson<ChequebookSummary>(
     `/profiles/${encodeURIComponent(name)}/chequebook`,
+    { signal },
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   type ChequebookSummary,
@@ -9,6 +9,7 @@ import {
 
 import { ApiError } from '../http';
 import type { Profile } from '../types';
+import { BeeCheckRounds, shouldRunTick } from './beeCheckRounds';
 import { NODE_REFRESH_INTERVAL_MS } from './beeReadiness';
 import { fetchChequebook } from './chequebookApi';
 import {
@@ -121,12 +122,13 @@ export function useBeeUtils(
   const [loadError, setLoadError] = useState<string | null>(null);
   const [waitingBatch, setWaitingBatch] = useState<string | null>(null);
 
-  // Which reload the answers belong to. Two can be in flight at once, from
-  // StrictMode's double mount or the operator pressing Refresh. The slower one must not land last.
-  const latestReload = useRef(0);
+  // Which reload the answers belong to, and which requests belong to it. Two
+  // rounds can be in flight at once, from StrictMode's double mount or the
+  // operator pressing Refresh. The slower one must not land last.
+  const [rounds] = useState(() => new BeeCheckRounds());
 
   const runChecks = useCallback(async (announce: boolean) => {
-    const seq = ++latestReload.current;
+    const round = rounds.begin();
     if (announce) {
       setLoading(true);
       setLoadError(null);
@@ -140,15 +142,16 @@ export function useBeeUtils(
       chainStateResult,
       chequebookResult,
     ] = await Promise.allSettled([
-      fetchBeeNodeObservation(profileName).then(value => ({ value, receivedAt: performance.now() })),
-      fetchStampAddress(profileName),
-      fetchStampWallet(profileName),
-      fetchStamps(profileName),
-      fetchChainState(profileName),
-      withChequebook ? fetchChequebook(profileName) : Promise.resolve(null),
+      fetchBeeNodeObservation(profileName, round.signal).then(value => ({ value, receivedAt: performance.now() })),
+      fetchStampAddress(profileName, round.signal),
+      fetchStampWallet(profileName, round.signal),
+      fetchStamps(profileName, round.signal),
+      fetchChainState(profileName, round.signal),
+      withChequebook ? fetchChequebook(profileName, round.signal) : Promise.resolve(null),
     ]);
 
-    if (seq !== latestReload.current) return;
+    rounds.end(round.id);
+    if (!rounds.isNewest(round.id)) return;
 
     // Every live reading is written from this round's own result, a failure
     // included, rather than blanked before the round starts. Blanking first
@@ -182,24 +185,27 @@ export function useBeeUtils(
     setLoadError(failure ? beeLoadError(failure.reason) : null);
 
     setLoading(false);
-  }, [profileName, profileRevision, withChequebook]);
+  }, [profileName, profileRevision, rounds, withChequebook]);
 
   /** What the Retry action and the first paint call: it says it is checking. */
   const reload = useCallback(() => runChecks(true), [runChecks]);
 
   useEffect(() => {
     void runChecks(true);
-    return () => { latestReload.current += 1; };
-  }, [runChecks]);
+    return () => rounds.abandon();
+  }, [rounds, runChecks]);
 
   // A stopped deployment has nothing to ask, and the readiness view already
   // treats one as unverified whatever the last round said.
   const running = profile.status === 'RUNNING';
   useEffect(() => {
     if (!running) return;
-    const timer = setInterval(() => void runChecks(false), NODE_REFRESH_INTERVAL_MS);
+    const timer = setInterval(() => {
+      if (!shouldRunTick(rounds.inFlight, document.visibilityState === 'hidden')) return;
+      void runChecks(false);
+    }, NODE_REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [running, runChecks]);
+  }, [rounds, running, runChecks]);
 
   useEffect(() => {
     if (!waitingBatch) return;

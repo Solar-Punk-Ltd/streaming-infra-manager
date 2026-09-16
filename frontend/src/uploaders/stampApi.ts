@@ -40,27 +40,31 @@ export interface BeeChainState {
   currentPrice: string;
 }
 
-export function fetchStampAddress(name: string): Promise<BeeAddress> {
+export function fetchStampAddress(name: string, signal?: AbortSignal): Promise<BeeAddress> {
   return getJson<BeeAddress>(
     `/profiles/${encodeURIComponent(name)}/stamp/address`,
+    { signal },
   );
 }
 
-export function fetchStampWallet(name: string): Promise<BeeWallet> {
+export function fetchStampWallet(name: string, signal?: AbortSignal): Promise<BeeWallet> {
   return getJson<BeeWallet>(
     `/profiles/${encodeURIComponent(name)}/stamp/wallet`,
+    { signal },
   );
 }
 
-export function fetchChainState(name: string): Promise<BeeChainState> {
+export function fetchChainState(name: string, signal?: AbortSignal): Promise<BeeChainState> {
   return getJson<BeeChainState>(
     `/profiles/${encodeURIComponent(name)}/stamp/chainstate`,
+    { signal },
   );
 }
 
-export async function fetchStamps(name: string): Promise<BeeStamp[]> {
+export async function fetchStamps(name: string, signal?: AbortSignal): Promise<BeeStamp[]> {
   const body = await getJson<{ stamps: BeeStamp[] }>(
     `/profiles/${encodeURIComponent(name)}/stamp/stamps`,
+    { signal },
   );
   return body.stamps;
 }
@@ -84,6 +88,6 @@ export function setStamp(name: string, stampId: string): Promise<Profile> {
   );
 }
 
-export function fetchBeeNodeObservation(name: string): Promise<BeeNodeObservation> {
-  return getJson<BeeNodeObservation>(`/profiles/${encodeURIComponent(name)}/stamp/readiness`);
+export function fetchBeeNodeObservation(name: string, signal?: AbortSignal): Promise<BeeNodeObservation> {
+  return getJson<BeeNodeObservation>(`/profiles/${encodeURIComponent(name)}/stamp/readiness`, { signal });
 }
