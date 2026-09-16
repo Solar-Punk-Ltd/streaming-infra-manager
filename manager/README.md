@@ -7,7 +7,7 @@ on the same host can never collide on a port.
 ## Stack
 
 - **Express 5** + ESM + **TypeScript**
-- **PostgreSQL 16**, the single source of truth for `port_slot` allocations (1 to 999)
+- **PostgreSQL 16**, the single source of truth for `port_slot` allocations (1 to 100)
 - **Yup**, request body and params validation at the API edge
 - **dotenv**, config from `.env`
 - **Docker-out-of-Docker**: the API container spawns `bash deploy.sh ...`,
@@ -108,10 +108,25 @@ All command endpoints stream output as Server-Sent Events
 
 | Method | Path              | Body                                              | Notes                                                         |
 | ------ | ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| POST   | `/profiles`       | `{ name, kind?: "streamer"\|"viewer"\|"custom" }` | Allocates lowest free `port_slot` (1–999), seeds from `.env`. |
+| POST   | `/profiles`       | see below                                         | Allocates lowest free `port_slot` (1–100), seeds from `.env`. |
 | GET    | `/profiles`       | none                                              | List ordered by `port_slot`.                                  |
 | GET    | `/profiles/:name` | none                                              | Single profile.                                               |
 | DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
+| PUT    | `/profiles/:name` | the editable fields                               | Full edit. 202 and the profile.                               |
+| PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
+
+`POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
+or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
+`stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
+`stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint` and
+`abr_ladder`. `manager/src/schemas/profile.ts` is the whole contract and its
+rules are the ones the route enforces.
+
+`rpc_endpoint` is the chain endpoint this deployment's own Bee nodes use, and
+empty means the one its stack version carries. It exists because the stack's
+shipped default is a public RPC, and one node on it drew 4568 HTTP 429s in two
+hours on 2026-09-15, which is a rate limit rather than a fault anybody could see
+from the manager.
 
 ### Actions (per profile, SSE)
 
@@ -125,6 +140,8 @@ When `services` is omitted:
 
 - `streamer` → `srs stream-uploader bee-uploader`
 - `viewer` → `client bee-gateway`
+- `abr-uploader` → `srs stream-uploader`, and no Bee node: it publishes to an
+  ABR node pool's rungs, which hold the postage
 - `custom` → empty (the script then uses everything enabled in `config.json`)
 
 Media engines: `srs` (default) and `ome` are mutually exclusive, so a profile's
@@ -141,6 +158,37 @@ no passphrase. Accepted values are 10 to 79 characters of
 libsrt's and the character set keeps the value intact through the `sed` in
 `engines/srs/entrypoint.sh`, the env file, the srs.conf directive and the
 `srt://…&passphrase=` publish URL (see `common/src/srtPassphrase.ts`).
+
+### Why the uploader is held back
+
+A postage stamp is prepaid Swarm storage, bought on a running, funded Bee node.
+Only `stream-uploader` needs one. A viewer never does, and neither does a
+deployment that is nothing but a Bee node.
+
+The stack refuses to bring up a `stream-uploader` whose env file has neither a
+`STAMP` nor a `BEE_PUBLISHERS` value, in `check_stamp` in its own `deploy.sh`.
+Under the manager there is no terminal to ask, so that refusal is final and the
+script exits non zero. The manager therefore never sends a deploy into it.
+Instead it splits the service list (`splitDeployableServices` in
+`manager/src/domain/stampLogic.ts`):
+
+- No `stream-uploader` in the set, so the guard never fires. Deploy everything.
+- `stream-uploader` with a `stamp_id` or a `bee_publishers` value. Deploy
+  everything, and write `STAMP` into `.env.<profile>` so the guard reads it.
+- `stream-uploader` with neither. Deploy the set **minus** `stream-uploader`.
+
+The last case is the point. The rest of the deployment comes up, the Bee node
+runs, and a batch can be bought on it, which is impossible if the deploy failed
+as a whole. The profile still reads `RUNNING`, because it is, minus the
+uploader, and a derived `pendingStamp` field carries the difference rather than
+a new status. Once a batch exists,
+`POST /profiles/:name/deploy-uploader` deploys that one service.
+
+The test is the component set, never the kind: a `custom` deployment that
+includes `stream-uploader` behaves exactly like a `streamer`. A pool-backed
+`abr-uploader` is the exception in the other direction. Its postage is the
+pool's, one batch per rung, so `BEE_PUBLISHERS` satisfies the guard and nothing
+is held back.
 
 ### Chequebook (per profile, its own bee node)
 
@@ -300,10 +348,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on `main-v3`, the bundled version, 999 on the older `main-v2`), the engine defaults the settings
+(99 on `main-v3`, the bundled version, 999 on the older `main-v2`, and the
+manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
-`API_AUTH_TOKEN` and `SRS_WEBHOOK_TOKEN` on the bundled `main-v3`, are generated the first
+`API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
+`main-v3`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.
@@ -413,10 +463,12 @@ the staging tree and never the root, because the root holds every deployment's
 
 ### Resource metrics
 
-Real-time CPU / memory / network / disk usage at three nested layers: the
-**host** (the whole box, including non-Docker usage), the **infra** (the sum of
-all our containers), and **per container** (grouped by compose project, i.e.
-profile).
+Real-time CPU / memory / network / disk usage at four layers: the **host** (the
+whole box, including non-Docker usage), the **infra** (the sum of all our
+containers), **outside** (the host minus our infra, so what everything else on
+the box is using), and **per container** (grouped by compose project, i.e.
+profile). `common/src/metrics.ts` is the shape, and the manager, the frontend
+and the offline mock all read it from there.
 
 | Method | Path              | Notes                                                              |
 | ------ | ----------------- | ----------------------------------------------------------------- |
@@ -433,12 +485,21 @@ Snapshot shape:
   "timestamp": "2026-06-07T14:30:00.000Z",
   "host":  { "cpuPercent": 37.2, "ncpu": 8,
              "memUsedBytes": 9663676416, "memTotalBytes": 33554432000,
-             "diskUsedBytes": 81604378624, "diskTotalBytes": 512110190592 },
+             "diskUsedBytes": 81604378624, "diskTotalBytes": 512110190592,
+             "netRxBytes": 8388608, "netTxBytes": 16777216,
+             "netRxRate": 20480, "netTxRate": 40960,
+             "diskReadBytes": 0, "diskWriteBytes": 8192,
+             "diskReadRate": 0, "diskWriteRate": 4096 },
   "infra": { "cpuPercent": 142.5, "memUsageBytes": 5368709120,
-             "netRxRate": 10485, "netTxRate": 20971, "containerCount": 6 },
+             "netRxBytes": 4194304, "netTxBytes": 8388608,
+             "netRxRate": 10485, "netTxRate": 20971,
+             "blkReadBytes": 0, "blkWriteBytes": 4096,
+             "blkReadRate": 0, "blkWriteRate": 2048, "containerCount": 6 },
+  "outside": { "cpuPercent": 155.1, "memUsageBytes": 4294967296 },
   "containers": [
     { "id": "abc123…", "name": "streamer1-srs-1",
       "project": "streamer1", "service": "srs", "state": "running",
+      "restartCount": 0,
       "cpuPercent": 72.4, "memUsageBytes": 268435456,
       "memLimitBytes": 2147483648, "memPercent": 12.5,
       "netRxBytes": 1048576, "netTxBytes": 2097152,
@@ -454,6 +515,14 @@ Notes:
 - `cpuPercent` is share-of-one-core × 100, so an 8-core box tops out at 800 and
   the host field is normalised to 0–100. `*Rate` fields are bytes/second derived
   from deltas, so they read `0` on the first sample after (re)connecting.
+- `restartCount` is how many times the daemon has restarted that container, read
+  on a slower cadence than the rest of the row. It is the field that says a
+  container is crash looping, because a container that dies and comes back reads
+  as `running` in between. A Bee node that had never been funded sat in that loop
+  for six days, 2,760 restarts, while every page called it running.
+- `outside` subtracts exactly for CPU and memory only. Network and disk I/O are
+  measured at different points for the host and for containers, so they are shown
+  side by side rather than subtracted.
 - **Host CPU/RAM/disk need read-only host mounts** (`/proc → /host/proc`,
   `/ → /host/rootfs`, already wired in `docker-compose.yml`). Without them,
   host fields fall back to capacity only or `null`. Infra and per-container
@@ -506,18 +575,28 @@ curl -N -b cookies.txt -X POST localhost:9876/profiles/viewer1/deploy \
   -H 'content-type: application/json' \
   -H 'X-Requested-With: streaming-infra-manager' -d '{}'
 
-# Tear down + release
-curl -N -b cookies.txt -X POST localhost:9876/profiles/streamer1/clean \
-  -H 'content-type: application/json' \
-  -H 'X-Requested-With: streaming-infra-manager' -d '{"volumes":true}'
+# Tear down + release. One call: it stops the containers, removes the
+# deployment's data directory and its execution copies, and frees the slot.
 curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
   -H 'X-Requested-With: streaming-infra-manager'
 ```
 
 ## Environment
 
-Everything comes from `manager/.env`, and `manager/.env.sample` documents each
-key. The two that decide where the streaming stack lives:
+Everything comes from `manager/.env`. `manager/.env.sample` documents the keys
+an operator sets by hand. Five more are read that it does not carry:
+`SHLS_ROOT`, `BEE_DATA_ROOT` and `STACK_VERSIONS_ROOT`, which
+`docker-compose.yml` sets for the `api` container, `WEB_PORT`, which the compose
+file interpolates for the `web` port binding, and the two below that decide
+whether a chequebook transfer can be made at all.
+
+**`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** have no
+default and no fallback. With either missing, saved operations stay readable and
+recoverable and every new transfer refuses rather than guessing. Their exact
+shapes are in `docs/testing/t09-money-api.md`. Neither belongs in a file that is
+committed: route the value into the process rather than writing it down.
+
+The two keys that decide where the streaming stack lives:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -530,7 +609,9 @@ path in a compose file as a host path.
 
 ## Limitations (intentional, v1)
 
-- **Max 999 managed profiles per host.** `--portSlot` is an integer from 1 to 999.
+- **Max 100 managed profiles per host.** `--portSlot` is an integer from 1 to
+  100. A stack version may declare a lower ceiling of its own, and the manager
+  takes the lower of the two. A stopped deployment still holds its slot.
 - **No HTTPS of its own.** The sign-in gate is only as good as the transport in
   front of it. The `edge` service in `docker-compose.yml` is that transport: a
   Caddy container in the `public` compose profile that terminates TLS and gets
@@ -538,5 +619,7 @@ path in a compose file as a host path.
   set, and `deploy/README.md` has the steps for turning it on.
 - **Synchronous SSE.** A deploy holds an HTTP connection open for its whole
   duration, and a client disconnect kills the child.
-- **Local target only.** This iteration assumes `config.json` deploys to
-  `localhost`, which matches the "one manager per host" plan.
+- **A target is verified before it is used.** `localhost` is the ordinary case.
+  Another alias is refused until the target table has read a Docker daemon
+  identity on it over ssh, and an alias that cannot be verified is refused
+  rather than assumed.
