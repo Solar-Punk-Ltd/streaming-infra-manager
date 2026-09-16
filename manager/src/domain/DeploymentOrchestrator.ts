@@ -844,7 +844,10 @@ export class DeploymentOrchestrator {
    * nothing at all. The row is then still in DEPLOYING with no other write
    * coming for it, which refuses every later action on the deployment as
    * busy, so what did not match is logged and the failure is written on the
-   * status alone.
+   * status, the claim's instance and its job reference. A row whose instance
+   * or job has moved belongs to another claim, an admitted replacement or the
+   * admitted job a refused duplicate lost to, and that claim's own outcome ends
+   * it: nothing is written and that is said.
    */
   private async markDeployFailed(
     profileName: string,
@@ -853,12 +856,21 @@ export class DeploymentOrchestrator {
   ): Promise<Profile | null> {
     const owned = await this.profiles.markDeployError(profileName, failure.owner, failure.referenceId, message);
     if (owned) return owned;
+    const row = await this.profiles.findByName(profileName);
+    const mismatch = `it expected ${describeDeployOwner(failure)}, and the row says ${describeDeployRow(row)}.`;
+    const ended = await this.profiles.markDeployingError(profileName, failure.owner.instanceId, failure.referenceId, message);
+    if (ended) {
+      logger.warn(
+        `[Orchestrator] the failure of ${profileName} was not written by the deploy that owned it: ${mismatch} ` +
+        'Written on the status and the instance instead, so the deployment does not stay in DEPLOYING.',
+      );
+      return ended;
+    }
     logger.warn(
-      `[Orchestrator] the failure of ${profileName} was not written by the deploy that owned it: ` +
-      `it expected ${describeDeployOwner(failure)}, and the row says ${describeDeployRow(await this.profiles.findByName(profileName))}. ` +
-      'Writing the failure on the status alone, so the deployment does not stay in DEPLOYING.',
+      `[Orchestrator] the failure of ${profileName} was not written: ${mismatch} ` +
+      'Another claim owns the row now and its own outcome ends it.',
     );
-    return this.profiles.markDeployingError(profileName, message);
+    return null;
   }
 
   private async markFailed(

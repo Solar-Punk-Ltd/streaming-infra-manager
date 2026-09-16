@@ -7,8 +7,9 @@
  * config file rollout or an operator action that moves the row while the script
  * runs makes it match nothing. Nothing else writes a status for that job, so
  * the row sat in DEPLOYING for good and every later action on the deployment
- * was refused as busy. The row is now ended on its status alone, and the tuple
- * that did not match is logged.
+ * was refused as busy. The row is now ended on its status and its own claim's
+ * instance, and the tuple that did not match is logged. A row another claim
+ * owns is left alone: that claim's own outcome ends it.
  */
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -45,6 +46,20 @@ describe('a deploy that fails after the row moved under it', () => {
     await until('the failed deploy to leave DEPLOYING', () => h.profiles.statusOf('stage') !== 'DEPLOYING');
     assert.equal(h.profiles.statusOf('stage'), 'ERROR');
     assert.match(h.profiles.rows.get('stage')?.last_error ?? '', /exited with code 1/);
+  });
+
+  it('writes nothing over a row another claim owns, even while it is DEPLOYING', async () => {
+    const h = orchestratorHarness([makeProfile({ name: 'stage', components: ['srs'] })]);
+    await h.orchestrator.startDeploy(h.profiles.rows.get('stage')!, ['srs']);
+    assert.equal(h.profiles.statusOf('stage'), 'DEPLOYING');
+
+    h.profiles.write('stage', { instance_id: 'a-newer-claim' });
+    h.runner.finish(0, 1);
+
+    await until('the failure to be handled', () => h.runner.runs.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(h.profiles.statusOf('stage'), 'DEPLOYING');
+    assert.equal(h.profiles.rows.get('stage')?.last_error ?? null, null);
   });
 
   it('writes nothing over a deployment that has already left DEPLOYING', async () => {

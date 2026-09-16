@@ -484,22 +484,34 @@ export class ProfileRepository {
   }
 
   /**
-   * A failed deploy's last resort, guarded by the status alone.
+   * A failed deploy's last resort, guarded by the status and the claim's own
+   * instance.
    *
    * `markDeployError` writes only while the claim it captured still owns every
-   * column of the row, which is what keeps a late failure off a deployment
-   * that has moved on. When that matches nothing the row is still DEPLOYING
-   * and no other write is coming for it, so this ends it rather than leaving
-   * it transitional and refusing every later action as busy.
+   * column of the row. A config file rollout or an intent change under the
+   * running script moves a revision column, the write matches nothing, and no
+   * other write is coming for that job, so the row would sit in DEPLOYING and
+   * refuse every later action as busy. This ends it. The instance and the job
+   * reference stay in the guard because together they are the ownership: a row
+   * whose instance moved belongs to an admitted replacement, and a row holding
+   * a job reference the failing request never had belongs to the admitted job a
+   * refused duplicate lost to. Either claim's own outcome ends it, and a stale
+   * failure written there would retarget a deployment it does not own.
    */
-  async markDeployingError(name: string, message: string): Promise<Profile | null> {
+  async markDeployingError(
+    name: string,
+    instanceId: string,
+    jobReferenceId: number | null,
+    message: string,
+  ): Promise<Profile | null> {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
           SET status = 'ERROR', deployment_phase = NULL,
-              last_error = $2, last_error_at = NOW(), updated_at = NOW()
-        WHERE name = $1 AND status = 'DEPLOYING'
+              last_error = $4, last_error_at = NOW(), updated_at = NOW()
+        WHERE name = $1 AND status = 'DEPLOYING' AND instance_id = $2
+          AND deploy_job_reference_id IS NOT DISTINCT FROM $3::integer
         RETURNING ${PROFILE_COLUMNS}`,
-      [name, message],
+      [name, instanceId, jobReferenceId, message],
     );
     return result.rows[0] ?? null;
   }

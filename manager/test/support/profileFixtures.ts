@@ -278,8 +278,15 @@ export class InMemoryProfiles {
     return this.markError(name, message);
   }
 
-  async markDeployingError(name: string, message: string): Promise<Profile | null> {
-    if (this.rows.get(name)?.status !== 'DEPLOYING') return null;
+  async markDeployingError(
+    name: string,
+    instanceId: string,
+    jobReferenceId: number | null,
+    message: string,
+  ): Promise<Profile | null> {
+    const row = this.rows.get(name);
+    if (row?.status !== 'DEPLOYING' || row.instance_id !== instanceId) return null;
+    if ((this.activeDeployJobs.get(name) ?? null) !== jobReferenceId) return null;
     return this.markError(name, message);
   }
 
