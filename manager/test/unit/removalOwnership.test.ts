@@ -50,6 +50,23 @@ it('uses the current claimed port slot instead of a pre-claim profile copy', asy
   assert.equal(h.profiles.rows.get('owned')!.intent_revision, h.original.intent_revision + 1);
 });
 
+it('answers clean.sh own prompt, because a declined clean also exits 0', async () => {
+  // clean.sh asks "Continue? [y/N]" before it deletes anything and exits 0 when
+  // the answer is no. ScriptRunner spawns with stdin on 'ignore', so that read
+  // gets EOF, the answer is empty, and the script prints "Aborted." and leaves.
+  // A zero exit is a success to the manager, and the success hook then deletes
+  // the row, the data directory and the env file while every container and
+  // volume the clean was meant to remove is still running. --yes is the whole
+  // of what keeps the two ends agreeing about what happened.
+  const h = setup();
+
+  await h.orchestrator.startRemove(h.original);
+
+  const run = h.runner.runs[0]!;
+  assert.match(run.script, /\/clean\.sh$/);
+  assert.ok(run.args.includes('--yes'), run.args.join(' '));
+});
+
 for (const outcome of ['failure', 'success'] as const) {
   it(`a late cleanup ${outcome} cannot change a replacement instance or its files`, async () => {
     const h = setup();
