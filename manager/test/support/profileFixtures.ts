@@ -48,7 +48,7 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     rpc_endpoint: null,
-    srt_passphrase: null,
+    has_srt_passphrase: false,
     engine_settings: {},
     has_engine_config: false,
     engine_config_error: null,
@@ -103,6 +103,9 @@ export class InMemoryProfiles {
   /** The `private_key` column, kept apart from the rows for the same reason. */
   readonly privateKeys = new Map<string, string>();
 
+  /** The `srt_passphrase` column, kept apart from the rows for the same reason. */
+  readonly passphrases = new Map<string, string>();
+
   onDeleted?: (name: string) => void;
 
   constructor(
@@ -155,14 +158,16 @@ export class InMemoryProfiles {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
     const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
     if (slot === null) return null;
-    const { private_key: key, ...rest } = data;
+    const { private_key: key, srt_passphrase: passphrase, ...rest } = data;
     if (key) this.privateKeys.set(name, key);
+    if (passphrase) this.passphrases.set(name, passphrase);
     const row = makeProfile({
       name,
       kind,
       status,
       ...definedFields(rest),
       has_private_key: Boolean(key),
+      has_srt_passphrase: Boolean(passphrase),
       port_slot: slot,
       stack_version_id: placement.stackVersionId,
     });
@@ -207,6 +212,7 @@ export class InMemoryProfiles {
     if (row.status !== 'REMOVING') throw new Error('The deployment has not completed removal');
     this.rows.delete(name);
     this.privateKeys.delete(name);
+    this.passphrases.delete(name);
     this.reservations.dropProfile(name);
     this.onDeleted?.(name);
     return { port_slot: row.port_slot };
@@ -306,16 +312,22 @@ export class InMemoryProfiles {
     if (expectedNotesRevision !== undefined && row.notes_revision !== expectedNotesRevision) {
       return null;
     }
-    // A key the write leaves out keeps the stored one, the way the real
-    // statement's COALESCE does.
-    const { private_key: key, ...rest } = data;
+    // A secret the write leaves out keeps the stored one, the way the real
+    // statement does: COALESCE for the key, and for the passphrase a write
+    // that happens only while the body named it, so an explicit null clears.
+    const { private_key: key, srt_passphrase: passphrase, ...rest } = data;
     if (key) this.privateKeys.set(name, key);
+    if (passphrase === null) this.passphrases.delete(name);
+    else if (passphrase !== undefined) this.passphrases.set(name, passphrase);
     const fields = definedFields(rest);
     const notesChanged = 'notes' in fields && fields.notes !== row.notes;
     return this.write(name, {
       kind,
       ...fields,
       ...(key ? { has_private_key: true } : {}),
+      ...(passphrase === undefined
+        ? {}
+        : { has_srt_passphrase: passphrase !== null }),
       ...(notesChanged ? { notes_revision: row.notes_revision + 1 } : {}),
       ...(engineSettings === undefined ? {} : { engine_settings: engineSettings }),
     });
@@ -362,6 +374,10 @@ export class InMemoryProfiles {
 
   async privateKeyOf(name: string): Promise<string | null> {
     return this.privateKeys.get(name) ?? null;
+  }
+
+  async srtPassphraseOf(name: string): Promise<string | null> {
+    return this.passphrases.get(name) ?? null;
   }
 
   async stackSecretsOf(name: string): Promise<StackSecrets> {

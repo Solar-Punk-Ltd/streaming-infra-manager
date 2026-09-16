@@ -37,6 +37,7 @@ import { createGroupsRouter } from './routes/groups.js';
 import { createHealthRouter } from './routes/health.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { createProfilesRouter } from './routes/profiles.js';
+import { createSrtPassphraseRouter } from './routes/srtPassphrase.js';
 import { createStampRouter } from './routes/stamp.js';
 import { createAttemptsRouter } from './routes/attempts.js';
 import { createVersionsRouter } from './routes/versions.js';
@@ -109,6 +110,7 @@ export function startApiServer(
     createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
   );
   app.use('/profiles', createProfilesRouter(deps.profileService));
+  app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));

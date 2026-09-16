@@ -391,6 +391,19 @@ export class ProfileService {
     return this.containers.withContainers(row);
   }
 
+  /**
+   * The SRT passphrase of one deployment, asked for by the page that is about
+   * to show or copy the URL carrying it. Null is a real answer: the deployment
+   * publishes under the host-wide passphrase, or under none. A deployment that
+   * is not there is not the same answer, so the row is read first.
+   */
+  async srtPassphraseOf(name: string): Promise<string | null> {
+    if (!(await this.repo.findByName(name))) {
+      throw new ProfileNotFoundError(name);
+    }
+    return this.repo.srtPassphraseOf(name);
+  }
+
   async update(
     name: string,
     input: {
@@ -431,8 +444,8 @@ export class ProfileService {
     // claim is taken for it, and it is what is written and deployed, so the
     // state that is judged is the state that lands. PUT replaces every
     // editable field, so a field the body leaves out becomes null here the
-    // way the write stores it. The signing key is the exception: it is never
-    // answered to a page, so a body that leaves it out keeps the stored one.
+    // way the write stores it. The two secrets are the exception: neither is
+    // answered to a page, so a body that leaves one out keeps the stored one.
     const { private_key: keyEdit, ...edits } = nullify({
       notes: input.notes,
       feed_owner: input.feed_owner,
@@ -443,12 +456,19 @@ export class ProfileService {
       bee_publishers: input.bee_publishers,
       bee_url: input.bee_url,
       rpc_endpoint: input.rpc_endpoint,
-      srt_passphrase: input.srt_passphrase,
     });
+    // Kept out of the nullify above, because for the passphrase an absent
+    // field and an explicit null are different answers: keep the stored one,
+    // and go back to the host-wide one.
+    const passphraseEdit = input.srt_passphrase;
     const proposed: Profile = {
       ...existing,
       ...edits,
       has_private_key: keyEdit !== null || existing.has_private_key,
+      has_srt_passphrase:
+        passphraseEdit === undefined
+          ? existing.has_srt_passphrase
+          : passphraseEdit !== null,
     };
 
     // A body that omits bee_publishers clears it. For an abr-uploader that
@@ -484,7 +504,14 @@ export class ProfileService {
       const written = await this.repo.updateEditable(
         name,
         existing.kind,
-        { ...edits, private_key: keyEdit, components: existing.components },
+        {
+          ...edits,
+          private_key: keyEdit,
+          ...(passphraseEdit === undefined
+            ? {}
+            : { srt_passphrase: passphraseEdit }),
+          components: existing.components,
+        },
         laddersEnded ? withoutLadderSettings(existing) : undefined,
         notesRevisionSent,
       );
@@ -1041,17 +1068,29 @@ export class ProfileService {
       feed_topic: pick(input.feed_topic, m.feed_topic),
       public_key: m.public_key,
       stamp_id: pick(input.stamp_id, m.stamp_id),
-      srt_passphrase: pick(input.srt_passphrase, m.srt_passphrase),
+      // Not picked the way the others are: the member rows do not carry the
+      // passphrase, so an edit that says nothing about it leaves the field out
+      // and each member keeps its own.
+      ...(input.srt_passphrase === undefined
+        ? {}
+        : { srt_passphrase: input.srt_passphrase }),
     }));
 
     // Every member is claimed before the bulk write, so a group edit that
     // cannot own all of its deployments changes none of them. Each claim is
     // for the row that member is about to become, so the gate judges the
     // stamp the edit proposes and not the one it replaces.
-    const proposedMembers = members.map((member, index) => ({
-      ...member,
-      ...writes[index],
-    }));
+    const proposedMembers: Profile[] = members.map((member, index) => {
+      const { srt_passphrase: passphrase, ...write } = writes[index]!;
+      return {
+        ...member,
+        ...write,
+        has_srt_passphrase:
+          passphrase === undefined
+            ? member.has_srt_passphrase
+            : passphrase !== null,
+      };
+    });
     const reservations = await this.reserveMembers(group, proposedMembers);
 
     const updated = await this.writeOrCancel([...reservations.values()], () =>
@@ -1213,7 +1252,9 @@ export class ProfileService {
       private_key: await this.repo.privateKeyOf(canonical.name),
       public_key: canonical.public_key,
       stamp_id: canonical.stamp_id,
-      srt_passphrase: canonical.srt_passphrase,
+      // Every member's ingest takes the same passphrase, and this one is read
+      // on its own too, because the member rows do not carry it either.
+      srt_passphrase: await this.repo.srtPassphraseOf(canonical.name),
       stack_version_id: canonical.stack_version_id,
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,

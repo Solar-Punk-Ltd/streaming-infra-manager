@@ -321,6 +321,17 @@ export interface UploaderGate {
   assertCanStart(profile: Profile): Promise<void>;
 }
 
+/**
+ * The values a deploy writes into the containers' environment that the profile
+ * row does not carry, because a row is answered to every page and published on
+ * every event. Each is read from its own column at the one moment it is
+ * needed, and the deploy is the only thing here that holds them.
+ */
+interface DeploySecrets {
+  streamKey: string | null;
+  srtPassphrase: string | null;
+}
+
 export class DeploymentOrchestrator {
   constructor(
     private readonly profiles: ProfileRepository,
@@ -977,18 +988,21 @@ export class DeploymentOrchestrator {
       // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
       const engine = engineForComponents(profile.components);
       const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
-      // Read here and nowhere else: the key is not a column of the row, so
-      // that no page and no event carries it. This is where it becomes a line
-      // in a file the containers read.
-      const streamKey = await this.profiles.privateKeyOf(profile.name);
+      // Read here and nowhere else: neither is a column of the row, so that no
+      // page and no event carries them. This is where each becomes a line in a
+      // file the containers read.
+      const secrets: DeploySecrets = {
+        streamKey: await this.profiles.privateKeyOf(profile.name),
+        srtPassphrase: await this.profiles.srtPassphraseOf(profile.name),
+      };
       const written = writeProfileEnv(paths.root, profile.name, {
         engine,
         stampId: profile.stamp_id,
         beePublishers: profile.bee_publishers,
         beeUrl: profile.bee_url,
         rpcEndpoint: profile.rpc_endpoint,
-        srtPassphrase: profile.srt_passphrase,
-        streamKey,
+        srtPassphrase: secrets.srtPassphrase,
+        streamKey: secrets.streamKey,
         engineSettings: profile.engine_settings,
         stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
         stackEngineDefaults: version?.contract?.engineDefaults,
@@ -1022,7 +1036,7 @@ export class DeploymentOrchestrator {
           }
           : undefined,
         onSuccess: async (attempt) => {
-          await this.snapshotContainers(profile, paths, version, services, engineConfigFile, streamKey);
+          await this.snapshotContainers(profile, paths, version, services, engineConfigFile, secrets);
           await this.observeMounts(profile, services);
           if (attempt && this.ports && this.portObserver) {
             const claimed = await this.profiles.findByName(profile.name);
@@ -1522,10 +1536,10 @@ export class DeploymentOrchestrator {
     version: DeployVersionSnapshot | null,
     services: string[],
     engineConfigFile: string | null,
-    streamKey: string | null,
+    secrets: DeploySecrets,
   ): Promise<void> {
     try {
-      const env = this.buildEffectiveEnv(profile, paths, version, streamKey);
+      const env = this.buildEffectiveEnv(profile, paths, version, secrets);
       if (engineConfigFile) {
         env[ENGINE_CONFIG_ENV_KEYS[engineForComponents(profile.components)]] =
           engineConfigFile;
@@ -1551,7 +1565,7 @@ export class DeploymentOrchestrator {
     profile: Profile,
     paths: StackPaths,
     version: DeployVersionSnapshot | null,
-    streamKey: string | null,
+    secrets: DeploySecrets,
   ): Record<string, string> {
     const env = parseBaseEnv(paths.root);
 
@@ -1586,8 +1600,8 @@ export class DeploymentOrchestrator {
       env.STREAM_LIST_TOPIC = profile.feed_topic;
       env.VITE_APP_RAW_TOPIC = profile.feed_topic;
     }
-    if (streamKey) {
-      env.STREAM_KEY = streamKey;
+    if (secrets.streamKey) {
+      env.STREAM_KEY = secrets.streamKey;
     }
     if (profile.stamp_id) {
       env.STAMP = profile.stamp_id.replace(/^0x/, '');
@@ -1605,8 +1619,8 @@ export class DeploymentOrchestrator {
       env.BEE_URL = beeUrl;
     }
     // Unset leaves the base .env's value in place, matching writeProfileEnv.
-    if (profile.srt_passphrase) {
-      env.SRT_PASSPHRASE = profile.srt_passphrase;
+    if (secrets.srtPassphrase) {
+      env.SRT_PASSPHRASE = secrets.srtPassphrase;
     }
     Object.assign(
       env,

@@ -74,16 +74,21 @@ function profileFields(): string[] {
  * Columns whose value must never be selected onto a profile row.
  *
  * Each is read on its own, beside the row: `private_key` through
- * ProfileRepository.privateKeyOf, `stack_secrets` through stackSecretsOf and
- * `engine_config` through engineConfigOf.
+ * ProfileRepository.privateKeyOf, `stack_secrets` through stackSecretsOf,
+ * `engine_config` through engineConfigOf and `srt_passphrase` through
+ * srtPassphraseOf.
  *
- * `srt_passphrase` is deliberately not on this list. The UI hands it to the
- * broadcaster inside the SRT URL, so it is on the row on purpose.
+ * The passphrase has a reader the others do not, the page that builds the
+ * broadcaster's SRT URL, and that page asks for it one deployment at a time
+ * through GET /profiles/:name/srt-passphrase. It rode on the row until then,
+ * which handed it to every signed-in page on every list and every status
+ * change, for the sake of one operator about to publish.
  */
 const SECRET_COLUMNS: readonly string[] = [
   'private_key',
   'stack_secrets',
   'engine_config',
+  'srt_passphrase',
 ];
 
 describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
@@ -134,6 +139,14 @@ describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
       selected().includes('has_private_key'),
       'the row has to say whether a key is stored, so the edit drawer can mask ' +
         'the field it must not be sent',
+    );
+  });
+
+  it('says whether the deployment holds an SRT passphrase, without the passphrase', () => {
+    assert.ok(
+      selected().includes('has_srt_passphrase'),
+      'the row has to say whether a passphrase is stored, so the drawer knows ' +
+        'which pass mode the deployment is on without being handed the value',
     );
   });
 

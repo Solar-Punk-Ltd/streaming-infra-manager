@@ -16,15 +16,20 @@
  * every profile read answers it to the browser and every `profile.changed`
  * event publishes it to every subscriber, so a secret selected here reaches
  * every signed-in user on every list and every status change. `private_key`,
- * `stack_secrets` and `engine_config` are read on their own instead, and the
- * row carries only whether each is set. `srt_passphrase` is the deliberate
- * exception: the UI hands it to the broadcaster inside the SRT URL.
+ * `stack_secrets`, `engine_config` and `srt_passphrase` are read on their own
+ * instead, and the row carries only whether each is set.
+ *
+ * The passphrase is the one of those a page has to see, because it goes in the
+ * broadcaster's SRT URL. It asks for that one deployment's through
+ * `GET /profiles/:name/srt-passphrase` when an operator is about to publish,
+ * rather than every page holding every deployment's at all times.
  */
 export const PROFILE_COLUMNS = `
   name, port_slot, kind, notes, notes_revision,
   components, host, feed_owner, feed_topic, public_key, stamp_id,
   (private_key IS NOT NULL) AS has_private_key,
-  bee_publishers, bee_url, rpc_endpoint, srt_passphrase, engine_settings,
+  bee_publishers, bee_url, rpc_endpoint, engine_settings,
+  (srt_passphrase IS NOT NULL) AS has_srt_passphrase,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error, engine_config_state,
   instance_id, engine_config_revision, intent_revision,
   status, deployment_phase, last_error, last_error_at, last_full_deploy_commit,

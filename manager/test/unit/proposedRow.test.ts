@@ -41,7 +41,7 @@ const EDITABLE_FIELDS = [
   'stamp_id',
   'bee_publishers',
   'bee_url',
-  'srt_passphrase',
+  'has_srt_passphrase',
 ] as const;
 
 /** The fields a PUT replaces, as the gate and the deploy saw them. */

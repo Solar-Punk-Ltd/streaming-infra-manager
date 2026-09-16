@@ -25,6 +25,10 @@ export interface ProfileWriteData {
   bee_publishers?: string | null;
   bee_url?: string | null;
   rpc_endpoint?: string | null;
+  /**
+   * Absent keeps the passphrase already stored, null clears it and a value
+   * replaces it. See `updateEditable`. On an insert, absent means none.
+   */
   srt_passphrase?: string | null;
   group_id?: number | null;
 }
@@ -173,10 +177,16 @@ export class ProfileRepository {
    *   null comes back when it moved, the same as for a row that is gone.
    *
    * Every field here is replaced, so one the body leaves out becomes null.
-   * `private_key` is the exception, for the reason `engine_settings` is: the
-   * key is never answered to a page, so no page can send it back, and a PUT
-   * that says nothing about it would otherwise clear the feed's identity on
-   * the next save of a note.
+   * The two secrets are the exception, for the reason `engine_settings` is:
+   * neither is answered to a page, so no page can send one back, and a PUT
+   * that says nothing about them would otherwise clear the feed's identity and
+   * the ingest passphrase on the next save of a note.
+   *
+   * They differ in what an operator may still ask for. A key is replaced and
+   * never cleared, which COALESCE says exactly. A passphrase can also be given
+   * up, when the operator puts the deployment back on the host-wide one, so an
+   * absent field and an explicit null have to mean different things and the
+   * column is written only while the caller named it.
    */
   async updateEditable(
     name: string,
@@ -185,7 +195,8 @@ export class ProfileRepository {
     engineSettings?: EngineSettings,
     expectedNotesRevision?: number,
   ): Promise<Profile | null> {
-    const data = nullify(dataWithOptionalValues);
+    const { srt_passphrase: passphrase, ...named } = dataWithOptionalValues;
+    const data = nullify(named);
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET kind = $2,
@@ -201,11 +212,11 @@ export class ProfileRepository {
              bee_publishers = $10,
              bee_url = $11,
              rpc_endpoint = $12,
-             srt_passphrase = $13,
-             engine_settings = COALESCE($14::jsonb, engine_settings),
+             srt_passphrase = CASE WHEN $13::boolean THEN $14::text ELSE srt_passphrase END,
+             engine_settings = COALESCE($15::jsonb, engine_settings),
              updated_at = NOW()
        WHERE name = $1
-         AND ($15::int IS NULL OR notes_revision = $15::int)
+         AND ($16::int IS NULL OR notes_revision = $16::int)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -220,7 +231,8 @@ export class ProfileRepository {
         data.bee_publishers,
         data.bee_url,
         data.rpc_endpoint,
-        data.srt_passphrase,
+        passphrase !== undefined,
+        passphrase ?? null,
         engineSettings === undefined ? null : JSON.stringify(engineSettings),
         expectedNotesRevision ?? null,
       ],
@@ -320,6 +332,21 @@ export class ProfileRepository {
       [name],
     );
     return result.rows[0]?.private_key ?? null;
+  }
+
+  /**
+   * The passphrase this deployment's SRT ingest is encrypted with, read on its
+   * own for the same reason the key is, and answered one deployment at a time.
+   * Two callers ask: the deploy, where it becomes a line in the deployment's
+   * own env file, and the reveal route, where an operator about to publish is
+   * shown the URL that carries it.
+   */
+  async srtPassphraseOf(name: string): Promise<string | null> {
+    const result = await this.pool.query<{ srt_passphrase: string | null }>(
+      'SELECT srt_passphrase FROM profiles WHERE name = $1',
+      [name],
+    );
+    return result.rows[0]?.srt_passphrase ?? null;
   }
 
   /**

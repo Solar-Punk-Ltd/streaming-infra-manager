@@ -155,12 +155,19 @@ function writeVersionEnv(base: string, engine = ''): void {
   writeFileSync(join(root, 'engines', 'srs', '.env'), engine, 'utf8');
 }
 
-async function deployOn(harness: OrchestratorHarness, profile: Partial<Profile> = {}, privateKey?: string) {
+/** @param secrets what the row says is stored and the repository answers on its own. */
+async function deployOn(
+  harness: OrchestratorHarness,
+  profile: Partial<Profile> = {},
+  secrets: { privateKey?: string; srtPassphrase?: string } = {},
+) {
   const v3 = await versionRequiringSecrets(harness);
   const stored = makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64), stack_version_id: v3,
-    has_private_key: privateKey !== undefined, ...profile });
+    has_private_key: secrets.privateKey !== undefined,
+    has_srt_passphrase: secrets.srtPassphrase !== undefined, ...profile });
   harness.profiles.rows.set('stage', stored);
-  if (privateKey) harness.profiles.privateKeys.set('stage', privateKey);
+  if (secrets.privateKey) harness.profiles.privateKeys.set('stage', secrets.privateKey);
+  if (secrets.srtPassphrase) harness.profiles.passphrases.set('stage', secrets.srtPassphrase);
   await harness.orchestrator.startDeploy(stored, undefined);
   return stored;
 }
@@ -251,7 +258,7 @@ describe('a per deployment key the version already sets', () => {
     writeVersionEnv(`ENGINE=srs\nSTREAM_KEY=0x${'c'.repeat(64)}\nAPI_AUTH_TOKEN=\n`, 'SRS_WEBHOOK_TOKEN=\n');
     const harness = orchestratorHarness([]);
 
-    await deployOn(harness, {}, own);
+    await deployOn(harness, {}, { privateKey: own });
 
     assert.equal(envLine('stage', 'STREAM_KEY'), `STREAM_KEY=${own}`);
   });
@@ -269,7 +276,7 @@ describe('a per deployment key the version already sets', () => {
     writeVersionEnv('ENGINE=srs\nAPI_AUTH_TOKEN=\n', 'SRT_PASSPHRASE=set-by-the-version\nSRS_WEBHOOK_TOKEN=\n');
     const harness = orchestratorHarness([]);
 
-    await deployOn(harness, { srt_passphrase: 'set-by-the-deployment' });
+    await deployOn(harness, {}, { srtPassphrase: 'set-by-the-deployment' });
 
     assert.equal(envLine('stage', 'SRT_PASSPHRASE'), 'SRT_PASSPHRASE=set-by-the-deployment');
   });

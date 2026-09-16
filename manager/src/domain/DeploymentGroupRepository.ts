@@ -46,7 +46,13 @@ export interface MemberConfigWrite {
   feed_topic: string | null;
   public_key: string | null;
   stamp_id: string | null;
-  srt_passphrase: string | null;
+  /**
+   * Absent keeps each member's own passphrase, which is what an edit that said
+   * nothing about it means. The member rows do not carry the value, so keeping
+   * it is the database's job rather than a value read and written back. Null
+   * puts the whole group on the host-wide passphrase.
+   */
+  srt_passphrase?: string | null;
 }
 
 export type EmptyGroupRemoval = 'deleted' | 'absent' | 'changed' | 'not_empty';
@@ -150,7 +156,7 @@ export class DeploymentGroupRepository {
                  feed_topic = $6,
                  public_key = $7,
                  stamp_id = $8,
-                 srt_passphrase = $9,
+                 srt_passphrase = CASE WHEN $9::boolean THEN $10::text ELSE srt_passphrase END,
                  updated_at = NOW()
            WHERE name = $1
            RETURNING ${PROFILE_COLUMNS}`,
@@ -163,7 +169,8 @@ export class DeploymentGroupRepository {
             w.feed_topic,
             w.public_key,
             w.stamp_id,
-            w.srt_passphrase,
+            w.srt_passphrase !== undefined,
+            w.srt_passphrase ?? null,
           ],
         );
 

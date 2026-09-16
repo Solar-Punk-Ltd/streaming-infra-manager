@@ -45,8 +45,15 @@ export interface Profile {
   bee_url: string | null;
   /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */
   rpc_endpoint: string | null;
-  /** SRS only. Null falls back to the base .env. See migrations/007. */
-  srt_passphrase: string | null;
+  /**
+   * Whether an SRT passphrase of this deployment's own is stored, never the
+   * passphrase. SRS only, and false falls back to the base .env. The value is
+   * read on its own through `ProfileRepository.srtPassphraseOf`: by the deploy,
+   * which writes it into the env file, and by the page that builds the
+   * broadcaster's SRT URL, which asks for one deployment's at a time. See
+   * migrations/007.
+   */
+  has_srt_passphrase: boolean;
   /**
    * Engine settings this deployment overrides, by their env key. An absent key
    * means the stack's own default. See migrations/009 and

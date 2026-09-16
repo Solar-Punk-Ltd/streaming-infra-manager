@@ -307,7 +307,9 @@ export class InMemoryGroups {
         feed_topic: write.feed_topic,
         public_key: write.public_key,
         stamp_id: write.stamp_id,
-        srt_passphrase: write.srt_passphrase,
+        ...('srt_passphrase' in write
+          ? { srt_passphrase: write.srt_passphrase }
+          : {}),
       });
       if (row) updated.push(row);
     }
@@ -330,6 +332,7 @@ export class InMemoryGroups {
       throw new AllSlotsUsedError(shared.slot_cap);
     }
     if (shared.private_key) this.profiles.privateKeys.set(name, shared.private_key);
+    if (shared.srt_passphrase) this.profiles.passphrases.set(name, shared.srt_passphrase);
     const row = makeProfile({
       name,
       kind: shared.kind,
@@ -341,7 +344,7 @@ export class InMemoryGroups {
       has_private_key: Boolean(shared.private_key),
       public_key: shared.public_key,
       stamp_id: shared.stamp_id,
-      srt_passphrase: shared.srt_passphrase,
+      has_srt_passphrase: Boolean(shared.srt_passphrase),
       stack_version_id: shared.stack_version_id,
       status: 'STOPPED',
       port_slot: slot,
