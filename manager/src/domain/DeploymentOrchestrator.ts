@@ -84,6 +84,10 @@ const logger = Logger.getInstance();
 const STDERR_TAIL_BYTES = 4096;
 const STDOUT_TAIL_BYTES = 4096;
 
+/** What a deployment with no service of its own is told after a deploy of it. */
+const NOTHING_TO_DEPLOY =
+  'This deployment has no service to deploy, so nothing was started and it is as it was.';
+
 /**
  * Every config file of the engine in the directory except `keep`, gone. A
  * missing directory is nothing to do.
@@ -858,7 +862,10 @@ export class DeploymentOrchestrator {
 
     // An empty service filter would make deploy.sh deploy every configured service.
     if (reservation.services.length === 0) {
-      return this.completeWithoutScript(profile, stackPathsForRoot(build.root), build.referenceId);
+      // Everything this deploy was for is waiting on a stamp, so the operator
+      // hears why nothing ran rather than watching a deploy report success.
+      if (reservation.heldBackForStamp.length > 0) throw new StampRequiredError(profile.name);
+      return this.completeWithoutScript(reservation, profile, stackPathsForRoot(build.root), build.referenceId);
     }
 
     // Everything after this writes into the tree it names: the bootstrapped
@@ -970,13 +977,35 @@ export class DeploymentOrchestrator {
     }
   }
 
-  private async completeWithoutScript(profile: Profile, paths: StackPaths, referenceId: number | null): Promise<RunHandle> {
+  /**
+   * A deploy of nothing: the checkout is made ready, the claim is given back,
+   * and the deployment goes back to the status the claim took it from.
+   *
+   * Deliberately not RUNNING. Nothing was started, so nothing here has seen a
+   * container, and a custom deployment with no components was marked RUNNING
+   * over a project that has never had one. A deployment whose row was inserted
+   * for this deploy has no earlier status to go back to and lands STOPPED,
+   * which is what a deployment nothing has started is.
+   */
+  private async completeWithoutScript(
+    reservation: DeployReservation,
+    profile: Profile,
+    paths: StackPaths,
+    referenceId: number | null,
+  ): Promise<RunHandle> {
     await this.ensureStackDefaults(paths);
     if (referenceId !== null) {
       await this.ledger.cancelUnstarted(profile.name, referenceId);
     }
 
-    const updated = await this.profiles.markTerminal(profile.name, 'RUNNING');
+    const restored = REDEPLOYABLE_FROM.includes(reservation.previousStatus)
+      ? reservation.previousStatus
+      : 'STOPPED';
+    // A row going back to ERROR keeps a reason, and the reason it had was
+    // cleared by the claim, so this one says what this deploy did instead.
+    const updated = restored === 'ERROR'
+      ? await this.profiles.markError(profile.name, NOTHING_TO_DEPLOY)
+      : await this.profiles.markTerminal(profile.name, restored);
     if (updated) {
       await this.publishChanged(updated);
     }
