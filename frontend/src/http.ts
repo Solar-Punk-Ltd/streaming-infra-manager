@@ -190,8 +190,14 @@ export async function send(
   method: string,
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const res = await apiFetch(path, { method, body });
+  const res = await apiFetch(path, { method, body, signal });
   if (!res.ok) await failWith(res, `request failed (${res.status})`);
   await res.text().catch(() => undefined);
+}
+
+/** True for a request one of our own deadlines ended, not one the manager refused. */
+export function isTimeout(caught: unknown): boolean {
+  return caught instanceof Error && caught.name === 'TimeoutError';
 }

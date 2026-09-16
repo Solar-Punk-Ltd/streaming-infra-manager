@@ -8,11 +8,13 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
+import { ACTION_TIMEOUT_MS, actionTimedOutMessage } from './deployments/actionLimit';
 import {
   apiFetch,
   checkSessionAfterStreamClosed,
   failWith,
   getJson,
+  isTimeout,
   send,
   sendJson,
 } from './http';
@@ -94,18 +96,18 @@ type ProfileAction = 'deploy' | 'stop' | 'deploy-uploader';
  * the status alone reported a deploy.sh that exited 1 as a green "Starting".
  */
 async function postAction(name: string, action: ProfileAction): Promise<void> {
-  const res = await apiFetch(
-    `/profiles/${encodeURIComponent(name)}/${action}`,
-    { method: 'POST', body: {} },
-  );
-  if (!res.ok) await failWith(res, `request failed (${res.status})`);
-  if (!res.body) {
-    throw new Error('The manager answered the action with no stream to read.');
-  }
-
   try {
+    const res = await apiFetch(
+      `/profiles/${encodeURIComponent(name)}/${action}`,
+      { method: 'POST', body: {}, signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) },
+    );
+    if (!res.ok) await failWith(res, `request failed (${res.status})`);
+    if (!res.body) {
+      throw new Error('The manager answered the action with no stream to read.');
+    }
     await readScriptOutcome(res.body);
   } catch (caught) {
+    if (isTimeout(caught)) throw new Error(actionTimedOutMessage());
     // Nothing else on the page is fetching while a deploy runs, so a session
     // that ended under it surfaces here and nowhere else. Asked before the
     // message travels, so the operator lands on the sign-in page rather than

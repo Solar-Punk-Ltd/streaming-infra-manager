@@ -1,3 +1,5 @@
+import { isTimeout } from '../../http';
+
 /**
  * How long the New deployment dialog waits for the manager to answer a create.
  *
@@ -16,7 +18,7 @@ export const CREATE_TIMEOUT_MS = 60_000;
 
 /** True for a request this dialog gave up on, rather than one the manager refused. */
 export function isSubmissionTimeout(caught: unknown): boolean {
-  return caught instanceof Error && caught.name === 'TimeoutError';
+  return isTimeout(caught);
 }
 
 export function createTimedOutMessage(name: string): string {
