@@ -105,6 +105,22 @@ describe('the chain endpoint a deployment names for itself', () => {
     assert.equal(fieldsFor(viewer({ components: ['srs'] })).rpcEndpoint, false);
   });
 
+  /**
+   * A pool-backed uploader publishes through the pool's nodes, which it names
+   * in bee_publishers, and runs no node of its own. There is nothing here for
+   * an endpoint to reach a chain from.
+   */
+  it('is not asked of an uploader that publishes through a pool', () => {
+    const pooled = viewer({
+      kind: 'abr-uploader',
+      components: ['srs', 'stream-uploader'],
+      bee_publishers: 'pool-node-1,pool-node-2',
+    });
+
+    assert.equal(fieldsFor(pooled).rpcEndpoint, false);
+    assert.equal(fieldsFor(pooled).poolString, true);
+  });
+
   it('starts from what the deployment already holds, and empty when it holds none', () => {
     assert.equal(initialEdits(uploader({ rpc_endpoint: 'http://host.docker.internal:9000' })).rpcEndpoint,
       'http://host.docker.internal:9000');
