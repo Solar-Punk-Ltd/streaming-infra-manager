@@ -95,7 +95,9 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
   });
 
   it('skips slots whose private endpoint would be opened by the shared firewall policy', async () => {
-    const unsafe = [{ ...table[0]!, slotBase: 11002 }];
+    // 10006 is the bee-uploader peer band base, so every slot of this table lands
+    // on a tuple the firewall opens for somebody else.
+    const unsafe = [{ ...table[0]!, slotBase: 10006 }];
     assert.equal(await profiles.insertWithFreeSlot('a', 'viewer', 'DEPLOYING', {}, { stackVersionId: 1, slotCap: 2, daemonId: 'daemon', table: unsafe }), null);
     assert.deepEqual(await ports.listByDaemon('daemon'), []);
   });
