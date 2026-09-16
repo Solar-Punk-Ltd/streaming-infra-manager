@@ -88,7 +88,8 @@ describe('the keyframe rule', () => {
 
   it('reads the stack default for whichever of the two is not stored', () => {
     // Only the frame rate is set, so the rule has to pick up HLS_FRAGMENT=1.5
-    // from the defaults, which is what the container would run with.
+    // from the field's own default, which is what answers where no version
+    // contract and no host value were read.
     assert.match(
       engineSettingsProblem(SRS_SERVICE, { ABR_FPS: '25' }, ABR) ?? '',
       /not a whole number/,
@@ -332,8 +333,8 @@ describe('effectiveEngineSettings', () => {
 
 describe('the keyframe rule against a host default', () => {
   // The host runs 2 second segments, so 25 frames a second is 50 frames a
-  // segment and the pair the stack default refuses is one the container starts
-  // with.
+  // segment and the pair the field's own default refuses is one the container
+  // starts with.
   const HOST_TWO_SECOND = { abr: true, defaults: { HLS_FRAGMENT: '2' } };
 
   it('accepts a frame rate the stack default would refuse', () => {
@@ -441,8 +442,8 @@ describe('what an operator can see about the force-close ceiling', () => {
    * The engine cuts a piece without a keyframe once it runs past
    * `HLS_FRAGMENT * hls_aof_ratio`. That ratio was in no field here and in no
    * env sample, so the ceiling it produced was invisible AND it scaled with the
-   * segment length, which is a field. Levi set the segment length to 2 on
-   * 2026-09-15 and the ceiling went from 2.5s to 10s without a word anywhere.
+   * segment length, which is a field. Raising the segment length to 2 takes the
+   * ceiling from 2.5s to 10s with nothing anywhere saying so.
    */
   it('is a field, in seconds, rather than a hidden multiple of another field', () => {
     const ceiling = field('HLS_SEGMENT_MAX');

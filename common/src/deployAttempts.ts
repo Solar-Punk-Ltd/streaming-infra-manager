@@ -11,7 +11,11 @@
  * service it touched, and anything less leaves it blocked until a person
  * who checked the host releases it by typing its job id back.
  */
-export type DeployAttemptKind = 'shared' | 'fixed';
+export type DeployAttemptKind =
+  /** Its images move tags every deployment's build touches, so it holds the whole daemon. */
+  | 'shared'
+  /** Its version names its images its own way, so it holds this deployment alone. */
+  | 'fixed';
 
 export type DeployAttemptState = 'open' | 'released' | 'blocked';
 
@@ -21,7 +25,7 @@ export interface DeployAttemptView {
   /** The deployment, which is the Compose project. */
   project: string;
   jobId: string;
-  /** Shared: its images move tags every deployment's build touches. */
+  /** Which of the two this attempt is, and therefore what it holds. */
   kind: DeployAttemptKind;
   /** The services the attempt touched. */
   services: string[];

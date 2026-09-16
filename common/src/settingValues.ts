@@ -77,7 +77,7 @@ const SED_SYNTAX_RE = /[/\\&|]/;
  * and the operator who reads it in a container log are the same person.
  */
 const SECRET_SYNTAX_MESSAGE =
-  'must not contain / \\ & or |, which sed reads as syntax where this value is written into the engine config. Generate it with openssl rand -hex 32.';
+  'must not contain / \\ & or |, which sed reads as syntax where this value is written into the config. Generate it with openssl rand -hex 32.';
 
 /**
  * Why this key cannot hold this credential, or null. Empty is left alone: an

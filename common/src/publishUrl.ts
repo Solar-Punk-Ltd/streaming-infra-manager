@@ -124,11 +124,17 @@ export function publishUrlReason(state: PublishUrlState): string | null {
   }
 }
 
-/** An address is one word, and the stack's loader cuts an unquoted value at a space. */
+/**
+ * A space reaches here only inside a path or a query, because the URL
+ * constructor refuses one in a host or a port. There it percent-encodes the
+ * space while the stored string keeps it literally, so the address that was
+ * checked and the address written into `.env.<profile>` are two different
+ * strings.
+ */
 const WHITESPACE_RE = /\s/;
 
 const ADDRESS_WHITESPACE_MESSAGE =
-  'this address must be a single line with no spaces, because it is written into an env file where a line break starts a second key';
+  'this address must not contain a space, because the address that was checked and the address written into the env file would then not be the same one';
 
 /**
  * Why this address cannot be written where an address goes, or null.
@@ -146,7 +152,7 @@ const ADDRESS_WHITESPACE_MESSAGE =
  *
  * `envValueProblem` already owns the line break and control character rules
  * every value of an env file answers to, and states them in its own words. The
- * space is this rule's own, because an address has none.
+ * space is this rule's own, for the reason `WHITESPACE_RE` gives above.
  */
 function addressShapeProblem(value: string): string | null {
   return (

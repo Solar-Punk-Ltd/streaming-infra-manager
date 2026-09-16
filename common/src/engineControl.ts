@@ -33,11 +33,13 @@ export const RESTARTABLE_SERVICES: readonly string[] = [
 ];
 
 /**
- * Why the Engine card cannot show what is publishing right now, for a version
- * whose compose file publishes no SRS API port and for OvenMediaEngine, whose
- * API needs a `<Managers>` block the template does not carry. A version that
- * does publish the SRS port is answered by {@link liveUnavailableReason}
- * instead, and every reason is text rather than a flag, because "not
+ * The reason per engine where the version itself is what is missing: a compose
+ * file that publishes no SRS API port, and OvenMediaEngine, whose API needs a
+ * `<Managers>` block the template does not carry.
+ *
+ * A version that does publish the SRS port earns a different reason again,
+ * `SRS_API_NOT_READ_YET` below, and {@link liveUnavailableReason} is what
+ * picks between the two. Every reason is text rather than a flag, because "not
  * available" with no reason is the least useful thing a card can say.
  */
 export const LIVE_UNAVAILABLE_REASON: Record<EngineName, string> = {

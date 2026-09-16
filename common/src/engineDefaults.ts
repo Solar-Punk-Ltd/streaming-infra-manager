@@ -9,9 +9,9 @@
  * it, both describe a deployment nobody is running.
  *
  * The stack's own value is the version's, too: main-v3 cuts 0.5 second
- * segments where main-v2 cuts 1.5, and the field list carries the pinned
- * version's numbers. A version's contract names what its entrypoints fall back
- * to, and that wins over the field.
+ * segments where main-v2 cuts 1.5. A version's contract names what its
+ * entrypoints fall back to and that wins over the field, so the number on the
+ * field is what answers only for a version whose contract was not read.
  *
  * The manager reads the base env and the contract and calls this. The offline
  * mock calls it with its own stand-ins, so the two answer the same shape from

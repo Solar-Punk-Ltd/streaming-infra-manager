@@ -8,11 +8,15 @@
  * from them drifting is a container that crash-loops under
  * `restart: unless-stopped` with the reason only in its logs.
  *
- * Defaults, bounds and help text come from the pinned stack
- * (`engines/srs/.env.sample`, `engines/ome/.env.sample` and both
- * `entrypoint.sh` files). A later stack version reads more keys than this, and
- * fewer of them, which is why the settings are stored as one JSONB column
- * rather than as a column each.
+ * Bounds and help text come from the stack (`engines/srs/.env.sample`,
+ * `engines/ome/.env.sample` and both `entrypoint.sh` files). A field's
+ * `defaultValue` is not the pinned stack's number and is not meant to track
+ * it: a version's contract names what that version's entrypoints fall back to
+ * and wins over the field, so `defaultValue` answers only where no contract
+ * was read, such as the offline mock and a version whose checkout could not be
+ * parsed. A later stack version reads more keys than this, and fewer of them,
+ * which is why the settings are stored as one JSONB column rather than as a
+ * column each.
  */
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
 import type { EngineName } from './engines.js';

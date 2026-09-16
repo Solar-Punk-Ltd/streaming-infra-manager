@@ -143,11 +143,21 @@ export interface StackVersion {
 export const DEFAULT_MAX_SLOT = 999;
 
 /**
- * The highest port slot the manager allocates on any version (D01). Above
- * it the stack's two port bands land on each other: slot 101's RTMP port is
- * the second band's slot 1 P2P port. The firewall generator stops at the
- * same number. The cap counts every stored deployment record, stopped ones
- * included, because a stopped deployment keeps its slot.
+ * The highest port slot the manager allocates on any version (D01).
+ *
+ * The stack's two port bands land on each other at slot 100, where the first
+ * band's `10000 + 100 * 10` is the second band's slot 0 P2P port, and
+ * `parse_profile_args` in the stack's `_lib.sh` has refused any slot above 99
+ * since 2026-09-04. A version whose contract carries that ceiling is held to
+ * it by `slotCapFor`, so this number bounds a version that names none rather
+ * than standing in for the stack's own rule.
+ *
+ * The firewall generator defaults `--max-slot` to this same number, but its
+ * three `rung_p2p` roles carry a `maxSlot` of 99 of their own, so the two
+ * bands stop one apart there too.
+ *
+ * The cap counts every stored deployment record, stopped ones included,
+ * because a stopped deployment keeps its slot.
  */
 export { MANAGER_SLOT_CAP } from './portPolicy.js';
 

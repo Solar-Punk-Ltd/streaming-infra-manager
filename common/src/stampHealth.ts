@@ -103,10 +103,13 @@ export function sameBatchId(a: string, b: string): boolean {
 /**
  * Classify the batch recorded on a profile against what its bee node reports.
  *
- * `stamps` is the node's list, or `null` for "not asked / node did not answer" —
- * the distinction matters: an empty list means the batch is gone, whereas no list
- * at all means we do not know, and a node being down must never be reported as an
- * expired batch.
+ * `stamps` is the node's list, or `null` for "not asked, or the node did not
+ * answer". The distinction matters: an empty list means the batch is gone,
+ * whereas no list at all means we do not know, and a node being down must never
+ * be reported as an expired batch.
+ *
+ * `failure` says why there is no list, and is kept only where there is none to
+ * have: attached to a list the node did give, it would be a reason for nothing.
  */
 export function stampHealthFrom(
   stampId: string | null | undefined,
