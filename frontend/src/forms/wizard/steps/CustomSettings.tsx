@@ -21,6 +21,7 @@ import { CUSTOM_COMPONENTS } from '../wizardGoals';
 import { needsExternalBeeUrl, type WizardStepProps } from '../wizardState';
 import { FeedChoice } from './FeedChoice';
 import { PassphraseChoice } from './PassphraseChoice';
+import { SegmentLength } from './SegmentLength';
 import { StampChoice } from './StampChoice';
 import { StreamKeyChoice } from './StreamKeyChoice';
 
@@ -76,7 +77,12 @@ export function CustomSettings(props: WizardStepProps) {
         </Stack>
       </FormField>
 
-      {state.components.includes(SRS_SERVICE) && <PassphraseChoice {...props} />}
+      {state.components.includes(SRS_SERVICE) && (
+        <>
+          <SegmentLength {...props} />
+          <PassphraseChoice {...props} />
+        </>
+      )}
       {state.components.includes(STREAM_UPLOADER_SERVICE) && (
         <>
           <StreamKeyChoice {...props} />

@@ -17,6 +17,7 @@ import type { PoolResults } from '../../groups/useBeePublishers';
 import type { DeploymentGroup, Profile } from '../../types';
 import { DEFAULT_CUSTOM_COMPONENTS, GOALS } from './wizardGoals';
 import { matchingPool } from './poolIdentity';
+import { SEGMENT_LENGTH_FIELD } from './segmentLength';
 
 /** What the operator said they want, which decides every field after it. */
 export type WizardGoal = NonNullable<WizardPrefill['goal']>;
@@ -56,6 +57,8 @@ export interface WizardState {
   poolMode: SourceChoice;
   poolId: number | null;
   poolString: string;
+  /** Seconds, as the env file carries it. Empty means send none and take the version's. */
+  segmentSeconds: string;
   components: string[];
   /** The stack version to deploy on. Null until a default or an explicit choice supplies it. */
   versionId: number | null;
@@ -188,6 +191,7 @@ export function initialWizardState(
     poolMode: prefilledPool != null ? 'pick' : 'paste',
     poolId: prefilledPool,
     poolString: '',
+    segmentSeconds: SEGMENT_LENGTH_FIELD.defaultValue,
     components: DEFAULT_CUSTOM_COMPONENTS,
     versionId: defaultVersionIn(context),
   };
@@ -293,6 +297,19 @@ export function chosenComponents(state: WizardState): string[] {
  */
 export function usesExternalBee(state: WizardState): boolean {
   return state.goal === 'stream' && !state.group && state.beeMode === 'external';
+}
+
+/**
+ * A segment length is offered where the deployment runs the engine that reads
+ * it, and nowhere else.
+ *
+ * `HLS_FRAGMENT` is an SRS key. OME cuts to a duration of its own, which the
+ * drawer offers and the wizard does not, so picking OME takes the question away
+ * rather than sending a key that engine never reads.
+ */
+export function offersSegmentLength(state: WizardState): boolean {
+  if (state.goal === 'stream') return state.engine === SRS_SERVICE;
+  return state.goal === 'custom' && state.components.includes(SRS_SERVICE);
 }
 
 export function needsPassphrase(state: WizardState): boolean {

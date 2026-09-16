@@ -10,6 +10,7 @@ import type { CreateProfileBody, Profile } from '../../types';
 import { addressForKey } from '../validation';
 import { matchingPool, type CreatedPool } from './poolIdentity';
 import { PoolResponseError } from './PoolResponseError';
+import { segmentLengthSettings } from './segmentLength';
 import {
   chosenComponents,
   chosenHost,
@@ -20,6 +21,7 @@ import {
   needsFeedOwner,
   needsPassphrase,
   needsStreamKey,
+  offersSegmentLength,
   poolValueIn,
   usesExternalBee,
   type WizardContext,
@@ -111,6 +113,9 @@ function sharedBody(state: WizardState, context: WizardContext) {
     public_key: (key && addressForKey(key)) || undefined,
     srt_passphrase: passphrase ?? undefined,
     stack_version_id: versionOf(state),
+    engine_settings: offersSegmentLength(state)
+      ? segmentLengthSettings(state.segmentSeconds)
+      : undefined,
   };
 }
 
@@ -164,10 +169,15 @@ function groupBody(
   state: WizardState,
   context: WizardContext,
 ): Omit<CreateGroupBody, 'group_name' | 'size' | 'host'> {
-  // `POST /groups` takes neither an external Bee node nor a pool string: the
-  // first is per member and the second belongs to a kind that has no group
-  // form. Dropped here rather than sent and silently ignored.
-  const { bee_url, bee_publishers, ...shared } = profileBody(state, context);
+  // `POST /groups` takes none of these three: an external Bee node is per
+  // member, a pool string belongs to a kind that has no group form, and engine
+  // settings are not a field of that body yet, so every member of a group runs
+  // on its version's own segment length. Dropped here rather than sent and
+  // silently ignored.
+  const { bee_url, bee_publishers, engine_settings, ...shared } = profileBody(
+    state,
+    context,
+  );
   return shared;
 }
 

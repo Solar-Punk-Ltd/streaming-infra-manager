@@ -7,6 +7,7 @@ import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField } from '../../FormField';
 import type { WizardStepProps } from '../wizardState';
 import { PassphraseChoice } from './PassphraseChoice';
+import { SegmentLength } from './SegmentLength';
 import { StampChoice } from './StampChoice';
 import { StreamKeyChoice } from './StreamKeyChoice';
 
@@ -35,7 +36,12 @@ export function StreamSettings(props: WizardStepProps) {
         />
       </FormField>
 
-      {state.engine === SRS_SERVICE && <PassphraseChoice {...props} />}
+      {state.engine === SRS_SERVICE && (
+        <>
+          <SegmentLength {...props} />
+          <PassphraseChoice {...props} />
+        </>
+      )}
 
       <StreamKeyChoice {...props} />
 

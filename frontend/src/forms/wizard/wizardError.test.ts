@@ -97,6 +97,27 @@ describe('what is wrong with a pasted pool string', () => {
   });
 });
 
+describe('what is wrong with the segment length', () => {
+  const settings = (segmentSeconds: string) => ({
+    ...initialWizardState({ goal: 'stream' }, context),
+    step: 3,
+    name: 'stage',
+    segmentSeconds,
+  });
+
+  it('stops the operator moving on, in the words the field shows', () => {
+    assert.match(
+      wizardError(settings('two'), context) ?? '',
+      /Segment length must be a positive number/,
+    );
+  });
+
+  it('lets the default through, and lets a cleared field through as well', () => {
+    assert.equal(wizardError(settings('2'), context), null);
+    assert.equal(wizardError(settings(''), context), null);
+  });
+});
+
 describe('the footer while a deployment is being created', () => {
   it('stops claiming the name is taken by the deployment being created', () => {
     // The manager announces a created deployment on the events stream before

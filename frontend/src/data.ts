@@ -156,9 +156,13 @@ export function createProfile(
   return sendJson<Profile>('POST', '/profiles', body, signal);
 }
 
+// engine_settings is create-only: a running deployment's are saved through
+// PUT /profiles/:name/engine-settings, which claims the deploy they need and
+// works out which containers to recreate. The update schema strips the key, so
+// carrying it in this type would only promise something the manager ignores.
 export type UpdateProfileBody = Omit<
   CreateProfileBody,
-  'name' | 'host' | 'srt_passphrase'
+  'name' | 'host' | 'srt_passphrase' | 'engine_settings'
 > & {
   /** The revision the drawer loaded the notes at, sent along with an edited note. */
   notes_revision?: number;

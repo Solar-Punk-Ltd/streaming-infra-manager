@@ -104,4 +104,10 @@ export interface CreateProfileBody {
   srt_passphrase?: string;
   /** The stack version to run. Absent means the manager's default one. */
   stack_version_id?: number;
+  /**
+   * What the engine is created with. Absent leaves the deployment on whatever
+   * its version's own entrypoints fall back to, which is what an update body
+   * always means, so this is a create-only field.
+   */
+  engine_settings?: EngineSettings;
 }

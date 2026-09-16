@@ -14,6 +14,7 @@ import {
   privateKeyProblem,
   stampIdProblem,
 } from '../validation';
+import { segmentLengthError } from './segmentLength';
 import {
   chosenVersion,
   isNameTaken,
@@ -23,6 +24,7 @@ import {
   needsPassphrase,
   needsStamp,
   needsStreamKey,
+  offersSegmentLength,
   poolValueIn,
   type WizardContext,
   type WizardState,
@@ -148,6 +150,11 @@ function settingsError(
       const problem = addressProblem(state.feedOwner);
       if (problem) return problem;
     }
+  }
+
+  if (offersSegmentLength(state)) {
+    const problem = segmentLengthError(state.segmentSeconds);
+    if (problem) return problem;
   }
 
   if (needsStamp(state) && state.stampMode === 'paste') {
