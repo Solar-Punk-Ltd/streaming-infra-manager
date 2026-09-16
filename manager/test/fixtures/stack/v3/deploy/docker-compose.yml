@@ -69,12 +69,12 @@ services:
     ports:
       - '${SRS_SRT_PORT:-10080}:${SRS_SRT_PORT:-10080}/udp'
       - '${SRS_RTMP_PORT:-1935}:${SRS_RTMP_PORT:-1935}'
-      - '${SRS_HTTP_PORT:-8080}:${SRS_HTTP_PORT:-8080}'
-      - '${SRS_HTTP_API_PORT:-1985}:${SRS_HTTP_API_PORT:-1985}'
+      - '${SRS_HTTP_BIND:-0.0.0.0}:${SRS_HTTP_PORT:-8080}:${SRS_HTTP_PORT:-8080}'
+      - '${SRS_HTTP_API_BIND:-0.0.0.0}:${SRS_HTTP_API_PORT:-1985}:${SRS_HTTP_API_PORT:-1985}'
 
   ome:
     image: airensoft/ovenmediaengine:latest
     profiles: ['ome']
     ports:
       - '${OME_SRT_PORT:-10080}:${OME_SRT_PORT:-10080}/udp'
-      - '${OME_HLS_PORT:-8081}:${OME_HLS_PORT:-8081}'
+      - '${OME_HTTP_BIND:-0.0.0.0}:${OME_HLS_PORT:-8081}:${OME_HLS_PORT:-8081}'
