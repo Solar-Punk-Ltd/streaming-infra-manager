@@ -10,7 +10,7 @@
  * rungs the publishers cover — the uploader refuses any mismatch.
  */
 import assert from 'node:assert/strict';
-import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, it } from 'node:test';
@@ -41,13 +41,16 @@ const sampleBaseEnv = () => readFileSync(STACK_SAMPLE, 'utf8');
 
 writeBaseEnv();
 
-const { writeProfileEnv } = await import('../../src/utils/envUtils.js');
+const { bootstrapStackDefaults, writeProfileEnv } = await import(
+  '../../src/utils/envUtils.js',
+);
 
 const BATCH = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
 const PUBLISHERS = ['360p', '480p', '720p', '1080p']
   .map((rung, i) => `${rung}@http://65.108.40.58:${10015 + i * 10}<${BATCH(rung)}>`)
   .join(' ');
 
+const modeOf = (path: string): string => (statSync(path).mode & 0o777).toString(8);
 const lines = (path: string) => readFileSync(path, 'utf8').split('\n');
 const lineFor = (path: string, key: string) =>
   lines(path).find((line) => line.startsWith(`${key}=`));
@@ -354,8 +357,6 @@ describe('writeProfileEnv, the generated stack secrets', () => {
  * readable by every account unless the mode says otherwise.
  */
 describe('writeProfileEnv, the mode of the file it writes', () => {
-  const modeOf = (path: string): string => (statSync(path).mode & 0o777).toString(8);
-
   it('writes a new deployment env owner only', () => {
     const path = writeProfileEnv(root, 'freshmode', { engine: 'srs' });
 
@@ -417,6 +418,44 @@ describe('writeProfileEnv, a value that would become a second line', () => {
         }),
       /refusing to write ENGINE/,
     );
+  });
+});
+
+/**
+ * The version's own base .env, which every deployment env file is copied from
+ * and which carries API_AUTH_TOKEN, PUBLISH_KEY_SECRET and STREAM_KEY of its
+ * own. It is made by copying the checked-in .env.sample, a file at 0644 like
+ * every other file in the checkout, and a copy keeps the mode it came from.
+ * The api container runs as root, so on the host those bytes were root-owned
+ * and readable by every account.
+ */
+describe('bootstrapStackDefaults, the mode of the base env it makes', () => {
+  /** A checkout with the stack's real sample in it and nothing bootstrapped. */
+  const sampleRoot = (): string => {
+    const dir = throwawayRoot('shls-bootstrap-');
+    copyFileSync(STACK_SAMPLE, join(dir, '.env.sample'));
+    chmodSync(join(dir, '.env.sample'), 0o644);
+    return dir;
+  };
+
+  it('creates it owner only, though the sample it copies is world readable', async () => {
+    const dir = sampleRoot();
+
+    assert.deepEqual(await bootstrapStackDefaults(dir), [join(dir, '.env')]);
+    assert.equal(modeOf(join(dir, '.env')), '600');
+  });
+
+  it('narrows one an older manager left readable', async () => {
+    const dir = sampleRoot();
+    writeFileSync(join(dir, '.env'), sampleBaseEnv());
+    chmodSync(join(dir, '.env'), 0o644);
+
+    assert.deepEqual(
+      await bootstrapStackDefaults(dir),
+      [],
+      'a file that is already there is not copied over',
+    );
+    assert.equal(modeOf(join(dir, '.env')), '600');
   });
 });
 

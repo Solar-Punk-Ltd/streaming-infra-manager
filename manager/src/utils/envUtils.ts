@@ -41,13 +41,15 @@ export const BUNDLED_STACK_ROOT =
   process.env.SHLS_ROOT ?? resolve(HERE, '../../swarm-hls-stream');
 
 /**
- * The deployment's own env file, owner only.
+ * Every env file the manager writes, owner only.
  *
- * It holds every secret the deployment was given, generated or otherwise, and
- * the api container runs as root, so a mode left to the umask is a file every
- * account on the host can read.
+ * A deployment's file holds every secret it was given, generated or otherwise,
+ * and the version's base .env, which that file is a copy of, holds
+ * API_AUTH_TOKEN, PUBLISH_KEY_SECRET and STREAM_KEY. The api container runs as
+ * root, so a mode left to the umask, or to the checked-in sample the base file
+ * is copied from, is a file every account on the host can read.
  */
-const DEPLOYMENT_ENV_MODE = 0o600;
+const ENV_FILE_MODE = 0o600;
 
 export function profileEnvPath(root: string, name: string): string {
   return join(root, `.env.${name}`);
@@ -124,6 +126,12 @@ export async function bootstrapStackDefaults(root: string): Promise<string[]> {
       created.push(dst);
     }
   }
+  // A copy keeps the mode of the file it came from, and a checked-in sample is
+  // 0644. Narrowed rather than set on the copy alone, because a checkout an
+  // older manager bootstrapped is still carrying the sample's mode.
+  // deploy/config.json is left as it is: it holds paths and ports.
+  const base = baseEnvPath(root);
+  if (existsSync(base)) chmodSync(base, ENV_FILE_MODE);
   return created;
 }
 
@@ -469,12 +477,12 @@ export function writeProfileEnv(
   }
 
   const path = profileEnvPath(root, name);
-  writeFileSync(path, contents, { encoding: 'utf8', mode: DEPLOYMENT_ENV_MODE });
+  writeFileSync(path, contents, { encoding: 'utf8', mode: ENV_FILE_MODE });
   // The mode argument applies only to a file this call creates, and every
   // deploy after the first one rewrites a file that is already there, so a
   // deployment first written by an older manager keeps its wider mode without
   // this.
-  chmodSync(path, DEPLOYMENT_ENV_MODE);
+  chmodSync(path, ENV_FILE_MODE);
   return path;
 }
 
