@@ -24,7 +24,7 @@ export function approvalStatusText(version: StackVersion): string {
 }
 
 /**
- * `bundled @ ee99c36`, or the name alone when the host cannot name a commit.
+ * `bundled @ ee99c36`, or `bundled, commit unknown on this host`.
  *
  * A commit is unknown when the checkout arrived without a .git and without the
  * file deploy.sh writes next to it, which is a real state and not an error.

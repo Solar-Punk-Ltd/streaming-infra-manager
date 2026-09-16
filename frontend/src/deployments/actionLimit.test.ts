@@ -6,7 +6,7 @@ import { ACTION_TIMEOUT_MS, actionTimedOutMessage } from './actionLimit';
 
 describe('the ceiling on a deployment action that never comes back', () => {
   it('is finite, and far longer than the wait on a create', () => {
-    // nginx holds these four routes open for a day, so nothing below the
+    // nginx holds the action routes open for a day, so nothing below the
     // browser bounds them. A deploy on a fresh host takes many minutes, which
     // is why this sits well above the deadline the New deployment dialog uses.
     assert.ok(Number.isFinite(ACTION_TIMEOUT_MS), String(ACTION_TIMEOUT_MS));

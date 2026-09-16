@@ -87,17 +87,22 @@ export interface BeeUtilsOptions {
 }
 
 /**
- * Loads the data a profile's bee node reports (address, wallet, stamps,
- * chequebook) and tracks a freshly bought batch until the node reports it
- * usable, refreshing the stamp list on every poll. Each piece is fetched
- * independently, so one failing endpoint still lets the others render. The
- * first failure becomes `loadError`. The wait ends when the batch becomes
- * usable, the profile gets a stamp set, or the attempts run out.
+ * Loads what a profile's bee node reports and tracks a freshly bought batch
+ * until the node says it is usable.
  *
- * A failed fetch clears `stamps` and `chequebook`, the two whose absence
- * nothing downstream may read as an answer: an unanswered node is never a node
- * with no batches, nor one with an empty chequebook. `wallet` and `chainState` are also cleared before a new check. The prior
- * node observation remains visible with its timestamp while the check runs.
+ * A round asks six things of the node: its readiness observation, its address,
+ * its wallet, its batches, the chain state, and the chequebook. Each is fetched
+ * independently, so one that fails still lets the others render, and a failed
+ * address, wallet or batches read becomes `loadError`. The other three report
+ * their own absence instead, because each of them has a reason to show for it.
+ *
+ * A reading that failed is written as null from the round's own result rather
+ * than blanked before the round starts, which is what the comment beside the
+ * writes explains. The address is the exception and survives a round that could
+ * not ask, because it is the node's identity rather than a reading of it.
+ *
+ * The batch wait ends when the batch becomes usable, the profile gets a stamp
+ * set, or the attempts run out.
  */
 export function useBeeUtils(
   profile: Profile,

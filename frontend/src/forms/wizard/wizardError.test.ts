@@ -102,8 +102,8 @@ describe('the footer while a deployment is being created', () => {
     // The manager announces a created deployment on the events stream before
     // the request that created it answers, so the wizard's own list gains the
     // name it is submitting and the footer read "That name is taken" about the
-    // thing in flight. Levi hit this on 2026-09-15, next to a Deploy button
-    // that had gone grey and a close button that refused.
+    // thing in flight, next to a Deploy button that had gone grey and a close
+    // button that refused.
     const state = { ...basics('main-stage'), step: 4 };
 
     assert.equal(footerError(state, context, false), 'That name is taken');

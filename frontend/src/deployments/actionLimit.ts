@@ -2,8 +2,8 @@
  * How long the deployments page waits for a deploy, a stop or an uploader
  * start before it stops holding the button.
  *
- * Nothing below the browser bounds these four routes. nginx holds them open
- * for a day on purpose, because a read timeout there is a ceiling on the
+ * Nothing below the browser bounds those three. nginx holds the action routes
+ * open for a day on purpose, because a read timeout there is a ceiling on the
  * silence between output lines rather than on the run, and a bee node coming
  * up on a throttled RPC crosses five minutes between lines easily. So a run
  * that wedges leaves the request open, and the page kept the deployment in its
