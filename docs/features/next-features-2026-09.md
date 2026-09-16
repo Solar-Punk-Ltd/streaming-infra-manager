@@ -1,10 +1,12 @@
 # Next features, planned 2026-09-05
 
-Status, 2026-09-10. This is the plan as written on 2026-09-05. All four features are built and are
-on `feat/ai-remediation` at `6dc33d1`, pull request #40 into `main-v2`, apart from the live engine
-status, which is the second pull request of feature 3 and is not started. The stacked branches
-this page names are gone. Its decisions D1 to D12 are this page's own numbering and are not the
-consensus decisions D01 to D14 in `../consensus/`.
+Status, 2026-09-16. This is the plan as written on 2026-09-05, kept as the record of what was
+asked for and why. All four features are built and merged to `main-v2`, apart from the live engine
+status, which is the second pull request of feature 3 and is not started. Pull request #40 from
+`feat/ai-remediation` landed, and `main-v2` has moved a long way past it since, so read the
+sections below as the plan rather than as the current state. The stacked branches this page names
+are gone. Its decisions D1 to D12 are this page's own numbering and are not the consensus
+decisions D01 to D14 in `../consensus/`.
 
 Status: decided 2026-09-05 late evening. Levi took D1 to D11 as recommended and put D12 on
 hold, so nothing in swarm-hls-stream changes for now. Building started the same night on stacked
@@ -93,12 +95,15 @@ on hold, which parks the engine live status backport (D7) and the per version im
 | D9 | versions | Per version image tags need the deploy script to pick up one extra compose file when present, a three line change in `_lib.sh` upstream. Without it two versions rebuild the same `stream-uploader:latest` tag in turn. | (a) Make the upstream change on `main-v2` and `main-v3`. (b) Live with shared tags and serialise builds. | (a). (b) works but wastes a rebuild on every deploy and breaks the moment two deploys overlap. |
 | D10 | versions | Where do version checkouts live on the host? Each is about a gigabyte with dependencies and images. | (a) A sibling folder next to the data root, outside the rsynced tree. (b) Inside the repo tree. | (a). The deploy rsync deletes what it does not know, so (b) would wipe them on every manager deploy. |
 | D11 | versions | Adopt `main-v3` as a version in this round, with its two required secrets generated per deployment by the manager? | (a) Yes, it is the reason versions are wanted. (b) Versions first with `main-v2` only, `main-v3` after. | (a), as the third PR of the feature, so the first two land on their own. |
-| D12 | all | The earlier note "do not modify the swarm-hls-stream submodule" in `docs/features/streamer-stamp-flow.md` was a past session's constraint, and the ABR work already changed upstream. D6, D7, D8 and D9 all touch upstream. Is upstream in scope? | (a) Yes, small contract changes in swarm-hls-stream are fine, PRs there are Levi's to approve too. (b) No, manager only. | (a). Every upstream change here is small and each brief names it. |
+| D12 | all | An earlier session's note said "do not modify the swarm-hls-stream submodule", and the ABR work already changed upstream. D6, D7, D8 and D9 all touch upstream. Is upstream in scope? | (a) Yes, small contract changes in swarm-hls-stream are fine, PRs there are Levi's to approve too. (b) No, manager only. | (a). Every upstream change here is small and each brief names it. |
 
-D12 stays open. Nothing touches swarm-hls-stream until Levi decides it.
+D12 was settled in practice rather than in writing. Upstream has been changed many times since,
+the submodule pin has moved with it, and the stack's deploy script, health check and engine
+entrypoints all carry work from this repository's sessions. The note that prompted the question
+lived in `docs/features/streamer-stamp-flow.md`, which was deleted on 2026-09-16 once its
+mechanism moved into `manager/README.md`.
 
-## Housekeeping to fold into the first PR
+## Housekeeping, done
 
-- The first line of `docs/ux/redesign.md` still says the rework is in progress. It is merged.
-- `docs/features/streamer-stamp-flow.md` says the submodule must not change. That is a past
-  decision, surfaced above as D12.
+Both items are closed. `docs/ux/redesign.md` records the rework as merged, and the stamp flow page
+that carried the submodule constraint is gone.
