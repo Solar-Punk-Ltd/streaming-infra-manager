@@ -392,6 +392,7 @@ export const createGroupSchema = object({
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
   stack_version_id: stackVersionIdField(),
+  engine_settings: engineSettingsField(),
 }).noUnknown(true);
 
 export type CreateGroupInput = InferType<typeof createGroupSchema>;

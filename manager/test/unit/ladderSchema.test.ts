@@ -80,3 +80,47 @@ describe('createGroupSchema — ABR ladder', () => {
     assert.ok(ladderMemberNames(oneOver).some((n) => !PROFILE_NAME_RE.test(n)));
   });
 });
+
+describe('createGroupSchema — engine settings', () => {
+  it('accepts the segment length every member is created with', async () => {
+    const body = await createGroupSchema.validate(
+      { group_name: 'studio', size: 2, engine_settings: { HLS_FRAGMENT: '2' } },
+      { abortEarly: false },
+    );
+
+    assert.deepEqual(body.engine_settings, { HLS_FRAGMENT: '2' });
+  });
+
+  it('leaves the field out when the body says nothing about it', async () => {
+    const body = await createGroupSchema.validate(
+      { group_name: 'studio', size: 2 },
+      { abortEarly: false },
+    );
+
+    assert.equal(body.engine_settings, undefined);
+  });
+
+  it('drops a key no group body has, the way the route does', async () => {
+    // The route validates with stripUnknown, so `noUnknown` here means an
+    // unrecognised key never reaches the service rather than failing the call.
+    const body = await createGroupSchema.validate(
+      { group_name: 'studio', size: 2, not_a_field: 'x' },
+      { abortEarly: false, stripUnknown: true },
+    );
+
+    assert.equal('not_a_field' in body, false);
+  });
+
+  it('drops a setting key neither engine reads', async () => {
+    const body = await createGroupSchema.validate(
+      {
+        group_name: 'studio',
+        size: 2,
+        engine_settings: { HLS_FRAGMENT: '2', API_PORT: '10000' },
+      },
+      { abortEarly: false, stripUnknown: true },
+    );
+
+    assert.deepEqual(body.engine_settings, { HLS_FRAGMENT: '2' });
+  });
+});
