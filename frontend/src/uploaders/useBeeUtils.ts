@@ -207,6 +207,23 @@ export function useBeeUtils(
     return () => clearInterval(timer);
   }, [rounds, running, runChecks]);
 
+  // A tab nobody was looking at took no readings, so on return the card showed
+  // the last one as stale until the next tick came round. Reading again the
+  // moment it is looked at closes that, and the same rule decides it: a round
+  // already in flight is still not interrupted.
+  useEffect(() => {
+    if (!running) return;
+    const checkNow = () => {
+      if (shouldRunTick(rounds.inFlight, document.visibilityState === 'hidden')) void runChecks(false);
+    };
+    window.addEventListener('focus', checkNow);
+    document.addEventListener('visibilitychange', checkNow);
+    return () => {
+      window.removeEventListener('focus', checkNow);
+      document.removeEventListener('visibilitychange', checkNow);
+    };
+  }, [rounds, running, runChecks]);
+
   useEffect(() => {
     if (!waitingBatch) return;
 
