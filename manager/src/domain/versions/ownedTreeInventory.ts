@@ -59,3 +59,31 @@ export async function inventoryOwnedTree(root: string, excludedRootFile?: string
   await walk('');
   return { rootMode: Number(rootInfo.mode & 0o7777n), entries: entries.sort(byPath), stamps };
 }
+
+/**
+ * The stamps an inventory of this tree would record, and none of its bytes.
+ *
+ * What a caller does with these is prove that a tree it has already inventoried
+ * has not moved since, which is what the inventory keeps its stamps for. A
+ * write moves the file's ctime, a chmod moves it, and a path that arrives or
+ * leaves changes which keys are here, so a tree that matches stamp for stamp is
+ * the tree that was inventoried. Nothing is opened and no link is followed, so
+ * a tree that has grown one is refused by the comparison rather than read.
+ */
+export async function stampOwnedTree(root: string, excludedRootFile?: string): Promise<OwnedTreeInventory['stamps']> {
+  const stamps: Record<string, string> = {};
+  async function walk(directory: string): Promise<void> {
+    await assertOwnedDirectory(root, directory);
+    stamps[directory] = stamp(await lstat(join(root, directory), { bigint: true }));
+    for (const name of (await readdir(join(root, directory))).sort()) {
+      const path = directory ? `${directory}/${name}` : name;
+      assertRelativeTreePath(path);
+      if (path === excludedRootFile) continue;
+      const info = await lstat(join(root, path), { bigint: true });
+      stamps[path] = stamp(info);
+      if (info.isDirectory()) await walk(path);
+    }
+  }
+  await walk('');
+  return stamps;
+}

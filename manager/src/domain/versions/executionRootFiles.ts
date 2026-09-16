@@ -3,10 +3,22 @@ import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord } from './ExecutionRoot.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
-import { inventoryOwnedTree, ownedTreeDigest, sha256 } from './ownedTreeInventory.js';
+import { inventoryOwnedTree, ownedTreeDigest, sha256, stampOwnedTree, type OwnedTreeInventory } from './ownedTreeInventory.js';
 import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
-export interface ExecutionCopyOptions { onProgress?: (copiedFiles: number) => Promise<void> }
+export interface ExecutionCopyOptions {
+  onProgress?: (copiedFiles: number) => Promise<void>;
+  /**
+   * The inventory the caller has already taken of this source, rather than one
+   * taken again here.
+   *
+   * Reading and hashing the build tree is what preparing a copy costs, and the
+   * caller that registers the execution has to take one anyway to know the
+   * digest it registers. What proves the tree has not moved since is its
+   * stamps, so nothing is given up by trusting the inventory it came with.
+   */
+  sourceInventory?: OwnedTreeInventory;
+}
 
 /** The registered copy token is held exclusively. No script or builder may run until this copy is ready. */
 export async function copyExecutionRoot(
@@ -23,13 +35,13 @@ export async function copyExecutionRoot(
   await assertOwnedDirectory(executionsParent);
   const ownerRoot = dirname(root);
   await assertSeparateOwnedTrees(record.source.root, ownerRoot);
-  const source = await inventoryOwnedTree(record.source.root);
+  const source = options.sourceInventory ? structuredClone(options.sourceInventory) : await inventoryOwnedTree(record.source.root);
   if (ownedTreeDigest(source) !== record.source.artifactDigest) throw new Error('Execution source digest changed.');
   await readOwnedFile(record.source.root, BUILD_MANIFEST_FILE);
   await readOwnedFile(record.source.root, BUILD_COMPLETE_MARKER);
   const manifest = readBuildManifest(record.source.root).manifest;
   if (manifest?.buildId !== record.source.buildId || manifest.commit !== record.source.commit) throw new Error('Execution source build identity changed.');
-  if (!isDeepStrictEqual(await inventoryOwnedTree(record.source.root), source)) throw new Error('Execution source changed during verification.');
+  if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), source.stamps)) throw new Error('Execution source changed during verification.');
 
   await mkdir(ownerRoot, { mode: 0o700 });
   const owned = await lstat(ownerRoot);
@@ -57,7 +69,7 @@ export async function copyExecutionRoot(
     }
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);
     await chmod(root, source.rootMode);
-    if (!isDeepStrictEqual(await inventoryOwnedTree(record.source.root), source)) throw new Error('Execution source changed during copying.');
+    if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), source.stamps)) throw new Error('Execution source changed during copying.');
     if (ownedTreeDigest(await inventoryOwnedTree(root)) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
     await writeFile(join(ownerRoot, 'ready.json'), JSON.stringify({ copyToken: record.copyToken, artifactDigest: record.source.artifactDigest }), { flag: 'wx', mode: 0o600 });
     return { root, artifactDigest: record.source.artifactDigest };

@@ -97,11 +97,16 @@ export class ExecutionRootService implements ExecutionRoots {
    * Everything the copy needs is read here rather than from the version row:
    * the commit comes from the build's own manifest, and the digest from the
    * tree as it stands, so the copy is verified against what is actually there.
+   *
+   * That reading of the tree is the one the copy works from too. Hashing a
+   * build is what preparing a copy costs, and an inventory taken here and
+   * another taken inside the copy read the whole tree twice for one answer.
    */
   async prepare(input: ExecutionPreparation): Promise<PreparedExecution | null> {
     if (input.build.layout !== 'builds') return null;
     const manifest = readBuildManifest(input.build.root).manifest;
     if (!manifest) return null;
+    const inventory = await inventoryOwnedTree(input.build.root);
     const registration: ExecutionRootRegistration = {
       executionId: randomUUID(),
       source: {
@@ -109,7 +114,7 @@ export class ExecutionRootService implements ExecutionRoots {
         buildId: input.build.buildId,
         commit: manifest.commit,
         root: input.build.root,
-        artifactDigest: ownedTreeDigest(await inventoryOwnedTree(input.build.root)),
+        artifactDigest: ownedTreeDigest(inventory),
       },
       profile: { ...input.profile },
       jobReferenceId: input.jobReferenceId,
@@ -122,7 +127,7 @@ export class ExecutionRootService implements ExecutionRoots {
     try {
       const copying = await this.roots.beginCopy(registered.executionId);
       if (!copying?.copyToken) throw new Error('The execution copy could not take its exclusive token.');
-      const copied = await copyExecutionRoot(copying, this.executionsParent);
+      const copied = await copyExecutionRoot(copying, this.executionsParent, { sourceInventory: inventory });
       await this.roots.markReady(copying.executionId, copying.copyToken, copied.artifactDigest);
       logger.info(`[Executions] ${input.profile.name}: copied build ${input.build.buildId} to ${registered.executionId}`);
       return { executionId: registered.executionId, root: copied.root };
