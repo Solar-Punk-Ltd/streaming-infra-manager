@@ -26,7 +26,10 @@ const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/; // like localhost or "use
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
-const FEED_TOPIC_RE = /^[\x20-\x7E]{1,128}$/;
+// The stack's deploy script checks the --feed-topic flag against this shape
+// (_lib.sh, require_override_shape), and the manager passes the topic as that
+// flag, so anything wider stores a deployment no deploy can run.
+const FEED_TOPIC_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 // Four `rung@url<batch>` entries come to ~500 chars; this is headroom, not a
 // format rule — beePublishersProblem is the rule.
@@ -160,7 +163,7 @@ export const createProfileSchema = object({
     .notRequired()
     .matches(
       FEED_TOPIC_RE,
-      'feed_topic must be printable ASCII, max 128 chars',
+      'feed_topic must be letters, digits, dot, underscore or hyphen, at most 64 characters',
     ),
   private_key: string()
     .notRequired()
@@ -241,7 +244,7 @@ export const updateProfileSchema = object({
     .notRequired()
     .matches(
       FEED_TOPIC_RE,
-      'feed_topic must be printable ASCII, max 128 chars',
+      'feed_topic must be letters, digits, dot, underscore or hyphen, at most 64 characters',
     ),
   private_key: string()
     .notRequired()
@@ -342,7 +345,7 @@ export const createGroupSchema = object({
     .notRequired()
     .matches(
       FEED_TOPIC_RE,
-      'feed_topic must be printable ASCII, max 128 chars',
+      'feed_topic must be letters, digits, dot, underscore or hyphen, at most 64 characters',
     ),
   private_key: string()
     .notRequired()
@@ -386,7 +389,7 @@ export const updateGroupConfigSchema = object({
     .notRequired()
     .matches(
       FEED_TOPIC_RE,
-      'feed_topic must be printable ASCII, max 128 chars',
+      'feed_topic must be letters, digits, dot, underscore or hyphen, at most 64 characters',
     ),
   stamp_id: string()
     .notRequired()
