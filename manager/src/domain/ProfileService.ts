@@ -892,12 +892,14 @@ export class ProfileService {
 
     // Both probes swallow their own failures; the catches guard an injected probe
     // that does not, so one bad node can never fail the whole request.
+    const probedAt = Date.now();
+    const since = () => Date.now() - probedAt;
     const [stamps, urlStates] = await Promise.all([
       Promise.all(
         members.map(({ profile }) =>
           this.probeStampHealth(profile, profile.stamp_id).catch((err) => {
             logger.warn(
-              `[ProfileService] ${profile.name}: stamp probe threw: ${getErrorMessage(err)}`,
+              `[ProfileService] ${profile.name}: stamp probe threw after ${since()}ms: ${getErrorMessage(err)}`,
             );
             return stampHealthFrom(profile.stamp_id, null);
           }),
@@ -907,7 +909,7 @@ export class ProfileService {
         urls.map((url, index) =>
           this.probePublishUrl(url).catch((err) => {
             logger.warn(
-              `[ProfileService] ${members[index]!.profile.name}: url probe threw: ${getErrorMessage(err)}`,
+              `[ProfileService] ${members[index]!.profile.name}: url probe threw after ${since()}ms: ${getErrorMessage(err)}`,
             );
             return 'unknown' as PublishUrlState;
           }),

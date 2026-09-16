@@ -12,7 +12,7 @@
  * chequebook and blocking on one would stop work that has nothing wrong with it.
  */
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 
 import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
 
@@ -28,6 +28,7 @@ import {
   ProfileNotFoundError,
 } from '../../src/domain/errors/index.js';
 import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
+import { Logger } from '../../src/domain/Logger.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { Profile } from '../../src/types/index.js';
 
@@ -581,6 +582,47 @@ describe('why the storage card has no reading', () => {
 
     assert.equal(summary.health.failure, undefined);
     assert.deepEqual(summary.reads, {});
+  });
+});
+
+describe('a read that failed reaches an operator', () => {
+  /** The same stub the chequebook journal's own tests use. */
+  const warningsOf = (t: TestContext) => {
+    const warnings: string[] = [];
+    t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => {
+      warnings.push(args.join(' '));
+    });
+    return warnings;
+  };
+
+  it('warns once, naming the profile, the read, how long it took and why', async (t) => {
+    const warnings = warningsOf(t);
+    const service = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: failing('GET /chequebook/balance'),
+      getSettlements: async () => ({ totalSent: '0', totalReceived: '0' }),
+    });
+
+    await service.summary(PROFILE.name);
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /main-stage/);
+    assert.match(warnings[0]!, /chequebook balance/);
+    assert.match(warnings[0]!, /\d+ms/);
+    assert.match(warnings[0]!, /connection refused/);
+  });
+
+  it('says nothing about a node that answered', async (t) => {
+    const warnings = warningsOf(t);
+    const service = serviceAnswering({
+      getChequebookAddress: async () => ({ chequebookAddress: '0xcheques' }),
+      getChequebookBalance: async () => balance(ONE_BZZ.toString()),
+      getSettlements: async () => ({ totalSent: '0', totalReceived: '0' }),
+    });
+
+    await service.summary(PROFILE.name);
+
+    assert.deepEqual(warnings, []);
   });
 });
 

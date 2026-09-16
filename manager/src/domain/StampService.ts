@@ -212,14 +212,11 @@ export class StampService {
         if (err instanceof BeeHttpError && err.status === 404) {
           return stampHealthFrom(stampId, []);
         }
-        logger.debug(
-          `[StampService] ${profile.name}: could not verify stamp ${stampId}: ${getErrorMessage(err)}`,
+        const failure = readFailureFrom(err, Date.now() - started);
+        logger.warn(
+          `[StampService] ${profile.name}: stamp ${stampId} not verified after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}`,
         );
-        return stampHealthFrom(
-          stampId,
-          null,
-          readFailureFrom(err, Date.now() - started),
-        );
+        return stampHealthFrom(stampId, null, failure);
       }
     });
   }
@@ -244,6 +241,7 @@ export class StampService {
     if (structural !== 'ok') return structural;
 
     return this.reads.read(PUBLISH_URL_PROBE_KEY(url), async () => {
+      const started = Date.now();
       try {
         const res = await fetch(`${url.replace(/\/$/, '')}/health`, {
           signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
@@ -254,8 +252,9 @@ export class StampService {
         await res.text().catch(() => undefined);
         return 'ok' as PublishUrlState;
       } catch (err) {
-        logger.debug(
-          `[StampService] nothing answered at ${url}: ${getErrorMessage(err)}`,
+        const failure = readFailureFrom(err, Date.now() - started);
+        logger.warn(
+          `[StampService] nothing answered at ${url} after ${failure.elapsedMs}ms (${failure.reason}): ${getErrorMessage(err)}`,
         );
         return 'unreachable' as PublishUrlState;
       }

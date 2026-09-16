@@ -10,12 +10,13 @@
  * would trade one wrong claim for another.
  */
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 
 import { BeeClient } from '../../src/domain/BeeClient.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
 import { BeeHttpError } from '../../src/domain/errors/index.js';
 import { EventBus } from '../../src/domain/EventBus.js';
+import { Logger } from '../../src/domain/Logger.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { StampService } from '../../src/domain/StampService.js';
 import { Profile } from '../../src/types/index.js';
@@ -154,6 +155,39 @@ describe('StampService.stampHealthFor', () => {
     (await service.stampHealthFor(PROFILE, BATCH)).state;
     assert.equal(timeouts.length, 1);
     assert.ok(timeouts[0]! > 0 && timeouts[0]! <= 5_000);
+  });
+
+  it('warns where an operator will find it, naming the profile and how long it took', async (t) => {
+    // Kept at debug until 2026-09-16, so the one record of a node refusing
+    // every stamp check on a live manager was in a stream nobody reads.
+    const warnings: string[] = [];
+    t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => {
+      warnings.push(args.join(' '));
+    });
+    const { service } = serviceAnswering(async () => {
+      throw new Error('bee request GET /stamps/... failed: connection refused');
+    });
+
+    await service.stampHealthFor(PROFILE, BATCH);
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /stage-360p/);
+    assert.match(warnings[0]!, /\d+ms/);
+    assert.match(warnings[0]!, /connection refused/);
+  });
+
+  it('says nothing when bee answered that it has no such batch', async (t) => {
+    const warnings: string[] = [];
+    t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => {
+      warnings.push(args.join(' '));
+    });
+    const { service } = serviceAnswering(async () => {
+      throw new BeeHttpError(404, 'bee GET /stamps/... -> 404: not found');
+    });
+
+    await service.stampHealthFor(PROFILE, BATCH);
+
+    assert.deepEqual(warnings, [], 'a 404 is an answer, not a failure to answer');
   });
 
   it('carries the TTL back, so expiry can be warned about before it happens', () => {
