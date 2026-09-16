@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, it } from 'node:test';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 
@@ -28,6 +29,15 @@ const BASE_ENV =
   'ENGINE=srs\nBEE_URL=http://bee-uploader:1633\nSTREAM_LIST_TOPIC=swarm-stream\n';
 const writeBaseEnv = (contents = BASE_ENV) =>
   writeFileSync(join(root, '.env'), contents);
+
+// The stack's own .env.sample, which every checkout's base .env is copied from.
+// Read rather than quoted, because what this file has to prove is what the
+// shipped text actually carries: BEE_URL=http://localhost:1633, an address that
+// inside the uploader container is the container itself.
+const STACK_SAMPLE = fileURLToPath(
+  new URL('../../swarm-hls-stream/.env.sample', import.meta.url),
+);
+const sampleBaseEnv = () => readFileSync(STACK_SAMPLE, 'utf8');
 
 writeBaseEnv();
 
@@ -141,6 +151,41 @@ describe('writeProfileEnv — BEE_URL', () => {
       () => writeProfileEnv(root, 'ext-d', { engine: 'srs', beeUrl: 'http://deploy@10.0.0.7:1633' }),
       /refusing to write BEE_URL.*ssh user info/,
     );
+  });
+
+  it('blanks the sample placeholder when there is no node and no address', () => {
+    // The last line of defence for a row stored before the request refused this
+    // combination. deploy.sh refuses LOCAL_BEE_UPLOADER=false beside an EMPTY
+    // BEE_URL and names what to set, but the sample's http://localhost:1633 is
+    // not empty, so it passes the refusal and the uploader publishes to port
+    // 1633 of its own container. Written empty, the stack's own message fires.
+    writeBaseEnv(sampleBaseEnv());
+    assert.equal(
+      lineFor(join(root, '.env'), 'BEE_URL'),
+      'BEE_URL=http://localhost:1633',
+      'the shipped sample no longer carries the placeholder this case is about',
+    );
+
+    const path = writeProfileEnv(root, 'blank-a', {
+      engine: 'srs',
+      localBeeUploader: false,
+    });
+
+    assert.equal(lineFor(path, 'BEE_URL'), 'BEE_URL=');
+  });
+
+  it('leaves the placeholder alone for a pool-backed uploader, which never reads it', () => {
+    // BEE_PUBLISHERS is what that uploader starts on and BEE_URL is unused, so
+    // blanking it here would be changing a value for no reason.
+    writeBaseEnv(sampleBaseEnv());
+
+    const path = writeProfileEnv(root, 'blank-b', {
+      engine: 'srs',
+      localBeeUploader: false,
+      beePublishers: PUBLISHERS,
+    });
+
+    assert.equal(lineFor(path, 'BEE_URL'), 'BEE_URL=http://localhost:1633');
   });
 
   it('normalises a value that was stored before the schema canonicalised it', () => {

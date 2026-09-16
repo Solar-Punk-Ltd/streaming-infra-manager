@@ -324,6 +324,19 @@ export function writeProfileEnv(
     contents = upsertEnvLine(contents, 'BEE_URL', beeUrl);
   }
 
+  // A deployment that runs no Bee node and names no address has nowhere to
+  // publish, and the request refuses that now. This is the same refusal for a
+  // row stored before it did. The file is a full copy of the base .env, which
+  // is copied from the stack's .env.sample, and that carries
+  // BEE_URL=http://localhost:1633: inside the uploader container, the container
+  // itself. deploy.sh refuses LOCAL_BEE_UPLOADER=false beside an EMPTY BEE_URL
+  // and says what to set, so writing the key empty is what turns a crash loop
+  // into that message. A pool-backed uploader is left alone: BEE_PUBLISHERS is
+  // what it reads and BEE_URL never applies to it.
+  if (values.localBeeUploader === false && !beeUrl && !publishers) {
+    contents = upsertEnvLine(contents, 'BEE_URL', '');
+  }
+
   // `engines/srs/entrypoint.sh` splices this into srs.conf through a sed s///
   // expression without validating it, so a stray `/` writes a corrupt config and
   // a stray `&` a surprising one — either way a container that crash-loops under
