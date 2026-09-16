@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -47,9 +48,35 @@ describe('captured config rollback artifact evidence', () => {
     assert.notEqual((await captureRolloutRecovery(version, parent)).artifactDigest, captured.artifactDigest);
   });
 
-  it('refuses source mutation between its complete inventories', async () => {
+  it('refuses source mutation between the inventory and its proof', async () => {
     await assert.rejects(captureRolloutRecovery(version, parent, { afterInventory: async () => {
       await writeFile(join(artifact, 'source.sh'), 'synthetic changed source');
+    } }), /changed/i);
+  });
+
+  /**
+   * A capture used to inventory the whole build twice, once to keep and once
+   * to prove it had not moved, which is two read-and-hash passes over a tree
+   * measured at 24,698 files and 432 MB on every config file rollout. The
+   * proof is a stat of each path against the stamps the inventory recorded,
+   * and the payload is read once. The file that arrives afterwards is the one
+   * change only those stamps can see, so it is held here beside the count.
+   */
+  it('reads the payload of the build once for one capture', async (t) => {
+    const opened = t.mock.method(fsPromises, 'open');
+    syncBuiltinESMExports();
+    t.after(() => { opened.mock.restore(); syncBuiltinESMExports(); });
+
+    await captureRolloutRecovery(version, parent);
+
+    const payload = join(artifact, 'source.sh');
+    const reads = opened.mock.calls.filter(call => String(call.arguments[0]) === payload).length;
+    assert.equal(reads, 1, `one capture opened the build's payload ${reads} times`);
+  });
+
+  it('refuses a build that gains a file nothing inventoried', async () => {
+    await assert.rejects(captureRolloutRecovery(version, parent, { afterInventory: async () => {
+      await writeFile(join(artifact, 'late.txt'), 'arrived after the inventory\n');
     } }), /changed/i);
   });
 

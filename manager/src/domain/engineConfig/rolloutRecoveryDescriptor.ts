@@ -3,7 +3,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from '
 import { isAbsolute, join, resolve } from 'node:path';
 import { parseStackContract, stackVersionNameProblem, type StackContract } from '@streaming-infra-manager/common';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, buildIdProblem, parseBuildManifestBytes } from '../versions/buildManifest.js';
-import { inventoryOwnedTree, ownedTreeDigest, sha256 } from '../versions/ownedTreeInventory.js';
+import { inventoryOwnedTree, ownedTreeDigest, sha256, stampOwnedTree } from '../versions/ownedTreeInventory.js';
 import { assertOwnedVersionParent } from '../versions/ownedVersionParent.js';
 import { buildDirFor, versionRootFor } from '../versions/stackPaths.js';
 import type { DeployVersionSnapshot } from '../versions/StackVersionRepository.js';
@@ -125,7 +125,12 @@ export async function captureRolloutRecovery(
   const evidence = evidenceOf(version, versionsRoot);
   const inventory = await inventoryOwnedTree(evidence.root);
   await options.afterInventory?.();
-  if (!isDeepStrictEqual(await inventoryOwnedTree(evidence.root), inventory) ||
+  // The stamps the inventory recorded, read back as a stat of each path and no
+  // payload at all. A write, a chmod, a replacement and a path that arrives or
+  // leaves each move one, so a tree that matches stamp for stamp is the tree
+  // that was inventoried, and a second read-and-hash pass over 432 MB is not
+  // what proves it.
+  if (!isDeepStrictEqual(await stampOwnedTree(evidence.root), inventory.stamps) ||
       !isDeepStrictEqual(evidenceOf(version, versionsRoot), evidence)) throw new Error('Recovery source changed during capture.');
   return parseRolloutRecoveryDescriptor({ format: 1, kind: 'immutable-build', version,
     artifactDigest: ownedTreeDigest(inventory),
