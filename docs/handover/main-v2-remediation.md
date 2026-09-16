@@ -1213,7 +1213,9 @@ disposable Postgres with the nine task databases, one case more than the second 
 group repository's new column. The commits after that head change documentation only.
 
 **Open, Levi's.** Fourteen Dependabot alerts in lockfiles, twelve high, left as
-they are for now. The 37 MB of review evidence under `.scratch/`, cited by the
-consensus record and by nothing a fresh clone can follow. Three history
-collisions among concurrent implementers, accepted as they stand. The deploy
-round on the host.
+they are for now. Three history collisions among concurrent implementers,
+accepted as they stand. The deploy round on the host. Decided the same evening:
+the 36 MB of review logs and captures left the repository's untracked `.scratch`
+for `~/Documents/estate-state/evidence/streaming-infra-manager/`, with a tombstone
+at the old path and a row in the estate's data map, so state a rebuild cannot
+recreate lives outside the repository.
