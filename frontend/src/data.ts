@@ -8,7 +8,15 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { apiFetch, failWith, getJson, send, sendJson } from './http';
+import {
+  apiFetch,
+  checkSessionAfterStreamClosed,
+  failWith,
+  getJson,
+  send,
+  sendJson,
+} from './http';
+import { readScriptOutcome, ScriptStreamEndedError } from './scriptStream';
 import type {
   CreateProfileBody,
   DeploymentGroup,
@@ -78,8 +86,33 @@ export function canDeployUploader(profile: Profile): boolean {
 
 type ProfileAction = 'deploy' | 'stop' | 'deploy-uploader';
 
-function postAction(name: string, action: ProfileAction): Promise<void> {
-  return send('POST', `/profiles/${encodeURIComponent(name)}/${action}`, {});
+/**
+ * Runs one of the manager's deployment scripts and waits for it to finish.
+ *
+ * These routes answer with a Server-Sent Events stream, so the 200 says only
+ * that the script started and the exit code arrives in the last frame. Reading
+ * the status alone reported a deploy.sh that exited 1 as a green "Starting".
+ */
+async function postAction(name: string, action: ProfileAction): Promise<void> {
+  const res = await apiFetch(
+    `/profiles/${encodeURIComponent(name)}/${action}`,
+    { method: 'POST', body: {} },
+  );
+  if (!res.ok) await failWith(res, `request failed (${res.status})`);
+  if (!res.body) {
+    throw new Error('The manager answered the action with no stream to read.');
+  }
+
+  try {
+    await readScriptOutcome(res.body);
+  } catch (caught) {
+    // Nothing else on the page is fetching while a deploy runs, so a session
+    // that ended under it surfaces here and nowhere else. Asked before the
+    // message travels, so the operator lands on the sign-in page rather than
+    // reading that the deploy broke.
+    if (caught instanceof ScriptStreamEndedError) await checkSessionAfterStreamClosed();
+    throw caught;
+  }
 }
 
 export function deployProfile(name: string): Promise<void> {
