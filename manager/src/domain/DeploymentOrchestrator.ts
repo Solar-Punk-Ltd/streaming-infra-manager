@@ -839,7 +839,7 @@ export class DeploymentOrchestrator {
         onLaunch,
         paths,
         script: paths.deploy,
-        args: this.buildScriptArgs(profile, services, reservation.host),
+        args: this.buildDeployScriptArgs(profile, services, reservation.host),
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
         beforeLaunch: execution && this.executions
@@ -1232,6 +1232,7 @@ export class DeploymentOrchestrator {
     }
   }
 
+  /** Which deployment, on which slot and host, and which services this run is for. */
   private buildScriptArgs(
     profile: Profile,
     services: string[],
@@ -1243,11 +1244,32 @@ export class DeploymentOrchestrator {
     ];
     const host = hostOverride ?? profile.host ?? 'localhost';
     if (host) args.push(`--host=${host}`);
-    if (profile.feed_owner) args.push(`--feed-owner=${profile.feed_owner}`);
-    if (profile.feed_topic) args.push(`--feed-topic=${profile.feed_topic}`);
-    if (profile.stamp_id) args.push(`--stamp-id=${profile.stamp_id}`);
     args.push(...services);
     return args;
+  }
+
+  /**
+   * The same, plus the three overrides only deploy.sh reads.
+   *
+   * The stack checks the shape of every flag it is handed, on every script, in
+   * _lib.sh's parse_profile_args. Handing these to stop.sh and health.sh made a
+   * stored value the stack refuses fail those too, and a deployment that cannot
+   * be stopped is the worst shape there is.
+   */
+  private buildDeployScriptArgs(
+    profile: Profile,
+    services: string[],
+    hostOverride?: string,
+  ): string[] {
+    const overrides: string[] = [];
+    if (profile.feed_owner) overrides.push(`--feed-owner=${profile.feed_owner}`);
+    if (profile.feed_topic) overrides.push(`--feed-topic=${profile.feed_topic}`);
+    if (profile.stamp_id) overrides.push(`--stamp-id=${profile.stamp_id}`);
+    return [
+      ...this.buildScriptArgs(profile, [], hostOverride),
+      ...overrides,
+      ...services,
+    ];
   }
 
   private async removeProfileDataDir(profileName: string): Promise<void> {
