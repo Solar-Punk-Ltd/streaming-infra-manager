@@ -40,6 +40,19 @@ async function request(path, method = 'GET', body) {
   return { status: response.status, body: response.status === 204 ? null : await response.json(), cookie: response.headers.get('set-cookie') };
 }
 
+/** For the action routes, which answer with a script's event stream and not JSON. */
+async function requestStream(path, method = 'POST') {
+  const response = await fetch(`${base}${path}`, {
+    method,
+    headers: {
+      [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      ...(cookie ? { cookie } : {}),
+    },
+    signal: AbortSignal.timeout(2000),
+  });
+  return { status: response.status, frames: await response.text() };
+}
+
 before(async () => {
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
@@ -96,9 +109,14 @@ describe('authenticated offline uploader funding admission', { concurrency: fals
   }
 
   for (const name of ['funded', 'external', 'pool']) {
-    it(`preserves the ${name} uploader path`, async () => {
-      const result = await request(`/profiles/${name}/deploy-uploader`, 'POST');
-      assert.equal(result.status, 202);
+    it(`preserves the ${name} uploader path and reports how the script ended`, async () => {
+      // The manager answers this route with the run's own event stream, and
+      // the page reads the last frame to tell a start that worked from one
+      // that did not. A mock that answers JSON instead reports every start as
+      // a failure on the laptop while production is fine.
+      const result = await requestStream(`/profiles/${name}/deploy-uploader`);
+      assert.equal(result.status, 200);
+      assert.match(result.frames, /event: done\ndata: \{"code":0\}/);
       assert.equal((await request(`/profiles/${name}`)).body.status, 'DEPLOYING');
     });
   }

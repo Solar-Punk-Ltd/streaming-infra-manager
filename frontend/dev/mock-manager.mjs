@@ -47,7 +47,7 @@ import { engineRoutes } from './mock-engine.mjs';
 import { createMockChequebookJournal } from './mock-chequebook.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
-import { readBody, send } from './mock-http.mjs';
+import { readBody, send, sendScriptRun } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
   defaultVersionId,
@@ -514,7 +514,7 @@ const ROUTES = [
       if (refusal) return send(res, 409, refusal);
       closeRollout(profile, 'Redeployed by the operator before the file was verified.');
       deploy(profile);
-      send(res, 202, { status: 'accepted' });
+      sendScriptRun(res, 'deploy.sh', [`--profile=${profile.name}`]);
     }),
   ],
   [
@@ -523,7 +523,7 @@ const ROUTES = [
     withProfile((_req, res, profile) => {
       closeRollout(profile, 'Stopped by the operator before the file was verified.');
       stop(profile);
-      send(res, 202, { status: 'accepted' });
+      sendScriptRun(res, 'stop.sh', [`--profile=${profile.name}`]);
     }),
   ],
   [
@@ -533,7 +533,7 @@ const ROUTES = [
       const refusal = chequebookRefusal(profile);
       if (refusal) return send(res, refusal.error === 'bee_node_unreachable' ? 502 : 409, refusal);
       deploy(profile, { withUploader: true });
-      send(res, 202, { status: 'accepted' });
+      sendScriptRun(res, 'deploy.sh', [`--profile=${profile.name}`, 'stream-uploader']);
     }),
   ],
   [
