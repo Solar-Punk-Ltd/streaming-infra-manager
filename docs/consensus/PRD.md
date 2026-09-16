@@ -10,7 +10,7 @@ Document revision: consensus-13 (Fable round 6 and OpenAI round 7 approve the ex
 
 Document state: **Planning consensus complete. Fable round 6 and OpenAI round 7 approve all 25 rows of the exact task set in Fable round 6 section 3. The consensus exit checklist is complete. D01 through D10 are decided. Open outside planning consensus: Levi's D04/D05 inputs, the 0.5 BZZ fill's evidence and T05a's later isolated harness on Engine 29.1.3 and Compose v5.1.4. Implementation and live acceptance are not complete or authorized by this document-only round.**
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
+Repository: ../../ (this repository, two levels up from this file)
 
 Reviewed manager baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64
 
@@ -106,18 +106,18 @@ Priority is provisional. P1 means OpenAI recommends fixing it before relying on 
 
 Source anchors at the reviewed baseline:
 
-- R01 and R02: [EngineConfigService.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/engineConfig/EngineConfigService.ts:123) and [engineConfigCheck.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/engineConfig/engineConfigCheck.ts:106).
-- R03: [stack-version-build.sh](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/scripts/stack-version-build.sh:79) and [DeploymentOrchestrator.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:158).
-- R04: [docker-compose.yml](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/docker-compose.yml:62) and [deploy.sh](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/scripts/deploy.sh:550).
-- R05: [firewall-rules.sh](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/deploy/host/firewall-rules.sh:44) and [ProfileService.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ProfileService.ts:244).
-- R06: [ProfileService.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ProfileService.ts:335).
-- R07: [PostgresStackVersionRepository.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/versions/PostgresStackVersionRepository.ts:104) and [versionForNewDeployment](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ProfileService.ts:389).
-- R08: [omeXml.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/engineConfig/omeXml.ts:29).
-- R09: [chequebook.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/common/src/chequebook.ts:346) and [MoveBzzDialog.tsx](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/uploaders/MoveBzzDialog.tsx:275).
-- R10: [integration helpers](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/test/integration/helpers.ts:74) and [server gates](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/api/server.ts:68).
-- R11: [engineText.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/deployments/engineText.ts:22).
-- UX: [wizardState.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/forms/wizard/wizardState.ts:145), [PassphraseChoice.tsx](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/forms/wizard/steps/PassphraseChoice.tsx:14), [checklist.ts](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/deployments/checklist.ts:135), [ContainersCard.tsx](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/deployments/ContainersCard.tsx:76) and [NotesCard.tsx](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/deployments/NotesCard.tsx:6).
-- Q02: [stack-versions.md](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/docs/features/stack-versions.md:3).
+- R01 and R02: [EngineConfigService.ts](../../manager/src/domain/engineConfig/EngineConfigService.ts:123) and [engineConfigCheck.ts](../../manager/src/domain/engineConfig/engineConfigCheck.ts:106).
+- R03: [stack-version-build.sh](../../manager/scripts/stack-version-build.sh:79) and [DeploymentOrchestrator.ts](../../manager/src/domain/DeploymentOrchestrator.ts:158).
+- R04: [docker-compose.yml](../../manager/swarm-hls-stream/deploy/docker-compose.yml:62) and [deploy.sh](../../manager/swarm-hls-stream/deploy/scripts/deploy.sh:550).
+- R05: [firewall-rules.sh](../../deploy/host/firewall-rules.sh:44) and [ProfileService.ts](../../manager/src/domain/ProfileService.ts:244).
+- R06: [ProfileService.ts](../../manager/src/domain/ProfileService.ts:335).
+- R07: [PostgresStackVersionRepository.ts](../../manager/src/domain/versions/PostgresStackVersionRepository.ts:104) and [versionForNewDeployment](../../manager/src/domain/ProfileService.ts:389).
+- R08: [omeXml.ts](../../manager/src/domain/engineConfig/omeXml.ts:29).
+- R09: [chequebook.ts](../../common/src/chequebook.ts:346) and [MoveBzzDialog.tsx](../../frontend/src/uploaders/MoveBzzDialog.tsx:275).
+- R10: [integration helpers](../../manager/test/integration/helpers.ts:74) and [server gates](../../manager/src/api/server.ts:68).
+- R11: [engineText.ts](../../frontend/src/deployments/engineText.ts:22).
+- UX: [wizardState.ts](../../frontend/src/forms/wizard/wizardState.ts:145), [PassphraseChoice.tsx](../../frontend/src/forms/wizard/steps/PassphraseChoice.tsx:14), [checklist.ts](../../frontend/src/deployments/checklist.ts:135), [ContainersCard.tsx](../../frontend/src/deployments/ContainersCard.tsx:76) and [NotesCard.tsx](../../frontend/src/deployments/NotesCard.tsx:6).
+- Q02: [stack-versions.md](../../docs/features/stack-versions.md:3).
 
 ## Proposed roadmap
 
@@ -773,15 +773,15 @@ The race acceptance test must run in an isolated environment using that Compose 
 
 **1. Agree, with an evidence boundary, on R04 and project-specific naming.** Fable's test 1 establishes tag replacement on an `up` without a build. That is supporting evidence, not the manager's normal trigger, because its deploy path uses `--build`. Test 2 is the relevant reproduction. Seven of 32 container creations used the other project's content, in seven of 16 rounds, on Docker 29.7.2 and Compose v5.5.1. The observed fraction is 21.875 percent of creations in that experiment, not an estimated production failure rate. The added `--force-recreate` guarantees creation in the experiment. The manager also creates containers on initial deploy, so that does not remove the mechanism's relevance.
 
-The code exposes fixed image names at [docker-compose.yml:63](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/docker-compose.yml:63) and [104](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/docker-compose.yml:104), and deployment jobs return before completion at [DeploymentOrchestrator.ts:289](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:289). Removing the two explicit image names is an adequate targeted fix if project names are unique on that Docker daemon and the existing claim prevents simultaneous rebuilds of one project. I withdraw the requirement that this fix use revision-bearing tags or a host-wide build lock. Keep source and actual-image evidence for diagnosis, plus the two-viewer test. T05 below covers migration and cleanup.
+The code exposes fixed image names at [docker-compose.yml:63](../../manager/swarm-hls-stream/deploy/docker-compose.yml:63) and [104](../../manager/swarm-hls-stream/deploy/docker-compose.yml:104), and deployment jobs return before completion at [DeploymentOrchestrator.ts:289](../../manager/src/domain/DeploymentOrchestrator.ts:289). Removing the two explicit image names is an adequate targeted fix if project names are unique on that Docker daemon and the existing claim prevents simultaneous rebuilds of one project. I withdraw the requirement that this fix use revision-bearing tags or a host-wide build lock. Keep source and actual-image evidence for diagnosis, plus the two-viewer test. T05 below covers migration and cleanup.
 
 **2. Revise. I have no evidence that the deployed OME rejects either probe file.** My earlier probe proved the manager accepted them. It did not prove OME would fail. The [pugixml manual, parsing conformance](https://pugixml.org/docs/manual.html#loading.w3c) explicitly documents tolerated multiple top-level elements and invalid entity references. That supports Fable's narrower interpretation, although it does not establish the exact parser build inside the host's image.
 
-I accept strict XML validation as the editor's contract, the corrected parser copy and a requirement set based on the selected stack. I do not accept “every placeholder path plus two ports” as the complete set. It misses non-placeholder requirements such as enabling SRT admission, the video/audio application names, SRT providers, output stream naming and HLS publishers. Those are visible in [Server.xml.template:35](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/engines/ome/Server.xml.template:35) and [44](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/engines/ome/Server.xml.template:44). The uploader starts its puller from the admission callback at [ome.ts:157](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/packages/stream-uploader/src/engines/ome.ts:157).
+I accept strict XML validation as the editor's contract, the corrected parser copy and a requirement set based on the selected stack. I do not accept “every placeholder path plus two ports” as the complete set. It misses non-placeholder requirements such as enabling SRT admission, the video/audio application names, SRT providers, output stream naming and HLS publishers. Those are visible in [Server.xml.template:35](../../manager/swarm-hls-stream/engines/ome/Server.xml.template:35) and [44](../../manager/swarm-hls-stream/engines/ome/Server.xml.template:44). The uploader starts its puller from the admission callback at [ome.ts:157](../../manager/swarm-hls-stream/packages/stream-uploader/src/engines/ome.ts:157).
 
 A TCP probe of the actual HLS endpoint is useful liveness evidence. It does not establish that SRT ingest, admission or the stream's HLS path works. The probe must use a reachable route appropriate to the manager's network, tolerate startup within a bounded window, and distinguish a diagnostic connection failure from a demonstrated bad config. T03 must retain an isolated ingest-to-HLS test and the later funded publishing test. Removing AdmissionWebhooks removes this callback-based control and discovery path. It does not mean OME rejects every publisher. Other access controls may still reject publishers, so “admits every publisher” also needs that qualification. The [OME access-control guide](https://ovenmedialabs.com/docs/ome/access-control) describes those separate controls.
 
-**3. Agree on receipt identity and durable operations. Revise uncertain-submission recovery.** Poll the receipt for the known hash through the node's configured chain endpoint. A successful receipt identifies successful execution of that transaction, a reverted receipt identifies failure, and an absent receipt does not establish either. Balances are corroboration. Preserve the operation across navigation and restart. The hash is already returned through [ChequebookService.ts:106](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ChequebookService.ts:106).
+**3. Agree on receipt identity and durable operations. Revise uncertain-submission recovery.** Poll the receipt for the known hash through the node's configured chain endpoint. A successful receipt identifies successful execution of that transaction, a reverted receipt identifies failure, and an absent receipt does not establish either. Balances are corroboration. Preserve the operation across navigation and restart. The hash is already returned through [ChequebookService.ts:106](../../manager/src/domain/ChequebookService.ts:106).
 
 Save the intent before making the Bee request, not only after receiving its response. Enforce duplicate prevention on the server. A lost response must say “Submission outcome unknown”, since acceptance itself may be unknown. The [Bee transaction API](https://docs.ethswarm.org/api/#tag/Transaction) documents destination, nonce, calldata, creation time, description and native-token value. It does not expose a ready-made BZZ direction-and-amount field. Adopt a candidate only after version-specific validation of the destination and decoded call data, with exactly one defensible match. Native-token value is not the BZZ amount.
 
@@ -789,15 +789,15 @@ A transaction can also leave the pending list by mining before reconciliation. A
 
 **4. Revise T01's restart rule.** I accept a generation token, expected-revision writes, one watch, cancellation on superseding actions, reading `previous` after the claim, and claim-before-write rollback. A failed recreate should restore the previous config and attempt recovery once, retaining both errors.
 
-However, the previous config is currently a closure argument at [EngineConfigService.ts:193](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/engineConfig/EngineConfigService.ts:193). A revision and timestamp do not save it across a restart. Persist the previous config or its retained artifact reference, including the legitimate null value meaning the template. Save the operation's state and target identity as well. Bind ownership to this deployment instance and this operation, so removing and recreating the same name cannot revive an old watch.
+However, the previous config is currently a closure argument at [EngineConfigService.ts:193](../../manager/src/domain/engineConfig/EngineConfigService.ts:193). A revision and timestamp do not save it across a restart. Persist the previous config or its retained artifact reference, including the legitimate null value meaning the template. Save the operation's state and target identity as well. Bind ownership to this deployment instance and this operation, so removing and recreating the same name cannot revive an old watch.
 
 Do not mark an unfinished watch successful merely because the manager was offline for more than twenty seconds. Resume or explicitly revalidate an unresolved current operation after restart. If its evidence cannot be recovered, show “verification interrupted” and preserve operator intent. A completed successful watch stays completed. A stopped, removed or superseded operation must never restart an engine. See T01 for the exact cases.
 
 **5. Dispute the claim that T04's smaller design already supplies all guarantees except historical rollback.** There are three concrete gaps.
 
-- Two separate checks do not establish mutual exclusion. A deploy can read ready and pause before its claim. Update can then see no DEPLOYING profile and mark the version building. The deploy resumes against the changing root. The existing claim and version-state operations are separate at [DeploymentOrchestrator.ts:257](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:257) and [StackVersionService.ts:168](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/versions/StackVersionService.ts:168). The proposed checks need one shared atomic admission rule.
-- Copying the staged tree into the live root can fail midway or be interrupted. Blocking readers during the copy avoids concurrent reads, but it does not restore the old bytes after a partial copy. Marking that version ready with its previous SHA would then mislabel a mixed tree. Today's destructive publication is [stack-version-build.sh:121](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/scripts/stack-version-build.sh:121).
-- Writing one `deployed_commit` on every successful deploy can label untouched services with the new commit. Config application deploys only the engine, and other partial-service paths exist. The success callback receives a service subset at [DeploymentOrchestrator.ts:446](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:446). Existing container snapshots store planned ports and environment, not an observed image identity at [ContainerRepository.ts:8](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ContainerRepository.ts:8).
+- Two separate checks do not establish mutual exclusion. A deploy can read ready and pause before its claim. Update can then see no DEPLOYING profile and mark the version building. The deploy resumes against the changing root. The existing claim and version-state operations are separate at [DeploymentOrchestrator.ts:257](../../manager/src/domain/DeploymentOrchestrator.ts:257) and [StackVersionService.ts:168](../../manager/src/domain/versions/StackVersionService.ts:168). The proposed checks need one shared atomic admission rule.
+- Copying the staged tree into the live root can fail midway or be interrupted. Blocking readers during the copy avoids concurrent reads, but it does not restore the old bytes after a partial copy. Marking that version ready with its previous SHA would then mislabel a mixed tree. Today's destructive publication is [stack-version-build.sh:121](../../manager/scripts/stack-version-build.sh:121).
+- Writing one `deployed_commit` on every successful deploy can label untouched services with the new commit. Config application deploys only the engine, and other partial-service paths exist. The success callback receives a service subset at [DeploymentOrchestrator.ts:446](../../manager/src/domain/DeploymentOrchestrator.ts:446). Existing container snapshots store planned ports and environment, not an observed image identity at [ContainerRepository.ts:8](../../manager/src/domain/ContainerRepository.ts:8).
 
 I accept staged builds, preserving the last usable build after a failed attempt, explicit failure history and refusing a missing version. I withdraw a mandatory multi-build archive. T04 needs safe publication and truthful running-state reporting, with a retained previous tree only as needed to recover publication. That is a narrower design than a user-facing rollback feature.
 
@@ -886,11 +886,11 @@ Cover two different free slot numbers whose version-specific physical ports over
 
 **T16, T17 and T18, agree.** Original scope and acceptance criteria stand. Verify validation through submission, protocol-appropriate port presentation and the actual narrow viewport respectively. T18 must reflect the agreed T04/T08 version states when those land. **S each accepted as estimates.**
 
-**T19, agree on a dedicated metadata route, revise concurrency coverage.** `PATCH /profiles/:name/notes` must not take a deployment claim or run the uploader gate or deploy script. Keep normal auth, same-site checks and text validation. A stale Edit drawer can currently send notes with the rest of the editable fields at [ProfileService.ts:341](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ProfileService.ts:341). Ensure that drawer does not overwrite a newer Notes save unless the operator actually edited notes and the conflict rule permits it. Test simultaneous metadata saves and a stale configuration save. This task can ship independently of T07 and T09. **S is plausible.**
+**T19, agree on a dedicated metadata route, revise concurrency coverage.** `PATCH /profiles/:name/notes` must not take a deployment claim or run the uploader gate or deploy script. Keep normal auth, same-site checks and text validation. A stale Edit drawer can currently send notes with the rest of the editable fields at [ProfileService.ts:341](../../manager/src/domain/ProfileService.ts:341). Ensure that drawer does not overwrite a newer Notes save unless the operator actually edited notes and the conflict rule permits it. Test simultaneous metadata saves and a stale configuration save. This task can ship independently of T07 and T09. **S is plausible.**
 
 **T20, agree.** A workflow can be prepared before D06. Branch protection waits for Levi's decision. Separate no-funds local/container integration from the human-paced live protocol. Add the disputed-failure regressions to the appropriate job rather than treating a green count as proof. Keep required dependency provenance checks when dependencies change. **M accepted as an estimate.**
 
-**T21, revise one part of the original proposal.** Accept correcting stale implemented/planned descriptions and recording the existing-deployments version policy. I retract the suggestion that absent CONTEXT.md or ADR files are themselves a review gap. [docs/agents/domain.md:13](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/docs/agents/domain.md:13) explicitly says to proceed silently when they are absent and not suggest creating them upfront. Correct actual stale references where demonstrated. Do not manufacture history or create domain documents solely to satisfy this review. **S accepted as an estimate.**
+**T21, revise one part of the original proposal.** Accept correcting stale implemented/planned descriptions and recording the existing-deployments version policy. I retract the suggestion that absent CONTEXT.md or ADR files are themselves a review gap. `docs/agents/domain.md:13` (removed from the repository on 2026-09-16) explicitly said to proceed silently when they are absent and not suggest creating them upfront. Correct actual stale references where demonstrated. Do not manufacture history or create domain documents solely to satisfy this review. **S accepted as an estimate.**
 
 **T22, agree, with refreshed preconditions.** Preserve the funded deployment. D05 must supply spending, duration and disposition before paid execution. The 0.5 BZZ submission is currently unverified, as recorded in section 1, so recheck its transaction identity before any retry. Keep the complete health snapshots, exact versions and images, test ownership, bounded fresh publishing, viewer continuity, stop/start, group and ABR obligations. Docker/Compose and port inventory belong in phase 0 as well as the final run evidence. **L remains a human-paced estimate, not a promise that funding alone completes the test.**
 
@@ -937,8 +937,8 @@ Precise questions for Fable round 2:
 ```text
 You are Fable, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64.
 
 First run git rev-parse HEAD and git diff --stat d046ebf HEAD. Read the repository instructions and the whole shared document, especially OpenAI round 2 and its eight closing questions.
@@ -1319,7 +1319,7 @@ No test suite, build, container or infrastructure operation ran. The R04 script 
 
 Resolving one complete, immutable build at admission lets a deploy use A while Update builds and publishes B. Neither operation needs to wait for the other's build. The admitted descriptor must contain the path, build identity and matching contract together. Publishing the active reference, contract and approval change must be one database operation. A deploy must not select path A and later reread contract B.
 
-The existing code rereads the version inside `startReservedJob` at [DeploymentOrchestrator.ts:410](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:410). Its reservation currently carries no build reference at [341](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:341). T04 therefore needs an explicit captured descriptor, not merely a different path resolver.
+The existing code rereads the version inside `startReservedJob` at [DeploymentOrchestrator.ts:410](../../manager/src/domain/DeploymentOrchestrator.ts:410). Its reservation currently carries no build reference at [341](../../manager/src/domain/DeploymentOrchestrator.ts:341). T04 therefore needs an explicit captured descriptor, not merely a different path resolver.
 
 The remaining failures and smallest tests are:
 
@@ -1332,14 +1332,14 @@ The remaining failures and smallest tests are:
 | Legacy tree contains its new children | After first migration, `root/` is the old flat artifact and `root/builds/B` is the new artifact. Treating `root/` as a normal old build to prune would also delete B and `root/repo`. | Build a path-only migration fixture with the old root as an ancestor of the current build. The prune planner must never schedule that ancestor. Cleanup must distinguish legacy files from the new artifact container directory. |
 | A referenced temporary build is deleted after restart | Boot or the next Update deletes every `.tmp` directory, but a surviving builder may still be writing its candidate. | Simulate manager death while a builder remains active. Restart reconciliation must fence or account for that attempt before cleaning its directory. A new attempt must not share the same scratch path. |
 
-The fix for the first two cases is short-lived coordination between **reference acquisition and garbage collection**, plus durable job references through reconciliation. This is different from holding a lock for a minutes-long build. A database build-reference record acquired transactionally with deploy admission is one suitable approach. Retain references for unresolved jobs, stopped containers and T01 rollback targets as well as successful snapshots. Snapshot failure must preserve the job's reference. The current snapshot path catches failures and logs a warning at [DeploymentOrchestrator.ts:701](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:701), so snapshot existence is not a safe lifetime boundary.
+The fix for the first two cases is short-lived coordination between **reference acquisition and garbage collection**, plus durable job references through reconciliation. This is different from holding a lock for a minutes-long build. A database build-reference record acquired transactionally with deploy admission is one suitable approach. Retain references for unresolved jobs, stopped containers and T01 rollback targets as well as successful snapshots. Snapshot failure must preserve the job's reference. The current snapshot path catches failures and logs a warning at [DeploymentOrchestrator.ts:701](../../manager/src/domain/DeploymentOrchestrator.ts:701), so snapshot existence is not a safe lifetime boundary.
 
 Two more boundaries need correction before this design is called immutable:
 
-- The proposed build still receives mutable `.env.<profile>`, engine env and deploy-override files. The manager writes a profile env at [DeploymentOrchestrator.ts:419](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:419), and the stack writes per-profile overrides at [deploy.sh:529](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/scripts/deploy.sh:529). Define immutable code/templates separately from writable deployment runtime files. Retain a consistent runtime-input snapshot for the admitted job. Copying a host file while another process updates it cannot create a half-written candidate. This can use atomic replacement or a coordinated snapshot. It does not require a global build lock.
-- `.stack-commit` inside a build is a valid new manifest choice, but the cited existing helper does not read that location. [bundledCommit.ts:48](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/versions/bundledCommit.ts:48) reads the marker in the directory's parent. Update the reader and tests explicitly. Do not depend on today's helper accidentally finding the new manifest.
+- The proposed build still receives mutable `.env.<profile>`, engine env and deploy-override files. The manager writes a profile env at [DeploymentOrchestrator.ts:419](../../manager/src/domain/DeploymentOrchestrator.ts:419), and the stack writes per-profile overrides at [deploy.sh:529](../../manager/swarm-hls-stream/deploy/scripts/deploy.sh:529). Define immutable code/templates separately from writable deployment runtime files. Retain a consistent runtime-input snapshot for the admitted job. Copying a host file while another process updates it cannot create a half-written candidate. This can use atomic replacement or a coordinated snapshot. It does not require a global build lock.
+- `.stack-commit` inside a build is a valid new manifest choice, but the cited existing helper does not read that location. [bundledCommit.ts:48](../../manager/src/domain/versions/bundledCommit.ts:48) reads the marker in the directory's parent. Update the reader and tests explicitly. Do not depend on today's helper accidentally finding the new manifest.
 
-**Bundled scope remains open.** Fable explicitly leaves the bundled tree mutable and calls it a follow-up outside this set. I do not approve that exclusion on Levi's behalf. The existing release script overwrites it through rsync at [deploy/deploy.sh:90](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/deploy/deploy.sh:90). SRS and OME bind-mount templates and entrypoints from that tree at [docker-compose.yml:139](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/docker-compose.yml:139) and [174](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/docker-compose.yml:174). A later restart can therefore combine an old container with replacement host files. Per-service source labels cannot establish that the mount contents stayed at the labeled revision.
+**Bundled scope remains open.** Fable explicitly leaves the bundled tree mutable and calls it a follow-up outside this set. I do not approve that exclusion on Levi's behalf. The existing release script overwrites it through rsync at [deploy/deploy.sh:90](../../deploy/deploy.sh:90). SRS and OME bind-mount templates and entrypoints from that tree at [docker-compose.yml:139](../../manager/swarm-hls-stream/deploy/docker-compose.yml:139) and [174](../../manager/swarm-hls-stream/deploy/docker-compose.yml:174). A later restart can therefore combine an old container with replacement host files. Per-service source labels cannot establish that the mount contents stayed at the labeled revision.
 
 Include a bundled/legacy publication and migration slice in T04 that preserves existing mount targets until an explicit rollout. Alternatively, present that exact remaining risk as an owner scope decision before excluding it. D08's optional historical catalogue does not decide this question. The smallest regression is a fixture representing a bundled container mounted to A, followed by publication of B and a restart: it must retain a consistent A or move through an explicit consistent B rollout. No host execution is needed to specify that test.
 
@@ -1361,7 +1361,7 @@ The persisted rollback target and template flag solve the lost-closure problem. 
 
 The restart table also needs a deliberate row for `interrupted`, so it is clear whether it retains an open-operation constraint and which action supersedes it. Every boot path must check the persisted operator intent before interpreting unhealthy containers as permission to recover. A stopped deployment must stay stopped. An old action's button must not apply to a new instance with the same name.
 
-**Additional code evidence within R01/T01:** the Docker inspection adapter currently reads the restart count from the wrong object. [ContainerControl.ts:228](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ContainerControl.ts:228) uses `info.State.RestartCount ?? 0`. The declared interface puts it under State as well. Docker's inspect response puts `RestartCount` beside `State`, as shown in the [Moby Engine API type](https://github.com/moby/moby/blob/v27.5.1/api/types/types.go#L225). A container that restarted and is running again between polls can therefore be reported as running with zero restarts.
+**Additional code evidence within R01/T01:** the Docker inspection adapter currently reads the restart count from the wrong object. [ContainerControl.ts:228](../../manager/src/domain/ContainerControl.ts:228) uses `info.State.RestartCount ?? 0`. The declared interface puts it under State as well. Docker's inspect response puts `RestartCount` beside `State`, as shown in the [Moby Engine API type](https://github.com/moby/moby/blob/v27.5.1/api/types/types.go#L225). A container that restarted and is running again between polls can therefore be reported as running with zero restarts.
 
 The smallest regression passes a realistic inspect response with top-level `RestartCount: 2` and `State.Status: "running"` through the actual adapter, then through the watch. It must produce restart count 2 and the failure/recovery path. Add this to T01. The existing service test supplies an already-normalized restart count, so it does not verify the Docker response mapping. This is source-confirmed adapter evidence, not a claim that the live node was inspected during this round.
 
@@ -1371,7 +1371,7 @@ The smallest regression passes a realistic inspect response with top-level `Rest
 
 The named-app/path approach is a suitable way to derive required integration elements from the selected template. It covers the missing admission enablement, provider/publisher paths and stream-name mapping identified in round 2. I accept sibling-order independence and the requirement to test a real, identified image/template pair instead of guessing a release. If the historical image cannot be recovered, record a newly verified compatible pair and that limit.
 
-However, comparing the exact template text for **every** placeholder-bearing element also freezes ordinary tuning fields. For example, replacing `SEGMENT_DURATION_PLACEHOLDER` with a supported literal duration would be rejected despite preserving the stream integration. The current editor explicitly supports choosing where template substitution applies at [EngineConfigDialog.tsx:39](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/frontend/src/forms/EngineConfigDialog.tsx:39). [engineConfig.ts:89](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/common/src/engineConfig.ts:89) reports settings whose placeholders the custom file omitted. This is an existing capability, not a new feature request.
+However, comparing the exact template text for **every** placeholder-bearing element also freezes ordinary tuning fields. For example, replacing `SEGMENT_DURATION_PLACEHOLDER` with a supported literal duration would be rejected despite preserving the stream integration. The current editor explicitly supports choosing where template substitution applies at [EngineConfigDialog.tsx:39](../../frontend/src/forms/EngineConfigDialog.tsx:39). [engineConfig.ts:89](../../common/src/engineConfig.ts:89) reports settings whose placeholders the custom file omitted. This is an existing capability, not a new feature request.
 
 Separate required integration values from tunable settings. Keep the callback path, compatible bind ports, admission secret substitution and stream-discovery mapping protected. Permit supported numeric literals for segment duration/count, validate them, and report their source through T11. Do not silently remove that editing capability.
 
@@ -1430,7 +1430,7 @@ The amount and direction must never be inferred from a balance delta. No hash re
 
 **Agree with the mechanism and tool identity. Revise its acceptance boundary and scheduling row.**
 
-Serializing legacy shared-tag build-and-create operations per Docker daemon is a sufficient interim approach if every competing manager deployment path participates and the lock remains effective through actual Compose completion. Fixed project-specific images can still build concurrently. I accept adding the contract flag and identifying the Compose executable in the api image. [manager/Dockerfile:39](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/Dockerfile:39) installs the CLI packages without exact versions, and [manager/docker-compose.yml:40](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/docker-compose.yml:40) connects that client to the host daemon. Record and pin the tested api toolchain identity. Do not invent the currently deployed version.
+Serializing legacy shared-tag build-and-create operations per Docker daemon is a sufficient interim approach if every competing manager deployment path participates and the lock remains effective through actual Compose completion. Fixed project-specific images can still build concurrently. I accept adding the contract flag and identifying the Compose executable in the api image. [manager/Dockerfile:39](../../manager/Dockerfile:39) installs the CLI packages without exact versions, and [manager/docker-compose.yml:40](../../manager/docker-compose.yml:40) connects that client to the host daemon. Record and pin the tested api toolchain identity. Do not invent the currently deployed version.
 
 The task needs one durability assertion: if the manager dies while an earlier legacy deploy still builds or creates containers, its replacement must not start a conflicting legacy deploy just because an in-memory mutex disappeared. Define process-owned exclusion or restart reconciliation that prevents this overlap. **Smallest test:** hold legacy job A between build and create, simulate manager replacement, request B, and assert B cannot enter the conflicting section until A is completed or safely reconciled. Also cover group/initial deploy paths and contract classification failure. Unknown classification cannot silently mean “safe to run concurrently”.
 
@@ -1523,8 +1523,8 @@ Precise questions for Fable round 3:
 ```text
 You are Fable, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64.
 
 First run git rev-parse HEAD and git diff --stat d046ebf HEAD. Read repository instructions and the whole document, especially OpenAI round 3 and its seven closing questions.
@@ -1730,7 +1730,7 @@ Exact interleaving:
 3. A retry for that profile claims D and writes `job_build = D` before removing the engine still mounted from B.
 4. Prune sees no reference to B and deletes it while the old engine still needs its files.
 
-This is reachable even without a manager crash if snapshot failure is logged and the profile returns to RUNNING. The current path does exactly that at [DeploymentOrchestrator.ts:447](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:447) and [703](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:703). It is the same unresolved-job case from round 3, carried through one more admission.
+This is reachable even without a manager crash if snapshot failure is logged and the profile returns to RUNNING. The current path does exactly that at [DeploymentOrchestrator.ts:447](../../manager/src/domain/DeploymentOrchestrator.ts:447) and [703](../../manager/src/domain/DeploymentOrchestrator.ts:703). It is the same unresolved-job case from round 3, carried through one more admission.
 
 **Smallest correction:** before replacing a non-null unresolved `job_build`, reconcile it and save the actual container references, or refuse the new claim with the unresolved reason. An alternative is a retained reference per job rather than one overwritable profile field. Neither requires a build-duration lock.
 
@@ -1738,7 +1738,7 @@ This is reachable even without a manager crash if snapshot failure is logged and
 
 **B. Make the base-input snapshot consistent before hashing it.** A source file can be truncated by its writer, read during that pause and copied into the candidate as an empty or partial file. An in-memory read faithfully preserves those partial bytes. Its hash faithfully identifies the bad snapshot. Atomic replacement of the destination `.env.<profile>` does not fix how its base input was captured.
 
-The existing manager write is a direct write at [envUtils.ts:399](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/utils/envUtils.ts:399), and the stack writes its override at [deploy.sh:531](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/scripts/deploy.sh:531). Fable correctly isolates per-profile writes. The remaining requirement from round 3 is a consistent capture of the host-owned base inputs used by a build or job.
+The existing manager write is a direct write at [envUtils.ts:399](../../manager/src/utils/envUtils.ts:399), and the stack writes its override at [deploy.sh:531](../../manager/swarm-hls-stream/deploy/scripts/deploy.sh:531). Fable correctly isolates per-profile writes. The remaining requirement from round 3 is a consistent capture of the host-owned base inputs used by a build or job.
 
 **Smallest correction:** specify atomic replacement for the source files under the supported editing path, or coordinate their capture with their writer. Where several files form one configuration revision, capture that revision together. Keep the captured bytes for the job, then calculate the recorded hashes from those bytes. An unsupported concurrent in-place edit must not be described as covered by an atomic-read guarantee.
 
@@ -1765,7 +1765,7 @@ I accept the nonterminal `reverting` and `interrupted` states, explicit recovery
 
 I read Fable's specific interrupted-state bullet as the exception to its general Stop wording. Stop can leave that diagnostic row open, while bumping intent and preventing it from acting. Watching or otherwise acting operations are superseded. The recovery buttons create a new owned operation as Fable specifies. “Every conditional write checks state, instance, config revision and intent revision together” remains the governing rule, including the final completion write. The short SQL example is not permission to omit those checks.
 
-T01a is a separate, useful correction within R01. The production adapter and the fake both put the restart count under the wrong object at [ContainerControl.ts:106](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ContainerControl.ts:106), [228](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ContainerControl.ts:228) and [fakeDocker.ts:128](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/test/support/fakeDocker.ts:128). Fable's local inspect independently confirms the shape identified in round 3. The real-adapter-to-watch test with top-level restart count 2 is accepted. T01a is S, T01 is provisionally M and depends on T01a.
+T01a is a separate, useful correction within R01. The production adapter and the fake both put the restart count under the wrong object at [ContainerControl.ts:106](../../manager/src/domain/ContainerControl.ts:106), [228](../../manager/src/domain/ContainerControl.ts:228) and [fakeDocker.ts:128](../../manager/test/support/fakeDocker.ts:128). Fable's local inspect independently confirms the shape identified in round 3. The real-adapter-to-watch test with top-level restart count 2 is accepted. T01a is S, T01 is provisionally M and depends on T01a.
 
 **T03: approve.** Deriving tunable placeholders from the existing engine-setting definitions avoids another manually maintained list. Protected integration values remain fixed by the selected template's contract. Supported literal duration/count values remain editable and use the corresponding field validation. The two agreed tests distinguish literal tuning from a changed callback route. The pinned OME release/digest and template procedure, strict XML contract, truthful copy, diagnostic liveness probe and isolated no-funds ingest-to-HLS gate all stand. T01 remains its dependency, and T11 displays file-controlled values without inventing omitted values.
 
@@ -1777,7 +1777,7 @@ I approve planned, active and releasing reservations, old/new handover, per-serv
 
 I do not accept normalized remote target strings as separate reservation namespaces when they can reach one daemon. This explicitly relaxes the canonical-host requirement from OpenAI round 3. A Host-page notice describes the collision risk but does not enforce the reservation rule.
 
-Remote targeting exists in the reviewed code. The manager passes `profile.host` to the script at [DeploymentOrchestrator.ts:660](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:660), and the script invokes remote Compose at [deploy.sh:580](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/scripts/deploy.sh:580). It is not a hypothetical future capability.
+Remote targeting exists in the reviewed code. The manager passes `profile.host` to the script at [DeploymentOrchestrator.ts:660](../../manager/src/domain/DeploymentOrchestrator.ts:660), and the script invokes remote Compose at [deploy.sh:580](../../manager/swarm-hls-stream/deploy/scripts/deploy.sh:580). It is not a hypothetical future capability.
 
 **Exact case:** two aliases, including different SSH usernames if applicable, reach daemon H. Two profiles on different free slots and different version contracts both require TCP port p. The table keys them by their distinct target strings and accepts both reservations. Only one daemon owns the physical port, so the promised exclusion fails.
 
@@ -1801,7 +1801,7 @@ The durable lock row is an improvement. A heartbeat can identify lost contact. N
 
 **Exact case:** legacy A is paused in a daemon-side build before exporting its final image. Its manager dies. The profile becomes ERROR, no A service container has been created and the shared tag stays unchanged. The pause exceeds the longest recorded build. The replacement manager's proposed rule releases A's lock and starts B. B builds its image, then A's delayed export replaces the shared tag before B creates its container. B can consume A's image. A previous duration is not an upper bound on a blocked, slow or disconnected build.
 
-This is the same manager-replacement case from round 3. Fable's new grace rule does not close it. The current runner observes a child-process close at [ScriptRunner.ts:85](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ScriptRunner.ts:85), and the orchestrator then finalizes the job at [DeploymentOrchestrator.ts:608](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:608). Those observations do not provide a recovered positive completion record for work that the replacement manager cannot account for. No new claim about the live daemon's behavior is made here.
+This is the same manager-replacement case from round 3. Fable's new grace rule does not close it. The current runner observes a child-process close at [ScriptRunner.ts:85](../../manager/src/domain/ScriptRunner.ts:85), and the orchestrator then finalizes the job at [DeploymentOrchestrator.ts:608](../../manager/src/domain/DeploymentOrchestrator.ts:608). Those observations do not provide a recovered positive completion record for work that the replacement manager cannot account for. No new claim about the live daemon's behavior is made here.
 
 **Smallest correction:** remove automatic unlock based only on elapsed quiet time. Release the lock after positively reconciling completion or cancellation of the identified job and its conflicting build/create work. If that cannot be established, keep the legacy lock blocked with an explicit unresolved-job reason. A job executor whose ownership survives the manager is another possible implementation, provided its completion also accounts for daemon-side work. Image stability can support diagnosis, but cannot be the release condition.
 
@@ -1892,8 +1892,8 @@ Precise questions for Fable round 4:
 ```text
 You are Fable, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64.
 
 First run git rev-parse HEAD and git diff --stat d046ebf HEAD. Read the repository instructions and the whole document, especially OpenAI round 4 and its four closing questions.
@@ -2081,7 +2081,7 @@ Exact case permitted by the recorded design:
 3. The new job's build is paused before export, and the manager dies.
 4. Recovery finds every service and every timestamp satisfies the proposed comparison. It releases the lock even though these are the old containers and the new build remains unresolved.
 
-This is a design counterexample, not a claim that the funded host's clock is wrong. Remote deployment is an existing path: the manager forwards the selected host at [DeploymentOrchestrator.ts:660](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:660), and the stack runs Compose on that target at [deploy.sh:580](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/swarm-hls-stream/deploy/scripts/deploy.sh:580). No shared-clock requirement or attempt-identity check appears in the proposed release rule. Local wall-clock changes can also make a time comparison unreliable.
+This is a design counterexample, not a claim that the funded host's clock is wrong. Remote deployment is an existing path: the manager forwards the selected host at [DeploymentOrchestrator.ts:660](../../manager/src/domain/DeploymentOrchestrator.ts:660), and the stack runs Compose on that target at [deploy.sh:580](../../manager/swarm-hls-stream/deploy/scripts/deploy.sh:580). No shared-clock requirement or attempt-identity check appears in the proposed release rule. Local wall-clock changes can also make a time comparison unreliable.
 
 **Smallest correction:** automatic release requires persisted or observed evidence tied to the specific job/attempt on the verified daemon. For example, identify its created containers by an attempt identifier, or retain a durable completion record for the conflicting work. Old container IDs cannot become positive completion evidence because their timestamps happen to compare later. If the implementation cannot identify completion of that attempt, use Fable's already proposed blocked state and verified operator release. It does not need a surviving executor merely to remain blocked.
 
@@ -2185,8 +2185,8 @@ Precise questions for Fable round 5:
 ```text
 You are Fable, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64.
 
 First run git rev-parse HEAD and git diff --stat d046ebf HEAD. Read the repository instructions and the whole document, especially OpenAI round 5 and its three closing questions.
@@ -2222,7 +2222,7 @@ Author: Fable 5.1, Anthropic model `claude-fable-5-1`, in Claude Code on Levi's 
 OpenAI's interleaving is real: two atomic single-file replacements with a pause between them give capture a valid B and a valid A, and no per-file check can see that they belong to different revisions. The correction adds one mechanism that both the supported editor and capture use:
 
 - **A revision manifest as the commit.** Each version root, and the bundled root, carries `.config-revision.json`: a generation number and the hash of every host-owned file in the set, today `.env`, `deploy/config.json` and every `engines/<engine>/.env`. It is written last, by atomic rename. A revision exists only when its manifest does.
-- **One advisory lock around the whole edit.** The supported editing path is a small manager-provided script in the checkout, `deploy/scripts/stack-config-edit.sh`, which takes `flock` on `<root>/.config.lock`, opens the operator's editor or applies the given changes, replaces each file atomically, writes the manifest, and releases. Capture takes the same lock with a bounded wait. Both processes run on one kernel, the api container's bind mount included, so the lock holds across them. The manager's own writers of host-owned files, including the sample bootstrap, go through the same script.
+- **One advisory lock around the whole edit.** The supported editing path is a small manager-provided script in the checkout, `manager/scripts/stack-config-edit.sh`, which takes `flock` on `<root>/.config.lock`, opens the operator's editor or applies the given changes, replaces each file atomically, writes the manifest, and releases. Capture takes the same lock with a bounded wait. Both processes run on one kernel, the api container's bind mount included, so the lock holds across them. The manager's own writers of host-owned files, including the sample bootstrap, go through the same script.
 - **Capture verifies the commit, not the files.** Under the lock, capture reads the manifest, reads each listed file with the per-file rules from round 4, and compares every hash to the manifest. Any mismatch refuses publication and names the file. A file present in the set but missing from the manifest refuses too. The captured bytes and the generation are stored with the build or job.
 - **Three ways to be wrong, all refused.** An editor paused inside the lock makes capture wait and then refuse with "the host configuration is being edited". An editor that died between two replacements leaves files that do not match the manifest, refused by hash until the operator commits again with the script. An edit outside the script is unsupported, is refused by hash as well, and the documentation says how to commit it.
 - **Migration.** A root without a manifest gets generation 1 from its current bytes at the manager's first boot after the change, recorded as such, because nothing older exists to compare against.
@@ -2341,7 +2341,7 @@ Persisting the pre-job IDs on the verified daemon eliminates the ahead-clock cou
 
 The inference from “not in the pre-job set” to “created by this attempt” depends on the sentence that only this job creates containers in the project while its claim holds. That premise must continue to hold during orphan recovery. The recorded design does not currently establish it.
 
-The reviewed restart path changes DEPLOYING to ERROR at [ProfileRepository.ts:307](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/ProfileRepository.ts:307). ERROR permits another deployment claim at [DeploymentOrchestrator.ts:102](/Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/manager/src/domain/DeploymentOrchestrator.ts:102). Fable round 4's T04a design explicitly allows another claim while older build references remain unresolved. T05a's recorded daemon lock serializes shared-tag jobs while allowing fixed project-image jobs to run concurrently.
+The reviewed restart path changes DEPLOYING to ERROR at [ProfileRepository.ts:307](../../manager/src/domain/ProfileRepository.ts:307). ERROR permits another deployment claim at [DeploymentOrchestrator.ts:102](../../manager/src/domain/DeploymentOrchestrator.ts:102). Fable round 4's T04a design explicitly allows another claim while older build references remain unresolved. T05a's recorded daemon lock serializes shared-tag jobs while allowing fixed project-image jobs to run concurrently.
 
 **Exact interleaving, using only manager-controlled jobs:**
 
@@ -2438,8 +2438,8 @@ Precise questions for Fable round 6:
 ```text
 You are Fable, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64.
 
 First run git rev-parse HEAD and git diff --stat d046ebf HEAD. Read the repository instructions and the whole document, especially OpenAI round 6 and its two closing questions.
@@ -2593,8 +2593,8 @@ The ready-first set remains **T01a, T02, T10, T13, T19, T11, T16, T17 and the tw
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Fable round 1 is complete. Read the repository instructions, then the whole document, then Fable's round under "Comments / Fable round 1", sections 1 to 8, and the updated agreement register.
@@ -2617,8 +2617,8 @@ Only edit the shared document. Do not implement fixes, publish issues, change re
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Fable round 2 is complete. Read the repository instructions, the whole document, and Fable round 2 under Comments, sections 1 to 7.
@@ -2640,8 +2640,8 @@ Only edit the shared document. No fixes, issues, repository settings, builds, pu
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Fable round 3 is complete. Read the repository instructions, the whole document, and Fable round 3 under Comments, sections 1 to 6.
@@ -2662,8 +2662,8 @@ Only edit the shared document. No fixes, issues, repository settings, builds, pu
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Three things changed since your round 4. Levi decided D01 through D10, all as recommended, on 2026-09-07. They are recorded under "Decisions taken by Levi" below the open-decisions table, with D04 and D05 still needing his numbers. Fable round 4 is complete under Comments, sections 1 to 5. And the host facts are recorded in the evidence section: Docker Engine 29.1.3 on the host and Compose v5.1.4 inside the api container, read by Levi over ssh on 2026-09-07.
@@ -2684,8 +2684,8 @@ Only edit the shared document. No fixes, issues, repository settings, builds, pu
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Fable round 5 is complete under Comments, sections 1 to 5. It adopts both of your round 5 corrections: T04a captures host-owned inputs as one committed revision under a shared advisory lock with a hash manifest written last, and T05a identifies an orphaned attempt's work by container ids absent from a persisted pre-job set, with no clock comparison and a blocked state otherwise.
@@ -2706,8 +2706,8 @@ Only edit the shared document. No fixes, issues, repository settings, builds, pu
 ```text
 You are OpenAI-hosted Codex, continuing the main-v2 review consensus for streaming-infra-manager.
 
-Repository: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager
-Shared debate document: /Users/kisslevente/Documents/git/SolarPunk/streaming-infra-manager/.scratch/main-v2-review-consensus/PRD.md
+Repository: ../../ (this repository, two levels up from this file)
+Shared debate document: ../../.scratch/main-v2-review-consensus/PRD.md
 Reviewed baseline: main-v2 at d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64. Run `git rev-parse HEAD` and `git diff --stat d046ebf HEAD` first and record any change.
 
 Fable round 6 is complete under Comments, sections 1 to 5. It adopts your round 6 T05a correction as recorded: a durable creation guard per daemon and Compose project, taken by every deploy attempt with its pre-job container set, checked at every admission for that project regardless of sharedImageTags, released only when the attempt resolves. Fable extended it from legacy attempts to every attempt, because the same-project variant of the race exists without shared tags, and added one assertion to your regression. Fable approves the exact recorded set of 25 rows.

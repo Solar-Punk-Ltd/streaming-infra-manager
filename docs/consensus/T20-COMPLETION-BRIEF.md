@@ -4,6 +4,8 @@ Status: record, done. This slice merged as `ab8776c` on 2026-09-10 and reached t
 
 Written by Fable on 2026-09-10 for the Opus implementation session. Baseline: `feat/ai-remediation` at 49310f7, the T09 completion merge (8f48fb0) plus its handover line. Task branch: `feat/t20-ci-completion`. The PR is #40 into `main-v2`.
 
+Pre-move paths: item 3 below describes three native transport files sitting in the deployment integration suite where nothing ran them. That is what this slice fixed. They were renamed into `manager/test/native/` at `4ffdbc6` on 2026-09-10 and `pnpm test:native` runs them there, so read every `test/integration/` path to those three files as `test/native/`.
+
 ## What T20 is, what exists, what is missing
 
 T20 is the agreed merge gate: a workflow on every pull request that proves the code compiles and its guarantees hold, and a separate, documented Docker-backed workflow for the container-backed regressions. Decision D06: the checks are required on `main-v2`, Levi keeps a bypass, agents never push to `main-v2`. Read `docs/consensus/issues/t20-ci-and-merge-gate.md` and `docs/ci.md`.

@@ -1,6 +1,6 @@
 # fix: a new deployment on a host without a shared passphrase gets one of its own (T13)
 
-Branch `fix/t13-srt-default`, five commits on top of main-v2 at d046ebf. Not pushed. Row T13 of the consensus set, see `../issues/t13-srt-default.md`. Decision D03 applied as decided.
+Branch `fix/t13-srt-default`, five commits on top of main-v2 at d046ebf. Not pushed. Row T13 of the consensus set, see `../issues/t13-srt-safe-default.md`. Decision D03 applied as decided.
 
 ## What was wrong
 

@@ -4,6 +4,8 @@ Status: record, done. This slice merged as `8f48fb0` on 2026-09-10 and reached t
 
 Written by Fable on 2026-09-10 for the Opus implementation session. Baseline: `feat/ai-remediation` at 64563da. Task branch: `feat/t09-receipt-polling`, cut from that head. The PR is #40 into `main-v2`.
 
+Pre-move paths: the native transport suites named below as `manager/test/integration/localDockerUnix.test.ts` and its neighbours were renamed into `manager/test/native/` at `4ffdbc6` on 2026-09-10, where `pnpm test:native` runs them. Read every `test/integration/` path to one of those three files as `test/native/`.
+
 ## What T09 is, and what is still missing
 
 T09 makes every BZZ move between a deployment's Bee node and its chequebook a durable operation with a transaction identity. The journal, the one-open-operation-per-node rule, the receipt check by hash, the recovery of a lost response, the manual hash resolution and the D10 assertion are all merged. Read `docs/consensus/issues/t09-money-by-transaction.md` for the accepted design and `docs/features/chequebook.md` for how the merged code behaves.
