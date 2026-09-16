@@ -114,6 +114,7 @@ All command endpoints stream output as Server-Sent Events
 | DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
 | PUT    | `/profiles/:name` | the editable fields                               | Full edit. 202 and the profile.                               |
 | PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
+| GET    | `/profiles/:name/srt-passphrase` | none | `{ srt_passphrase }`, `no-store`. The deployment's own SRT passphrase, which the row no longer carries. Every read is logged with the signed-in user's name. |
 
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
@@ -263,7 +264,7 @@ things an operator does to it by hand.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
-| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_WINDOW?, ABR_*? }` | 202 and the profile. Recreates the engine container only |
+| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
