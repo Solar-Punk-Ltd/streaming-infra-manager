@@ -168,6 +168,32 @@ function withoutLadderSettings(profile: Profile): EngineSettings {
   });
 }
 
+/**
+ * The next `count` free `<group>-profile-N` names, skipping any already taken.
+ *
+ * A fan-out member's name is a label rather than a position, so a taken one is
+ * stepped over. A ladder rung's name says which rung it is, so a ladder builds
+ * its names elsewhere and refuses a collision rather than skipping past it.
+ */
+function nextFreeMemberNames(
+  groupName: string,
+  count: number,
+  taken: ReadonlySet<string>,
+): { name: string }[] {
+  const names: { name: string }[] = [];
+  let n = 1;
+  while (names.length < count) {
+    let candidate = `${groupName}-profile-${n}`;
+    while (taken.has(candidate)) {
+      n += 1;
+      candidate = `${groupName}-profile-${n}`;
+    }
+    names.push({ name: candidate });
+    n += 1;
+  }
+  return names;
+}
+
 function servicesToRecreate(
   engine: EngineName,
   before: EngineSettings,
@@ -396,8 +422,9 @@ export class ProfileService {
     // claim is taken for it, and it is what is written and deployed, so the
     // state that is judged is the state that lands. PUT replaces every
     // editable field, so a field the body leaves out becomes null here the
-    // way the write stores it.
-    const edits = nullify({
+    // way the write stores it. The signing key is the exception: it is never
+    // answered to a page, so a body that leaves it out keeps the stored one.
+    const { private_key: keyEdit, ...edits } = nullify({
       notes: input.notes,
       feed_owner: input.feed_owner,
       feed_topic: input.feed_topic,
@@ -409,7 +436,11 @@ export class ProfileService {
       rpc_endpoint: input.rpc_endpoint,
       srt_passphrase: input.srt_passphrase,
     });
-    const proposed: Profile = { ...existing, ...edits };
+    const proposed: Profile = {
+      ...existing,
+      ...edits,
+      has_private_key: keyEdit !== null || existing.has_private_key,
+    };
 
     // A body that omits bee_publishers clears it. For an abr-uploader that
     // silently removes the only thing it publishes through, and neither yup
@@ -444,7 +475,7 @@ export class ProfileService {
       const written = await this.repo.updateEditable(
         name,
         existing.kind,
-        { ...edits, components: existing.components },
+        { ...edits, private_key: keyEdit, components: existing.components },
         laddersEnded ? withoutLadderSettings(existing) : undefined,
         notesRevisionSent,
       );
@@ -586,7 +617,9 @@ export class ProfileService {
       try {
         template = engineTemplateIn(root, engine).text;
       } catch {
-        // Missing or unreadable metadata is represented in each affected observation.
+        // A template that cannot be read is passed on as null on purpose: both
+        // readings functions take null and report it per field, rather than
+        // this failing the whole overview.
       }
       readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
         : srsSettingReadings(template, engineConfig, fields, { abr });
@@ -792,19 +825,9 @@ export class ProfileService {
         members.push({ name });
       }
     } else {
-      // todo string array
-      let n = 1;
-      while (members.length < input.size) {
-        let candidate = `${input.group_name}-profile-${n}`;
-        while (usedNames.has(candidate)) {
-          n += 1;
-          candidate = `${input.group_name}-profile-${n}`;
-        }
-
-        usedNames.add(candidate);
-        members.push({ name: candidate });
-        n += 1;
-      }
+      members.push(
+        ...nextFreeMemberNames(input.group_name, input.size, usedNames),
+      );
     }
 
     const placement = await this.placementFor(version, input.host ?? null, input.abr_ladder ? ABR_RUNG_COMPONENTS : input.components);
@@ -984,7 +1007,6 @@ export class ProfileService {
       components: m.components,
       feed_owner: pick(input.feed_owner, m.feed_owner),
       feed_topic: pick(input.feed_topic, m.feed_topic),
-      private_key: m.private_key,
       public_key: m.public_key,
       stamp_id: pick(input.stamp_id, m.stamp_id),
       srt_passphrase: pick(input.srt_passphrase, m.srt_passphrase),
@@ -1153,7 +1175,10 @@ export class ProfileService {
       host: canonical.host,
       feed_owner: canonical.feed_owner,
       feed_topic: canonical.feed_topic,
-      private_key: canonical.private_key,
+      // Every member of a group publishes the same feed, so an appended member
+      // needs the key the others sign with. It is read on its own, because the
+      // member rows this is built from do not carry it.
+      private_key: await this.repo.privateKeyOf(canonical.name),
       public_key: canonical.public_key,
       stamp_id: canonical.stamp_id,
       srt_passphrase: canonical.srt_passphrase,
@@ -1163,20 +1188,8 @@ export class ProfileService {
       table: placement.table,
     };
 
-    // Generate the next free `<group>-profile-N` names, skipping any taken.
     const usedNames = new Set((await this.repo.list()).map((p) => p.name));
-    const seeds: { name: string }[] = [];
-    let n = 1;
-    while (seeds.length < count) {
-      let candidate = `${group.name}-profile-${n}`;
-      while (usedNames.has(candidate)) {
-        n += 1;
-        candidate = `${group.name}-profile-${n}`;
-      }
-      usedNames.add(candidate);
-      seeds.push({ name: candidate });
-      n += 1;
-    }
+    const seeds = nextFreeMemberNames(group.name, count, usedNames);
 
     const created = await this.groupRepo.addMembers(groupId, seeds, shared);
 
