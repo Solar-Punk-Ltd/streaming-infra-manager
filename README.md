@@ -69,6 +69,22 @@ run any of it on a laptop: [docs/ci.md](docs/ci.md).
 
 - [docs/features/](docs/features/): one page per feature, what the operator
   sees and how the code behaves. Start here to understand a capability.
+  - [stack-versions.md](docs/features/stack-versions.md): versions, immutable
+    builds, the copies a deploy runs from, and settings revisions.
+  - [engine-control.md](docs/features/engine-control.md): engine settings,
+    restart, logs and the effective config from the UI.
+  - [engine-config.md](docs/features/engine-config.md): a deployment's own SRS
+    or OvenMediaEngine configuration file.
+  - [group-deployment.md](docs/features/group-deployment.md): several
+    deployments created at once under one name.
+  - [abr-ladder.md](docs/features/abr-ladder.md): a node pool with one Bee node
+    per quality rung, and the pool string an uploader publishes to.
+  - [chequebook.md](docs/features/chequebook.md): funding a node's chequebook
+    and recovering a transfer.
+  - [auth-and-public-access.md](docs/features/auth-and-public-access.md): the
+    login gate, the HTTPS edge, the API binds and the host firewall.
+  - [next-features-2026-09.md](docs/features/next-features-2026-09.md): the
+    September plan, kept as the record of what was asked for and why.
 - [docs/ci.md](docs/ci.md): what each CI job proves, what it does not, and how
   to run any suite on a laptop.
 - [docs/testing/](docs/testing/): what particular suites cover and, as
