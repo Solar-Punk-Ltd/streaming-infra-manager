@@ -1234,7 +1234,7 @@ export class DeploymentOrchestrator {
     });
   }
 
-  // rsync --delete on deploy wipes these gitignored files; recreate before every script run.
+  // rsync --delete on deploy wipes these gitignored files, so recreate before every script run.
   private async ensureStackDefaults(paths: StackPaths): Promise<void> {
     const created = await bootstrapStackDefaults(paths.root);
     for (const file of created) {
@@ -1566,7 +1566,7 @@ export class DeploymentOrchestrator {
     if (omePorts.omeSrtPort) env.OME_SRT_PORT = String(omePorts.omeSrtPort);
     if (omePorts.omeHlsPort) env.OME_HLS_PORT = String(omePorts.omeHlsPort);
 
-    // Parameter overrides — same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
+    // Parameter overrides, same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
     if (profile.feed_owner) {
       env.VITE_APP_OWNER = profile.feed_owner.replace(/^0x/, '');
     }

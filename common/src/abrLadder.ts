@@ -14,14 +14,14 @@ import {
 
 /**
  * An ABR ladder is a deployment **group** whose members are ordinary
- * bee-uploader profiles — one Bee node per quality rung — used as the publish
+ * bee-uploader profiles, one Bee node per quality rung, used as the publish
  * targets for a stream-uploader running elsewhere.
  *
  * Nothing about it is a new kind of deployment. A rung is a normal profile with a
  * normal slot, its own data dir and its own `stamp_id`, deployed by the
  * `bee-uploader` service that already exists. That is the point: the streaming
  * repo needs to know nothing about ladders, and every per-node operation the
- * manager already supports — fund, buy a batch, stop, remove — works unchanged.
+ * manager already supports (fund, buy a batch, stop, remove) works unchanged.
  *
  * The ladder exists in two places only: the member *names*, which carry the rung,
  * and the BEE_PUBLISHERS string assembled from them.
@@ -37,11 +37,11 @@ import {
  * What a deployment group is for.
  *
  * `abr-node-pool` is recorded on the group rather than inferred from its
- * members' names: a pool with a rung removed still *is* a pool — one that needs
- * fixing — and inferring it would make the group quietly stop being one at
+ * members' names: a pool with a rung removed still *is* a pool, one that needs
+ * fixing, and inferring it would make the group quietly stop being one at
  * exactly the moment that matters.
  *
- * "Node pool" is the operator-facing name — the group holds Bee nodes and no
+ * "Node pool" is the operator-facing name: the group holds Bee nodes and no
  * uploader. "Ladder" stays the word for its shape, one rung per quality.
  */
 export const STANDARD_GROUP_KIND = 'standard';
@@ -61,12 +61,12 @@ export interface AbrRung {
   name: string;
   width: number;
   height: number;
-  /** Encoder target, kbps. Batch sizing depends on it — see suggestedRungDepth. */
+  /** Encoder target, kbps. Batch sizing depends on it. See suggestedRungDepth. */
   kbps: number;
 }
 
 /**
- * The shipped ABR ladder — the same rungs, geometry and target bitrates as the
+ * The shipped ABR ladder, the same rungs, geometry and target bitrates as the
  * engine's default `ABR_LADDER`, in the order `AbrLadder.rungs()` returns and
  * `BeePublisherPool.perRung` expects.
  *
@@ -91,7 +91,7 @@ export const ABR_LADDER_SIZE = DEFAULT_ABR_LADDER.length;
 /** The single service every rung member deploys. */
 export const ABR_RUNG_COMPONENTS: readonly string[] = [BEE_UPLOADER_SERVICE];
 
-/** Bee's minimum purchasable batch depth — the floor the ladder scales from. */
+/** Bee's minimum purchasable batch depth, the floor the ladder scales from. */
 export const MIN_STAMP_DEPTH = 17;
 
 /**
@@ -99,7 +99,7 @@ export const MIN_STAMP_DEPTH = 17;
  *
  * Held here rather than imported from the manager's status enum, which `common`
  * does not depend on. A stopped rung's node answers nothing, so its address in
- * BEE_PUBLISHERS is a promise the ladder cannot keep — and the Uploaders tab, which
+ * BEE_PUBLISHERS is a promise the ladder cannot keep, and the Uploaders tab, which
  * is about batches, showed no status at all, so a stopped rung looked identical to
  * a running one.
  */
@@ -157,14 +157,14 @@ export function rungOrder(rungName: string): number {
 
 // `isLadderGroup` / `looksLikeLadderGroup` lived here, deriving pool-ness from
 // the member names. `deployment_groups.kind` answers that now, and answers it
-// for a damaged pool too, so both had no callers left — only tests and a doc
+// for a damaged pool too, so both had no callers left, only tests and a doc
 // paragraph arguing for a distinction the column removed.
 
 /**
  * Depth to suggest for a rung's batch, given the depth chosen for the lowest rung.
  *
  * A batch of depth d holds 2^d chunks, and a rung fills its batch in proportion to
- * its bitrate — so equal depths across the ladder means the top rung's batch fills
+ * its bitrate, so equal depths across the ladder means the top rung's batch fills
  * roughly seven times faster than the bottom one's and the four expire hours
  * apart. That staggering is the whole problem one-node-per-rung exists to contain,
  * and handing every rung the same default would walk straight back into it.
@@ -210,7 +210,7 @@ export interface LadderRungState {
   /**
    * What the rung's bee node says about that batch, when it was asked.
    *
-   * A recorded id is not a working batch — batches expire on their own and
+   * A recorded id is not a working batch. Batches expire on their own and
    * nothing writes that back. `'unknown'` (or absent) means unverified, which
    * deliberately does not block: a node being unreachable is not evidence that
    * its batch is dead.
@@ -220,7 +220,7 @@ export interface LadderRungState {
   stampTtl?: number | null;
   /**
    * What `url` above is worth. Composed arithmetically, so it always parses as a
-   * URL; `'unknown'` (or absent) means nothing has checked it.
+   * URL. `'unknown'` (or absent) means nothing has checked it.
    */
   urlState?: PublishUrlState;
 }
@@ -241,7 +241,7 @@ export interface BeePublishersResult {
   missing: RungNote[];
   /**
    * Ready, but worth a look: a batch nobody could verify, an address nothing
-   * answered at, a batch about to run out. Never a reason to withhold the value —
+   * answered at, a batch about to run out. Never a reason to withhold the value,
    * only reasons to check before trusting it.
    *
    * Reported only for rungs that are not already in `missing`: a rung we have
@@ -255,13 +255,13 @@ export interface BeePublishersResult {
  *
  * Pure, and separate from fetching them, so the ordering and the readiness rules
  * can be tested without a database. Rungs are emitted in ascending ladder order
- * regardless of the order supplied — `BeePublisherPool.perRung` sorts by ladder
+ * regardless of the order supplied: `BeePublisherPool.perRung` sorts by ladder
  * anyway, but the string is also read by humans, and lowest-first matches how the
  * ladder is described everywhere else.
  *
  * Emitted only when every rung has a batch the node will still honour: the
  * uploader refuses a ladder with a rung missing, so a partial string would fail
- * later and less clearly than naming the rung that is not ready — and a string
+ * later and less clearly than naming the rung that is not ready, and a string
  * built from expired batches is worse still, since it looks complete and fails
  * on every upload.
  */
@@ -383,7 +383,7 @@ const PUBLISHER_ENTRY_RE = /^([^\s@<>]+)@([^\s<>]+)<(?:0x)?([0-9a-fA-F]{64})>$/;
  * Parse a BEE_PUBLISHERS value, or null when any entry is not `rung@url<batch>`.
  *
  * Bracketed form only: it is what the pool card emits, and the older `#` form
- * cannot survive the `.env` file this is written into. Shape only — whether the
+ * cannot survive the `.env` file this is written into. Shape only, whether the
  * rungs make a ladder is `beePublishersProblem`'s question.
  */
 export function parseBeePublishers(
@@ -409,8 +409,8 @@ export function parseBeePublishers(
  * The canonical form of a pasted BEE_PUBLISHERS: one space between entries,
  * batch ids lower-case and without an `0x` prefix.
  *
- * `parseBeePublishers` already tolerates all of that — it splits on any run of
- * whitespace and strips the prefix — but the tolerance stopped at the parser:
+ * `parseBeePublishers` already tolerates all of that: it splits on any run of
+ * whitespace and strips the prefix, but the tolerance stopped at the parser:
  * the raw string was what got stored and what `writeProfileEnv` wrote, so an
  * accepted paste and the written value could differ. Two shapes reached the
  * uploader that way, and neither is one it accepts:
@@ -425,7 +425,7 @@ export function parseBeePublishers(
  *
  * Both are the far-away failure this module exists to prevent, so the accepted
  * form and the stored form are now the same string. Left alone when it does not
- * parse — `beePublishersProblem` reports the shape error against what was typed.
+ * parse, `beePublishersProblem` reports the shape error against what was typed.
  */
 export function normalizeBeePublishers<T extends string | null | undefined>(
   value: T,
@@ -447,7 +447,7 @@ export function normalizeBeePublishers<T extends string | null | undefined>(
  * Why a pasted BEE_PUBLISHERS cannot be used, or null when it can. Empty means
  * "not set", which is not a problem.
  *
- * Checked where the operator can still fix it — the form and the API — rather
+ * Checked where the operator can still fix it, the form and the API, rather
  * than by an uploader refusing to start on another machine. The rules are the
  * uploader's own: every rung of the ladder, no rung twice, nothing else, and an
  * address it can reach. The ladder is the shipped one because that is what the
@@ -494,7 +494,7 @@ export function beePublishersProblem(
 }
 
 /**
- * The engine's `ABR_LADDER` for the shipped ladder — `name:width:height:kbps`,
+ * The engine's `ABR_LADDER` for the shipped ladder, `name:width:height:kbps`,
  * space separated, highest rung first as the engine's own sample writes it.
  *
  * Written beside BEE_PUBLISHERS so the two cannot drift: the uploader refuses

@@ -54,7 +54,7 @@ export function createActionsRouter(deployService: DeployService): Router {
     asyncHandler(async (req: Request, res: Response) => {
       const profileName = req.params.name as string;
       const handle = await deployService.run(profileName, 'deploy-uploader');
-      // The action runs the submodule's deploy.sh scoped to the uploader —
+      // The action runs the submodule's deploy.sh scoped to the uploader,
       // report that, not a nonexistent "deploy-uploader.sh".
       pipeRunHandleToSSE(res, handle, {
         script: 'deploy.sh',

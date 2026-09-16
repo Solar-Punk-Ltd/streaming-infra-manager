@@ -30,7 +30,7 @@ export interface Profile {
   public_key: string | null;
   stamp_id: string | null;
   /**
-   * A pasted BEE_PUBLISHERS — the uploader publishes to an ABR node pool, which
+   * A pasted BEE_PUBLISHERS: the uploader publishes to an ABR node pool, which
    * may sit under another manager on another machine. NULL: publish through
    * this profile's own bee-uploader with `stamp_id`.
    */
@@ -45,7 +45,7 @@ export interface Profile {
   bee_url: string | null;
   /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */
   rpc_endpoint: string | null;
-  /** SRS only; null falls back to the base .env. See migrations/007. */
+  /** SRS only. Null falls back to the base .env. See migrations/007. */
   srt_passphrase: string | null;
   /**
    * Engine settings this deployment overrides, by their env key. An absent key

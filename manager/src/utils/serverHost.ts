@@ -7,7 +7,7 @@ const logger = Logger.getInstance();
 /**
  * The address clients should use to reach deployed components. Components run on
  * the same host as the manager, so this is the server's own address, supplied
- * via PUBLIC_HOST (set by deploy.sh from the remote host's real IP — the
+ * via PUBLIC_HOST (set by deploy.sh from the remote host's real IP: the
  * manager runs in a container and can't detect it itself). Falls back to
  * localhost for local development.
  */

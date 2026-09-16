@@ -11,7 +11,7 @@ export const KIND_DEFAULT_SERVICES = {
   /**
    * Publishes to an ABR node pool, so it runs no Bee node of its own: the pool's
    * rungs are the publish targets and they hold the postage. Dropping
-   * `bee-uploader` is also what lets an explicit `BEE_URL` survive — deploy.sh
+   * `bee-uploader` is also what lets an explicit `BEE_URL` survive, because deploy.sh
    * overwrites it whenever a local bee-uploader is enabled.
    */
   'abr-uploader': [SRS_SERVICE, STREAM_UPLOADER_SERVICE],
@@ -46,10 +46,10 @@ export function servicesNeedStamp(services: readonly string[]): boolean {
 }
 
 /**
- * A profile that is nothing but a Bee node — an ABR ladder rung, or any bare
+ * A profile that is nothing but a Bee node: an ABR ladder rung, or any bare
  * publish target.
  *
- * It has no stream-uploader, so `servicesNeedStamp` says no; but it still owns a
+ * It has no stream-uploader, so `servicesNeedStamp` says no, but it still owns a
  * wallet and buys its own postage batch, which is exactly what the uploader cards
  * manage. Without this such a profile would be invisible on the Uploaders tab and
  * there would be no way to fund it.
@@ -76,11 +76,11 @@ export function ownsBeeNode(profile: StampGatedProfile): boolean {
  * Everything the Uploaders tab lists.
  *
  * "Uploads a stream" and "owns the postage that pays for it" were once the same
- * test, and a pool-backed uploader answers no to the second — so it disappeared
+ * test, and a pool-backed uploader answers no to the second, so it disappeared
  * from the tab altogether, taking its SRT publish URL with it and leaving no
  * view that says where to point OBS.
  *
- * They are two questions. This one decides who appears; `managesOwnStamp`
+ * They are two questions. This one decides who appears. `managesOwnStamp`
  * decides which card they get.
  */
 export function isUploader(profile: StampGatedProfile): boolean {
@@ -88,13 +88,13 @@ export function isUploader(profile: StampGatedProfile): boolean {
 }
 
 /**
- * An uploader that buys and holds its own postage — the ones whose card carries
+ * An uploader that buys and holds its own postage, the ones whose card carries
  * a wallet, a batch list and a buy form.
  *
  * A pool-backed uploader is excluded: its batches are bought per rung on the
  * pool's own card, it has no Bee node of its own, and a funding panel here
- * would poll an address nothing answers at. It is still listed — see
- * `isUploader` — just with a card that has no postage on it.
+ * would poll an address nothing answers at. It is still listed (see
+ * `isUploader`), just with a card that has no postage on it.
  */
 export function managesOwnStamp(profile: StampGatedProfile): boolean {
   return isUploader(profile) && !usesNodePool(profile);
@@ -111,9 +111,9 @@ export function hasBeePublishers(profile: StampGatedProfile): boolean {
 /**
  * An uploader that publishes to an ABR node pool.
  *
- * Its postage is the pool's — one batch per rung, bought over there, possibly
- * under a different manager — so this profile's own `stamp_id` is not what gates
- * it. `BEE_PUBLISHERS` set is what the uploader starts on; `STAMP` is ignored
+ * Its postage is the pool's, one batch per rung, bought over there, possibly
+ * under a different manager, so this profile's own `stamp_id` is not what gates
+ * it. `BEE_PUBLISHERS` set is what the uploader starts on. `STAMP` is ignored
  * while it is.
  */
 export function usesNodePool(profile: StampGatedProfile): boolean {
@@ -124,7 +124,7 @@ export function usesNodePool(profile: StampGatedProfile): boolean {
     // And genuinely has no node of its own. Keying on BEE_PUBLISHERS alone was
     // enough to drop a profile from the Uploaders tab, but a profile that runs
     // a bee-uploader *and* was given a pool string still owns a wallet and a
-    // batch — hiding it left no way to fund the node it is actually running.
+    // batch, hiding it left no way to fund the node it is actually running.
     // The exclusion exists because a funding panel would poll a node that does
     // not exist, so absence of the node is what it should test.
     !services.includes(BEE_UPLOADER_SERVICE)
@@ -146,7 +146,7 @@ export interface BeeTargetProfile extends StampGatedProfile {
  *
  *  - `bee_url` was accepted on a profile that runs a local bee-uploader, which
  *    is the "stores a value that never applies" state the create-side check
- *    exists to prevent — deploy.sh's resolve_bee_url outranks the stored value.
+ *    exists to prevent: deploy.sh's resolve_bee_url outranks the stored value.
  *  - `bee_url` was accepted next to a stored `bee_publishers`, so a config
  *    could say two different things about where uploads go.
  *  - an abr-uploader could be left with no `bee_publishers` at all, which the

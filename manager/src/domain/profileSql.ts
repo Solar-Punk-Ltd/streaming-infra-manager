@@ -6,7 +6,7 @@
  * `bee_url` were added to one and not the other, so a group config PATCH
  * returned member rows with both fields `undefined`. Those rows go straight
  * into `startDeploy`, and `writeProfileEnv` rebuilds `.env.<profile>` from a
- * fresh copy of the base `.env` — so a column missing from this list is not
+ * fresh copy of the base `.env`, so a column missing from this list is not
  * merely absent from the row, it is dropped from the deployed environment
  * while the database and the UI still show it set.
  *

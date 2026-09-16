@@ -2,8 +2,8 @@
 export const METRICS_SAMPLE_INTERVAL_MS = 2000;
 
 // Resource snapshot shared by the manager API and the frontend.
-// Bytes are absolute; *Rate fields are bytes/second between samples.
-// host.cpuPercent is 0–100 for the whole box; container/infra cpuPercent is
+// Bytes are absolute. The *Rate fields are bytes/second between samples.
+// host.cpuPercent is 0–100 for the whole box, and container/infra cpuPercent is
 // share-of-one-core × 100 (an 8-core box tops out at 800).
 
 export interface HostMetrics {
@@ -23,7 +23,7 @@ export interface HostMetrics {
   diskWriteRate: number | null;
 }
 
-// Host minus our infra — only CPU and memory subtract exactly; network and
+// Host minus our infra, only CPU and memory subtract exactly. Network and
 // disk I/O are measured at different points and are shown side by side instead.
 export interface OutsideTotals {
   cpuPercent: number | null;

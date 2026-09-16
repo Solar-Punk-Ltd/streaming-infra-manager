@@ -66,7 +66,7 @@ describe('member naming', () => {
   });
 
   it('strips against the known group name, so similar groups cannot collide', () => {
-    // "abr" owns abr-1080p; "abr-1" owns abr-1-080p-shaped names. Each is only
+    // "abr" owns abr-1080p. "abr-1" owns abr-1-080p-shaped names. Each is only
     // ever parsed against its own group, so neither can claim the other's member.
     assert.equal(rungFromMemberName('abr', 'abr-1080p'), '1080p');
     assert.equal(rungFromMemberName('abr-1', 'abr-1-360p'), '360p');
@@ -354,7 +354,7 @@ describe('assembleBeePublishers — rung address and status', () => {
   });
 
   // The Uploaders tab showed no status at all, so a stopped rung looked exactly
-  // like a running one — and its address answers nothing.
+  // like a running one, and its address answers nothing.
   it('refuses a rung that is not running, and says which state it is in', () => {
     const result = assembleBeePublishers(
       full().map((r) => (r.rung === '720p' ? { ...r, status: 'STOPPED' } : r)),
@@ -394,7 +394,7 @@ describe('assembleBeePublishers — rung address and status', () => {
   });
 
   it('reports a stopped rung ahead of its address and its batch', () => {
-    // All three are wrong; the operator can only act on the first.
+    // All three are wrong. The operator can only act on the first.
     const result = assembleBeePublishers([
       rung('360p', { status: 'STOPPED', urlState: 'loopback' as const, stampState: 'expired' as const }),
       rung('480p'),
@@ -421,7 +421,7 @@ describe('assembleBeePublishers — rung address and status', () => {
     const result = assembleBeePublishers(
       full().map((r) => (r.rung === '360p' ? { ...r, urlState: 'unreachable' as const } : r)),
     );
-    // Could be hairpinning — evidence, not proof.
+    // Could be hairpinning. Evidence, not proof.
     assert.equal(result.ready, true);
     assert.ok(result.value);
     assert.deepEqual(result.warnings.map((w) => w.rung), ['360p']);
@@ -505,7 +505,7 @@ describe('group kind', () => {
 });
 
 describe('a pasted BEE_PUBLISHERS', () => {
-  // Hex only — a `p` in the id would be a parse failure, not a fixture.
+  // Hex only, a `p` in the id would be a parse failure, not a fixture.
   const batch = (rung: string) => rung.replace(/\D/g, '').padEnd(64, '0');
   const full = () =>
     DEFAULT_ABR_RUNGS.map((rung, i) =>
@@ -592,7 +592,7 @@ describe('normalizeBeePublishers', () => {
   it('collapses a newline-separated paste to single spaces', () => {
     // The shape you get copying the four rungs out as four lines. It parses
     // (split is on /\s+/) and so passed validation, but was then written
-    // verbatim into .env.<profile>, whose 2nd-4th lines are not KEY=VALUE —
+    // verbatim into .env.<profile>, whose 2nd-4th lines are not KEY=VALUE,
     // compose refuses the whole file with
     // `unexpected character "@" in variable name`.
     assert.equal(normalizeBeePublishers(entries.join('\n')), canonical);
@@ -621,7 +621,7 @@ describe('normalizeBeePublishers', () => {
 
   it('preserves rung order rather than sorting it', () => {
     // assembleBeePublishers sorts when it builds the string and the uploader
-    // sorts by ladder when it reads it; normalising is not the place to
+    // sorts by ladder when it reads it. Normalising is not the place to
     // reorder, and doing so would hide a paste the operator can still read.
     const reversed = [...entries].reverse().join(' ');
     assert.equal(normalizeBeePublishers(reversed), reversed);

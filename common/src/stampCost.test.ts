@@ -66,7 +66,7 @@ describe('stampCostPlur', () => {
   });
 
   it('handles depth 40 without precision loss (BigInt, not Number)', () => {
-    // 2^40 = 1099511627776; × 1000000 overflows Number safe range
+    // 2^40 = 1099511627776, and × 1000000 overflows Number safe range
     assert.equal(stampCostPlur('1000000', 40), '1099511627776000000');
   });
 

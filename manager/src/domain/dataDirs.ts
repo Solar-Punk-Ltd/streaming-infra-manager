@@ -63,7 +63,7 @@ export function engineConfigFileName(engine: EngineName, config: string): string
 /**
  * Whether a name in the engine directory is one of this engine's config files,
  * current or stale. The plain `srs.conf` is the name the first build of this
- * used, before the tag; a directory under one of these names is what Docker
+ * used, before the tag. A directory under one of these names is what Docker
  * leaves when it restarts a container whose bind-mounted file is gone.
  */
 export function isEngineConfigFile(engine: EngineName, name: string): boolean {

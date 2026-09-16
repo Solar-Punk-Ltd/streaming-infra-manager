@@ -14,9 +14,9 @@ const logger = Logger.getInstance();
 const KIB = 1024;
 const SECTOR_SIZE = 512;
 
-// Count real NICs only — skip loopback and virtual/container links.
+// Count real NICs only: skip loopback and virtual/container links.
 const VIRTUAL_IFACE_RE = /^(lo$|veth|docker|br-|virbr|tap|tun|cni|flannel|kube)/;
-// Whole physical block devices — skip partitions, loop, dm, ram.
+// Whole physical block devices: skip partitions, loop, dm, ram.
 const PHYSICAL_DISK_RE = /^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|mmcblk\d+)$/;
 
 interface CpuTimes {

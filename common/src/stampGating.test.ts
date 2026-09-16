@@ -1,5 +1,5 @@
 /**
- * beeTargetProblem — is a profile's upload destination coherent?
+ * beeTargetProblem: is a profile's upload destination coherent?
  *
  * These rules used to live only as per-field yup tests on
  * `createProfileSchema`, where they could see only the fields in the request
@@ -66,7 +66,7 @@ describe('beeTargetProblem', () => {
   it('refuses bee_url where deploy.sh would overwrite it', () => {
     // A streamer's default services include bee-uploader, and resolve_bee_url
     // computes BEE_URL into an override file that outranks .env.<profile>
-    // whenever a local node is enabled — so the stored value would never apply.
+    // whenever a local node is enabled, so the stored value would never apply.
     assert.match(
       beeTargetProblem({ kind: 'streamer', bee_url: EXTERNAL }) ?? '',
       /runs no bee-uploader/,
@@ -159,7 +159,7 @@ describe('usesNodePool / managesOwnStamp — who the Uploaders tab shows', () =>
 
   it('still shows a profile that runs its own node, pool string or not', () => {
     // The exclusion used to key on BEE_PUBLISHERS alone, so a streamer given a
-    // pool string vanished from the tab — even though it runs a bee-uploader
+    // pool string vanished from the tab, even though it runs a bee-uploader
     // with its own wallet and batch, and that node became impossible to fund
     // until the field was cleared again.
     const streamer = { kind: 'streamer', bee_publishers: PUBLISHERS };
@@ -179,7 +179,7 @@ describe('usesNodePool / managesOwnStamp — who the Uploaders tab shows', () =>
     // No pool string: nothing to exclude.
     assert.equal(usesNodePool({ kind: 'streamer' }), false);
     assert.equal(managesOwnStamp({ kind: 'streamer' }), true);
-    // A bare rung is a Bee node only — funded from the tab, which is the whole
+    // A bare rung is a Bee node only, funded from the tab, which is the whole
     // reason isBeeNodeOnly exists.
     assert.equal(managesOwnStamp({ kind: 'custom', components: ['bee-uploader'] }), true);
     // A viewer uploads nothing.
@@ -190,7 +190,7 @@ describe('usesNodePool / managesOwnStamp — who the Uploaders tab shows', () =>
 describe('isUploader — who the Uploaders tab lists', () => {
   it('lists a pool-backed uploader, which managesOwnStamp does not', () => {
     // The split this test exists for. A pool-backed uploader uploads, so it
-    // belongs on the tab; it owns no postage, so it gets a card with no wallet,
+    // belongs on the tab. It owns no postage, so it gets a card with no wallet,
     // no batch list and no buy form. One predicate each.
     const profile = { kind: ABR_UPLOADER_KIND, bee_publishers: PUBLISHERS };
     assert.equal(isUploader(profile), true);
@@ -210,7 +210,7 @@ describe('isUploader — who the Uploaders tab lists', () => {
   });
 
   it('lists nothing that uploads nothing', () => {
-    // A viewer serves a stream, it does not publish one; a bare srs ingests
+    // A viewer serves a stream, it does not publish one. A bare srs ingests
     // without uploading. Neither has anything the tab could show.
     assert.equal(isUploader({ kind: 'viewer' }), false);
     assert.equal(isUploader({ kind: 'custom', components: ['srs'] }), false);

@@ -2,8 +2,8 @@
  * Whether the address a ladder hands out can actually be reached.
  *
  * `BEE_PUBLISHERS` carries one URL per rung, and that URL is the *only* thing an
- * off-host stream-uploader has to go on. It is built arithmetically — public host
- * plus `10005 + slot*10` — so it always *looks* like a URL, and until something
+ * off-host stream-uploader has to go on. It is built arithmetically, public host
+ * plus `10005 + slot*10`, so it always *looks* like a URL, and until something
  * checks it, "the ladder is ready" means no more than "we were able to compose a
  * string".
  *
@@ -14,12 +14,12 @@
  *    PUBLIC_HOST is unset, and logs a warning nobody reads. The value assembles
  *    fine and cannot work anywhere but this machine.
  *  - **An ssh target used as a network address.** `profiles.host` holds a *deploy*
- *    target — the schema documents it as "localhost, an ssh alias, or user@host".
+ *    target, the schema documents it as "localhost, an ssh alias, or user@host".
  *    A `user@host` target composes to `http://deploy@1.2.3.4:10055`, which is not
  *    a bee base URL, and whose stray `@` sits inside a format that already uses
  *    `@` to separate the rung from the URL.
  *
- * The third way — the address is well-formed but nothing is listening — needs a
+ * The third way, the address is well-formed but nothing is listening, needs a
  * probe, and is reported separately, because a manager that cannot reach a public
  * address is weaker evidence than a malformed one: NAT hairpinning alone explains
  * it.
@@ -45,7 +45,7 @@ export interface PublishUrlHealth {
   state: PublishUrlState;
   /** A bee node was found at this exact address. */
   ok: boolean;
-  /** Provably unusable — no probe needed, and no probe would change it. */
+  /** Provably unusable, no probe needed, and no probe would change it. */
   invalid: boolean;
 }
 

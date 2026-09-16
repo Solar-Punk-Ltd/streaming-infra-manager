@@ -29,8 +29,8 @@ describe('classifyPublishUrl', () => {
     assert.equal(classifyPublishUrl('http://[::1]:10055'), 'loopback');
   });
 
-  // profiles.host holds a deploy target — "localhost, an ssh alias, or
-  // user@host" — and the user@ form is not a network address.
+  // profiles.host holds a deploy target, "localhost, an ssh alias, or
+  // user@host", and the user@ form is not a network address.
   it('rejects an ssh target used as an address', () => {
     assert.equal(
       classifyPublishUrl('http://deploy@65.108.40.58:10055'),
@@ -54,7 +54,7 @@ describe('classifyPublishUrl', () => {
   });
 
   it('says nothing about reachability', () => {
-    // 'ok' is a structural verdict only — the probe decides the rest.
+    // 'ok' is a structural verdict only. The probe decides the rest.
     assert.equal(classifyPublishUrl('http://198.51.100.9:10055'), 'ok');
     assert.equal(publishUrlHealth('ok').ok, true);
     assert.equal(publishUrlHealth('unreachable').ok, false);

@@ -175,7 +175,7 @@ export interface ProfileEnvValues {
   /** A pasted BEE_PUBLISHERS: publish to an ABR node pool rather than STAMP. */
   beePublishers?: string | null;
   /**
-   * An explicit bee API URL. Written only when there is no local bee-uploader —
+   * An explicit bee API URL. Written only when there is no local bee-uploader,
    * deploy.sh's resolve_bee_url overrides this file's value whenever there is.
    */
   beeUrl?: string | null;
@@ -184,7 +184,7 @@ export interface ProfileEnvValues {
    * SRS's SRT listener passphrase.
    *
    * Left absent, the base .env's own SRT_PASSPHRASE survives the copy below and
-   * applies — which is how every deployment behaved before this was settable per
+   * applies, which is how every deployment behaved before this was settable per
    * profile, and what clearing the field goes back to.
    */
   srtPassphrase?: string | null;
@@ -236,7 +236,7 @@ export interface ProfileEnvValues {
   omeHlsPort?: number;
   /**
    * Whether this profile runs a `bee-uploader` of its own, from its full
-   * service list — not from whatever subset is being deployed right now.
+   * service list, not from whatever subset is being deployed right now.
    *
    * deploy.sh's resolve_bee_url needs this and cannot work it out: the service
    * filter tells it which services this invocation was asked for, and the
@@ -292,7 +292,7 @@ export function writeProfileEnv(
   // this profile's own bee-uploader. ABR_ENABLED and ABR_LADDER go here too, not
   // into engines/srs/.env.<profile>: the root env wins over it in deploy.sh, both
   // srs and the uploader read them from the compose environment, and the
-  // uploader refuses to start unless the publishers cover the ladder exactly —
+  // uploader refuses to start unless the publishers cover the ladder exactly,
   // so the two are written by one hand, from one definition.
   // Normalised here too, not only in the schema: rows written before the
   // schema canonicalised the value still hold whatever was pasted, and this is
@@ -318,9 +318,9 @@ export function writeProfileEnv(
     // the base .env, so whatever STAMP was configured there rides along and
     // belongs to someone else. But the uploader declares `stamp: required(…)`
     // unconditionally and its `required()` throws on an empty string, so
-    // blanking it stops the container at config load — even though `config.stamp`
+    // blanking it stops the container at config load, even though `config.stamp`
     // is only ever read by `BeePublisherPool.single()`, which pool mode does not
-    // call. Making STAMP conditional belongs upstream; until then a stray value
+    // call. Making STAMP conditional belongs upstream. Until then a stray value
     // is inert and an empty one is fatal.
   }
 
@@ -365,9 +365,9 @@ export function writeProfileEnv(
 
   // `engines/srs/entrypoint.sh` splices this into srs.conf through a sed s///
   // expression without validating it, so a stray `/` writes a corrupt config and
-  // a stray `&` a surprising one — either way a container that crash-loops under
+  // a stray `&` a surprising one. Either way a container that crash-loops under
   // `restart: unless-stopped`. The request schema and a CHECK constraint both
-  // refuse those already; this is the last gate before the value leaves the
+  // refuse those already. This is the last gate before the value leaves the
   // manager, and covers a row written by anything but those two paths.
   const passphrase = values.srtPassphrase?.trim();
   if (passphrase) {

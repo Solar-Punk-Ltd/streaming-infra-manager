@@ -235,7 +235,7 @@ describe('engineSettingsEnv', () => {
 
   it('drops a rung setting stored before the ladder was turned off', () => {
     // The key stays in the column when the pool string is cleared elsewhere.
-    // Writing it would be a line the engine ignores; refusing it would fail the
+    // Writing it would be a line the engine ignores. Refusing it would fail the
     // deploy over a value no drawer renders.
     assert.deepEqual(
       engineSettingsEnv(

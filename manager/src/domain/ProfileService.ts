@@ -314,7 +314,7 @@ export class ProfileService {
     const version = await this.versionForNewDeployment(input.stack_version_id);
 
     // The same rule the update path applies, over the same shape. The schema
-    // checks these per-field too, with nicer field-scoped messages; this is the
+    // checks these per-field too, with nicer field-scoped messages. This is the
     // one place both paths share, so they cannot drift apart again.
     const configProblem = beeTargetProblem({
       kind: input.kind,
@@ -756,10 +756,10 @@ export class ProfileService {
   /**
    * Members of a pool, in ascending rung order.
    *
-   * Pool-ness itself is *not* derived here — it is `deployment_groups.kind`, so
+   * Pool-ness itself is *not* derived here: it is `deployment_groups.kind`, so
    * a pool with a rung removed is still a pool, which is the moment an operator
    * most needs it reported as one. What this derives is the narrower question of
-   * which rung each member publishes, read from its name; a member whose name
+   * which rung each member publishes, read from its name. A member whose name
    * carries no rung is not one and is skipped.
    */
   private async ladderMembersOf(
@@ -801,7 +801,7 @@ export class ProfileService {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
     // stamp across all four is exactly the failure a node per rung exists to
-    // prevent — and `shared` below is applied to every member, so accepting it
+    // prevent, and `shared` below is applied to every member, so accepting it
     // here would write it four times. Refusing it only on the update path meant
     // POST could create the state PATCH then refused to change.
     if (input.abr_ladder && input.stamp_id) {
@@ -823,7 +823,7 @@ export class ProfileService {
     const members: { name: string }[] = [];
 
     if (input.abr_ladder) {
-      // A ladder's names are not negotiable — the rung lives in the name, so a
+      // A ladder's names are not negotiable: the rung lives in the name, so a
       // taken name cannot be skipped past the way a fan-out member can. Fail
       // loudly instead of quietly building a ladder with a gap in it.
       for (const name of ladderMemberNames(input.group_name)) {
@@ -886,23 +886,23 @@ export class ProfileService {
    * Emitted only when every rung has a batch that will still be honoured.
    * `BeePublisherPool.perRung` refuses a ladder with a rung missing, so a partial
    * string would fail later and less clearly than naming the rung that is not
-   * ready — and a string built from expired batches is worse again, because it
+   * ready, and a string built from expired batches is worse again, because it
    * looks finished and fails on every upload.
    *
    * Neither the profile row nor the composed URL can answer that on its own:
    *
    *  - `profiles.stamp_id` records which batch a rung was pointed at, not whether
-   *    the batch is still alive. Batches are paid, finite leases; they run out on
+   *    the batch is still alive. Batches are paid, finite leases. They run out on
    *    their own and nothing writes that back.
    *  - the URL is `PUBLIC_HOST` plus `10005 + slot*10`, so it always *looks* like
-   *    an address whether or not anything is there — and it is composed from a
+   *    an address whether or not anything is there, and it is composed from a
    *    field that holds a *deploy* target, which may be an ssh alias or
    *    `user@host` rather than a network address.
    *
    * So each rung is checked twice, all rungs in parallel on a short timeout: its
    * node is asked about its batch, and the exact address that goes into the string
    * is asked whether anything answers. A check that cannot be completed leaves its
-   * rung *unverified* rather than unready — an unreachable node or a public address
+   * rung *unverified* rather than unready, an unreachable node or a public address
    * the manager cannot loop back to is not evidence of a fault, so it degrades to a
    * caution instead of a false alarm.
    */
@@ -922,7 +922,7 @@ export class ProfileService {
     const members = await this.ladderMembersOf(group);
     const urls = members.map(({ profile }) => beePublicApiUrlFor(profile));
 
-    // Both probes swallow their own failures; the catches guard an injected probe
+    // Both probes swallow their own failures. The catches guard an injected probe
     // that does not, so one bad node can never fail the whole request.
     const probedAt = Date.now();
     const since = () => Date.now() - probedAt;
@@ -1027,7 +1027,7 @@ export class ProfileService {
     }
 
     // Merge the requested changes onto each member. `undefined` means "not in
-    // the request → keep the member's current value"; an explicit value (incl.
+    // the request → keep the member's current value". An explicit value (incl.
     // null) is applied to every member.
     const pick = <T>(next: T | undefined, current: T): T =>
       next !== undefined ? next : current;

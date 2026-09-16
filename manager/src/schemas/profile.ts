@@ -31,13 +31,13 @@ const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 // flag, so anything wider stores a deployment no deploy can run.
 const FEED_TOPIC_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
-// Four `rung@url<batch>` entries come to ~500 chars; this is headroom, not a
-// format rule — beePublishersProblem is the rule.
+// Four `rung@url<batch>` entries come to ~500 chars. This is headroom, not a
+// format rule. beePublishersProblem is the rule.
 const BEE_PUBLISHERS_MAX = 2000;
 
 /**
  * A pasted BEE_PUBLISHERS. Validated here, where the operator can still fix it,
- * against the same rules the uploader applies when it starts — on another
+ * against the same rules the uploader applies when it starts, on another
  * machine, where the failure would be a container that will not come up.
  */
 const beePublishersField = () =>
@@ -48,7 +48,7 @@ const beePublishersField = () =>
     // Canonicalise before the tests run, so what is stored is what was
     // accepted: entries separated by single spaces, batch ids lower-case and
     // un-prefixed. A four-line paste and an 0x-prefixed batch id both parse
-    // fine here but are refused by the uploader on the other machine — see
+    // fine here but are refused by the uploader on the other machine, see
     // normalizeBeePublishers. Left untouched when it does not parse, so the
     // shape error below still quotes what the operator typed.
     .transform((value) => normalizeBeePublishers(value))
@@ -59,7 +59,7 @@ const beePublishersField = () =>
         : true;
     })
     // An abr-uploader is defined by publishing to a pool. Without the value it
-    // is a streamer with no Bee node and no postage — it would deploy and never
+    // is a streamer with no Bee node and no postage. It would deploy and never
     // upload anything.
     .test('required-for-abr-uploader', 'bee_publishers required', function (v) {
       const { kind } = this.parent as { kind?: string };
@@ -261,7 +261,7 @@ export const updateProfileSchema = object({
       STAMP_ID_RE,
       'stamp_id must be 32-byte hex (optionally 0x-prefixed)',
     ),
-  // Neither the engine nor the components are in an update body; writeProfileEnv
+  // Neither the engine nor the components are in an update body. writeProfileEnv
   // refuses an OME profile at deploy time, and components are immutable after
   // the first deploy so the bee-uploader check cannot newly fail here.
   bee_publishers: beePublishersField(),
@@ -316,7 +316,7 @@ export const createGroupSchema = object({
     ),
   /**
    * Deploy one bee-uploader per ABR quality rung, named `<group>-<rung>`. Size and
-   * components are fixed by the ladder; anything passed for them is ignored.
+   * components are fixed by the ladder. Anything passed for them is ignored.
    */
   abr_ladder: boolean().notRequired(),
   size: number().required().integer().min(1),

@@ -372,7 +372,7 @@ export class MetricsCollector {
 }
 
 function computeCpuPercent(stats: Docker.ContainerStats): number {
-  // docker CLI formula; the first read has no precpu baseline, so report 0.
+  // docker CLI formula. The first read has no precpu baseline, so report 0.
   if (!stats.precpu_stats.system_cpu_usage) return 0;
 
   const cpuDelta =
@@ -434,7 +434,7 @@ function sumBlockIo(stats: Docker.ContainerStats): {
   return { blkReadBytes, blkWriteBytes };
 }
 
-// host.cpuPercent is 0–100 for the whole box; ×ncpu puts it on infra's core×100 scale.
+// host.cpuPercent is 0–100 for the whole box, and ×ncpu puts it on infra's core×100 scale.
 function computeOutside(host: HostMetrics, infra: InfraTotals): OutsideTotals {
   return {
     cpuPercent:

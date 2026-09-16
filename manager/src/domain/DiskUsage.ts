@@ -23,7 +23,7 @@ function isSafeProject(name: string): boolean {
 /**
  * On-disk footprint of a profile's data directory
  * (BEE_DATA_ROOT/<project>), in bytes. Returns null when the directory does
- * not exist (e.g. the manager's own stack) or the lookup fails — disk size is
+ * not exist (e.g. the manager's own stack) or the lookup fails, disk size is
  * a best-effort detail, never a hard error.
  */
 export async function getProfileDiskUsage(

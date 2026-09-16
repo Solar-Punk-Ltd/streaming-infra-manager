@@ -30,7 +30,7 @@ export function createMetricsRouter(
   router.get('/', (_req: Request, res: Response) => {
     const snapshot = collector.getLatest();
     if (!snapshot) {
-      // No sample taken yet — kick off sampling so the next request has data.
+      // No sample taken yet. Kick off sampling so the next request has data.
       const unsubscribe = collector.subscribe(() => undefined);
       unsubscribe();
       res.status(503).json({ error: 'metrics not ready yet, retry shortly' });

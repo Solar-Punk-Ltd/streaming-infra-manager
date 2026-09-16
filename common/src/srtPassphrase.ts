@@ -4,7 +4,7 @@
  *
  * The length bounds are libsrt's: `SRTO_PASSPHRASE` is rejected outside 10-79
  * characters, so anything shorter would be accepted here and then refused by SRS
- * at startup — under `restart: unless-stopped`, as a crash loop.
+ * at startup, under `restart: unless-stopped`, as a crash loop.
  *
  * The character set is narrower than libsrt's, deliberately. One passphrase is
  * substituted into four places that each read punctuation differently:
@@ -20,7 +20,7 @@
  *     and `%` change what the publisher sends.
  *
  * The RFC 3986 unreserved set is what passes all four untouched, so that is what
- * we accept — rather than escaping per hop and getting one of them wrong.
+ * we accept, rather than escaping per hop and getting one of them wrong.
  */
 import { ENV_SAFE_CHARS } from './envSafeValue.js';
 
@@ -44,7 +44,7 @@ export function isValidSrtPassphrase(value: string): boolean {
  * inside the set `SRT_PASSPHRASE_RE` accepts.
  *
  * 64 divides 256, so indexing it with a random byte is uniform. A 62-character
- * alphabet — the obvious alphanumeric one — would make its first two letters
+ * alphabet, the obvious alphanumeric one, would make its first two letters
  * marginally likelier than the rest.
  */
 const PASSPHRASE_ALPHABET =
@@ -54,7 +54,7 @@ const PASSPHRASE_ALPHABET =
  * A random passphrase this module's own rules accept.
  *
  * Offered beside every passphrase field because the accepted character set is
- * narrower than a password manager's default — see the note above — and a
+ * narrower than a password manager's default (see the note above) and a
  * rejected paste is a worse first encounter with that than a button. It lives
  * here, next to the rule it has to satisfy, so the two cannot drift apart.
  */

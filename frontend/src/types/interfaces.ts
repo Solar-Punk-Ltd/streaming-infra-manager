@@ -38,7 +38,7 @@ export interface Profile {
   /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
   bee_url?: string | null;
   rpc_endpoint?: string | null;
-  /** SRS only; null falls back to the host-wide SRT_PASSPHRASE. */
+  /** SRS only. Null falls back to the host-wide SRT_PASSPHRASE. */
   srt_passphrase?: string | null;
   /**
    * Engine settings this deployment overrides, by env key. An absent key means

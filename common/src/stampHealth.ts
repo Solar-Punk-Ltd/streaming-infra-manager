@@ -5,7 +5,7 @@
  * batch is a paid, finite lease: it runs out on its own, and once it does bee
  * stops accepting uploads against it and eventually drops it from `/stamps`
  * altogether. Nothing writes that back to the column, so a profile with a
- * `stamp_id` set is not the same thing as a profile that can upload — and
+ * `stamp_id` set is not the same thing as a profile that can upload, and
  * treating the two as one is what let a fully expired ladder render as
  * "4/4 rungs stamped" while every upload failed.
  *
@@ -21,7 +21,7 @@ export interface StampLike {
   batchID: string;
   usable: boolean;
   /**
-   * Seconds of life left. `0` means spent; bee reports a negative value when it
+   * Seconds of life left. `0` means spent, and bee reports a negative value when it
    * cannot work the TTL out, which is not the same as expired.
    */
   batchTTL: number;
@@ -39,7 +39,7 @@ export type StampState =
   | 'pending'
   /** Recorded, on the node, out of time. */
   | 'expired'
-  /** Recorded, but the node no longer knows this batch — expired and dropped. */
+  /** Recorded, but the node no longer knows this batch, expired and dropped. */
   | 'gone';
 
 export interface StampHealth {
@@ -60,7 +60,7 @@ const DEAD_STATES: readonly StampState[] = ['expired', 'gone'];
  * How much life left in a batch is worth warning about.
  *
  * The point of a warning is that four rungs can still be topped up while they are
- * alive; once one is spent that rung's uploads have already been failing. Two days
+ * alive. Once one is spent that rung's uploads have already been failing. Two days
  * is chosen against how the ladder is sized: the rungs' depths are deliberately
  * staggered (17/18/19/20) so the four expiries land hours apart rather than
  * together, and this needs to be wide enough to catch the first one and still be
@@ -72,7 +72,7 @@ export const STAMP_EXPIRY_WARNING_SECONDS = 48 * 60 * 60;
  * A batch that is still paying but will not be for long.
  *
  * A negative TTL is bee saying it cannot work the remaining time out, not that
- * the time is short — it must not raise this.
+ * the time is short. It must not raise this.
  */
 export function isStampExpiringSoon(
   ttl: number | null | undefined,

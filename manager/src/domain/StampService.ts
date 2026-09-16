@@ -83,7 +83,7 @@ export type BeeClientFactory = (
  * `profiles.host` holds a *deploy* target: the schema validates it against
  * `/^[a-zA-Z0-9][a-zA-Z0-9._@-]{0,127}$/` and documents it as "localhost, an ssh
  * alias, or user@host". The user half addresses an ssh account and never the bee
- * API, and left in place it composes to `http://deploy@1.2.3.4:10055` — not a bee
+ * API, and left in place it composes to `http://deploy@1.2.3.4:10055`, not a bee
  * base URL, and a stray `@` inside a BEE_PUBLISHERS entry format that already
  * separates the rung from the URL on `@`.
  *
@@ -103,7 +103,7 @@ export function beeApiUrlFor(profile: Profile): string {
   return `http://${host}:${port}`;
 }
 
-// resolveServerHost() logs which source it picked, so memoise it — this is read
+// resolveServerHost() logs which source it picked, so memoise it: this is read
 // once per ladder rung per request and the value cannot change at runtime.
 let cachedPublicHost: string | null = null;
 function publicHost(): string {
@@ -112,7 +112,7 @@ function publicHost(): string {
 }
 
 /**
- * The bee API URL **something off-host** uses — i.e. what an ABR ladder's
+ * The bee API URL **something off-host** uses, i.e. what an ABR ladder's
  * BEE_PUBLISHERS carries to a stream-uploader running elsewhere.
  *
  * Deliberately not beeApiUrlFor: that one resolves a local profile to
@@ -196,8 +196,8 @@ export class StampService {
    * as ready to upload has to ask the node.
    *
    * Never throws, and never waits long. A node that is unreachable answers
-   * `'unknown'` — unverified, deliberately not `'expired'`, because a node being
-   * down is no evidence about its batch — so a caller can degrade to a caution
+   * `'unknown'`, unverified, deliberately not `'expired'`, because a node being
+   * down is no evidence about its batch, so a caller can degrade to a caution
    * rather than a false alarm.
    */
   async stampHealthFor(
@@ -221,7 +221,7 @@ export class StampService {
         const stamp = await client.getStamp(batchIdOf(stampId));
         return answered(stampHealthFrom(stampId, [stamp]));
       } catch (err) {
-        // A 404 is bee saying it has no such batch — expired long enough ago that
+        // A 404 is bee saying it has no such batch, expired long enough ago that
         // it was dropped. That is an answer, not a failure to answer, so it maps to
         // an empty list (`gone`) rather than to no list at all (`unknown`).
         if (err instanceof BeeHttpError && err.status === 404) {
@@ -241,14 +241,14 @@ export class StampService {
   /**
    * Whether a bee node actually answers at the address a ladder publishes.
    *
-   * Probes the *published* URL, not `beeApiUrlFor` — that is the whole point.
+   * Probes the *published* URL, not `beeApiUrlFor`. That is the whole point.
    * The manager reaches a local node through `host.docker.internal` or
    * `127.0.0.1`, so verifying the batch proves nothing about the address an
-   * uploader elsewhere is handed; those two can disagree, and when they do the
+   * uploader elsewhere is handed. Those two can disagree, and when they do the
    * ladder looks complete and no upload ever lands.
    *
    * Structural verdicts come back without a request, since no probe would change
-   * them. Otherwise a failed probe is reported as `'unreachable'` — evidence, not
+   * them. Otherwise a failed probe is reported as `'unreachable'`: evidence, not
    * proof: a manager that cannot loop back through its own public address says
    * nothing about an uploader on another host, which is why this warns rather
    * than blocks.
@@ -264,7 +264,7 @@ export class StampService {
         const res = await fetch(`${url.replace(/\/$/, '')}/health`, {
           signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        // Any HTTP answer means something is listening and routable; bee's own
+        // Any HTTP answer means something is listening and routable, and bee's own
         // /health is the best signal, but a non-2xx from *something* still tells us
         // the address is not the problem.
         await res.text().catch(() => undefined);

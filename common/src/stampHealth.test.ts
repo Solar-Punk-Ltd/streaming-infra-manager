@@ -78,7 +78,7 @@ describe('stampHealthFrom', () => {
   });
 
   it('treats an unknown TTL as alive, not expired', () => {
-    // bee answers -1 when it cannot work the TTL out; only 0 means spent.
+    // bee answers -1 when it cannot work the TTL out. Only 0 means spent.
     assert.equal(stampHealthFrom(BATCH, [stamp({ batchTTL: -1 })]).state, 'active');
   });
 
@@ -125,7 +125,7 @@ describe('isDeadStampState', () => {
     assert.equal(isDeadStampState('active'), false);
     assert.equal(isDeadStampState('pending'), false);
     assert.equal(isDeadStampState('none'), false);
-    // Unverified is not evidence of death — that is the whole point of the state.
+    // Unverified is not evidence of death. That is the whole point of the state.
     assert.equal(isDeadStampState('unknown'), false);
     assert.equal(isDeadStampState(undefined), false);
     assert.equal(isDeadStampState(null), false);
@@ -142,12 +142,12 @@ describe('isStampExpiringSoon', () => {
   });
 
   it('does not warn about a batch that has already gone', () => {
-    // Expiry is not a warning — it is a failure, and reported as one.
+    // Expiry is not a warning. It is a failure, and reported as one.
     assert.equal(isStampExpiringSoon(0), false);
   });
 
   it('does not warn on an unknown TTL', () => {
-    // bee answers negative when it cannot work the TTL out; short is not the
+    // bee answers negative when it cannot work the TTL out. Short is not the
     // same as unknown.
     assert.equal(isStampExpiringSoon(-1), false);
     assert.equal(isStampExpiringSoon(null), false);
