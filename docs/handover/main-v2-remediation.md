@@ -1120,3 +1120,100 @@ chequebook, which this version wants filled with half a BZZ before it will start
 an uploader. Filling it moves a crypto asset, which is the one class of action a
 session does not perform, so it waits for Levi. Ingest, storage and playback
 therefore remain unproven, and everything up to them is proven.
+
+## The review rounds on the pinned stack, 2026-09-16
+
+**What this block records.** Three rounds of work on `main-v2` in one day, none of
+it deployed to the live host yet. The stack submodule was pinned first at
+3a831508 and then at 7e2de6f7, the head that closed the stack's own review, with
+the contract reader answering the same sixteen ports at both. Six read-only
+review lanes went over the manager code, the compose wiring, the environment
+model, the deploy path, the firewall, and the probes and the state machine,
+because deploys had been slow, states wrong and concurrent runs had collided on
+the host. Every finding carried a priority before anyone worked on it, and the
+batch had one rule from Levi: nothing tailored to one host.
+
+**Reads and probes.** A Bee node is read through one cache with a three-second
+window and single flight, so a page of tiles no longer fans out one request per
+tile per tick. A read that fails says why, timeout, unreachable, refused or
+malformed, with the time it took, and a node that cannot be read is shown as
+unreadable rather than as stopped. The read log warns once when reads start
+failing and once when they recover, with a reminder at most every five minutes
+(264879c, 257ba12, 86ea4f8, d937c24).
+
+**The state machine.** Boot judges a deployment the manager was interrupted in
+by the containers Docker has for it, instead of writing ERROR over every row it
+finds in a transitional state (df0b68a to 143ce6e). A deploy that fails writes
+its error only over the row its own claim still owns, and the database suite
+caught the first version of that rule retargeting a newer claim's row (c4f7084).
+A job's outcome carries the exit code and the signal, and the browser reads both
+from the stream's final event.
+
+**The deploy path.** A deployment runs from a copy of the immutable build that is
+hard links rather than bytes, with the settings files the build carries copied,
+because the deploy script rewrites the copy's `.env` in place and through a link
+that write would have moved the build's own digest (ef1cfe2, 4c8921e). Eight
+kilobytes of disk per deploy instead of 481 megabytes. The tree is hashed twice
+(2f7a50d), and the stack's child processes no longer inherit the manager's own
+database and data root variables (314c739).
+
+**Secrets and env files.** The signing private key and the SRT passphrase left
+the profile row, replaced by `has_private_key` and `has_srt_passphrase`, with
+`GET /profiles/:name/srt-passphrase` answering the passphrase on demand and
+logging who read it (fd48b4d, b00f359, 0b32119, 306d3d7, a794871, f1f27de,
+3c4df56). Reading a deployment's effective engine config logs its reader too
+(aa340c1). The OME admission secret is a required stack secret (db9660b). Env
+files are written 0600 (70a27b5), a value with a control character or a newline
+is refused before it reaches a file (adeb096), and migrations 033 and 034 add
+NOT VALID checks on the feed topic and the Bee URL (6be87a2, adeb096).
+
+**Ports and the firewall.** The three per-rung Bee peer roles left the public
+firewall set, because this manager starts no rung service (33ea4e1), RTMP ingest
+is labelled internal (c05db86), and a port the deployment page calls public has
+to be a band the generator opens (00377b6, 6b9aa90).
+
+**Segment length.** By Levi's decision the manager's own segment length is two
+seconds with a fifteen-second playlist window (d15c5e3). A create body may carry
+`engine_settings` (cd68e8b), and the wizard pre-fills two seconds for the SRS
+engine and sends it (a9a849b).
+
+**Around the code.** The checks workflow checks out the submodule, which four
+unit tests read (bd970b2). The verification box's map names the submodule too,
+in the estate. `AGENTS.md` was rewritten and the three pages under `docs/agents/`
+removed (33656e6). Nandor Komlodi's port of the remote-host Bee deploy fixes
+(11ff5e4, from master's PR 41) was merged as ecaea40 without a conflict.
+
+**Verified on ecaea40.** Typecheck, common 358, manager 2521, native 7, frontend
+186, the frontend build, the database suite 526 of 526 with migrations 032 to
+034 applied, and the stack's own deploy suite 883 of 883 at 3a831508 with an
+unchanged deploy tree to 7e2de6f7. GitHub's checks are green on bd970b2 and
+ecaea40.
+
+**The third round, later the same day, on Levi's five answers.** A group of
+streams and an ABR uploader carry the segment length too: `POST /groups` takes
+`engine_settings`, writes it to every member and refuses it for a node pool, a
+member added later takes its siblings' settings, and the wizard offers the
+field to an ABR uploader and sends it for a group (e8dff67, a58b724, 16b4f9d).
+Boot judges an interrupted deployment by whether its containers run rather than
+by whether they exist: the Docker snapshot carries each container's state from
+both readers, a service is up when one of its containers is running, an exited
+or restarting container after a manager restart reads as ERROR naming it, and a
+finished stop reads as STOPPED (4b223ec, e3a4349, e36b8d2, 386d948). The
+verification box's map names the submodule, in the estate. A read-only audit of
+every living page and of the comments in the files the day changed found
+twenty-one stale statements, three of them P1, two pages still saying the
+profile JSON carried the key and the passphrase. Every one is corrected in the
+commits from 291b1e4 to 00ae65d: two dated issue records carry the line that
+closed them, the README names every feature page, and an unused defaults helper
+is gone. The fourteen Dependabot alerts stay as they are on Levi's word.
+
+**Verified on 00ae65d, the code head of the third round.** Typecheck, common 358, manager
+2536, native 7, frontend 192, the frontend build, and the database suite 527 of 527 against a
+disposable Postgres with the nine task databases, one case more than the second round for the
+group repository's new column. The commits after that head change documentation only.
+
+**Open, Levi's.** Fourteen Dependabot alerts in lockfiles, twelve high, left as
+they are for now. The 37 MB of review evidence under `.scratch/`, cited by the
+consensus record and by nothing a fresh clone can follow. Three history
+collisions among concurrent implementers, accepted as they stand. The deploy
+round on the host.
