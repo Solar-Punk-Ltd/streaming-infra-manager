@@ -11,7 +11,7 @@ How to follow an evidence citation: these files cite their logs by the path they
 | File or directory | What it holds |
 | --- | --- |
 | `PRD.md` | The whole review, every round from both sides, Levi's decisions D01 to D10, and the final task table. When a row's design is needed, its section is here. Revision consensus-13. |
-| `issues/` | One file per row, 25 of them, T01 through T22 with T01a and the a/b splits among them, with scope, acceptance text and dependencies, as drafted for the issue tracker. Never posted anywhere. |
+| `issues/` | One file per row, 25 of them, T01 through T22 with T01a and the a/b splits among them, with scope, acceptance text and dependencies, as drafted for the issue tracker. Never posted anywhere. Its own `issues/README.md` explains the file shape. |
 | `prs/` | One draft per row of the pull request body it would have had, with its test evidence. Superseded as pull requests by the single integration PR, kept as the per-row record of what was built and checked. |
 | `ACCEPTANCE-AUDIT.md` | Which acceptance conditions were met at which commit, and which remain open, as audited during the work. |
 | `T01-CONTINUATION.md` and the other `T*-CONTINUATION.md` files | The working contract of each larger row: the boundaries agreed between reviewer and implementer, the RED and GREEN evidence, and the obligations left. The newest paragraphs supersede the older ones where they disagree. |
