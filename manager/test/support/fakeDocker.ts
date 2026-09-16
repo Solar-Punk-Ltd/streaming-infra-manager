@@ -154,6 +154,7 @@ export function fakeDocker(
       return containers.map((container) => ({
         Id: container.id,
         Labels: container.labels,
+        State: container.state?.status ?? 'running',
       }));
     },
     getContainer(id) {

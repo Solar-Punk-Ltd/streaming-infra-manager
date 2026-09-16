@@ -71,12 +71,23 @@ describe('the read-only target probe', () => {
     const id = 'a'.repeat(64);
     const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async (file) => {
       calls.push(file);
-      return `"remote-id"\n${id} srs\n"remote-id"\n`;
+      return `"remote-id"\n${id} srs running\n"remote-id"\n`;
     });
     const snapshot = await docker.snapshot('stage', 'edge');
     assert.deepEqual(calls, ['ssh']);
     assert.equal(snapshot.daemonId, 'remote-id');
-    assert.deepEqual(snapshot.containers, new Map([['srs', [id]]]));
+    assert.deepEqual(snapshot.containers, new Map([['srs', [{ id, state: 'running' }]]]));
+  });
+
+  it('keeps the state of a container that is not up, rather than only that it exists', async () => {
+    const id = 'b'.repeat(64);
+    const docker = new TargetDocker({ daemonId: async () => 'local-id' },
+      async () => `"remote-id"\n${id} srs exited\n"remote-id"\n`);
+
+    const snapshot = await docker.snapshot('stage', 'edge');
+
+    assert.deepEqual(snapshot.containers, new Map([['srs', [{ id, state: 'exited' }]]]));
+    assert.deepEqual(await docker.containerIdsOf('stage', 'edge'), new Map([['srs', [id]]]));
   });
 
   it('refuses a snapshot if the daemon changed during the observation', async () => {
@@ -86,6 +97,12 @@ describe('the read-only target probe', () => {
 
   it('rejects malformed remote container rows instead of treating them as absent', async () => {
     const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async () => '"id"\nunreadable\n"id"\n');
+    await assert.rejects(docker.snapshot('stage', 'edge'));
+  });
+
+  it('rejects a container row with no state, the way it rejects one with no readable id', async () => {
+    const docker = new TargetDocker({ daemonId: async () => 'local-id' },
+      async () => `"id"\n${'c'.repeat(64)} srs\n"id"\n`);
     await assert.rejects(docker.snapshot('stage', 'edge'));
   });
   it('uses the local socket only for localhost, and ssh for every other alias including 127.0.0.1', async () => {

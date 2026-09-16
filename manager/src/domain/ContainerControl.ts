@@ -13,6 +13,7 @@ import {
   COMPOSE_SERVICE_LABEL,
   COMPOSE_WORKING_DIR_LABEL,
 } from './composeLabels.js';
+import type { ObservedContainer } from './DeployAttemptRepository.js';
 import { answeredInTime, DOCKER_TIMEOUT_MS } from './dockerTimeout.js';
 import {
   ContainerNotRunningError,
@@ -152,10 +153,11 @@ export interface ExecHandle {
   start(options: Docker.ExecStartOptions): Promise<NodeJS.ReadableStream>;
 }
 
-/** The two fields of a container listing this reads. */
+/** The fields of a container listing this reads. `State` is Docker's own state word. */
 export interface ListedContainer {
   Id: string;
   Labels?: Record<string, string>;
+  State: string;
 }
 
 export interface DockerEngine {
@@ -315,19 +317,19 @@ export class ContainerControl {
   }
 
   /** Every container of the project, all states, by the service compose labels it. */
-  async containerIdsOf(project: string): Promise<Map<string, string[]>> {
+  async observeContainers(project: string): Promise<Map<string, ObservedContainer[]>> {
     const containers = await this.withinLimit(
       this.docker.listContainers({
         all: true,
         filters: { label: [`${COMPOSE_PROJECT_LABEL}=${project}`] },
       }),
     );
-    const byService = new Map<string, string[]>();
+    const byService = new Map<string, ObservedContainer[]>();
     for (const info of containers) {
       if (info.Labels?.[COMPOSE_PROJECT_LABEL] !== project) continue;
       const service = info.Labels?.[COMPOSE_SERVICE_LABEL];
       if (!service) continue;
-      byService.set(service, [...(byService.get(service) ?? []), info.Id]);
+      byService.set(service, [...(byService.get(service) ?? []), { id: info.Id, state: info.State }]);
     }
     return byService;
   }
