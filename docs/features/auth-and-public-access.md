@@ -1,16 +1,29 @@
 # Sign in, and opening the manager to the internet
 
-Status, 2026-09-10. The login gate and the HTTPS edge are both on `feat/ai-remediation` at
-`6dc33d1`, pull request #40 into `main-v2`. The host steps at the end are still Levi's to run, and
-nothing on the host changes until he does. The decisions this page rests on were taken on
-2026-09-05: D1 Caddy, D2 several users, D3 close the host doors first.
+Status, 2026-09-16. The login gate and the HTTPS edge are merged to `main-v2`. They were written
+at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed. Both have since
+run on a host: the manager was deployed on 2026-09-11 and a second pass on 2026-09-13 reached it
+over its own public domain with a certificate, rather than through the ssh tunnel. That pass is
+recorded in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
+
+**The host steps at the end of this page are superseded.** They were written before the stack
+stopped travelling with a deploy and before the firewall generator took an inventory export, and
+following them now would leave the Bee APIs open while appearing to close them. The current
+procedure is "Opening the manager to the internet" in
+[../../deploy/README.md](../../deploy/README.md), which is the one to follow. What is kept below
+is the reasoning, because the order of the steps is the part worth understanding.
+
+The decisions this page rests on were taken on 2026-09-05: D1 Caddy, D2 several users, D3 close
+the host doors first.
 
 ## Where we are
 
-The manager has no authentication of any kind. Its own README lists it under limitations as "No auth" with
-"deploy behind a firewall" as the advice. On the host the `web` container (nginx serving the frontend and
+As it stood on 2026-09-05, when this was written. The manager had no authentication of any kind,
+and its own README listed that under limitations as "No auth" with "deploy behind a firewall" as
+the advice. On the host the `web` container (nginx serving the frontend and
 proxying the API) publishes only `127.0.0.1:8080`, the `api` container publishes nothing, and the
-team reaches the UI through an SSH tunnel. Postgres is bound to loopback.
+team reaches the UI through an SSH tunnel. Postgres is bound to loopback. The last three are still
+true. The first is not: the login gate below was built and the README limitation is gone.
 
 Making the manager public therefore has three parts, and the login is the smallest of them:
 
@@ -20,10 +33,10 @@ Making the manager public therefore has three parts, and the login is the smalle
 3. **Closing the other doors.** The stack the manager deploys publishes ports on the host with no
    authentication: every Bee node's API (10005 and 10007 plus slot times 10), which can buy stamps
    and, with a whitelist, send the node's money away, the uploader's API (10000 plus slot times
-   10), which accepts segments that spend postage, and the media server's HTTP port. Today these
-   are open to the internet already, unless the host has a firewall nobody has written down
-   (the host state has not been read since 2026-08-04). A login on the manager does nothing for
-   them. Decision D3, and the host steps at the end of this brief.
+   10), which accepts segments that spend postage, and the media server's HTTP port. When this
+   was written those were open to the internet already, unless the host had a firewall nobody had
+   written down. A login on the manager does nothing for them. Decision D3, and the current steps
+   in [../../deploy/README.md](../../deploy/README.md).
 
 "Secure enough" here means: passwords stored with a slow salted hash, sessions that expire and can
 be revoked, brute force throttled and logged, cross-site request forgery blocked, HTTPS with
@@ -219,22 +232,31 @@ never in the list. Noted, not in this PR.
 
 ## Host steps, for Levi to run (decision D3)
 
-These are listed here because the host is a gated deploy. The same five steps with the commands
-to run are "Opening the manager to the internet" in `deploy/README.md`. In order:
+**Superseded. Follow "Opening the manager to the internet" in
+[../../deploy/README.md](../../deploy/README.md) instead.** That page has the current five steps
+with the commands to run. What follows is the reasoning as it was set out on 2026-09-05, kept
+because the order matters and the argument for it has not changed. Two of the steps have since
+moved and are marked where they do.
 
 1. Deploy the manager with PR 1. Create the first user with the CLI above. Sign in through the
    tunnel and confirm the gate before anything is opened.
-2. Bind the Bee APIs to the Docker bridge instead of every interface. `BEE_UPLOADER_API_BIND` and
-   `BEE_GATEWAY_API_BIND` belong in `manager/swarm-hls-stream/.env` **in the laptop's checkout**,
-   not on the host: `deploy.sh` rsyncs that file along with everything else and `--delete` replaces
-   the host's copy on every deploy, so an edit made on the host is undone by the next one. Set both
-   to the bridge address (`ip -4 addr show docker0`, usually `172.17.0.1`), never `127.0.0.1`,
-   because the manager reaches the nodes through `host.docker.internal`, which is that same
-   address. The viewer's nginx proxies the gateway by service name, unchanged. Each Bee node picks
-   the new binding up on its next deploy from the UI. This step cannot be swapped for the firewall.
-   Docker publishes a container port by rewriting the destination and forwarding the packet, which
-   never reaches the input hook a host firewall filters. The DOCKER-USER rules of step 3 do reach
-   it, in the forward hook, but they filter one way in where the bind closes the port outright.
+2. Bind the node and engine APIs off the public interface. **Where these settings live has
+   changed.** This step used to say they belong in `manager/swarm-hls-stream/.env` in the laptop's
+   checkout, because a deploy rsynced that file to the host. A deploy no longer carries the stack
+   at all, it carries one commit, and the submodule directory is excluded from the rsync, so an
+   edit there now reaches nothing. They live on the server, in the bundled version's own config
+   root, and are edited with the settings page or the editing script. There are five of them
+   rather than two, because the engines publish three HTTP ports of their own.
+   `deploy/README.md` step 2 names all five and how to edit them.
+
+   The reasoning is unchanged. Set them to the Docker bridge address, never `127.0.0.1` for the
+   Bee ports or OME's HLS port, because the manager reaches those through `host.docker.internal`,
+   which is that same address, and loopback would cut off stamp management for every deployment
+   on the host without saying so. Each node and engine picks the new binding up on its next
+   deploy. **This step cannot be swapped for the firewall.** Docker publishes a container port by
+   rewriting the destination and forwarding the packet, which never reaches the input hook a host
+   firewall filters. The forward rules of step 3 do reach it, but they filter one way in where the
+   bind closes the port outright.
 3. Firewall, default deny inbound. Allowed: 22 (or `--ssh-port`), 80 and 443 TCP, and 443 UDP for
    the edge's HTTP/3. In the 10000 to 19999 band the stack uses, allowed only: TCP on the Bee P2P
    ports (last digit 6 and 8), TCP on the viewer ports (last digit 4), UDP on the SRT ingest ports
@@ -247,17 +269,21 @@ to run are "Opening the manager to the internet" in `deploy/README.md`. In order
    which is the second band's slot 1 P2P port, so above 100 the two bands cannot both be opened
    without opening RTMP with them.
 
-   The file it prints has two sections, because one chain cannot cover both cases. The input
-   chain governs the host's own listeners and the whole stack when that runs with
-   `COMPOSE_NETWORK=host`. A second section adds rules to `DOCKER-USER`, the chain Docker
-   evaluates in the forward hook before its own, and those govern the ports Docker publishes for
-   containers, which no input chain ever sees. By then the destination port has been rewritten to
-   the container's, so those rules match the connection's original destination port instead, and
-   they need the name of the external interface: pass it as `--iface`, from
-   `ip -4 route get 1.1.1.1` on the host, and the script refuses to print without it. Docker has
-   to be running when the file is applied, since it owns that chain. So the three controls are:
-   the Bee API bind of step 2 closes the Bee ports at the source, the DOCKER-USER rules close
-   everything else that is published, and the input chain covers the host itself.
+   **What the generator emits has changed.** This step used to describe a second section of
+   `DOCKER-USER` rules. It now prints one nftables table, `inet streaming_infra_manager`, with its
+   own input and forward chains, and it replaces only that table. It also requires an inventory
+   export that this step never mentioned: download `/targets/firewall?alias=<alias>` from the
+   signed-in manager first and pass it as `--inventory`, or the script refuses to print. See
+   `deploy/README.md` step 3 for the current command.
+
+   The reasoning is unchanged, and it is why there are two chains. The input chain governs the
+   host's own listeners and the whole stack when that runs with `COMPOSE_NETWORK=host`. The
+   forward chain governs the ports Docker publishes for containers, which no input chain ever
+   sees, and it matches the connection's original destination port because Docker has rewritten
+   it by then. That chain needs the name of the external interface, passed as `--iface`, and the
+   script refuses to print without it. So the three controls are: the API binds of step 2 close
+   those ports at the source, the forward chain closes everything else that is published, and the
+   input chain covers the host itself.
 4. Point a DNS A record at the host, set `MANAGER_DOMAIN` in `manager/.env`, deploy PR 2.
    `deploy.sh` reads that name, adds `--profile public` so the edge starts, and says which of the
    two it did. Watch `docker compose logs -f edge` for the certificate, open the domain, sign in.
