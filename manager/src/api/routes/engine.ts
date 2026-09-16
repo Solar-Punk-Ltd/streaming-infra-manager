@@ -101,9 +101,11 @@ export function createEngineRouter(
       const name = req.params.name as string;
       const { engine } = await profileService.engineOverview(name);
       const text = await containers.effectiveConfig(name, engine);
-      // The generated config carries the SRT passphrase in clear. The profile
-      // JSON already does, so nothing new is exposed, but there is no reason
-      // for it to sit in a browser or proxy cache.
+      // The generated config carries the SRT passphrase in clear, because the
+      // engine's entrypoint splices it into the file. The profile row no
+      // longer carries it, so this is the other door that value leaves by,
+      // one deployment at a time and on request, and there is no reason for it
+      // to sit in a browser or proxy cache.
       res.setHeader('Cache-Control', 'no-store');
       res.type(TEXT_PLAIN).send(text);
     }),

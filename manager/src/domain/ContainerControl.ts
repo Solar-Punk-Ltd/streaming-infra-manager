@@ -430,8 +430,8 @@ export class ContainerControl {
    *
    * Both entrypoints fill a template from environment variables at startup, so
    * this file is the only place that says which values actually applied. It
-   * carries the SRT passphrase in clear, which the profile JSON already does,
-   * but the route still answers it `no-store`.
+   * carries the SRT passphrase in clear, which the profile row no longer does,
+   * which is why the route answers it `no-store`.
    */
   async effectiveConfig(profile: string, engine: EngineName): Promise<string> {
     const container = await this.find(profile, engine);
