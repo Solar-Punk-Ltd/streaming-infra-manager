@@ -270,6 +270,11 @@ export class InMemoryProfiles {
     return this.markError(name, message);
   }
 
+  async markDeployingError(name: string, message: string): Promise<Profile | null> {
+    if (this.rows.get(name)?.status !== 'DEPLOYING') return null;
+    return this.markError(name, message);
+  }
+
   async updateEditable(
     name: string,
     kind: ProfileKind,

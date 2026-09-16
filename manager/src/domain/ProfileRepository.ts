@@ -463,6 +463,27 @@ export class ProfileRepository {
     return result.rows[0] ?? null;
   }
 
+  /**
+   * A failed deploy's last resort, guarded by the status alone.
+   *
+   * `markDeployError` writes only while the claim it captured still owns every
+   * column of the row, which is what keeps a late failure off a deployment
+   * that has moved on. When that matches nothing the row is still DEPLOYING
+   * and no other write is coming for it, so this ends it rather than leaving
+   * it transitional and refusing every later action as busy.
+   */
+  async markDeployingError(name: string, message: string): Promise<Profile | null> {
+    const result = await this.pool.query<Profile>(
+      `UPDATE profiles
+          SET status = 'ERROR', deployment_phase = NULL,
+              last_error = $2, last_error_at = NOW(), updated_at = NOW()
+        WHERE name = $1 AND status = 'DEPLOYING'
+        RETURNING ${PROFILE_COLUMNS}`,
+      [name, message],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async markTerminal(
     name: string,
     status: ProfileStatus,

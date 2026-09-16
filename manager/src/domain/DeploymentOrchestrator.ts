@@ -185,6 +185,16 @@ interface DeployFailureOwner {
   referenceId: number | null;
 }
 
+const describeDeployOwner = ({ owner, referenceId }: DeployFailureOwner): string =>
+  `instance ${owner.instanceId}, intent ${owner.intentRevision}, config ${owner.configRevision}, ` +
+  `version ${owner.stackVersionId}, job reference ${referenceId ?? 'none'}`;
+
+const describeDeployRow = (profile: Profile | null): string =>
+  profile === null
+    ? 'there is no such deployment any more'
+    : `instance ${profile.instance_id}, intent ${profile.intent_revision}, config ${profile.engine_config_revision}, ` +
+      `version ${profile.stack_version_id}, status ${profile.status}`;
+
 interface JobConfig {
   profileName: string;
   target: string;
@@ -789,6 +799,31 @@ export class DeploymentOrchestrator {
     await this.uploaderGate.assertCanStart(profile);
   }
 
+  /**
+   * The failure write of a deploy, and what happens when the row has moved.
+   *
+   * The owned write names every column the claim captured, so a config file
+   * rollout or an intent change under the running script makes it match
+   * nothing at all. The row is then still in DEPLOYING with no other write
+   * coming for it, which refuses every later action on the deployment as
+   * busy, so what did not match is logged and the failure is written on the
+   * status alone.
+   */
+  private async markDeployFailed(
+    profileName: string,
+    failure: DeployFailureOwner,
+    message: string,
+  ): Promise<Profile | null> {
+    const owned = await this.profiles.markDeployError(profileName, failure.owner, failure.referenceId, message);
+    if (owned) return owned;
+    logger.warn(
+      `[Orchestrator] the failure of ${profileName} was not written by the deploy that owned it: ` +
+      `it expected ${describeDeployOwner(failure)}, and the row says ${describeDeployRow(await this.profiles.findByName(profileName))}. ` +
+      'Writing the failure on the status alone, so the deployment does not stay in DEPLOYING.',
+    );
+    return this.profiles.markDeployingError(profileName, message);
+  }
+
   private async markFailed(
     profileName: string,
     message: string,
@@ -796,7 +831,7 @@ export class DeploymentOrchestrator {
   ): Promise<boolean> {
     try {
       const errored = deployFailure
-        ? await this.profiles.markDeployError(profileName, deployFailure.owner, deployFailure.referenceId, message)
+        ? await this.markDeployFailed(profileName, deployFailure, message)
         : await this.profiles.markError(profileName, message);
       if (errored) {
         await this.publishChanged(errored);
