@@ -38,6 +38,18 @@ function json(res: ServerResponse, body: unknown, status = 200) {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * A node that replies and then dies on the wire, the shape a restarting bee
+ * has. The socket goes only once the headers and the first chunk are away,
+ * because a destroy in the same tick never reaches the client as an answer at
+ * all, which is the case this one exists to be different from.
+ */
+const CUT_OFF_AFTER_MS = 20;
+function cutOffAfterHeaders(res: ServerResponse) {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.write('{"status":', () => setTimeout(() => res.destroy(), CUT_OFF_AFTER_MS));
+}
+
 describe('Bee startup observations', () => {
   it('reports healthy but notReady400 as initializing without inventing progress', async () => {
     const bee = await client((path, res) => {
@@ -79,6 +91,31 @@ describe('Bee startup observations', () => {
     assert.equal((await unhealthy.getNodeObservation()).state, 'unhealthy');
     const unreachable = await client((_path, res) => res.destroy());
     assert.equal((await unreachable.getNodeObservation()).state, 'unreachable');
+  });
+
+  // Both of these answered. Reporting them as the same 'unknown' a node that
+  // was never reached gets is what put "Bee API not checked" on the page for a
+  // node that had replied, and sent the operator looking at the network.
+  it('keeps a body that died after the headers apart from a node nothing reached', async () => {
+    const cutOff = await client((_path, res) => cutOffAfterHeaders(res));
+
+    const observed = await cutOff.getNodeObservation();
+
+    assert.equal(observed.state, 'unreadable');
+    assert.equal(observed.healthStatus, null);
+  });
+
+  it('says unreadable when one probe answered whole and the other was cut off', async () => {
+    const half = await client((path, res) =>
+      path === '/health'
+        ? json(res, { status: 'ok', version: '2.8.2' })
+        : cutOffAfterHeaders(res),
+    );
+
+    const observed = await half.getNodeObservation();
+
+    assert.equal(observed.state, 'unreadable');
+    assert.equal(observed.healthStatus, 'ok');
   });
 
   it('bounds slow bodies and oversized responses without exposing them', async () => {

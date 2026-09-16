@@ -37,13 +37,18 @@ describe('fresh Bee evidence on screen', () => {
     }
   });
 
-  it('distinguishes unknown, unreachable, initializing and reported failure without invented progress', () => {
+  it('distinguishes unknown, unreachable, unreadable, initializing and reported failure without invented progress', () => {
     assert.equal(beeReadinessView(null, observedAt, false, null).state, 'unknown');
-    for (const state of ['unknown', 'unreachable', 'initializing', 'unhealthy'] as const) {
+    for (const state of ['unknown', 'unreachable', 'unreadable', 'initializing', 'unhealthy'] as const) {
       const view = beeReadinessView({ ...observation, state }, observedAt, false, observedAt);
       assert.equal(view.state, state);
       assert.doesNotMatch(view.detail, /%|minute|block [0-9]/i);
     }
+    // A node that answered illegibly is reachable, so it must not be worded
+    // like one nothing reached.
+    const unreadable = beeReadinessView({ ...observation, state: 'unreadable' }, observedAt, false, observedAt);
+    assert.doesNotMatch(unreadable.label, /unreachable/i);
+    assert.match(unreadable.detail, /answered/i);
     const withProgress = beeReadinessView({ ...observation, state: 'initializing', chainProgress: { block: 12, chainTip: 20 } }, observedAt, false, observedAt);
     assert.match(withProgress.detail, /12.*20/);
   });

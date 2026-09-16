@@ -12,7 +12,11 @@ const MAX_PROBE_BYTES = 64 * 1024;
  */
 export const MAX_PROBE_TIMEOUT_MS = 30_000;
 
-type ProbeResult = { kind: 'response'; status: number; body: Record<string, unknown> | null } | { kind: 'unreachable' };
+type ProbeResult =
+  | { kind: 'response'; status: number; body: Record<string, unknown> | null }
+  /** The headers arrived and the body did not: the node answered, illegibly. */
+  | { kind: 'unreadable' }
+  | { kind: 'unreachable' };
 
 /**
  * Rejects once the signal aborts. Raced against the transport's own promises,
@@ -52,7 +56,7 @@ async function readProbe(baseUrl: string, path: string, timeoutMs: number): Prom
     const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     return { kind: 'response', status: response.status, body: body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null };
   } catch {
-    return responded ? { kind: 'response', status: 0, body: null } : { kind: 'unreachable' };
+    return responded ? { kind: 'unreadable' } : { kind: 'unreachable' };
   } finally {
     clearTimeout(timer);
     controller.abort();
@@ -87,7 +91,8 @@ export async function observeBeeNode(baseUrl: string, timeoutMs: number): Promis
   const state = healthStatus === 'nok' ? 'unhealthy'
     : healthStatus === 'ok' && readinessStatus === 'ready' ? 'ready'
     : healthStatus === 'ok' && readinessStatus === 'notReady' ? 'initializing'
-    : health.kind === 'unreachable' && readiness.kind === 'unreachable' ? 'unreachable' : 'unknown';
+    : health.kind === 'unreachable' && readiness.kind === 'unreachable' ? 'unreachable'
+    : health.kind === 'unreadable' || readiness.kind === 'unreadable' ? 'unreadable' : 'unknown';
   return {
     state, observedAt: new Date().toISOString(), healthStatus, readinessStatus,
     version: version(healthBody?.version), apiVersion: version(healthBody?.apiVersion),

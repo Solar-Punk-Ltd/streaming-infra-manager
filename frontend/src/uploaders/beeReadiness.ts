@@ -26,6 +26,7 @@ const LABELS: Record<BeeNodeState, string> = {
   initializing: 'Bee initializing',
   unhealthy: 'Bee reports unhealthy',
   unreachable: 'Bee unreachable',
+  unreadable: 'Bee answer unreadable',
   unknown: 'Bee API not checked',
 };
 const DETAILS: Record<BeeNodeState, string> = {
@@ -33,6 +34,7 @@ const DETAILS: Record<BeeNodeState, string> = {
   initializing: 'Bee reports notReady. No completion estimate is available. Retry the node checks or open its logs.',
   unhealthy: 'Bee reports an unhealthy probe. Open the Bee container logs to investigate.',
   unreachable: 'The node did not answer its API probes. Retry the node checks. Existing streams are left running.',
+  unreadable: 'The node answered its API probes and the answer could not be read to the end. The node is reachable, so open its container logs rather than the network.',
   unknown: 'The node did not supply complete, recognized API probe results. Retry the node checks.',
 };
 
