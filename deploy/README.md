@@ -251,17 +251,17 @@ password and can spend the node's postage and, with a whitelist, its money.
 Deploy as above, create the first user with the CLI, sign in through the tunnel
 and click around. Nothing below is worth doing until the gate is real.
 
-### 2. Bind the Bee node APIs off the public interface
+### 2. Bind the node and engine APIs off the public interface
 
 Each deployment publishes the API of every Bee node it runs, on the ports
-ending 5 and 7 for its slot, and by default on every interface. Set them to the
-Docker bridge address instead. **A firewall is no substitute for this**: Docker
-publishes a container port by rewriting the packet's destination and forwarding
-it, so a firewall's input rules never see it at all, and the forward rules
-of step 3 filter it one way in rather than closing it. The binding is the
-control.
+ending 5 and 7 for its slot, and the three HTTP ports its engines serve, all by
+default on every interface. Set them to the Docker bridge address instead.
+**A firewall is no substitute for this**: Docker publishes a container port by
+rewriting the packet's destination and forwarding it, so a firewall's input
+rules never see it at all, and the forward rules of step 3 filter it one way in
+rather than closing it. The binding is the control.
 
-The two settings live on the server, in
+The five settings live on the server, in
 `~/streaming-infra-manager-versions/bundled/.env`, and no deploy reads or writes
 that file. Edit it there with the editing script, as under "Where the streaming
 stack's settings live" above. Find the bridge address with
@@ -270,19 +270,55 @@ stack's settings live" above. Find the bridge address with
 ```env
 BEE_UPLOADER_API_BIND=172.17.0.1
 BEE_GATEWAY_API_BIND=172.17.0.1
+SRS_HTTP_API_BIND=172.17.0.1
+SRS_HTTP_BIND=172.17.0.1
+OME_HTTP_BIND=172.17.0.1
 ```
 
-Not `127.0.0.1`. The manager reaches each node through `host.docker.internal`,
-which is that same bridge address, and loopback would cut off stamp management.
+What each one closes:
+
+- **`BEE_UPLOADER_API_BIND`** and **`BEE_GATEWAY_API_BIND`** are the two Bee
+  HTTP APIs, and neither asks for a password, so reaching one is enough to
+  spend the node's postage, upload chunks and write feeds with its wallet
+  behind them.
+- **`SRS_HTTP_API_BIND`** is the SRS control API on 1985, which asks for no
+  password either and will name every live stream, the same name an ingest URL
+  and a publish key are built from, along with every publisher's and every
+  viewer's address.
+- **`SRS_HTTP_BIND`** is the SRS file server on 8080 and **`OME_HTTP_BIND`** is
+  OME's HLS port on 8081, and both serve the finished segments, so a broadcast
+  can be watched straight off the ingest host, bypassing the catalog, the
+  viewer and Swarm.
+
+Not `127.0.0.1` for the Bee ports or for OME's HLS port, and not any other
+address the manager's `api` container cannot reach. The manager reaches a local
+node's API and that HLS port through `host.docker.internal`, which is that same
+bridge address, so loopback would cut off stamp management, and any address the
+container has no route to does the same without saying so: stamp reads, postage
+buys and chequebook operations stop for every deployment on this host and no
+message names the cause. If the address
+has to be something other than the bridge, set `BEE_LOCAL_HOST` in
+`manager/.env` to that same address. That is the one override the manager reads
+for it, and the stack file's own comments, which suggest a private interface
+here, are only safe with it set. The two SRS ports are the exception: the
+manager never reaches them, so they can go to `127.0.0.1` wherever every use of
+them is a curl run on the server itself.
+
+OME's port is worth one more line. After an engine config rollout the manager
+probes it on that same address to see whether OME came back up, so a binding it
+cannot reach turns a rollout that worked into a reported failure.
+
 If this host runs the stack with `COMPOSE_NETWORK=host`, the pair that applies
-is `BEE_UPLOADER_API_LISTEN` and `BEE_GATEWAY_API_LISTEN` instead. The file's
-own comments explain both.
+to the Bee APIs is `BEE_UPLOADER_API_LISTEN` and `BEE_GATEWAY_API_LISTEN`
+instead, and `*_API_BIND` does nothing there at all. The engines have no such
+pair, and their three settings do nothing under host networking either, which
+leaves the host firewall of step 3 to close those ports.
 
 Commit the edit, Update the bundled version from the Versions page so the next
-build captures it, then redeploy each Bee node from the UI. A node picks up its
-new binding on its next deploy and not before: the manager copies that base file
-fresh into each deployment's own `.env.<name>` every time it deploys, which is
-how a value set once reaches all of them.
+build captures it, then redeploy the deployments that should pick it up. A node
+or an engine takes its new binding on its next deploy and not before: the
+manager copies that base file fresh into each deployment's own `.env.<name>`
+every time it deploys, which is how a value set once reaches all of them.
 
 ### 3. Generate and review the host firewall
 
