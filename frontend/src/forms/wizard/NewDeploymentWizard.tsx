@@ -67,6 +67,7 @@ export function NewDeploymentWizard({
     groups,
     serverHost,
     hostPassphrase,
+    beeRpcEndpoint,
     versions,
     mergeProfiles,
     reload,
@@ -85,10 +86,11 @@ export function NewDeploymentWizard({
       groups: projected.groups,
       serverHost,
       hostPassphrase,
+      beeRpcEndpoint,
       poolResults,
       versions: versions ?? [],
     }),
-    [projected, serverHost, hostPassphrase, poolResults, versions],
+    [projected, serverHost, hostPassphrase, beeRpcEndpoint, poolResults, versions],
   );
 
   const [state, setState] = useState<WizardState>(() =>

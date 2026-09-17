@@ -267,7 +267,7 @@ describe('the readiness of a node that reaches no chain', () => {
   });
 
   it('is the same for an uploader node stored ultra-light', () => {
-    const stranded = { ...runningProfile, node_mode: ULTRA_LIGHT_NODE_MODE };
+    const stranded: Profile = { ...runningProfile, node_mode: ULTRA_LIGHT_NODE_MODE };
 
     assert.equal(readinessOf(stranded, undefined, null).label, 'Containers running');
     assert.equal(needsAttention(stranded, undefined, null), false);

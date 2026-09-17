@@ -20,7 +20,9 @@ import { FormField } from '../../FormField';
 import { CUSTOM_COMPONENTS } from '../wizardGoals';
 import { needsExternalBeeUrl, type WizardStepProps } from '../wizardState';
 import { FeedChoice } from './FeedChoice';
+import { NodeModeChoice } from './NodeModeChoice';
 import { PassphraseChoice } from './PassphraseChoice';
+import { RpcEndpointChoice } from './RpcEndpointChoice';
 import { SegmentLength } from './SegmentLength';
 import { StampChoice } from './StampChoice';
 import { StreamKeyChoice } from './StreamKeyChoice';
@@ -106,6 +108,9 @@ export function CustomSettings(props: WizardStepProps) {
           />
         </FormField>
       )}
+
+      <NodeModeChoice {...props} />
+      <RpcEndpointChoice {...props} />
     </Stack>
   );
 }

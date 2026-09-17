@@ -5,7 +5,7 @@ import { initialWizardState, type WizardContext } from './wizardState';
 import { submitWizard } from './wizardSubmit';
 
 const context: WizardContext = { profiles: [], groups: [], serverHost: 'fixture.test', hostPassphrase: null,
-  poolResults: new Map(), versions: [{ id: 7, status: 'ready', isDefault: true, tested: true } as StackVersion] };
+  beeRpcEndpoint: { configured: false, host: null }, poolResults: new Map(), versions: [{ id: 7, status: 'ready', isDefault: true, tested: true } as StackVersion] };
 const state = { ...initialWizardState({ goal: 'abr-pool' }, context), name: 'chosen-pool' };
 
 it('validates accepted pool JSON before constructing a route and never repeats the request', async t => {

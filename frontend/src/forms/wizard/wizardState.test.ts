@@ -35,6 +35,7 @@ import {
   passphraseSummary,
   withGoal,
   type WizardContext,
+  type WizardState,
 } from './wizardState';
 
 const NO_ENDPOINT: ConfiguredBeeRpcEndpoint = { configured: false, host: null };
@@ -177,7 +178,7 @@ describe('how a new deployment is asked about its Bee node', () => {
    * question must not be what is created.
    */
   it('takes the publishing node as the answer when both are ticked', () => {
-    const both = {
+    const both: WizardState = {
       ...custom([BEE_GATEWAY_SERVICE, BEE_UPLOADER_SERVICE]),
       nodeMode: ULTRA_LIGHT_NODE_MODE,
     };
@@ -219,7 +220,7 @@ describe('where a new node is told to reach the chain', () => {
   });
 
   it('holds the typed address apart from the two sources that carry none', () => {
-    const state = {
+    const state: WizardState = {
       ...initialWizardState({ goal: 'stream' }, hostWith(null)),
       rpcEndpointSource: CUSTOM_RPC_ENDPOINT_SOURCE,
       rpcEndpoint: 'http://host.docker.internal:9000',

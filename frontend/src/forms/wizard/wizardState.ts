@@ -1,13 +1,21 @@
 import {
+  BEE_GATEWAY_SERVICE,
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
+  type ConfiguredBeeRpcEndpoint,
   DEFAULT_ABR_RUNGS,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
   generateSrtPassphrase,
   isLadderKind,
+  LIGHT_NODE_MODE,
+  MANAGER_RPC_ENDPOINT_SOURCE,
+  type NodeMode,
   OME_SERVICE,
+  type RpcEndpointSource,
   SRS_SERVICE,
   type StackVersion,
   STREAM_UPLOADER_SERVICE,
+  ULTRA_LIGHT_NODE_MODE,
 } from '@streaming-infra-manager/common';
 import { generatePrivateKey } from 'viem/accounts';
 
@@ -56,6 +64,15 @@ export interface WizardState {
   stampId: string;
   beeChoice: BeeChoice;
   beeUrl: string;
+  /**
+   * How much of a chain this deployment's Bee node runs with, where the step
+   * offers the choice. Null everywhere else, including the steps that state
+   * the mode rather than asking: see `chosenNodeMode`, which is what to read.
+   */
+  nodeMode: NodeMode | null;
+  rpcEndpointSource: RpcEndpointSource;
+  /** The address typed under Custom. Empty under the other two sources. */
+  rpcEndpoint: string;
   feedMode: SourceChoice;
   /** Profile name of the stream to follow, when it is one on this manager. */
   feedStreamer: string;
@@ -93,6 +110,8 @@ export interface WizardContext {
   groups: DeploymentGroup[];
   serverHost: string;
   hostPassphrase: string | null;
+  /** The chain endpoint this manager offers the nodes it creates, host only. */
+  beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
   poolResults: PoolResults;
   /** Every stack version the manager holds, in any state. */
   versions: StackVersion[];
@@ -191,6 +210,9 @@ export function initialWizardState(
     stampId: '',
     beeChoice: 'own',
     beeUrl: '',
+    nodeMode: null,
+    rpcEndpointSource: initialRpcEndpointSource(context),
+    rpcEndpoint: '',
     feedMode: prefill?.feedStreamer || streams.length > 0 ? 'pick' : 'paste',
     feedStreamer: prefilledStream,
     feedOwner: '',
@@ -292,6 +314,65 @@ export function chosenComponents(state: WizardState): string[] {
     }
     return [service];
   });
+}
+
+/**
+ * The services this deployment would be created with, as the manager reads them.
+ *
+ * Not `chosenComponents`, which is the Review step's list and says
+ * "bee-uploader ×4" for a pool. The shared node rules need the real names, and
+ * a pool's rules are its members' rules.
+ */
+export function nodeServices(state: WizardState): string[] {
+  if (state.goal === 'abr-pool') return [BEE_UPLOADER_SERVICE];
+  return chosenComponents(state);
+}
+
+/**
+ * How the settings step asks about this deployment's Bee node.
+ *
+ * `line` is a node that publishes: it has to have the chain on, so the step
+ * states that rather than offering a choice nobody can make. `choice` is a
+ * viewer's gateway, the one node that is useful either way. `none` is a
+ * deployment that runs no node of its own.
+ */
+export type NodeModeQuestion = 'none' | 'line' | 'choice';
+
+export function nodeModeQuestion(state: WizardState): NodeModeQuestion {
+  const services = nodeServices(state);
+  if (services.includes(BEE_UPLOADER_SERVICE)) return 'line';
+  return services.includes(BEE_GATEWAY_SERVICE) ? 'choice' : 'none';
+}
+
+/**
+ * The mode this deployment's node would be created in, or null where it runs
+ * none.
+ *
+ * Read this rather than `state.nodeMode`: ticking an uploader beside a gateway
+ * makes the uploader the node, and a mode left behind by the gateway question
+ * must not be what is created.
+ */
+export function chosenNodeMode(state: WizardState): NodeMode | null {
+  const question = nodeModeQuestion(state);
+  if (question === 'none') return null;
+  if (question === 'line') return LIGHT_NODE_MODE;
+  return state.nodeMode ?? ULTRA_LIGHT_NODE_MODE;
+}
+
+/** A light node reaches a chain, so it is the only one asked where. */
+export function offersRpcEndpoint(state: WizardState): boolean {
+  return chosenNodeMode(state) === LIGHT_NODE_MODE;
+}
+
+/**
+ * Which endpoint a new node is offered first: the manager's own whenever there
+ * is one, because that is the whole point of configuring one, and the stack's
+ * public default only when there is not.
+ */
+export function initialRpcEndpointSource(context: WizardContext): RpcEndpointSource {
+  return context.beeRpcEndpoint.configured
+    ? MANAGER_RPC_ENDPOINT_SOURCE
+    : DEFAULT_RPC_ENDPOINT_SOURCE;
 }
 
 /**

@@ -6,7 +6,9 @@ import { MONO_STACK } from '../../../app/theme';
 import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField } from '../../FormField';
 import type { WizardStepProps } from '../wizardState';
+import { NodeModeChoice } from './NodeModeChoice';
 import { PassphraseChoice } from './PassphraseChoice';
+import { RpcEndpointChoice } from './RpcEndpointChoice';
 import { SegmentLength } from './SegmentLength';
 import { StampChoice } from './StampChoice';
 import { StreamKeyChoice } from './StreamKeyChoice';
@@ -79,6 +81,9 @@ export function StreamSettings(props: WizardStepProps) {
           />
         </FormField>
       )}
+
+      <NodeModeChoice {...props} />
+      <RpcEndpointChoice {...props} />
     </Stack>
   );
 }

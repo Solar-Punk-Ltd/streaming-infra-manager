@@ -5,7 +5,8 @@ import type { DeploymentGroup, Profile } from '../../types';
 import { beginPoolSetup, finishPoolSetup, overlayCreatedPool } from './poolDraft';
 import { initialWizardState, poolValueIn, type WizardContext } from './wizardState';
 
-const context: WizardContext = { profiles: [], groups: [], serverHost: 'fixture.test', hostPassphrase: null, poolResults: new Map(), versions: [] };
+const context: WizardContext = { profiles: [], groups: [], serverHost: 'fixture.test', hostPassphrase: null,
+  beeRpcEndpoint: { configured: false, host: null }, poolResults: new Map(), versions: [] };
 const uploader = {
   ...initialWizardState({ goal: 'abr-uploader' }, context),
   step: 3, name: 'test-uploader', host: 'custom' as const, hostCustom: 'fixture-host',

@@ -3,19 +3,27 @@ import type { ReactNode } from 'react';
 
 import { DEFAULT_ABR_RUNGS } from '@streaming-infra-manager/common';
 
+import {
+  configuredBeeRpcEndpoint,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+} from '@streaming-infra-manager/common';
+
 import { MONO_STACK } from '../../../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../../../components/KeyValueList';
 import { ServiceChip } from '../../../components/ServiceChip';
+import { nodeModeLabel, rpcEndpointLabel } from '../../../deployments/nodeText';
 import { shortHex } from '../../../format';
 import { describeVersion, lostApprovalWarning } from '../../../versions/versionText';
 import { GOALS } from '../wizardGoals';
 import {
   chosenComponents,
+  chosenNodeMode,
   chosenVersion,
   hostLabel,
   needsFeedOwner,
   needsPassphrase,
   needsStreamKey,
+  offersRpcEndpoint,
   passphraseSummary,
   poolsIn,
   usesExternalBee,
@@ -96,6 +104,18 @@ export function ReviewStep({ state, context }: WizardStepProps) {
       ),
     });
   }
+  const nodeMode = chosenNodeMode(state);
+  if (nodeMode) {
+    entries.push({ key: 'Node mode', value: nodeModeLabel(nodeMode) });
+    entries.push({
+      key: 'Chain endpoint',
+      value: rpcEndpointLabel({
+        mode: nodeMode,
+        source: state.rpcEndpointSource,
+        host: endpointHost(state, context),
+      }),
+    });
+  }
   if (needsFeedOwner(state)) {
     entries.push({
       key: 'Follows',
@@ -161,6 +181,22 @@ export function ReviewStep({ state, context }: WizardStepProps) {
       </Box>
     </Stack>
   );
+}
+
+/**
+ * The host of the endpoint this node would be created on, which is all that is
+ * ever shown of it: the manager answers its own endpoint as a host already,
+ * and a typed URL can carry an API key after one.
+ */
+function endpointHost(
+  state: WizardStepProps['state'],
+  context: WizardStepProps['context'],
+): string | null {
+  if (!offersRpcEndpoint(state)) return null;
+  if (state.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE) {
+    return configuredBeeRpcEndpoint(state.rpcEndpoint).host;
+  }
+  return context.beeRpcEndpoint.host;
 }
 
 function NameSummary({ state }: { state: WizardStepProps['state'] }) {

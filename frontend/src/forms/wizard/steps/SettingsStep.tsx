@@ -18,7 +18,7 @@ const HEADINGS: Record<WizardGoal, { title: string; lead: string }> = {
   },
   'abr-pool': {
     title: 'Pool settings',
-    lead: 'Nothing to decide here. A pool always has these four nodes.',
+    lead: 'A pool always has these four nodes. The one thing to decide is where they reach the chain.',
   },
   'abr-uploader': {
     title: 'ABR uploader settings',

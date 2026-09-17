@@ -1,7 +1,9 @@
 import {
   beePublishersProblem,
   beeUrlProblem,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
   LADDER_GROUP_NAME_MAX,
+  rpcEndpointChoiceProblem,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -16,6 +18,7 @@ import {
 } from '../validation';
 import { segmentLengthError } from './segmentLength';
 import {
+  chosenNodeMode,
   chosenVersion,
   isNameTaken,
   LAST_STEP,
@@ -24,6 +27,8 @@ import {
   needsPassphrase,
   needsStamp,
   needsStreamKey,
+  nodeServices,
+  offersRpcEndpoint,
   offersSegmentLength,
   poolValueIn,
   type WizardContext,
@@ -102,6 +107,32 @@ export function poolStringError(value: string): string | null {
   return problem ? `Pool string: ${problem}` : null;
 }
 
+/**
+ * What is wrong with where this deployment's node would reach the chain, or
+ * null.
+ *
+ * The rule is the shared one, asked here with what the create body will carry,
+ * so the wizard refuses exactly what the manager would rather than sending a
+ * filled-in form to be refused at the API.
+ */
+export function rpcEndpointError(
+  state: WizardState,
+  context: WizardContext,
+): string | null {
+  if (!offersRpcEndpoint(state)) return null;
+  const problem = rpcEndpointChoiceProblem({
+    source: state.rpcEndpointSource,
+    // The address belongs to the custom source and to nothing else, which the
+    // shared rule refuses rather than ignores, so a value left behind by a
+    // visit to Custom is not offered to it.
+    url: state.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE ? state.rpcEndpoint : '',
+    managerHasEndpoint: context.beeRpcEndpoint.configured,
+    nodeMode: chosenNodeMode(state),
+    services: nodeServices(state),
+  });
+  return problem === null ? null : `Chain endpoint: ${problem}`;
+}
+
 function basicsError(
   state: WizardState,
   context: WizardContext,
@@ -174,6 +205,9 @@ function settingsError(
     const problem = beeUrlProblem(state.beeUrl);
     if (problem) return `Bee API: ${problem}`;
   }
+
+  const endpoint = rpcEndpointError(state, context);
+  if (endpoint) return endpoint;
 
   if (state.goal === 'abr-uploader') return poolError(state, context);
 

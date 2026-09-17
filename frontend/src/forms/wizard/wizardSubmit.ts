@@ -1,4 +1,7 @@
-import { ABR_LADDER_SIZE } from '@streaming-infra-manager/common';
+import {
+  ABR_LADDER_SIZE,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+} from '@streaming-infra-manager/common';
 
 import { routes } from '../../app/router';
 import {
@@ -15,12 +18,15 @@ import {
   chosenComponents,
   chosenHost,
   chosenKey,
+  chosenNodeMode,
   chosenPassphrase,
   chosenVersion,
   needsExternalBeeUrl,
   needsFeedOwner,
   needsPassphrase,
   needsStreamKey,
+  nodeModeQuestion,
+  offersRpcEndpoint,
   offersSegmentLength,
   poolValueIn,
   usesExternalBee,
@@ -54,6 +60,10 @@ export async function submitWizard(
       host: chosenHost(state),
       notes: notesOf(state),
       stack_version_id: versionOf(state),
+      // A pool is four publishing nodes, and they all reach the chain the same
+      // way. The rest of this body is the pool's own shape rather than a
+      // profile's, so the node choices are added here as well.
+      ...nodeBody(state),
     }, signal);
     const createdPool = matchingPool(result, state.name);
     if (!createdPool) throw new PoolResponseError();
@@ -119,7 +129,41 @@ function sharedBody(state: WizardState, context: WizardContext) {
   };
 }
 
+/**
+ * What this deployment says about the Bee node it is creating: the mode where
+ * the step offered a choice, and where a light node reaches the chain.
+ *
+ * Both are left out where the step asked nothing, so a deployment stores no
+ * answer to a question it was never put. A publishing node is one of those:
+ * its step states the mode rather than offering it, and the stack already
+ * starts that node with the chain on, so a stored null reads the same way.
+ */
+function nodeBody(state: WizardState): Partial<CreateProfileBody> {
+  const address =
+    state.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE
+      ? state.rpcEndpoint.trim()
+      : '';
+  return {
+    ...(nodeModeQuestion(state) === 'choice'
+      ? { node_mode: chosenNodeMode(state) }
+      : {}),
+    ...(offersRpcEndpoint(state)
+      ? {
+          rpc_endpoint_source: state.rpcEndpointSource,
+          ...(address ? { rpc_endpoint: address } : {}),
+        }
+      : {}),
+  };
+}
+
 function profileBody(
+  state: WizardState,
+  context: WizardContext,
+): Omit<CreateProfileBody, 'name' | 'host'> {
+  return { ...kindBody(state, context), ...nodeBody(state) };
+}
+
+function kindBody(
   state: WizardState,
   context: WizardContext,
 ): Omit<CreateProfileBody, 'name' | 'host'> {

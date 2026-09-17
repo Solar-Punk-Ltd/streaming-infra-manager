@@ -32,6 +32,7 @@ const context: WizardContext = {
   groups: [],
   serverHost: 'fixture.test',
   hostPassphrase: null,
+  beeRpcEndpoint: { configured: false, host: null },
   poolResults: new Map(),
   versions: [],
 };

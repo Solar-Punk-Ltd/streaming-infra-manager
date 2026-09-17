@@ -25,7 +25,11 @@ import {
   rpcEndpointError,
   wizardError,
 } from './wizardError';
-import { initialWizardState, type WizardContext } from './wizardState';
+import {
+  initialWizardState,
+  type WizardContext,
+  type WizardState,
+} from './wizardState';
 
 /** A deployment that exists already. The name is all the taken-name check reads. */
 function existing(name: string): Profile {
@@ -173,17 +177,17 @@ describe('the footer while a deployment is being created', () => {
 });
 
 describe('what is wrong with where a node reaches the chain', () => {
-  const stream = (over = {}) => ({
+  const stream = (over: Partial<WizardState> = {}): WizardState => ({
     ...initialWizardState({ goal: 'stream' }, withOurEndpoint),
     step: 3,
     name: 'stage',
     ...over,
   });
-  const gateway = (over = {}) => ({
+  const gateway = (over: Partial<WizardState> = {}): WizardState => ({
     ...initialWizardState({ goal: 'viewer' }, context),
     step: 3,
     name: 'watch',
-    feedMode: 'paste' as const,
+    feedMode: 'paste',
     feedOwner: `0x${'1'.repeat(40)}`,
     ...over,
   });
