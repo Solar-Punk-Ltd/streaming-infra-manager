@@ -61,7 +61,7 @@ for (const action of ['create', 'resize'] as const) {
         path = `/groups/${result.group.id}/members`;
         body = { count: 2 };
       }
-      const app = await startRouterTestApp(createGroupsRouter(harness.service), '/groups');
+      const app = await startRouterTestApp(createGroupsRouter(harness.service, false), '/groups');
       try {
         const response = await call(app, 'POST', path, body);
         assert.equal(response.status, 202);

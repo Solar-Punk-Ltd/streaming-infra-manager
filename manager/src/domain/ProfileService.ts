@@ -23,7 +23,6 @@ import {
   getErrorMessage,
   type GroupKind,
   hasBeePublishers,
-  DEFAULT_RPC_ENDPOINT_SOURCE,
   impliedRpcEndpointSource,
   isLadderKind,
   ladderMemberNames,
@@ -962,6 +961,10 @@ export class ProfileService {
     stamp_id?: string;
     srt_passphrase?: string;
     abr_ladder?: boolean;
+    /** One answer for every member. See SharedProfileParams. */
+    node_mode?: NodeMode | null;
+    rpc_endpoint_source?: RpcEndpointSource | null;
+    rpc_endpoint?: string | null;
     /** Absent means the default version. */
     stack_version_id?: number | null;
     /**
@@ -1008,6 +1011,21 @@ export class ProfileService {
       );
     }
 
+    // The same two questions the single create asks, over the services the
+    // members are actually given: a pool's rungs are Bee nodes whatever the
+    // body's components say, so an ultra-light pool is refused here rather than
+    // deployed as four nodes that cannot upload.
+    const rpcEndpointSource =
+      input.rpc_endpoint_source ??
+      impliedRpcEndpointSource(input.rpc_endpoint, Boolean(this.managerRpcEndpoint));
+    this.assertNodeChoicesHold(input.group_name, {
+      kind: input.kind,
+      components: memberComponents,
+      node_mode: input.node_mode,
+      rpc_endpoint_source: rpcEndpointSource,
+      rpc_endpoint: input.rpc_endpoint,
+    });
+
     const usedNames = new Set((await this.repo.list()).map((p) => p.name));
 
     const members: { name: string }[] = [];
@@ -1041,9 +1059,9 @@ export class ProfileService {
       public_key: input.public_key ?? null,
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
-      node_mode: null,
-      rpc_endpoint_source: DEFAULT_RPC_ENDPOINT_SOURCE,
-      rpc_endpoint: null,
+      node_mode: input.node_mode ?? null,
+      rpc_endpoint_source: rpcEndpointSource,
+      rpc_endpoint: input.rpc_endpoint ?? null,
       stack_version_id: version.id,
       engine_settings: engineSettings,
       slot_cap: placement.slotCap,

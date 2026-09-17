@@ -17,12 +17,20 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { ProfileKind } from '../../types/types.js';
 
-export function createGroupsRouter(profileService: ProfileService): Router {
+/**
+ * @param managerHasEndpoint whether this manager has a chain endpoint of its
+ *   own to offer the nodes a group creates. As on the profiles router: no
+ *   request body carries it and the schema judges an endpoint choice against it.
+ */
+export function createGroupsRouter(
+  profileService: ProfileService,
+  managerHasEndpoint: boolean,
+): Router {
   const router = Router();
 
   router.post(
     '/',
-    validateBody(createGroupSchema),
+    validateBody(createGroupSchema, () => ({ managerHasEndpoint })),
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as CreateGroupInput;
       const result = await profileService.createGroup({
@@ -39,6 +47,9 @@ export function createGroupsRouter(profileService: ProfileService): Router {
         public_key: body.public_key ?? undefined,
         stamp_id: body.stamp_id ?? undefined,
         srt_passphrase: body.srt_passphrase ?? undefined,
+        node_mode: body.node_mode,
+        rpc_endpoint_source: body.rpc_endpoint_source,
+        rpc_endpoint: body.rpc_endpoint,
         stack_version_id: body.stack_version_id,
         engine_settings:
           body.engine_settings && definedSettingValues(body.engine_settings),

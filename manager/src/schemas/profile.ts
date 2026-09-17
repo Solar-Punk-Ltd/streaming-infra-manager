@@ -1,4 +1,5 @@
 import {
+  ABR_RUNG_COMPONENTS,
   ABR_UPLOADER_KIND,
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
@@ -154,6 +155,34 @@ const nodeModeField = () =>
       `node_mode must be one of ${NODE_MODES.join(', ')}`,
     );
 
+/** The fields an endpoint choice is judged against, from whichever body carries it. */
+interface EndpointChoiceBody {
+  rpc_endpoint?: string | null;
+  node_mode?: NodeMode | null;
+  kind?: string;
+  components?: string[] | null;
+  abr_ladder?: boolean;
+}
+
+/** The services one deployment's body describes. */
+function servicesOfBody(body: EndpointChoiceBody): string[] {
+  return defaultServicesFor({
+    kind: body.kind ?? 'custom',
+    components: body.components,
+  });
+}
+
+/**
+ * The services each member of a group's body describes.
+ *
+ * A node pool's members are one Bee node each whatever `components` carries,
+ * because the ladder fixes them, so judging such a body by its components would
+ * apply a gateway's rules to four publishers.
+ */
+function servicesOfMember(body: EndpointChoiceBody): string[] {
+  return body.abr_ladder ? [...ABR_RUNG_COMPONENTS] : servicesOfBody(body);
+}
+
 /**
  * Where this deployment's node reaches the chain: the manager's own endpoint,
  * the stack's default, or the address in `rpc_endpoint`.
@@ -165,7 +194,10 @@ const nodeModeField = () =>
  * cannot be judged here on an update, and a body that names no source at all
  * means the stored one, which only the service can see.
  */
-const rpcEndpointSourceField = (onCreate: boolean) =>
+const rpcEndpointSourceField = (
+  onCreate: boolean,
+  servicesOf: (body: EndpointChoiceBody) => string[] = servicesOfBody,
+) =>
   string()
     .notRequired()
     .oneOf(
@@ -173,17 +205,8 @@ const rpcEndpointSourceField = (onCreate: boolean) =>
       `rpc_endpoint_source must be one of ${RPC_ENDPOINT_SOURCES.join(', ')}`,
     )
     .test('rpc-endpoint-choice', 'invalid rpc_endpoint_source', function (value) {
-      const {
-        rpc_endpoint: url,
-        node_mode: nodeMode,
-        kind,
-        components,
-      } = this.parent as {
-        rpc_endpoint?: string | null;
-        node_mode?: NodeMode | null;
-        kind?: string;
-        components?: string[] | null;
-      };
+      const body = this.parent as EndpointChoiceBody;
+      const { rpc_endpoint: url, node_mode: nodeMode } = body;
       if (value === undefined && !onCreate) return true;
       const problem = rpcEndpointChoiceProblem({
         source:
@@ -192,7 +215,7 @@ const rpcEndpointSourceField = (onCreate: boolean) =>
         url,
         managerHasEndpoint: managerHasEndpoint(this.options),
         nodeMode,
-        services: defaultServicesFor({ kind: kind ?? 'custom', components }),
+        services: servicesOf(body),
       });
       return problem
         ? this.createError({ message: `rpc_endpoint_source: ${problem}` })
@@ -475,6 +498,12 @@ export const createGroupSchema = object({
   srt_passphrase: string()
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
+  // One answer for every member, as the engine settings are: see
+  // SharedProfileParams for why a pool cannot have one rung on the chain and
+  // another off it.
+  rpc_endpoint: rpcEndpointField(),
+  rpc_endpoint_source: rpcEndpointSourceField(true, servicesOfMember),
+  node_mode: nodeModeField(),
   stack_version_id: stackVersionIdField(),
   engine_settings: engineSettingsField(),
 }).noUnknown(true);

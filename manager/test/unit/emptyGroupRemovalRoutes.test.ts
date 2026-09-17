@@ -19,7 +19,7 @@ beforeEach(async () => {
     findById: async () => { throw new Error('Cleanup must not read then delete'); },
     listMembers: async () => { throw new Error('Cleanup must not adopt current members'); },
   });
-  app = await startRouterTestApp(createGroupsRouter(harness.service), '/groups');
+  app = await startRouterTestApp(createGroupsRouter(harness.service, false), '/groups');
 });
 afterEach(async () => { await app?.close(); });
 

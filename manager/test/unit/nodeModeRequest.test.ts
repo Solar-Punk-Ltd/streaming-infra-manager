@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  createGroupSchema,
   createProfileSchema,
   updateProfileSchema,
 } from '../../src/schemas/profile.js';
@@ -31,6 +32,12 @@ const create = (body: Record<string, unknown>, options = withManager) =>
 
 const update = (body: Record<string, unknown>, options = withManager) =>
   updateProfileSchema.validate(body, { abortEarly: false, ...options });
+
+const createGroup = (body: Record<string, unknown>, options = withManager) =>
+  createGroupSchema.validate(
+    { group_name: 'pool', size: 2, ...body },
+    { abortEarly: false, ...options },
+  );
 
 describe('the node mode a body may carry', () => {
   it('takes either mode on a create', async () => {
@@ -240,5 +247,97 @@ describe('an edit of a deployment that already exists', () => {
       harness.service.update('stage', { rpc_endpoint_source: 'stack' }),
       /a light gateway needs an endpoint/,
     );
+  });
+});
+
+describe('the mode and endpoint a group’s create body may carry', () => {
+  it('takes all three fields', async () => {
+    const body = await createGroup({
+      abr_ladder: true,
+      node_mode: 'light',
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: ENDPOINT,
+    });
+
+    assert.equal(body.node_mode, 'light');
+    assert.equal(body.rpc_endpoint_source, 'custom');
+    assert.equal(body.rpc_endpoint, ENDPOINT);
+  });
+
+  it('holds a group to the refusals a single create answers to', async () => {
+    await assert.rejects(
+      () => createGroup({ rpc_endpoint_source: 'custom' }),
+      /a custom RPC endpoint needs an address/,
+    );
+    await assert.rejects(
+      () => createGroup({ rpc_endpoint_source: 'manager' }, withoutManager),
+      /the manager has no RPC endpoint configured/,
+    );
+    await assert.rejects(
+      () => createGroup({ kind: 'viewer', node_mode: 'light', rpc_endpoint_source: 'stack' }),
+      /a light gateway needs an endpoint/,
+    );
+  });
+
+  it('judges a pool by what its rungs are, not by what the body’s components say', async () => {
+    // A ladder's members are one bee-uploader each whatever `components`
+    // carries, so the gateway rule cannot apply to them.
+    const body = await createGroup({
+      abr_ladder: true,
+      components: ['client', 'bee-gateway'],
+      node_mode: 'light',
+      rpc_endpoint_source: 'stack',
+    });
+
+    assert.equal(body.node_mode, 'light');
+  });
+});
+
+describe('a new group’s mode and endpoint', () => {
+  it('refuses a pool of publishers asked to run with no chain, and creates nothing', async () => {
+    const harness = profileServiceHarness();
+
+    await assert.rejects(
+      harness.service.createGroup({
+        group_name: 'pool',
+        size: 4,
+        kind: 'custom',
+        abr_ladder: true,
+        node_mode: 'ultra-light',
+      }),
+      /an ultra-light node cannot upload/,
+    );
+    assert.equal(harness.profiles.rows.size, 0);
+    assert.equal(harness.groups.groups.length, 0);
+  });
+
+  it('gives every member the mode and the source the body names', async () => {
+    const harness = profileServiceHarness([], MANAGER_ENDPOINT);
+
+    await harness.service.createGroup({
+      group_name: 'pool',
+      size: 2,
+      kind: 'custom',
+      components: ['bee-uploader'],
+      node_mode: 'light',
+      rpc_endpoint_source: 'manager',
+    });
+
+    for (const name of ['pool-profile-1', 'pool-profile-2']) {
+      const row = harness.profiles.rows.get(name);
+      assert.equal(row?.node_mode, 'light', name);
+      assert.equal(row?.rpc_endpoint_source, 'manager', name);
+    }
+  });
+
+  it('offers the manager’s endpoint to a group body that names no source', async () => {
+    const configured = profileServiceHarness([], MANAGER_ENDPOINT);
+    const bare = profileServiceHarness();
+
+    await configured.service.createGroup({ group_name: 'one', size: 1, kind: 'custom' });
+    await bare.service.createGroup({ group_name: 'two', size: 1, kind: 'custom' });
+
+    assert.equal(configured.profiles.rows.get('one-profile-1')?.rpc_endpoint_source, 'manager');
+    assert.equal(bare.profiles.rows.get('two-profile-1')?.rpc_endpoint_source, 'stack');
   });
 });

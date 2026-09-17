@@ -123,7 +123,7 @@ export function startApiServer(
   );
   app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
-  app.use('/groups', createGroupsRouter(deps.profileService));
+  app.use('/groups', createGroupsRouter(deps.profileService, deps.beeRpcEndpoint !== null));
   app.use('/versions', createVersionsRouter(deps.stackVersionService));
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
