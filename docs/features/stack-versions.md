@@ -138,7 +138,7 @@ D01 limits capacity to the lower of the version's declared maximum and 100 store
 
 Versions that still build shared image tags require the durable admission rules in T05a. An unresolved attempt can block a conflicting deployment until the attempt is resolved. The interface names that attempt. A refusal is not a queued deployment or an automatic retry.
 
-D09 assigned the stack image-name changes and the bundled submodule update to Levi, and both are done. The stack's `main-v3` is the stable default and carries the four D09 commits, and the submodule pins its tip and tracks that branch. The stack's `main-v2` is obsolete and is kept only as a second version to test version selection with. The manager does not manufacture per-version image names through the old proposed Compose override hook. Updating that stack contract does not trigger an automatic restart.
+D09 assigned the stack image-name changes and the bundled submodule update to Levi, and both are done. The stack's `main-v3` is the stable default and carries the four D09 commits, and the submodule pinned its tip and tracked that branch until 2026-09-17, when `main-v3` was put back to the commit a colleague's open pull request had merged so that it merges cleanly, and the manager's line moved to `feat/manager-line`, which carries everything pinned since, until the two are resolved and merged into `main-v3` on Levi's word. The stack's `main-v2` is obsolete and is kept only as a second version to test version selection with. The manager does not manufacture per-version image names through the old proposed Compose override hook. Updating that stack contract does not trigger an automatic restart.
 
 ## What is actually running
 

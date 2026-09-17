@@ -26,7 +26,9 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 - `manager/swarm-hls-stream/`: a git submodule pointing at
   [Solar-Punk-Ltd/swarm-hls-stream](https://github.com/Solar-Punk-Ltd/swarm-hls-stream),
-  tracking `main-v3`. This is the upstream application source, with the
+  tracking `feat/manager-line`, the manager's own line of the stack since
+  2026-09-17 (see the note under "Updating the upstream submodule"). This is
+  the upstream application source, with the
   packages under `packages/` and the engine trees under `engines/`. The commit
   it records is the **bundled** stack version, and that version is the default
   until another is chosen. A deploy does not carry this tree. It writes the
@@ -144,7 +146,15 @@ fetched. Go back to Option A or B.
 
 ## Updating the upstream submodule
 
-To pull the latest commits from the branch the submodule tracks, `main-v3`:
+To pull the latest commits from the branch the submodule tracks, `feat/manager-line`:
+
+Why that branch and not `main-v3`, since 2026-09-17: the stack's `main-v3` was
+put back to the commit a colleague's open pull request had merged, so that
+pull request merges without conflict, and everything the manager had pinned
+since then, 143 commits, lives on `feat/manager-line` until the two are
+resolved and merged into `main-v3` on Levi's word. Until then `main-v3` is
+older than the manager's stack, and a version added with `main-v3` as its git
+reference builds that older code.
 
 ```sh
 git submodule update --remote manager/swarm-hls-stream
