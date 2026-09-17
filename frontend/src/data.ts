@@ -34,9 +34,9 @@ export interface ServerConfig {
   host: string;
   srtPassphrase: string | null;
   /**
-   * BZZ a node's chequebook must hold before this manager will start its
-   * uploader. Read from the manager so the number shown is the one it refuses
-   * on, rather than a copy that can drift.
+   * The chequebook floor the manager warns below when it starts an uploader.
+   * Read from the manager so the number shown is the one its warning quotes,
+   * rather than a copy that can drift.
    */
   chequebookFloorBzz: string;
   /**

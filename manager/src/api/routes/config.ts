@@ -10,7 +10,7 @@ const logger = Logger.getInstance();
  * The host-wide facts the frontend needs before it can render anything.
  *
  * `chequebookFloorBzz` is passed in rather than read here, so the number the UI
- * shows is provably the one the deploy gate refuses on. The passphrase comes
+ * shows is provably the one the deploy gate's warning quotes. The passphrase comes
  * from whoever knows where the bundled stack runs, its legacy tree or its
  * current build, rather than from a fixed path.
  *

@@ -20,13 +20,13 @@ function optional(name: string, fallback: string): string {
 }
 
 /**
- * How little a bee node may have in its chequebook before the manager refuses
- * to start an uploader against it, read once at startup.
+ * How little a bee node may have in its chequebook before the manager warns
+ * when starting an uploader against it, read once at startup.
  *
  * A bad value stops the process rather than falling back to the default: the
- * whole point of the setting is that one number gates deploys and is shown in
- * the UI, and quietly using a different one than the operator wrote is worse
- * than not starting.
+ * whole point of the setting is that one number is quoted in that warning and
+ * shown in the UI, and quietly using a different one than the operator wrote is
+ * worse than not starting.
  */
 function chequebookFloorPlur(): bigint {
   const raw = optional('CHEQUEBOOK_FLOOR_BZZ', DEFAULT_CHEQUEBOOK_FLOOR_BZZ);

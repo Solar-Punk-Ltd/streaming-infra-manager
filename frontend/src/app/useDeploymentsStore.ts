@@ -39,7 +39,7 @@ export interface DeploymentsStore {
   serverHost: string;
   /** The host-wide SRT passphrase, or null when the host has none. */
   hostPassphrase: string | null;
-  /** The chequebook floor the manager's uploader gate refuses below. */
+  /** The chequebook floor the manager's uploader gate warns below. */
   chequebookFloorBzz: string;
   /** The chain endpoint this manager offers the Bee nodes it creates, host only. */
   beeRpcEndpoint: ConfiguredBeeRpcEndpoint;

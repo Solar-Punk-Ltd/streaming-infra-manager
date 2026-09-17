@@ -47,7 +47,11 @@ export interface StackPortVar {
 export interface StackContractFeatures {
   /** SRS publishes its read-only stats API, so live engine status can be read. */
   srsApiPort: boolean;
-  /** The uploader refuses to start on a Bee node whose chequebook is too low. */
+  /**
+   * The version's uploader carries a chequebook gate with a floor. Whether that
+   * gate refuses or warns is the version's own UPLOADER_START_GATES setting,
+   * warn-only as shipped.
+   */
   chequebookGate: boolean;
   /**
    * A built service declares an `image:` name, so every deployment's build
