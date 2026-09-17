@@ -73,7 +73,7 @@ jobs:
         run: pnpm --filter @streaming-infra-manager/frontend-prototype build
 
   database:
-    # The 33 SQL suites, each against the task database it owns. They gate
+    # The 35 SQL suites, each against the task database it owns. They gate
     # themselves on a port variable and skip without it, so the runner they go
     # through refuses an unset variable, reads every file's gate, connects to
     # all nine databases first, and counts neither a skip nor a suite that
