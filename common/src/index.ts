@@ -28,6 +28,7 @@ export * from './stackVersions.js';
 export * from './stampCost.js';
 export * from './stampGating.js';
 export * from './stampHealth.js';
+export * from './uploaderHealth.js';
 export type { DeploymentPhase } from './deploymentPhase.js';
 export type { BeeNodeObservation, BeeNodeState } from './beeNodeObservation.js';
 export { PORT_SLOT_STRIDE, PORT_POLICY_VERSION, PROTECTED_PORT_MIN, PROTECTED_PORT_MAX, PUBLIC_PORT_ROLES, OME_PORT_SOURCES, publicPortRole, portExposureProblem } from './portPolicy.js';
