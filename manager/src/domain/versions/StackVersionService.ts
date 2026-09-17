@@ -30,6 +30,7 @@ import { EventBus } from '../EventBus.js';
 import { Logger } from '../Logger.js';
 import { RunHandle, ScriptSpawner } from '../ScriptRunner.js';
 
+import { forgetRecordsOfGoneBuilds } from './buildInventoryRecord.js';
 import type { BuildReferenceReader } from './buildLedger.js';
 import {
   BUILD_COMPLETE_MARKER,
@@ -862,6 +863,10 @@ export class StackVersionService {
    * either committed before this read or waits and reads the row as prune
    * left it. An attempt's staging directory is boot's, and the flat root,
    * which keeps the host-owned inputs, is never a build.
+   *
+   * A build's inventory record is not a build and is not pruned as one, so it
+   * is swept here instead. Left behind, it would be inherited by the next build
+   * published at the same id, which is what a rollback to that commit gets.
    */
   async pruneBuilds(versionId: number): Promise<PrunedBuilds> {
     const prune = async (): Promise<PrunedBuilds> => {
@@ -880,6 +885,9 @@ export class StackVersionService {
         await rm(join(buildsRoot, entry), { recursive: true, force: true });
         outcome.removed.push(entry);
       }
+      await forgetRecordsOfGoneBuilds(buildsRoot).catch((err: unknown) => {
+        logger.warn(`[Versions] the inventory records beside ${buildsRoot} were not swept: ${getErrorMessage(err)}`);
+      });
       if (outcome.removed.length > 0) {
         logger.info(`[Versions] pruned ${version.name}: removed ${outcome.removed.join(', ')}, kept ${outcome.kept.join(', ') || 'none'}`);
       }

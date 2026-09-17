@@ -19,6 +19,7 @@ import { beforeEach, describe, it } from 'node:test';
 import type { StackContract } from '@streaming-infra-manager/common';
 
 import { EventBus } from '../../src/domain/EventBus.js';
+import { buildInventoryRecordPath } from '../../src/domain/versions/buildInventoryRecord.js';
 import type { BuildReference } from '../../src/domain/versions/buildReferences.js';
 import { buildDirFor, buildsRootFor } from '../../src/domain/versions/stackPaths.js';
 import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
@@ -114,6 +115,17 @@ describe('pruneBuilds', () => {
 
     assert.deepEqual(outcome.removed.sort(), [A, B, E].sort());
     assert.deepEqual(buildsOnDisk(), [C, D, 'not-a-build', 'tmp-deadbeef00'].sort());
+  });
+
+  it('takes the inventory record of a build it removes, and leaves the records of the builds it keeps', async () => {
+    // A record beside the builds is not a build, so prune passes over it, and the build id comes back on a rollback.
+    for (const id of [A, D]) writeFileSync(buildInventoryRecordPath(buildDirFor(versionsRoot, 'v3', id)), '{}');
+
+    await service.pruneBuilds(versionId);
+
+    assert.equal(existsSync(buildInventoryRecordPath(buildDirFor(versionsRoot, 'v3', A))), false,
+      'the record of a removed build outlives it, so the next build at that id inherits it');
+    assert.ok(existsSync(buildInventoryRecordPath(buildDirFor(versionsRoot, 'v3', D))), 'the current build lost its record');
   });
 
   it('protects a build only a snapshot names, whatever the row says', async () => {
