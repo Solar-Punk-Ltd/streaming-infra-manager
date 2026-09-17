@@ -10,7 +10,6 @@ import {
 
 import { Profile, ProfileWithContainers } from '../types/index.js';
 import { resolveNetworkHost } from '../utils/deployHost.js';
-import { resolveServerHost } from '../utils/serverHost.js';
 
 import {
   BeeAddresses,
@@ -104,26 +103,28 @@ export function beeApiUrlFor(profile: Profile): string {
   return `http://${host}:${port}`;
 }
 
-// resolveServerHost() logs which source it picked, so memoise it: this is read
-// once per ladder rung per request and the value cannot change at runtime.
-let cachedPublicHost: string | null = null;
-function publicHost(): string {
-  cachedPublicHost ??= resolveServerHost();
-  return cachedPublicHost;
-}
-
 /**
- * The bee API URL **something off-host** uses, i.e. what an ABR ladder's
- * BEE_PUBLISHERS carries to a stream-uploader running elsewhere.
+ * The bee API URL an ABR ladder's BEE_PUBLISHERS carries, which is the address a
+ * stream-uploader **container on this host** dials.
  *
- * Deliberately not beeApiUrlFor: that one resolves a local profile to
- * host.docker.internal or 127.0.0.1, neither of which means anything to a caller
- * on another machine.
+ * Deliberately not the manager's public host. T06 binds every local Bee API to
+ * the Docker bridge address and to nothing else, so the public address answers on
+ * those ports from nowhere at all, and an uploader deployed by this manager runs
+ * beside it rather than on another machine. `localPublisherHost` is what a
+ * container here reaches such a node on, from resolveLocalPublisherHost in
+ * localHost.ts.
+ *
+ * A member on a declared remote host keeps that host's own address, and that is
+ * the T06 caveat: the remote node's API has to be bound somewhere this host can
+ * reach, which its own operator decides.
  */
-export function beePublicApiUrlFor(profile: Profile): string {
+export function beePublisherUrlFor(
+  profile: Profile,
+  localPublisherHost: string,
+): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = networkHostOf((profile.host ?? '').trim());
-  const host = LOCAL_HOSTS.has(declared) ? publicHost() : declared;
+  const host = LOCAL_HOSTS.has(declared) ? localPublisherHost : declared;
   return `http://${host}:${port}`;
 }
 

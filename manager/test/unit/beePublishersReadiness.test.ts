@@ -36,6 +36,12 @@ import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import type { StackVersionRepository } from '../../src/domain/versions/StackVersionRepository.js';
 import { DeploymentGroup, Profile } from '../../src/types/index.js';
 
+/**
+ * The address a container on this host reaches a locally deployed node on, which
+ * is what localHost.ts resolves for real. Injected here, so no test needs Docker.
+ */
+const LOCAL_PUBLISHER_HOST = '10.200.0.1';
+
 /** These tests never allocate: a reader that answers one daemon is enough to build the service. */
 function localTargets(): DeployTargets {
   return { daemonIdFor: async () => 'daemon-1' };
@@ -122,15 +128,23 @@ interface Scripted {
   /** Per member name, seconds. Only meaningful for a live batch. */
   ttls?: Record<string, number>;
   members?: Profile[];
+  /** What a container on this host reaches a locally deployed node on. */
+  localHost?: string;
+}
+
+interface ScriptedService {
+  service: ProfileService;
+  askedStamps: string[];
+  askedUrls: string[];
+  localHostReads: () => number;
 }
 
 /** A ProfileService wired to one ladder and a scripted answer per rung. */
-function serviceFor(
-  scripted: Scripted = {},
-): { service: ProfileService; askedStamps: string[]; askedUrls: string[] } {
+function serviceFor(scripted: Scripted = {}): ScriptedService {
   const members = scripted.members ?? DEFAULT_ABR_RUNGS.map(member);
   const askedStamps: string[] = [];
   const askedUrls: string[] = [];
+  let localHostReads = 0;
 
   const stampProbe: StampHealthProbe = async (profile) => {
     askedStamps.push(profile.name);
@@ -161,9 +175,14 @@ function serviceFor(
     localTargets(),
     stampProbe,
     urlProbe,
+    undefined,
+    async () => {
+      localHostReads += 1;
+      return scripted.localHost ?? LOCAL_PUBLISHER_HOST;
+    },
   );
 
-  return { service, askedStamps, askedUrls };
+  return { service, askedStamps, askedUrls, localHostReads: () => localHostReads };
 }
 
 const forEveryRung = <T,>(value: T): Record<string, T> =>
@@ -323,6 +342,36 @@ describe('beePublishersForGroup — rung address and status', () => {
     assert.equal(result.ready, false);
     assert.equal(result.missing.length, DEFAULT_ABR_RUNGS.length);
     assert.ok(result.missing.every((m) => m.reason.includes('PUBLIC_HOST')));
+  });
+
+  // An uploader is a container on this host and T06 binds every local bee API to
+  // the docker bridge, so a local rung carries the bridge address and never the
+  // manager's public one, which answers on those ports from nowhere at all.
+  it('composes a local rung from the address a container here reaches it on', async () => {
+    const members = DEFAULT_ABR_RUNGS.map(member).map((p) => ({ ...p, host: 'localhost' }));
+    const { service, askedUrls } = serviceFor({ members, localHost: '10.200.0.1' });
+    const result = await service.beePublishersForGroup(GROUP.id);
+    assert.ok(
+      result.rungs.every((r) => r.url.startsWith('http://10.200.0.1:')),
+      JSON.stringify(result.rungs.map((r) => r.url)),
+    );
+    assert.ok(askedUrls.every((u) => u.startsWith('http://10.200.0.1:')));
+  });
+
+  it('leaves a rung on a declared remote host at that host’s own address', async () => {
+    const { service } = serviceFor();
+    const result = await service.beePublishersForGroup(GROUP.id);
+    assert.ok(
+      result.rungs.every((r) => r.url.startsWith('http://10.0.0.9:')),
+      JSON.stringify(result.rungs.map((r) => r.url)),
+    );
+  });
+
+  it('reads the local address once for the whole pool', async () => {
+    const members = DEFAULT_ABR_RUNGS.map(member).map((p) => ({ ...p, host: 'localhost' }));
+    const { service, localHostReads } = serviceFor({ members });
+    await service.beePublishersForGroup(GROUP.id);
+    assert.equal(localHostReads(), 1);
   });
 
   it('refuses an ssh target used as an address', async () => {

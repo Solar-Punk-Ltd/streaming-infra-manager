@@ -94,8 +94,12 @@ import { Logger } from './Logger.js';
 import { engineTemplateIn } from './engineConfig/engineConfigTemplates.js';
 import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
 import { srsSettingReadings } from './engineConfig/srsSettingReadings.js';
+import {
+  localPublisherHost,
+  type LocalPublisherHostReader,
+} from './localHost.js';
 import { ProfileRepository } from './ProfileRepository.js';
-import { beePublicApiUrlFor } from './StampService.js';
+import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
 import { deployOwnerOf } from './versions/buildLedger.js';
@@ -135,9 +139,9 @@ export type StampHealthProbe = (
  * Asks whether a bee node answers at the address the ladder publishes.
  *
  * A separate probe from the one above, and deliberately so: that one reaches a
- * local node through `host.docker.internal`, while this one uses the URL an
- * uploader elsewhere is actually handed. Verifying the first proves nothing about
- * the second. Implemented by `StampService.publishUrlStateFor`.
+ * local node the way the manager itself does, while this one uses the exact URL
+ * the uploader is handed. Verifying the first proves nothing about the second.
+ * Implemented by `StampService.publishUrlStateFor`.
  */
 export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
 
@@ -229,6 +233,8 @@ export class ProfileService {
     private readonly probeStampHealth: StampHealthProbe = NO_STAMP_PROBE,
     private readonly probePublishUrl: PublishUrlProbe = NO_URL_PROBE,
     private readonly reservations?: Pick<PortReservationRepository, 'inventorySeededAt'>,
+    /** What a container on this host reaches a locally deployed node on. */
+    private readonly readLocalPublisherHost: LocalPublisherHostReader = localPublisherHost,
   ) {}
 
   /**
@@ -987,16 +993,17 @@ export class ProfileService {
    *  - `profiles.stamp_id` records which batch a rung was pointed at, not whether
    *    the batch is still alive. Batches are paid, finite leases. They run out on
    *    their own and nothing writes that back.
-   *  - the URL is `PUBLIC_HOST` plus `10005 + slot*10`, so it always *looks* like
-   *    an address whether or not anything is there, and it is composed from a
-   *    field that holds a *deploy* target, which may be an ssh alias or
-   *    `user@host` rather than a network address.
+   *  - the URL is a host plus `10005 + slot*10`, so it always *looks* like an
+   *    address whether or not anything is there, and its host half comes either
+   *    from a field that holds a *deploy* target, which may be an ssh alias or
+   *    `user@host` rather than a network address, or, for a member deployed here,
+   *    from `readLocalPublisherHost`, which is resolved once for the whole pool.
    *
    * So each rung is checked twice, all rungs in parallel on a short timeout: its
    * node is asked about its batch, and the exact address that goes into the string
    * is asked whether anything answers. A check that cannot be completed leaves its
-   * rung *unverified* rather than unready, an unreachable node or a public address
-   * the manager cannot loop back to is not evidence of a fault, so it degrades to a
+   * rung *unverified* rather than unready, an unreachable node or an address the
+   * manager cannot loop back to is not evidence of a fault, so it degrades to a
    * caution instead of a false alarm.
    */
   async beePublishersForGroup(groupId: number): Promise<BeePublishersResult> {
@@ -1013,7 +1020,10 @@ export class ProfileService {
     }
 
     const members = await this.ladderMembersOf(group);
-    const urls = members.map(({ profile }) => beePublicApiUrlFor(profile));
+    const publisherHost = await this.readLocalPublisherHost();
+    const urls = members.map(({ profile }) =>
+      beePublisherUrlFor(profile, publisherHost),
+    );
 
     // Both probes swallow their own failures. The catches guard an injected probe
     // that does not, so one bad node can never fail the whole request.

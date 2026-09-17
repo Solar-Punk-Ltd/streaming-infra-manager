@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { beeApiUrlFor, beePublicApiUrlFor } from '../../src/domain/StampService.js';
+import { beeApiUrlFor, beePublisherUrlFor } from '../../src/domain/StampService.js';
 import { Profile } from '../../src/types/index.js';
 
 function profile(over: Partial<Profile> = {}): Profile {
@@ -59,21 +59,25 @@ function profile(over: Partial<Profile> = {}): Profile {
   };
 }
 
-describe('beePublicApiUrlFor', () => {
+/**
+ * The address a container on this host reaches a local node on, which is what the
+ * resolver in localHost.ts answers and what a pool string carries. Injected here,
+ * so composing a URL needs no Docker and no dns.
+ */
+const LOCAL_PUBLISHER_HOST = '10.200.0.1';
+
+const publisherUrl = (over: Partial<Profile> = {}): string =>
+  beePublisherUrlFor(profile(over), LOCAL_PUBLISHER_HOST);
+
+describe('beePublisherUrlFor', () => {
   it('puts the node on 10005 + slot*10, matching deploy.sh’s port bands', () => {
-    assert.equal(
-      beePublicApiUrlFor(profile({ port_slot: 5 })),
-      'http://65.108.40.58:10055',
-    );
-    assert.equal(
-      beePublicApiUrlFor(profile({ port_slot: 8 })),
-      'http://65.108.40.58:10085',
-    );
+    assert.equal(publisherUrl({ port_slot: 5 }), 'http://65.108.40.58:10055');
+    assert.equal(publisherUrl({ port_slot: 8 }), 'http://65.108.40.58:10085');
   });
 
   it('strips ssh user info, which addresses an account and not the node', () => {
     assert.equal(
-      beePublicApiUrlFor(profile({ host: 'deploy@65.108.40.58' })),
+      publisherUrl({ host: 'deploy@65.108.40.58' }),
       'http://65.108.40.58:10055',
     );
   });
@@ -81,21 +85,36 @@ describe('beePublicApiUrlFor', () => {
   it('leaves no stray @ for the entry format to trip over', () => {
     // `rung@url<batch>` splits on the first @; a second one in the URL makes the
     // entry ambiguous to any consumer that does not split exactly that way.
-    const url = beePublicApiUrlFor(profile({ host: 'deploy@65.108.40.58' }));
+    const url = publisherUrl({ host: 'deploy@65.108.40.58' });
     assert.equal(url.includes('@'), false);
   });
 
+  it('gives a local member the address a container on this host reaches it on', () => {
+    // Not the public host. T06 binds every local bee API to the docker bridge, so
+    // the public address answers on those ports from nowhere, and the uploader
+    // handed this string is a container beside the manager.
+    assert.equal(publisherUrl({ host: 'localhost' }), 'http://10.200.0.1:10055');
+  });
+
   it('resolves a stripped local target the same as a bare one', () => {
-    // 'deploy@localhost' is still local, so it must take the public host too.
-    const bare = beePublicApiUrlFor(profile({ host: 'localhost' }));
-    assert.equal(beePublicApiUrlFor(profile({ host: 'deploy@localhost' })), bare);
+    // 'deploy@localhost' is still local, so it must take the local host too.
+    assert.equal(
+      publisherUrl({ host: 'deploy@localhost' }),
+      publisherUrl({ host: 'localhost' }),
+    );
+  });
+
+  it('keeps a member on a declared remote host at that host’s own address', () => {
+    // The T06 caveat: that node's api has to be bound somewhere this host reaches,
+    // and the local address says nothing about a machine that is not this one.
+    assert.equal(publisherUrl({ host: '65.108.40.58' }), 'http://65.108.40.58:10055');
   });
 
   it('keeps an alias no ssh config knows, rather than losing the host', () => {
     // The floor under resolution: a name nothing can resolve still composes to
     // the address it always did, so this can only improve on the old behaviour.
     assert.equal(
-      beePublicApiUrlFor(profile({ host: 'no-such-ssh-alias-000' })),
+      publisherUrl({ host: 'no-such-ssh-alias-000' }),
       'http://no-such-ssh-alias-000:10055',
     );
   });
@@ -110,9 +129,9 @@ describe('beeApiUrlFor', () => {
   });
 
   it('keeps resolving a local profile to a locally reachable host', () => {
-    // Not the public host: the manager reaches a local node through the docker
-    // host alias or loopback, which is exactly why the published URL needs its
-    // own check.
+    // The manager's own read of a node, taken at process start from
+    // BEE_LOCAL_HOST or the docker host alias, and separate from the address a
+    // pool string publishes.
     const url = beeApiUrlFor(profile({ host: 'localhost' }));
     assert.ok(
       url === 'http://127.0.0.1:10055' ||
