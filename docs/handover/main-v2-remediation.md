@@ -1351,6 +1351,34 @@ Nandi's open pull requests #235 and #236 typechecks and passes the uploader
 suite with a three-hunk resolution in the uploader's `index.ts` and two README
 rows, kept for whoever merges second and never posted on his pull request.
 
+**Built in the afternoon, T27 and the manager's own line of the stack.** T27,
+a Bee node's mode and its RPC endpoint chosen when the node is created, was
+ruled built as scoped and landed in three halves the same day: the common
+and manager half (`1c26203` to `1c8fc25`, then the review fixes `9b07e56` to
+`b56ae6f`), the frontend half (`08bc01e` to `335b6fb`, then `e1447dc`,
+`dd4ced2`, `0361a33`), and the stack half on the stack's `feat/bee-node-mode`
+(`75f9b1e1`, `251bb1c1`, `5553652c`), each with its box run. Three read-only
+reviews found two P1 on the manager half, both fixed: a `$` in a stored
+address that Compose would expand from the deployment's own env file on a
+remote deploy target, and the endpoint URL reaching pages and stored output
+through Bee's own log. The brief, the fixes file and the feature page are
+`../consensus/T27-NODE-MODE-BRIEF.md`, `../consensus/T27-NODE-MODE-FIXES.md`
+and `../features/bee-node-mode.md`. Counts at the end: common 405, manager
+unit 2666, manager database 540, frontend unit 311, browser 259, the stack's
+deploy suite 907.
+
+Then Levi ruled on Nandi's open pull request #235, whose branch had grown
+twelve commits and conflicted with main-v3 in three files: the manager works
+on its own line of the stack, `feat/manager-line`, created at the head
+main-v3 had that day (55b22bf1) and fast-forwarded to 5553652c with T27's
+stack half, and the stack's main-v3 goes back by force push to the commit his
+pull request had merged (69470e09), so it merges as before. The resolve and
+merge of the two lines into main-v3 come later on his word. The submodule
+tracks the new line, the manager pins 5553652c (`5e9643e`), the README and
+the versions page say why, and the force push is his command, since the
+guard refuses it from a session. An integration branch a session had started
+building for that pull request without his word was stopped and discarded.
+
 **Open.** The pin has moved, so the waiting state reaches the host on Levi's
 next push of main-v2 and deploy. The three decisions listed here on the night
 were answered the same morning: the record refusal stays, recoverable by
