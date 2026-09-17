@@ -36,6 +36,7 @@ import {
   commitHostConfig,
   CONFIG_REVISION_FILE,
 } from '../../src/domain/versions/hostConfigCapture.js';
+import { buildInventoryRecordPath } from '../../src/domain/versions/buildInventoryRecord.js';
 import {
   buildDirFor,
   buildsRootFor,
@@ -211,6 +212,26 @@ describe('updating a version', () => {
     assert.match(readFileSync(join(rebuilt, '.env'), 'utf8'), /CHEQUEBOOK_MIN_BZZ=1/);
     assert.equal(readBuildManifest(rebuilt).manifest?.buildId, `${COMMIT_A}-r1`);
     assert.ok(existsSync(join(buildDirFor(versionsRoot, 'v3', COMMIT_A), BUILD_COMPLETE_MARKER)), 'the previous build stays');
+  });
+
+  it('publishes again at a commit whose rebuild a deploy has already inventoried', async () => {
+    // The record beside a build is not a build, and its name starts with the build id it belongs to.
+    const id = await addBuilt('v3', COMMIT_A);
+    const configRoot = configRootFor(versionsRoot, 'v3');
+    await commitHostConfig(configRoot, { '.env': Buffer.from(`${readFileSync(join(configRoot, '.env'), 'utf8')}CHEQUEBOOK_MIN_BZZ=1\n`) });
+    await service.update(id);
+    builtInStaging('v3', COMMIT_A);
+    await finished('v3');
+    writeFileSync(buildInventoryRecordPath(buildDirFor(versionsRoot, 'v3', `${COMMIT_A}-r1`)), '{}');
+    await commitHostConfig(configRoot, { '.env': Buffer.from(`${readFileSync(join(configRoot, '.env'), 'utf8')}CHEQUEBOOK_MIN_BZZ=2\n`) });
+
+    await service.update(id);
+    builtInStaging('v3', COMMIT_A);
+    await finished('v3');
+
+    const row = await rowNamed('v3');
+    assert.equal(row.lastError, null, 'the record beside the rebuild was read as a build of this commit');
+    assert.equal(row.buildId, `${COMMIT_A}-r2`);
   });
 
   it('publishes a new commit beside the previous build', async () => {

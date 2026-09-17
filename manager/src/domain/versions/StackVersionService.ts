@@ -847,10 +847,12 @@ export class StackVersionService {
     return `${commit}-r${highest + 1}`;
   }
 
+  /** The builds published under this commit. Files sit beside build directories, and a file is never one, whatever it is named after. */
   private async buildIdsOf(name: string, commit: string): Promise<string[]> {
     const buildsRoot = buildsRootFor(this.versionsRoot, name);
     if (!existsSync(buildsRoot)) return [];
-    return (await readdir(buildsRoot)).filter((entry) => entry === commit || entry.startsWith(`${commit}-r`));
+    return (await readdir(buildsRoot)).filter((entry) =>
+      buildIdProblem(entry) === null && (entry === commit || entry.startsWith(`${commit}-r`)));
   }
 
   /**
