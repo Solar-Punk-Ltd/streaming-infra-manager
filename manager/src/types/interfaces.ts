@@ -2,6 +2,8 @@ import type {
   DeploymentPhase,
   EngineConfigState,
   EngineSettings,
+  NodeMode,
+  RpcEndpointSource,
 } from '@streaming-infra-manager/common';
 
 import { ProfileKind, ProfileStatus } from './types.js';
@@ -45,6 +47,19 @@ export interface Profile {
   bee_url: string | null;
   /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */
   rpc_endpoint: string | null;
+  /**
+   * Where that endpoint comes from: this manager's own configured one, the
+   * stack's default, or `rpc_endpoint` above. Only `custom` carries an address
+   * of its own, and the column pairs the two. See migrations/035.
+   */
+  rpc_endpoint_source: RpcEndpointSource;
+  /**
+   * How much of a chain this deployment's Bee node runs with, or null for the
+   * mode the stack ships that node in: light for a bee-uploader, ultra-light
+   * for a bee-gateway. Chosen when the deployment is created and not after.
+   * See migrations/035 and common/src/nodeMode.ts.
+   */
+  node_mode: NodeMode | null;
   /**
    * Whether an SRT passphrase of this deployment's own is stored, never the
    * passphrase. SRS only, and false falls back to the base .env. The value is

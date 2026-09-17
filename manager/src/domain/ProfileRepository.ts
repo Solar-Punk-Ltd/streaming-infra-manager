@@ -1,6 +1,8 @@
 import {
   type EngineSettings,
+  type NodeMode,
   nullify,
+  type RpcEndpointSource,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
 import { Pool } from 'pg';
@@ -25,6 +27,13 @@ export interface ProfileWriteData {
   bee_publishers?: string | null;
   bee_url?: string | null;
   rpc_endpoint?: string | null;
+  /** Absent takes the column's own default, which is the stack's endpoint. */
+  rpc_endpoint_source?: RpcEndpointSource | null;
+  /**
+   * Absent keeps the mode already stored, because a node's mode is chosen when
+   * it is created. On an insert, absent means the mode the stack ships.
+   */
+  node_mode?: NodeMode | null;
   /**
    * Absent keeps the passphrase already stored, null clears it and a value
    * replaces it. See `updateEditable`. On an insert, absent means none.
@@ -140,10 +149,11 @@ export class ProfileRepository {
         `INSERT INTO profiles (
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-           srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, stack_version_id,
-           engine_settings, deployment_phase
+           srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, rpc_endpoint_source,
+           node_mode, stack_version_id, engine_settings, deployment_phase
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 COALESCE($18::text, 'stack'), $19, $20, $21::jsonb,
                  CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
@@ -164,6 +174,8 @@ export class ProfileRepository {
           dataWithNullFields.bee_publishers,
           dataWithNullFields.bee_url,
           dataWithNullFields.rpc_endpoint,
+          dataWithNullFields.rpc_endpoint_source,
+          dataWithNullFields.node_mode,
           placement.stackVersionId,
           JSON.stringify(engineSettings),
         ],
@@ -197,6 +209,12 @@ export class ProfileRepository {
    * up, when the operator puts the deployment back on the host-wide one, so an
    * absent field and an explicit null have to mean different things and the
    * column is written only while the caller named it.
+   *
+   * `node_mode` is a third case: a node's mode is chosen when it is created, so
+   * a body that says nothing keeps the stored one rather than clearing it.
+   * `rpc_endpoint_source` is replaced like every other editable field, and a
+   * body that says nothing puts the deployment back on the stack's endpoint,
+   * which is what leaving out `rpc_endpoint` has always done.
    */
   async updateEditable(
     name: string,
@@ -222,6 +240,8 @@ export class ProfileRepository {
              bee_publishers = $10,
              bee_url = $11,
              rpc_endpoint = $12,
+             rpc_endpoint_source = COALESCE($17::text, 'stack'),
+             node_mode = COALESCE($18::text, node_mode),
              srt_passphrase = CASE WHEN $13::boolean THEN $14::text ELSE srt_passphrase END,
              engine_settings = COALESCE($15::jsonb, engine_settings),
              updated_at = NOW()
@@ -245,6 +265,8 @@ export class ProfileRepository {
         passphrase ?? null,
         engineSettings === undefined ? null : JSON.stringify(engineSettings),
         expectedNotesRevision ?? null,
+        data.rpc_endpoint_source,
+        data.node_mode,
       ],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;

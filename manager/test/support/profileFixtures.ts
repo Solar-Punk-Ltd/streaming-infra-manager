@@ -1,4 +1,5 @@
 import {
+  DEFAULT_RPC_ENDPOINT_SOURCE,
   type EngineSettings,
   isPendingStamp,
 } from '@streaming-infra-manager/common';
@@ -48,6 +49,8 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     rpc_endpoint: null,
+    rpc_endpoint_source: DEFAULT_RPC_ENDPOINT_SOURCE,
+    node_mode: null,
     has_srt_passphrase: false,
     engine_settings: {},
     has_engine_config: false,
@@ -167,6 +170,10 @@ export class InMemoryProfiles {
       kind,
       status,
       ...definedFields(rest),
+      // COALESCE($18, 'stack') in the real INSERT: a create that names no
+      // source stores the stack's endpoint rather than a null the column
+      // refuses.
+      rpc_endpoint_source: rest.rpc_endpoint_source ?? DEFAULT_RPC_ENDPOINT_SOURCE,
       has_private_key: Boolean(key),
       has_srt_passphrase: Boolean(passphrase),
       engine_settings: { ...engineSettings },
@@ -317,7 +324,7 @@ export class InMemoryProfiles {
     // A secret the write leaves out keeps the stored one, the way the real
     // statement does: COALESCE for the key, and for the passphrase a write
     // that happens only while the body named it, so an explicit null clears.
-    const { private_key: key, srt_passphrase: passphrase, ...rest } = data;
+    const { private_key: key, srt_passphrase: passphrase, node_mode: mode, ...rest } = data;
     if (key) this.privateKeys.set(name, key);
     if (passphrase === null) this.passphrases.delete(name);
     else if (passphrase !== undefined) this.passphrases.set(name, passphrase);
@@ -326,6 +333,11 @@ export class InMemoryProfiles {
     return this.write(name, {
       kind,
       ...fields,
+      // The two the real UPDATE wraps in COALESCE: a body that says nothing
+      // puts the endpoint back on the stack's, and keeps the node's mode,
+      // which is chosen when the deployment is created.
+      rpc_endpoint_source: rest.rpc_endpoint_source ?? DEFAULT_RPC_ENDPOINT_SOURCE,
+      ...(mode == null ? {} : { node_mode: mode }),
       ...(key ? { has_private_key: true } : {}),
       ...(passphrase === undefined
         ? {}

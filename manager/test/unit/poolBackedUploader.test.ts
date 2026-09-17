@@ -57,6 +57,8 @@ function streamer(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     rpc_endpoint: null,
+    rpc_endpoint_source: 'stack',
+    node_mode: null,
     has_srt_passphrase: false,
     engine_settings: {},
     has_engine_config: false,
