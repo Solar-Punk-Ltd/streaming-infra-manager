@@ -50,8 +50,13 @@ const durableStamp = (info: BigIntStats): string => [info.dev, info.ino, info.mo
 export const inodeOfStamp = (durable: string): string => durable.split(':', 2).join(':');
 export const byPath = (left: { path: string }, right: { path: string }): number => left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 
-/** The caller owns this tree exclusively and has stopped its builder before inventory starts. */
-export async function inventoryOwnedTree(root: string, excludedRootFile?: string): Promise<OwnedTreeInventory> {
+/**
+ * How a walk learns a regular file's sha256, given its path in the tree being
+ * walked and the durable stamp just read of it.
+ */
+export type FileDigestSource = (path: string, durable: string) => Promise<string>;
+
+async function walkOwnedTree(root: string, digestOf: FileDigestSource, excludedRootFile?: string): Promise<OwnedTreeInventory> {
   await assertOwnedTreeLinks(root);
   const entries: OwnedTreeEntry[] = [];
   const stamps: Record<string, string> = {};
@@ -67,24 +72,37 @@ export async function inventoryOwnedTree(root: string, excludedRootFile?: string
       assertRelativeTreePath(path);
       if (path === excludedRootFile) continue;
       const info = await lstat(join(root, path), { bigint: true });
+      const durable = durableStamp(info);
       const base = { path, mode: Number(info.mode & 0o7777n) };
       if (info.isDirectory()) {
         entries.push({ ...base, type: 'directory' });
         await walk(path);
       } else if (info.isFile()) {
-        entries.push({ ...base, type: 'file', sha256: sha256(await readOwnedFile(root, path)) });
+        entries.push({ ...base, type: 'file', sha256: await digestOf(path, durable) });
       } else if (info.isSymbolicLink()) {
         entries.push({ ...base, mode: SYMLINK_MODE, type: 'symlink', target: await readlink(join(root, path)) });
       } else throw new Error('Package tree contains an unsupported file type.');
       if (stamp(info) !== stamp(await lstat(join(root, path), { bigint: true }))) throw new Error('Package tree changed during inventory.');
       stamps[path] = stamp(info);
-      durableStamps[path] = durableStamp(info);
+      durableStamps[path] = durable;
     }
     if (stamp(directoryInfo) !== stamp(await lstat(join(root, directory), { bigint: true }))) throw new Error('Package directory changed during inventory.');
   }
   await walk('');
   return { rootMode: Number(rootInfo.mode & 0o7777n), entries: entries.sort(byPath), stamps, durableStamps };
 }
+
+/** The caller owns this tree exclusively and has stopped its builder before inventory starts. */
+export const inventoryOwnedTree = (root: string, excludedRootFile?: string): Promise<OwnedTreeInventory> =>
+  walkOwnedTree(root, async path => sha256(await readOwnedFile(root, path)), excludedRootFile);
+
+/**
+ * The same walk over a tree whose regular files are hard links of a tree that
+ * has already been hashed, where the caller answers a file's digest from the
+ * inode it shares rather than from its bytes.
+ */
+export const inventoryLinkedTree = (root: string, digestOf: FileDigestSource): Promise<OwnedTreeInventory> =>
+  walkOwnedTree(root, digestOf);
 
 async function stampWalk(root: string, of: (info: BigIntStats) => string, excludedRootFile?: string): Promise<Record<string, string>> {
   const stamps: Record<string, string> = {};

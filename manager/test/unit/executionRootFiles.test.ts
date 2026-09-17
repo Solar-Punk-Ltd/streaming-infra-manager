@@ -273,3 +273,58 @@ it('refuses to remove an owner root that names another execution', async () => {
   await assert.rejects(removeExecutionRoot(item, executions), /another execution/);
   assert.equal(existsSync(item.root), true);
 });
+
+it('refuses a copy whose linked file was replaced by another inode holding the same bytes', async () => {
+  const item = await record();
+  const { entries } = await inventoryOwnedTree(source);
+  const linked = entries.find(entry => entry.type === 'file')!;
+  let swapped = false;
+
+  await assert.rejects(copyExecutionRoot(item, executions, { onProgress: async () => {
+    const path = join(item.root, linked.path);
+    if (swapped || !existsSync(path)) return;
+    swapped = true;
+    const bytes = await readFile(path);
+    await rm(path);
+    await writeFile(path, bytes);
+    await chmod(path, linked.mode);
+  } }), /differs from its source/);
+
+  assert.equal(swapped, true, 'the linked file was never replaced, so this test proves nothing');
+  assert.equal(existsSync(dirname(item.root)), false);
+});
+
+it('reads the bytes of a settings file the copy owns, so a change of the same length is refused', async () => {
+  await writeFile(join(source, '.env'), 'SYNTHETIC=build\n', { mode: 0o640 });
+  const item = await record();
+  let changed = false;
+
+  await assert.rejects(copyExecutionRoot(item, executions, { onProgress: async () => {
+    const path = join(item.root, '.env');
+    if (changed || !existsSync(path)) return;
+    changed = true;
+    await writeFile(path, 'SYNTHETIC=owner\n');
+    await chmod(path, 0o640);
+  } }), /differs from its source/);
+
+  assert.equal(changed, true, 'the settings file was never copied, so this test proves nothing');
+});
+
+it('reads the bytes of a file the filesystem would not link, so a change of the same length is refused', async t => {
+  const refused = t.mock.method(fsPromises, 'link', async () => {
+    throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
+  });
+  syncBuiltinESMExports();
+  t.after(() => { refused.mock.restore(); syncBuiltinESMExports(); });
+  const item = await record();
+  let changed = false;
+
+  await assert.rejects(copyExecutionRoot(item, executions, { onProgress: async () => {
+    const path = join(item.root, '.env.sample');
+    if (changed || !existsSync(path)) return;
+    changed = true;
+    await writeFile(path, 'ENGINE=syntheti!\n');
+  } }), /differs from its source/);
+
+  assert.equal(changed, true, 'the copied file was never reached, so this test proves nothing');
+});

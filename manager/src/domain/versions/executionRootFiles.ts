@@ -6,7 +6,16 @@ import { assertExecutionId, assertExecutionRegistration, executionRootPath, type
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
 import { COPY_INSTEAD } from './buildTreeClone.js';
 import { hostConfigFilesOf } from './hostConfigCapture.js';
-import { durableStampOwnedTree, inventoryOwnedTree, ownedTreeDigest, type RecordedOwnedTree } from './ownedTreeInventory.js';
+import {
+  durableStampOwnedTree,
+  inodeOfStamp,
+  inventoryLinkedTree,
+  inventoryOwnedTree,
+  ownedTreeDigest,
+  sha256,
+  type FileDigestSource,
+  type RecordedOwnedTree,
+} from './ownedTreeInventory.js';
 import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
 export interface ExecutionCopyOptions {
@@ -46,6 +55,30 @@ async function shareOrCopyFile(from: string, to: string, mode: number): Promise<
   }
   await copyFileInto(from, to, mode);
   return false;
+}
+
+/**
+ * How the finished copy is proved to be the build, without reading the build a
+ * second time.
+ *
+ * A file the copy linked is the build's own inode, and one inode is one set of
+ * bytes, so the device and inode the record stamped is the whole proof of that
+ * file. A linked path that has stopped being that inode is refused rather than
+ * hashed, because what the copy was given is what it has to still hold. Only
+ * the files the copy owns outright are read: the settings files, copied so that
+ * a deploy writing one does not write the build, and every file on a host whose
+ * filesystem refused the link.
+ */
+function copiedFileDigest(root: string, source: RecordedOwnedTree, ownFiles: ReadonlySet<string>): FileDigestSource {
+  const recorded = new Map(source.entries.flatMap(entry => entry.type === 'file' ? [[entry.path, entry.sha256] as const] : []));
+  return async (path, durable) => {
+    const known = recorded.get(path);
+    if (known === undefined || ownFiles.has(path)) return sha256(await readOwnedFile(root, path));
+    if (inodeOfStamp(durable) !== inodeOfStamp(source.durableStamps[path] ?? '')) {
+      throw new Error('Execution copy inventory differs from its source.');
+    }
+    return known;
+  };
 }
 
 /**
@@ -101,13 +134,16 @@ export async function copyExecutionRoot(
     await mkdir(root, { mode: 0o700 });
     for (const entry of source.entries.filter(entry => entry.type === 'directory')) await mkdir(join(root, entry.path), { mode: 0o700 });
     const settings = new Set(hostConfigFilesOf(record.source.root));
+    const ownFiles = new Set<string>();
     let copied = 0;
     for (const entry of source.entries) {
       if (entry.type === 'file') {
         const from = join(record.source.root, entry.path);
         const to = join(root, entry.path);
-        if (settings.has(entry.path)) await copyFileInto(from, to, entry.mode);
-        else await shareOrCopyFile(from, to, entry.mode);
+        if (settings.has(entry.path)) {
+          await copyFileInto(from, to, entry.mode);
+          ownFiles.add(entry.path);
+        } else if (!(await shareOrCopyFile(from, to, entry.mode))) ownFiles.add(entry.path);
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
         await symlink(entry.target, join(root, entry.path));
@@ -116,7 +152,8 @@ export async function copyExecutionRoot(
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);
     await chmod(root, source.rootMode);
     if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw new Error('Execution source changed during copying.');
-    if (ownedTreeDigest(await inventoryOwnedTree(root)) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
+    const copy = await inventoryLinkedTree(root, copiedFileDigest(root, source, ownFiles));
+    if (ownedTreeDigest(copy) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
     await writeFile(join(ownerRoot, 'ready.json'), JSON.stringify({ copyToken: record.copyToken, artifactDigest: record.source.artifactDigest }), { flag: 'wx', mode: 0o600 });
     return { root, artifactDigest: record.source.artifactDigest };
   } catch (error) {
