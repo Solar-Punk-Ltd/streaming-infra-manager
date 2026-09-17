@@ -29,7 +29,7 @@ import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
  */
 export function poolProblems(
   result: BeePublishersResult | null,
-  chequebooks: ChequebookHealths = new Map(),
+  chequebooks: ChequebookHealths,
 ): string[] {
   if (!result) return [];
 
@@ -73,11 +73,18 @@ function stampedRungCount(
   ).length;
 }
 
+/**
+ * The pill a group wears, from what its members and this page's readings say.
+ *
+ * `chequebooks` takes no default on purpose. It carried one until 2026-09-17,
+ * and the deployments page quietly left it out, so the same pool read "Pool
+ * ready" there and "Chequebook empty" on its own page.
+ */
 export function groupReadinessOf(
   group: DeploymentGroup,
   members: Profile[],
   poolResult: BeePublishersResult | null,
-  chequebooks: ChequebookHealths = new Map(),
+  chequebooks: ChequebookHealths,
 ): Readiness {
   if (members.length === 0) {
     return { label: 'No members', tone: 'gray' };

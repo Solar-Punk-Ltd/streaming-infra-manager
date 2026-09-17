@@ -63,7 +63,7 @@ export function GroupBlockRows({
   const actions = useActions();
   const [open, setOpen] = useState(true);
 
-  const readiness = groupReadinessOf(group, members, poolResult);
+  const readiness = groupReadinessOf(group, members, poolResult, chequebooks);
   const running = members.filter(isRunning).length;
   const startable = members.some((m) => !isRunning(m) && !isTransitional(m));
 
