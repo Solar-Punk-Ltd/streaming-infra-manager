@@ -23,6 +23,7 @@ import { useActions } from '../app/useDeploymentActions';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { groupReadinessOf } from '../groups/groupReadiness';
 import type { DeploymentGroup, Profile } from '../types';
+import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 import { DeploymentRow } from './DeploymentRow';
 import { isRunning, isTransitional } from './shape';
 
@@ -42,6 +43,7 @@ export function GroupBlockRows({
   members,
   visibleMembers,
   poolResult,
+  chequebooks,
   memberNoun,
 }: {
   group: DeploymentGroup;
@@ -50,6 +52,8 @@ export function GroupBlockRows({
   /** The members the current filter and search let through. */
   visibleMembers: Profile[];
   poolResult: BeePublishersResult | null;
+  /** What each member's node said about its chequebook, where it answered. */
+  chequebooks: ChequebookHealths;
   memberNoun: string;
 }) {
   const actions = useActions();
@@ -128,6 +132,7 @@ export function GroupBlockRows({
             key={profile.name}
             profile={profile}
             rung={rungFromMemberName(group.name, profile.name)}
+            chequebook={chequebooks.get(profile.name) ?? null}
             indented
           />
         ))}

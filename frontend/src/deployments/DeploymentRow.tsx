@@ -7,6 +7,8 @@ import {
   Typography,
 } from '@mui/material';
 
+import type { ChequebookHealth } from '@streaming-infra-manager/common';
+
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes } from '../app/router';
 import { useActions } from '../app/useDeploymentActions';
@@ -32,11 +34,18 @@ import {
 export function DeploymentRow({
   profile,
   rung,
+  chequebook = null,
   indented = false,
 }: {
   profile: Profile;
   /** An ABR pool member leads its sub-line with the rung it publishes. */
   rung?: string | null;
+  /**
+   * What this deployment's Bee node last said about its chequebook, taken once
+   * for the whole page. It is the only funding reading a row has, because no
+   * list asks a node for its wallet.
+   */
+  chequebook?: ChequebookHealth | null;
   indented?: boolean;
 }) {
   const serverHost = useServerHost();
@@ -44,7 +53,7 @@ export function DeploymentRow({
   const { openWizard, openEditDeployment } = useEditors();
   const publish = usePublishUrl(profile);
 
-  const readiness = readinessOf(profile);
+  const readiness = readinessOf(profile, undefined, chequebook);
   const shape = shapeOf(profile);
   const watchUrl = clientUrl(profile, serverHost);
   // The passphrase is asked for by the copy rather than by the row, so a page

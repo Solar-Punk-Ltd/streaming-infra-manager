@@ -76,7 +76,11 @@ export function GroupMembersCard({
             {isPool
               ? poolRows(group, members, poolResult, chequebooks)
               : members.map((profile) => (
-                  <DeploymentRow key={profile.name} profile={profile} />
+                  <DeploymentRow
+                    key={profile.name}
+                    profile={profile}
+                    chequebook={chequebooks.get(profile.name) ?? null}
+                  />
                 ))}
           </TableBody>
         </Table>

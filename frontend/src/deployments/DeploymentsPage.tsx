@@ -21,6 +21,7 @@ import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
 import { usePoolResults } from '../groups/useBeePublishers';
 import type { Profile } from '../types';
+import { useChequebookHealths } from '../uploaders/useChequebookHealths';
 import { DeploymentRow } from './DeploymentRow';
 import { GroupBlockRows } from './GroupBlockRows';
 import { needsAttention } from './readiness';
@@ -37,14 +38,18 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'attention', label: 'Needs attention' },
 ];
 
+/**
+ * The filters a profile answers on its own. "Needs attention" is not one of
+ * them: it takes the chequebook readings this page collects, so that a node is
+ * listed for what it reported rather than for what nothing asked it.
+ */
 const MATCHERS: Record<
-  Exclude<FilterKey, 'all' | 'groups'>,
+  Exclude<FilterKey, 'all' | 'groups' | 'attention'>,
   (profile: Profile) => boolean
 > = {
   streams: (profile) => ['stream', 'abr-uploader'].includes(shapeOf(profile)),
   viewers: (profile) => shapeOf(profile) === 'viewer',
   abr: (profile) => ['bee-node', 'abr-uploader'].includes(shapeOf(profile)),
-  attention: (profile) => needsAttention(profile),
 };
 
 export function DeploymentsPage({ search }: { search: string }) {
@@ -52,6 +57,7 @@ export function DeploymentsPage({ search }: { search: string }) {
   const { openWizard } = useEditors();
   const [filter, setFilter] = useState<FilterKey>('all');
   const poolResults = usePoolResults(groups, profiles);
+  const chequebooks = useChequebookHealths(profiles);
 
   if (!profiles) {
     return (
@@ -62,6 +68,8 @@ export function DeploymentsPage({ search }: { search: string }) {
   }
 
   const query = search.trim().toLowerCase();
+  const wantsAttention = (profile: Profile): boolean =>
+    needsAttention(profile, undefined, chequebooks.get(profile.name));
   const matches = (profile: Profile): boolean => {
     const hitsQuery =
       !query ||
@@ -69,6 +77,7 @@ export function DeploymentsPage({ search }: { search: string }) {
       (profile.notes ?? '').toLowerCase().includes(query);
     if (!hitsQuery) return false;
     if (filter === 'all' || filter === 'groups') return true;
+    if (filter === 'attention') return wantsAttention(profile);
     return MATCHERS[filter](profile);
   };
 
@@ -78,7 +87,7 @@ export function DeploymentsPage({ search }: { search: string }) {
     viewers: profiles.filter(MATCHERS.viewers).length,
     abr: profiles.filter(MATCHERS.abr).length,
     groups: groups.length,
-    attention: profiles.filter(MATCHERS.attention).length,
+    attention: profiles.filter(wantsAttention).length,
   };
 
   const membersOf = (groupId: number) =>
@@ -162,11 +171,16 @@ export function DeploymentsPage({ search }: { search: string }) {
                         ? (poolResults.get(group.id) ?? null)
                         : null
                     }
+                    chequebooks={chequebooks}
                     memberNoun={memberNoun(members)}
                   />
                 ))}
                 {standalone.map((profile) => (
-                  <DeploymentRow key={profile.name} profile={profile} />
+                  <DeploymentRow
+                    key={profile.name}
+                    profile={profile}
+                    chequebook={chequebooks.get(profile.name) ?? null}
+                  />
                 ))}
               </>
             ) : (
