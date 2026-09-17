@@ -143,15 +143,36 @@ describe('rpcEndpointChoiceProblem', () => {
 });
 
 describe('the source a body means when it names none', () => {
+  const implied = (over: Record<string, unknown> = {}) =>
+    impliedRpcEndpointSource({
+      managerHasEndpoint: true,
+      services: PUBLISHER,
+      ...over,
+    });
+
   it('offers the manager’s endpoint on a create when the manager has one', () => {
-    assert.equal(impliedRpcEndpointSource(null, true), 'manager');
-    assert.equal(impliedRpcEndpointSource(null, false), 'stack');
+    assert.equal(implied(), 'manager');
+    assert.equal(implied({ managerHasEndpoint: false }), 'stack');
   });
 
   it('reads an address with no source as a custom one, on a create', () => {
     // What POST /profiles took before a source existed, and what the migration
     // reads such a stored row as.
-    assert.equal(impliedRpcEndpointSource(ENDPOINT, true), 'custom');
+    assert.equal(implied({ url: ENDPOINT }), 'custom');
+  });
+
+  it('gives a node with no chain the stack’s, whatever the manager has', () => {
+    // An ultra-light node reads no endpoint at all. Storing the manager's
+    // would write a keyed URL into an env file that travels to the viewer's
+    // host for a node that never reads it, say on the page that it takes the
+    // manager's endpoint, and refuse its redeploy the day the manager loses
+    // one it never needed.
+    assert.equal(implied({ services: GATEWAY }), 'stack');
+    assert.equal(implied({ services: PUBLISHER, nodeMode: 'ultra-light' }), 'stack');
+  });
+
+  it('gives a gateway an operator put on the chain the manager’s', () => {
+    assert.equal(implied({ services: GATEWAY, nodeMode: 'light' }), 'manager');
   });
 
   it('keeps a stored choice through an update that says nothing', () => {

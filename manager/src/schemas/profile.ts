@@ -211,7 +211,12 @@ const rpcEndpointSourceField = (
       const problem = rpcEndpointChoiceProblem({
         source:
           (value as RpcEndpointSource | undefined) ??
-          impliedRpcEndpointSource(url, managerHasEndpoint(this.options)),
+          impliedRpcEndpointSource({
+            url,
+            managerHasEndpoint: managerHasEndpoint(this.options),
+            nodeMode,
+            services: servicesOf(body),
+          }),
         url,
         managerHasEndpoint: managerHasEndpoint(this.options),
         nodeMode,

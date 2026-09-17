@@ -8,7 +8,8 @@ import {
   applicableEngineSettings,
   beePublishersProblem,
   beeUrlProblem,
-  impliedRpcEndpointSource,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
   type RpcEndpointSource,
   rpcEndpointProblem,
   effectiveEngineDefaults,
@@ -374,9 +375,15 @@ export function writeProfileEnv(
   // two hours on 2026-09-15, so a deployment has to be able to name its own or
   // take the manager's. The stack's own value standing is what every deployment
   // did before any of this existed, and it is what `stack` still means.
+  // A caller that names no source is read off the address alone, which is how
+  // every deployment written before the source existed is read. The manager's
+  // endpoint is never implied here: the orchestrator always names the source,
+  // and nothing else writes this file.
   const rpcEndpointSource =
     values.rpcEndpointSource ??
-    impliedRpcEndpointSource(values.rpcEndpoint, Boolean(values.managerRpcEndpoint));
+    (values.rpcEndpoint?.trim()
+      ? CUSTOM_RPC_ENDPOINT_SOURCE
+      : DEFAULT_RPC_ENDPOINT_SOURCE);
   const rpcEndpoint = resolveRpcEndpoint(rpcEndpointSource, values);
   if (rpcEndpoint) {
     const problem = rpcEndpointProblem(rpcEndpoint);

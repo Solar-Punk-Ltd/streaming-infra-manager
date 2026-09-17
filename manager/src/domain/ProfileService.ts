@@ -386,14 +386,20 @@ export class ProfileService {
     }
 
     // A body that names no source takes the manager's endpoint when there is
-    // one, which is the whole point of configuring one, and an address with no
-    // source is the custom one it has always been.
+    // one and this node runs a chain at all, and an address with no source is
+    // the custom one it has always been.
+    const createdComponents = input.components?.length ? input.components : null;
     const rpcEndpointSource =
       input.rpc_endpoint_source ??
-      impliedRpcEndpointSource(input.rpc_endpoint, Boolean(this.managerRpcEndpoint));
+      impliedRpcEndpointSource({
+        url: input.rpc_endpoint,
+        managerHasEndpoint: Boolean(this.managerRpcEndpoint),
+        nodeMode: input.node_mode,
+        services: defaultServicesFor({ kind: input.kind, components: createdComponents }),
+      });
     this.assertNodeChoicesHold(input.name, {
       kind: input.kind,
-      components: input.components?.length ? input.components : null,
+      components: createdComponents,
       node_mode: input.node_mode,
       rpc_endpoint_source: rpcEndpointSource,
       rpc_endpoint: input.rpc_endpoint,
@@ -1017,7 +1023,12 @@ export class ProfileService {
     // deployed as four nodes that cannot upload.
     const rpcEndpointSource =
       input.rpc_endpoint_source ??
-      impliedRpcEndpointSource(input.rpc_endpoint, Boolean(this.managerRpcEndpoint));
+      impliedRpcEndpointSource({
+        url: input.rpc_endpoint,
+        managerHasEndpoint: Boolean(this.managerRpcEndpoint),
+        nodeMode: input.node_mode,
+        services: defaultServicesFor({ kind: input.kind, components: memberComponents }),
+      });
     this.assertNodeChoicesHold(input.group_name, {
       kind: input.kind,
       components: memberComponents,

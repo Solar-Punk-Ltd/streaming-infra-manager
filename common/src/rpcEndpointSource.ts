@@ -1,4 +1,9 @@
-import { isLightGateway, type NodeMode, shippedNodeMode } from './nodeMode.js';
+import {
+  isLightGateway,
+  type NodeMode,
+  shippedNodeMode,
+  ULTRA_LIGHT_NODE_MODE,
+} from './nodeMode.js';
 import { rpcEndpointProblem } from './publishUrl.js';
 
 /**
@@ -29,19 +34,40 @@ export const RPC_ENDPOINT_SOURCES: readonly RpcEndpointSource[] = [
 export const DEFAULT_RPC_ENDPOINT_SOURCE: RpcEndpointSource =
   STACK_RPC_ENDPOINT_SOURCE;
 
+/** What a node is, as far as an endpoint choice is concerned. */
+export interface RpcEndpointNode {
+  /** The address the body carries, if any. */
+  url?: string | null;
+  managerHasEndpoint: boolean;
+  /** The mode the node was given, or nothing for the shipped one. */
+  nodeMode?: NodeMode | null;
+  services: readonly string[];
+}
+
 /**
  * The source a create means when it names none.
  *
  * An address and nothing else is what `POST /profiles` took before a source
  * existed, and what migration 035 reads such a row as, so it means the same
  * thing here. Otherwise the manager's own endpoint is offered first, which is
- * the whole point of configuring one, and the stack's is what is left.
+ * the whole point of configuring one.
+ *
+ * Except to a node that runs no chain. An ultra-light node reads no endpoint at
+ * all, and the wizard sends no source for one, so offering it the manager's
+ * would write a keyed URL into an env file that travels to the viewer's host
+ * for a node that never reads it, tell the page it takes the manager's
+ * endpoint, and refuse its next deploy the day the manager loses an endpoint it
+ * never needed.
  */
-export function impliedRpcEndpointSource(
-  url: string | null | undefined,
-  managerHasEndpoint: boolean,
-): RpcEndpointSource {
+export function impliedRpcEndpointSource({
+  url,
+  managerHasEndpoint,
+  nodeMode,
+  services,
+}: RpcEndpointNode): RpcEndpointSource {
   if (url?.trim()) return CUSTOM_RPC_ENDPOINT_SOURCE;
+  const mode = nodeMode ?? shippedNodeMode(services);
+  if (mode === ULTRA_LIGHT_NODE_MODE) return DEFAULT_RPC_ENDPOINT_SOURCE;
   return managerHasEndpoint
     ? MANAGER_RPC_ENDPOINT_SOURCE
     : DEFAULT_RPC_ENDPOINT_SOURCE;

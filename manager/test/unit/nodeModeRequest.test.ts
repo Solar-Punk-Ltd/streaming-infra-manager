@@ -161,6 +161,26 @@ describe('a new deployment’s mode and endpoint', () => {
     assert.equal(bare.profiles.rows.get('two')?.rpc_endpoint_source, 'stack');
   });
 
+  it('leaves a node that runs no chain on the stack’s endpoint', async () => {
+    // The wizard sends no source for an ultra-light viewer, and that node
+    // reads no endpoint at all. Storing the manager's would put a keyed URL in
+    // an env file bound for the viewer's host and refuse the deployment's next
+    // deploy the day the manager lost an endpoint it never needed.
+    const harness = profileServiceHarness([], MANAGER_ENDPOINT);
+
+    await harness.service.create({ name: 'viewer', kind: 'viewer' });
+
+    assert.equal(harness.profiles.rows.get('viewer')?.rpc_endpoint_source, 'stack');
+  });
+
+  it('still offers it to a gateway an operator put on the chain', async () => {
+    const harness = profileServiceHarness([], MANAGER_ENDPOINT);
+
+    await harness.service.create({ name: 'light', kind: 'viewer', node_mode: 'light' });
+
+    assert.equal(harness.profiles.rows.get('light')?.rpc_endpoint_source, 'manager');
+  });
+
   it('refuses a light gateway that would take the stack’s default', async () => {
     const harness = profileServiceHarness();
 
@@ -334,10 +354,23 @@ describe('a new group’s mode and endpoint', () => {
     const configured = profileServiceHarness([], MANAGER_ENDPOINT);
     const bare = profileServiceHarness();
 
-    await configured.service.createGroup({ group_name: 'one', size: 1, kind: 'custom' });
-    await bare.service.createGroup({ group_name: 'two', size: 1, kind: 'custom' });
+    const members = { size: 1, kind: 'custom' as const, components: ['bee-uploader'] };
+    await configured.service.createGroup({ group_name: 'one', ...members });
+    await bare.service.createGroup({ group_name: 'two', ...members });
 
     assert.equal(configured.profiles.rows.get('one-profile-1')?.rpc_endpoint_source, 'manager');
     assert.equal(bare.profiles.rows.get('two-profile-1')?.rpc_endpoint_source, 'stack');
+  });
+
+  it('leaves a group of nodes that run no chain on the stack’s endpoint', async () => {
+    const harness = profileServiceHarness([], MANAGER_ENDPOINT);
+
+    await harness.service.createGroup({
+      group_name: 'viewers',
+      size: 1,
+      kind: 'viewer',
+    });
+
+    assert.equal(harness.profiles.rows.get('viewers-profile-1')?.rpc_endpoint_source, 'stack');
   });
 });
