@@ -10,6 +10,7 @@ import {
   beeUrlProblem,
   CUSTOM_RPC_ENDPOINT_SOURCE,
   DEFAULT_RPC_ENDPOINT_SOURCE,
+  type NodeMode,
   type RpcEndpointSource,
   rpcEndpointProblem,
   effectiveEngineDefaults,
@@ -263,10 +264,11 @@ export interface ProfileEnvValues {
   /** The manager's own endpoint, BEE_RPC_ENDPOINT, which `manager` names. */
   managerRpcEndpoint?: string | null;
   /**
-   * Whether this deployment's Bee gateway runs with the chain on, worked out
-   * from its services and its mode by the caller, as `localBeeUploader` is.
+   * The mode this deployment's Bee gateway runs in, or nothing when it runs no
+   * gateway. Worked out from its services and its mode by the caller, as
+   * `localBeeUploader` is.
    */
-  lightGateway?: boolean;
+  gatewayMode?: NodeMode | null;
 }
 
 /**
@@ -399,7 +401,13 @@ export function writeProfileEnv(
   // what makes that node ultra-light. A gateway an operator put on the chain
   // needs both said the other way, and it is the same endpoint the rest of the
   // deployment reaches the chain through.
-  if (values.lightGateway) {
+  //
+  // Both modes are stated rather than only the light one, for the reason
+  // LOCAL_BEE_UPLOADER is stated both ways: this file is a fresh copy of the
+  // base .env each deploy, so a host-wide value left there would decide the
+  // gateway's chain for every deployment that says nothing, and turn an
+  // ultra-light gateway light on its next deploy.
+  if (values.gatewayMode === 'light') {
     if (!rpcEndpoint) {
       throw new Error(
         'refusing to write BEE_GATEWAY_RPC_ENDPOINT to the env file: a light gateway needs a chain endpoint and this deployment takes the stack’s, which for a gateway is none',
@@ -407,6 +415,9 @@ export function writeProfileEnv(
     }
     contents = upsertEnvLine(contents, 'BEE_GATEWAY_RPC_ENDPOINT', rpcEndpoint);
     contents = upsertEnvLine(contents, 'BEE_GATEWAY_SWAP_ENABLE', 'true');
+  } else if (values.gatewayMode === 'ultra-light') {
+    contents = upsertEnvLine(contents, 'BEE_GATEWAY_RPC_ENDPOINT', '');
+    contents = upsertEnvLine(contents, 'BEE_GATEWAY_SWAP_ENABLE', 'false');
   }
 
   const beeUrl = values.beeUrl?.trim();

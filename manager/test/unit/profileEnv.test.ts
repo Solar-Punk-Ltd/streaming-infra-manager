@@ -578,7 +578,7 @@ describe('the keys a Bee gateway put on the chain reads', () => {
       engine: 'srs',
       rpcEndpointSource: 'manager',
       managerRpcEndpoint: MANAGER,
-      lightGateway: true,
+      gatewayMode: 'light',
     });
 
     assert.equal(lineFor(path, 'BEE_GATEWAY_RPC_ENDPOINT'), `BEE_GATEWAY_RPC_ENDPOINT=${MANAGER}`);
@@ -586,14 +586,38 @@ describe('the keys a Bee gateway put on the chain reads', () => {
     assert.equal(lineFor(path, 'RPC_ENDPOINT'), `RPC_ENDPOINT=${MANAGER}`);
   });
 
-  it('gives an ultra-light gateway neither, which is what the stack ships', () => {
-    writeBaseEnv();
+  it('states an ultra-light gateway’s two keys rather than leaving them out', () => {
+    // The file is a fresh copy of the version's base env every deploy, so a
+    // host-wide value an operator put there would decide these for every
+    // gateway that says nothing, and turn an ultra-light one light on its next
+    // deploy. The same trap LOCAL_BEE_UPLOADER's own comment names.
+    writeBaseEnv(
+      'ENGINE=srs\nBEE_GATEWAY_SWAP_ENABLE=true\nBEE_GATEWAY_RPC_ENDPOINT=https://rpc.gnosischain.com\n',
+    );
 
     const path = writeProfileEnv(root, 'ultra-light-gateway', {
       engine: 'srs',
       rpcEndpointSource: 'stack',
       managerRpcEndpoint: MANAGER,
-      lightGateway: false,
+      gatewayMode: 'ultra-light',
+    });
+
+    assert.equal(lineFor(path, 'BEE_GATEWAY_SWAP_ENABLE'), 'BEE_GATEWAY_SWAP_ENABLE=false');
+    assert.equal(lineFor(path, 'BEE_GATEWAY_RPC_ENDPOINT'), 'BEE_GATEWAY_RPC_ENDPOINT=');
+    assert.equal(
+      lines(path).filter((line) => line.startsWith('BEE_GATEWAY_SWAP_ENABLE=')).length,
+      1,
+      'the base value is replaced rather than joined by a second line compose would read instead',
+    );
+  });
+
+  it('leaves both keys out of a deployment that runs no gateway', () => {
+    writeBaseEnv();
+
+    const path = writeProfileEnv(root, 'no-gateway', {
+      engine: 'srs',
+      rpcEndpointSource: 'manager',
+      managerRpcEndpoint: MANAGER,
     });
 
     assert.equal(lineFor(path, 'BEE_GATEWAY_RPC_ENDPOINT'), undefined);
@@ -608,7 +632,7 @@ describe('the keys a Bee gateway put on the chain reads', () => {
         writeProfileEnv(root, 'chainless-gateway', {
           engine: 'srs',
           rpcEndpointSource: 'stack',
-          lightGateway: true,
+          gatewayMode: 'light',
         }),
       /BEE_GATEWAY_RPC_ENDPOINT/,
     );

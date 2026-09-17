@@ -6,12 +6,11 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
   abrLadderEnvValue,
-  effectiveNodeMode,
   engineForComponents,
   type EngineName,
   engineSettingsEnv,
   getErrorMessage,
-  isLightGateway,
+  gatewayNodeMode,
   ownsBeeNode,
   redactEndpoints,
   portExposureProblem,
@@ -1049,10 +1048,7 @@ export class DeploymentOrchestrator {
         // From the profile's own components and its stored mode, as
         // localBeeUploader is: this is the one place a mode becomes keys in a
         // file.
-        lightGateway: isLightGateway(
-          defaultServicesFor(profile),
-          effectiveNodeMode(profile),
-        ),
+        gatewayMode: gatewayNodeMode(profile),
         srtPassphrase: secrets.srtPassphrase,
         streamKey: secrets.streamKey,
         engineSettings: profile.engine_settings,

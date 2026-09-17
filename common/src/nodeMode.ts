@@ -73,3 +73,19 @@ export function isLightGateway(
     !services.includes(BEE_UPLOADER_SERVICE)
   );
 }
+
+/**
+ * The mode this deployment's Bee gateway runs in, or null when it runs none.
+ *
+ * Both answers are written into the deployment's env file rather than only the
+ * light one. That file is a fresh copy of the version's base env every deploy,
+ * so a host-wide value an operator leaves there would otherwise decide the
+ * gateway's chain for every deployment that says nothing.
+ */
+export function gatewayNodeMode(profile: StampGatedProfile): NodeMode | null {
+  const services = defaultServicesFor(profile);
+  if (!services.includes(BEE_GATEWAY_SERVICE)) return null;
+  return isLightGateway(services, effectiveNodeMode(profile))
+    ? LIGHT_NODE_MODE
+    : ULTRA_LIGHT_NODE_MODE;
+}
