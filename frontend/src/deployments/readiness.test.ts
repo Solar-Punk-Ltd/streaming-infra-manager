@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { stampHealthFrom } from '@streaming-infra-manager/common';
+import { type ChequebookHealth, stampHealthFrom } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
 import { buildChecklist, firstBlocker, type ChecklistInput } from './checklist';
-import { readinessFor, readinessOf } from './readiness';
+import { CHEQUEBOOK_EMPTY, NEEDS_A_STAMP, needsAttention, readinessFor, readinessOf } from './readiness';
 import { readySummary } from './readySummary';
 
 export const runningProfile: Profile = {
@@ -102,5 +102,56 @@ describe('one readiness blocker', () => {
     const first = firstBlocker(buildChecklist(state));
     assert.equal(first?.action?.kind, 'buy-stamp');
     assert.equal(readinessFor(state).label, 'Needs a stamp');
+  });
+});
+
+describe('a list that never reads a wallet', () => {
+  const stamped: Profile = { ...runningProfile, stamp_id: `0x${'a'.repeat(64)}` };
+  const fundingStepOf = (profile: Profile, chequebook?: ChequebookHealth | null) =>
+    buildChecklist({
+      ...input({ profile, wallet: undefined, chequebook: chequebook ?? null }),
+      stampHealth: stampHealthFrom(profile.stamp_id, null),
+    }).find((step) => step.title === 'Bee node funded');
+
+  it('does not blame a running node for a reading nobody took', () => {
+    assert.doesNotMatch(readinessOf(stamped).label, /funding not checked/i);
+    assert.equal(needsAttention(stamped), false);
+    assert.equal(fundingStepOf(stamped)?.state, 'busy');
+  });
+
+  it('calls funding checked once the node reports a chequebook it can pay from', () => {
+    const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+
+    assert.equal(fundingStepOf(stamped, paying)?.state, 'ok');
+    assert.doesNotMatch(readinessOf(stamped, undefined, paying).label, /funding|chequebook/i);
+  });
+
+  it('counts a node whose chequebook the node itself reported empty', () => {
+    const empty: ChequebookHealth = { state: 'empty', availablePlur: 0n, floorPlur: 5_000_000_000_000_000n };
+
+    assert.equal(readinessOf(stamped, undefined, empty).label, CHEQUEBOOK_EMPTY);
+    assert.equal(needsAttention(stamped, undefined, empty), true);
+  });
+
+  it('counts a node that answered the chequebook read with a failure, in its own words', () => {
+    const unread: ChequebookHealth = {
+      state: 'unknown', availablePlur: null, floorPlur: 5_000_000_000_000_000n,
+      failure: { reason: 'timeout', elapsedMs: 3_012 },
+    };
+
+    assert.equal(readinessOf(stamped, undefined, unread).label, 'Node did not answer in time');
+    assert.equal(needsAttention(stamped, undefined, unread), true);
+  });
+
+  it('still asks for a stamp a running node has never had', () => {
+    const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+    const unstamped: Profile = { ...runningProfile, stamp_id: null };
+
+    assert.equal(readinessOf(unstamped, undefined, paying).label, NEEDS_A_STAMP);
+    assert.equal(needsAttention(unstamped, undefined, paying), true);
+  });
+
+  it('keeps funding not checked for the page that did ask the node', () => {
+    assert.equal(readinessFor(input({ profile: stamped, wallet: null, chequebook: null })).label, 'Funding not checked');
   });
 });

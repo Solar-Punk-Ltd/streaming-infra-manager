@@ -153,3 +153,72 @@ describe('a stamp reading that is missing says why', () => {
     assert.equal(step?.problem, 'Stamp not checked');
   });
 });
+
+const listInput = (chequebook: ChecklistInput['chequebook']) =>
+  input({ wallet: undefined, chequebook });
+
+describe('funding where the view never asked the node for its wallet', () => {
+  it('waits for the chequebook reading rather than calling the node unchecked', () => {
+    const step = stepNamed('Bee node funded', listInput(null));
+
+    assert.equal(step?.state, 'busy');
+    assert.equal(step?.problem, 'Reading balances');
+    assert.match(step?.detail ?? '', /waiting for this node/i);
+    assert.doesNotMatch(step?.detail ?? '', /not checked/i);
+  });
+
+  it('calls a node with a chequebook it can pay from funded', () => {
+    const step = stepNamed(
+      'Bee node funded',
+      listInput({ state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n }),
+    );
+
+    assert.equal(step?.state, 'ok');
+    assert.equal(step?.problem, undefined);
+    assert.match(step?.detail ?? '', /chequebook 1\.0000 BZZ available/);
+  });
+
+  it('reports an empty chequebook as the node reported it', () => {
+    const step = stepNamed(
+      'Bee node funded',
+      listInput({ state: 'empty', availablePlur: 0n, floorPlur: 5_000_000_000_000_000n }),
+    );
+
+    assert.equal(step?.state, 'err');
+    assert.equal(step?.problem, 'Chequebook empty');
+    assert.equal(step?.action?.kind, 'fill-chequebook');
+  });
+
+  it('reports a chequebook under the floor as low', () => {
+    const step = stepNamed(
+      'Bee node funded',
+      listInput({ state: 'low', availablePlur: 1_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n }),
+    );
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Chequebook low');
+  });
+
+  it('gives a failed chequebook read the same words the deployment page gives it', () => {
+    const step = stepNamed('Bee node funded', listInput(unreadChequebook(failed('timeout'))));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Node did not answer in time');
+    assert.match(step?.detail ?? '', /did not answer the chequebook read within 3\.0 seconds/);
+  });
+
+  it('waits rather than warning when the node answered without a balance', () => {
+    const step = stepNamed('Bee node funded', listInput(unreadChequebook()));
+
+    assert.equal(step?.state, 'busy');
+    assert.equal(step?.problem, 'Reading balances');
+  });
+
+  it('keeps not checked for the page that asked and has no answer yet', () => {
+    const step = stepNamed('Bee node funded', input({ wallet: null }));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Funding not checked');
+    assert.equal(step?.action?.kind, 'refresh-node');
+  });
+});

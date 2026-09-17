@@ -58,8 +58,16 @@ export interface ChecklistStep {
 export interface ChecklistInput {
   profile: Profile;
   nodeReadiness?: BeeReadinessView;
-  /** What this deployment's own Bee node holds, when the page asked it. */
-  wallet: BeeWallet | null;
+  /**
+   * What this deployment's own Bee node holds.
+   *
+   * `undefined` where the view never asked, which is every list and the
+   * overview, because a row would have to ask each node in turn. `null` where
+   * a page did ask and the node has not answered yet. Those are two different
+   * things to tell an operator, and calling the first one unchecked says
+   * nobody looked when nobody was ever going to.
+   */
+  wallet: BeeWallet | null | undefined;
   /** What the same node can still pay peers with, null when it did not say. */
   chequebook: ChequebookHealth | null;
   nodeAddress: string | null;
@@ -204,6 +212,8 @@ function fundingStep({
     ? { label: 'Copy node address', kind: 'copy-address', value: nodeAddress }
     : undefined;
 
+  if (wallet === undefined) return fundingFromChequebookAlone(chequebook, action);
+
   if (!wallet) {
     return {
       title: FUNDING_TITLE,
@@ -237,30 +247,18 @@ function fundingStep({
     };
   }
 
-  if (chequebook) {
-    const shortfall = chequebookStateReason(chequebook);
-    if (shortfall) {
-      return {
-        title: FUNDING_TITLE,
-        problem: chequebook.state === 'empty' ? 'Chequebook empty' : 'Chequebook low',
-        state: chequebook.state === 'empty' ? 'err' : 'warn',
-        detail: shortfall,
-        action: FILL_CHEQUEBOOK,
-      };
-    }
-  }
+  const shortfall = chequebookShortfallStep(chequebook);
+  if (shortfall) return shortfall;
 
   if (!chequebook || chequebook.state === 'unknown') {
     const failure = chequebook?.failure;
+    if (failure) return chequebookFailureStep(failure);
     return {
       title: FUNDING_TITLE,
-      problem: failure
-        ? READ_FAILURE_PROBLEM[failure.reason]
-        : 'Funding not checked',
+      problem: 'Funding not checked',
       state: 'warn',
-      detail: failure
-        ? `${readFailureDetail('chequebook read', failure)} Retry the node checks before starting an uploader.`
-        : 'The node has not confirmed its chequebook balance. Retry the node checks before starting an uploader.',
+      detail:
+        'The node has not confirmed its chequebook balance. Retry the node checks before starting an uploader.',
       action: RETRY_NODE_CHECKS,
     };
   }
@@ -279,6 +277,65 @@ function fundingStep({
   };
 }
 
+const WAITING_FOR_CHEQUEBOOK =
+  'Waiting for this node to answer with its chequebook balance. The wallet balances are read on the deployment page.';
+
+/**
+ * Funding as a view that never asked for the wallet can judge it.
+ *
+ * The chequebook is the one reading these views do take, so it answers on its
+ * own: what it reports short is the node's own report, a read that failed is
+ * the failure's own words, and no reading yet is this view still waiting
+ * rather than anything an operator can act on.
+ */
+function fundingFromChequebookAlone(
+  chequebook: ChequebookHealth | null,
+  action: StepAction | undefined,
+): ChecklistStep {
+  const shortfall = chequebookShortfallStep(chequebook);
+  if (shortfall) return shortfall;
+
+  const failure = chequebook?.failure;
+  if (failure) return chequebookFailureStep(failure);
+
+  const note = chequebookNote(chequebook);
+  if (!note) {
+    return {
+      title: FUNDING_TITLE,
+      problem: 'Reading balances',
+      state: 'busy',
+      detail: WAITING_FOR_CHEQUEBOOK,
+    };
+  }
+
+  return { title: FUNDING_TITLE, state: 'ok', detail: note, action };
+}
+
+/** What the node itself reported short, whoever took the reading. */
+function chequebookShortfallStep(
+  chequebook: ChequebookHealth | null,
+): ChecklistStep | null {
+  const shortfall = chequebook ? chequebookStateReason(chequebook) : null;
+  if (!chequebook || !shortfall) return null;
+  return {
+    title: FUNDING_TITLE,
+    problem: chequebook.state === 'empty' ? 'Chequebook empty' : 'Chequebook low',
+    state: chequebook.state === 'empty' ? 'err' : 'warn',
+    detail: shortfall,
+    action: FILL_CHEQUEBOOK,
+  };
+}
+
+function chequebookFailureStep(failure: ReadFailure): ChecklistStep {
+  return {
+    title: FUNDING_TITLE,
+    problem: READ_FAILURE_PROBLEM[failure.reason],
+    state: 'warn',
+    detail: `${readFailureDetail('chequebook read', failure)} Retry the node checks before starting an uploader.`,
+    action: RETRY_NODE_CHECKS,
+  };
+}
+
 /** Only a node that answered gets a line about its chequebook. */
 function chequebookNote(chequebook: ChequebookHealth | null): string | null {
   if (chequebook?.availablePlur == null) return null;
@@ -292,7 +349,7 @@ function stampStep({
   currentStamp,
 }: ChecklistInput): ChecklistStep {
   const title = 'Postage stamp set';
-  const funded = wallet != null && toBigInt(wallet.bzzBalance) > 0n;
+  const affordable = stampAffordable(wallet);
   const buy = (label: string, primary = false): StepAction => ({
     label,
     kind: 'buy-stamp',
@@ -304,10 +361,10 @@ function stampStep({
       return {
         title,
         problem: 'Needs a stamp',
-        state: funded && isRunning(profile) ? 'warn' : 'off',
+        state: affordable && isRunning(profile) ? 'warn' : 'off',
         detail:
           'A stamp is prepaid Swarm storage. Buy one below once the node has BZZ.',
-        action: buy('Buy stamp', funded && isRunning(profile)),
+        action: buy('Buy stamp', affordable && isRunning(profile)),
       };
     case 'expired':
     case 'gone':
@@ -355,6 +412,18 @@ function stampStep({
           : undefined,
       };
   }
+}
+
+/**
+ * Whether buying a stamp is worth offering, as far as this view looked.
+ *
+ * A wallet nobody read says nothing about its BZZ, so it rules nothing out.
+ * Reading that silence as an empty wallet leaves a list unable to say that a
+ * running node has no stamp, which is a state the manager knows on its own.
+ */
+function stampAffordable(wallet: BeeWallet | null | undefined): boolean {
+  if (wallet === undefined) return true;
+  return wallet !== null && toBigInt(wallet.bzzBalance) > 0n;
 }
 
 function activeStampDetail(

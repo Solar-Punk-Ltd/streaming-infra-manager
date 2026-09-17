@@ -29,11 +29,14 @@ export function readinessFor(input: ChecklistInput): Readiness {
   return { label: shapeOf(input.profile) === 'bee-node' ? 'Node prerequisites checked' : 'Containers running', tone: 'ok' };
 }
 
-/** A list without current node observations cannot verify publishing readiness. */
+/**
+ * Readiness as a list can tell it: the profile, whatever the page read for it,
+ * and no wallet, because no list asks a node for its balances.
+ */
 export function readinessOf(profile: Profile, health?: StampHealth, chequebook?: ChequebookHealth | null): Readiness {
   return readinessFor({
     profile, stampHealth: health ?? stampHealthFrom(profile.stamp_id, null),
-    chequebook: chequebook ?? null, wallet: null, nodeAddress: null,
+    chequebook: chequebook ?? null, wallet: undefined, nodeAddress: null,
     currentStamp: null, publishUrl: null, clientUrl: null, streamers: [],
   });
 }
