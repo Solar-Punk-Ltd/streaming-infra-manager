@@ -68,15 +68,19 @@ async function shareOrCopyFile(from: string, to: string, mode: number): Promise<
  * the files the copy owns outright are read: the settings files, copied so that
  * a deploy writing one does not write the build, and every file on a host whose
  * filesystem refused the link.
+ *
+ * A path the stamps do not hold is read too. Assigning `__proto__` as a key of
+ * a plain object sets a prototype instead, so a build carrying a file of that
+ * name has one path with no identity to be compared by, and its bytes answer
+ * for it the way they did before any of this was recorded.
  */
 function copiedFileDigest(root: string, source: RecordedOwnedTree, ownFiles: ReadonlySet<string>): FileDigestSource {
   const recorded = new Map(source.entries.flatMap(entry => entry.type === 'file' ? [[entry.path, entry.sha256] as const] : []));
   return async (path, durable) => {
     const known = recorded.get(path);
-    if (known === undefined || ownFiles.has(path)) return sha256(await readOwnedFile(root, path));
-    if (inodeOfStamp(durable) !== inodeOfStamp(source.durableStamps[path] ?? '')) {
-      throw new Error('Execution copy inventory differs from its source.');
-    }
+    const stamped = source.durableStamps[path];
+    if (known === undefined || ownFiles.has(path) || typeof stamped !== 'string') return sha256(await readOwnedFile(root, path));
+    if (inodeOfStamp(durable) !== inodeOfStamp(stamped)) throw new Error('Execution copy inventory differs from its source.');
     return known;
   };
 }

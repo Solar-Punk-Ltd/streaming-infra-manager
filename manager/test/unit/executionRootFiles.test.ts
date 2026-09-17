@@ -328,3 +328,14 @@ it('reads the bytes of a file the filesystem would not link, so a change of the 
 
   assert.equal(changed, true, 'the copied file was never reached, so this test proves nothing');
 });
+
+it('copies a build holding a file named after the one key a stamp map cannot keep', async () => {
+  // `stamps['__proto__'] = ...` sets a prototype instead of a key, so this path has no stamp to be identified by.
+  await writeFile(join(source, '__proto__'), 'SYNTHETIC=proto\n');
+  const item = await record();
+
+  await copyExecutionRoot(item, executions);
+
+  assert.equal(await treeDigest(item.root), item.source.artifactDigest);
+  assert.equal(await readFile(join(item.root, '__proto__'), 'utf8'), 'SYNTHETIC=proto\n');
+});
