@@ -1389,3 +1389,58 @@ the manager's database suite, one line on his word. The uploader created
 before the fix holds the public-host string: copy the pool string from the
 pool page again and paste it into its "Node pool string" field under Edit,
 then Retry.
+
+**The docs and comment review of the evening, 2026-09-17.** Levi asked for a
+staleness and correctness pass over the pages and the code comments of both
+lines, the stack's `feat/manager-line` and the manager's `main-v2`, with the
+pin moved to whatever the stack's line ended at. Four read-only reviews ran in
+parallel, one per repository and kind, each reading whole the files changed
+since the last audit and sweeping the rest for the behaviours the week changed:
+the uploader boot and its gates, the node mode and the RPC endpoint, the
+gateway's chain keys, the branch the pin tracks. Every finding carried the code
+line that made it false. The stack's pages: no P1, seven P2, four P3, the two
+that mattered being the sentence in `.env.sample` and `deploy/README.md` that
+every node is waited for, where only the coordinator is (a rung node that does
+not answer is warned about under the shipped mode and the uploader starts
+degraded), and the roadmap's flip recipe naming one gateway key where two are
+needed. The stack's comments: 27 rows, eight of them P1 by the rule that a
+comment contradicting a ruling is P1, none by damage: `index.ts`, `config.ts`,
+`StreamCatalog.ts` and its test, `health.test.ts`, `assert-started.sh` and its
+test still said a down node refuses the boot, or that only `refuse` lets the
+postage gate stop a start, all written before D16, `chequebook-warn` and
+decision 7 b. The manager's pages: four P1 (the sample env and the chequebook
+page still said the floor refuses an uploader start, overtaken by `667aee5`
+the same afternoon), three P2 (the ladder page said the waiting state was not
+pinned, the README quick start curled a port compose does not publish, the
+deposit and withdraw rows carried the old body) and twelve P3. The manager's
+comments: 22 rows, five P1 (the same floor sentence in five files), six P2
+(the health service and its test said the pinned stack reports no waiting
+state, the `$` note gave the opposite of the address rule, the Dockerfile said
+the deploy builds the stack on the host). Everything was accepted and landed
+by two Opus lanes, one per tree, one finding per commit: 42 commits on
+`feat/manager-line` (head `52164ebf`, uploader 1571 and deploy 908 green, box
+run 35227408741 passed) and 34 on `main-v2` before the pin (common 405, manager unit
+2667, frontend unit 311, typecheck green, box run 35227507560 passed at the
+pin commit `d54b1c9`), plus one test each: the deploy
+suite now holds the uploader README's environment tables in step with
+`config.ts`, and `managerEnvKeyDocs.test.ts` holds every env key the manager
+reads to a line in the sample or the README, which is how `MANAGER_HOST`,
+`HOST_PROC` and `HOST_ROOTFS` were found undocumented. The pin moved to
+`52164ebf` in `d54b1c9`.
+
+**Open from the review.** Two code observations, not fixed because the pass
+was words only: a bee-uploader's container snapshot never carries the resolved
+`RPC_ENDPOINT` or the gateway's two keys (`buildEffectiveEnv` does not set
+them, `writeProfileEnv` does), recorded as a P3 limit in the T27 fixes file and
+called real by the comment reviewer, and `pnpm stack:start` in
+`manager/package.json` passes a compose profile named `full` that the compose
+file does not declare, so the flag does nothing. Two stack comments the
+reviewer could not prove either way are left as they are: the SRS retry window
+"60s" in `config.ts`, and the text shape a wrapped 5xx arrives in, which
+`NodeWait.ts` matches on. And one P2 the stack lane measured rather than read,
+recorded on the T25 row (`e9f1d56`) and not built: a feed head read whose
+transfer breaks, on a node that then fails the liveness check, is rethrown
+with the transport code where the wait's classifier does not look, so the
+boot ends once and docker restarts it where D16 wants a wait. One alternative
+in the classifier and one test through bee-js's own error shape, on Levi's
+word.
