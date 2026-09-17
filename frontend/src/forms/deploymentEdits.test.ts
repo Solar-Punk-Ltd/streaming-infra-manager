@@ -114,7 +114,7 @@ function customEndpoint(over: Partial<Profile> = {}): Profile {
   });
 }
 
-describe('the chain endpoint a deployment names for itself', () => {
+describe('the RPC endpoint a deployment names for itself', () => {
   /**
    * Every Bee node that reaches a chain reads RPC_ENDPOINT, and the only place
    * to set it used to be the stack version, so every deployment on a version
@@ -392,7 +392,7 @@ describe('the SRT passphrase in the Edit drawer', () => {
   });
 });
 
-describe('the three sources the Edit drawer offers for a chain endpoint', () => {
+describe('the three sources the Edit drawer offers for an RPC endpoint', () => {
   /**
    * A gateway put on the chain at creation is a light node, and a light node
    * reads an endpoint. The stack ships that node with an empty one, which is

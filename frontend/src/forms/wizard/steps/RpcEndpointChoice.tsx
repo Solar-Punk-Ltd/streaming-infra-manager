@@ -19,7 +19,7 @@ import {
   type WizardStepProps,
 } from '../wizardState';
 
-const LABEL = 'Chain endpoint';
+const LABEL = 'RPC endpoint';
 
 const STACK_DETAIL =
   'The public Gnosis endpoint the stack ships with. It is shared by everyone and it rate-limits.';
@@ -81,7 +81,7 @@ export function RpcEndpointChoice(props: WizardStepProps) {
           placeholder="https://rpc.example.org"
           inputProps={{
             style: { fontFamily: MONO_STACK },
-            'aria-label': 'Custom chain endpoint',
+            'aria-label': 'Custom RPC endpoint',
           }}
         />
       ),

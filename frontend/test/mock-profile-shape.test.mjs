@@ -122,10 +122,10 @@ describe('what the dev mock says about each deployment\'s Bee node', () => {
    */
   it('stores no mode for a deployment that was never asked', () => {
     for (const profile of state.profiles) {
-      assert.ok(
-        profile.node_mode === null || profile.node_mode === undefined ||
-          profile.node_mode === LIGHT_NODE_MODE || profile.node_mode === ULTRA_LIGHT_NODE_MODE,
-        `${profile.name} carries ${profile.node_mode}`,
+      assert.equal(
+        profile.node_mode,
+        null,
+        `${profile.name} was seeded, so it chose nothing, and it carries ${profile.node_mode}`,
       );
     }
   });

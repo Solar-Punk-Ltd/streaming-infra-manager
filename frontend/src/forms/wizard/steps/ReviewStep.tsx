@@ -108,7 +108,7 @@ export function ReviewStep({ state, context }: WizardStepProps) {
   if (nodeMode) {
     entries.push({ key: 'Node mode', value: nodeModeLabel(nodeMode) });
     entries.push({
-      key: 'Chain endpoint',
+      key: 'RPC endpoint',
       value: rpcEndpointLabel({
         mode: nodeMode,
         source: state.rpcEndpointSource,

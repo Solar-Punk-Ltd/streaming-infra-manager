@@ -234,7 +234,7 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
    */
   const own = await create('Stream to Swarm', 'stage-own-endpoint', async () => {
     await choose('Custom');
-    await fill('input[aria-label="Custom chain endpoint"]', KEYED_ENDPOINT);
+    await fill('input[aria-label="Custom RPC endpoint"]', KEYED_ENDPOINT);
   });
   assert.match(own, /Custom \(rpc\.example\.org\)/);
   assert.doesNotMatch(own, /not-a-key/);

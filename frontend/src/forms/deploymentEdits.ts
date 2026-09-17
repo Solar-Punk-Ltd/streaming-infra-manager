@@ -186,7 +186,7 @@ export function editProblem(
       nodeMode: effectiveNodeMode(profile),
       services: defaultServicesFor(profile),
     });
-    if (problem) return `Chain endpoint: ${problem}`;
+    if (problem) return `RPC endpoint: ${problem}`;
   }
   if (shown.poolString) {
     if (!edits.poolString.trim()) {

@@ -62,7 +62,7 @@ export function RpcEndpointField({
     : [];
 
   return (
-    <FormField label="Chain endpoint" labelId="edit-rpc-label">
+    <FormField label="RPC endpoint" labelId="edit-rpc-label">
       <ChoiceGroup<RpcEndpointSource>
         name="edit-rpc-endpoint"
         labelledBy="edit-rpc-label"
@@ -89,7 +89,7 @@ export function RpcEndpointField({
                 placeholder="https://rpc.example.org"
                 inputProps={{
                   style: { fontFamily: MONO_STACK },
-                  'aria-label': 'Custom chain endpoint',
+                  'aria-label': 'Custom RPC endpoint',
                 }}
               />
             ),

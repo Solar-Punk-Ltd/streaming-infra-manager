@@ -29,7 +29,7 @@ describe('what a node mode is called on a page', () => {
   });
 });
 
-describe('what a chain endpoint is called on a page', () => {
+describe('what an RPC endpoint is called on a page', () => {
   const light = (source: Parameters<typeof rpcEndpointLabel>[0]['source'], host: string | null) =>
     rpcEndpointLabel({ mode: LIGHT_NODE_MODE, source, host });
 

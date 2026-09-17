@@ -112,7 +112,7 @@ describe('the node mode on the wizard create body', () => {
   });
 });
 
-describe('the chain endpoint on the wizard create body', () => {
+describe('the RPC endpoint on the wizard create body', () => {
   it('names the manager own endpoint, which is the offered default', async (t) => {
     const { body } = await sentRequest(t, stateFor('stream'));
 

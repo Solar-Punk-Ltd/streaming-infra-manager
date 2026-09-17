@@ -130,7 +130,7 @@ export function rpcEndpointError(
     nodeMode: chosenNodeMode(state),
     services: nodeServices(state),
   });
-  return problem === null ? null : `Chain endpoint: ${problem}`;
+  return problem === null ? null : `RPC endpoint: ${problem}`;
 }
 
 function basicsError(

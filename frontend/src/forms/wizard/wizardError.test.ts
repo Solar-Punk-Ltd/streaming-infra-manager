@@ -200,7 +200,7 @@ describe('what is wrong with where a node reaches the chain', () => {
 
     const underTheField = rpcEndpointError(state, withOurEndpoint);
 
-    assert.match(underTheField ?? '', /^Chain endpoint: expected an http/);
+    assert.match(underTheField ?? '', /^RPC endpoint: expected an http/);
     assert.equal(wizardError(state, withOurEndpoint), underTheField);
   });
 

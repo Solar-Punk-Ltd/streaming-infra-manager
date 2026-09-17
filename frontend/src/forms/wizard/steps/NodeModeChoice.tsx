@@ -22,7 +22,7 @@ const ULTRA_LIGHT_DETAIL =
   'Downloads only. No chain, no chequebook and no gas, so there is nothing to fund.';
 
 const LIGHT_DETAIL =
-  'Pays for the bandwidth it uses through a chequebook, so it needs gas and a chain endpoint.';
+  'Pays for the bandwidth it uses through a chequebook, so it needs gas and an RPC endpoint.';
 
 /**
  * How much of a chain this deployment's Bee node runs with.

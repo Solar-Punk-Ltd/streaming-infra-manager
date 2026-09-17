@@ -25,6 +25,7 @@ import {
   ULTRA_LIGHT_NODE_MODE,
 } from '@streaming-infra-manager/common';
 
+import { rpcEndpointError } from './wizardError';
 import {
   chosenNodeMode,
   chosenPassphrase,
@@ -219,14 +220,27 @@ describe('where a new node is told to reach the chain', () => {
     assert.equal(offersRpcEndpoint(initialWizardState({ goal: 'abr-uploader' }, context)), false);
   });
 
-  it('holds the typed address apart from the two sources that carry none', () => {
-    const state: WizardState = {
-      ...initialWizardState({ goal: 'stream' }, hostWith(null)),
+  /**
+   * Nothing clears the box when the operator moves off Custom, so the address
+   * survives a look at the other two sources and is there again on the way
+   * back. What must not survive is its meaning: the shared rule refuses an
+   * address under a source that carries none, so every reader of this state
+   * offers it one only under Custom.
+   */
+  it('lets a typed address sit under another source without meaning anything', () => {
+    const context = hostWith(null, OUR_ENDPOINT);
+    const typed: WizardState = {
+      ...initialWizardState({ goal: 'stream' }, context),
       rpcEndpointSource: CUSTOM_RPC_ENDPOINT_SOURCE,
       rpcEndpoint: 'http://host.docker.internal:9000',
     };
+    const movedOff: WizardState = {
+      ...typed,
+      rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE,
+    };
 
-    assert.equal(state.rpcEndpoint, 'http://host.docker.internal:9000');
-    assert.equal(offersRpcEndpoint(state), true);
+    assert.equal(rpcEndpointError(typed, context), null);
+    assert.equal(rpcEndpointError(movedOff, context), null);
+    assert.equal(movedOff.rpcEndpoint, 'http://host.docker.internal:9000', 'still there on the way back');
   });
 });
