@@ -170,22 +170,37 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     );
   });
 
-  it('keeps the stored mode through an update that says nothing about it', async () => {
+  it('keeps the stored mode and source through an update that says nothing', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('kept', 'custom', 'RUNNING', {
       node_mode: 'ultra-light',
-      rpc_endpoint_source: 'custom',
-      rpc_endpoint: ENDPOINT,
+      rpc_endpoint_source: 'manager',
     }, PLACEMENT);
 
     const written = await profiles.updateEditable('kept', 'custom', { notes: 'edited' });
 
-    // A node's mode is chosen when it is created, so an edit that never
-    // mentions it cannot change it. The endpoint goes back to the stack's, the
-    // way leaving out the address always has.
+    // A node's mode is chosen when it is created, and where an endpoint goes
+    // when its address is emptied is the service's to work out, because it
+    // depends on whether this manager has an endpoint at all. The statement
+    // keeps both rather than holding a second opinion.
     assert.equal(written?.node_mode, 'ultra-light');
-    assert.equal(written?.rpc_endpoint_source, 'stack');
-    assert.equal(written?.rpc_endpoint, null);
+    assert.equal(written?.rpc_endpoint_source, 'manager');
+  });
+
+  it('refuses a caller that empties the address and leaves the source custom', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('stranded', 'custom', 'RUNNING', {
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: ENDPOINT,
+    }, PLACEMENT);
+
+    // What a caller that resolved neither would leave behind. ProfileService
+    // never sends this, and the column's CHECK is what says so for anything
+    // that would.
+    await assert.rejects(
+      () => profiles.updateEditable('stranded', 'custom', { notes: 'edited' }),
+      /profiles_rpc_endpoint_source_pairing/,
+    );
   });
 
   it('keeps a stored endpoint choice through an update that says nothing', async () => {
@@ -203,12 +218,13 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint_source, 'manager');
   });
 
-  it('reads an address arriving with no source as the custom one', async () => {
+  it('stores the address and the source the caller resolved together', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('adopting', 'custom', 'RUNNING', {}, PLACEMENT);
 
     const written = await profiles.updateEditable('adopting', 'custom', {
       rpc_endpoint: ENDPOINT,
+      rpc_endpoint_source: 'custom',
     });
 
     assert.equal(written?.rpc_endpoint_source, 'custom');

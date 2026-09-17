@@ -563,7 +563,13 @@ export class ProfileService {
     }
     const rpcEndpointSource =
       input.rpc_endpoint_source ??
-      keptRpcEndpointSource(edits.rpc_endpoint, existing.rpc_endpoint_source);
+      keptRpcEndpointSource({
+        url: edits.rpc_endpoint,
+        stored: existing.rpc_endpoint_source,
+        managerHasEndpoint: Boolean(this.managerRpcEndpoint),
+        nodeMode: modeEdit ?? existing.node_mode,
+        services: defaultServicesFor(existing),
+      });
     const proposed: Profile = {
       ...existing,
       ...edits,

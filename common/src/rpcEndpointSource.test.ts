@@ -175,17 +175,35 @@ describe('the source a body means when it names none', () => {
     assert.equal(implied({ services: GATEWAY, nodeMode: 'light' }), 'manager');
   });
 
+  const kept = (over: Record<string, unknown> = {}) =>
+    keptRpcEndpointSource({
+      stored: 'stack',
+      managerHasEndpoint: true,
+      services: PUBLISHER,
+      ...over,
+    });
+
   it('keeps a stored choice through an update that says nothing', () => {
     // A saved note must not move a deployment off the manager's endpoint onto
     // the stack's public one.
-    assert.equal(keptRpcEndpointSource(null, 'manager'), 'manager');
-    assert.equal(keptRpcEndpointSource(null, 'stack'), 'stack');
+    assert.equal(kept({ stored: 'manager' }), 'manager');
+    assert.equal(kept({ stored: 'stack' }), 'stack');
   });
 
-  it('lets the address and the custom choice travel together', () => {
-    assert.equal(keptRpcEndpointSource(ENDPOINT, 'manager'), 'custom');
-    assert.equal(keptRpcEndpointSource(null, 'custom'), 'stack');
-    assert.equal(keptRpcEndpointSource('   ', 'custom'), 'stack');
+  it('reads an address arriving as the custom choice', () => {
+    assert.equal(kept({ url: ENDPOINT, stored: 'manager' }), 'custom');
+  });
+
+  it('puts a node whose address went back on the manager’s endpoint', () => {
+    // Emptying the box in the drawer is not a request for the public RPC.
+    // Levi's words: our RPC endpoint, never the public one silently.
+    assert.equal(kept({ stored: 'custom' }), 'manager');
+    assert.equal(kept({ url: '   ', stored: 'custom' }), 'manager');
+  });
+
+  it('falls to the stack only when there is nothing else for that node', () => {
+    assert.equal(kept({ stored: 'custom', managerHasEndpoint: false }), 'stack');
+    assert.equal(kept({ stored: 'custom', services: GATEWAY }), 'stack');
   });
 });
 

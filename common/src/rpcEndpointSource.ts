@@ -79,17 +79,30 @@ export function impliedRpcEndpointSource({
  * A stored choice survives an edit about something else, so a deployment on the
  * manager's endpoint is never moved onto the stack's public one by a saved
  * note. The address is the exception both ways: it and `custom` travel
- * together, so an address arriving means custom and an address going means the
- * choice goes with it.
+ * together, so an address arriving means custom and an address going takes the
+ * custom choice with it.
+ *
+ * Where it goes then is the same question a create answers: emptying the box in
+ * the drawer asks for this node's endpoint to stop being that one, and it is
+ * not a request for the public RPC. So the node lands on the manager's endpoint
+ * where there is one to land on, and on the stack's only when there is nothing
+ * else for a node of its kind.
  */
-export function keptRpcEndpointSource(
-  url: string | null | undefined,
-  stored: RpcEndpointSource,
-): RpcEndpointSource {
+export function keptRpcEndpointSource({
+  url,
+  stored,
+  managerHasEndpoint,
+  nodeMode,
+  services,
+}: RpcEndpointNode & { stored: RpcEndpointSource }): RpcEndpointSource {
   if (url?.trim()) return CUSTOM_RPC_ENDPOINT_SOURCE;
-  return stored === CUSTOM_RPC_ENDPOINT_SOURCE
-    ? DEFAULT_RPC_ENDPOINT_SOURCE
-    : stored;
+  if (stored !== CUSTOM_RPC_ENDPOINT_SOURCE) return stored;
+  return impliedRpcEndpointSource({
+    url: null,
+    managerHasEndpoint,
+    nodeMode,
+    services,
+  });
 }
 
 export interface RpcEndpointChoice {

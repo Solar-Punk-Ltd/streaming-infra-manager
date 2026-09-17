@@ -257,6 +257,22 @@ describe('an edit of a deployment that already exists', () => {
     assert.equal(row?.rpc_endpoint_source, 'stack');
   });
 
+  it('puts a deployment whose address went on the manager’s endpoint', async () => {
+    // Emptying the box in the drawer asks for this endpoint to stop being that
+    // one. It is not a request for the stack's public RPC, and the manager has
+    // one of its own to fall back to.
+    const harness = profileServiceHarness(
+      [stored({ rpc_endpoint_source: 'custom', rpc_endpoint: ENDPOINT })],
+      MANAGER_ENDPOINT,
+    );
+
+    await harness.service.update('stage', { notes: 'cleared' });
+
+    const row = harness.profiles.rows.get('stage');
+    assert.equal(row?.rpc_endpoint, null);
+    assert.equal(row?.rpc_endpoint_source, 'manager');
+  });
+
   it('refuses an edit that puts a light gateway on the stack’s default', async () => {
     const harness = profileServiceHarness(
       [stored({ kind: 'viewer', node_mode: 'light', rpc_endpoint_source: 'manager' })],

@@ -2,7 +2,6 @@ import {
   DEFAULT_RPC_ENDPOINT_SOURCE,
   type EngineSettings,
   isPendingStamp,
-  keptRpcEndpointSource,
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
@@ -334,12 +333,11 @@ export class InMemoryProfiles {
     return this.write(name, {
       kind,
       ...fields,
-      // The two the real UPDATE wraps in COALESCE: the address decides the
-      // source a body does not name, and the node's mode is kept, because it
-      // is chosen when the deployment is created.
-      rpc_endpoint_source:
-        rest.rpc_endpoint_source ??
-        keptRpcEndpointSource(rest.rpc_endpoint, row.rpc_endpoint_source),
+      // The two the real UPDATE wraps in COALESCE: a caller that names neither
+      // keeps what is stored, because the node's mode is chosen when the
+      // deployment is created and what an emptied address means is the
+      // service's to work out, not the statement's.
+      rpc_endpoint_source: rest.rpc_endpoint_source ?? row.rpc_endpoint_source,
       ...(mode == null ? {} : { node_mode: mode }),
       ...(key ? { has_private_key: true } : {}),
       ...(passphrase === undefined
