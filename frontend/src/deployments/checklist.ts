@@ -2,7 +2,9 @@ import {
   beePublishersProblem,
   type ChequebookHealth,
   chequebookStateReason,
+  effectiveNodeMode,
   isStampExpiringSoon,
+  LIGHT_NODE_MODE,
   parseBeePublishers,
   plurToBzz,
   type ReadFailure,
@@ -99,8 +101,14 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
 
   if (ownsBeeNode(profile)) {
     if (input.nodeReadiness) steps.push(nodeStep(input.nodeReadiness));
-    steps.push(fundingStep(input));
-    steps.push(stampStep(input));
+    // An ultra-light node has no chequebook and buys no postage, so these two
+    // would chase it for what it cannot hold. Read through the shared
+    // `effectiveNodeMode`, so a deployment that stores no mode reads exactly as
+    // the stack starts it, which for a node that publishes is light.
+    if (effectiveNodeMode(profile) === LIGHT_NODE_MODE) {
+      steps.push(fundingStep(input));
+      steps.push(stampStep(input));
+    }
   }
   if (isStreamLike(profile, shape)) steps.push(uploaderStep(input));
   if (shape === 'abr-uploader') steps.push(poolStep(profile));

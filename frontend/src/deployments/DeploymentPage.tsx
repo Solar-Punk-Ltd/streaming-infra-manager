@@ -119,7 +119,7 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, reload, versions, attempts } =
+  const { profiles, groups, serverHost, hostPassphrase, beeRpcEndpoint, reload, versions, attempts } =
     useDeployments();
   const actions = useActions();
   const release = useAttemptRelease();
@@ -305,6 +305,7 @@ function DeploymentBody({
             profile={profile}
             serverHost={serverHost}
             hostPassphrase={hostPassphrase}
+            beeRpcEndpoint={beeRpcEndpoint}
             streamerName={streamer?.name ?? null}
             stampHealth={stampHealth}
           />

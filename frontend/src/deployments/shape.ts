@@ -3,11 +3,13 @@ import {
   BEE_GATEWAY_SERVICE,
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
   defaultServicesFor,
   type EngineName,
   engineOfServices,
   isBeeNodeOnly,
   OME_SERVICE,
+  type RpcEndpointSource,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
   usesNodePool,
@@ -63,6 +65,24 @@ export function servicesOf(profile: Profile): string[] {
 
 export function hasService(profile: Profile, service: string): boolean {
   return servicesOf(profile).includes(service);
+}
+
+/** A deployment that runs a Bee node of any kind, an uploader or a gateway. */
+export function ownsAnyBeeNode(profile: Profile): boolean {
+  return (
+    hasService(profile, BEE_UPLOADER_SERVICE) ||
+    hasService(profile, BEE_GATEWAY_SERVICE)
+  );
+}
+
+/**
+ * Where this deployment's node reaches the chain.
+ *
+ * A row that says nothing takes the column's own default, the stack's
+ * endpoint, which is what every deployment made before T27 runs on.
+ */
+export function endpointSourceOf(profile: Profile): RpcEndpointSource {
+  return profile.rpc_endpoint_source ?? DEFAULT_RPC_ENDPOINT_SOURCE;
 }
 
 export function engineOf(profile: Profile): EngineName | null {

@@ -266,10 +266,16 @@ describe('the readiness of a node that reaches no chain', () => {
     assert.equal(needsAttention(gateway, undefined, null), false);
   });
 
-  it('is the same for an uploader node stored ultra-light', () => {
-    const stranded: Profile = { ...runningProfile, node_mode: ULTRA_LIGHT_NODE_MODE };
+  it('is the same for a standalone Bee node stored ultra-light', () => {
+    const stranded: Profile = {
+      ...runningProfile,
+      name: 'bee-2',
+      components: [...ABR_RUNG_COMPONENTS],
+      containers: [{ service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
+      node_mode: ULTRA_LIGHT_NODE_MODE,
+    };
 
-    assert.equal(readinessOf(stranded, undefined, null).label, 'Containers running');
+    assert.equal(readinessOf(stranded, undefined, null).label, 'Node prerequisites checked');
     assert.equal(needsAttention(stranded, undefined, null), false);
   });
 });

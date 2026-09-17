@@ -4,6 +4,11 @@ import { Box, Button, Stack, Typography } from '@mui/material';
 import {
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
+  type ConfiguredBeeRpcEndpoint,
+  configuredBeeRpcEndpoint,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+  effectiveNodeMode,
+  MANAGER_RPC_ENDPOINT_SOURCE,
   parseBeePublishers,
   SRS_SERVICE,
   type StampHealth,
@@ -20,8 +25,16 @@ import { shortHex } from '../format';
 import type { Profile } from '../types';
 import { fetchSrtPassphrase } from '../data';
 import { beeApiUrl, hostFor } from '../urls';
+import { nodeModeLabel, rpcEndpointLabel } from './nodeText';
 import { isStreamLike } from './readiness';
-import { hasService, servicesOf, SHAPE_LABEL, shapeOf } from './shape';
+import {
+  endpointSourceOf,
+  hasService,
+  ownsAnyBeeNode,
+  servicesOf,
+  SHAPE_LABEL,
+  shapeOf,
+} from './shape';
 
 const HIDDEN = '••••••••';
 
@@ -29,6 +42,7 @@ export function ConfigurationCard({
   profile,
   serverHost,
   hostPassphrase,
+  beeRpcEndpoint,
   streamerName,
   stampHealth,
 }: {
@@ -36,6 +50,8 @@ export function ConfigurationCard({
   serverHost: string;
   /** The host-wide SRT passphrase, or null when the host has none. */
   hostPassphrase: string | null;
+  /** The chain endpoint this manager offers, for the deployments that take it. */
+  beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
   streamerName: string | null;
   stampHealth: StampHealth;
 }) {
@@ -110,6 +126,19 @@ export function ConfigurationCard({
     });
   }
 
+  if (ownsAnyBeeNode(profile)) {
+    const mode = effectiveNodeMode(profile);
+    entries.push({ key: 'Node mode', value: <Fixed>{nodeModeLabel(mode)}</Fixed> });
+    entries.push({
+      key: 'RPC endpoint',
+      value: rpcEndpointLabel({
+        mode,
+        source: endpointSourceOf(profile),
+        host: endpointHost(profile, beeRpcEndpoint),
+      }),
+    });
+  }
+
   if (isStreamLike(profile, shape) || shape === 'bee-node') {
     entries.push({
       key: 'Postage stamp',
@@ -163,6 +192,22 @@ export function ConfigurationCard({
       <KeyValueList entries={entries} />
     </SectionCard>
   );
+}
+
+/**
+ * The host of the endpoint this node reads, which is all that is ever shown of
+ * it: an endpoint URL can carry an API key in its path or its user info, and
+ * this page is one anybody signed in can open.
+ */
+function endpointHost(
+  profile: Profile,
+  beeRpcEndpoint: ConfiguredBeeRpcEndpoint,
+): string | null {
+  const source = endpointSourceOf(profile);
+  if (source === CUSTOM_RPC_ENDPOINT_SOURCE) {
+    return configuredBeeRpcEndpoint(profile.rpc_endpoint).host;
+  }
+  return source === MANAGER_RPC_ENDPOINT_SOURCE ? beeRpcEndpoint.host : null;
 }
 
 function Mono({ children }: { children: ReactNode }) {
