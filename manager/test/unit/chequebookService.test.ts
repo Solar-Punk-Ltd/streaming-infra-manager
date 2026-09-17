@@ -10,6 +10,12 @@
  * succeed. And the gate refuses only on an answer: a node that cannot be asked
  * lets the deploy through, because a failed probe says nothing about a
  * chequebook and blocking on one would stop work that has nothing wrong with it.
+ *
+ * That second one was the rule, then D02 of 2026-09-07 made a silent node a
+ * refusal too, and decision D16 of 2026-09-17 put it back: "we should be able to
+ * start the uploader but maybe say its node not available, try to reconnect or
+ * something". A balance the node did report and that is under the floor is still
+ * a refusal, because that is the node's own answer.
  */
 import assert from 'node:assert/strict';
 import { describe, it, type TestContext } from 'node:test';
@@ -69,6 +75,9 @@ const PROFILE: Profile = {
   updated_at: new Date(0),
   group_id: null,
 };
+
+/** Slot 1 of the bee API port table on the host PROFILE declares. */
+const NODE_URL = 'http://10.0.0.9:10015';
 
 const wallet = (bzz: string, xdai: string) => ({
   bzzBalance: bzz,
@@ -392,29 +401,33 @@ describe('ChequebookService.assertFunded', () => {
     await service.assertFunded(PROFILE.name);
   });
 
-  it('refuses when the node cannot be asked, naming the node and how to try again', async () => {
-    // A failed probe is not evidence of an empty chequebook, but an uploader
-    // started on an unverified one looks exactly like one that was checked
-    // until nothing it uploads lands. Refused, with the retry in words.
+  it('lets the start proceed when the node cannot be asked, warning with the node URL', async (t) => {
+    // A failed probe is not evidence of an empty chequebook, and refusing on one
+    // stops an operator starting an uploader over a node they cannot make
+    // answer. It is logged where the node can be named, and the start goes on.
+    const warnings: string[] = [];
+    t.mock.method(console, 'warn', (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
     const service = serviceAnswering({
       getChequebookBalance: failing('GET /chequebook/balance'),
     });
 
-    await assert.rejects(
-      () => service.assertFunded(PROFILE.name),
-      (err: unknown) =>
-        err instanceof BeeNodeError &&
-        /did not answer the chequebook check/.test(err.message) &&
-        /try again/i.test(err.message),
-    );
+    await service.assertFunded(PROFILE.name);
+
+    const warned = warnings.find((line) => /did not answer the chequebook check/.test(line));
+    assert.ok(warned, `expected a warning about the silent node, got ${JSON.stringify(warnings)}`);
+    assert.match(warned, /main-stage/);
+    assert.ok(warned.includes(NODE_URL), `expected the node URL in ${warned}`);
   });
 
-  it('publishes no notice for a refusal, since nothing started', async () => {
+  it('publishes no notice for a node that said nothing, since nothing changed', async (t) => {
+    t.mock.method(console, 'warn', () => {});
     const { service, published } = build({
       getChequebookBalance: failing('GET /chequebook/balance'),
     });
 
-    await assert.rejects(() => service.assertFunded(PROFILE.name), BeeNodeError);
+    await service.assertFunded(PROFILE.name);
 
     assert.deepEqual(published, []);
   });

@@ -248,9 +248,15 @@ Both writes answer as soon as bee has submitted the transaction, not once it is
 mined, so the balance moves a few Gnosis blocks later. Poll the GET to see it.
 
 `POST /profiles/:name/deploy-uploader` refuses with `409 chequebook_unfunded`
-when the node reports less than the floor available. A node that cannot be
-asked does not block the deploy, the same rule the stamp check applies: a failed
-probe is no evidence about a chequebook.
+when the node reports less than the floor available. A node that cannot be asked
+does not block the deploy, and neither of the gate's two checks blocks on one: a
+failed probe is no evidence about a chequebook or about a batch. Both log the
+node they could not reach and let the start through, which is decision D16 of
+2026-09-17. What still refuses is an answer the node gave: a balance under the
+floor, a balance that cannot be read at all, or a batch the node calls unknown,
+expired or not usable yet. The uploader then waits for a node that never
+answered rather than exiting, and `GET /profiles/:name/uploader-health` is where
+that wait is read.
 
 **`CHEQUEBOOK_FLOOR_BZZ`** sets that floor, default `0.5`. It is a decimal BZZ
 amount above zero with at most 16 decimal places, parsed once at startup, and a

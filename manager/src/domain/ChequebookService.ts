@@ -171,25 +171,37 @@ export class ChequebookService {
   }
 
   /**
-   * The uploader gate: refuse to start one whose node cannot pay for uploads.
+   * The uploader gate: refuse to start one whose node reported that it cannot
+   * pay for uploads.
    *
-   * A node that does not answer is a refusal too. An uploader started with
-   * its funding unverified looks exactly like one that was checked, right up
-   * until nothing it uploads lands. The refusal says how to try again, and
-   * a stopped deployment's start does not ask, so the operator always has a
-   * way through.
+   * Only on an answer. A node that says nothing says nothing about its
+   * chequebook either, and refusing on that leaves an operator unable to start
+   * an uploader over a node they cannot make answer. Decision D16, the owner on
+   * 2026-09-17: "we should be able to start the uploader but maybe say its node
+   * not available, try to reconnect or something". So the silence is logged
+   * with the node named and the start goes on, the same way the stamp check
+   * treats it. The uploader then waits for the node and reports that wait on
+   * its own health route.
+   *
+   * A balance under the floor, and one the node answered with that cannot be
+   * read at all, are both still refusals: in each the node answered.
    */
   async assertFunded(name: string): Promise<void> {
-    const client = await this.clientFor(name);
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const nodeUrl = beeApiUrlFor(profile);
+    const client = this.clientFactory(nodeUrl);
 
     let balance: ChequebookBalance;
     try {
       balance = await this.freshBalance(name, client);
     } catch (err) {
-      throw new BeeNodeError(
-        name,
-        `The Bee node of ${name} did not answer the chequebook check (${getErrorMessage(err)}), so the uploader was not started. Try again once the node answers.`,
+      logger.warn(
+        `[ChequebookService] ${name}: the Bee node at ${nodeUrl} did not answer the chequebook check (${getErrorMessage(err)}). ` +
+          'The uploader is started anyway and waits for its node, on decision D16.',
       );
+      return;
     }
 
     const health = chequebookHealthFrom(balance, this.floorPlur);
