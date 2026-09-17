@@ -73,8 +73,11 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
         if (path === '/profiles' || path === '/groups') {
           const reply = () => json(path === '/profiles' ? { profiles: globalsReady ? profiles : [] } : { groups: globalsReady ? [group] : [] });
           if (writes.length > holdAfterWrite && holdRefresh) {
-            const uncached = /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
-            readsSeen.push(`${path} cache-control=${JSON.stringify(req.headers['cache-control'] ?? null)} pragma=${JSON.stringify(req.headers['pragma'] ?? null)}`);
+            // The page marks its own no-store fetches (see the script added before navigation),
+            // because whether a browser also sends a Cache-Control header for them is the
+            // browser's choice: the verification box's Chromium sends none, Chrome elsewhere does.
+            const uncached = req.headers['x-test-fresh-read'] === '1' || /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
+            readsSeen.push(`${path} fresh-marker=${JSON.stringify(req.headers['x-test-fresh-read'] ?? null)} cache-control=${JSON.stringify(req.headers['cache-control'] ?? null)}`);
             (uncached ? freshMembership : refreshes).push({ path, reply });
           } else reply();
           return;
@@ -163,6 +166,19 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
     assert.equal(await valueOf('textarea[placeholder="What is this for?"]', 'the retained note'), 'retained note');
     await next();
   };
+  // A no-store fetch is marked by the page itself, so the fixture can tell the wizard's fresh
+  // reads from the store's ordinary ones whatever the browser puts on the wire.
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+    const original = window.fetch;
+    window.fetch = (input, init) => {
+      if (init && (init.cache === 'no-store' || init.cache === 'no-cache')) {
+        const headers = new Headers(init.headers);
+        headers.set('x-test-fresh-read', '1');
+        return original(input, { ...init, headers });
+      }
+      return original(input, init);
+    };
+  })();` });
   await call('Page.navigate', { url: `${origin}/#/` });
   await waitFor(body, text => text.includes('New deployment'), 'the app to boot');
   await startUploader();
