@@ -11,6 +11,13 @@
 -- owns a bee-uploader, ultra-light for one whose node is a bee-gateway. Nothing
 -- is backfilled, so an existing deployment reads exactly as it behaves without
 -- a data fix.
+--
+-- Going back to a manager built before fda0878 needs the pairing constraint
+-- dropped first, `ALTER TABLE profiles DROP CONSTRAINT
+-- profiles_rpc_endpoint_source_pairing`, because that code writes rpc_endpoint
+-- without a source. The two columns can stay where they are. Applying this file
+-- again later needs its row deleted from _migrations and both columns dropped,
+-- because nothing here says IF NOT EXISTS.
 ALTER TABLE profiles
   ADD COLUMN node_mode TEXT
   CHECK (node_mode IS NULL OR node_mode IN ('light', 'ultra-light'));

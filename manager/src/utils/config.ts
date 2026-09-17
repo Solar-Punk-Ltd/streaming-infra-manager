@@ -48,8 +48,11 @@ function chequebookFloorPlur(): bigint {
  * falls back to the stack's own, a public RPC that answered one node 4568 HTTP
  * 429s in two hours, and nothing anywhere would say it had.
  *
- * Never logged. Such a URL can carry an API key, in its userinfo or its path,
- * and the manager answers only its host to a browser.
+ * Such a URL can carry an API key in its path, so only its host is logged,
+ * answered to a browser, or left in the container logs and the deploy output
+ * the manager passes on. The node's own container log on the host carries the
+ * whole address whatever this does, which is why manager/.env.sample asks for
+ * an address that carries no key.
  *
  * Exported so the refusal can be tested without the process exiting.
  */

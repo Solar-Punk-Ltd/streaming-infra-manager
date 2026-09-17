@@ -161,10 +161,11 @@ export interface ConfiguredBeeRpcEndpoint {
 /**
  * The manager's endpoint as a browser may see it.
  *
- * An endpoint's URL can carry an API key, in its userinfo or in its path, and
- * this answer reaches every signed-in page. The host is all a wizard needs to
- * show which endpoint it is offering, and it is the part that carries no
- * secret.
+ * An endpoint's URL can carry an API key in its path, and this answer reaches
+ * every signed-in page. The host is all a wizard needs to show which endpoint
+ * it is offering, and it is the part that carries no secret. It is not nothing
+ * either: a provider that issues an account its own subdomain is named by the
+ * host alone.
  */
 export function configuredBeeRpcEndpoint(
   endpoint: string | null | undefined,

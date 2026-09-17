@@ -223,7 +223,7 @@ export function rpcEndpointProblem(
     case 'malformed':
       return 'expected an http(s) URL, like https://rpc.example.org, or http://host.docker.internal:<port> for a proxy on the host';
     case 'ssh-target':
-      return 'this address carries ssh user info, so it is a deploy target rather than a chain endpoint';
+      return 'this address carries a user name before the host, so it is an ssh deploy target or a credential written into the URL rather than a chain endpoint. A provider key belongs in the path, or behind a proxy on this host that holds it.';
     default:
       return addressShapeProblem(address);
   }
