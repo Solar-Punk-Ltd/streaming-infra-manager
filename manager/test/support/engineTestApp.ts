@@ -19,8 +19,12 @@ export type EngineCall = RouterCall;
 export function startEngineTestApp(
   profileService: ProfileService,
   containers: ContainerControl,
+  /** BEE_RPC_ENDPOINT, which a container log is redacted against. */
+  managerRpcEndpoint: string | null = null,
 ): Promise<EngineTestApp> {
-  return startRouterTestApp(createEngineRouter(profileService, containers));
+  return startRouterTestApp(
+    createEngineRouter(profileService, containers, managerRpcEndpoint),
+  );
 }
 
 export const callEngine = call;

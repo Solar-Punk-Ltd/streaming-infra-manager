@@ -68,7 +68,7 @@ async function appFor(signedInAs: string | null, reads: string[]) {
       next();
     });
   }
-  outer.use(createEngineRouter(harness.service, recordingContainers(reads)));
+  outer.use(createEngineRouter(harness.service, recordingContainers(reads), null));
   return startRouterTestApp(outer);
 }
 

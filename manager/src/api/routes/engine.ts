@@ -1,3 +1,4 @@
+import { redactEndpoints } from '@streaming-infra-manager/common';
 import { Request, Response, Router } from 'express';
 
 import { ContainerControl } from '../../domain/ContainerControl.js';
@@ -30,9 +31,15 @@ const TEXT_PLAIN = 'text/plain; charset=utf-8';
  * Mounted after the session gate like every other router here, so none of it is
  * reachable signed out.
  */
+/**
+ * @param managerRpcEndpoint BEE_RPC_ENDPOINT, or null. A Bee node prints the
+ *   endpoint it was started with into its own log, so the log this router
+ *   serves is redacted against it and against the deployment's own endpoint.
+ */
 export function createEngineRouter(
   profileService: ProfileService,
   containers: ContainerControl,
+  managerRpcEndpoint: string | null,
 ): Router {
   const router = Router();
 
@@ -89,13 +96,18 @@ export function createEngineRouter(
         stripUnknown: true,
       });
       const name = req.params.name as string;
-      await profileService.getByName(name);
+      const profile = await profileService.getByName(name);
       const text = await containers.logs(
         name,
         req.params.service as string,
         tail ?? DEFAULT_LOG_LINES,
       );
-      res.type(TEXT_PLAIN).send(text);
+      // Bee prints its chain endpoint on every start, and again when it cannot
+      // reach the chain, so a key in that URL's path would land on the page
+      // rendering this. The host stays, which is what tells two endpoints apart.
+      res
+        .type(TEXT_PLAIN)
+        .send(redactEndpoints(text, [managerRpcEndpoint, profile.rpc_endpoint]));
     }),
   );
 

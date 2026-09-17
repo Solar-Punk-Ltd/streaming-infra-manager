@@ -128,7 +128,7 @@ export function startApiServer(
   app.use('/', createActionsRouter(deps.deployService));
   app.use('/', createStampRouter(deps.stampService));
   app.use('/', createChequebookRouter(deps.chequebookService, deps.chequebookOperations));
-  app.use('/', createEngineRouter(deps.profileService, deps.containerControl));
+  app.use('/', createEngineRouter(deps.profileService, deps.containerControl, deps.beeRpcEndpoint));
   app.use('/', createEngineConfigRouter(deps.engineConfigService));
 
   app.use(notFound);

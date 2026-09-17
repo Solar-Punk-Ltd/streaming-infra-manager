@@ -21,6 +21,7 @@ export * from './nodeReading.js';
 export * from './nullify.js';
 export * from './profileReconcile.js';
 export * from './publishUrl.js';
+export * from './redactEndpoints.js';
 export * from './rpcEndpointSource.js';
 export * from './runningCommit.js';
 export * from './settingValues.js';

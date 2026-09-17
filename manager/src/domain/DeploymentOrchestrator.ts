@@ -13,6 +13,7 @@ import {
   getErrorMessage,
   isLightGateway,
   ownsBeeNode,
+  redactEndpoints,
   portExposureProblem,
   slotCapFor,
   ENGINE_CONFIG_ENV_KEYS,
@@ -267,6 +268,18 @@ interface JobConfig {
   transitionTo?: ProfileStatus;
 
   allowedFrom?: readonly ProfileStatus[];
+
+  /**
+   * Addresses this job's own output must not carry whole.
+   *
+   * A Bee node prints its chain endpoint on every start, and again when it
+   * cannot reach the chain, and the stack's assert-started.sh puts a failed
+   * container's last lines on stderr. Those lines become the deployment's
+   * `last_error`, an event every open page reads and a line in the manager's
+   * own log, so a key in that URL's path would reach all four. The manager's
+   * own endpoint is added to whatever a caller names here.
+   */
+  redactedEndpoints?: readonly (string | null | undefined)[];
 
   /** For a job that creates containers: the guard it holds while it runs. */
   guard?: { kind: DeployAttemptKind; services: readonly string[] };
@@ -1066,6 +1079,7 @@ export class DeploymentOrchestrator {
         paths,
         script: paths.deploy,
         args: this.buildDeployScriptArgs(profile, services, reservation.host),
+        redactedEndpoints: [profile.rpc_endpoint],
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
         beforeLaunch: execution && this.executions
@@ -1382,13 +1396,25 @@ export class DeploymentOrchestrator {
       stdoutTail = (stdoutTail + chunk).slice(-STDOUT_TAIL_BYTES);
     });
 
+    // Before failureReason is built out of them, so the stored reason, the
+    // event and the log line are all the redacted text rather than three
+    // chances to leak the same URL.
+    const endpoints = [this.managerRpcEndpoint, ...(cfg.redactedEndpoints ?? [])];
     let finalizationStarted = false;
     const finish = (outcome: RunOutcome, errorText: string) => {
       if (finalizationStarted) return;
       finalizationStarted = true;
       void (async () => {
         if (attempt) await this.judgeAttempt(attempt, outcome.code === 0);
-        await this.finalizeJob(cfg, { ...outcome, stderrTail: errorText, stdoutTail }, attempt);
+        await this.finalizeJob(
+          cfg,
+          {
+            ...outcome,
+            stderrTail: redactEndpoints(errorText, endpoints),
+            stdoutTail: redactEndpoints(stdoutTail, endpoints),
+          },
+          attempt,
+        );
       })();
     };
     handle.emitter.on('done', (outcome: RunOutcome) => finish(outcome, stderrTail));

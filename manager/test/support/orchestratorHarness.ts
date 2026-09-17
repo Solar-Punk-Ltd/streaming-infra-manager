@@ -67,6 +67,8 @@ export function orchestratorHarness(
   targets?: DeployTargets,
   inventoryTargets?: DeployTargets,
   executions?: ExecutionRoots,
+  /** BEE_RPC_ENDPOINT, which a job's output is redacted against. */
+  managerRpcEndpoint?: string | null,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -127,6 +129,7 @@ export function orchestratorHarness(
     { publishedPorts: async () => published },
     inventoryTargets,
     executions,
+    managerRpcEndpoint,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published, operations };

@@ -42,6 +42,15 @@ export class FakeScriptRunner extends ScriptRunner {
   /** Runs before a finish is reported, with the run: what the script would have left behind. */
   onFinish?: (run: RecordedScriptRun) => void;
 
+  /**
+   * What the script printed on its way, which is what a caller keeps as the
+   * reason a run failed. The stack's assert-started.sh puts a failed
+   * container's last log lines on this stream.
+   */
+  print(index: number, chunk: string, stream: 'stdout' | 'stderr' = 'stderr'): void {
+    this.emitters[index]?.emit(stream, chunk);
+  }
+
   finish(index: number, code = 0, signal: NodeJS.Signals | null = null): void {
     const run = this.runs[index];
     if (run) this.onFinish?.(run);
