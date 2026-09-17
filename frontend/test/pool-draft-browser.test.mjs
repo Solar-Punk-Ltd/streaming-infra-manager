@@ -170,7 +170,13 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await click('Return to uploader'); await assertDraft();
   await createPool();
   await waitFor(body, text => text.includes('Storage pool created and selected'), 'successful return');
-  await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership');
+  // The count alone cannot tell a wizard that never asked from one that asked
+  // through a path the fixture did not hold, and the verification box failed
+  // exactly here twice on 2026-09-17 while every laptop and two-core run passed.
+  await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership').catch(async (err) => {
+    const page = (await body()).replace(/\s+/g, ' ').slice(0, 600);
+    throw new Error(`${err.message}. Writes ${writes.length}, held pool replies ${held.length}, cached refreshes ${refreshes.length}. The page said: ${JSON.stringify(page)}`);
+  });
   globalsReady = true; freshMembership.splice(0).forEach(entry => entry.reply());
   await assertDraft();
   assert.match(await readWhenPresent(evaluate, found('[role=combobox][aria-label="Storage pool"]'), 'textContent', 'the selected storage pool'), /chosen-pool/);
