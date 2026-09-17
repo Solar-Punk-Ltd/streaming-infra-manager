@@ -1243,3 +1243,70 @@ repository's untracked `.scratch`
 for `~/Documents/estate-state/evidence/streaming-infra-manager/`, with a tombstone
 at the old path and a row in the estate's data map, so state a rebuild cannot
 recreate lives outside the repository.
+
+## The first node pool on the live host, 2026-09-17
+
+**What the host showed.** Levi created `abr-pool-1`, four light Bee nodes, one
+per rung, and funded and stamped them by hand, then the ABR uploader
+`abr-pool-stage-1`, all on 0696a28. The pool took 8 minutes 21 seconds to
+deploy, of which the four deploy scripts took 32 seconds: each member waited
+about 117 seconds for its execution copy, which hashes all 43,000 files of the
+build on the source and again on the hard-linked copy, one file at a time,
+while the same hashing with a C tool inside the api container takes 6 seconds.
+The uploader's deploy was then refused: its pool string named every node at
+`http://157.90.34.105:10015` and siblings, composed from `PUBLIC_HOST`, while
+the T06 bind step puts every local Bee API on the Docker bridge address alone,
+10.200.0.1 on that host. Nothing answered on the public address from the host
+or from any container, the manager's own probe had logged that, the wizard read
+"Publishing is not verified" for every rung, and the uploader's chequebook gate
+refused with a four second timeout that blamed the chequebook. Docker restarted
+the uploader until the deploy guard refused the deploy. Separately, every
+running Bee node read "Funding not checked" on the lists and sat under "Needs
+attention", because lists never fetched balances and the checklist called a
+reading it never took a problem.
+
+**Rulings.** D15: the stack's uploader starts whatever its chequebook and
+postage readings say, its start gates warn by default and
+`UPLOADER_START_GATES=refuse` restores the refusal, and the startup reads get
+their own budget, `START_GATE_TIMEOUT_MS`, 20 seconds by default. D16, amending
+D02: the manager starts the uploader even when its node does not answer, the
+deployment says the node is not available and the uploader keeps trying. The
+execution copy cost is the next task, T23, hash once at publish and verify by
+stamps. A Bee node's mode at start, ultra-light or light, with our RPC endpoint
+and the gas funding flow, is registered as T27 pending Levi's yes on the
+wording. Rows T23 to T27 are under `../consensus/issues/`.
+
+**Built the same night, on main-v2.** T24, the pool string carries the address
+a container on this host reaches a local node on, the operator's
+`BEE_LOCAL_HOST` or the literal address `host.docker.internal` resolves to
+inside the api container, and the probe tests exactly that URL (4817887,
+a508f46, 56000a8 after the security review found the resolver remembering a
+failed lookup). T26, a list judges funding from the chequebook reading it has
+and never calls an unread wallet or stamp a problem, the deployments page
+fetches chequebook readings and its filter uses them, pool member rows take the
+stamp state from the manager's own pool result, the wizard's pool step shows
+what the probe found per rung, the pool card says where its addresses work
+(8b665b4 to f60b93c, 00f9784 to 394f67c). The stack branch
+`fix/uploader-start-gates-warn` carries T25's first phase (f520f4ba, 7aa81ff7,
+Solar-Punk-Ltd/swarm-hls-stream, pushed, not merged). Two reviews, one for
+correctness and one for security, found no P1 and their P2 items are in those
+commits or recorded below.
+
+**Verified.** Manager unit 2552, common 360, frontend 239, typecheck and build
+clean, on the laptop and on the verification box, where the session branch
+`fix/first-pool-findings` ran at deep depth. The box is red on one thing that
+is not this work: `frontend/test/pool-draft-browser.test.mjs` fails there on
+every commit, a control at c9af798 included, while GitHub's own browser job
+passed that commit and the laptop and the two-core reproduction pass it. It is
+L112 in the estate's verify-e2e plan, with a diagnostic in the test (cabbf13)
+for the next run. The stack branch passed the box at standard depth. GitHub's
+checks run on Levi's push of main-v2.
+
+**Open.** T23 and the second phase of T25 (the uploader waits for its node,
+`/health` says so, the manager's own gate becomes a shown state) were in flight
+when this was written. Lists cannot see a standalone Bee node's expired batch,
+only a pool member's, and a stamp poll like the chequebook one would close it,
+one read per running node, Levi's call. The box's map has no entry for the
+manager's database suite, one line on his word. The uploader created before
+the fix holds the public-host string: copy the pool string from the pool page
+again and paste it into its "Node pool string" field under Edit, then Retry.
