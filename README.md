@@ -151,8 +151,9 @@ To pull the latest commits from the branch the submodule tracks, `feat/manager-l
 Why that branch and not `main-v3`, since 2026-09-17: the stack's `main-v3` was
 put back to the commit a colleague's open pull request had merged, so that
 pull request merges without conflict, and everything the manager had pinned
-since then, 143 commits, lives on `feat/manager-line` until the two are
-resolved and merged into `main-v3` on Levi's word. Until then `main-v3` is
+since then, 143 commits when the line was cut and every commit pinned since,
+lives on `feat/manager-line` until the two are resolved and merged into
+`main-v3` on Levi's word. Until then `main-v3` is
 older than the manager's stack, and a version added with `main-v3` as its git
 reference builds that older code.
 
