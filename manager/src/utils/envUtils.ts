@@ -164,9 +164,9 @@ function upsertEnvLine(text: string, key: string, value: string): string {
   if (pattern.test(text)) {
     // A replacer function, not the string: as a replacement string, `$&`,
     // `` $` ``, `$'` and `$1` are substitution patterns, so a value containing
-    // one would be rewritten with the text it matched. `$` is legal in a URL
-    // path and `beeUrlProblem` accepts it, so BEE_URL=http://host:1633/$&
-    // would otherwise be written out as BEE_URL=http://host:1633/BEE_URL=<old>.
+    // one would be rewritten with the text it matched. Every address rule
+    // refuses a `$` today, and the replacer is what keeps that from mattering
+    // for a value that reaches this writer by another path.
     return text.replace(pattern, () => line);
   }
   const needsNewline = text.length > 0 && !text.endsWith('\n');
