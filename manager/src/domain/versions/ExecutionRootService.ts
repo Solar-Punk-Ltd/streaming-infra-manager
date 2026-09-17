@@ -9,12 +9,30 @@ import type { ExecutionRootRecord, ExecutionRootRegistration } from './Execution
 import { buildInventory } from './buildInventoryRecord.js';
 import { readBuildManifest } from './buildManifest.js';
 import { currentExecutionOf, executionsToRetire } from './executionRetention.js';
-import { copyExecutionRoot, removeExecutionRoot } from './executionRootFiles.js';
+import { copyExecutionRoot, removeExecutionRoot, type ExecutionCopyOptions } from './executionRootFiles.js';
 import type { RecordedOwnedTree } from './ownedTreeInventory.js';
 
 const logger = Logger.getInstance();
 
+/** A copy of fewer files than this is over before a line about its progress would reach anybody. */
+export const PROGRESS_FLOOR = 500;
+/** How many lines one copy says about itself while it runs, whatever its size. */
+const PROGRESS_LINES = 10;
+
 const filesIn = (inventory: RecordedOwnedTree): number => inventory.entries.filter(entry => entry.type === 'file').length;
+
+/**
+ * What the copy says about itself while it runs, so a deployment of the real
+ * stack is not silent between the line that starts it and the line that ends
+ * it. Nothing showed there before, and the real tree is 43,000 files.
+ */
+function progressLines(profile: string, buildId: string, files: number): ExecutionCopyOptions['onProgress'] {
+  if (files < PROGRESS_FLOOR) return undefined;
+  const step = Math.ceil(files / PROGRESS_LINES);
+  return async linked => {
+    if (linked % step === 0) logger.info(`[Executions] ${profile}: linked ${linked} of ${files} files of build ${buildId}`);
+  };
+}
 
 /** What `PostgresExecutionRootRepository` answers, named here so the service can be tested without one. */
 export interface ExecutionRootStore {
@@ -113,10 +131,12 @@ export class ExecutionRootService implements ExecutionRoots {
     const manifest = readBuildManifest(input.build.root).manifest;
     if (!manifest) return null;
     const inventory = await buildInventory(input.build.root);
+    const files = filesIn(inventory.record);
     if (inventory.hashed) {
-      logger.info(`[Executions] ${input.profile.name}: inventoried build ${input.build.buildId} once, ${
-        filesIn(inventory.record)} files, took ${(inventory.tookMs / 1000).toFixed(1)}s`);
+      logger.info(`[Executions] ${input.profile.name}: inventoried build ${input.build.buildId} once, ${files} files, took ${
+        (inventory.tookMs / 1000).toFixed(1)}s`);
     }
+    logger.info(`[Executions] ${input.profile.name}: preparing a copy of build ${input.build.buildId}, ${files} files`);
     const registration: ExecutionRootRegistration = {
       executionId: randomUUID(),
       source: {
@@ -137,7 +157,10 @@ export class ExecutionRootService implements ExecutionRoots {
     try {
       const copying = await this.roots.beginCopy(registered.executionId);
       if (!copying?.copyToken) throw new Error('The execution copy could not take its exclusive token.');
-      const copied = await copyExecutionRoot(copying, this.executionsParent, { sourceInventory: inventory.record });
+      const copied = await copyExecutionRoot(copying, this.executionsParent, {
+        sourceInventory: inventory.record,
+        onProgress: progressLines(input.profile.name, input.build.buildId, files),
+      });
       await this.roots.markReady(copying.executionId, copying.copyToken, copied.artifactDigest);
       logger.info(`[Executions] ${input.profile.name}: copied build ${input.build.buildId} to ${registered.executionId}`);
       return { executionId: registered.executionId, root: copied.root };

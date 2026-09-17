@@ -26,8 +26,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, it } from 'node:test';
 
+import { Logger } from '../../src/domain/Logger.js';
 import type { ExecutionRootRecord } from '../../src/domain/versions/ExecutionRoot.js';
-import { ExecutionRootService, type ExecutionPreparation } from '../../src/domain/versions/ExecutionRootService.js';
+import { ExecutionRootService, PROGRESS_FLOOR, type ExecutionPreparation } from '../../src/domain/versions/ExecutionRootService.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
 import { inventoryOwnedTree, stampOwnedTree } from '../../src/domain/versions/ownedTreeInventory.js';
 import { InMemoryExecutionRoots } from '../support/InMemoryExecutionRoots.js';
@@ -159,3 +160,18 @@ for (const change of ['bytes', 'mode'] as const) {
     await assert.rejects(service.prepare(preparation(8)), /changed/);
   });
 }
+
+it('says which build it is copying and how far it has got', async t => {
+  const said: string[] = [];
+  t.mock.method(Logger.prototype, 'info', (...args: unknown[]) => { said.push(args.join(' ')); });
+  for (let index = 0; index < PROGRESS_FLOOR; index += 1) {
+    await fsPromises.writeFile(join(build, `page-${index}.txt`), `${index}\n`);
+  }
+  const files = PROGRESS_FLOOR + 4;
+
+  await new ExecutionRootService(storeFor(), executions).prepare(preparation());
+
+  assert.ok(said.some(line => new RegExp(`inventoried build ${commit} once, ${files} files`).test(line)), said.join('\n'));
+  assert.ok(said.some(line => new RegExp(`preparing a copy of build ${commit}, ${files} files`).test(line)), said.join('\n'));
+  assert.ok(said.filter(line => /linked \d+ of \d+ files/.test(line)).length > 1, said.join('\n'));
+});
