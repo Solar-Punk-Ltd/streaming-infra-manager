@@ -1,23 +1,21 @@
 /**
- * Moving BZZ into and out of a node's chequebook, and the gate that refuses an
- * uploader whose node cannot pay for uploads.
+ * Moving BZZ into and out of a node's chequebook, and the check that warns when
+ * an uploader's node cannot pay for uploads.
  *
  * Unit test, no database, no Docker, no bee. `pnpm test` in manager/.
  *
  * Two properties carry the weight. A deposit is checked against the wallet
  * before it is submitted, so an operator gets a sentence about their own node
  * instead of a chain revert, and no gas is spent on a transaction that cannot
- * succeed. And the gate refuses only on an answer: a node that cannot be asked
- * lets the deploy through, because a failed probe says nothing about a
- * chequebook and blocking on one would stop work that has nothing wrong with it.
+ * succeed. And the check refuses nothing: a dry chequebook, an unreadable
+ * balance and a silent node are each a logged warning and the uploader starts.
  *
- * That second one was the rule, then D02 of 2026-09-07 made a silent node a
- * refusal too, and decision D16 of 2026-09-17 put it back. The owner then took
- * it the whole way on 2026-09-17: this check never refuses a start at all. A dry
- * chequebook, a balance that cannot be parsed and a node that said nothing are
- * each a logged warning and the uploader starts. An operator who wants the
- * uploader up on an unfunded node gets it up, and what that costs is uploads
- * that stall, which is visible on the deployment page rather than guessed at.
+ * That second one has a history. Refusing only on an answer was the rule, then
+ * D02 of 2026-09-07 made a silent node a refusal too, and decision D16 of
+ * 2026-09-17 put it back. The owner then took it the whole way the same day:
+ * this check never refuses a start at all. An operator who wants the uploader up
+ * on an unfunded node gets it up, and what that costs is uploads that stall,
+ * which is visible on the deployment page rather than guessed at.
  *
  * The stamp check is the one that still refuses, for a batch the node itself
  * reports as unknown, expired or not usable.
