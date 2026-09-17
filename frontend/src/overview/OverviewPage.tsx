@@ -167,7 +167,10 @@ function StreamRow({
   profile: Profile;
   /** What this page's own poll of the node said, so the pill matches the alert. */
   chequebook: ChequebookHealth | null;
-  /** What a pool assembly says its batch is worth, where this page holds one. */
+  /**
+   * What the page holds about its batch: the pool assembly's reading where there
+   * is one, else the page's own poll of the node.
+   */
   stampHealth?: StampHealth;
 }) {
   const publish = usePublishUrl(profile);

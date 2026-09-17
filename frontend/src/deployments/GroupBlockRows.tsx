@@ -56,7 +56,10 @@ export function GroupBlockRows({
   poolResult: BeePublishersResult | null;
   /** What each member's node said about its chequebook, where it answered. */
   chequebooks: ChequebookHealths;
-  /** What the manager's pool assembly says each member's batch is worth. */
+  /**
+   * What the page holds about each member's batch: the pool assembly's reading
+   * where there is one, else its own poll of the node.
+   */
   stampHealths: StampHealths;
   memberNoun: string;
 }) {

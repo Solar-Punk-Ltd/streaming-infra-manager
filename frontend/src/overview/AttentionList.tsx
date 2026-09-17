@@ -48,7 +48,10 @@ export function AttentionList({
   pools: PoolAlert[];
   /** What each node said about its chequebook, for the nodes that answered. */
   chequebooks: ChequebookHealths;
-  /** What the manager's pool assembly says each member's batch is worth. */
+  /**
+   * What the page holds about each member's batch: the pool assembly's reading
+   * where there is one, else its own poll of the node.
+   */
   stampHealths: StampHealths;
 }) {
   const total = profiles.length + pools.length;

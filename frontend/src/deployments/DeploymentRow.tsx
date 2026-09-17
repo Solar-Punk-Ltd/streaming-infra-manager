@@ -48,9 +48,10 @@ export function DeploymentRow({
    */
   chequebook?: ChequebookHealth | null;
   /**
-   * What the manager's own pool assembly says this member's batch is worth.
-   * Undefined for a deployment no pool result covers, which is a reading this
-   * row does not have rather than a batch that is not paying.
+   * What the page holds about this member's batch: the manager's pool assembly
+   * where a pool result covers it, else the page's own poll of the node.
+   * Undefined where neither answered, which is a reading this row does not have
+   * rather than a batch that is not paying.
    */
   stampHealth?: StampHealth;
   indented?: boolean;
