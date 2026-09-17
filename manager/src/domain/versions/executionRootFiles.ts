@@ -110,6 +110,13 @@ function copiedFileDigest(root: string, source: RecordedOwnedTree, ownFiles: Rea
  * Every link moves the build inode's status-change time and its link count,
  * which is why the stamps compared either side of the copy are the durable
  * ones. A build the copy has linked from is a build the copy has not changed.
+ *
+ * One window is left open and is documented rather than chased: a write through
+ * one of the copy's own linked paths after the build's last stat walk reaches
+ * the build through the shared inode and is not seen here. It lasts the length
+ * of the walk of the copy, inside a directory that is owner only and that
+ * nothing has been started from, because the launch is claimed after this
+ * returns.
  */
 export async function copyExecutionRoot(
   input: ExecutionRootRecord,
