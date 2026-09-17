@@ -7,6 +7,7 @@ import { createGroupsRouter } from '../../src/api/routes/groups.js';
 import { createProfilesRouter } from '../../src/api/routes/profiles.js';
 import type { Profile, ProfileWithContainers } from '../../src/types/index.js';
 import { call, startRouterTestApp } from '../support/routerTestApp.js';
+import { uploaderHealthStub } from '../support/uploaderHealthStub.js';
 
 process.env.DATABASE_URL = 'postgres://unused';
 const { profileRow, profileServiceHarness } = await import('../support/profileServiceHarness.js');
@@ -87,7 +88,7 @@ it('single creation already preserves the inserted identity if startup is follow
     harness.profiles.rows.set(profile.name, { ...profile, instance_id: randomUUID() });
     return { emitter: new EventEmitter(), kill: () => undefined };
   };
-  const app = await startRouterTestApp(createProfilesRouter(harness.service), '/profiles');
+  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub()), '/profiles');
   try {
     const response = await call(app, 'POST', '/profiles', { name: 'owned', kind: 'viewer' });
     assert.equal(response.status, 202);

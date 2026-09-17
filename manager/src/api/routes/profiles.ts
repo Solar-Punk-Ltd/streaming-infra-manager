@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 
 import { ProfileService } from '../../domain/ProfileService.js';
+import { UploaderHealthService } from '../../domain/UploaderHealthService.js';
 import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import {
   CreateProfileInput,
@@ -17,7 +18,10 @@ import { ProfileKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 
-export function createProfilesRouter(profileService: ProfileService): Router {
+export function createProfilesRouter(
+  profileService: ProfileService,
+  uploaderHealth: UploaderHealthService,
+): Router {
   const router = Router();
 
   router.post(
@@ -62,6 +66,17 @@ export function createProfilesRouter(profileService: ProfileService): Router {
     asyncHandler(async (req: Request, res: Response) => {
       const profile = await profileService.getByName(req.params.name as string);
       res.json(profile);
+    }),
+  );
+
+  // What this deployment's own stream-uploader says about itself, the Bee node
+  // it may still be waiting for included. One deployment at a time and never on
+  // a list, because a list would have to ask every uploader in turn.
+  router.get(
+    '/:name/uploader-health',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await uploaderHealth.read(req.params.name as string));
     }),
   );
 

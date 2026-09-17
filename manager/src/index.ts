@@ -28,6 +28,7 @@ import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { StampService } from './domain/StampService.js';
+import { UploaderHealthService } from './domain/UploaderHealthService.js';
 import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
@@ -257,6 +258,14 @@ async function main(): Promise<void> {
     config.chequebookFloorPlur,
     eventBus,
   );
+  // What an uploader says about itself, which since D16 includes a Bee node it
+  // may still be waiting for. It reads the version's port table for the API
+  // port of the deployment's own slot.
+  const uploaderHealthService = new UploaderHealthService(
+    profileRepository,
+    containerRepository,
+    stackVersionRepository,
+  );
   chequebookOperations = createChequebookOperationsService(database.pool, {
     rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
     dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
@@ -377,6 +386,7 @@ async function main(): Promise<void> {
       stampService,
       chequebookService,
       chequebookOperations,
+      uploaderHealthService,
       containerControl,
       engineConfigService,
       stackVersionService,

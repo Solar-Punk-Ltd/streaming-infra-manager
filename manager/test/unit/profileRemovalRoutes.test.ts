@@ -5,13 +5,14 @@ import { afterEach, beforeEach, it } from 'node:test';
 import { createProfilesRouter } from '../../src/api/routes/profiles.js';
 import type { ProfileService } from '../../src/domain/ProfileService.js';
 import { call, startRouterTestApp, type RouterTestApp } from '../support/routerTestApp.js';
+import { uploaderHealthStub } from '../support/uploaderHealthStub.js';
 
 let app: RouterTestApp;
 let calls: unknown[][];
 beforeEach(async () => {
   calls = [];
   const service = { remove: async (...args: unknown[]) => { calls.push(args); return { name: args[0], status: 'REMOVING' }; } };
-  app = await startRouterTestApp(createProfilesRouter(service as unknown as ProfileService), '/profiles');
+  app = await startRouterTestApp(createProfilesRouter(service as unknown as ProfileService, uploaderHealthStub()), '/profiles');
 });
 afterEach(async () => { await app?.close(); });
 

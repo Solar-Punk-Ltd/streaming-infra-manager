@@ -15,6 +15,7 @@ import { Logger } from '../domain/Logger.js';
 import { MetricsCollector } from '../domain/MetricsCollector.js';
 import { ProfileService } from '../domain/ProfileService.js';
 import { StampService } from '../domain/StampService.js';
+import { UploaderHealthService } from '../domain/UploaderHealthService.js';
 import { StackVersionService } from '../domain/versions/StackVersionService.js';
 import type { DeploymentOrchestrator } from '../domain/DeploymentOrchestrator.js';
 import type { VerifiedDeployTargets } from '../domain/ports/VerifiedDeployTargets.js';
@@ -58,6 +59,7 @@ export interface ApiDeps {
   stampService: StampService;
   chequebookService: ChequebookService;
   chequebookOperations: ChequebookOperationsService;
+  uploaderHealthService: UploaderHealthService;
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   stackVersionService: StackVersionService;
@@ -109,7 +111,7 @@ export function startApiServer(
     '/versions/attempts',
     createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
   );
-  app.use('/profiles', createProfilesRouter(deps.profileService));
+  app.use('/profiles', createProfilesRouter(deps.profileService, deps.uploaderHealthService));
   app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));

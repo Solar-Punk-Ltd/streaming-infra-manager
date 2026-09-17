@@ -26,6 +26,7 @@ import {
   startRouterTestApp,
   type RouterTestApp,
 } from '../support/routerTestApp.js';
+import { uploaderHealthStub } from '../support/uploaderHealthStub.js';
 
 /** The revision the row is at when a page loads it. */
 const LOADED_REVISION = 3;
@@ -43,7 +44,7 @@ async function withApp(
   const harness = profileServiceHarness([
     profileRow({ status, notes: 'the old note', notes_revision: LOADED_REVISION }),
   ]);
-  const app = await startRouterTestApp(createProfilesRouter(harness.service), '/profiles');
+  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub()), '/profiles');
   try {
     await run(app, harness);
   } finally {

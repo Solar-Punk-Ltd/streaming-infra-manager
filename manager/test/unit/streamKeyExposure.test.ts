@@ -40,6 +40,7 @@ const { profileServiceHarness } = await import(
 const { createProfilesRouter } = await import(
   '../../src/api/routes/profiles.js'
 );
+import { uploaderHealthStub } from '../support/uploaderHealthStub.js';
 const { call, startRouterTestApp } = await import(
   '../support/routerTestApp.js'
 );
@@ -91,7 +92,7 @@ describe('what a page is told about a deployment that holds a private key', () =
       if (event.type === 'profile.changed') published.push(event.profile);
     });
     const app = await startRouterTestApp(
-      createProfilesRouter(harness.service),
+      createProfilesRouter(harness.service, uploaderHealthStub()),
       '/profiles',
     );
 
@@ -131,7 +132,7 @@ describe('what a page is told about a deployment that holds a private key', () =
   it('keeps the stored key when a save leaves it out, because no page can send it back', async () => {
     const harness = profileServiceHarness([]);
     const app = await startRouterTestApp(
-      createProfilesRouter(harness.service),
+      createProfilesRouter(harness.service, uploaderHealthStub()),
       '/profiles',
     );
 
