@@ -79,10 +79,11 @@ attempts and since when, or the gate and rung that warned. The reading's type is
 `common/src/uploaderHealth.ts`, shared because the manager writes it and the page
 renders it.
 
-The stack half is on `fix/uploader-start-gates-warn` in
-`Solar-Punk-Ltd/swarm-hls-stream`, pushed and not pinned here, so a deployment on
-the pinned `7e2de6f7` reports none of the new fields and the manager reads that
-as no waiting state reported.
+The stack half was merged into main-v3 at `55b22bf1` and pinned here in
+`7b2312f` the same morning, as the section above records, and the pin has moved
+on since, on `feat/manager-line`, which carries it. A deployment reports the new
+fields once the host runs that pin. One still on an older build reports none of
+them and the manager reads that as no waiting state reported.
 
 `d4a4e8c` closed the half that was left: `ChequebookService.assertFunded`, the
 gate's second check, was still throwing `BeeNodeError` on a node that did not
