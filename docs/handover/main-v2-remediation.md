@@ -1269,7 +1269,10 @@ never took a problem.
 **Rulings.** D15: the stack's uploader starts whatever its chequebook and
 postage readings say, its start gates warn by default and
 `UPLOADER_START_GATES=refuse` restores the refusal, and the startup reads get
-their own budget, `START_GATE_TIMEOUT_MS`, 20 seconds by default. D16, amending
+their own budget, `START_GATE_TIMEOUT_MS`, 20 seconds by default, refined the same morning
+into a per-gate mode, `chequebook-warn` by default, under which the postage
+gate refuses what the node answered and warns what it could not read
+(decision 7 b). D16, amending
 D02: the manager starts the uploader even when its node does not answer, the
 deployment says the node is not available and the uploader keeps trying. The
 execution copy cost is the next task, T23, hash once at publish and verify by
@@ -1335,15 +1338,25 @@ unhealthy, healthy or unreachable (4fe7e20, 1b65b22, 4d8db8d, 4d57267, 968de8c,
 d4a4e8c, 0772067, fa576d7, 73f347a, 43ec8e8). Manager unit 2596, frontend 249,
 common 360, typecheck and builds clean.
 
-**Open.** The stack branch is not merged into main-v3 and the manager still
-pins 7e2de6f7, so the waiting state reaches the host only after Levi merges
-and the pin moves. Three of his decisions: whether a build whose stamps
-disagree with its record is refused for good (as built, recoverable by
-removing the named file) or re-hashed once with a loud warning; whether a
-node that answers the chequebook check with a balance nothing can parse still
-refuses the start (as built) or warns; and whether lists take a stamp
-reading per running node, the same shape as the chequebook reading, so a
-standalone node's expired batch is seen again. The box's map has no entry for
+**Merged and pinned, 2026-09-17 morning.** The stack branch
+`fix/uploader-start-gates-warn` (32 commits on 7e2de6f7, head 55b22bf1) passed
+the verification box at standard depth twice, at ad5f27d2 and at its head, was
+merged fast-forward into main-v3 on Levi's word and is pinned here in 7b2312f.
+Its last seven commits carry decision 7 b: the postage gate refuses a batch the
+node answered about and warns one it could not read, the gate messages state
+the finding and leave the boot to the runner, the five pages that describe the
+mode say so, and a raw NUL byte that had made the postage gate's source binary
+to grep since August is written as its escape. A copy of that head merged with
+Nandi's open pull requests #235 and #236 typechecks and passes the uploader
+suite with a three-hunk resolution in the uploader's `index.ts` and two README
+rows, kept for whoever merges second and never posted on his pull request.
+
+**Open.** The pin has moved, so the waiting state reaches the host on Levi's
+next push of main-v2 and deploy. The three decisions listed here on the night
+were answered the same morning: the record refusal stays, recoverable by
+removing the named file (64a7fd0), a chequebook balance nothing can parse warns
+like every other chequebook reading (d4a4e8c), and lists take a stamp reading
+per running node at most every two minutes. The box's map has no entry for
 the manager's database suite, one line on his word. The uploader created
 before the fix holds the public-host string: copy the pool string from the
 pool page again and paste it into its "Node pool string" field under Edit,

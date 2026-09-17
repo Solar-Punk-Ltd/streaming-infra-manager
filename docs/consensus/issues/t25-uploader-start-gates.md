@@ -6,7 +6,7 @@ The stack's `stream-uploader` refuses to start when `ChequebookGate` cannot read
 
 ## Scope, in the stack (Solar-Punk-Ltd/swarm-hls-stream, branch off main-v3)
 
-- The two startup gates observe and report: they log the reading, or the refusal text as a warning, and the uploader starts either way. `UPLOADER_START_GATES=refuse` restores the refusal for an operator who wants it. Default `warn`.
+- The two startup gates observe and report: they log the reading, or the refusal text as a warning, and the uploader starts either way. `UPLOADER_START_GATES=refuse` restores the refusal for an operator who wants it. Default `chequebook-warn`, as built: the chequebook gate warns, and the postage gate refuses a batch the node answered about and warns about one it could not read (decision 7 b, below).
 - The startup reads get their own budget, `START_GATE_TIMEOUT_MS`, default 20000, independent of the per-request deadline of the upload loop.
 - Tests in `packages/stream-uploader/test` cover: warn by default on an unreadable chequebook, warn on a low chequebook, refuse under `refuse`, and the separate timeout.
 
@@ -22,6 +22,43 @@ D02 of 2026-09-07 said the manager refuses a new uploader start when its node do
 - The manager starts the uploader even when its node does not answer. The refusal becomes a state the deployment shows: the node is not available and the uploader is waiting for it. An unknown or expired stamp the node did report stays a refusal, because the node answered and said so.
 - In the stack, an uploader whose node does not answer at start does not exit. Today `StreamCatalog.init` reads the catalog feed from the node and any other failure than an absent feed ends `start()` with "Failed to start" and exit 1, docker restarts the container, and the deploy guard reads the restart as a service falling over. Instead the uploader logs that its node is not available, keeps trying on a backoff, reports that state on its own health route, and finishes starting when the node answers.
 - The deployment page and the list show "Node not available, uploader waiting" from that health state, and clear it when the node answers.
+
+## Built, 2026-09-17, the stack half, and decision 7
+
+Branch `fix/uploader-start-gates-warn` of Solar-Punk-Ltd/swarm-hls-stream, 32 commits on
+7e2de6f7, merged fast-forward into main-v3 at 55b22bf1 on Levi's word ("so the hls is okay? if
+yes merge to main-v3") after the verification box passed that head at standard depth, and pinned
+here in 7b2312f. What it does:
+
+- The uploader's API listens first. A node that does not answer is waited for, one second
+  doubling to thirty, without giving up, and `/health` answers 503 `waiting_for_node` with the
+  node's URL (credential stripped), the attempts, the last error and since when. Everything under
+  `/stream/*` answers 503 with `Retry-After: 5` until the node answers.
+- The two start gates get their own budget, `START_GATE_TIMEOUT_MS`, 20 seconds by default and
+  ten minutes at most, instead of the upload loop's four seconds.
+- `UPLOADER_START_GATES` has three values. `chequebook-warn`, the default: the chequebook gate
+  warns on everything, the postage gate refuses what the node answered and warns what it could not
+  read. `warn`: both warn. `refuse`: both refuse, the old behaviour unchanged. A blank value is the
+  default and a misspelt one is refused when the config loads.
+- A gate that warns reads every rung rather than stopping at the first, and the warnings are
+  latched on `/health` as `start_gate_warned` with the gate's name and the rung, nothing more,
+  because `/health` is unauthenticated. `deploy/scripts/assert-started.sh` confirms a warned start
+  and prints the gates and rungs.
+
+**Decision 7, Levi, 2026-09-17, option b.** With the chequebook gate warning and the postage gate
+refusing, a rung whose node did not answer at all still counted as a bad batch: the postage gate
+threw, the wait read the timeout in the message and retried for ever, which was the shape of the
+incident this row began with. Levi's ruling: the postage gate refuses only a batch the node
+answered about, `usable` false, time left under the floor, utilization over the ceiling, or a 4xx
+such as bee's 404 for a batch it does not hold. It warns, and the uploader starts, when the batch
+could not be read at all: a transport failure or a timeout, a 5xx, or an answer with no readable
+batch fields. Every gate refusal now says which of the two it is, and the runner in
+`libs/StartGates.ts` decides from the mode what the boot does about it. The gate messages state
+what was found and what fixes it and no longer claim the uploader refuses, because under a warning
+mode the same line ends with the uploader starting anyway. One consequence worth knowing: on a pool
+whose nodes answer nothing, the default mode now reads every rung before it starts, about 160
+seconds on four nodes, where it used to stop at the first, and such a rung is latched on `/health`
+where the container previously died.
 
 ## Where the design lives
 

@@ -22,7 +22,7 @@ carries every review round, the task table and Levi's decisions D01 to D10. Deci
 were taken during the slices built after the merge and live in their briefs and fixes files in the
 same directory, which `docs/consensus/README.md` lists in order. Decisions D15 and D16 (2026-09-17:
 the stack's uploader starts whatever its chequebook says, and the manager starts it even when its
-node does not answer) live in `docs/consensus/issues/t25-uploader-start-gates.md`, and rows T23 to
+node does not answer, and decision 7 of the same day on the postage gate's two readings) live in `docs/consensus/issues/t25-uploader-start-gates.md`, and rows T23 to
 T27, added the same day, are listed at the end of `docs/consensus/issues/README.md`.
 
 `docs/consensus/prs/` holds one draft pull request body per row, kept as the per-row record of
