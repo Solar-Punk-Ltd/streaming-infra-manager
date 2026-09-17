@@ -250,11 +250,6 @@ export function withdrawalOverChequebookReason(
   return `This node's chequebook has ${plurToBzz(availablePlur)} BZZ available and the withdrawal asks for ${plurToBzz(amountPlur)} BZZ. Withdraw less, or wait for the cheques already handed out to be cashed.`;
 }
 
-/** Why an uploader will not be started against this node's chequebook. */
-export function uploaderUnfundedReason(health: ChequebookHealth): string {
-  return `This deployment's Bee node has ${plurToBzz(health.availablePlur ?? 0n)} BZZ available in its chequebook and the floor is ${plurToBzz(health.floorPlur)} BZZ. Fill the chequebook, then start the uploader.`;
-}
-
 /** `ChequebookHealth` in the form that survives JSON, where no bigint can go. */
 export interface ChequebookHealthPayload {
   state: ChequebookState;

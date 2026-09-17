@@ -60,11 +60,19 @@ warnings too. An operator who wants an uploader up on an unfunded node gets it
 up, and what that costs is uploads that stall, which the deployment page shows
 from the uploader's own health. The manager's one remaining refusal is the stamp
 check, for a batch the node itself reports as unknown, expired or not usable.
-`409 chequebook_unfunded` can no longer come back from
-`POST /profiles/:name/deploy-uploader`, though `ChequebookUnfundedError`, the
-error handler's mapping of it and the offline mock's own refusal all still
-stand, so the frontend's handling of that answer is now unreachable rather than
-removed.
+`409 chequebook_unfunded` is gone with it. Nothing threw it once the check
+stopped refusing, so the class `ChequebookUnfundedError`, the error handler's
+mapping of it, the sentence `uploaderUnfundedReason` in `common`, and the
+offline mock's own `chequebookRefusal` were all removed rather than left to be
+read as a state the manager can reach. The frontend turned out never to have
+had a branch for that code at all, rendering whatever the API said through its
+one `ApiError` path, so there was nothing to take out there. The offline mock's
+own suite now pins the opposite property, that every one of its deployments
+starts whatever its funding evidence says, because a mock that grows a refusal
+production does not have reports every such start as a failure on a laptop while
+the host is fine. `docs/consensus/T11-CONTINUATION.md` still names the code,
+and is left alone: it is the dated record of what was decided in April rather
+than a description of the manager now.
 
 Three smaller things followed. `0772067` moved the five deploy-target spellings
 that mean this machine into `LOCAL_DEPLOY_TARGETS` in

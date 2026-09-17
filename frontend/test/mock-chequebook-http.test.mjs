@@ -93,39 +93,25 @@ after(async () => {
   try { await exited; } finally { clearTimeout(timeout); }
 });
 
+/**
+ * The mock's uploader start, which since the owner's ruling of 2026-09-17 refuses
+ * nothing about funding.
+ *
+ * This suite used to pin three refusals: a node the mock does not hold, a balance
+ * it cannot parse, and a balance under the floor. The manager refuses on none of
+ * them now, so the property worth holding is the opposite one, and it is worth
+ * holding because a mock that grows a refusal production does not have reports
+ * every such start as a failure on a laptop while the host is fine. What decides
+ * whether a start worked is the script's own last frame, which is what the page
+ * reads.
+ */
 describe('authenticated offline uploader funding admission', { concurrency: false, timeout: 15000 }, () => {
-  for (const name of ['missing', 'unreadable']) {
-    it(`refuses ${name} local-node evidence without starting the uploader`, async () => {
-      const before = await request(`/profiles/${name}`);
-      assert.equal(before.status, 200);
-      const result = await request(`/profiles/${name}/deploy-uploader`, 'POST');
-      assert.equal(result.status, 502);
-      assert.equal(result.body.error, 'bee_node_unreachable');
-      assert.equal(result.body.name, name);
-      assert.match(result.body.message, /uploader was not started/);
-      assert.match(result.body.message, /Try again once the node answers/);
-      assert.deepEqual((await request(`/profiles/${name}`)).body, before.body);
-    });
-  }
-
-  for (const name of ['funded', 'external', 'pool']) {
-    it(`preserves the ${name} uploader path and reports how the script ended`, async () => {
-      // The manager answers this route with the run's own event stream, and
-      // the page reads the last frame to tell a start that worked from one
-      // that did not. A mock that answers JSON instead reports every start as
-      // a failure on the laptop while production is fine.
+  for (const name of ['missing', 'unreadable', 'low', 'funded', 'external', 'pool']) {
+    it(`starts the ${name} uploader and reports how the script ended`, async () => {
       const result = await requestStream(`/profiles/${name}/deploy-uploader`);
       assert.equal(result.status, 200);
       assert.match(result.frames, /event: done\ndata: \{"code":0\}/);
       assert.equal((await request(`/profiles/${name}`)).body.status, 'DEPLOYING');
     });
   }
-
-  it('keeps proven low funds distinct from an unverified node', async () => {
-    const before = await request('/profiles/low');
-    const result = await request('/profiles/low/deploy-uploader', 'POST');
-    assert.equal(result.status, 409);
-    assert.equal(result.body.error, 'chequebook_unfunded');
-    assert.deepEqual((await request('/profiles/low')).body, before.body);
-  });
 });

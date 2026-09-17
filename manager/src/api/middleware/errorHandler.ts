@@ -25,7 +25,6 @@ import {
   CannotRemoveUserError,
   ChequebookBusyError,
   ChequebookFundsError,
-  ChequebookUnfundedError,
   ContainerNotRunningError,
   CrossSiteRequestError,
   DockerUnavailableError,
@@ -279,14 +278,6 @@ export function errorHandler(
   if (err instanceof ChequebookBusyError) {
     res.status(409).json({
       error: 'chequebook_busy',
-      name: err.profileName,
-      message: err.message,
-    });
-    return;
-  }
-  if (err instanceof ChequebookUnfundedError) {
-    res.status(409).json({
-      error: 'chequebook_unfunded',
       name: err.profileName,
       message: err.message,
     });

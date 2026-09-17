@@ -25,7 +25,6 @@ import {
   chequebookHealthPayload,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   plurToBzz,
-  uploaderUnfundedReason,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -71,7 +70,6 @@ import {
   refreshDerived,
   RUNGS,
   seed,
-  servicesOf,
   setSrtPassphrase,
   srtPassphraseOf,
   state,
@@ -289,45 +287,6 @@ const chequebookJournal = createMockChequebookJournal({
     }, CHEQUEBOOK_SETTLE_MS);
   },
 });
-
-/**
- * The uploader gate uses the manager's funding refusal and unknown-node bodies.
- * A deployment without a local Bee node keeps its external or pool path.
- */
-function chequebookRefusal(profile) {
-  if (!servicesOf(profile).includes('bee-uploader')) return null;
-
-  const entry = nodeIfKnown(profile.name);
-  if (!entry) {
-    return {
-      error: 'bee_node_unreachable',
-      name: profile.name,
-      message: `The Bee node of ${profile.name} did not answer the chequebook check, so the uploader was not started. Try again once the node answers.`,
-    };
-  }
-
-  const health = chequebookHealthFrom(
-    {
-      totalBalance: entry.chequebook.total,
-      availableBalance: entry.chequebook.available,
-    },
-    CHEQUEBOOK_FLOOR_PLUR,
-  );
-  if (health.state === 'unknown') {
-    return {
-      error: 'bee_node_unreachable',
-      name: profile.name,
-      message: `The Bee node of ${profile.name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
-    };
-  }
-  if (health.state !== 'low' && health.state !== 'empty') return null;
-
-  return {
-    error: 'chequebook_unfunded',
-    name: profile.name,
-    message: uploaderUnfundedReason(health),
-  };
-}
 
 // ------------------------------------------------------- bee-publishers
 
@@ -607,8 +566,9 @@ const ROUTES = [
     'POST',
     /^\/profiles\/([^/]+)\/deploy-uploader$/,
     withProfile((_req, res, profile) => {
-      const refusal = chequebookRefusal(profile);
-      if (refusal) return send(res, refusal.error === 'bee_node_unreachable' ? 502 : 409, refusal);
+      // Nothing about funding refuses a start, on the owner's ruling of
+      // 2026-09-17. What a dry chequebook costs shows up on the deployment
+      // page, from the uploader's own health.
       deploy(profile, { withUploader: true });
       sendScriptRun(res, 'deploy.sh', [`--profile=${profile.name}`, 'stream-uploader']);
     }),

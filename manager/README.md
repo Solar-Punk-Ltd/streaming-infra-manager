@@ -254,8 +254,8 @@ floor with both numbers in it, and the start proceeds in every case. An operator
 who wants an uploader up on an unfunded node gets it up, and what that costs is
 uploads that stall, which the deployment page shows from the uploader's own
 health rather than leaving to be guessed at. `409 chequebook_unfunded` is
-therefore no longer an answer this route gives, though the error and its shape
-remain for the frontend and the offline mock.
+therefore gone: no route answers it, no error class carries it, and the offline
+mock no longer refuses a start on funding either.
 
 The one check that still refuses is the batch, and only on an answer the node
 gave: one it calls unknown, expired or not usable yet. A node that could not be

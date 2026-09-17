@@ -20,7 +20,6 @@ export { StampRequiredError } from './StampRequiredError.js';
 export { StampNotUsableError } from './StampNotUsableError.js';
 export { ChequebookBusyError } from './ChequebookBusyError.js';
 export { ChequebookFundsError } from './ChequebookFundsError.js';
-export { ChequebookUnfundedError } from './ChequebookUnfundedError.js';
 export { LadderGroupError } from './LadderGroupError.js';
 export { ProfileConfigError } from './ProfileConfigError.js';
 export { AdminRequiredError } from './AdminRequiredError.js';
