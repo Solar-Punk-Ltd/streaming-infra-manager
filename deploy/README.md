@@ -388,8 +388,8 @@ actually reach when these ports are bound here and nowhere else. `BEE_LOCAL_HOST
 overrides that too, and it is what an uploader on another machine would need,
 together with a bind that admits that machine. An uploader created before
 2026-09-17 still holds a string in the public form, which answers nowhere at
-all. Re-pick its pool in the uploader's edit dialog and the manager assembles
-the new one.
+all. Copy the pool string from the pool page again and paste it into the
+uploader's "Node pool string" field under Edit.
 
 If this host runs the stack with `COMPOSE_NETWORK=host`, the pair that applies
 to the Bee APIs is `BEE_UPLOADER_API_LISTEN` and `BEE_GATEWAY_API_LISTEN`

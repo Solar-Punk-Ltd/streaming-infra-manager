@@ -429,8 +429,9 @@ explains it as well as a wrong address does, and for a local one the manager and
 the uploader are two containers with two routes to the same port.
 
 **An uploader created before 2026-09-17 holds the old string**, since the value
-is copied into its settings when the pool is picked. Re-picking the pool in the
-uploader's edit dialog assembles the new one.
+is copied into its settings when the pool is picked. The pool page's "Copy pool
+string" assembles the new one, and pasting it into the uploader's "Node pool
+string" field under Edit replaces the old.
 
 ### The node
 

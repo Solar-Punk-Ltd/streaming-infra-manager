@@ -12,7 +12,7 @@ The stack's own `BEE_URL` default, `http://bee-uploader:1633`, is the single-nod
 - The probe (`publishUrlStateFor`) probes the URL the uploader is handed and no other, so "answers" means the uploader can reach it.
 - The wizard's pool checks show the probe's answer per rung instead of the fixed sentence "Publishing is not verified": answers at which address, or did not answer, or not probed.
 - `docs/features/abr-ladder.md` and the bind section of `deploy/README.md` say which address the pool string carries and why the public host cannot be it.
-- Uploaders created before the fix hold the old string. Re-picking the pool in the uploader's edit dialog assembles the new one. The readiness of such an uploader says so.
+- Uploaders created before the fix hold the old string. The pool page's "Copy pool string" now assembles the new one, and pasting it into the uploader's "Node pool string" field under Edit replaces the old. The readiness of such an uploader says so.
 
 ## Acceptance
 
