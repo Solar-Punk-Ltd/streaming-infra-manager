@@ -6,21 +6,23 @@ import { assertExecutionId, assertExecutionRegistration, executionRootPath, type
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
 import { COPY_INSTEAD } from './buildTreeClone.js';
 import { hostConfigFilesOf } from './hostConfigCapture.js';
-import { inventoryOwnedTree, ownedTreeDigest, pathStamp, stampOwnedTree, type OwnedTreeInventory } from './ownedTreeInventory.js';
+import { durableStampOwnedTree, inventoryOwnedTree, ownedTreeDigest, type RecordedOwnedTree } from './ownedTreeInventory.js';
 import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
 
 export interface ExecutionCopyOptions {
   onProgress?: (copiedFiles: number) => Promise<void>;
   /**
-   * The inventory the caller has already taken of this source, rather than one
-   * taken again here.
+   * The inventory the caller holds of this source, rather than one taken again
+   * here.
    *
    * Reading and hashing the build tree is what preparing a copy costs, and the
-   * caller that registers the execution has to take one anyway to know the
+   * caller that registers the execution has to hold one anyway to know the
    * digest it registers. What proves the tree has not moved since is its
-   * stamps, so nothing is given up by trusting the inventory it came with.
+   * stamps, so nothing is given up by trusting the inventory it came with,
+   * whether that was taken a moment ago or recorded when the build was first
+   * copied from.
    */
-  sourceInventory?: OwnedTreeInventory;
+  sourceInventory?: RecordedOwnedTree;
 }
 
 async function copyFileInto(from: string, to: string, mode: number): Promise<void> {
@@ -60,11 +62,9 @@ async function shareOrCopyFile(from: string, to: string, mode: number): Promise<
  * per-profile files beside them. A chmod or a truncation through a link is one
  * on the build, which would change the digest the build is admitted on.
  *
- * Every link moves the build inode's status-change time, so what the build is
- * compared against when the copy is made is the stamp read back through the
- * copy's own path. That is the same inode, so the one comparison says both that
- * the build did not move and that the copy holds the very file the inventory
- * read.
+ * Every link moves the build inode's status-change time and its link count,
+ * which is why the stamps compared either side of the copy are the durable
+ * ones. A build the copy has linked from is a build the copy has not changed.
  */
 export async function copyExecutionRoot(
   input: ExecutionRootRecord,
@@ -86,7 +86,7 @@ export async function copyExecutionRoot(
   await readOwnedFile(record.source.root, BUILD_COMPLETE_MARKER);
   const manifest = readBuildManifest(record.source.root).manifest;
   if (manifest?.buildId !== record.source.buildId || manifest.commit !== record.source.commit) throw new Error('Execution source build identity changed.');
-  if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), source.stamps)) throw new Error('Execution source changed during verification.');
+  if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw new Error('Execution source changed during verification.');
 
   await mkdir(ownerRoot, { mode: 0o700 });
   const owned = await lstat(ownerRoot);
@@ -101,14 +101,13 @@ export async function copyExecutionRoot(
     await mkdir(root, { mode: 0o700 });
     for (const entry of source.entries.filter(entry => entry.type === 'directory')) await mkdir(join(root, entry.path), { mode: 0o700 });
     const settings = new Set(hostConfigFilesOf(record.source.root));
-    const shared: string[] = [];
     let copied = 0;
     for (const entry of source.entries) {
       if (entry.type === 'file') {
         const from = join(record.source.root, entry.path);
         const to = join(root, entry.path);
         if (settings.has(entry.path)) await copyFileInto(from, to, entry.mode);
-        else if (await shareOrCopyFile(from, to, entry.mode)) shared.push(entry.path);
+        else await shareOrCopyFile(from, to, entry.mode);
         await options.onProgress?.(++copied);
       } else if (entry.type === 'symlink') {
         await symlink(entry.target, join(root, entry.path));
@@ -116,9 +115,7 @@ export async function copyExecutionRoot(
     }
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);
     await chmod(root, source.rootMode);
-    const expected = { ...source.stamps };
-    for (const path of shared) expected[path] = await pathStamp(join(root, path));
-    if (!isDeepStrictEqual(await stampOwnedTree(record.source.root), expected)) throw new Error('Execution source changed during copying.');
+    if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw new Error('Execution source changed during copying.');
     if (ownedTreeDigest(await inventoryOwnedTree(root)) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
     await writeFile(join(ownerRoot, 'ready.json'), JSON.stringify({ copyToken: record.copyToken, artifactDigest: record.source.artifactDigest }), { flag: 'wx', mode: 0o600 });
     return { root, artifactDigest: record.source.artifactDigest };

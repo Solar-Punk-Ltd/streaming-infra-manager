@@ -6,12 +6,15 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 import { Logger } from '../Logger.js';
 
 import type { ExecutionRootRecord, ExecutionRootRegistration } from './ExecutionRoot.js';
+import { buildInventory } from './buildInventoryRecord.js';
 import { readBuildManifest } from './buildManifest.js';
 import { currentExecutionOf, executionsToRetire } from './executionRetention.js';
 import { copyExecutionRoot, removeExecutionRoot } from './executionRootFiles.js';
-import { inventoryOwnedTree, ownedTreeDigest } from './ownedTreeInventory.js';
+import type { RecordedOwnedTree } from './ownedTreeInventory.js';
 
 const logger = Logger.getInstance();
+
+const filesIn = (inventory: RecordedOwnedTree): number => inventory.entries.filter(entry => entry.type === 'file').length;
 
 /** What `PostgresExecutionRootRepository` answers, named here so the service can be tested without one. */
 export interface ExecutionRootStore {
@@ -96,17 +99,24 @@ export class ExecutionRootService implements ExecutionRoots {
    *
    * Everything the copy needs is read here rather than from the version row:
    * the commit comes from the build's own manifest, and the digest from the
-   * tree as it stands, so the copy is verified against what is actually there.
+   * build's own inventory, so the copy is verified against what is actually
+   * there.
    *
-   * That reading of the tree is the one the copy works from too. Hashing a
-   * build is what preparing a copy costs, and an inventory taken here and
-   * another taken inside the copy read the whole tree twice for one answer.
+   * That inventory is the one the copy works from too, and it is hashed once
+   * for the life of the build rather than once for every deploy. A published
+   * build is never written to again, so what every later copy needs is the
+   * proof that it has not been, which is a walk of its stamps and not a read
+   * of its bytes.
    */
   async prepare(input: ExecutionPreparation): Promise<PreparedExecution | null> {
     if (input.build.layout !== 'builds') return null;
     const manifest = readBuildManifest(input.build.root).manifest;
     if (!manifest) return null;
-    const inventory = await inventoryOwnedTree(input.build.root);
+    const inventory = await buildInventory(input.build.root);
+    if (inventory.hashed) {
+      logger.info(`[Executions] ${input.profile.name}: inventoried build ${input.build.buildId} once, ${
+        filesIn(inventory.record)} files, took ${(inventory.tookMs / 1000).toFixed(1)}s`);
+    }
     const registration: ExecutionRootRegistration = {
       executionId: randomUUID(),
       source: {
@@ -114,7 +124,7 @@ export class ExecutionRootService implements ExecutionRoots {
         buildId: input.build.buildId,
         commit: manifest.commit,
         root: input.build.root,
-        artifactDigest: ownedTreeDigest(inventory),
+        artifactDigest: inventory.record.digest,
       },
       profile: { ...input.profile },
       jobReferenceId: input.jobReferenceId,
@@ -127,7 +137,7 @@ export class ExecutionRootService implements ExecutionRoots {
     try {
       const copying = await this.roots.beginCopy(registered.executionId);
       if (!copying?.copyToken) throw new Error('The execution copy could not take its exclusive token.');
-      const copied = await copyExecutionRoot(copying, this.executionsParent, { sourceInventory: inventory });
+      const copied = await copyExecutionRoot(copying, this.executionsParent, { sourceInventory: inventory.record });
       await this.roots.markReady(copying.executionId, copying.copyToken, copied.artifactDigest);
       logger.info(`[Executions] ${input.profile.name}: copied build ${input.build.buildId} to ${registered.executionId}`);
       return { executionId: registered.executionId, root: copied.root };

@@ -3,14 +3,16 @@
  *
  * Preparing the private copy a deploy runs from used to read and hash the whole
  * build tree four times over and then copy it, all awaited inside the HTTP
- * request that creates the deployment. The tree is now hashed once, hard linked
- * rather than written, and the proofs that it did not move while that happened
- * compare the stamps the first inventory recorded instead of reading it again.
+ * request that creates the deployment. A build is now hashed once for its whole
+ * life, into a record beside it, hard linked rather than written, and the
+ * proofs that it has not moved since compare the stamps that record holds
+ * instead of reading it again.
  *
- * Two things have to hold together, so both are here. The build is read once,
- * and a build that changes in the window between the inventory and the copy is
- * still refused. The second is the one a stamp comparison could quietly lose: a
- * file added after the inventory is linked by nobody and missed by every
+ * Three things have to hold together, so all three are here. The build is read
+ * once and never again. A build that changes in the window between the
+ * inventory and the copy is still refused, and so is one that changed after the
+ * record was taken. The last is the one a stamp comparison could quietly lose:
+ * a file added after the inventory is linked by nobody and missed by every
  * digest, because the copy and its digest are both made from the inventory
  * itself.
  *
@@ -58,10 +60,10 @@ beforeEach(async () => {
 afterEach(async () => { await fsPromises.rm(root, { recursive: true, force: true }); });
 
 const storeFor = () => new InMemoryExecutionRoots(executions, () => randomUUID());
-const preparation = (): ExecutionPreparation => ({
+const preparation = (jobReferenceId = 7): ExecutionPreparation => ({
   profile: { name: 'owned', instanceId: randomUUID(), intentRevision: 3, status: 'DEPLOYING' },
   build: { versionId: 1, buildId: commit, root: build, layout: 'builds' },
-  jobReferenceId: 7,
+  jobReferenceId,
   target: { alias: 'localhost', daemonId: 'synthetic-daemon' },
   services: [],
 });
@@ -112,5 +114,48 @@ for (const change of ['is rewritten', 'gains a file nothing inventoried'] as con
     await assert.rejects(new ExecutionRootService(store, executions).prepare(preparation()), /changed/);
 
     assert.deepEqual(await fsPromises.readdir(executions), [], 'the copy of a refused build was left behind');
+  });
+}
+
+/** The reads of the build one call made, by path inside it. */
+function readsOfTheBuild(opened: { mock: { calls: { arguments: unknown[] }[] } }): Map<string, number> {
+  const reads = new Map<string, number>();
+  for (const call of opened.mock.calls) {
+    const path = String(call.arguments[0]);
+    if (!path.startsWith(`${build}/`)) continue;
+    const inTree = path.slice(build.length + 1);
+    reads.set(inTree, (reads.get(inTree) ?? 0) + 1);
+  }
+  return reads;
+}
+
+it('hashes a build once ever, and answers every later copy from the record beside it', async t => {
+  const opened = t.mock.method(fsPromises, 'open');
+  syncBuiltinESMExports();
+  t.after(() => { opened.mock.restore(); syncBuiltinESMExports(); });
+  const service = new ExecutionRootService(storeFor(), executions);
+
+  await service.prepare(preparation(7));
+  const first = readsOfTheBuild(opened);
+  opened.mock.resetCalls();
+  await service.prepare(preparation(8));
+  const second = readsOfTheBuild(opened);
+
+  assert.ok(first.size > IDENTITY_FILES.length, 'the first prepare never read the build, so this test counts nothing');
+  assert.deepEqual([...second.keys()].sort(), [...IDENTITY_FILES].sort(),
+    'a second copy of the same build read more of it than the two files that say which build it is');
+  assert.equal((await fsPromises.lstat(`${build}.inventory.json`)).mode & 0o7777, 0o600);
+});
+
+for (const change of ['bytes', 'mode'] as const) {
+  it(`refuses a build whose ${change} changed after it was inventoried`, async () => {
+    const service = new ExecutionRootService(storeFor(), executions);
+    await service.prepare(preparation(7));
+    const path = join(build, '.env.sample');
+
+    if (change === 'bytes') await fsPromises.writeFile(path, 'ENGINE=synthetic-and-changed\n');
+    else await fsPromises.chmod(path, 0o600);
+
+    await assert.rejects(service.prepare(preparation(8)), /changed/);
   });
 }
