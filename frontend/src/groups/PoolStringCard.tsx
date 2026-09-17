@@ -78,7 +78,10 @@ export function PoolStringCard({
               </Button>
               <Typography variant="caption" color="text.secondary">
                 For an uploader on another manager, paste the copied string into
-                its form.
+                its form. The addresses in it are local to this host, the Docker
+                bridge address a container here reaches, so an uploader on
+                another machine needs BEE_LOCAL_HOST set to an address it can
+                reach and a bind that admits it.
               </Typography>
             </Stack>
             {problems.length > 0 && (
