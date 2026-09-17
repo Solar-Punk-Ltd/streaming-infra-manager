@@ -183,10 +183,11 @@ nothing invalidates a copy that has gone wrong:
 starting** (decision D16, the owner: "we should be able to start the uploader but
 maybe say its node not available, try to reconnect or something"). Both checks of
 the manager's own start gate, the batch and the chequebook, log a node that says
-nothing and let the start through. What they still refuse is an answer the node
-gave: a batch it calls unknown, expired or not usable yet, a chequebook
-balance under the floor, or a balance the node answered with that cannot be
-read at all. The uploader then waits for its node instead of exiting, and
+nothing and let the start through, and on the owner's further ruling of the same
+day the chequebook check never refuses at all: a dry chequebook is a warning and
+the uploader starts. What still refuses is one thing only, a batch the node
+itself reports as unknown, expired or not usable. The uploader then waits for its
+node instead of exiting, and
 reports that wait on its own `/health`. The deployment page reads that route
 every ten seconds and the **Uploader running** step says which node is being
 waited for, how many attempts it has made and since when, and clears when the

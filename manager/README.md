@@ -247,14 +247,20 @@ interpreted. `common/src/chequebook.ts` converts.
 Both writes answer as soon as bee has submitted the transaction, not once it is
 mined, so the balance moves a few Gnosis blocks later. Poll the GET to see it.
 
-`POST /profiles/:name/deploy-uploader` refuses with `409 chequebook_unfunded`
-when the node reports less than the floor available. A node that cannot be asked
-does not block the deploy, and neither of the gate's two checks blocks on one: a
-failed probe is no evidence about a chequebook or about a batch. Both log the
-node they could not reach and let the start through, which is decision D16 of
-2026-09-17. What still refuses is an answer the node gave: a balance under the
-floor, a balance that cannot be read at all, or a batch the node calls unknown,
-expired or not usable yet. The uploader then waits for a node that never
+**The chequebook never refuses an uploader start**, on the owner's ruling of
+2026-09-17. The gate reads the node and writes what it found in the log, a node
+that did not answer, a balance that cannot be parsed, and a balance under the
+floor with both numbers in it, and the start proceeds in every case. An operator
+who wants an uploader up on an unfunded node gets it up, and what that costs is
+uploads that stall, which the deployment page shows from the uploader's own
+health rather than leaving to be guessed at. `409 chequebook_unfunded` is
+therefore no longer an answer this route gives, though the error and its shape
+remain for the frontend and the offline mock.
+
+The one check that still refuses is the batch, and only on an answer the node
+gave: one it calls unknown, expired or not usable yet. A node that could not be
+asked never refuses either check, because a failed probe is no evidence about a
+chequebook or about a batch. The uploader then waits for a node that never
 answered rather than exiting, and `GET /profiles/:name/uploader-health` is where
 that wait is read.
 

@@ -18,10 +18,8 @@ import {
 import { BeeClient } from './BeeClient.js';
 import { beeCallFailed } from './beeFailure.js';
 import {
-  BeeNodeError,
   ChequebookBusyError,
   ChequebookFundsError,
-  ChequebookUnfundedError,
   ProfileNotFoundError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
@@ -171,20 +169,24 @@ export class ChequebookService {
   }
 
   /**
-   * The uploader gate: refuse to start one whose node reported that it cannot
-   * pay for uploads.
+   * The uploader gate's chequebook half: read what the node can pay peers with
+   * and put it in the log. Nothing here refuses a start.
    *
-   * Only on an answer. A node that says nothing says nothing about its
-   * chequebook either, and refusing on that leaves an operator unable to start
-   * an uploader over a node they cannot make answer. Decision D16, the owner on
-   * 2026-09-17: "we should be able to start the uploader but maybe say its node
-   * not available, try to reconnect or something". So the silence is logged
-   * with the node named and the start goes on, the same way the stamp check
-   * treats it. The uploader then waits for the node and reports that wait on
-   * its own health route.
+   * ⛔ The name is older than the behaviour and the behaviour is the ruling.
+   * D02 of 2026-09-07 refused a start on a node that said nothing and on one
+   * that reported a chequebook under the floor. Decision D16 of 2026-09-17 took
+   * the silence back, "we should be able to start the uploader but maybe say its
+   * node not available, try to reconnect or something", and the owner then took
+   * the shortfall too: an operator who wants an uploader up on an unfunded node
+   * gets it up. What that costs is uploads that stall, which the deployment page
+   * shows from the uploader's own health route, rather than a deployment that
+   * will not start for a reason the operator was already looking at.
    *
-   * A balance under the floor, and one the node answered with that cannot be
-   * read at all, are both still refusals: in each the node answered.
+   * So all three readings are warnings, each naming the node: a node that did
+   * not answer, a balance that cannot be parsed, and a balance under the floor
+   * with both numbers in it. The stamp check is the one that still refuses, for
+   * a batch the node itself reports as unknown, expired or not usable, and the
+   * stack's own postage gate refuses on the same ground.
    */
   async assertFunded(name: string): Promise<void> {
     const profile = await this.profiles.findByName(name);
@@ -206,13 +208,18 @@ export class ChequebookService {
 
     const health = chequebookHealthFrom(balance, this.floorPlur);
     if (health.state === 'unknown') {
-      throw new BeeNodeError(
-        name,
-        `The Bee node of ${name} answered the chequebook check with a balance that could not be read, so the uploader was not started. Try again once the node answers properly.`,
+      logger.warn(
+        `[ChequebookService] ${name}: the Bee node at ${nodeUrl} answered the chequebook check with a balance that could not be read. ` +
+          'The uploader is started anyway, on the ruling of 2026-09-17.',
       );
+      return;
     }
     if (isChequebookShort(health.state)) {
-      throw new ChequebookUnfundedError(name, health);
+      logger.warn(
+        `[ChequebookService] ${name}: the Bee node at ${nodeUrl} has ${plurToBzz(health.availablePlur ?? 0n)} BZZ available ` +
+          `in its chequebook and the floor is ${plurToBzz(health.floorPlur)} BZZ. The uploader is started anyway, on the ` +
+          'ruling of 2026-09-17, and its uploads stall until the chequebook is filled.',
+      );
     }
   }
 

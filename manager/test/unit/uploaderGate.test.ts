@@ -15,16 +15,8 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import {
-  chequebookHealthFrom,
-  PLUR_PER_BZZ,
-} from '@streaming-infra-manager/common';
-
 import type { ChequebookService } from '../../src/domain/ChequebookService.js';
-import {
-  ChequebookUnfundedError,
-  StampNotUsableError,
-} from '../../src/domain/errors/index.js';
+import { StampNotUsableError } from '../../src/domain/errors/index.js';
 import type { StampService } from '../../src/domain/StampService.js';
 import { UploaderStartGate } from '../../src/domain/UploaderStartGate.js';
 import { Profile } from '../../src/types/index.js';
@@ -176,12 +168,6 @@ describe('when there is nothing to ask', () => {
 });
 
 describe('UploaderStartGate', () => {
-  const FLOOR = PLUR_PER_BZZ / 2n;
-  const EMPTY = chequebookHealthFrom(
-    { totalBalance: '0', availableBalance: '0' },
-    FLOOR,
-  );
-
   const stamps = (
     refuse: boolean,
   ): { service: StampService; checked: string[] } => {
@@ -200,14 +186,17 @@ describe('UploaderStartGate', () => {
     return { service, checked };
   };
 
-  const chequebook = (
-    refuse: boolean,
-  ): { service: ChequebookService; asked: string[] } => {
+  /**
+   * The chequebook check never refuses, on the owner's ruling of 2026-09-17, so
+   * this fake has no refusing shape to offer. It records that it was asked,
+   * which is the whole of what the gate owes it: the reading reaches the log
+   * and the start goes on whatever it says.
+   */
+  const chequebook = (): { service: ChequebookService; asked: string[] } => {
     const asked: string[] = [];
     const service = {
       async assertFunded(name: string): Promise<void> {
         asked.push(name);
-        if (refuse) throw new ChequebookUnfundedError(name, EMPTY);
       },
     } as unknown as ChequebookService;
     return { service, asked };
@@ -215,7 +204,7 @@ describe('UploaderStartGate', () => {
 
   it('asks the node about the batch the profile carries', async () => {
     const batch = stamps(true);
-    const funds = chequebook(false);
+    const funds = chequebook();
 
     await assert.rejects(
       new UploaderStartGate(batch.service, funds.service).assertCanStart(
@@ -229,7 +218,7 @@ describe('UploaderStartGate', () => {
 
   it('asks nothing about a batch when the profile carries none', async () => {
     const batch = stamps(true);
-    const funds = chequebook(false);
+    const funds = chequebook();
 
     await new UploaderStartGate(batch.service, funds.service).assertCanStart(
       streamer({ stamp_id: null }),
@@ -239,24 +228,21 @@ describe('UploaderStartGate', () => {
     assert.deepEqual(funds.asked, ['stage'], 'the chequebook is still asked');
   });
 
-  it('refuses an uploader whose chequebook is under the floor', async () => {
+  it('starts an uploader whose chequebook is dry, having read it first', async () => {
     const batch = stamps(false);
-    const funds = chequebook(true);
+    const funds = chequebook();
 
-    await assert.rejects(
-      new UploaderStartGate(batch.service, funds.service).assertCanStart(
-        streamer(),
-      ),
-      ChequebookUnfundedError,
+    await new UploaderStartGate(batch.service, funds.service).assertCanStart(
+      streamer(),
     );
 
     assert.deepEqual(batch.checked, [`stage:${BATCH}`]);
-    assert.deepEqual(funds.asked, ['stage']);
+    assert.deepEqual(funds.asked, ['stage'], 'read, and written to the log, either way');
   });
 
   it('never asks about the chequebook once the batch was refused', async () => {
     const batch = stamps(true);
-    const funds = chequebook(true);
+    const funds = chequebook();
 
     await assert.rejects(
       new UploaderStartGate(batch.service, funds.service).assertCanStart(

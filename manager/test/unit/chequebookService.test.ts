@@ -12,10 +12,15 @@
  * chequebook and blocking on one would stop work that has nothing wrong with it.
  *
  * That second one was the rule, then D02 of 2026-09-07 made a silent node a
- * refusal too, and decision D16 of 2026-09-17 put it back: "we should be able to
- * start the uploader but maybe say its node not available, try to reconnect or
- * something". A balance the node did report and that is under the floor is still
- * a refusal, because that is the node's own answer.
+ * refusal too, and decision D16 of 2026-09-17 put it back. The owner then took
+ * it the whole way on 2026-09-17: this check never refuses a start at all. A dry
+ * chequebook, a balance that cannot be parsed and a node that said nothing are
+ * each a logged warning and the uploader starts. An operator who wants the
+ * uploader up on an unfunded node gets it up, and what that costs is uploads
+ * that stall, which is visible on the deployment page rather than guessed at.
+ *
+ * The stamp check is the one that still refuses, for a batch the node itself
+ * reports as unknown, expired or not usable.
  */
 import assert from 'node:assert/strict';
 import { describe, it, type TestContext } from 'node:test';
@@ -30,7 +35,6 @@ import {
   BeeNotReadyError,
   ChequebookBusyError,
   ChequebookFundsError,
-  ChequebookUnfundedError,
   ProfileNotFoundError,
 } from '../../src/domain/errors/index.js';
 import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
@@ -363,42 +367,54 @@ describe('one transfer per node at a time', () => {
   });
 });
 
+/** Every warning this check wrote, for a test that reads what it said. */
+function warningsOf(t: TestContext): string[] {
+  const lines: string[] = [];
+  t.mock.method(console, 'warn', (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  });
+  return lines;
+}
+
 describe('ChequebookService.assertFunded', () => {
-  it('throws below the floor, quoting both numbers', async () => {
+  it('warns below the floor and starts anyway, quoting both numbers', async (t) => {
+    const warnings = warningsOf(t);
     const service = serviceAnswering({
       getChequebookBalance: async () => balance('1200000000000000'),
     });
 
-    await assert.rejects(
-      () => service.assertFunded(PROFILE.name),
-      (err: unknown) => {
-        assert.ok(err instanceof ChequebookUnfundedError);
-        assert.equal(
-          err.message,
-          "This deployment's Bee node has 0.1200 BZZ available in its chequebook and the floor is 0.5000 BZZ. Fill the chequebook, then start the uploader.",
-        );
-        return true;
-      },
-    );
+    await service.assertFunded(PROFILE.name);
+
+    const warned = warnings.find((line) => /chequebook/.test(line));
+    assert.ok(warned, `expected a warning, got ${JSON.stringify(warnings)}`);
+    assert.match(warned, /0\.1200 BZZ available/);
+    assert.match(warned, /floor is 0\.5000 BZZ/);
+    assert.ok(warned.includes(NODE_URL), `expected the node URL in ${warned}`);
   });
 
-  it('throws on an empty chequebook', async () => {
+  it('warns on an empty chequebook and starts anyway', async (t) => {
+    const warnings = warningsOf(t);
     const service = serviceAnswering({
       getChequebookBalance: async () => balance('0'),
     });
 
-    await assert.rejects(
-      () => service.assertFunded(PROFILE.name),
-      ChequebookUnfundedError,
+    await service.assertFunded(PROFILE.name);
+
+    assert.ok(
+      warnings.some((line) => /0\.0000 BZZ available/.test(line)),
+      `expected the empty balance named, got ${JSON.stringify(warnings)}`,
     );
   });
 
-  it('lets a node exactly at the floor through', async () => {
+  it('says nothing at all about a node at or above the floor', async (t) => {
+    const warnings = warningsOf(t);
     const service = serviceAnswering({
       getChequebookBalance: async () => balance(FLOOR.toString()),
     });
 
     await service.assertFunded(PROFILE.name);
+
+    assert.deepEqual(warnings, [], 'a funded node is not something to warn about');
   });
 
   it('lets the start proceed when the node cannot be asked, warning with the node URL', async (t) => {
@@ -442,31 +458,33 @@ describe('ChequebookService.assertFunded', () => {
     assert.deepEqual(published, []);
   });
 
-  it('refuses when the node answers with a balance that cannot be read', async () => {
+  it('warns when the node answers with a balance that cannot be read, and starts anyway', async (t) => {
+    const warnings = warningsOf(t);
     const service = serviceAnswering({
       getChequebookBalance: async () => balance('not a number'),
     });
 
-    await assert.rejects(
-      () => service.assertFunded(PROFILE.name),
-      (err: unknown) => err instanceof BeeNodeError && /could not be read/.test(err.message),
+    await service.assertFunded(PROFILE.name);
+
+    assert.ok(
+      warnings.some((line) => /could not be read/.test(line)),
+      `expected the unreadable balance named, got ${JSON.stringify(warnings)}`,
     );
   });
 
-  it('reads the floor it was built with, not a hardcoded one', async () => {
+  it('reads the floor it was built with, not a hardcoded one', async (t) => {
+    const warnings = warningsOf(t);
     const twoBzz = PLUR_PER_BZZ * 2n;
     const service = serviceAnswering(
       { getChequebookBalance: async () => balance(ONE_BZZ.toString()) },
       twoBzz,
     );
 
-    await assert.rejects(
-      () => service.assertFunded(PROFILE.name),
-      (err: unknown) => {
-        assert.ok(err instanceof ChequebookUnfundedError);
-        assert.match(err.message, /floor is 2\.0000 BZZ/);
-        return true;
-      },
+    await service.assertFunded(PROFILE.name);
+
+    assert.ok(
+      warnings.some((line) => /floor is 2\.0000 BZZ/.test(line)),
+      `expected the built floor quoted, got ${JSON.stringify(warnings)}`,
     );
   });
 });

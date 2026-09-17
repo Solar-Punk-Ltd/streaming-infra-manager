@@ -51,10 +51,20 @@ as no waiting state reported.
 gate's second check, was still throwing `BeeNodeError` on a node that did not
 answer the chequebook read, from commit `50e778e` under D02, so a silent node
 refused the start one check later and D16 was only half in effect. It now logs
-the node it could not reach and lets the start through. A balance under the
-floor still refuses, and so does a balance the node answered with that cannot be
-read at all, because in each the node answered. `manager/README.md` says that of
-both checks now.
+the node it could not reach and lets the start through.
+
+The owner then ruled, the same day, that this check never refuses a start at
+all, and that the postage batch keeps refusing in the stack. So a balance under
+the floor and a balance the node answered with that cannot be parsed are
+warnings too. An operator who wants an uploader up on an unfunded node gets it
+up, and what that costs is uploads that stall, which the deployment page shows
+from the uploader's own health. The manager's one remaining refusal is the stamp
+check, for a batch the node itself reports as unknown, expired or not usable.
+`409 chequebook_unfunded` can no longer come back from
+`POST /profiles/:name/deploy-uploader`, though `ChequebookUnfundedError`, the
+error handler's mapping of it and the offline mock's own refusal all still
+stand, so the frontend's handling of that answer is now unreachable rather than
+removed.
 
 Three smaller things followed. `0772067` moved the five deploy-target spellings
 that mean this machine into `LOCAL_DEPLOY_TARGETS` in
