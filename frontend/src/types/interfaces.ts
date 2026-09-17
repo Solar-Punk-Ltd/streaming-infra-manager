@@ -2,6 +2,8 @@ import type {
   DeploymentPhase,
   EngineConfigState,
   EngineSettings,
+  NodeMode,
+  RpcEndpointSource,
 } from '@streaming-infra-manager/common';
 
 import type { ProfileKind, ProfileStatus } from './types';
@@ -43,7 +45,19 @@ export interface Profile {
   bee_publishers?: string | null;
   /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
   bee_url?: string | null;
+  /** The address behind a `custom` endpoint source, and nothing else carries one. */
   rpc_endpoint?: string | null;
+  /**
+   * Where this deployment's Bee node reaches the chain. Absent reads as the
+   * column's own default, the stack's endpoint. See `endpointSourceOf`.
+   */
+  rpc_endpoint_source?: RpcEndpointSource;
+  /**
+   * How much of a chain that node runs with, or null for the mode the stack
+   * starts it in. Chosen when the deployment is created and read through the
+   * shared `effectiveNodeMode`, never off this field alone.
+   */
+  node_mode?: NodeMode | null;
   /**
    * Whether an SRT passphrase of this deployment's own is stored. The value is
    * never on the row: whoever holds it can publish into this ingest, and every
@@ -106,7 +120,14 @@ export interface CreateProfileBody {
   /** null clears it on update, the uploader goes back to its own node + stamp. */
   bee_publishers?: string | null;
   bee_url?: string | null;
+  /** Sent exactly when the source is `custom`, and null clears it on update. */
   rpc_endpoint?: string | null;
+  rpc_endpoint_source?: RpcEndpointSource;
+  /**
+   * Create-only in effect: an update may repeat the stored mode and is refused
+   * for any other, because a node's mode is chosen when it is created.
+   */
+  node_mode?: NodeMode | null;
   srt_passphrase?: string;
   /** The stack version to run. Absent means the manager's default one. */
   stack_version_id?: number;

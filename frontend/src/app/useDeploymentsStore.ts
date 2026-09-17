@@ -9,6 +9,7 @@ import {
 } from 'react';
 
 import {
+  type ConfiguredBeeRpcEndpoint,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   getErrorMessage,
   reconcileProfiles,
@@ -40,6 +41,8 @@ export interface DeploymentsStore {
   hostPassphrase: string | null;
   /** The chequebook floor the manager's uploader gate refuses below. */
   chequebookFloorBzz: string;
+  /** The chain endpoint this manager offers the Bee nodes it creates, host only. */
+  beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
   /** The /events stream is open, so what is on screen is live. */
   connected: boolean;
   activity: ActivityEntry[];
@@ -122,6 +125,9 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [chequebookFloorBzz, setChequebookFloorBzz] = useState(
     DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   );
+  const [beeRpcEndpoint, setBeeRpcEndpoint] = useState<ConfiguredBeeRpcEndpoint>(
+    () => ({ configured: false, host: null }),
+  );
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -196,6 +202,7 @@ export function useDeploymentsStore(): DeploymentsStore {
         setServerHost(config.host);
         setHostPassphrase(config.srtPassphrase);
         setChequebookFloorBzz(config.chequebookFloorBzz);
+        setBeeRpcEndpoint(config.beeRpcEndpoint);
       })
       .catch(() => undefined);
   }, []);
@@ -279,6 +286,7 @@ export function useDeploymentsStore(): DeploymentsStore {
       serverHost,
       hostPassphrase,
       chequebookFloorBzz,
+      beeRpcEndpoint,
       connected,
       activity,
       loadError,
@@ -297,6 +305,7 @@ export function useDeploymentsStore(): DeploymentsStore {
       serverHost,
       hostPassphrase,
       chequebookFloorBzz,
+      beeRpcEndpoint,
       connected,
       activity,
       loadError,

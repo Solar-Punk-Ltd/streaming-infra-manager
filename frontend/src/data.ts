@@ -1,10 +1,13 @@
 import {
   type BeePublishersResult,
+  type ConfiguredBeeRpcEndpoint,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
   defaultServicesFor,
   type EngineSettings,
   hasBeePublishers,
   hasStampId,
+  type NodeMode,
+  type RpcEndpointSource,
   servicesNeedStamp,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -36,7 +39,16 @@ export interface ServerConfig {
    * on, rather than a copy that can drift.
    */
   chequebookFloorBzz: string;
+  /**
+   * The chain endpoint this manager is configured with, for the nodes it
+   * creates. Its host and never its URL: an endpoint can carry an API key in
+   * its path or its user info, and this answer reaches every signed-in page.
+   */
+  beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
 }
+
+/** A manager that named no endpoint of its own, and the answer a failed read gives. */
+const NO_BEE_RPC_ENDPOINT: ConfiguredBeeRpcEndpoint = { configured: false, host: null };
 
 /** What every group write answers with: the group and its members. */
 export interface GroupWithMembers {
@@ -50,18 +62,21 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
       host: string;
       srtPassphrase?: string | null;
       chequebookFloorBzz?: string;
+      beeRpcEndpoint?: ConfiguredBeeRpcEndpoint;
     }>('/config');
     return {
       host: body.host,
       srtPassphrase: body.srtPassphrase ?? null,
       chequebookFloorBzz:
         body.chequebookFloorBzz ?? DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+      beeRpcEndpoint: body.beeRpcEndpoint ?? NO_BEE_RPC_ENDPOINT,
     };
   } catch {
     return {
       host: window.location.hostname,
       srtPassphrase: null,
       chequebookFloorBzz: DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+      beeRpcEndpoint: NO_BEE_RPC_ENDPOINT,
     };
   }
 }
@@ -190,6 +205,10 @@ export interface CreateGroupBody {
   public_key?: string;
   stamp_id?: string;
   srt_passphrase?: string;
+  /** Applied to every member: where its Bee node reaches the chain, and how much of one it runs. */
+  rpc_endpoint_source?: RpcEndpointSource;
+  rpc_endpoint?: string | null;
+  node_mode?: NodeMode | null;
   /** The stack version every member runs. Absent means the manager's default one. */
   stack_version_id?: number;
   /** What every member is created with. Absent leaves the version's own fallbacks standing. */
