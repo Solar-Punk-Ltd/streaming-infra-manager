@@ -271,8 +271,8 @@ cannot make.
 | Method | Path                                  | Body                    | Notes                                                                             |
 | ------ | ------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
 | GET    | `/profiles/:name/chequebook`          |                         | Address, balances, settlement totals and the health verdict. Any field is `null` when that call to the node failed. |
-| POST   | `/profiles/:name/chequebook/deposit`  | `{ amount }` PLUR string | Wallet to chequebook. `202 { transactionHash }`. Refused with 400 when the wallet holds less BZZ than asked or has no xDAI for gas. |
-| POST   | `/profiles/:name/chequebook/withdraw` | `{ amount }` PLUR string | Chequebook to wallet. `202 { transactionHash }`. Refused with 400 above the available balance. |
+| POST   | `/profiles/:name/chequebook/deposit`  | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Wallet to chequebook. `202` with the recorded operation, or `409` with the operation in the way. The body is strict, so a missing or unknown field is refused with 400 before any balance is read, and an `expectedAccountId` that is not the signed-in user is refused with `409 account_changed`. Also refused with 400 when the wallet holds less BZZ than asked or has no xDAI for gas. The whole contract, including recovery, is under "API contract" in [docs/features/chequebook.md](../docs/features/chequebook.md). |
+| POST   | `/profiles/:name/chequebook/withdraw` | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Chequebook to wallet, the same body and the same answers. Also refused with 400 above the available balance. |
 
 `amount` is PLUR, bee's integer unit, matching `^[1-9][0-9]*$` and at most 30
 digits. 1 BZZ is 10^16 PLUR, so a decimal here is refused rather than
