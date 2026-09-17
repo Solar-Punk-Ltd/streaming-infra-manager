@@ -5,7 +5,8 @@ restart, logs, effective config) proceeds and PR 2 (live status) waits for the u
 
 PR 1 was built on `feat/engine-control`, went in with pull request #40, and is merged to
 `main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
-submodule now tracks `main-v3` and its pin has moved several times since, which the update
+submodule tracked `main-v3` from 2026-09-09 and tracks `feat/manager-line`, the manager's own
+line of the stack, since 2026-09-17, and its pin has moved several times since, which the update
 below explains. `SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is
 not started.
 
