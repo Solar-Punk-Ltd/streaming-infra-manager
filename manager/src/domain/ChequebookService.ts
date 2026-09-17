@@ -249,8 +249,9 @@ export class ChequebookService {
   /**
    * The balance from the node itself, for a caller that is about to act on it.
    *
-   * Starting an uploader, or refusing to, on a reading the storage card took
-   * three seconds ago is the one thing the window must not be allowed to do.
+   * Warning about an uploader start, or refusing a withdrawal, on a reading the
+   * storage card took three seconds ago is the one thing the window must not be
+   * allowed to do.
    */
   private freshBalance(
     name: string,
