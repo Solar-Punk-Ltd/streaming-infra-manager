@@ -380,6 +380,17 @@ OME's port is worth one more line. After an engine config rollout the manager
 probes it on that same address to see whether OME came back up, so a binding it
 cannot reach turns a rollout that worked into a reported failure.
 
+An ABR node pool is worth one more again, because this address leaves the
+manager inside its pool string. Since 2026-09-17 the `BEE_PUBLISHERS` value a
+pool hands an uploader names every rung at this same bridge address, not at the
+host's public one, and that is what an uploader container on this host can
+actually reach when these ports are bound here and nowhere else. `BEE_LOCAL_HOST`
+overrides that too, and it is what an uploader on another machine would need,
+together with a bind that admits that machine. An uploader created before
+2026-09-17 still holds a string in the public form, which answers nowhere at
+all. Re-pick its pool in the uploader's edit dialog and the manager assembles
+the new one.
+
 If this host runs the stack with `COMPOSE_NETWORK=host`, the pair that applies
 to the Bee APIs is `BEE_UPLOADER_API_LISTEN` and `BEE_GATEWAY_API_LISTEN`
 instead, and `*_API_BIND` does nothing there at all. The engines have no such

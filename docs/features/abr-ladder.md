@@ -1,6 +1,8 @@
 # ABR Ladder
 
 Status, 2026-09-16: built and merged to `main-v2`, page checked against the code at ecaea40.
+Corrected 2026-09-17: "The address" below, after the first real pool on the live host was
+handed a public address no Bee node listens on.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader` running elsewhere (GCP).
@@ -220,7 +222,7 @@ stdin-less runner.
 |---|---|
 | `src/schemas/profile.ts` | `abr_ladder` flag, and the group-name length rule that applies only to ladders. |
 | `src/domain/ProfileService.ts` | Ladder member seeding (names fixed, components fixed to `bee-uploader`), `ladderMembersOf`, `beePublishersForGroup`, and guards on `updateGroupConfig` and `addGroupMembers`. |
-| `src/domain/StampService.ts` | `stampHealthFor`, what a rung's own node says about its recorded batch (state *and* TTL, so expiry can be warned about early), on a short timeout, never throwing. A 404 is an answer (`gone`), anything else is `unknown`. `publishUrlStateFor` asks whether anything answers at the *published* address. `networkHostOf` turns a deploy target into an address, through `resolveNetworkHost`. Plus `beePublicApiUrlFor`, the URL an off-host uploader can reach, as opposed to `beeApiUrlFor`, which resolves a local profile to `host.docker.internal`. |
+| `src/domain/StampService.ts` | `stampHealthFor`, what a rung's own node says about its recorded batch (state *and* TTL, so expiry can be warned about early), on a short timeout, never throwing. A 404 is an answer (`gone`), anything else is `unknown`. `publishUrlStateFor` asks whether anything answers at the *published* address. `networkHostOf` turns a deploy target into an address, through `resolveNetworkHost`. Plus `beePublisherUrlFor`, the URL a pool string carries, which for a local member is the address a container on this host reaches it on (2026-09-17), as opposed to `beeApiUrlFor`, which is the manager’s own read of that node. |
 | `src/utils/deployHost.ts` (new) | `resolveNetworkHost`: ssh user info dropped, a dotless alias resolved through `ssh -G` against the config the api container mounts, results cached for 60s. The same semantics as `host_from_target` in swarm-hls-stream's `deploy/scripts/_lib.sh`, so both halves of a deploy agree on what an alias means. |
 | `src/domain/ContainerRepository.ts` | `withContainers` derives `network_host` onto every profile the API returns, so the UI composes links from an address rather than from a deploy target. |
 | `src/domain/errors/LadderGroupError.ts` (new) | 409 `ladder_group_invalid_operation`. |
@@ -341,14 +343,47 @@ was only ever discoverable after everything had already stopped.
 
 ### The address
 
-The URL is composed arithmetically, `PUBLIC_HOST` plus `10005 + slot*10`, so it
-always *looks* like an address whether or not anything is there. Two ways it goes
-wrong are provable without touching the network, which matters because both are
+**Corrected 2026-09-17.** The host half of a rung's URL used to be the manager's
+public address, on the theory that the uploader reading it runs on another
+machine. The uploader this manager deploys does not: it is a container on this
+same host, and the T06 bind step in `deploy/README.md` puts every local Bee API
+on the Docker bridge address and on nothing else. So the first real pool on the
+live host was handed `http://<public host>:10015` and its three siblings, and
+nothing answered there from the host, from a container or from anywhere. The
+manager's own probe said so, every rung read "Publishing is not verified", and
+the uploader restarted in a loop against a pool it could not reach.
+
+What the string carries now is the address a container on this host reaches such
+a node on, from `resolveLocalPublisherHost` in `src/domain/localHost.ts`:
+
+- `BEE_LOCAL_HOST` when the operator set it, taken as given. The one exception is
+  the bare name `host.docker.internal`, which is resolved the way the next case
+  resolves it.
+- otherwise, when the manager itself runs in a container, the IPv4 address
+  `host.docker.internal` resolves to in there, which is the bridge, handed on as
+  a literal. The name itself cannot be handed on, because an uploader's compose
+  service carries no `extra_hosts` and the name resolves nowhere inside it on
+  Linux. A lookup that fails answers the name and logs one warning.
+- otherwise, running natively, the name `host.docker.internal`, which Docker
+  Desktop resolves inside a container.
+
+`beePublishersForGroup` reads that once for the whole pool, and the default
+reader resolves once per process, since a bridge address does not move while the
+manager runs. A member on a **declared remote host** keeps that host's own
+address, and the T06 caveat travels with it: that node's API has to be bound
+somewhere this host can reach, which its own operator decides. An uploader
+running off this host needs an address this manager does not compose, and giving
+it one is `BEE_LOCAL_HOST` plus a bind that admits it.
+
+The URL is still arithmetic, that host plus `10005 + slot*10`, so it always
+*looks* like an address whether or not anything is there. Two ways it goes wrong
+are provable without touching the network, which matters because both are
 otherwise silent:
 
-- **A loopback host.** `resolveServerHost()` falls back to `localhost` when
-  `PUBLIC_HOST` is unset and logs a warning nobody reads. The value assembles
-  perfectly and works nowhere but the manager's own machine.
+- **A loopback host.** Only `BEE_LOCAL_HOST=127.0.0.1` produces one now, and it
+  assembles perfectly and works nowhere but the manager's own machine. The
+  structural check still refuses it, and its message still names `PUBLIC_HOST`,
+  which is the address the value was composed from until this correction.
 - **An ssh target used as a network address.** `profiles.host` holds a *deploy*
   target: the schema validates it against `[a-zA-Z0-9._@-]` and documents it as
   "localhost, an ssh alias, or user@host". `user@host` composed to
@@ -374,14 +409,18 @@ browser.
 
 The third way, well-formed but nothing listening, needs a probe, and the probe
 targets the **published** URL, not `beeApiUrlFor`. That is the whole point: the
-manager reaches a local node through `host.docker.internal` or `127.0.0.1`, so
-verifying a batch proves nothing about the address an uploader elsewhere is
-handed. When those two disagree the ladder looks complete and no upload lands.
+manager reads a local node at its own `BEE_LOCAL_HOST` or docker host alias,
+which is not always the address the pool string carries, so verifying a batch
+proves nothing about the address the uploader is handed. When those two disagree
+the ladder looks complete and no upload lands.
 
-A failed probe of a public address **warns** rather than blocks: NAT hairpinning
-explains it just as well as a wrong address does, and a manager that cannot loop
-back through its own public address says nothing about an uploader on another
-host.
+A failed probe **warns** rather than blocks: for a remote member NAT hairpinning
+explains it as well as a wrong address does, and for a local one the manager and
+the uploader are two containers with two routes to the same port.
+
+**An uploader created before 2026-09-17 holds the old string**, since the value
+is copied into its settings when the pool is picked. Re-picking the pool in the
+uploader's edit dialog assembles the new one.
 
 ### The node
 
