@@ -2,16 +2,22 @@ import {
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
   beeUrlProblem,
-  rpcEndpointProblem,
   CLIENT_SERVICE,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
   DEFAULT_ABR_RUNGS,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
+  defaultServicesFor,
+  effectiveNodeMode,
+  LIGHT_NODE_MODE,
   parseBeePublishers,
+  type RpcEndpointSource,
+  rpcEndpointChoiceProblem,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
 import { isStreamLike } from '../deployments/readiness';
-import { hasService, shapeOf } from '../deployments/shape';
+import { endpointSourceOf, hasService, ownsAnyBeeNode, shapeOf } from '../deployments/shape';
 import type { UpdateProfileBody } from '../data';
 import type { Profile } from '../types';
 import type { PassphraseMode } from './PassphraseField';
@@ -31,7 +37,8 @@ export interface DeploymentEdits {
   key: string;
   stampId: string;
   beeUrl: string;
-  /** Empty means the endpoint this deployment's stack version carries. */
+  rpcEndpointSource: RpcEndpointSource;
+  /** The address behind the custom source. Empty under the other two. */
   rpcEndpoint: string;
   poolString: string;
   feedOwner: string;
@@ -57,12 +64,12 @@ export function fieldsFor(profile: Profile): ShownFields {
     key: hasService(profile, STREAM_UPLOADER_SERVICE),
     stamp: streamLike,
     beeUrl: streamLike && !hasService(profile, BEE_UPLOADER_SERVICE),
-    // An uploader node only. A viewer's gateway is ultra-light, which bee reads
-    // off an EMPTY --blockchain-rpc-endpoint (pkg/node/node.go:1605
-    // isChainEnabled), and the stack states it empty, so there is nowhere for an
-    // endpoint to go and offering the field would offer a setting that changes
-    // nothing.
-    rpcEndpoint: hasService(profile, BEE_UPLOADER_SERVICE),
+    // A light node and nothing else. An ultra-light one is what bee reads off
+    // an EMPTY --blockchain-rpc-endpoint (pkg/node/node.go:1605
+    // isChainEnabled), so there is nowhere for an endpoint to go and the field
+    // would offer a setting that changes nothing. Which a viewer's gateway is
+    // depends on how it was created, since T27.
+    rpcEndpoint: ownsAnyBeeNode(profile) && effectiveNodeMode(profile) === LIGHT_NODE_MODE,
     poolString: shape === 'abr-uploader',
     feedOwner: hasService(profile, CLIENT_SERVICE),
   };
@@ -80,6 +87,7 @@ export function initialEdits(profile: Profile | null): DeploymentEdits {
     key: '',
     stampId: profile?.stamp_id ?? '',
     beeUrl: profile?.bee_url ?? '',
+    rpcEndpointSource: profile ? endpointSourceOf(profile) : DEFAULT_RPC_ENDPOINT_SOURCE,
     rpcEndpoint: profile?.rpc_endpoint ?? '',
     poolString: profile?.bee_publishers ?? '',
     feedOwner: profile?.feed_owner ?? '',
@@ -130,12 +138,19 @@ export function srtPassphraseMasked(state: SrtPassphraseState): boolean {
   return state.hasStoredPassphrase && !state.replacing && state.typed === '';
 }
 
-/** @param hasStoredPassphrase whether the deployment holds one, from the row. */
+/** What the drawer knows about the deployment that the edits themselves do not say. */
+export interface EditContext {
+  profile: Profile;
+  /** Whether this manager has a chain endpoint of its own to offer. */
+  managerHasEndpoint: boolean;
+}
+
 export function editProblem(
   edits: DeploymentEdits,
   shown: ShownFields,
-  hasStoredPassphrase: boolean,
+  { profile, managerHasEndpoint }: EditContext,
 ): string | null {
+  const hasStoredPassphrase = profile.has_srt_passphrase;
   if (shown.passphrase && edits.passMode === 'own') {
     // Dots standing for a stored passphrase are not a value to check: the save
     // says nothing about it and the manager keeps it. Anything else in the box
@@ -160,8 +175,17 @@ export function editProblem(
     const problem = beeUrlProblem(edits.beeUrl);
     if (problem) return problem;
   }
-  if (shown.rpcEndpoint && edits.rpcEndpoint.trim()) {
-    const problem = rpcEndpointProblem(edits.rpcEndpoint);
+  if (shown.rpcEndpoint) {
+    // The shared rule, asked with what the save will carry, so the drawer
+    // refuses exactly what the manager would rather than sending a filled-in
+    // form to be refused at the API.
+    const problem = rpcEndpointChoiceProblem({
+      source: edits.rpcEndpointSource,
+      url: edits.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE ? edits.rpcEndpoint : '',
+      managerHasEndpoint,
+      nodeMode: effectiveNodeMode(profile),
+      services: defaultServicesFor(profile),
+    });
     if (problem) return `Chain endpoint: ${problem}`;
   }
   if (shown.poolString) {
@@ -216,6 +240,12 @@ export function bodyFor(
     bee_publishers: profile.bee_publishers ?? undefined,
     bee_url: profile.bee_url ?? undefined,
     rpc_endpoint: profile.rpc_endpoint ?? undefined,
+    rpc_endpoint_source: endpointSourceOf(profile),
+    // A node's mode is chosen when it is created and the manager refuses a body
+    // that names a different one, so the stored one goes back untouched. A
+    // deployment that stores none sends none: the mode it reads as would fill
+    // that column in as a side effect of saving a note.
+    ...(profile.node_mode ? { node_mode: profile.node_mode } : {}),
   };
 
   if (changed('notes')) {
@@ -245,10 +275,13 @@ export function bodyFor(
   if (shown.beeUrl && changed('beeUrl')) {
     body.bee_url = edits.beeUrl.trim() || null;
   }
-  // Emptied is a real choice rather than an omission: it puts the deployment
-  // back on the endpoint its stack version carries.
-  if (shown.rpcEndpoint && changed('rpcEndpoint')) {
-    body.rpc_endpoint = edits.rpcEndpoint.trim() || null;
+  // The address and the custom source travel together and only together, which
+  // is the manager's own column pairing: moving off custom takes the stored
+  // address with it rather than leaving one nothing reads.
+  if (shown.rpcEndpoint && (changed('rpcEndpointSource') || changed('rpcEndpoint'))) {
+    const custom = edits.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE;
+    body.rpc_endpoint_source = edits.rpcEndpointSource;
+    body.rpc_endpoint = custom ? edits.rpcEndpoint.trim() || null : null;
   }
   if (shown.poolString && changed('poolString')) {
     body.bee_publishers = edits.poolString.trim() || null;

@@ -1,17 +1,24 @@
 import { useState } from 'react';
-import { Button, Stack, TextField } from '@mui/material';
+import { Button, Stack, TextField, Typography } from '@mui/material';
 
 import {
   beePublishersProblem,
   beeUrlProblem,
+  effectiveNodeMode,
   getErrorMessage,
-  rpcEndpointProblem,
 } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../app/theme';
 import { useToast } from '../app/ToastProvider';
 import { useDeployments } from '../app/useDeploymentsStore';
-import { servicesOf, SHAPE_LABEL, shapeOf, streamersOf } from '../deployments/shape';
+import { nodeModeLabel } from '../deployments/nodeText';
+import {
+  ownsAnyBeeNode,
+  servicesOf,
+  SHAPE_LABEL,
+  shapeOf,
+  streamersOf,
+} from '../deployments/shape';
 import { updateProfile } from '../data';
 import { hostFor } from '../urls';
 import {
@@ -27,6 +34,7 @@ import { EditDrawerFrame } from './EditDrawerFrame';
 import { FixedAtCreation } from './FixedAtCreation';
 import { FormField, messageIdFor } from './FormField';
 import { PassphraseField } from './PassphraseField';
+import { RpcEndpointField } from './RpcEndpointField';
 import { StreamKeyField } from './StreamKeyField';
 import { addressProblem, notesProblem, stampIdProblem } from './validation';
 
@@ -35,6 +43,8 @@ const savedMessage = (name: string): string => `Saved. Redeploying ${name}…`;
 const STAMP_HINT =
   'Usually set from the Storage card. Paste one here only to point at a batch bought elsewhere.';
 
+const MODE_HINT = 'Chosen when the node is created. Remove and recreate it to change this.';
+
 export function EditDeploymentDrawer({
   name,
   onClose,
@@ -42,7 +52,7 @@ export function EditDeploymentDrawer({
   name: string;
   onClose: () => void;
 }) {
-  const { profiles, serverHost, mergeProfiles } = useDeployments();
+  const { profiles, serverHost, beeRpcEndpoint, mergeProfiles } = useDeployments();
   const toast = useToast();
   const profile = (profiles ?? []).find((entry) => entry.name === name) ?? null;
 
@@ -60,7 +70,10 @@ export function EditDeploymentDrawer({
     setEdits((prev) => ({ ...prev, ...patch }));
 
   const shown = fieldsFor(profile);
-  const problem = editProblem(edits, shown, profile.has_srt_passphrase);
+  const problem = editProblem(edits, shown, {
+    profile,
+    managerHasEndpoint: beeRpcEndpoint.configured,
+  });
   const streams = streamersOf(profiles ?? []);
 
   const save = async () => {
@@ -151,21 +164,19 @@ export function EditDeploymentDrawer({
         </FormField>
       )}
 
-      {shown.rpcEndpoint && (
-        <FormField
-          label="Chain endpoint"
-          hint="Where this deployment's Bee node reads the chain. Leave it empty to use the endpoint the stack version carries, which ships as a public Gnosis RPC that rate-limits. An endpoint running on the server is reached at http://host.docker.internal:PORT."
-          error={rpcEndpointProblem(edits.rpcEndpoint)}
-        >
-          <TextField
-            size="small"
-            fullWidth
-            value={edits.rpcEndpoint}
-            onChange={(event) => update({ rpcEndpoint: event.target.value })}
-            placeholder="https://rpc.example.org"
-            inputProps={{ style: { fontFamily: MONO_STACK } }}
-          />
+      {ownsAnyBeeNode(profile) && (
+        <FormField label="Node mode" hint={MODE_HINT}>
+          <Typography variant="body2">{nodeModeLabel(effectiveNodeMode(profile))}</Typography>
         </FormField>
+      )}
+
+      {shown.rpcEndpoint && (
+        <RpcEndpointField
+          profile={profile}
+          edits={edits}
+          managerEndpoint={beeRpcEndpoint}
+          onChange={update}
+        />
       )}
 
       {shown.poolString && (

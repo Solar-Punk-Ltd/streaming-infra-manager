@@ -20,6 +20,7 @@ import {
 import type { Profile } from '../types';
 import {
   bodyFor,
+  type DeploymentEdits,
   editProblem,
   fieldsFor,
   initialEdits,
@@ -100,6 +101,19 @@ function uploader(over: Partial<Profile> = {}): Profile {
   return viewer({ kind: 'streamer', components: ['srs', 'stream-uploader', 'bee-uploader'], ...over });
 }
 
+/**
+ * The same, on an endpoint of its own. The source and the address travel
+ * together in the manager's own columns, so a fixture that carries one carries
+ * both.
+ */
+function customEndpoint(over: Partial<Profile> = {}): Profile {
+  return uploader({
+    rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
+    rpc_endpoint: 'http://host.docker.internal:9000',
+    ...over,
+  });
+}
+
 describe('the chain endpoint a deployment names for itself', () => {
   /**
    * Every Bee node that reaches a chain reads RPC_ENDPOINT, and the only place
@@ -139,34 +153,46 @@ describe('the chain endpoint a deployment names for itself', () => {
   });
 
   it('starts from what the deployment already holds, and empty when it holds none', () => {
-    assert.equal(initialEdits(uploader({ rpc_endpoint: 'http://host.docker.internal:9000' })).rpcEndpoint,
-      'http://host.docker.internal:9000');
+    assert.equal(initialEdits(customEndpoint()).rpcEndpoint, 'http://host.docker.internal:9000');
     assert.equal(initialEdits(uploader()).rpcEndpoint, '');
   });
 
   it('refuses an address that is not one before it is sent', () => {
-    const profile = uploader();
+    const profile = customEndpoint();
     const edits = { ...initialEdits(profile), rpcEndpoint: 'rpc.gnosischain.com' };
 
     assert.match(editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }) ?? '', /http/);
   });
 
-  it('clears back to the version endpoint when the field is emptied', () => {
-    const profile = uploader({ rpc_endpoint: 'http://host.docker.internal:9000' });
+  it('goes back to the stack endpoint, and the address goes with it', () => {
+    const profile = customEndpoint();
     const initial = initialEdits(profile);
 
-    const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: '   ' }, fieldsFor(profile), profile.notes_revision);
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
 
+    assert.equal(body.rpc_endpoint_source, STACK_RPC_ENDPOINT_SOURCE);
     assert.equal(body.rpc_endpoint, null);
   });
 
   it('sends the endpoint the operator typed', () => {
-    const profile = uploader();
+    const profile = customEndpoint();
     const initial = initialEdits(profile);
 
-    const body = bodyFor(profile, initial, { ...initial, rpcEndpoint: 'http://host.docker.internal:9000' }, fieldsFor(profile), profile.notes_revision);
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, rpcEndpoint: 'http://host.docker.internal:9001' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
 
-    assert.equal(body.rpc_endpoint, 'http://host.docker.internal:9000');
+    assert.equal(body.rpc_endpoint, 'http://host.docker.internal:9001');
   });
 });
 
@@ -396,7 +422,7 @@ describe('the three sources the Edit drawer offers for a chain endpoint', () => 
 
   it('refuses the manager endpoint on a manager that has none', () => {
     const profile = uploader();
-    const edits = {
+    const edits: DeploymentEdits = {
       ...initialEdits(profile),
       rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE,
     };
@@ -413,7 +439,10 @@ describe('the three sources the Edit drawer offers for a chain endpoint', () => 
 
   it('refuses the stack default for a gateway on the chain', () => {
     const profile = viewer({ node_mode: LIGHT_NODE_MODE });
-    const edits = { ...initialEdits(profile), rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE };
+    const edits: DeploymentEdits = {
+      ...initialEdits(profile),
+      rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE,
+    };
 
     assert.match(
       editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }) ?? '',
