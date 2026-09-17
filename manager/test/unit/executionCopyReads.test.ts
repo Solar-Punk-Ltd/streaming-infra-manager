@@ -2,8 +2,9 @@
  * What one prepare-and-copy costs the build it reads, and what still guards it.
  *
  * Preparing the private copy a deploy runs from used to read and hash the whole
- * build tree four times over and then copy it, all awaited inside the HTTP
- * request that creates the deployment. A build is now hashed once for its whole
+ * build tree twice, once on the source and once on the hard-linked copy, and to
+ * walk every file's stamps four times over, all awaited inside the HTTP request
+ * that creates the deployment. A build is now hashed once for its whole
  * life, into a record beside it, hard linked rather than written, and the
  * proofs that it has not moved since compare the stamps that record holds
  * instead of reading it again.

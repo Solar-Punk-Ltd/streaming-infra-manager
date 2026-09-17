@@ -2,10 +2,11 @@
  * Whether the address a ladder hands out can actually be reached.
  *
  * `BEE_PUBLISHERS` carries one URL per rung, and that URL is the *only* thing an
- * off-host stream-uploader has to go on. It is built arithmetically, public host
- * plus `10005 + slot*10`, so it always *looks* like a URL, and until something
- * checks it, "the ladder is ready" means no more than "we were able to compose a
- * string".
+ * off-host stream-uploader has to go on. It is built arithmetically, the address
+ * a container on this host reaches the node on (`BEE_LOCAL_HOST`, or the Docker
+ * bridge address the manager resolves when that is unset) plus `10005 + slot*10`,
+ * so it always *looks* like a URL, and until something checks it, "the ladder is
+ * ready" means no more than "we were able to compose a string".
  *
  * Two of the ways it goes wrong are provable without touching the network, which
  * matters because they are silent otherwise:
