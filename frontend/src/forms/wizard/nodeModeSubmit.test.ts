@@ -139,15 +139,21 @@ describe('the chain endpoint on the wizard create body', () => {
     assert.equal('rpc_endpoint' in stack.body, false);
   });
 
-  it('is asked of a viewer gateway only once it is light', async (t) => {
+  /**
+   * Named even where the node reaches no chain, because a body that leaves it
+   * out is read by the manager's own `impliedRpcEndpointSource` and lands on
+   * the same answer. The page reads the mode before the source, so an
+   * ultra-light node still reports that it reaches no chain.
+   */
+  it('is named whether the gateway is light or not', async (t) => {
     const ultraLight = await sentRequest(t, stateFor('viewer'));
     const light = await sentRequest(t, stateFor('viewer', { nodeMode: LIGHT_NODE_MODE }));
 
-    assert.equal('rpc_endpoint_source' in ultraLight.body, false);
+    assert.equal(ultraLight.body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
     assert.equal(light.body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
   });
 
-  it('is absent where the deployment runs no node to reach a chain from', async (t) => {
+  it('carries no address where the deployment runs no node at all', async (t) => {
     const uploader = await sentRequest(t, stateFor('abr-uploader'));
     const external = await sentRequest(
       t,
@@ -158,9 +164,10 @@ describe('the chain endpoint on the wizard create body', () => {
       stateFor('custom', { components: [CLIENT_SERVICE] }),
     );
 
-    assert.equal('rpc_endpoint_source' in uploader.body, false);
-    assert.equal('rpc_endpoint_source' in external.body, false);
-    assert.equal('rpc_endpoint_source' in player.body, false);
+    for (const { body } of [uploader, external, player]) {
+      assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
+      assert.equal('rpc_endpoint' in body, false);
+    }
   });
 
   it('goes to every member of a pool, which is four publishing nodes', async (t) => {

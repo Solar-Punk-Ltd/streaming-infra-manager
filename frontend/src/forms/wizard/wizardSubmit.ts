@@ -26,7 +26,6 @@ import {
   needsPassphrase,
   needsStreamKey,
   nodeModeQuestion,
-  offersRpcEndpoint,
   offersSegmentLength,
   poolValueIn,
   usesExternalBee,
@@ -131,11 +130,13 @@ function sharedBody(state: WizardState, context: WizardContext) {
 
 /**
  * What this deployment says about the Bee node it is creating: the mode where
- * the step offered a choice, and where a light node reaches the chain.
+ * the step offered a choice, and where it reaches the chain.
  *
- * Both are left out where the step asked nothing, so a deployment stores no
- * answer to a question it was never put. A publishing node is one of those:
- * its step states the mode rather than offering it, and the stack already
+ * The source is always named. A body that leaves it out is read by
+ * `impliedRpcEndpointSource`, which lands on the same answer, so saying it
+ * plainly costs nothing and leaves nothing for the two sides to disagree
+ * about later. The mode is left out where the step offered no choice: a
+ * publishing node is told it is light rather than asked, and the stack already
  * starts that node with the chain on, so a stored null reads the same way.
  */
 function nodeBody(state: WizardState): Partial<CreateProfileBody> {
@@ -147,12 +148,8 @@ function nodeBody(state: WizardState): Partial<CreateProfileBody> {
     ...(nodeModeQuestion(state) === 'choice'
       ? { node_mode: chosenNodeMode(state) }
       : {}),
-    ...(offersRpcEndpoint(state)
-      ? {
-          rpc_endpoint_source: state.rpcEndpointSource,
-          ...(address ? { rpc_endpoint: address } : {}),
-        }
-      : {}),
+    rpc_endpoint_source: state.rpcEndpointSource,
+    ...(address ? { rpc_endpoint: address } : {}),
   };
 }
 
