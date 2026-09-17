@@ -67,7 +67,7 @@ describe('what a page is told about a deployment that holds an SRT passphrase', 
       if (event.type === 'profile.changed') published.push(event.profile);
     });
     const app = await startRouterTestApp(
-      mounted([createProfilesRouter(harness.service, uploaderHealthStub())], 'operator'),
+      mounted([createProfilesRouter(harness.service, uploaderHealthStub(), false)], 'operator'),
       '/profiles',
     );
 
@@ -109,7 +109,7 @@ describe('what a page is told about a deployment that holds an SRT passphrase', 
   it('keeps the stored passphrase when a save leaves it out', async () => {
     const harness = profileServiceHarness([]);
     const app = await startRouterTestApp(
-      mounted([createProfilesRouter(harness.service, uploaderHealthStub())], 'operator'),
+      mounted([createProfilesRouter(harness.service, uploaderHealthStub(), false)], 'operator'),
       '/profiles',
     );
 
@@ -140,7 +140,7 @@ describe('what a page is told about a deployment that holds an SRT passphrase', 
   it('puts the deployment back on the host-wide one when the save says null', async () => {
     const harness = profileServiceHarness([]);
     const app = await startRouterTestApp(
-      mounted([createProfilesRouter(harness.service, uploaderHealthStub())], 'operator'),
+      mounted([createProfilesRouter(harness.service, uploaderHealthStub(), false)], 'operator'),
       '/profiles',
     );
 
@@ -171,7 +171,7 @@ describe('what a page is told about a deployment that holds an SRT passphrase', 
   it('replaces the stored passphrase when a save names another', async () => {
     const harness = profileServiceHarness([]);
     const app = await startRouterTestApp(
-      mounted([createProfilesRouter(harness.service, uploaderHealthStub())], 'operator'),
+      mounted([createProfilesRouter(harness.service, uploaderHealthStub(), false)], 'operator'),
       '/profiles',
     );
 
@@ -201,7 +201,7 @@ describe('GET /profiles/:name/srt-passphrase', () => {
     const app = await startRouterTestApp(
       mounted(
         [
-          createProfilesRouter(harness.service, uploaderHealthStub()),
+          createProfilesRouter(harness.service, uploaderHealthStub(), false),
           createSrtPassphraseRouter(harness.service),
         ],
         'operator',
@@ -235,7 +235,7 @@ describe('GET /profiles/:name/srt-passphrase', () => {
     const app = await startRouterTestApp(
       mounted(
         [
-          createProfilesRouter(harness.service, uploaderHealthStub()),
+          createProfilesRouter(harness.service, uploaderHealthStub(), false),
           createSrtPassphraseRouter(harness.service),
         ],
         'operator',
@@ -258,7 +258,7 @@ describe('GET /profiles/:name/srt-passphrase', () => {
   it('refuses a request that carries no session, without reading anything', async () => {
     const harness = profileServiceHarness([]);
     const signedIn = await startRouterTestApp(
-      mounted([createProfilesRouter(harness.service, uploaderHealthStub())], 'operator'),
+      mounted([createProfilesRouter(harness.service, uploaderHealthStub(), false)], 'operator'),
       '/profiles',
     );
     try {
@@ -294,7 +294,7 @@ describe('GET /profiles/:name/srt-passphrase', () => {
     const app = await startRouterTestApp(
       mounted(
         [
-          createProfilesRouter(harness.service, uploaderHealthStub()),
+          createProfilesRouter(harness.service, uploaderHealthStub(), false),
           createSrtPassphraseRouter(harness.service),
         ],
         'operator',

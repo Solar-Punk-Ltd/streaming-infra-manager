@@ -117,7 +117,10 @@ export function startApiServer(
     '/versions/attempts',
     createAttemptsRouter(deps.orchestrator, (req) => req.user?.username ?? 'unknown'),
   );
-  app.use('/profiles', createProfilesRouter(deps.profileService, deps.uploaderHealthService));
+  app.use(
+    '/profiles',
+    createProfilesRouter(deps.profileService, deps.uploaderHealthService, deps.beeRpcEndpoint !== null),
+  );
   app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService));

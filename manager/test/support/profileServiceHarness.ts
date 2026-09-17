@@ -383,6 +383,8 @@ export interface ProfileServiceHarness {
 
 export function profileServiceHarness(
   rows: readonly Profile[] = [],
+  /** BEE_RPC_ENDPOINT, or null for a manager configured with none. */
+  managerRpcEndpoint: string | null = null,
 ): ProfileServiceHarness {
   const profiles = new InMemoryProfiles(rows);
   profiles.reservations.seededAt = new Date(0);
@@ -404,6 +406,8 @@ export function profileServiceHarness(
     undefined,
     undefined,
     profiles.reservations,
+    undefined,
+    managerRpcEndpoint,
   );
 
   return { service, profiles, containers, groups, orchestrator, events, versions };

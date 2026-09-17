@@ -12,7 +12,7 @@ let calls: unknown[][];
 beforeEach(async () => {
   calls = [];
   const service = { remove: async (...args: unknown[]) => { calls.push(args); return { name: args[0], status: 'REMOVING' }; } };
-  app = await startRouterTestApp(createProfilesRouter(service as unknown as ProfileService, uploaderHealthStub()), '/profiles');
+  app = await startRouterTestApp(createProfilesRouter(service as unknown as ProfileService, uploaderHealthStub(), false), '/profiles');
 });
 afterEach(async () => { await app?.close(); });
 

@@ -18,15 +18,22 @@ import { ProfileKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 
+/**
+ * @param managerHasEndpoint whether this manager has a chain endpoint of its
+ *   own to offer a new node. The schemas judge an endpoint choice against it,
+ *   and no request body carries it.
+ */
 export function createProfilesRouter(
   profileService: ProfileService,
   uploaderHealth: UploaderHealthService,
+  managerHasEndpoint: boolean,
 ): Router {
   const router = Router();
+  const schemaContext = () => ({ managerHasEndpoint });
 
   router.post(
     '/',
-    validateBody(createProfileSchema),
+    validateBody(createProfileSchema, schemaContext),
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as CreateProfileInput;
       const profile = await profileService.create({
@@ -43,6 +50,8 @@ export function createProfilesRouter(
         bee_publishers: body.bee_publishers,
         bee_url: body.bee_url,
         rpc_endpoint: body.rpc_endpoint,
+        rpc_endpoint_source: body.rpc_endpoint_source,
+        node_mode: body.node_mode,
         srt_passphrase: body.srt_passphrase,
         stack_version_id: body.stack_version_id,
         engine_settings:
@@ -83,7 +92,7 @@ export function createProfilesRouter(
   router.put(
     '/:name',
     validateParams(profileNameSchema),
-    validateBody(updateProfileSchema),
+    validateBody(updateProfileSchema, schemaContext),
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as UpdateProfileInput;
       const profile = await profileService.update(req.params.name as string, {
@@ -97,6 +106,8 @@ export function createProfilesRouter(
         bee_publishers: body.bee_publishers,
         bee_url: body.bee_url,
         rpc_endpoint: body.rpc_endpoint,
+        rpc_endpoint_source: body.rpc_endpoint_source,
+        node_mode: body.node_mode,
         srt_passphrase: body.srt_passphrase,
       });
       res.status(202).json(profile);

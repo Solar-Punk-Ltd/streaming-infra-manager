@@ -212,9 +212,13 @@ export class ProfileRepository {
    *
    * `node_mode` is a third case: a node's mode is chosen when it is created, so
    * a body that says nothing keeps the stored one rather than clearing it.
-   * `rpc_endpoint_source` is replaced like every other editable field, and a
-   * body that says nothing puts the deployment back on the stack's endpoint,
-   * which is what leaving out `rpc_endpoint` has always done.
+   *
+   * `rpc_endpoint_source` is a fourth. A body that names it decides. A body
+   * that does not is answered by the address it carries, because the address
+   * and `custom` travel together: an address arriving means custom and an
+   * address going takes the choice with it. Anything else is kept, so an edit
+   * about something else cannot move a deployment off the manager's endpoint
+   * onto the stack's public one.
    */
   async updateEditable(
     name: string,
@@ -240,7 +244,10 @@ export class ProfileRepository {
              bee_publishers = $10,
              bee_url = $11,
              rpc_endpoint = $12,
-             rpc_endpoint_source = COALESCE($17::text, 'stack'),
+             rpc_endpoint_source = COALESCE($17::text, CASE
+               WHEN $12::text IS NOT NULL THEN 'custom'
+               WHEN rpc_endpoint_source = 'custom' THEN 'stack'
+               ELSE rpc_endpoint_source END),
              node_mode = COALESCE($18::text, node_mode),
              srt_passphrase = CASE WHEN $13::boolean THEN $14::text ELSE srt_passphrase END,
              engine_settings = COALESCE($15::jsonb, engine_settings),

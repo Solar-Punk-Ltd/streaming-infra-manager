@@ -7,9 +7,15 @@ import {
   defaultServicesFor,
   engineForComponents,
   hasConflictingEngines,
+  impliedRpcEndpointSource,
   LADDER_GROUP_NAME_MAX,
+  type NodeMode,
+  NODE_MODES,
   normalizeBeePublishers,
   OME_SERVICE,
+  RPC_ENDPOINT_SOURCES,
+  type RpcEndpointSource,
+  rpcEndpointChoiceProblem,
   SRT_PASSPHRASE_MESSAGE,
   SRT_PASSPHRASE_RE,
 } from '@streaming-infra-manager/common';
@@ -120,6 +126,80 @@ const rpcEndpointField = () =>
     });
 
 /**
+ * What the route tells the schema about the manager itself, which no request
+ * body carries: whether this manager has a chain endpoint of its own to offer.
+ */
+export interface ProfileSchemaContext {
+  managerHasEndpoint?: boolean;
+}
+
+function managerHasEndpoint(options: { context?: unknown }): boolean {
+  return Boolean((options.context as ProfileSchemaContext | undefined)?.managerHasEndpoint);
+}
+
+/**
+ * How much of a chain this deployment's Bee node runs with. Absent means the
+ * mode the stack ships that node in, which is what every existing deployment
+ * runs. Chosen when the deployment is created: an update carries the field so
+ * that a different mode can be refused rather than silently ignored, and
+ * ProfileService is what compares it against the stored one, because no update
+ * body says what the deployment is.
+ */
+const nodeModeField = () =>
+  string()
+    .nullable()
+    .notRequired()
+    .oneOf(
+      [...NODE_MODES, null],
+      `node_mode must be one of ${NODE_MODES.join(', ')}`,
+    );
+
+/**
+ * Where this deployment's node reaches the chain: the manager's own endpoint,
+ * the stack's default, or the address in `rpc_endpoint`.
+ *
+ * The rule is `rpcEndpointChoiceProblem`, stated once in common and asked here
+ * so an operator gets a field-scoped message, and again in ProfileService over
+ * the resulting row. Both, because a create body carries the services and an
+ * update body carries neither `kind` nor `components`: the light-gateway rule
+ * cannot be judged here on an update, and a body that names no source at all
+ * means the stored one, which only the service can see.
+ */
+const rpcEndpointSourceField = (onCreate: boolean) =>
+  string()
+    .notRequired()
+    .oneOf(
+      [...RPC_ENDPOINT_SOURCES, undefined],
+      `rpc_endpoint_source must be one of ${RPC_ENDPOINT_SOURCES.join(', ')}`,
+    )
+    .test('rpc-endpoint-choice', 'invalid rpc_endpoint_source', function (value) {
+      const {
+        rpc_endpoint: url,
+        node_mode: nodeMode,
+        kind,
+        components,
+      } = this.parent as {
+        rpc_endpoint?: string | null;
+        node_mode?: NodeMode | null;
+        kind?: string;
+        components?: string[] | null;
+      };
+      if (value === undefined && !onCreate) return true;
+      const problem = rpcEndpointChoiceProblem({
+        source:
+          (value as RpcEndpointSource | undefined) ??
+          impliedRpcEndpointSource(url, managerHasEndpoint(this.options)),
+        url,
+        managerHasEndpoint: managerHasEndpoint(this.options),
+        nodeMode,
+        services: defaultServicesFor({ kind: kind ?? 'custom', components }),
+      });
+      return problem
+        ? this.createError({ message: `rpc_endpoint_source: ${problem}` })
+        : true;
+    });
+
+/**
  * The stack version a new deployment runs. Absent means the default one.
  * Whether the id names a version, and whether that version has finished
  * building, is the service's to answer.
@@ -226,6 +306,8 @@ export const createProfileSchema = object({
     },
   ),
   rpc_endpoint: rpcEndpointField(),
+  rpc_endpoint_source: rpcEndpointSourceField(true),
+  node_mode: nodeModeField(),
   bee_url: beeUrlField().test(
     'bee-url-needs-no-local-node',
     'bee_url has no effect alongside a local bee-uploader',
@@ -293,6 +375,8 @@ export const updateProfileSchema = object({
   bee_publishers: beePublishersField(),
   bee_url: beeUrlField(),
   rpc_endpoint: rpcEndpointField(),
+  rpc_endpoint_source: rpcEndpointSourceField(false),
+  node_mode: nodeModeField(),
   srt_passphrase: string()
     .notRequired()
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),

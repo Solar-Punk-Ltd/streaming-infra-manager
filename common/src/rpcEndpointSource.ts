@@ -29,6 +29,43 @@ export const RPC_ENDPOINT_SOURCES: readonly RpcEndpointSource[] = [
 export const DEFAULT_RPC_ENDPOINT_SOURCE: RpcEndpointSource =
   STACK_RPC_ENDPOINT_SOURCE;
 
+/**
+ * The source a create means when it names none.
+ *
+ * An address and nothing else is what `POST /profiles` took before a source
+ * existed, and what migration 035 reads such a row as, so it means the same
+ * thing here. Otherwise the manager's own endpoint is offered first, which is
+ * the whole point of configuring one, and the stack's is what is left.
+ */
+export function impliedRpcEndpointSource(
+  url: string | null | undefined,
+  managerHasEndpoint: boolean,
+): RpcEndpointSource {
+  if (url?.trim()) return CUSTOM_RPC_ENDPOINT_SOURCE;
+  return managerHasEndpoint
+    ? MANAGER_RPC_ENDPOINT_SOURCE
+    : DEFAULT_RPC_ENDPOINT_SOURCE;
+}
+
+/**
+ * The source an update means when it names none.
+ *
+ * A stored choice survives an edit about something else, so a deployment on the
+ * manager's endpoint is never moved onto the stack's public one by a saved
+ * note. The address is the exception both ways: it and `custom` travel
+ * together, so an address arriving means custom and an address going means the
+ * choice goes with it.
+ */
+export function keptRpcEndpointSource(
+  url: string | null | undefined,
+  stored: RpcEndpointSource,
+): RpcEndpointSource {
+  if (url?.trim()) return CUSTOM_RPC_ENDPOINT_SOURCE;
+  return stored === CUSTOM_RPC_ENDPOINT_SOURCE
+    ? DEFAULT_RPC_ENDPOINT_SOURCE
+    : stored;
+}
+
 export interface RpcEndpointChoice {
   source: RpcEndpointSource;
   /** The address typed in, which belongs to `custom` and to nothing else. */

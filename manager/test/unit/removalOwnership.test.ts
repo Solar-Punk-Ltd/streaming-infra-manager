@@ -122,7 +122,7 @@ for (const explicit of [false, true]) {
     const readStarted = new Promise<void>(resolve => { entered = resolve; });
     const withContainers = h.containers.withContainers.bind(h.containers);
     h.containers.withContainers = async profile => { entered(); await held; return withContainers(profile); };
-    const app = await startRouterTestApp(createProfilesRouter(service, uploaderHealthStub()), '/profiles');
+    const app = await startRouterTestApp(createProfilesRouter(service, uploaderHealthStub(), false), '/profiles');
     const pending = call(app, 'DELETE', '/profiles/owned', explicit ? { expectedInstanceId: h.original.instance_id } : undefined);
     let replacement = h.original;
     try {

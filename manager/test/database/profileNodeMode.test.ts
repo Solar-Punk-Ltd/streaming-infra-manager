@@ -152,6 +152,33 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint, null);
   });
 
+  it('keeps a stored endpoint choice through an update that says nothing', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('held', 'viewer', 'RUNNING', {
+      node_mode: 'light',
+      rpc_endpoint_source: 'manager',
+    }, PLACEMENT);
+
+    const written = await profiles.updateEditable('held', 'viewer', { notes: 'edited' });
+
+    // The edit drawer shows no endpoint field for a deployment that owns no
+    // bee-uploader, so a saved note must not move this one onto the stack's
+    // public RPC.
+    assert.equal(written?.rpc_endpoint_source, 'manager');
+  });
+
+  it('reads an address arriving with no source as the custom one', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('adopting', 'custom', 'RUNNING', {}, PLACEMENT);
+
+    const written = await profiles.updateEditable('adopting', 'custom', {
+      rpc_endpoint: ENDPOINT,
+    });
+
+    assert.equal(written?.rpc_endpoint_source, 'custom');
+    assert.equal(written?.rpc_endpoint, ENDPOINT);
+  });
+
   it('reads a deployment that already named an address as a custom one', async () => {
     await migrate(pool, { until: '035_' });
     await pool.query(

@@ -11,6 +11,8 @@ import { describe, it } from 'node:test';
 
 import {
   configuredBeeRpcEndpoint,
+  impliedRpcEndpointSource,
+  keptRpcEndpointSource,
   rpcEndpointChoiceProblem,
 } from './rpcEndpointSource.js';
 
@@ -137,6 +139,32 @@ describe('rpcEndpointChoiceProblem', () => {
         'only a custom RPC endpoint carries an address of its own',
       );
     }
+  });
+});
+
+describe('the source a body means when it names none', () => {
+  it('offers the manager’s endpoint on a create when the manager has one', () => {
+    assert.equal(impliedRpcEndpointSource(null, true), 'manager');
+    assert.equal(impliedRpcEndpointSource(null, false), 'stack');
+  });
+
+  it('reads an address with no source as a custom one, on a create', () => {
+    // What POST /profiles took before a source existed, and what the migration
+    // reads such a stored row as.
+    assert.equal(impliedRpcEndpointSource(ENDPOINT, true), 'custom');
+  });
+
+  it('keeps a stored choice through an update that says nothing', () => {
+    // A saved note must not move a deployment off the manager's endpoint onto
+    // the stack's public one.
+    assert.equal(keptRpcEndpointSource(null, 'manager'), 'manager');
+    assert.equal(keptRpcEndpointSource(null, 'stack'), 'stack');
+  });
+
+  it('lets the address and the custom choice travel together', () => {
+    assert.equal(keptRpcEndpointSource(ENDPOINT, 'manager'), 'custom');
+    assert.equal(keptRpcEndpointSource(null, 'custom'), 'stack');
+    assert.equal(keptRpcEndpointSource('   ', 'custom'), 'stack');
   });
 });
 

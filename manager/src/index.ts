@@ -357,6 +357,8 @@ async function main(): Promise<void> {
     (profile, stampId) => stampService.stampHealthFor(profile, stampId),
     (url) => stampService.publishUrlStateFor(url),
     portReservations,
+    undefined,
+    config.beeRpcEndpoint,
   );
   const deployService = new DeployService(profileService, orchestrator);
 

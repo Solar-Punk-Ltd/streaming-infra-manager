@@ -44,7 +44,7 @@ async function withApp(
   const harness = profileServiceHarness([
     profileRow({ status, notes: 'the old note', notes_revision: LOADED_REVISION }),
   ]);
-  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub()), '/profiles');
+  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub(), false), '/profiles');
   try {
     await run(app, harness);
   } finally {

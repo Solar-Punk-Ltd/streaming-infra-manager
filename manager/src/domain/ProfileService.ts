@@ -23,11 +23,18 @@ import {
   getErrorMessage,
   type GroupKind,
   hasBeePublishers,
+  impliedRpcEndpointSource,
   isLadderKind,
   ladderMemberNames,
+  keptRpcEndpointSource,
   liveUnavailableReason,
+  type NodeMode,
+  effectiveNodeMode,
+  nodeModeProblem,
   nullify,
   type PublishUrlState,
+  type RpcEndpointSource,
+  rpcEndpointChoiceProblem,
   rungFromMemberName,
   rungOrder,
   type StackContract,
@@ -238,7 +245,43 @@ export class ProfileService {
     private readonly reservations?: Pick<PortReservationRepository, 'inventorySeededAt'>,
     /** What a container on this host reaches a locally deployed node on. */
     private readonly readLocalPublisherHost: LocalPublisherHostReader = localPublisherHost,
+    /**
+     * The manager's own chain endpoint, BEE_RPC_ENDPOINT, or null for none.
+     * Only whether there is one is decided here: the value itself becomes a
+     * line in an env file at deploy and reaches nothing else.
+     */
+    private readonly managerRpcEndpoint: string | null = null,
   ) {}
+
+  /**
+   * Both request paths ask the same two questions of the row they are about to
+   * store, over the whole row rather than over a patch. The request schema asks
+   * them too, with field-scoped messages, and cannot answer either on an
+   * update: no update body carries `kind` or `components`, so it cannot tell a
+   * gateway from a publisher.
+   */
+  private assertNodeChoicesHold(
+    name: string,
+    choice: {
+      kind: string;
+      components?: string[] | null;
+      node_mode?: NodeMode | null;
+      rpc_endpoint_source: RpcEndpointSource;
+      rpc_endpoint?: string | null;
+    },
+  ): void {
+    const modeProblem = nodeModeProblem(choice);
+    if (modeProblem) throw new ProfileConfigError(name, modeProblem);
+
+    const choiceProblem = rpcEndpointChoiceProblem({
+      source: choice.rpc_endpoint_source,
+      url: choice.rpc_endpoint,
+      managerHasEndpoint: Boolean(this.managerRpcEndpoint),
+      nodeMode: choice.node_mode,
+      services: defaultServicesFor(choice),
+    });
+    if (choiceProblem) throw new ProfileConfigError(name, choiceProblem);
+  }
 
   /**
    * Where a new deployment goes: the version it runs, the cap of the lower
@@ -312,6 +355,10 @@ export class ProfileService {
     bee_publishers?: string | null;
     bee_url?: string | null;
     rpc_endpoint?: string | null;
+    /** Absent is the manager's own endpoint when it has one, else the stack's. */
+    rpc_endpoint_source?: RpcEndpointSource | null;
+    /** Absent is the mode the stack ships this deployment's node in. */
+    node_mode?: NodeMode | null;
     srt_passphrase?: string | null;
     /** Absent means the default version. */
     stack_version_id?: number | null;
@@ -338,6 +385,20 @@ export class ProfileService {
       throw new ProfileConfigError(input.name, configProblem);
     }
 
+    // A body that names no source takes the manager's endpoint when there is
+    // one, which is the whole point of configuring one, and an address with no
+    // source is the custom one it has always been.
+    const rpcEndpointSource =
+      input.rpc_endpoint_source ??
+      impliedRpcEndpointSource(input.rpc_endpoint, Boolean(this.managerRpcEndpoint));
+    this.assertNodeChoicesHold(input.name, {
+      kind: input.kind,
+      components: input.components?.length ? input.components : null,
+      node_mode: input.node_mode,
+      rpc_endpoint_source: rpcEndpointSource,
+      rpc_endpoint: input.rpc_endpoint,
+    });
+
     const engineSettings = input.engine_settings ?? {};
     if (Object.keys(engineSettings).length > 0) {
       this.assertCreatableEngineSettings(input, version, engineSettings);
@@ -361,6 +422,8 @@ export class ProfileService {
           bee_publishers: input.bee_publishers,
           bee_url: input.bee_url,
           rpc_endpoint: input.rpc_endpoint,
+          rpc_endpoint_source: rpcEndpointSource,
+          node_mode: input.node_mode,
           srt_passphrase: input.srt_passphrase,
         },
         await this.placementFor(version, input.host ?? null, input.components),
@@ -436,6 +499,10 @@ export class ProfileService {
       bee_publishers?: string | null;
       bee_url?: string | null;
       rpc_endpoint?: string | null;
+      /** Absent keeps the stored choice, unless the address it belongs to went. */
+      rpc_endpoint_source?: RpcEndpointSource | null;
+      /** A node's mode is chosen when it is created, so a different one is refused. */
+      node_mode?: NodeMode | null;
       srt_passphrase?: string | null;
     },
   ): Promise<ProfileWithContainers> {
@@ -479,15 +546,30 @@ export class ProfileService {
     // field and an explicit null are different answers: keep the stored one,
     // and go back to the host-wide one.
     const passphraseEdit = input.srt_passphrase;
+    // The mode is one of those too, and for a third reason: a node's mode is
+    // chosen when it is created, so a body may repeat the stored one and may
+    // not change it. Compared as the modes the node actually runs in, because
+    // a stored null is the mode the stack ships and a page shows that, not the
+    // null.
+    const modeEdit = input.node_mode ?? undefined;
+    if (modeEdit && modeEdit !== effectiveNodeMode(existing)) {
+      throw new ProfileConfigError(name, 'a node’s mode is chosen when it is created');
+    }
+    const rpcEndpointSource =
+      input.rpc_endpoint_source ??
+      keptRpcEndpointSource(edits.rpc_endpoint, existing.rpc_endpoint_source);
     const proposed: Profile = {
       ...existing,
       ...edits,
+      rpc_endpoint_source: rpcEndpointSource,
+      node_mode: modeEdit ?? existing.node_mode,
       has_private_key: keyEdit !== null || existing.has_private_key,
       has_srt_passphrase:
         passphraseEdit === undefined
           ? existing.has_srt_passphrase
           : passphraseEdit !== null,
     };
+    this.assertNodeChoicesHold(name, proposed);
 
     // A body that omits bee_publishers clears it. For an abr-uploader that
     // silently removes the only thing it publishes through, and neither yup
@@ -525,6 +607,8 @@ export class ProfileService {
         {
           ...edits,
           private_key: keyEdit,
+          rpc_endpoint_source: rpcEndpointSource,
+          ...(modeEdit === undefined ? {} : { node_mode: modeEdit }),
           ...(passphraseEdit === undefined
             ? {}
             : { srt_passphrase: passphraseEdit }),

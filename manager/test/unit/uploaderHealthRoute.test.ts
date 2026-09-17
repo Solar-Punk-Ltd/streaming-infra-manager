@@ -64,7 +64,7 @@ async function testApi(reading: UploaderHealthReading = WAITING) {
   app.use(requireSameSite);
   app.use(express.json());
   app.use(createRequireSession(session));
-  app.use('/profiles', createProfilesRouter({} as unknown as ProfileService, uploaderHealth));
+  app.use('/profiles', createProfilesRouter({} as unknown as ProfileService, uploaderHealth, false));
   app.use(errorHandler);
 
   const server = http.createServer(app);

@@ -88,7 +88,7 @@ it('single creation already preserves the inserted identity if startup is follow
     harness.profiles.rows.set(profile.name, { ...profile, instance_id: randomUUID() });
     return { emitter: new EventEmitter(), kill: () => undefined };
   };
-  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub()), '/profiles');
+  const app = await startRouterTestApp(createProfilesRouter(harness.service, uploaderHealthStub(), false), '/profiles');
   try {
     const response = await call(app, 'POST', '/profiles', { name: 'owned', kind: 'viewer' });
     assert.equal(response.status, 202);
