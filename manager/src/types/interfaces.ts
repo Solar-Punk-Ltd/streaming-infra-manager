@@ -45,7 +45,10 @@ export interface Profile {
    * beeTargetProblem, which makes such a deployment name a node or a pool.
    */
   bee_url: string | null;
-  /** The chain endpoint this deployment's Bee nodes use, or null for the version's. */
+  /**
+   * The address a `custom` source uses. Null under `manager` and `stack`, where
+   * `rpc_endpoint_source` below says which endpoint applies.
+   */
   rpc_endpoint: string | null;
   /**
    * Where that endpoint comes from: this manager's own configured one, the
