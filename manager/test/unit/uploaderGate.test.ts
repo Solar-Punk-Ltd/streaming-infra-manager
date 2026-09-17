@@ -6,9 +6,10 @@
  * The stamp and chequebook checks used to sit on the "deploy uploader" action
  * alone, so the Retry button, a settings change and `POST /profiles/:name/deploy`
  * all recreated the uploader without asking the node anything. An uploader
- * started on an expired batch or a drained chequebook reports RUNNING and fails
- * every upload, which is the one failure the checks exist to prevent, so they
- * belong where every route passes.
+ * started on an expired batch reports RUNNING and fails every upload, which is
+ * the failure the stamp check exists to prevent, so the checks belong where
+ * every route passes. A drained chequebook is read and warned about, on the
+ * ruling of 2026-09-17, and the uploader starts.
  */
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
