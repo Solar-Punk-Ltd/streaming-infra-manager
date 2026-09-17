@@ -194,4 +194,7 @@ it('refuses bytes that are not a sound record of this build', async () => {
   const unstamped = { ...sound.durableStamps };
   delete unstamped['.env.sample'];
   assert.equal(parseBuildInventoryRecord(spoiled({ durableStamps: unstamped }), commit), null, 'an entry with no stamp');
+  const proto = sound.entries.map(entry => entry.path === '.env.sample' ? { ...entry, path: '__proto__' } : entry);
+  assert.equal(parseBuildInventoryRecord(spoiled({ entries: proto }), commit), null,
+    'an entry named after the one key a stamp map cannot keep, whose lookup answers with the prototype');
 });

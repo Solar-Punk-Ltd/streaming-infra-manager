@@ -72,9 +72,13 @@ function isOwnedTreeEntry(raw: unknown): raw is OwnedTreeEntry {
  *
  * A symbolic link's mode is recorded as 0o777 whatever the platform gave it,
  * so for a link only the type can be held to the stamp.
+ *
+ * The stamp arrives from a lookup by path in an object, so an entry named
+ * `__proto__` is answered with a prototype rather than with nothing. It is a
+ * value like any other value that is not a stamp, and refused as one.
  */
-function agreesWithStamp(entry: { mode: number; type: OwnedTreeEntry['type'] }, stamp: string | undefined): boolean {
-  const mode = stamp === undefined ? null : modeOfStamp(stamp);
+function agreesWithStamp(entry: { mode: number; type: OwnedTreeEntry['type'] }, stamp: unknown): boolean {
+  const mode = typeof stamp === 'string' ? modeOfStamp(stamp) : null;
   if (mode === null || (mode & FILE_TYPE_MASK) !== FILE_TYPE_BITS[entry.type]) return false;
   return entry.type === 'symlink' || (mode & 0o7777) === entry.mode;
 }
