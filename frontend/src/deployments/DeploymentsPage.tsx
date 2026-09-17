@@ -19,6 +19,7 @@ import { isLadderKind } from '@streaming-infra-manager/common';
 import { useEditors } from '../app/EditorsContext';
 import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
+import { poolStampHealths } from '../groups/rungStampHealth';
 import { usePoolResults } from '../groups/useBeePublishers';
 import type { Profile } from '../types';
 import { useChequebookHealths } from '../uploaders/useChequebookHealths';
@@ -58,6 +59,7 @@ export function DeploymentsPage({ search }: { search: string }) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const poolResults = usePoolResults(groups, profiles);
   const chequebooks = useChequebookHealths(profiles);
+  const stampHealths = poolStampHealths(poolResults);
 
   if (!profiles) {
     return (
@@ -69,7 +71,11 @@ export function DeploymentsPage({ search }: { search: string }) {
 
   const query = search.trim().toLowerCase();
   const wantsAttention = (profile: Profile): boolean =>
-    needsAttention(profile, undefined, chequebooks.get(profile.name));
+    needsAttention(
+      profile,
+      stampHealths.get(profile.name),
+      chequebooks.get(profile.name),
+    );
   const matches = (profile: Profile): boolean => {
     const hitsQuery =
       !query ||
@@ -172,6 +178,7 @@ export function DeploymentsPage({ search }: { search: string }) {
                         : null
                     }
                     chequebooks={chequebooks}
+                    stampHealths={stampHealths}
                     memberNoun={memberNoun(members)}
                   />
                 ))}
@@ -180,6 +187,7 @@ export function DeploymentsPage({ search }: { search: string }) {
                     key={profile.name}
                     profile={profile}
                     chequebook={chequebooks.get(profile.name) ?? null}
+                    stampHealth={stampHealths.get(profile.name)}
                   />
                 ))}
               </>

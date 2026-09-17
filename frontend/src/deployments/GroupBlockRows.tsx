@@ -23,6 +23,7 @@ import { useActions } from '../app/useDeploymentActions';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { groupReadinessOf } from '../groups/groupReadiness';
 import type { DeploymentGroup, Profile } from '../types';
+import type { PoolStampHealths } from '../groups/rungStampHealth';
 import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 import { DeploymentRow } from './DeploymentRow';
 import { isRunning, isTransitional } from './shape';
@@ -44,6 +45,7 @@ export function GroupBlockRows({
   visibleMembers,
   poolResult,
   chequebooks,
+  stampHealths,
   memberNoun,
 }: {
   group: DeploymentGroup;
@@ -54,6 +56,8 @@ export function GroupBlockRows({
   poolResult: BeePublishersResult | null;
   /** What each member's node said about its chequebook, where it answered. */
   chequebooks: ChequebookHealths;
+  /** What the manager's pool assembly says each member's batch is worth. */
+  stampHealths: PoolStampHealths;
   memberNoun: string;
 }) {
   const actions = useActions();
@@ -133,6 +137,7 @@ export function GroupBlockRows({
             profile={profile}
             rung={rungFromMemberName(group.name, profile.name)}
             chequebook={chequebooks.get(profile.name) ?? null}
+            stampHealth={stampHealths.get(profile.name)}
             indented
           />
         ))}

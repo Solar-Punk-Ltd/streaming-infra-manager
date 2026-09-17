@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type ChequebookHealth, stampHealthFrom } from '@streaming-infra-manager/common';
+import { ABR_RUNG_COMPONENTS, type ChequebookHealth, type StampHealth, stampHealthFrom } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
 import { buildChecklist, firstBlocker, type ChecklistInput } from './checklist';
@@ -160,5 +160,35 @@ describe('a list that never reads a wallet', () => {
 
   it('keeps funding not checked for the page that did ask the node', () => {
     assert.equal(readinessFor(input({ profile: stamped, wallet: null, chequebook: null })).label, 'Funding not checked');
+  });
+});
+
+describe('a pool member judged by the readings its page already holds', () => {
+  const member: Profile = {
+    ...runningProfile,
+    name: 'abr-pool-1-360p',
+    components: [...ABR_RUNG_COMPONENTS],
+    containers: [{ service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
+    stamp_id: `0x${'a'.repeat(64)}`,
+  };
+  const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+
+  it('calls a funded rung whose batch the manager reports live ready', () => {
+    const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000 };
+
+    assert.equal(readinessOf(member, live, paying).label, 'Node prerequisites checked');
+    assert.equal(needsAttention(member, live, paying), false);
+  });
+
+  it('keeps the warning where the manager reports the batch gone', () => {
+    const gone: StampHealth = { state: 'gone', ok: false, dead: true, ttl: null };
+
+    assert.equal(readinessOf(member, gone, paying).label, 'Stamp not on node');
+    assert.equal(needsAttention(member, gone, paying), true);
+  });
+
+  it('waits where the pool result has not arrived yet', () => {
+    assert.equal(readinessOf(member, undefined, paying).label, 'Stamp not checked');
+    assert.equal(needsAttention(member, undefined, paying), false);
   });
 });

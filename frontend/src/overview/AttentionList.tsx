@@ -5,6 +5,7 @@ import {
   type BeePublishersResult,
   type ChequebookHealth,
   chequebookStateReason,
+  type StampHealth,
 } from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
@@ -16,6 +17,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusDot } from '../components/StatusDot';
 import type { Tone } from '../components/tone';
 import { poolProblems } from '../groups/groupReadiness';
+import type { PoolStampHealths } from '../groups/rungStampHealth';
 import {
   CHEQUEBOOK_EMPTY,
   CHEQUEBOOK_LOW,
@@ -40,11 +42,14 @@ export function AttentionList({
   profiles,
   pools,
   chequebooks,
+  stampHealths,
 }: {
   profiles: Profile[];
   pools: PoolAlert[];
   /** What each node said about its chequebook, for the nodes that answered. */
   chequebooks: ChequebookHealths;
+  /** What the manager's pool assembly says each member's batch is worth. */
+  stampHealths: PoolStampHealths;
 }) {
   const total = profiles.length + pools.length;
 
@@ -66,6 +71,7 @@ export function AttentionList({
               key={profile.name}
               profile={profile}
               chequebook={chequebooks.get(profile.name) ?? null}
+              stampHealth={stampHealths.get(profile.name)}
             />
           ))}
           {pools.map(({ group, result }) => (
@@ -90,13 +96,15 @@ export function AttentionList({
 function ProfileAlertRow({
   profile,
   chequebook,
+  stampHealth,
 }: {
   profile: Profile;
   chequebook: ChequebookHealth | null;
+  stampHealth?: StampHealth;
 }) {
   const actions = useActions();
   const { openEditDeployment } = useEditors();
-  const readiness = readinessOf(profile, undefined, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook);
 
   const openStorage = () => navigate(routes.deploymentStorage(profile.name));
   const buyStamp = (

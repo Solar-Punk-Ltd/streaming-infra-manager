@@ -13,6 +13,7 @@ import {
 import {
   type ChequebookHealth,
   isLadderKind,
+  type StampHealth,
 } from '@streaming-infra-manager/common';
 
 import { navigate, routes } from '../app/router';
@@ -24,6 +25,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusDot } from '../components/StatusDot';
 import { needsAttention, readinessOf } from '../deployments/readiness';
 import { isRunning, SHAPE_LABEL, shapeOf, statusLabelOf } from '../deployments/shape';
+import { poolStampHealths } from '../groups/rungStampHealth';
 import { usePoolResults } from '../groups/useBeePublishers';
 import { StaleReadings } from '../resources/StaleReadings';
 import { useServerHost } from '../ServerHostContext';
@@ -41,6 +43,7 @@ export function OverviewPage() {
   const { snapshot, stale, staleSeconds } = useMetrics();
   const poolResults = usePoolResults(groups, profiles);
   const chequebooks = useChequebookHealths(profiles);
+  const stampHealths = poolStampHealths(poolResults);
 
   if (!profiles) {
     return (
@@ -51,7 +54,11 @@ export function OverviewPage() {
   }
 
   const attention = profiles.filter((profile) =>
-    needsAttention(profile, undefined, chequebooks.get(profile.name)),
+    needsAttention(
+      profile,
+      stampHealths.get(profile.name),
+      chequebooks.get(profile.name),
+    ),
   );
   const poolAlerts: PoolAlert[] = groups
     .filter((group) => isLadderKind(group.kind))
@@ -108,6 +115,7 @@ export function OverviewPage() {
         profiles={attention}
         pools={poolAlerts}
         chequebooks={chequebooks}
+        stampHealths={stampHealths}
       />
 
       <Box
@@ -132,6 +140,7 @@ export function OverviewPage() {
                     key={profile.name}
                     profile={profile}
                     chequebook={chequebooks.get(profile.name) ?? null}
+                    stampHealth={stampHealths.get(profile.name)}
                   />
                 ))}
               </TableBody>
@@ -148,13 +157,16 @@ export function OverviewPage() {
 function StreamRow({
   profile,
   chequebook,
+  stampHealth,
 }: {
   profile: Profile;
   /** What this page's own poll of the node said, so the pill matches the alert. */
   chequebook: ChequebookHealth | null;
+  /** What a pool assembly says its batch is worth, where this page holds one. */
+  stampHealth?: StampHealth;
 }) {
   const publish = usePublishUrl(profile);
-  const readiness = readinessOf(profile, undefined, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook);
   // The passphrase is asked for by the copy rather than by the row, so the
   // overview renders without asking for any deployment's.
   const copyable = publish.url !== null && readiness.tone === 'ok';

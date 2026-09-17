@@ -7,7 +7,7 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { ChequebookHealth } from '@streaming-infra-manager/common';
+import type { ChequebookHealth, StampHealth } from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes } from '../app/router';
@@ -35,6 +35,7 @@ export function DeploymentRow({
   profile,
   rung,
   chequebook = null,
+  stampHealth,
   indented = false,
 }: {
   profile: Profile;
@@ -46,6 +47,12 @@ export function DeploymentRow({
    * list asks a node for its wallet.
    */
   chequebook?: ChequebookHealth | null;
+  /**
+   * What the manager's own pool assembly says this member's batch is worth.
+   * Undefined for a deployment no pool result covers, which is a reading this
+   * row does not have rather than a batch that is not paying.
+   */
+  stampHealth?: StampHealth;
   indented?: boolean;
 }) {
   const serverHost = useServerHost();
@@ -53,7 +60,7 @@ export function DeploymentRow({
   const { openWizard, openEditDeployment } = useEditors();
   const publish = usePublishUrl(profile);
 
-  const readiness = readinessOf(profile, undefined, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook);
   const shape = shapeOf(profile);
   const watchUrl = clientUrl(profile, serverHost);
   // The passphrase is asked for by the copy rather than by the row, so a page
