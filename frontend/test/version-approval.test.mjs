@@ -114,7 +114,7 @@ test('approval payload and explicit wizard version choice stay tied to the visib
       const { initialWizardState, withGoal, versionChoiceShown, chosenVersion } = await import('/src/forms/wizard/wizardState.ts');
       const { wizardError } = await import('/src/forms/wizard/wizardError.ts');
       const { submitWizard } = await import('/src/forms/wizard/wizardSubmit.ts');
-      const base = { profiles: [], groups: [], serverHost: 'offline', hostPassphrase: null, poolResults: new Map() };
+      const base = { profiles: [], groups: [], serverHost: 'offline', hostPassphrase: null, beeRpcEndpoint: { configured: false, host: null }, poolResults: new Map() };
       const version = ${JSON.stringify(makeVersion({ isDefault: false }))};
       const context = { ...base, versions: [version] };
       const state = { ...initialWizardState({ goal: 'custom' }, context), name: 'offline-choice' };
