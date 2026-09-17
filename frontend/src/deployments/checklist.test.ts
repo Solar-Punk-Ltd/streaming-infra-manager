@@ -222,3 +222,42 @@ describe('funding where the view never asked the node for its wallet', () => {
     assert.equal(step?.action?.kind, 'refresh-node');
   });
 });
+
+const payingChequebook = {
+  state: 'ok' as const,
+  availablePlur: 10_000_000_000_000_000n,
+  floorPlur: 5_000_000_000_000_000n,
+};
+
+describe('the stamp where the view never asked the node', () => {
+  it('waits for a reading rather than warning about one nobody took', () => {
+    const step = stepNamed('Postage stamp set', listInput(payingChequebook));
+
+    assert.equal(step?.state, 'busy');
+    assert.equal(step?.problem, 'Stamp not checked');
+    assert.match(step?.detail ?? '', /no reading of it/i);
+    assert.equal(step?.action, undefined);
+  });
+
+  it('keeps the warning for the page that asked the node and has no answer', () => {
+    const step = stepNamed('Postage stamp set', input({ chequebook: payingChequebook }));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Stamp not checked');
+  });
+
+  it('takes a batch that another reading settled at face value', () => {
+    const live = stepNamed('Postage stamp set', {
+      ...listInput(payingChequebook),
+      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000 },
+    });
+    assert.equal(live?.state, 'ok');
+
+    const gone = stepNamed('Postage stamp set', {
+      ...listInput(payingChequebook),
+      stampHealth: { state: 'gone', ok: false, dead: true, ttl: null },
+    });
+    assert.equal(gone?.state, 'err');
+    assert.equal(gone?.problem, 'Stamp not on node');
+  });
+});

@@ -389,6 +389,14 @@ function stampStep({
     case 'unknown': {
       const failure = stampHealth.failure;
       const batch = shortHex(profile.stamp_id ?? '');
+      if (!failure && wallet === undefined) {
+        return {
+          title,
+          problem: 'Stamp not checked',
+          state: isRunning(profile) ? 'busy' : 'off',
+          detail: `A batch is recorded (${batch}). This view has no reading of it, and the node is asked for one when the deployment is opened.`,
+        };
+      }
       return {
         title,
         problem: failure

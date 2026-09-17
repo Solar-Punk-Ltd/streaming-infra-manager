@@ -151,6 +151,13 @@ describe('a list that never reads a wallet', () => {
     assert.equal(needsAttention(unstamped, undefined, paying), true);
   });
 
+  it('does not count a node for a stamp reading nobody took', () => {
+    const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+
+    assert.equal(readinessOf(stamped, undefined, paying).label, 'Stamp not checked');
+    assert.equal(needsAttention(stamped, undefined, paying), false);
+  });
+
   it('keeps funding not checked for the page that did ask the node', () => {
     assert.equal(readinessFor(input({ profile: stamped, wallet: null, chequebook: null })).label, 'Funding not checked');
   });
