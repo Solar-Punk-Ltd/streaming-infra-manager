@@ -5,7 +5,11 @@ Corrected 2026-09-17: "The address" below, after the first real pool on the live
 handed a public address no Bee node listens on.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
-used as the publish targets for a `stream-uploader` running elsewhere (GCP).
+used as the publish targets for a `stream-uploader`. Since T15 that uploader is
+normally one this same manager deploys beside the pool, on the same host, and
+since 2026-09-17 the string it is handed names the pool at the address a
+container on that host reaches. An uploader on another machine is the older
+shape and still works with the string pasted across, see The address.
 
 ## Motivation
 
@@ -117,11 +121,17 @@ removes.
 
 ## The ABR Uploader
 
-The pool and the uploader normally sit on different machines under **different
-managers**, the Bee nodes on bare metal where bandwidth is cheap and SRS with the
-`stream-uploader` in GCP, so the uploader's manager cannot look the pool up: it
-is a group in another database. What crosses between them is the string itself,
-copied from one manager's pool card into the other's form.
+What crosses between the pool and the uploader is the string itself. The
+everyday case since T15 is one manager and one host: the wizard picks a local
+pool and copies the string into the uploader, and since 2026-09-17 the string
+carries the Docker bridge address a container on this host reaches the nodes on.
+The shape this page was first written for, the Bee nodes on bare metal where
+bandwidth is cheap and SRS with the `stream-uploader` on another machine under
+**another manager**, is still possible: that manager cannot look the pool up,
+since it is a group in another database, so the string is pasted from one
+manager's pool card into the other's form. Then the address it carries has to
+be one that machine can reach, which is `BEE_LOCAL_HOST` plus a bind that
+admits it, as The address explains.
 
 `abr-uploader` is its own **profile kind** and its own **deployment type**, with
 its own self-contained form, for the same reason the pool has one: it shares
