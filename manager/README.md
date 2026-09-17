@@ -115,6 +115,7 @@ All command endpoints stream output as Server-Sent Events
 | PUT    | `/profiles/:name` | the editable fields                               | Full edit. 202 and the profile.                               |
 | PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
 | GET    | `/profiles/:name/srt-passphrase` | none | `{ srt_passphrase }`, `no-store`. The deployment's own SRT passphrase, which the row no longer carries. Every read is logged with the signed-in user's name. |
+| GET    | `/profiles/:name/uploader-health` | none | `{ state, reasons, waitingSince?, node?, startGateWarnings? }`. What this deployment's own `stream-uploader` says about itself, read off its API port. `state` is one of `ok`, `waiting_for_node`, `warned`, `unhealthy`, `unreachable` or `not_deployed`. |
 
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
@@ -122,6 +123,17 @@ or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
 `engine_settings` and `abr_ladder`. `manager/src/schemas/profile.ts` is the
 whole contract and its rules are the ones the route enforces.
+
+`GET /profiles/:name/uploader-health` is read by the deployment page and by
+nothing else, because a list would have to ask every uploader in turn. Decision
+D16 of 2026-09-17 lets an uploader start on a Bee node that is not answering, so
+a running container stopped meaning a working one: the uploader waits for that
+node and reports the wait on its own `/health`, which this route reads on the
+uploader's API port for the deployment's port slot, under a three second budget.
+It never fails for a reading. Nothing answering is `unreachable`, a deployment
+with no uploader container is `not_deployed`, a start gate that warned instead of
+refusing is `warned`, and a stack older than D16 reports none of the new fields
+and so reads as `ok` or `unhealthy` on its own status alone.
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`

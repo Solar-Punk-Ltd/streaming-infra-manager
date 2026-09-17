@@ -178,6 +178,25 @@ nothing invalidates a copy that has gone wrong:
   other three rungs carry on: a partial ABR degradation with nothing in either
   manager pointing at the cause. Re-paste after rebuilding a rung.
 
+**Since 2026-09-17 a rung that is not answering does not stop the uploader
+starting** (decision D16, the owner: "we should be able to start the uploader but
+maybe say its node not available, try to reconnect or something"). The manager's
+own start gate logs a node that says nothing and lets the start through, keeping
+its refusal only for a batch the node answered about and called unknown, expired
+or not usable yet. The uploader then waits for its node instead of exiting, and
+reports that wait on its own `/health`. The deployment page reads that route
+every ten seconds and the **Uploader running** step says which node is being
+waited for, how many attempts it has made and since when, and clears when the
+node answers. A startup gate that warned instead of refusing shows there too,
+named in plain words: "the chequebook gate warned on the 360p rung".
+
+The uploader half of this lives on the stack branch
+`fix/uploader-start-gates-warn` in `Solar-Punk-Ltd/swarm-hls-stream` and is not
+pinned here yet, so a deployment on the pinned stack reports none of those
+fields. The manager reads that as no waiting state reported and the step says
+what it always said, which is that the container is running and nothing beyond
+that has been verified.
+
 ## BEE_URL: a single-node uploader on an external node
 
 The other half of the same flexibility. A single-node deployment can name the

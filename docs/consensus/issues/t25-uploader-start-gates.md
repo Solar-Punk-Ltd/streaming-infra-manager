@@ -26,3 +26,33 @@ D02 of 2026-09-07 said the manager refuses a new uploader start when its node do
 ## Where the design lives
 
 `packages/stream-uploader/src/index.ts`, `libs/ChequebookGate.ts`, `libs/PostageGate.ts`, `utils/config.ts` in the stack. D02 in ../PRD.md.
+
+## Built, 2026-09-17, the manager half of D16
+
+`4fe7e20` turned the manager's own refusal on a silent node into a warning that
+names the profile and the node URL, leaving `StampNotUsableError` exactly where
+it was for a batch the node answered about. `1b65b22` added
+`manager/src/domain/UploaderHealthService.ts`, which reads a deployment's
+`stream-uploader` on its own API port for that deployment's port slot, under a
+three second budget, and answers one of `ok`, `waiting_for_node`, `warned`,
+`unhealthy`, `unreachable` or `not_deployed`. `4d8db8d` put that behind
+`GET /profiles/:name/uploader-health`. `4d57267` gave the deployment page the
+reading, so the **Uploader running** step names the node being waited for, its
+attempts and since when, or the gate and rung that warned. The reading's type is
+`common/src/uploaderHealth.ts`, shared because the manager writes it and the page
+renders it.
+
+The stack half is on `fix/uploader-start-gates-warn` in
+`Solar-Punk-Ltd/swarm-hls-stream`, pushed and not pinned here, so a deployment on
+the pinned `7e2de6f7` reports none of the new fields and the manager reads that
+as no waiting state reported.
+
+⚠️ Not built, and the owner's to rule on: `ChequebookService.assertFunded`, the
+second check of the same gate, still throws `BeeNodeError` on a node that does
+not answer the chequebook read (`manager/src/domain/ChequebookService.ts`, the
+catch at line 188, from commit `50e778e` under D02). So on a deployment with its
+own Bee node a silent node still refuses the start, at that check rather than at
+the stamp check, and D16 is only half in effect. `manager/README.md` has said
+since before either change that a chequebook the node cannot be asked about does
+not block the deploy, which is the behaviour D16 asks for and not the behaviour
+the code has.
