@@ -26,3 +26,15 @@ Then by dependency: T01 (after T01a), T03 (after T01), T04a, T04b (after T04a), 
 ## Decisions taken (PRD "### Decisions taken by Levi, 2026-09-07")
 
 D01 cap min(version maximum, 100) counting stopped records. D02 refuse a new uploader start when its node does not answer. D03 generate a passphrase when the host has none, host default kept, expert unencrypted kept. D04 quote first, no preselected spend, ceiling enforced. D05 review node kept and reused. D06 CI checks required on main-v2, Levi's bypass, agents never push. D07 a default that loses Tested stays default with a warning. D08 no historical build catalogue. D09 image-name fix on main-v3 plus bundled bump, Levi's commits. D10 assertion override behind a typed confirmation.
+
+## Added 2026-09-17, from the first node pool on the live host
+
+Five rows after the set above, numbered on. T24 and T26 are defects found on the host at 0696a28 and fixed first. T25 is Levi's ruling D15 on the stack's uploader. T23 is the recommended next task on his word. T27 is a feature whose wording he still confirms.
+
+- T23, execution copy cost (P2, next task): hash a build once at publish, verify by stamps, show progress.
+- T24, pool string address (P1): the URL an uploader is handed is the bridge address a container on the host reaches, never PUBLIC_HOST.
+- T25, uploader start gates (P1, D15): the stack's uploader starts whatever its chequebook and postage readings say, and its startup reads get their own budget.
+- T26, list funding readings (P2): a reading a list never took is not a problem and not attention.
+- T27, Bee node mode (feature): ultra-light or light at start, our RPC endpoint, gas funding through the existing transfers.
+
+Order: T24 and T26 together, T25 in the stack then the pin here, T23 next, T27 after Levi confirms the wording.
