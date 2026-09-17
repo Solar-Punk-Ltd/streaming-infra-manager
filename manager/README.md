@@ -713,8 +713,11 @@ every path in a compose file as a host path.
   Caddy container in the `public` compose profile that terminates TLS and gets
   its own certificate for `MANAGER_DOMAIN`. It starts only when that name is
   set, and `deploy/README.md` has the steps for turning it on.
-- **Synchronous SSE.** A deploy holds an HTTP connection open for its whole
-  duration, and a client disconnect kills the child.
+- **Streamed SSE.** A deploy answers over an HTTP connection held open for the
+  whole run. Closing it does not stop the run: only the health check is killed
+  when its client goes away. A deploy, a deploy-uploader or a stop finishes on
+  its own, the row's new state arrives as `profile.changed` on `/events`, and a
+  manager restarted mid-run reconciles the row at boot.
 - **A target is verified before it is used.** `localhost` is the ordinary case.
   Another alias is refused until the target table has read a Docker daemon
   identity on it over ssh, and an alias that cannot be verified is refused
