@@ -186,6 +186,57 @@ function buyStamp(profile, { amount, depth }) {
 
 // ----------------------------------------------------------- chequebook
 
+/**
+ * What a deployment's stream-uploader says about itself, as the manager's read
+ * of it (see UploaderHealthService). `ok` unless this mock has been told
+ * otherwise, and `?state=waiting_for_node`, `?state=warned` or `?state=ok` tells
+ * it, sticking on the node entry the way every other faked node state does. It
+ * has to stick: the deployment page re-reads this every ten seconds, so a state
+ * that lasted one request would flash and be gone.
+ */
+function uploaderHealth(req, profile) {
+  const entry = node(profile.name);
+  const asked = new URL(req.url, 'http://mock').searchParams.get('state');
+  if (asked === 'ok') entry.uploaderHealth = null;
+  else if (asked === 'waiting_for_node' || asked === 'warned') {
+    entry.uploaderHealth = { state: asked, since: new Date().toISOString() };
+  }
+
+  if (!profile.containers.some((container) => container.service === 'stream-uploader')) {
+    return { state: 'not_deployed', reasons: [] };
+  }
+
+  const faked = entry.uploaderHealth;
+  if (faked?.state === 'waiting_for_node') {
+    const port = PORT_BASES.BEE_UPLOADER_API_PORT + profile.port_slot * 10;
+    return {
+      state: 'waiting_for_node',
+      reasons: ['node_unavailable'],
+      waitingSince: faked.since,
+      node: {
+        url: `http://${PUBLIC_HOST}:${port}`,
+        // Climbs with the wait, the way the uploader's own backoff does.
+        attempts: attemptsSince(faked.since),
+        lastError: 'timeout of 20000ms exceeded',
+      },
+    };
+  }
+  if (faked?.state === 'warned') {
+    return {
+      state: 'warned',
+      reasons: ['start_gate_warned'],
+      startGateWarnings: [{ gate: 'ChequebookGate', rung: '360p' }],
+    };
+  }
+  return { state: 'ok', reasons: [] };
+}
+
+/** One attempt a second at first, then one every thirty, which is the uploader's own backoff. */
+function attemptsSince(since) {
+  const seconds = Math.max(0, (Date.now() - Date.parse(since)) / 1_000);
+  return seconds <= 31 ? Math.min(6, Math.floor(seconds) + 1) : 6 + Math.floor((seconds - 31) / 30);
+}
+
 function chequebookSummary(name) {
   const entry = nodeIfKnown(name);
   if (!entry) {
@@ -561,6 +612,11 @@ const ROUTES = [
       deploy(profile, { withUploader: true });
       sendScriptRun(res, 'deploy.sh', [`--profile=${profile.name}`, 'stream-uploader']);
     }),
+  ],
+  [
+    'GET',
+    /^\/profiles\/([^/]+)\/uploader-health$/,
+    withProfile((req, res, profile) => send(res, 200, uploaderHealth(req, profile))),
   ],
   [
     'GET',
