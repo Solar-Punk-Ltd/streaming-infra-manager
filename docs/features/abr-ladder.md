@@ -194,12 +194,13 @@ waited for, how many attempts it has made and since when, and clears when the
 node answers. A startup gate that warned instead of refusing shows there too,
 named in plain words: "the chequebook gate warned on the 360p rung".
 
-The uploader half of this lives on the stack branch
-`fix/uploader-start-gates-warn` in `Solar-Punk-Ltd/swarm-hls-stream` and is not
-pinned here yet, so a deployment on the pinned stack reports none of those
-fields. The manager reads that as no waiting state reported and the step says
-what it always said, which is that the container is running and nothing beyond
-that has been verified.
+The uploader half of this is in the pinned stack since 7b2312f, which pinned the
+stack commit 55b22bf1 that carries it, and the pin has moved on since onto the
+manager's line of the stack, `feat/manager-line`, which carries it too. So a
+deployment reports those fields once the host runs that pin. A deployment still
+on an older build reports none of them, the manager reads that as no waiting
+state reported, and the step says what it always said, which is that the
+container is running and nothing beyond that has been verified.
 
 ## BEE_URL: a single-node uploader on an external node
 
