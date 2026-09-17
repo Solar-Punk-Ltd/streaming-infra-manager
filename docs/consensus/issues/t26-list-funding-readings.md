@@ -1,6 +1,6 @@
 # T26. Lists call a reading they never took "Funding not checked"
 
-Source: Levi, 2026-09-17, pictures of the deployments list and the overview. Priority: P2. Depends on: none. Decision: none. Size: S.
+Source: Levi, 2026-09-17, pictures of the deployments list and the overview. Priority: P2. Depends on: none. Decision: Levi, 2026-09-17: lists take a stamp reading per running Bee node as well, refreshed at most every two minutes, so a standalone node's expired batch is seen again. Size: S.
 
 `readinessOf` builds a checklist with `wallet: null` for every list and the overview, and `fundingStep` turns a missing wallet into the problem "Funding not checked" in the warn state for a running node. The deployments list passes no chequebook reading either. So every running Bee node shows "Funding not checked" on the list, and `needsAttention` counts it, which put all four funded and stamped members of `abr-pool-1` under "Needs attention" on 2026-09-17 while the deployment page of each said "Bee node funded".
 
