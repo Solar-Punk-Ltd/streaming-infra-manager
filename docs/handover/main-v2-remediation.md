@@ -1302,11 +1302,41 @@ L112 in the estate's verify-e2e plan, with a diagnostic in the test (cabbf13)
 for the next run. The stack branch passed the box at standard depth. GitHub's
 checks run on Levi's push of main-v2.
 
-**Open.** T23 and the second phase of T25 (the uploader waits for its node,
-`/health` says so, the manager's own gate becomes a shown state) were in flight
-when this was written. Lists cannot see a standalone Bee node's expired batch,
-only a pool member's, and a stamp poll like the chequebook one would close it,
-one read per running node, Levi's call. The box's map has no entry for the
-manager's database suite, one line on his word. The uploader created before
-the fix holds the public-host string: copy the pool string from the pool page
-again and paste it into its "Node pool string" field under Edit, then Retry.
+**Built later the same night.** T23, the execution copy: a build's inventory
+is recorded once in a sibling file `<buildId>.inventory.json` beside the
+builds, later copies prove the build by a stat walk against it (device,
+inode, mode, size and modification time, not the status-change time, which
+every hard link moves) and a linked copy by inode identity, so the steady
+state reads no byte of the build (5933766 to 7bf650f). Two reviews, one
+for correctness and one for security, reproduced two P1 defects in that first
+version, a record outliving its pruned build and stranding a reused build id,
+and the record's file name read as a build id by the settings rebuild, plus a
+record that could list fewer files than it stamped. All closed in e32ac8a to
+9fd92e0, with a test file for the record, a refusal that names the record's
+path, and a tripwire that every file of the build an engine mounts goes in
+read-only. Measured on a synthetic tree of 20,000 files: 18.7 seconds before,
+9.0 after, not yet measured on the host. T25's second phase, D16, in the
+stack: the uploader's API listens first and a node that does not answer is
+waited for with a backoff, `/health` says `waiting_for_node` with the node's
+URL, attempts and last error, a warned start gate is latched there as
+`start_gate_warned`, every node is read under warn, URLs are stripped from
+messages, and the timeout has a ceiling (60caae7b to 46c9d120, green on the
+box). In the manager: neither half of its own start gate refuses a node that
+says nothing, `GET /profiles/:name/uploader-health` maps the uploader's own
+health to one reading, and the deployment page's uploader step says waiting,
+warned, unhealthy, healthy or unreachable (4fe7e20 to 43ec8e8). Manager unit
+2596, frontend 249, common 360, typecheck and builds clean.
+
+**Open.** The stack branch is not merged into main-v3 and the manager still
+pins 7e2de6f7, so the waiting state reaches the host only after Levi merges
+and the pin moves. Three of his decisions: whether a build whose stamps
+disagree with its record is refused for good (as built, recoverable by
+removing the named file) or re-hashed once with a loud warning; whether a
+node that answers the chequebook check with a balance nothing can parse still
+refuses the start (as built) or warns; and whether lists take a stamp
+reading per running node, the same shape as the chequebook reading, so a
+standalone node's expired batch is seen again. The box's map has no entry for
+the manager's database suite, one line on his word. The uploader created
+before the fix holds the public-host string: copy the pool string from the
+pool page again and paste it into its "Node pool string" field under Edit,
+then Retry.
