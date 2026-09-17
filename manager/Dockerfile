@@ -7,8 +7,10 @@
 # daemon runs on the host, so any relative volume in those compose files is
 # resolved against the host filesystem. Matching paths keeps that consistent.
 #
-# The swarm-hls-stream packages must therefore be built on the host before
-# deploy — the deploy script (deploy/deploy.sh) handles that.
+# The stack is not built here, and deploy/deploy.sh does not build it either.
+# The deploy writes the pinned commit into manager/.stack-commit, and the api
+# builds that commit on the host under the versions root at boot
+# (StackVersionService.ensureBundledBuild).
 
 FROM node:22-alpine AS build
 WORKDIR /repo
