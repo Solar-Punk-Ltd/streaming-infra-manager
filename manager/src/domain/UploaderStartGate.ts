@@ -38,7 +38,9 @@ export class UploaderStartGate implements UploaderGate {
   }
 
   // An expired or unknown batch would start an uploader that can only fail its
-  // uploads. The node can say so before anything is deployed.
+  // uploads. The node can say so before anything is deployed. A node that says
+  // nothing at all no longer refuses the start, on decision D16: the uploader
+  // waits for it and the deployment page shows that wait.
   private async assertStampUsable(profile: Profile): Promise<void> {
     if (!profile.stamp_id) return;
     await this.stamps.assertStampUsable(profile.name, profile.stamp_id);

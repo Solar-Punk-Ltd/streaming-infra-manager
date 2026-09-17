@@ -23,7 +23,6 @@ import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
-  BeeNodeError,
   ProfileNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
@@ -288,16 +287,24 @@ export class StampService {
   }
 
   /**
-   * A batch the node does not know or calls unusable blocks the start, and so
-   * does a node that does not answer: an uploader started on an unverified
-   * batch reports RUNNING and fails every upload. The refusal says how to
-   * try again.
+   * A batch the node answered about and called unknown, expired or not usable
+   * yet blocks the start: an uploader on such a batch reports RUNNING and
+   * fails every upload, and the node itself has said so.
+   *
+   * A node that answers nothing no longer blocks it. Decision D16, the owner
+   * on 2026-09-17: "we should be able to start the uploader but maybe say its
+   * node not available, try to reconnect or something". The uploader waits for
+   * its node instead of exiting, and reports that wait on its own health
+   * route, which UploaderHealthService reads onto the deployment page. So the
+   * silence becomes a state an operator can watch rather than a refusal they
+   * can do nothing about.
    */
   async assertStampUsable(name: string, stampId: string): Promise<void> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
 
-    const client = this.clientFactory(beeApiUrlFor(profile));
+    const nodeUrl = beeApiUrlFor(profile);
+    const client = this.clientFactory(nodeUrl);
     let stamp: BeeStamp;
     try {
       stamp = await this.reads.readFresh(this.stampKey(name, stampId), () =>
@@ -310,10 +317,11 @@ export class StampService {
           'the configured stamp is unknown to this bee node',
         );
       }
-      throw new BeeNodeError(
-        name,
-        `The Bee node of ${name} did not answer the stamp check (${getErrorMessage(err)}), so the uploader was not started. Try again once the node answers.`,
+      logger.warn(
+        `[StampService] ${name}: the Bee node at ${nodeUrl} did not answer the stamp check (${getErrorMessage(err)}). ` +
+          'The uploader is started anyway and waits for its node, on decision D16.',
       );
+      return;
     }
     if (!stamp.usable) {
       const reason =
