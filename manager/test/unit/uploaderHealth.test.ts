@@ -6,8 +6,8 @@
  * Decision D16 of 2026-09-17 lets an uploader start on a Bee node that is not
  * answering, so the wait for that node is a state the deployment page has to
  * show. The uploader reports it on `/health`, and this is the reading the page
- * is given. The stack pinned today answers none of the new fields, so a
- * manager talking to it has to read that as no waiting state reported rather
+ * is given. A stack older than the pin answers none of the new fields, so a
+ * manager talking to one has to read that as no waiting state reported rather
  * than as a fault.
  */
 import assert from 'node:assert/strict';
@@ -165,7 +165,7 @@ describe('the manager reading an uploader health route', () => {
     assert.deepEqual(reading, { state: 'unhealthy', reasons: ['postage_refused'] });
   });
 
-  it('reads the pinned stack, which reports no waiting state at all', async () => {
+  it("reads an older stack's answer, which carries no waiting state, as ok on its HTTP code alone", async () => {
     const older = {
       status: 200,
       body: {

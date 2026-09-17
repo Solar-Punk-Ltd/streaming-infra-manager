@@ -134,9 +134,10 @@ export class UploaderHealthService {
  * Read off the payload's own `status` and `reasons` before the HTTP code,
  * because the code cannot tell the two 503s apart: a service still waiting for
  * its node has run nothing and reported nothing, while a degraded one is
- * running and has something to say. The stack pinned today answers neither the
- * waiting status nor the warnings, and falls through to ok or unhealthy on its
- * HTTP code alone, which is what "no waiting state reported" has to mean.
+ * running and has something to say. A stack older than the pin answers neither
+ * the waiting status nor the warnings and falls through to ok or unhealthy on
+ * its HTTP code alone, which is what "no waiting state reported" has to mean.
+ * The pinned stack answers both.
  */
 function readingFrom(ok: boolean, body: unknown): UploaderHealthReading {
   const payload = (body ?? {}) as Record<string, unknown>;
