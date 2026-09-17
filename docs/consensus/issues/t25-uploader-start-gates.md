@@ -15,9 +15,13 @@ The stack's `stream-uploader` refuses to start when `ChequebookGate` cannot read
 - Pin the stack commit that carries it (bundled version bump), on Levi's word for the merge into main-v3.
 - The readiness page of an uploader shows the gate's warning, read from the uploader's log tail, so a start that went through on an unfunded node is still visible.
 
-## Open for Levi
+## D02 amended: decision D16, Levi, 2026-09-17
 
-D02 of 2026-09-07 says the manager refuses a new uploader start when its node does not answer (`assertStampUsable`, `uploaderGate`). D15 is about the stack's own gates. Whether D02 stays is his call, and nothing here changes it.
+D02 of 2026-09-07 said the manager refuses a new uploader start when its node does not answer (`UploaderStartGate.assertCanStart`, `StampService.assertStampUsable`, which throws `BeeNodeError` "did not answer the stamp check, so the uploader was not started"). Levi's word on 2026-09-17: "we should be able to start the uploader but maybe say its node not available, try to reconnect or something". So, as a second phase of this row after the gates:
+
+- The manager starts the uploader even when its node does not answer. The refusal becomes a state the deployment shows: the node is not available and the uploader is waiting for it. An unknown or expired stamp the node did report stays a refusal, because the node answered and said so.
+- In the stack, an uploader whose node does not answer at start does not exit. Today `StreamCatalog.init` reads the catalog feed from the node and any other failure than an absent feed ends `start()` with "Failed to start" and exit 1, docker restarts the container, and the deploy guard reads the restart as a service falling over. Instead the uploader logs that its node is not available, keeps trying on a backoff, reports that state on its own health route, and finishes starting when the node answers.
+- The deployment page and the list show "Node not available, uploader waiting" from that health state, and clear it when the node answers.
 
 ## Where the design lives
 
