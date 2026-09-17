@@ -6,7 +6,10 @@ status, which is the second pull request of feature 3 and is not started. Pull r
 `feat/ai-remediation` landed, and `main-v2` has moved a long way past it since, so read the
 sections below as the plan rather than as the current state. The stacked branches this page names
 are gone. Its decisions D1 to D12 are this page's own numbering and are not the consensus
-decisions D01 to D14 in `../consensus/`.
+decisions D01 to D14 in `../consensus/`. One of them has since been reversed: D4, which chose to
+refuse an uploader whose node cannot pay, was undone by D15 and D16 on 2026-09-17, and both the
+stack's uploader and the manager's own check now warn and start. That ruling is recorded in
+`../consensus/issues/t25-uploader-start-gates.md`.
 
 Status: decided 2026-09-05 late evening. Levi took D1 to D11 as recommended and put D12 on
 hold, so nothing in swarm-hls-stream changes for now. Building started the same night on stacked
