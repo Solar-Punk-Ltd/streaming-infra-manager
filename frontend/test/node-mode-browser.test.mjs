@@ -204,10 +204,10 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
     // node ultra-light, so a light one cannot take that default.
     assert.equal(await disabled('Stack default'), true);
   });
-  assert.match(light, /Light, publishes/);
+  assert.match(light, /Light, on the chain/);
   assert.match(light, /Manager's endpoint/);
   const lightPage = await body();
-  assert.match(lightPage, /Light, publishes/);
+  assert.match(lightPage, /Light, on the chain/);
   assert.match(lightPage, /Manager's endpoint \(/);
 
   const stream = await create('Stream to Swarm', 'stage-on-chain', async () => {
@@ -215,9 +215,9 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
     assert.equal(await chosen('Ultra-light'), null, 'a publishing node is told, not asked');
     assert.equal(await chosen("Manager's endpoint"), true);
   });
-  assert.match(stream, /Light, publishes/);
+  assert.match(stream, /Light, on the chain/);
   const streamPage = await body();
-  assert.match(streamPage, /Light, publishes/);
+  assert.match(streamPage, /Light, on the chain/);
   assert.match(streamPage, /Manager's endpoint \(/);
 
   // What the manager actually stored, rather than what the page rendered.

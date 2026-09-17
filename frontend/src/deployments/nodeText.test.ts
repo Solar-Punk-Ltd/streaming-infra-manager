@@ -23,8 +23,8 @@ import {
 import { nodeModeLabel, rpcEndpointLabel } from './nodeText';
 
 describe('what a node mode is called on a page', () => {
-  it('says what each mode can do, not what it is configured with', () => {
-    assert.equal(nodeModeLabel(LIGHT_NODE_MODE), 'Light, publishes');
+  it('names what each mode has, not the one thing it is usually for', () => {
+    assert.equal(nodeModeLabel(LIGHT_NODE_MODE), 'Light, on the chain');
     assert.equal(nodeModeLabel(ULTRA_LIGHT_NODE_MODE), 'Ultra-light, download only');
   });
 });

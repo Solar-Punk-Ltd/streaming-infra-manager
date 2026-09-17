@@ -15,8 +15,13 @@ import {
  * what an operator reads before creating a node and what they read on its page
  * afterwards cannot say different things about the same choice.
  */
+/**
+ * Light is named by what it has rather than by what it is for. Publishing is
+ * one thing it makes possible and not the only one: a viewer's gateway can be
+ * light too, and what it does with the chain is pay for what it downloads.
+ */
 const NODE_MODE_LABELS: Record<NodeMode, string> = {
-  [LIGHT_NODE_MODE]: 'Light, publishes',
+  [LIGHT_NODE_MODE]: 'Light, on the chain',
   [ULTRA_LIGHT_NODE_MODE]: 'Ultra-light, download only',
 };
 
