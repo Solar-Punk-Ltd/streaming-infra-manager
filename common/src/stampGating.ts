@@ -5,6 +5,7 @@ import {
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
 } from './constants.js';
+import type { NodeMode } from './nodeMode.js';
 
 export const KIND_DEFAULT_SERVICES = {
   streamer: [SRS_SERVICE, STREAM_UPLOADER_SERVICE, BEE_UPLOADER_SERVICE],
@@ -28,6 +29,11 @@ export interface StampGatedProfile {
    * node per rung, instead of to its own node. See usesNodePool.
    */
   bee_publishers?: string | null;
+  /**
+   * How much of a chain this deployment's Bee node runs with, or nothing for
+   * the mode the stack ships that node in. See effectiveNodeMode.
+   */
+  node_mode?: NodeMode | null;
 }
 
 export const ABR_UPLOADER_KIND = 'abr-uploader';
