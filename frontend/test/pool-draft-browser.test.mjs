@@ -175,7 +175,9 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   // exactly here twice on 2026-09-17 while every laptop and two-core run passed.
   await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership').catch(async (err) => {
     const page = (await body()).replace(/\s+/g, ' ').slice(0, 600);
-    throw new Error(`${err.message}. Writes ${writes.length}, held pool replies ${held.length}, cached refreshes ${refreshes.length}. The page said: ${JSON.stringify(page)}`);
+    const route = await evaluate('location.hash');
+    throw new Error(`${err.message}. Writes ${writes.length}, held pool replies ${held.length}, cached refreshes ${refreshes.length}, route ${route}. `
+      + `Page exceptions: ${JSON.stringify(browser.errors)}. Blocked requests: ${JSON.stringify(browser.blockedRequests)}. The page said: ${JSON.stringify(page)}`);
   });
   globalsReady = true; freshMembership.splice(0).forEach(entry => entry.reply());
   await assertDraft();
