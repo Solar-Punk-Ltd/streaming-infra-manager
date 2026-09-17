@@ -105,13 +105,19 @@ export const SERVICE_ENV_KEYS: Record<string, readonly string[]> = {
     'RPC_ENDPOINT',
     'BEE_VERBOSITY',
   ],
+  // A gateway's endpoint is its own key, not the RPC_ENDPOINT the other Bee
+  // services read. The stack gives this service an empty endpoint literal and
+  // never interpolates that variable, so listing it here claimed the container
+  // was started with something it has never read. The two keys below are what a
+  // gateway an operator put on the chain is started with.
   [BEE_GATEWAY_SERVICE]: [
     'BEE_GATEWAY_API_PORT',
     'BEE_GATEWAY_P2P_PORT',
     'BEE_GATEWAY_NAT_ADDR',
     'BEE_GATEWAY_DATA_DIR',
     'BEE_GATEWAY_CACHE_CAPACITY',
-    'RPC_ENDPOINT',
+    'BEE_GATEWAY_RPC_ENDPOINT',
+    'BEE_GATEWAY_SWAP_ENABLE',
     'BEE_VERBOSITY',
   ],
   [CLIENT_SERVICE]: [
