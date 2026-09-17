@@ -121,3 +121,32 @@ the step says why the node is being waited for and not only that it is.
 `73f347a` gave the offline mock the route, `ok` by default and
 `?state=waiting_for_node`, `?state=warned` or `?state=ok` to move it, sticking on
 the node entry so the page's ten second re-read keeps showing it.
+
+## Follow-up, found 2026-09-17 evening, not built
+
+The docs and comment review of that evening measured one boot path rather than
+reading it, and found a gap in the wait. A feed head read whose transfer breaks
+on the way back (`ECONNABORTED` or `ECONNRESET`) makes `StreamCatalog.init` ask
+the node a liveness check. A node that does not answer it makes
+`payloadUnreadableOnLiveNode` false, so `init` rethrows the transfer error, and
+the wait's classifier in `packages/stream-uploader/src/libs/NodeWait.ts`,
+`isNodeUnavailable`, reads a `NodeUnreachableError`, then a status, then
+`.code`, then the message text. bee-js builds that error as a
+`BeeResponseError` with the transport code on `statusText`, no `code`, and the
+message "response stream aborted", which matches none of the four, so the boot
+ends and docker restarts the container. The next boot's probe then waits, so
+the cost is one exit per occurrence rather than a loop, unless the node keeps
+answering the probe and dropping the body. The test
+`packages/stream-uploader/test/StreamCatalog.test.ts` "keeps the boot fatal when
+the node does not answer a liveness check" proves the behaviour as it is, and
+the docblock above `payloadUnreadableOnLiveNode` records the measurement
+(stack `a85411b4`).
+
+Priority P2: narrow in normal use (a node restarting between the probe and the
+head lookup), and it troubles an operator whose uploader exits in exactly the
+state D16 says it should stay up in and answer `waiting_for_node`. Fixing costs
+one alternative in the classifier (read `statusText`, or the aborted-stream
+text) and one test built through bee-js's own error shape, an hour on the
+stack's line. Accepting costs the one exit and the restart. Recommendation:
+fix, on Levi's word, as its own change with its test, since the review that
+found it was words only. Owner: Levi's decision, recorded in the handover.
