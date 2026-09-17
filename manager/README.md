@@ -524,11 +524,14 @@ one is generated per deployment as before, and a value already in
 `profiles.stack_secrets` still wins over both, because rotating the token a
 running container was started with is a decision rather than a side effect.
 
-Adding and updating run `manager/scripts/stack-version-build.sh <root> <ref>
-<repo-url>`, which clones or fetches, exports the fetched commit into a staging
-tree beside the root, builds the packages there in a throwaway `node:22-alpine`
-container, copies the built tree back into the root with every env file kept,
-and copies `.env.sample` and `deploy/config.sample.json` into place. One build
+Adding and updating run `manager/scripts/stack-version-build.sh <repo-root>
+<staging-dir> <ref> <repo-url> <attempt-id>`, which clones or fetches, exports
+the fetched commit into the staging tree under the version's builds directory,
+and builds the packages there in a throwaway `node:22-alpine` container shown
+that tree and nothing else. The manager then publishes the built tree as a
+numbered build of its own, seeds the version's host-owned root from the build's
+samples, `.env`, each engine's `.env` and `deploy/config.json`, each only where
+the root has no file of its own, and removes the staging tree. One build
 runs at a time: the stack still tags its images by service name alone, so two
 at once would overwrite each other's tags.
 
