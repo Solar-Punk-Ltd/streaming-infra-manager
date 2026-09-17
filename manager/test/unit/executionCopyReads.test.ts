@@ -175,3 +175,21 @@ it('says which build it is copying and how far it has got', async t => {
   assert.ok(said.some(line => new RegExp(`preparing a copy of build ${commit}, ${files} files`).test(line)), said.join('\n'));
   assert.ok(said.filter(line => /linked \d+ of \d+ files/.test(line)).length > 1, said.join('\n'));
 });
+
+it('takes a fresh inventory when the build under the record was rebuilt at the same id', async () => {
+  // A pruned build's record stays beside the builds, and a rollback gets the same id back from freeBuildId.
+  const service = new ExecutionRootService(storeFor(), executions);
+  await service.prepare(preparation(7));
+  const stale = await fsPromises.readFile(`${build}.inventory.json`, 'utf8');
+
+  await fsPromises.rm(build, { recursive: true, force: true });
+  await fsPromises.mkdir(join(build, 'deploy', 'scripts'), { recursive: true });
+  await fsPromises.writeFile(join(build, 'deploy', 'scripts', 'deploy.sh'), '#!/bin/sh\nexit 1\n');
+  await fsPromises.writeFile(join(build, BUILD_MANIFEST_FILE), JSON.stringify({ buildId: commit, commit, builtAt: '2026-09-17T00:00:00.000Z', toolchain: 'synthetic' }));
+  await fsPromises.writeFile(join(build, BUILD_COMPLETE_MARKER), '');
+
+  const prepared = await service.prepare(preparation(8));
+
+  assert.ok(prepared, 'the rebuilt build was refused, so its id can never be deployed again');
+  assert.notEqual(await fsPromises.readFile(`${build}.inventory.json`, 'utf8'), stale, 'the record still describes the build that is gone');
+});

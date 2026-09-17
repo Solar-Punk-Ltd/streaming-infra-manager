@@ -8,6 +8,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 import { Logger } from '../Logger.js';
 
 import {
+  durablePathStamp,
   inventoryOwnedTree,
   ownedTreeDigest,
   type OwnedTreeEntry,
@@ -162,13 +163,22 @@ export async function forgetRecordsOfGoneBuilds(buildsParent: string): Promise<v
  * only one its bytes can need. A build published before this existed has no
  * record and gets one here, so nothing has to be done by hand for it.
  *
+ * A record is only this build's while this build is the directory it was taken
+ * of. A pruned build leaves its record beside the builds, and the same build id
+ * comes back when an operator rolls back to that commit, so the record's own
+ * stamp of the build root is read back before it is believed. A directory that
+ * was made again is another inode with another modification time, and is
+ * inventoried again.
+ *
  * A record that cannot be written is a warning and not a failure: the deploy
  * goes ahead on the inventory this call took, and the next one takes another.
  */
 export async function buildInventory(buildRoot: string): Promise<BuildInventory> {
   const started = Date.now();
   const existing = await readBuildInventoryRecord(buildRoot);
-  if (existing) return { record: existing, hashed: false, tookMs: Date.now() - started };
+  if (existing && existing.durableStamps[''] === await durablePathStamp(buildRoot)) {
+    return { record: existing, hashed: false, tookMs: Date.now() - started };
+  }
   const taken = await inventoryOwnedTree(buildRoot);
   const record: BuildInventoryRecord = {
     format: RECORD_FORMAT,

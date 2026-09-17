@@ -138,3 +138,6 @@ export const stampOwnedTree = (root: string, excludedRootFile?: string): Promise
 /** The same walk against a record that outlives the links made from the tree, so without the status-change time. */
 export const durableStampOwnedTree = (root: string, excludedRootFile?: string): Promise<OwnedTreeInventory['durableStamps']> =>
   stampWalk(root, durableStamp, excludedRootFile);
+
+/** The durable stamp of one path, for a caller asking whether a record still describes the thing it names. */
+export const durablePathStamp = async (path: string): Promise<string> => durableStamp(await lstat(path, { bigint: true }));
