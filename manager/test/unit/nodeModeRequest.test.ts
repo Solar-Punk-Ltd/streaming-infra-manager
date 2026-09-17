@@ -273,6 +273,19 @@ describe('an edit of a deployment that already exists', () => {
     assert.equal(row?.rpc_endpoint_source, 'manager');
   });
 
+  it('refuses an edit of a deployment whose manager has lost its endpoint', async () => {
+    // The row says it takes the manager's endpoint and the manager now has
+    // none. The deploy refuses for the same reason, and this is the earlier of
+    // the two doors, where the operator can still choose another endpoint.
+    const harness = profileServiceHarness([stored({ rpc_endpoint_source: 'manager' })]);
+
+    await assert.rejects(
+      harness.service.update('stage', { notes: 'edited' }),
+      /the manager has no RPC endpoint configured/,
+    );
+    assert.equal(harness.profiles.rows.get('stage')?.notes, null);
+  });
+
   it('refuses an edit that puts a light gateway on the stack’s default', async () => {
     const harness = profileServiceHarness(
       [stored({ kind: 'viewer', node_mode: 'light', rpc_endpoint_source: 'manager' })],
