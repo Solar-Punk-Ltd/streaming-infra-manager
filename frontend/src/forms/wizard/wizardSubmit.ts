@@ -26,6 +26,7 @@ import {
   needsPassphrase,
   needsStreamKey,
   nodeModeQuestion,
+  offersRpcEndpoint,
   offersSegmentLength,
   poolValueIn,
   usesExternalBee,
@@ -130,16 +131,21 @@ function sharedBody(state: WizardState, context: WizardContext) {
 
 /**
  * What this deployment says about the Bee node it is creating: the mode where
- * the step offered a choice, and where it reaches the chain.
+ * the step offered a choice, and where a light node reaches the chain.
  *
- * The source is always named. A body that leaves it out is read by
- * `impliedRpcEndpointSource`, which lands on the same answer, so saying it
- * plainly costs nothing and leaves nothing for the two sides to disagree
- * about later. The mode is left out where the step offered no choice: a
- * publishing node is told it is light rather than asked, and the stack already
- * starts that node with the chain on, so a stored null reads the same way.
+ * Both are left out where the step asked nothing. The mode, because a
+ * publishing node is told it is light rather than asked and the stack already
+ * starts that node with the chain on, so a stored null reads the same way. The
+ * source, because a node with no chain reads no endpoint, and naming the
+ * manager's would write a keyed URL into an env file that travels to the
+ * viewer's host for a node that never reads it.
  */
 function nodeBody(state: WizardState): Partial<CreateProfileBody> {
+  if (!offersRpcEndpoint(state)) {
+    return nodeModeQuestion(state) === 'choice'
+      ? { node_mode: chosenNodeMode(state) }
+      : {};
+  }
   const address =
     state.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE
       ? state.rpcEndpoint.trim()

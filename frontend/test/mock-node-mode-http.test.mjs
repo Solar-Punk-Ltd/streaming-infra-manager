@@ -170,20 +170,38 @@ describe('what the offline manager stores for a new node', { concurrency: false,
   });
 
   /**
-   * A body that names no source still means one. An address and nothing else
-   * is a custom endpoint, and otherwise the manager's own is what it offers,
-   * which is the whole point of having one configured.
+   * A body that names no source still means one, and which depends on the node.
+   * A publishing node gets the manager's own endpoint, which is the whole point
+   * of having one configured. A node with no chain reads no endpoint at all, so
+   * it is left on the stack's rather than handed a keyed URL it never reads.
    */
   it('reads a create that names no source as the manager own endpoint', async () => {
-    const { body } = await request('/profiles', 'POST', newViewer('offline-plain-gateway'));
+    const { body } = await request('/profiles', 'POST', {
+      name: 'offline-plain-node',
+      kind: 'custom',
+      host: 'localhost',
+      components: ['bee-uploader'],
+    });
 
     assert.equal(body.node_mode, null);
     assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
   });
 
+  it('reads it as the stack default for a node that reaches no chain', async () => {
+    const { body } = await request('/profiles', 'POST', newViewer('offline-plain-gateway'));
+
+    assert.equal(body.node_mode, null);
+    assert.equal(body.rpc_endpoint_source, STACK_RPC_ENDPOINT_SOURCE);
+  });
+
   it('reads it as the stack default on a manager that has none', async () => {
     await request('/config?state=none');
-    const { body } = await request('/profiles', 'POST', newViewer('offline-stackbound-gateway'));
+    const { body } = await request('/profiles', 'POST', {
+      name: 'offline-stackbound-node',
+      kind: 'custom',
+      host: 'localhost',
+      components: ['bee-uploader'],
+    });
     await request('/config?state=configured');
 
     assert.equal(body.rpc_endpoint_source, STACK_RPC_ENDPOINT_SOURCE);

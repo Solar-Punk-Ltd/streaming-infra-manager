@@ -224,11 +224,10 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   const stored = await evaluate(`fetch('/profiles').then(r => r.json()).then(body => body.profiles
     .filter(profile => ['gateway-offline', 'gateway-on-chain', 'stage-on-chain'].includes(profile.name))
     .map(profile => [profile.name, profile.node_mode, profile.rpc_endpoint_source, profile.rpc_endpoint]))`);
-  // The source is stored even for the node that reaches no chain: a body that
-  // left it out would be read by the manager as the same answer, and the page
-  // reads the mode before the source.
+  // The node with no chain is left on the stack's endpoint rather than handed
+  // the manager's, which it would never read.
   assert.deepEqual(stored.sort(), [
-    ['gateway-offline', 'ultra-light', 'manager', null],
+    ['gateway-offline', 'ultra-light', 'stack', null],
     ['gateway-on-chain', 'light', 'manager', null],
     ['stage-on-chain', null, 'manager', null],
   ]);

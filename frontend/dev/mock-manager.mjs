@@ -470,11 +470,8 @@ function nodeEditProblem(profile, body) {
   if (mode && mode !== effectiveNodeMode(profile)) {
     return 'a node’s mode is chosen when it is created';
   }
-  const source =
-    body.rpc_endpoint_source ??
-    keptRpcEndpointSource(body.rpc_endpoint, profile.rpc_endpoint_source);
   return rpcEndpointChoiceProblem({
-    source,
+    source: editedSource(profile, body),
     url: body.rpc_endpoint,
     managerHasEndpoint: beeRpcEndpointConfigured,
     nodeMode: mode ?? profile.node_mode,
@@ -482,12 +479,24 @@ function nodeEditProblem(profile, body) {
   });
 }
 
+/** Where an edit leaves this node's endpoint, named or kept. */
+function editedSource(profile, body) {
+  return (
+    body.rpc_endpoint_source ??
+    keptRpcEndpointSource({
+      url: body.rpc_endpoint,
+      stored: profile.rpc_endpoint_source,
+      managerHasEndpoint: beeRpcEndpointConfigured,
+      nodeMode: body.node_mode ?? profile.node_mode,
+      services: defaultServicesFor(profile),
+    })
+  );
+}
+
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
-  profile.rpc_endpoint_source =
-    body.rpc_endpoint_source ??
-    keptRpcEndpointSource(body.rpc_endpoint, profile.rpc_endpoint_source);
+  profile.rpc_endpoint_source = editedSource(profile, body);
   // The source and the address travel together, so a row can never say it
   // takes the manager's endpoint while holding one of its own.
   if (profile.rpc_endpoint_source !== CUSTOM_RPC_ENDPOINT_SOURCE) profile.rpc_endpoint = null;
@@ -518,9 +527,15 @@ function nodeChoicesFor(body, extra = {}) {
     components: extra.components ?? body.components,
     node_mode: body.node_mode ?? null,
   };
+  const services = defaultServicesFor(shape);
   const source =
     body.rpc_endpoint_source ??
-    impliedRpcEndpointSource(body.rpc_endpoint, beeRpcEndpointConfigured);
+    impliedRpcEndpointSource({
+      url: body.rpc_endpoint,
+      managerHasEndpoint: beeRpcEndpointConfigured,
+      nodeMode: shape.node_mode,
+      services,
+    });
   return {
     rpc_endpoint_source: source,
     node_mode: shape.node_mode,
@@ -531,7 +546,7 @@ function nodeChoicesFor(body, extra = {}) {
         url: body.rpc_endpoint,
         managerHasEndpoint: beeRpcEndpointConfigured,
         nodeMode: shape.node_mode,
-        services: defaultServicesFor(shape),
+        services,
       }) ?? nodeModeProblem(shape),
   };
 }
