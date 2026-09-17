@@ -321,6 +321,7 @@ async function main(): Promise<void> {
     targetDocker,
     portInventory,
     executionRoots,
+    config.beeRpcEndpoint,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();

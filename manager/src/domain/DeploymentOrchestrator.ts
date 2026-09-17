@@ -6,10 +6,12 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
   abrLadderEnvValue,
+  effectiveNodeMode,
   engineForComponents,
   type EngineName,
   engineSettingsEnv,
   getErrorMessage,
+  isLightGateway,
   ownsBeeNode,
   portExposureProblem,
   slotCapFor,
@@ -371,6 +373,13 @@ export class DeploymentOrchestrator {
     private readonly portObserver?: PublishedPortsProbe,
     private readonly inventoryTargets?: DeployTargets,
     private readonly executions?: ExecutionRoots,
+    /**
+     * The manager's own chain endpoint, BEE_RPC_ENDPOINT. A deployment whose
+     * source is `manager` has this written into its env file, and one whose
+     * manager has since lost it fails its deploy rather than falling back to
+     * the stack's public RPC without saying so.
+     */
+    private readonly managerRpcEndpoint?: string | null,
   ) {}
 
   /**
@@ -1022,6 +1031,15 @@ export class DeploymentOrchestrator {
         beePublishers: profile.bee_publishers,
         beeUrl: profile.bee_url,
         rpcEndpoint: profile.rpc_endpoint,
+        rpcEndpointSource: profile.rpc_endpoint_source,
+        managerRpcEndpoint: this.managerRpcEndpoint ?? null,
+        // From the profile's own components and its stored mode, as
+        // localBeeUploader is: this is the one place a mode becomes keys in a
+        // file.
+        lightGateway: isLightGateway(
+          defaultServicesFor(profile),
+          effectiveNodeMode(profile),
+        ),
         srtPassphrase: secrets.srtPassphrase,
         streamKey: secrets.streamKey,
         engineSettings: profile.engine_settings,

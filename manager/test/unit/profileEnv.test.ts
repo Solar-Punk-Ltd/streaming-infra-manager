@@ -502,3 +502,109 @@ describe('the chain endpoint a deployment names for itself', () => {
   });
 });
 
+describe('the chain endpoint a deployment takes from its source', () => {
+  const MANAGER = 'https://rpc.manager.example.org/key';
+  const OWN = 'http://host.docker.internal:9000';
+
+  it('writes the manager’s endpoint for a deployment that takes it', () => {
+    writeBaseEnv('ENGINE=srs\nRPC_ENDPOINT=https://rpc.gnosischain.com\n');
+
+    const path = writeProfileEnv(root, 'from-manager', {
+      engine: 'srs',
+      rpcEndpointSource: 'manager',
+      managerRpcEndpoint: MANAGER,
+    });
+
+    assert.equal(lineFor(path, 'RPC_ENDPOINT'), `RPC_ENDPOINT=${MANAGER}`);
+  });
+
+  it('writes the deployment’s own address for a custom one', () => {
+    writeBaseEnv('ENGINE=srs\nRPC_ENDPOINT=https://rpc.gnosischain.com\n');
+
+    const path = writeProfileEnv(root, 'from-own', {
+      engine: 'srs',
+      rpcEndpointSource: 'custom',
+      rpcEndpoint: OWN,
+      managerRpcEndpoint: MANAGER,
+    });
+
+    assert.equal(lineFor(path, 'RPC_ENDPOINT'), `RPC_ENDPOINT=${OWN}`);
+  });
+
+  it('writes no line at all for a deployment on the stack’s endpoint', () => {
+    writeBaseEnv('ENGINE=srs\nRPC_ENDPOINT=https://rpc.gnosischain.com\n');
+
+    const path = writeProfileEnv(root, 'from-stack', {
+      engine: 'srs',
+      rpcEndpointSource: 'stack',
+      managerRpcEndpoint: MANAGER,
+    });
+
+    assert.equal(lineFor(path, 'RPC_ENDPOINT'), 'RPC_ENDPOINT=https://rpc.gnosischain.com');
+  });
+
+  it('refuses to deploy a deployment whose manager has lost its endpoint', () => {
+    // The row says it takes the manager's endpoint and the manager now has
+    // none. Writing no line would move it onto the stack's public RPC, and
+    // nothing anywhere would say it had moved.
+    writeBaseEnv();
+
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'lost-manager', {
+          engine: 'srs',
+          rpcEndpointSource: 'manager',
+          managerRpcEndpoint: null,
+        }),
+      /BEE_RPC_ENDPOINT/,
+    );
+  });
+});
+
+describe('the keys a Bee gateway put on the chain reads', () => {
+  const MANAGER = 'https://rpc.manager.example.org/key';
+
+  it('gives a light gateway the same endpoint and turns SWAP on', () => {
+    writeBaseEnv();
+
+    const path = writeProfileEnv(root, 'light-gateway', {
+      engine: 'srs',
+      rpcEndpointSource: 'manager',
+      managerRpcEndpoint: MANAGER,
+      lightGateway: true,
+    });
+
+    assert.equal(lineFor(path, 'BEE_GATEWAY_RPC_ENDPOINT'), `BEE_GATEWAY_RPC_ENDPOINT=${MANAGER}`);
+    assert.equal(lineFor(path, 'BEE_GATEWAY_SWAP_ENABLE'), 'BEE_GATEWAY_SWAP_ENABLE=true');
+    assert.equal(lineFor(path, 'RPC_ENDPOINT'), `RPC_ENDPOINT=${MANAGER}`);
+  });
+
+  it('gives an ultra-light gateway neither, which is what the stack ships', () => {
+    writeBaseEnv();
+
+    const path = writeProfileEnv(root, 'ultra-light-gateway', {
+      engine: 'srs',
+      rpcEndpointSource: 'stack',
+      managerRpcEndpoint: MANAGER,
+      lightGateway: false,
+    });
+
+    assert.equal(lineFor(path, 'BEE_GATEWAY_RPC_ENDPOINT'), undefined);
+    assert.equal(lineFor(path, 'BEE_GATEWAY_SWAP_ENABLE'), undefined);
+  });
+
+  it('refuses a light gateway that would come up with no chain at all', () => {
+    writeBaseEnv();
+
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'chainless-gateway', {
+          engine: 'srs',
+          rpcEndpointSource: 'stack',
+          lightGateway: true,
+        }),
+      /BEE_GATEWAY_RPC_ENDPOINT/,
+    );
+  });
+});
+

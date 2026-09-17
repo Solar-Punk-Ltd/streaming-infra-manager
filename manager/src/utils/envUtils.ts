@@ -8,6 +8,8 @@ import {
   applicableEngineSettings,
   beePublishersProblem,
   beeUrlProblem,
+  impliedRpcEndpointSource,
+  type RpcEndpointSource,
   rpcEndpointProblem,
   effectiveEngineDefaults,
   ENGINE_CONFIG_ENV_KEYS,
@@ -247,10 +249,52 @@ export interface ProfileEnvValues {
    */
   localBeeUploader?: boolean;
   /**
-   * The chain endpoint this deployment's Bee nodes use, or nothing to take the
-   * one its stack version carries.
+   * The chain endpoint this deployment stores for itself, which applies when
+   * its source is `custom` and is ignored otherwise.
    */
   rpcEndpoint?: string | null;
+  /**
+   * Where this deployment's endpoint comes from. Absent is read off the address
+   * above, which is how every deployment written before the source existed is
+   * read.
+   */
+  rpcEndpointSource?: RpcEndpointSource | null;
+  /** The manager's own endpoint, BEE_RPC_ENDPOINT, which `manager` names. */
+  managerRpcEndpoint?: string | null;
+  /**
+   * Whether this deployment's Bee gateway runs with the chain on, worked out
+   * from its services and its mode by the caller, as `localBeeUploader` is.
+   */
+  lightGateway?: boolean;
+}
+
+/**
+ * The address this deployment's Bee nodes reach the chain through, or null to
+ * leave the stack's own value standing.
+ *
+ * A source that names a value and finds none stops the deploy rather than
+ * writing no line. The difference is invisible in the file either way, and the
+ * silent version moves the deployment onto the stack's public RPC, which is the
+ * endpoint an operator who configured their own is trying to get off. It
+ * happens whenever BEE_RPC_ENDPOINT is removed from a manager that has
+ * deployments on it.
+ */
+function resolveRpcEndpoint(
+  source: RpcEndpointSource,
+  values: ProfileEnvValues,
+): string | null {
+  if (source === 'stack') return null;
+  const named =
+    source === 'manager' ? values.managerRpcEndpoint : values.rpcEndpoint;
+  const address = named?.trim();
+  if (!address) {
+    throw new Error(
+      source === 'manager'
+        ? 'refusing to write RPC_ENDPOINT to the env file: this deployment takes the manager’s chain endpoint and the manager has none. Set BEE_RPC_ENDPOINT, or move the deployment onto an endpoint of its own.'
+        : 'refusing to write RPC_ENDPOINT to the env file: this deployment names a chain endpoint of its own and none is stored',
+    );
+  }
+  return address;
 }
 
 // deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
@@ -327,10 +371,13 @@ export function writeProfileEnv(
   // Every Bee node reads this, and the only place to set it used to be the
   // stack version, so every deployment on a version shared one endpoint. The
   // shipped default is a public RPC that answered one node 4568 HTTP 429s in
-  // two hours on 2026-09-15, so a deployment has to be able to name its own.
-  // Absent leaves the version value standing, which is what every deployment
-  // did before this existed.
-  const rpcEndpoint = values.rpcEndpoint?.trim();
+  // two hours on 2026-09-15, so a deployment has to be able to name its own or
+  // take the manager's. The stack's own value standing is what every deployment
+  // did before any of this existed, and it is what `stack` still means.
+  const rpcEndpointSource =
+    values.rpcEndpointSource ??
+    impliedRpcEndpointSource(values.rpcEndpoint, Boolean(values.managerRpcEndpoint));
+  const rpcEndpoint = resolveRpcEndpoint(rpcEndpointSource, values);
   if (rpcEndpoint) {
     const problem = rpcEndpointProblem(rpcEndpoint);
     if (problem) {
@@ -339,6 +386,20 @@ export function writeProfileEnv(
       );
     }
     contents = upsertEnvLine(contents, 'RPC_ENDPOINT', rpcEndpoint);
+  }
+
+  // The stack starts its gateway with an empty endpoint and SWAP off, which is
+  // what makes that node ultra-light. A gateway an operator put on the chain
+  // needs both said the other way, and it is the same endpoint the rest of the
+  // deployment reaches the chain through.
+  if (values.lightGateway) {
+    if (!rpcEndpoint) {
+      throw new Error(
+        'refusing to write BEE_GATEWAY_RPC_ENDPOINT to the env file: a light gateway needs a chain endpoint and this deployment takes the stack’s, which for a gateway is none',
+      );
+    }
+    contents = upsertEnvLine(contents, 'BEE_GATEWAY_RPC_ENDPOINT', rpcEndpoint);
+    contents = upsertEnvLine(contents, 'BEE_GATEWAY_SWAP_ENABLE', 'true');
   }
 
   const beeUrl = values.beeUrl?.trim();
