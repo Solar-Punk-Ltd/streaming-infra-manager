@@ -1620,7 +1620,8 @@ export class DeploymentOrchestrator {
    * The environment the containers were started with, as far as the manager
    * can tell without asking Docker: the base env of the version's checkout,
    * the version's port table shifted by the slot the way `deploy.sh` shifts
-   * it, and the per profile values `.env.<profile>` carries.
+   * it, and the per profile values `.env.<profile>` carries, except the chain
+   * endpoint and the gateway's mode keys, which are not repeated here.
    */
   private buildEffectiveEnv(
     profile: Profile,
