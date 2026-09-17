@@ -31,10 +31,11 @@ interface Answer {
 function serviceAnswering(
   answer: Answer | Error,
   services: string[] = [STREAM_UPLOADER_SERVICE, 'srs'],
+  host: string | null = null,
 ) {
   const asked: string[] = [];
   const aborts: unknown[] = [];
-  const profiles = new InMemoryProfiles([makeProfile({ name: 'stage' })]);
+  const profiles = new InMemoryProfiles([makeProfile({ name: 'stage', host })]);
   const containers = {
     async listApiContainers(): Promise<
       { service: string; ports: Record<string, number>; buildId: null; buildCommit: null }[]
@@ -193,6 +194,32 @@ describe('the manager reading an uploader health route', () => {
     const reading = await service.read('stage');
 
     assert.deepEqual(reading, { state: 'unreachable', reasons: [] });
+  });
+
+  it('reaches a deployment on this machine however its deploy target spells it', async () => {
+    for (const host of ['localhost', '127.0.0.1', '0.0.0.0', 'native', 'deploy@localhost']) {
+      const { service, asked } = serviceAnswering(
+        { status: 200, body: { status: 'ok', reasons: [] } },
+        [STREAM_UPLOADER_SERVICE],
+        host,
+      );
+
+      await service.read('stage');
+
+      assert.deepEqual(asked, [HEALTH_URL], `${host} is this machine`);
+    }
+  });
+
+  it('asks a deployment on a declared remote host at that host', async () => {
+    const { service, asked } = serviceAnswering(
+      { status: 200, body: { status: 'ok', reasons: [] } },
+      [STREAM_UPLOADER_SERVICE],
+      'deploy@65.108.40.58',
+    );
+
+    await service.read('stage');
+
+    assert.deepEqual(asked, ['http://65.108.40.58:10010/health']);
   });
 
   it('asks nothing of a deployment that runs no uploader', async () => {

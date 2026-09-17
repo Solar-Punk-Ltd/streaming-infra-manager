@@ -17,7 +17,7 @@ import { resolveNetworkHost } from '../utils/deployHost.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
 import { ProfileNotFoundError } from './errors/index.js';
-import { LOCAL_PUBLISHED_HOST } from './localHost.js';
+import { LOCAL_DEPLOY_TARGETS, LOCAL_PUBLISHED_HOST } from './localHost.js';
 import { Logger } from './Logger.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { portFor, portTableOf } from './versions/portTable.js';
@@ -39,14 +39,6 @@ const READ_BUDGET_MS = 3_000;
 const MAX_REASONS = 20;
 const MAX_WARNINGS = 12;
 const MAX_TEXT = 500;
-
-/**
- * The same set `beeApiUrlFor` keeps, for the same column: `profiles.host` is a
- * deploy target, and these five spellings all mean this machine. They are
- * written twice rather than shared because the two live in different services
- * and neither owns the other's reading.
- */
-const LOCAL_HOSTS = new Set(['', 'localhost', '127.0.0.1', '0.0.0.0', 'native']);
 
 /** Takes the request, so a test can answer without a listening socket. */
 export type UploaderHealthFetch = (
@@ -131,7 +123,7 @@ export class UploaderHealthService {
     }
 
     const declared = resolveNetworkHost((profile.host ?? '').trim());
-    const host = LOCAL_HOSTS.has(declared) ? LOCAL_PUBLISHED_HOST : declared;
+    const host = LOCAL_DEPLOY_TARGETS.has(declared) ? LOCAL_PUBLISHED_HOST : declared;
     return `http://${host}:${portFor(port, profile.port_slot)}/health`;
   }
 }

@@ -37,18 +37,11 @@ import {
 } from './nodeReadLog.js';
 import { readFailureFrom } from './nodeReadFailure.js';
 import { ProfileRepository } from './ProfileRepository.js';
-import { LOCAL_PUBLISHED_HOST } from './localHost.js';
+import { LOCAL_DEPLOY_TARGETS, LOCAL_PUBLISHED_HOST } from './localHost.js';
 
 const logger = Logger.getInstance();
 
 const BEE_UPLOADER_API_BASE_PORT = 10005;
-const LOCAL_HOSTS = new Set([
-  '',
-  'localhost',
-  '127.0.0.1',
-  '0.0.0.0',
-  'native',
-]);
 
 // Local profiles publish their bee API on a host port, reached the way every
 // published port is.
@@ -98,7 +91,7 @@ function networkHostOf(declaredHost: string): string {
 export function beeApiUrlFor(profile: Profile): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = networkHostOf((profile.host ?? '').trim());
-  const host = LOCAL_HOSTS.has(declared) ? LOCAL_BEE_HOST : declared;
+  const host = LOCAL_DEPLOY_TARGETS.has(declared) ? LOCAL_BEE_HOST : declared;
   return `http://${host}:${port}`;
 }
 
@@ -123,7 +116,7 @@ export function beePublisherUrlFor(
 ): string {
   const port = BEE_UPLOADER_API_BASE_PORT + profile.port_slot * 10;
   const declared = networkHostOf((profile.host ?? '').trim());
-  const host = LOCAL_HOSTS.has(declared) ? localPublisherHost : declared;
+  const host = LOCAL_DEPLOY_TARGETS.has(declared) ? localPublisherHost : declared;
   return `http://${host}:${port}`;
 }
 
