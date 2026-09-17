@@ -673,11 +673,11 @@ curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
 ## Environment
 
 Everything comes from `manager/.env`. `manager/.env.sample` documents the keys
-an operator sets by hand. Five more are read that it does not carry:
-`SHLS_ROOT`, `BEE_DATA_ROOT` and `STACK_VERSIONS_ROOT`, which
-`docker-compose.yml` sets for the `api` container, `WEB_PORT`, which the compose
-file interpolates for the `web` port binding, and the two below that decide
-whether a chequebook transfer can be made at all.
+an operator sets by hand. Five more are used that it does not carry:
+`SHLS_ROOT` and `BEE_DATA_ROOT`, which `docker-compose.yml` sets for the `api`
+container, `WEB_PORT`, which the compose file interpolates for the `web` port
+binding, and the two below that decide whether a chequebook transfer can be
+made at all.
 
 **`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** have no
 default and no fallback. With either missing, saved operations stay readable and
@@ -686,8 +686,8 @@ shapes are in `docs/testing/t09-money-api.md`. Neither belongs in a file that is
 committed: route the value into the process rather than writing it down.
 
 The keys that decide where the streaming stack lives, the ssh identity the
-manager deploys to other hosts with, and the chain endpoint it offers the Bee
-nodes it creates:
+manager deploys to other hosts with, the chain endpoint it offers the Bee nodes
+it creates, the address the API binds and where it reads the host's own numbers:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -695,6 +695,9 @@ nodes it creates:
 | `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
 | `MANAGER_SSH_DIR`     | `/home/solarpunk/manager-ssh`                      | The ssh identity the manager deploys to other hosts with: the deploy key, `known_hosts`, and an `ssh_config` with a `Host` block per target alias. Mounted at `/root/.ssh` in the api container, whose image links `/etc/ssh/ssh_config` to the `ssh_config` in it. `deploy.sh` creates the directory, empty, so it is only filled when a deployment's host is not `localhost`. See [deploy/README.md](../deploy/README.md). |
 | `BEE_RPC_ENDPOINT`    | none                                               | The chain endpoint every Bee node created here is offered first, which is what `rpc_endpoint_source: manager` writes into a deployment's env file. Optional, and a malformed value stops the manager at startup rather than reverting to the stack's public RPC. Such a URL can carry an API key: `GET /config` answers only its host, the container logs this manager serves and the deploy output it stores have it taken out of them, and the manager's own boot line prints its host. The Bee node prints the whole address into its own container log on the host it runs on, which no manager code can prevent, so the safe shape is an address carrying no key, such as a proxy on the host that holds it. Removing the variable from a manager that has deployments on it refuses their next edit and their next deploy with it named, which is the alternative to moving them onto the public endpoint in silence. |
+| `MANAGER_HOST`        | `0.0.0.0`                                          | The address the API binds. Every interface by default, which is what the `web` container needs to reach the `api` container. Narrow it to `127.0.0.1` when the manager runs on the host and the port should answer nothing but the loopback. |
+| `HOST_PROC`           | `/host/proc`, then `/proc`                         | Where the resource monitor reads the host's CPU and memory. `docker-compose.yml` bind-mounts the host's `/proc` there read-only, and the fallback is the container's own `/proc`, so a manager run outside Docker reports its own box. |
+| `HOST_ROOTFS`         | `/host/rootfs`, then `/`                           | Where the resource monitor reads the host's disk, mounted read-only the same way, with the same fallback. |
 
 The first two are bind-mounted into the api container at the same absolute path
 they have on the host, because the docker daemon runs on the host and reads
