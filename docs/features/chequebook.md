@@ -26,17 +26,19 @@ The storage card shows wallet balances, the chequebook address, total and
 available chequebook balances, and settlement totals when the node answers.
 Unavailable readings remain unknown and must not appear as zero or a fresh
 successful reading. The manager's configured floor is shown consistently in
-the UI and enforced on paths that start an uploader. The default floor is
+the UI. On the paths that start an uploader a balance under it is a warning,
+never a refusal, on the owner's ruling of 2026-09-17. The default floor is
 0.5 BZZ. The protocol amount uses PLUR, with 10^16 PLUR per BZZ.
 
 Under decision D16 of 2026-09-17, which amends D02 of 2026-09-07, a node that
-does not answer no longer refuses a new uploader start. Both of the manager's
-start checks, the batch and the chequebook, log a warning and let the start
-through when the node says nothing. What they still refuse is an answer the
-node gave: a batch it calls unknown, expired or not usable yet, a chequebook
-balance under the floor, or a balance it answered with that cannot be read at
-all. Neither policy automatically stops an existing stream. Engine-only
-recovery and node bootstrap remain separate from starting an uploader.
+does not answer no longer refuses a new uploader start. The chequebook check
+never refuses at all, on the owner's further ruling the same day: a node that
+says nothing, a balance that cannot be read and a balance under the floor are
+each a warning in the manager's log, and the start proceeds. The one refusal
+left is the batch check, and only for a batch the node itself reports as
+unknown, expired or not usable yet. Neither policy automatically stops an
+existing stream. Engine-only recovery and node bootstrap remain separate from
+starting an uploader.
 
 A read-only balance or readiness check does not submit money. Filling the
 chequebook requires an explicit confirmed transfer intent. The manager does
