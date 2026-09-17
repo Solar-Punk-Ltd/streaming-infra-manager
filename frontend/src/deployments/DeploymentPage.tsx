@@ -7,6 +7,7 @@ import {
   rungFromMemberName,
   sameBatchId,
   stampHealthFrom,
+  STREAM_UPLOADER_SERVICE,
   suggestedRungDepth,
 } from '@streaming-infra-manager/common';
 
@@ -37,6 +38,7 @@ import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
 import { usePublishUrl } from './usePublishUrl';
+import { useUploaderHealth } from './useUploaderHealth';
 import { useEngineOverview } from './useEngineOverview';
 import { HeldAttemptCard } from './HeldAttemptCard';
 import { LastErrorCard } from './LastErrorCard';
@@ -137,6 +139,13 @@ function DeploymentBody({
   const shape = shapeOf(profile);
   const engine = engineOf(profile);
   const engineLoad = useEngineOverview(engine ? profile : null);
+  // Only where there is an uploader to ask. Since D16 one can be running and
+  // still waiting for a Bee node that never answered, which nothing on the
+  // container says.
+  const uploaderDeployed = profile.containers.some(
+    (container) => container.service === STREAM_UPLOADER_SERVICE,
+  );
+  const uploaderHealth = useUploaderHealth(uploaderDeployed ? profile : null);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const version =
     versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
@@ -172,6 +181,7 @@ function DeploymentBody({
     publishUrl,
     clientUrl: watchUrl,
     streamers,
+    ...(uploaderHealth ? { uploaderHealth } : {}),
   };
 
   const steps = buildChecklist(checklistInput);

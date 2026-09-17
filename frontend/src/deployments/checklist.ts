@@ -9,12 +9,15 @@ import {
   type ReadFailureReason,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
+  type UploaderHealthReading,
+  type UploaderStartGateWarning,
   ownsBeeNode,
 } from '@streaming-infra-manager/common';
 
 import { canDeployUploader } from '../data';
 import {
   BZZ_DECIMALS,
+  formatDateTime,
   formatTokenBalance,
   formatTtl,
   shortHex,
@@ -78,6 +81,15 @@ export interface ChecklistInput {
   clientUrl: string | null;
   /** Every profile on this manager that signs a stream, to name a feed owner. */
   streamers: Profile[];
+  /**
+   * What the deployment's own stream-uploader says about itself.
+   *
+   * `undefined` where the view never asked, which is every list and the
+   * overview, because a row would have to ask each uploader in turn. The step
+   * then reads exactly as it did before D16: the container is running and
+   * nothing beyond that has been verified.
+   */
+  uploaderHealth?: UploaderHealthReading;
 }
 
 export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
@@ -450,19 +462,30 @@ function activeStampDetail(
   return parts.join(' · ');
 }
 
+const UPLOADER_TITLE = 'Uploader running';
+
+/** What a running container proves on its own, which is less than it reads as. */
+const UPLOADER_UNVERIFIED =
+  'The uploader container is reported running. Receiving and uploading have not been verified.';
+
+/**
+ * The gates as an operator names them rather than as the uploader's classes are
+ * called. An unrecognised gate keeps its own name, which is better than a
+ * guessed translation of one this page has never seen.
+ */
+const GATE_WORDS: Record<string, string> = {
+  ChequebookGate: 'the chequebook gate',
+  PostageGate: 'the postage gate',
+};
+
 function uploaderStep(input: ChecklistInput): ChecklistStep {
-  const { profile, stampHealth } = input;
-  const title = 'Uploader running';
+  const { profile, stampHealth, uploaderHealth } = input;
+  const title = UPLOADER_TITLE;
   const deployed = profile.containers.some(
     (c) => c.service === STREAM_UPLOADER_SERVICE,
   );
-  if (deployed) {
-    return {
-      title,
-      state: 'ok',
-      detail:
-        'The uploader container is reported running. Receiving and uploading have not been verified.',
-    };
+  if (deployed && uploaderHealth?.state !== 'not_deployed') {
+    return runningUploaderStep(uploaderHealth);
   }
 
   const ready = isRunning(profile) && canDeployUploader(profile) && stampHealth.ok && fundingStep(input).state === 'ok' && (!input.nodeReadiness || input.nodeReadiness.state === 'ready');
@@ -477,6 +500,94 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
       ? { label: 'Start uploader', kind: 'deploy-uploader', primary: true }
       : undefined,
   };
+}
+
+/**
+ * The uploader's own account of itself, for a view that asked.
+ *
+ * Since D16 a started uploader may be waiting for a Bee node that is not
+ * answering, or running on a startup gate that warned instead of refusing.
+ * Both are states nothing on the container says, which is why they are read
+ * from the uploader rather than inferred here.
+ */
+function runningUploaderStep(
+  health: UploaderHealthReading | undefined,
+): ChecklistStep {
+  const title = UPLOADER_TITLE;
+  if (!health) return { title, state: 'ok', detail: UPLOADER_UNVERIFIED };
+
+  switch (health.state) {
+    case 'waiting_for_node':
+      return {
+        title,
+        problem: 'Uploader waiting for its node',
+        state: 'busy',
+        detail: waitingDetail(health),
+      };
+    case 'warned':
+      return {
+        title,
+        problem: 'Uploader started with a warning',
+        state: 'warn',
+        detail: `${warningsText(health.startGateWarnings ?? [])} The uploader started anyway, and its own logs name the node.`,
+      };
+    case 'unhealthy':
+      return {
+        title,
+        problem: 'Uploader reports a problem',
+        state: 'err',
+        detail: `${reasonsText(health.reasons)} Its own logs have the rest.`,
+      };
+    case 'ok':
+      return { title, state: 'ok', detail: 'The uploader reports healthy.' };
+    case 'unreachable':
+    case 'not_deployed':
+      return {
+        title,
+        state: 'ok',
+        detail: `${UPLOADER_UNVERIFIED} Its health route did not answer.`,
+      };
+  }
+}
+
+function waitingDetail(health: UploaderHealthReading): string {
+  const node = health.node;
+  const where = node ? ` at ${node.url}` : '';
+  const since = health.waitingSince
+    ? ` since ${formatDateTime(health.waitingSince)}`
+    : '';
+  const tries = node
+    ? ` ${node.attempts === 1 ? '1 attempt' : `${node.attempts} attempts`} so far.`
+    : '';
+  return `Waiting for its Bee node${where}${since}.${tries} It keeps trying and finishes starting when the node answers.`;
+}
+
+function warningsText(warnings: readonly UploaderStartGateWarning[]): string {
+  if (warnings.length === 0) return 'A startup gate warned.';
+  const spelled = warnings.map((warning) => {
+    const gate = GATE_WORDS[warning.gate] ?? warning.gate;
+    return warning.rung ? `${gate} warned on the ${warning.rung} rung` : `${gate} warned`;
+  });
+  return `${capitalised(andList(spelled))}.`;
+}
+
+/**
+ * The uploader's reason codes as words. Written out rather than translated
+ * through a table, so a reason a newer stack reports still reaches the page
+ * instead of being dropped by a lookup that has never heard of it.
+ */
+function reasonsText(reasons: readonly string[]): string {
+  if (reasons.length === 0) return 'The uploader reports a problem it did not name.';
+  return `The uploader reports ${andList(reasons.map((reason) => reason.replace(/_/g, ' ')))}.`;
+}
+
+function andList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+function capitalised(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function poolStep(profile: Profile): ChecklistStep {
