@@ -23,6 +23,7 @@ import {
   getErrorMessage,
   type GroupKind,
   hasBeePublishers,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
   impliedRpcEndpointSource,
   isLadderKind,
   ladderMemberNames,
@@ -1040,6 +1041,9 @@ export class ProfileService {
       public_key: input.public_key ?? null,
       stamp_id: input.stamp_id ?? null,
       srt_passphrase: input.srt_passphrase ?? null,
+      node_mode: null,
+      rpc_endpoint_source: DEFAULT_RPC_ENDPOINT_SOURCE,
+      rpc_endpoint: null,
       stack_version_id: version.id,
       engine_settings: engineSettings,
       slot_cap: placement.slotCap,
@@ -1418,6 +1422,13 @@ export class ProfileService {
       // Every member's ingest takes the same passphrase, and this one is read
       // on its own too, because the member rows do not carry it either.
       srt_passphrase: await this.repo.srtPassphraseOf(canonical.name),
+      // So an appended member reaches the chain the way its siblings do, and
+      // with the same amount of chain. Neither is asked for again: a node's
+      // mode is chosen when it is created, and this member is joining a group
+      // that already made both choices.
+      node_mode: canonical.node_mode,
+      rpc_endpoint_source: canonical.rpc_endpoint_source,
+      rpc_endpoint: canonical.rpc_endpoint,
       stack_version_id: canonical.stack_version_id,
       // So an appended member cuts the same segments as the siblings it joins.
       engine_settings: canonical.engine_settings,

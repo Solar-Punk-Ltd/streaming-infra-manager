@@ -1,4 +1,10 @@
-import type { EngineSettings, GroupKind, StackPortVar } from '@streaming-infra-manager/common';
+import type {
+  EngineSettings,
+  GroupKind,
+  NodeMode,
+  RpcEndpointSource,
+  StackPortVar,
+} from '@streaming-infra-manager/common';
 import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
@@ -18,6 +24,20 @@ export interface SharedProfileParams {
   public_key: string | null;
   stamp_id: string | null;
   srt_passphrase: string | null;
+  /**
+   * The chain every member of the group reaches, and how much of it each
+   * member's Bee node runs with.
+   *
+   * One answer for the whole group rather than one per member, for the reason
+   * the postage is per rung and this is not: a pool whose members reached the
+   * chain through different endpoints, or with the chain on in some and off in
+   * others, is a pool nobody could reason about, and the failure would show up
+   * as one rung quietly not publishing. Null `node_mode` is the mode the stack
+   * ships that node in, as it is for a single deployment.
+   */
+  node_mode: NodeMode | null;
+  rpc_endpoint_source: RpcEndpointSource;
+  rpc_endpoint: string | null;
   /** Every member of a group runs one version, the one the group was made on. */
   stack_version_id: number;
   /**
@@ -212,9 +232,11 @@ export class DeploymentGroupRepository {
       `INSERT INTO profiles (
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
-         srt_passphrase, group_id, stack_version_id, engine_settings
+         srt_passphrase, group_id, stack_version_id, engine_settings,
+         node_mode, rpc_endpoint_source, rpc_endpoint
        )
-       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
+       VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb,
+               $16, COALESCE($17::text, 'stack'), $18)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -232,6 +254,9 @@ export class DeploymentGroupRepository {
         groupId,
         shared.stack_version_id,
         JSON.stringify(shared.engine_settings),
+        shared.node_mode,
+        shared.rpc_endpoint_source,
+        shared.rpc_endpoint,
       ],
     );
     return r.rows[0]!;

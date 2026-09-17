@@ -16,6 +16,12 @@ import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
+import { STANDARD_GROUP_KIND } from '@streaming-infra-manager/common';
+
+import {
+  DeploymentGroupRepository,
+  type SharedProfileParams,
+} from '../../src/domain/DeploymentGroupRepository.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
@@ -35,6 +41,36 @@ const PLACEMENT = {
 };
 
 const ENDPOINT = 'https://rpc.example.org';
+
+/**
+ * What every member of a group is created with, as ProfileService builds it.
+ * Only the three fields this file is about are worth varying.
+ */
+const sharedParams = (
+  over: Pick<
+    Partial<SharedProfileParams>,
+    'node_mode' | 'rpc_endpoint_source' | 'rpc_endpoint'
+  > = {},
+): SharedProfileParams => ({
+  kind: 'custom',
+  notes: null,
+  components: ['bee-uploader'],
+  host: null,
+  feed_owner: null,
+  feed_topic: null,
+  private_key: null,
+  public_key: null,
+  stamp_id: null,
+  srt_passphrase: null,
+  node_mode: over.node_mode ?? null,
+  rpc_endpoint_source: over.rpc_endpoint_source ?? 'stack',
+  rpc_endpoint: over.rpc_endpoint ?? null,
+  stack_version_id: 1,
+  engine_settings: {},
+  slot_cap: 99,
+  daemon_id: 'synthetic-daemon',
+  table: [],
+});
 
 describe('the node mode and endpoint source columns in isolated PostgreSQL', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535,
@@ -177,6 +213,67 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
 
     assert.equal(written?.rpc_endpoint_source, 'custom');
     assert.equal(written?.rpc_endpoint, ENDPOINT);
+  });
+
+  it('gives every member of a group the mode and the endpoint it was created with', async () => {
+    await migrate(pool);
+    const groups = new DeploymentGroupRepository(pool);
+
+    const { profiles: members } = await groups.createGroupWithMembers(
+      'pool',
+      STANDARD_GROUP_KIND,
+      [{ name: 'pool-one' }, { name: 'pool-two' }],
+      sharedParams({
+        node_mode: 'light',
+        rpc_endpoint_source: 'custom',
+        rpc_endpoint: ENDPOINT,
+      }),
+    );
+
+    // Every rung of a pool is one node of one deployment's worth of chain, so a
+    // member that reached the chain differently from its siblings would be a
+    // pool nobody could reason about.
+    assert.deepEqual(members.map((member) => member.node_mode), ['light', 'light']);
+    assert.deepEqual(
+      members.map((member) => member.rpc_endpoint_source),
+      ['custom', 'custom'],
+    );
+    assert.deepEqual(members.map((member) => member.rpc_endpoint), [ENDPOINT, ENDPOINT]);
+  });
+
+  it('gives a group that names neither what the stack ships', async () => {
+    await migrate(pool);
+    const groups = new DeploymentGroupRepository(pool);
+
+    const { profiles: members } = await groups.createGroupWithMembers(
+      'plain-pool',
+      STANDARD_GROUP_KIND,
+      [{ name: 'plain-one' }],
+      sharedParams(),
+    );
+
+    assert.equal(members[0]?.node_mode, null);
+    assert.equal(members[0]?.rpc_endpoint_source, 'stack');
+  });
+
+  it('gives a member appended later what its siblings run', async () => {
+    await migrate(pool);
+    const groups = new DeploymentGroupRepository(pool);
+    const { group } = await groups.createGroupWithMembers(
+      'growing',
+      STANDARD_GROUP_KIND,
+      [{ name: 'growing-one' }],
+      sharedParams({ node_mode: 'light', rpc_endpoint_source: 'manager' }),
+    );
+
+    const added = await groups.addMembers(
+      group.id,
+      [{ name: 'growing-two' }],
+      sharedParams({ node_mode: 'light', rpc_endpoint_source: 'manager' }),
+    );
+
+    assert.equal(added[0]?.node_mode, 'light');
+    assert.equal(added[0]?.rpc_endpoint_source, 'manager');
   });
 
   it('reads a deployment that already named an address as a custom one', async () => {

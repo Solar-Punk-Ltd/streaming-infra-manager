@@ -226,6 +226,7 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     const shared: SharedProfileParams = {
       kind: 'viewer', notes: null, components: null, host: null,
       feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
+      node_mode: null, rpc_endpoint_source: 'stack', rpc_endpoint: null,
       stack_version_id: 1, engine_settings: {}, slot_cap: 1, daemon_id: 'daemon', table,
     };
     await assert.rejects(new DeploymentGroupRepository(pool).createGroupWithMembers('pool', 'standard',
@@ -242,6 +243,7 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
     const shared: SharedProfileParams = {
       kind: 'streamer', notes: null, components: null, host: null,
       feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
+      node_mode: null, rpc_endpoint_source: 'stack', rpc_endpoint: null,
       stack_version_id: 1, engine_settings: { HLS_FRAGMENT: '2' }, slot_cap: 100, daemon_id: 'daemon', table,
     };
 
