@@ -32,6 +32,14 @@ export interface ExecutionCopyOptions {
    * copied from.
    */
   sourceInventory?: RecordedOwnedTree;
+  /**
+   * Where that inventory was read from, named in a refusal.
+   *
+   * A source proved against a record that no longer describes it is refused on
+   * every deploy until one of the two is put right, and without this the
+   * refusal says neither that a record exists nor where it is.
+   */
+  sourceInventoryPath?: string;
 }
 
 async function copyFileInto(from: string, to: string, mode: number): Promise<void> {
@@ -123,7 +131,9 @@ export async function copyExecutionRoot(
   await readOwnedFile(record.source.root, BUILD_COMPLETE_MARKER);
   const manifest = readBuildManifest(record.source.root).manifest;
   if (manifest?.buildId !== record.source.buildId || manifest.commit !== record.source.commit) throw new Error('Execution source build identity changed.');
-  if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw new Error('Execution source changed during verification.');
+  const sourceChanged = (during: string) => new Error(`Execution source changed during ${during}.${options.sourceInventoryPath
+    ? ` It was proved against ${options.sourceInventoryPath}, which is removed to have the source read again.` : ''}`);
+  if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw sourceChanged('verification');
 
   await mkdir(ownerRoot, { mode: 0o700 });
   const owned = await lstat(ownerRoot);
@@ -155,7 +165,7 @@ export async function copyExecutionRoot(
     }
     for (const entry of source.entries.filter(entry => entry.type === 'directory').reverse()) await chmod(join(root, entry.path), entry.mode);
     await chmod(root, source.rootMode);
-    if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw new Error('Execution source changed during copying.');
+    if (!isDeepStrictEqual(await durableStampOwnedTree(record.source.root), source.durableStamps)) throw sourceChanged('copying');
     const copy = await inventoryLinkedTree(root, copiedFileDigest(root, source, ownFiles));
     if (ownedTreeDigest(copy) !== record.source.artifactDigest) throw new Error('Execution copy inventory differs from its source.');
     await writeFile(join(ownerRoot, 'ready.json'), JSON.stringify({ copyToken: record.copyToken, artifactDigest: record.source.artifactDigest }), { flag: 'wx', mode: 0o600 });

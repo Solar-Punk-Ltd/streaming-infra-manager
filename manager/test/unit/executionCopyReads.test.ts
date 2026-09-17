@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, it } from 'node:test';
 
 import { Logger } from '../../src/domain/Logger.js';
+import { buildInventoryRecordPath } from '../../src/domain/versions/buildInventoryRecord.js';
 import type { ExecutionRootRecord } from '../../src/domain/versions/ExecutionRoot.js';
 import { ExecutionRootService, PROGRESS_FLOOR, type ExecutionPreparation } from '../../src/domain/versions/ExecutionRootService.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
@@ -157,7 +158,8 @@ for (const change of ['bytes', 'mode'] as const) {
     if (change === 'bytes') await fsPromises.writeFile(path, 'ENGINE=synthetic-and-changed\n');
     else await fsPromises.chmod(path, 0o600);
 
-    await assert.rejects(service.prepare(preparation(8)), /changed/);
+    await assert.rejects(service.prepare(preparation(8)), (err: Error) =>
+      /changed/.test(err.message) && err.message.includes(buildInventoryRecordPath(build)));
   });
 }
 

@@ -6,7 +6,7 @@ import { getErrorMessage } from '@streaming-infra-manager/common';
 import { Logger } from '../Logger.js';
 
 import type { ExecutionRootRecord, ExecutionRootRegistration } from './ExecutionRoot.js';
-import { buildInventory } from './buildInventoryRecord.js';
+import { buildInventory, buildInventoryRecordPath } from './buildInventoryRecord.js';
 import { readBuildManifest } from './buildManifest.js';
 import { currentExecutionOf, executionsToRetire } from './executionRetention.js';
 import { copyExecutionRoot, removeExecutionRoot, type ExecutionCopyOptions } from './executionRootFiles.js';
@@ -159,6 +159,7 @@ export class ExecutionRootService implements ExecutionRoots {
       if (!copying?.copyToken) throw new Error('The execution copy could not take its exclusive token.');
       const copied = await copyExecutionRoot(copying, this.executionsParent, {
         sourceInventory: inventory.record,
+        sourceInventoryPath: inventory.hashed ? undefined : buildInventoryRecordPath(input.build.root),
         onProgress: progressLines(input.profile.name, input.build.buildId, files),
       });
       await this.roots.markReady(copying.executionId, copying.copyToken, copied.artifactDigest);
