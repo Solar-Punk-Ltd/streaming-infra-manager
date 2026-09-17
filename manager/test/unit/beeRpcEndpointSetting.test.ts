@@ -46,6 +46,16 @@ describe('the endpoint the manager offers its nodes', () => {
     );
   });
 
+  it('stops the manager on a value docker compose would expand', () => {
+    // The env file every deployment gets is a full copy of the base env, so
+    // ${STREAM_KEY} in this address resolves to the deployment's own signing
+    // key on a remote target, in a URL the node then posts to.
+    assert.throws(
+      () => beeRpcEndpoint('https://evil.example/${STREAM_KEY}'),
+      /BEE_RPC_ENDPOINT/,
+    );
+  });
+
   it('stops the manager on a value that would write a second env line', () => {
     // The value becomes an RPC_ENDPOINT line in every .env.<profile> written
     // against it, and that file is read a line at a time.

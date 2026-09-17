@@ -146,3 +146,38 @@ describe('an address that has to survive an env file', () => {
     assert.equal(rpcEndpointProblem('https://rpc.example.org'), null);
   });
 });
+
+/**
+ * The same file, read a second way.
+ *
+ * Docker compose expands `$NAME` and `${NAME}` inside a value in an env file,
+ * from the keys it parsed earlier in that same file, and `.env.<profile>` is a
+ * full copy of the base env, which carries STREAM_KEY, API_AUTH_TOKEN and
+ * PUBLISH_KEY_SECRET. So an address carrying `${STREAM_KEY}` is a URL the node
+ * then posts the deployment's own signing key to. On a local deploy the stack's
+ * script exports the file literally first, which defuses it by accident, and on
+ * a remote target compose reads the file itself.
+ */
+describe('an address that must not be expanded where it is written', () => {
+  const EXPANDED = [
+    ['a braced name', 'https://evil.example/${STREAM_KEY}'],
+    ['a bare name', 'https://evil.example/$API_AUTH_TOKEN'],
+    ['a dollar in the query', 'https://evil.example/x?k=${PUBLISH_KEY_SECRET}'],
+  ] as const;
+
+  for (const [label, value] of EXPANDED) {
+    it(`refuses ${label} in a chain endpoint`, () => {
+      assert.match(rpcEndpointProblem(value) ?? '', /\$/);
+    });
+
+    it(`refuses ${label} in a bee address`, () => {
+      assert.match(beeUrlProblem(value) ?? '', /\$/);
+    });
+  }
+
+  it('still accepts a provider URL with a key in its path', () => {
+    // The shape this rule must not cost: every hosted RPC provider issues one.
+    assert.equal(rpcEndpointProblem('https://rpc.example.org/v3/abc123'), null);
+    assert.equal(beeUrlProblem('http://10.0.0.7:1633/bee/abc123'), null);
+  });
+});

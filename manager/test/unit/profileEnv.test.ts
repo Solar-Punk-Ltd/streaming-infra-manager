@@ -202,15 +202,22 @@ describe('writeProfileEnv — BEE_URL', () => {
     assert.equal(lineFor(path, 'BEE_PUBLISHERS'), `BEE_PUBLISHERS=${PUBLISHERS}`);
   });
 
-  it('writes a $ in the value literally, not as a replacement pattern', () => {
-    // The base .env already carries a BEE_URL line, so this takes the upsert's
-    // overwrite branch — the one that used to hand the value to String.replace
-    // as a *replacement string*, where `$&` means "the text that matched".
-    // `$` is legal in a URL path and beeUrlProblem accepts it, so the value
-    // came back mangled: the old line spliced into the middle of the new one.
-    const url = 'http://10.0.0.7:1633/$&$`x';
-    const path = writeProfileEnv(root, 'ext-e', { engine: 'srs', beeUrl: url });
-    assert.equal(lineFor(path, 'BEE_URL'), `BEE_URL=${url}`);
+  it('refuses a $ in the address rather than writing one', () => {
+    // This value used to be written, and had to be written literally: the
+    // upsert's overwrite branch handed it to String.replace as a *replacement
+    // string*, where `$&` means "the text that matched", and the old line came
+    // back spliced into the middle of the new one. That is still how the writer
+    // works, and no value it accepts can reach it any more, because docker
+    // compose expands a $ in an env file value from the keys it parsed earlier
+    // in the same file, and this file carries the deployment's secrets.
+    assert.throws(
+      () =>
+        writeProfileEnv(root, 'ext-e', {
+          engine: 'srs',
+          beeUrl: 'http://10.0.0.7:1633/$&$`x',
+        }),
+      /refusing to write BEE_URL/,
+    );
   });
 });
 
