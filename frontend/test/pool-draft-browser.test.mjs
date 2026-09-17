@@ -203,7 +203,10 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(body, text => text.includes('Node needs funding') && text.includes('Needs a stamp'), 'funding and stamp blockers');
   assert.match(await body(), /the manager probes each rung/);
   assert.equal(writes.length, 1);
-  assert.deepEqual(Object.keys(writes[0].body).sort(), ['abr_ladder', 'group_name', 'host', 'kind', 'notes', 'size', 'stack_version_id']);
+  // rpc_endpoint_source is where every member of the pool reaches the chain, T27. This
+  // fixture's /config names no endpoint of the manager's own, so it is the stack's.
+  assert.deepEqual(Object.keys(writes[0].body).sort(), ['abr_ladder', 'group_name', 'host', 'kind', 'notes', 'rpc_endpoint_source', 'size', 'stack_version_id']);
+  assert.equal(writes[0].body.rpc_endpoint_source, 'stack');
   assert.equal(writes[0].body.notes, null);
   assert.equal(writes[0].body.stack_version_id, 7);
   await clickSelected('[role=dialog] .MuiAccordionSummary-root', 'the node details summary');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ABR_RUNG_COMPONENTS, type ChequebookHealth, type StampHealth, stampHealthFrom } from '@streaming-infra-manager/common';
+import { ABR_RUNG_COMPONENTS, BEE_GATEWAY_SERVICE, type ChequebookHealth, CLIENT_SERVICE,
+  type StampHealth, stampHealthFrom, ULTRA_LIGHT_NODE_MODE } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
 import { buildChecklist, firstBlocker, type ChecklistInput } from './checklist';
@@ -240,5 +241,35 @@ describe('a standalone Bee node a list polled for its batch', () => {
   it('waits, and counts nothing, while it has no answer from that node', () => {
     assert.equal(readinessOf(standalone, undefined, paying).label, 'Stamp not checked');
     assert.equal(needsAttention(standalone, undefined, paying), false);
+  });
+});
+
+describe('the readiness of a node that reaches no chain', () => {
+  const gateway: Profile = {
+    ...runningProfile,
+    name: 'watch-eu',
+    kind: 'viewer',
+    components: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
+    containers: [
+      { service: CLIENT_SERVICE, ports: {}, buildId: null, buildCommit: null },
+      { service: BEE_GATEWAY_SERVICE, ports: {}, buildId: null, buildCommit: null },
+      ],
+    feed_owner: `0x${'1'.repeat(40)}`,
+  };
+
+  /**
+   * An ultra-light node is asked for no gas and no postage, so a page that
+   * read nothing off it is not a page that is missing a reading.
+   */
+  it('is not held up by balances a node with no chequebook cannot have', () => {
+    assert.equal(readinessOf(gateway, undefined, null).label, 'Containers running');
+    assert.equal(needsAttention(gateway, undefined, null), false);
+  });
+
+  it('is the same for an uploader node stored ultra-light', () => {
+    const stranded = { ...runningProfile, node_mode: ULTRA_LIGHT_NODE_MODE };
+
+    assert.equal(readinessOf(stranded, undefined, null).label, 'Containers running');
+    assert.equal(needsAttention(stranded, undefined, null), false);
   });
 });

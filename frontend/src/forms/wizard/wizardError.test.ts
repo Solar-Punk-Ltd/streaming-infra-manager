@@ -10,8 +10,21 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import {
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+  LIGHT_NODE_MODE,
+  MANAGER_RPC_ENDPOINT_SOURCE,
+  STACK_RPC_ENDPOINT_SOURCE,
+} from '@streaming-infra-manager/common';
+
 import type { Profile } from '../../types';
-import { footerError, nameError, poolStringError, wizardError } from './wizardError';
+import {
+  footerError,
+  nameError,
+  poolStringError,
+  rpcEndpointError,
+  wizardError,
+} from './wizardError';
 import { initialWizardState, type WizardContext } from './wizardState';
 
 /** A deployment that exists already. The name is all the taken-name check reads. */
@@ -24,8 +37,15 @@ const context: WizardContext = {
   groups: [],
   serverHost: 'stream.example',
   hostPassphrase: null,
+  beeRpcEndpoint: { configured: false, host: null },
   poolResults: new Map(),
   versions: [],
+};
+
+/** The same manager, with a chain endpoint of its own to offer. */
+const withOurEndpoint: WizardContext = {
+  ...context,
+  beeRpcEndpoint: { configured: true, host: 'rpc.internal:8545' },
 };
 
 const basics = (name: string) => ({
@@ -149,5 +169,83 @@ describe('the footer while a deployment is being created', () => {
     const state = { ...basics(''), step: 4 };
 
     assert.equal(footerError(state, context, false), wizardError(state, context));
+  });
+});
+
+describe('what is wrong with where a node reaches the chain', () => {
+  const stream = (over = {}) => ({
+    ...initialWizardState({ goal: 'stream' }, withOurEndpoint),
+    step: 3,
+    name: 'stage',
+    ...over,
+  });
+  const gateway = (over = {}) => ({
+    ...initialWizardState({ goal: 'viewer' }, context),
+    step: 3,
+    name: 'watch',
+    feedMode: 'paste' as const,
+    feedOwner: `0x${'1'.repeat(40)}`,
+    ...over,
+  });
+
+  it('is the same answer under the field and next to the disabled Continue', () => {
+    const state = stream({
+      rpcEndpointSource: CUSTOM_RPC_ENDPOINT_SOURCE,
+      rpcEndpoint: 'rpc.gnosischain.com',
+    });
+
+    const underTheField = rpcEndpointError(state, withOurEndpoint);
+
+    assert.match(underTheField ?? '', /^Chain endpoint: expected an http/);
+    assert.equal(wizardError(state, withOurEndpoint), underTheField);
+  });
+
+  it('asks for the address a custom endpoint is nothing without', () => {
+    const state = stream({ rpcEndpointSource: CUSTOM_RPC_ENDPOINT_SOURCE, rpcEndpoint: '  ' });
+
+    assert.match(rpcEndpointError(state, withOurEndpoint) ?? '', /needs an address/);
+  });
+
+  it('refuses the manager endpoint on a manager that has none', () => {
+    const state = stream({ rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE });
+
+    assert.match(rpcEndpointError(state, context) ?? '', /the manager has no RPC endpoint configured/);
+    assert.equal(rpcEndpointError(state, withOurEndpoint), null);
+  });
+
+  /**
+   * The stack gives its gateway an empty endpoint, which is the very thing
+   * that makes that node ultra-light, so a light one taking the stack default
+   * would come up with no chain and nothing anywhere would say so.
+   */
+  it('refuses the stack default for a gateway put on the chain', () => {
+    const light = gateway({
+      nodeMode: LIGHT_NODE_MODE,
+      rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE,
+    });
+
+    assert.match(rpcEndpointError(light, context) ?? '', /a light gateway needs an endpoint/);
+    assert.equal(wizardError(light, context), rpcEndpointError(light, context));
+  });
+
+  it('takes the manager endpoint for that same gateway', () => {
+    const light = gateway({
+      nodeMode: LIGHT_NODE_MODE,
+      rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE,
+    });
+
+    assert.equal(rpcEndpointError(light, withOurEndpoint), null);
+    assert.equal(wizardError(light, withOurEndpoint), null);
+  });
+
+  it('says nothing about an ultra-light gateway, which reaches no chain at all', () => {
+    const state = gateway({ rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE });
+
+    assert.equal(rpcEndpointError(state, context), null);
+    assert.equal(wizardError(state, context), null);
+  });
+
+  it('lets a stream take the stack default, whose node is an uploader', () => {
+    assert.equal(rpcEndpointError(stream({ rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE }), context), null);
   });
 });

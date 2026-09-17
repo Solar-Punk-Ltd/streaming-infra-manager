@@ -14,9 +14,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  BEE_GATEWAY_SERVICE,
+  CLIENT_SERVICE,
+  LIGHT_NODE_MODE,
   type ReadFailure,
   type ReadFailureReason,
   stampHealthFrom,
+  ULTRA_LIGHT_NODE_MODE,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
@@ -269,5 +273,50 @@ describe('the stamp where the view never asked the node', () => {
     });
     assert.equal(gone?.state, 'err');
     assert.equal(gone?.problem, 'Stamp not on node');
+  });
+});
+
+/**
+ * Which deployments are chased for gas and postage at all.
+ *
+ * A node with no chain has no chequebook to fill and no batch to buy, so the
+ * two steps that chase those would ask it for what it cannot hold. The mode is
+ * read through the shared `effectiveNodeMode`, so a deployment that stores
+ * none reads exactly as the stack starts it: light for a node that publishes.
+ */
+describe('the funding and stamp steps a node is given', () => {
+  const titles = (over: Partial<Profile>) =>
+    buildChecklist(input({ profile: { ...profile, ...over } })).map((step) => step.title);
+
+  it('gives a light publishing node both', () => {
+    const steps = titles({ node_mode: LIGHT_NODE_MODE });
+
+    assert.ok(steps.includes('Bee node funded'), steps.join(', '));
+    assert.ok(steps.includes('Postage stamp set'), steps.join(', '));
+  });
+
+  it('gives an unchosen mode both, exactly as every deployment made before T27', () => {
+    const steps = titles({ node_mode: null });
+
+    assert.ok(steps.includes('Bee node funded'));
+    assert.ok(steps.includes('Postage stamp set'));
+  });
+
+  it('gives an ultra-light node neither', () => {
+    const steps = titles({ node_mode: ULTRA_LIGHT_NODE_MODE });
+
+    assert.equal(steps.includes('Bee node funded'), false, steps.join(', '));
+    assert.equal(steps.includes('Postage stamp set'), false, steps.join(', '));
+  });
+
+  it('gives a viewer gateway neither, which is what it already did', () => {
+    const steps = titles({
+      kind: 'viewer',
+      components: [CLIENT_SERVICE, BEE_GATEWAY_SERVICE],
+      containers: [{ service: BEE_GATEWAY_SERVICE, ports: {}, buildId: null, buildCommit: null }],
+    });
+
+    assert.equal(steps.includes('Bee node funded'), false);
+    assert.equal(steps.includes('Postage stamp set'), false);
   });
 });

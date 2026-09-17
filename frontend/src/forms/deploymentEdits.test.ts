@@ -10,6 +10,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import {
+  CUSTOM_RPC_ENDPOINT_SOURCE,
+  LIGHT_NODE_MODE,
+  MANAGER_RPC_ENDPOINT_SOURCE,
+  STACK_RPC_ENDPOINT_SOURCE,
+} from '@streaming-infra-manager/common';
+
 import type { Profile } from '../types';
 import {
   bodyFor,
@@ -141,7 +148,7 @@ describe('the chain endpoint a deployment names for itself', () => {
     const profile = uploader();
     const edits = { ...initialEdits(profile), rpcEndpoint: 'rpc.gnosischain.com' };
 
-    assert.match(editProblem(edits, fieldsFor(profile), profile.has_srt_passphrase) ?? '', /http/);
+    assert.match(editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }) ?? '', /http/);
   });
 
   it('clears back to the version endpoint when the field is emptied', () => {
@@ -313,14 +320,14 @@ describe('the SRT passphrase in the Edit drawer', () => {
     const profile = stage({ has_srt_passphrase: true });
     const initial = initialEdits(profile);
 
-    assert.equal(editProblem(initial, fieldsFor(profile), true), null);
+    assert.equal(editProblem(initial, fieldsFor(profile), { profile, managerHasEndpoint: true }), null);
   });
 
   it('refuses an empty box on a deployment that holds no passphrase', () => {
     const profile = stage();
     const edits = { ...initialEdits(profile), passMode: 'own' as const };
 
-    assert.match(editProblem(edits, fieldsFor(profile), false) ?? '', /passphrase/i);
+    assert.match(editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }) ?? '', /passphrase/i);
   });
 
   it('sends the passphrase the operator typed', () => {
@@ -356,5 +363,140 @@ describe('the SRT passphrase in the Edit drawer', () => {
     );
 
     assert.equal(body.srt_passphrase, null);
+  });
+});
+
+describe('the three sources the Edit drawer offers for a chain endpoint', () => {
+  /**
+   * A gateway put on the chain at creation is a light node, and a light node
+   * reads an endpoint. The stack ships that node with an empty one, which is
+   * what made the field pointless for every viewer before T27.
+   */
+  it('is asked of a light gateway and not of an ultra-light one', () => {
+    assert.equal(fieldsFor(viewer({ node_mode: LIGHT_NODE_MODE })).rpcEndpoint, true);
+    assert.equal(fieldsFor(viewer()).rpcEndpoint, false);
+  });
+
+  it('starts from the source the deployment was created with', () => {
+    assert.equal(initialEdits(uploader()).rpcEndpointSource, STACK_RPC_ENDPOINT_SOURCE);
+    assert.equal(
+      initialEdits(uploader({ rpc_endpoint_source: MANAGER_RPC_ENDPOINT_SOURCE }))
+        .rpcEndpointSource,
+      MANAGER_RPC_ENDPOINT_SOURCE,
+    );
+    const custom = initialEdits(
+      uploader({
+        rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
+        rpc_endpoint: 'http://host.docker.internal:9000',
+      }),
+    );
+    assert.equal(custom.rpcEndpointSource, CUSTOM_RPC_ENDPOINT_SOURCE);
+    assert.equal(custom.rpcEndpoint, 'http://host.docker.internal:9000');
+  });
+
+  it('refuses the manager endpoint on a manager that has none', () => {
+    const profile = uploader();
+    const edits = {
+      ...initialEdits(profile),
+      rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE,
+    };
+
+    assert.match(
+      editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: false }) ?? '',
+      /the manager has no RPC endpoint configured/,
+    );
+    assert.equal(
+      editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }),
+      null,
+    );
+  });
+
+  it('refuses the stack default for a gateway on the chain', () => {
+    const profile = viewer({ node_mode: LIGHT_NODE_MODE });
+    const edits = { ...initialEdits(profile), rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE };
+
+    assert.match(
+      editProblem(edits, fieldsFor(profile), { profile, managerHasEndpoint: true }) ?? '',
+      /a light gateway needs an endpoint/,
+    );
+  });
+
+  it('sends the source and drops the address the source no longer carries', () => {
+    const profile = uploader({
+      rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
+      rpc_endpoint: 'http://host.docker.internal:9000',
+    });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, rpcEndpointSource: MANAGER_RPC_ENDPOINT_SOURCE },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
+    assert.equal(body.rpc_endpoint, null);
+  });
+
+  it('sends the address a move to custom typed in', () => {
+    const profile = uploader({ rpc_endpoint_source: MANAGER_RPC_ENDPOINT_SOURCE });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      {
+        ...initial,
+        rpcEndpointSource: CUSTOM_RPC_ENDPOINT_SOURCE,
+        rpcEndpoint: ' http://host.docker.internal:9000 ',
+      },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.rpc_endpoint_source, CUSTOM_RPC_ENDPOINT_SOURCE);
+    assert.equal(body.rpc_endpoint, 'http://host.docker.internal:9000');
+  });
+
+  /**
+   * A mode is chosen when the node is created and an update that changes it is
+   * refused by the manager, so the drawer sends the stored one back untouched
+   * rather than leaving the field out of a body that replaces every field.
+   */
+  it('sends back the mode the node was created with, unchanged', () => {
+    const profile = uploader({ node_mode: LIGHT_NODE_MODE });
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, notes: 'edited' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal(body.node_mode, LIGHT_NODE_MODE);
+  });
+
+  /**
+   * A deployment made before T27 stores no mode, and the manager writes the
+   * column only for a body that names one. Sending the mode it reads as would
+   * fill that column in as a side effect of saving a note.
+   */
+  it('leaves a stored mode of nothing alone', () => {
+    const profile = uploader();
+    const initial = initialEdits(profile);
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, notes: 'edited' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+
+    assert.equal('node_mode' in body, false);
   });
 });
