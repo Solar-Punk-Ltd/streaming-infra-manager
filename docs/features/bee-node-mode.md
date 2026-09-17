@@ -81,7 +81,7 @@ directory and its chequebook mean.
 ## What the page shows
 
 The configuration card of any deployment that owns a node names the mode,
-"Light, publishes" or "Ultra-light, download only", and the endpoint as its
+"Light, on the chain" or "Ultra-light, download only", and the endpoint as its
 source and host, or "None, an ultra-light node reaches no chain" for a node
 that runs no chain. The edit drawer offers the same three sources, and going
 back to the stack's endpoint is a choice made there, not an emptied box. The
