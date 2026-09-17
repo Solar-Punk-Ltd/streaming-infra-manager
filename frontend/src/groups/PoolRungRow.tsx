@@ -60,7 +60,7 @@ export function PoolRungRow({
   // otherwise, beside its own zero balance.
   const readiness = readinessOf(
     profile,
-    rungStampHealth(rungState),
+    rungStampHealth(rungState, profile.stamp_id),
     chequebook,
     bee.loading ? undefined : bee.wallet,
   );

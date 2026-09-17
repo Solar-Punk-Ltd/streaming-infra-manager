@@ -298,7 +298,12 @@ function fundingFromChequebookAlone(
   const failure = chequebook?.failure;
   if (failure) return chequebookFailureStep(failure);
 
-  const note = chequebookNote(chequebook);
+  // The unsettled state is asked about here rather than inferred from a missing
+  // balance, so this rule does not turn on an invariant kept in another package.
+  const note =
+    chequebook && chequebook.state !== 'unknown'
+      ? chequebookNote(chequebook)
+      : null;
   if (!note) {
     return {
       title: FUNDING_TITLE,

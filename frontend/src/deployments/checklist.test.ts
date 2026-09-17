@@ -207,6 +207,16 @@ describe('funding where the view never asked the node for its wallet', () => {
     assert.match(step?.detail ?? '', /did not answer the chequebook read within 3\.0 seconds/);
   });
 
+  it('waits on a reading the node did not settle, whatever else it carries', () => {
+    const step = stepNamed(
+      'Bee node funded',
+      listInput({ state: 'unknown', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n }),
+    );
+
+    assert.equal(step?.state, 'busy');
+    assert.equal(step?.problem, 'Reading balances');
+  });
+
   it('waits rather than warning when the node answered without a balance', () => {
     const step = stepNamed('Bee node funded', listInput(unreadChequebook()));
 

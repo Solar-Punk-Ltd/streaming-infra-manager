@@ -59,7 +59,7 @@ export function DeploymentsPage({ search }: { search: string }) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const poolResults = usePoolResults(groups, profiles);
   const chequebooks = useChequebookHealths(profiles);
-  const stampHealths = poolStampHealths(poolResults);
+  const stampHealths = poolStampHealths(poolResults, profiles);
 
   if (!profiles) {
     return (
