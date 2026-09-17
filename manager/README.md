@@ -121,8 +121,9 @@ All command endpoints stream output as Server-Sent Events
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
-`engine_settings` and `abr_ladder`. `manager/src/schemas/profile.ts` is the
-whole contract and its rules are the ones the route enforces.
+`rpc_endpoint_source`, `node_mode`, `engine_settings` and `abr_ladder`.
+`manager/src/schemas/profile.ts` is the whole contract and its rules are the
+ones the route enforces.
 
 `GET /profiles/:name/uploader-health` is read by the deployment page and by
 nothing else, because a list would have to ask every uploader in turn. Decision
@@ -147,6 +148,26 @@ empty means the one its stack version carries. It exists because the stack's
 shipped default is a public RPC, and one node on it drew 4568 HTTP 429s in two
 hours on 2026-09-15, which is a rate limit rather than a fault anybody could see
 from the manager.
+
+`rpc_endpoint_source` says where that endpoint comes from: `manager` is this
+manager's own `BEE_RPC_ENDPOINT`, `stack` is the version's default and writes no
+line into the deployment's env file, and `custom` is the address in
+`rpc_endpoint`. `custom` and a stored address go together and only together, a
+create that names no source takes the manager's endpoint when there is one, and
+an address arriving with no source is read as a custom one, which is what this
+API took before the field existed. An update that names no source keeps the
+stored choice unless the address it belongs to went with the same body.
+
+`node_mode` is how much of a chain this deployment's Bee node runs with:
+`light` has a chequebook, gas and postage and can publish, `ultra-light` has no
+chain at all and can only retrieve. Empty is the mode the stack ships that node
+in, light for a `bee-uploader` and ultra-light for a `bee-gateway`, which is
+what every deployment made before 2026-09-17 runs. It is chosen when the
+deployment is created, which is Levi's ruling of 2026-09-17, so an update
+carrying a different mode is refused rather than applied. A `bee-uploader`
+asked to run ultra-light is refused outright, and a `bee-gateway` put on
+`light` has to name an endpoint, because the stack's default for a gateway is
+no endpoint at all.
 
 Every profile in a response carries derived fields beside its stored columns.
 One of them is `network_host`: the deploy target in `host` with the ssh layer
@@ -643,14 +664,16 @@ recoverable and every new transfer refuses rather than guessing. Their exact
 shapes are in `docs/testing/t09-money-api.md`. Neither belongs in a file that is
 committed: route the value into the process rather than writing it down.
 
-The keys that decide where the streaming stack lives, and the ssh identity the
-manager deploys to other hosts with:
+The keys that decide where the streaming stack lives, the ssh identity the
+manager deploys to other hosts with, and the chain endpoint it offers the Bee
+nodes it creates:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `SHLS_ROOT`           | the submodule next to the manager source           | The legacy bundled checkout, read once to carry its settings over and still mounted by engines that were deployed from it. Set by `docker-compose.yml` to the host bind mount. |
 | `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
 | `MANAGER_SSH_DIR`     | `/home/solarpunk/manager-ssh`                      | The ssh identity the manager deploys to other hosts with: the deploy key, `known_hosts`, and an `ssh_config` with a `Host` block per target alias. Mounted at `/root/.ssh` in the api container, whose image links `/etc/ssh/ssh_config` to the `ssh_config` in it. `deploy.sh` creates the directory, empty, so it is only filled when a deployment's host is not `localhost`. See [deploy/README.md](../deploy/README.md). |
+| `BEE_RPC_ENDPOINT`    | none                                               | The chain endpoint every Bee node created here is offered first, which is what `rpc_endpoint_source: manager` writes into a deployment's env file. Optional, and a malformed value stops the manager at startup rather than reverting to the stack's public RPC. Such a URL can carry an API key, so it is never logged and `GET /config` answers only its host. Removing it from a manager that has deployments on it makes their next deploy fail with that named, which is the alternative to moving them onto the public endpoint in silence. |
 
 The first two are bind-mounted into the api container at the same absolute path
 they have on the host, because the docker daemon runs on the host and reads
