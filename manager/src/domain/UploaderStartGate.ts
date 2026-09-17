@@ -7,7 +7,8 @@ import { StampService } from './StampService.js';
 type StartCheck = (profile: Profile) => Promise<void>;
 
 /**
- * What has to be true before a stream-uploader container is (re)created.
+ * What is asked before a stream-uploader container is (re)created: a batch the
+ * node calls usable, which refuses, and the chequebook, which only warns.
  *
  * The checks used to sit on the "deploy uploader" route alone, so the Retry
  * button, a settings change and a plain API deploy all recreated the uploader
