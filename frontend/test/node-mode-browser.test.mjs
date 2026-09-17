@@ -48,6 +48,13 @@ const frontend = fileURLToPath(new URL('../', import.meta.url));
 /** The stack version the mock seeds as its default, which is its first. */
 const DEFAULT_VERSION = '1';
 
+/**
+ * An endpoint whose URL carries a path where a real one carries an API key.
+ * Synthetic: no credential is read by this test. What it is here for is the
+ * two places that reduce such an address to its host before it is rendered.
+ */
+const KEYED_ENDPOINT = 'https://rpc.example.org/v1/not-a-key';
+
 async function freePort() {
   const server = createNetServer();
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
@@ -220,16 +227,33 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   assert.match(streamPage, /Light, on the chain/);
   assert.match(streamPage, /Manager's endpoint \(/);
 
+  /**
+   * An endpoint of the operator's own, whose URL carries what an API key would
+   * be. The wizard stores the whole address, because that is what the node has
+   * to be started with, and every screen shows its host and stops there.
+   */
+  const own = await create('Stream to Swarm', 'stage-own-endpoint', async () => {
+    await choose('Custom');
+    await fill('input[aria-label="Custom chain endpoint"]', KEYED_ENDPOINT);
+  });
+  assert.match(own, /Custom \(rpc\.example\.org\)/);
+  assert.doesNotMatch(own, /not-a-key/);
+  const ownPage = await body();
+  assert.match(ownPage, /Custom \(rpc\.example\.org\)/);
+  assert.doesNotMatch(ownPage, /not-a-key/);
+
   // What the manager actually stored, rather than what the page rendered.
   const stored = await evaluate(`fetch('/profiles').then(r => r.json()).then(body => body.profiles
-    .filter(profile => ['gateway-offline', 'gateway-on-chain', 'stage-on-chain'].includes(profile.name))
+    .filter(profile => ['gateway-offline', 'gateway-on-chain', 'stage-on-chain', 'stage-own-endpoint'].includes(profile.name))
     .map(profile => [profile.name, profile.node_mode, profile.rpc_endpoint_source, profile.rpc_endpoint]))`);
   // The node with no chain is left on the stack's endpoint rather than handed
-  // the manager's, which it would never read.
+  // the manager's, which it would never read. The whole address is stored for
+  // the one that named its own, which is what the two pages above never show.
   assert.deepEqual(stored.sort(), [
     ['gateway-offline', 'ultra-light', 'stack', null],
     ['gateway-on-chain', 'light', 'manager', null],
     ['stage-on-chain', null, 'manager', null],
+    ['stage-own-endpoint', null, 'custom', KEYED_ENDPOINT],
   ]);
   assert.deepEqual(browser.errors, []);
 });
