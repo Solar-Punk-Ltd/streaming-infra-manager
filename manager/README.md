@@ -126,9 +126,10 @@ All command endpoints stream output as Server-Sent Events
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
-`rpc_endpoint_source`, `node_mode`, `engine_settings` and `abr_ladder`.
-`manager/src/schemas/profile.ts` is the whole contract and its rules are the
-ones the route enforces.
+`rpc_endpoint_source`, `node_mode` and `engine_settings`. `abr_ladder` belongs
+to `POST /groups`, where it makes the group an ABR node pool, and a create body
+carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
+and its rules are the ones the route enforces.
 
 `GET /profiles/:name/uploader-health` is read by the deployment page and by
 nothing else, because a list would have to ask every uploader in turn. Decision
