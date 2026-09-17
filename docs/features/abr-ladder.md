@@ -392,8 +392,8 @@ otherwise silent:
 
 - **A loopback host.** Only `BEE_LOCAL_HOST=127.0.0.1` produces one now, and it
   assembles perfectly and works nowhere but the manager's own machine. The
-  structural check still refuses it, and its message still names `PUBLIC_HOST`,
-  which is the address the value was composed from until this correction.
+  structural check still refuses it, and since f60b93c its message names
+  `BEE_LOCAL_HOST` and the bridge address, which is where such a value comes from.
 - **An ssh target used as a network address.** `profiles.host` holds a *deploy*
   target: the schema validates it against `[a-zA-Z0-9._@-]` and documents it as
   "localhost, an ssh alias, or user@host". `user@host` composed to

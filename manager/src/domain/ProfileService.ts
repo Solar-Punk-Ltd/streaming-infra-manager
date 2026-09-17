@@ -139,8 +139,11 @@ export type StampHealthProbe = (
  * Asks whether a bee node answers at the address the ladder publishes.
  *
  * A separate probe from the one above, and deliberately so: that one reaches a
- * local node the way the manager itself does, while this one uses the exact URL
- * the uploader is handed. Verifying the first proves nothing about the second.
+ * node the way the manager itself does, while this one uses the exact URL the
+ * uploader is handed. For a member on a declared remote host the two addresses
+ * differ and verifying the first proves nothing about the second. For a local
+ * member they name the same port on the same host by two names, and the probe
+ * still proves the name the uploader gets rather than the one the manager uses.
  * Implemented by `StampService.publishUrlStateFor`.
  */
 export type PublishUrlProbe = (url: string) => Promise<PublishUrlState>;
