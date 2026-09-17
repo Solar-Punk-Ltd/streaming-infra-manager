@@ -175,7 +175,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await assertDraft();
   assert.match(await readWhenPresent(evaluate, found('[role=combobox][aria-label="Storage pool"]'), 'textContent', 'the selected storage pool'), /chosen-pool/);
   await waitFor(body, text => text.includes('Node needs funding') && text.includes('Needs a stamp'), 'funding and stamp blockers');
-  assert.match(await body(), /publishing have not been verified/);
+  assert.match(await body(), /the manager probes each rung/);
   assert.equal(writes.length, 1);
   assert.deepEqual(Object.keys(writes[0].body).sort(), ['abr_ladder', 'group_name', 'host', 'kind', 'notes', 'size', 'stack_version_id']);
   assert.equal(writes[0].body.notes, null);
