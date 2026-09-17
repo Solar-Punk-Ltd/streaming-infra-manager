@@ -55,7 +55,15 @@ export function PoolRungRow({
   const { openEditDeployment } = useEditors();
 
   const spec = DEFAULT_ABR_LADDER.find((entry) => entry.name === rung);
-  const readiness = readinessOf(profile, rungStampHealth(rungState), chequebook);
+  // The wallet this row reads is the only one anything on this page reads, so
+  // the pill has to answer to it: a rung that spent its BZZ reads as funded
+  // otherwise, beside its own zero balance.
+  const readiness = readinessOf(
+    profile,
+    rungStampHealth(rungState),
+    chequebook,
+    bee.loading ? undefined : bee.wallet,
+  );
   const bzz = bee.wallet?.bzzBalance;
   // Only a balance the node actually reported counts as empty. Before the
   // wallet loads there is nothing to warn about yet.

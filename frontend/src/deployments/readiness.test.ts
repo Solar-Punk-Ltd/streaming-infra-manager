@@ -192,3 +192,30 @@ describe('a pool member judged by the readings its page already holds', () => {
     assert.equal(needsAttention(member, undefined, paying), false);
   });
 });
+
+describe('a row that reads the wallet itself', () => {
+  const member: Profile = {
+    ...runningProfile,
+    name: 'abr-pool-1-480p',
+    components: [...ABR_RUNG_COMPONENTS],
+    containers: [{ service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
+    stamp_id: `0x${'a'.repeat(64)}`,
+  };
+  const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000 };
+  const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+
+  it('judges as a list does while the wallet reading has not arrived', () => {
+    assert.equal(readinessOf(member, live, paying, undefined).label, 'Node prerequisites checked');
+  });
+
+  it('says a spent wallet needs funding once the row has read it', () => {
+    const spent = { nativeTokenBalance: '1000000000000000', bzzBalance: '0' };
+
+    assert.equal(readinessOf(member, live, paying, spent).label, 'Node needs funding');
+    assert.equal(readinessOf(member, live, paying, { nativeTokenBalance: '1', bzzBalance: '1' }).label, 'Node prerequisites checked');
+  });
+
+  it('keeps funding not checked for a row whose node did not answer', () => {
+    assert.equal(readinessOf(member, live, paying, null).label, 'Funding not checked');
+  });
+});
