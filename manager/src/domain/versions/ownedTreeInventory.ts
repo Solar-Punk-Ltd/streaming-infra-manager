@@ -34,20 +34,37 @@ export const ownedTreeDigest = ({ rootMode, entries }: Pick<OwnedTreeInventory, 
 const stamp = (info: BigIntStats): string => [info.dev, info.ino, info.mode, info.size, info.mtimeNs, info.ctimeNs].join(':');
 /**
  * The fields of a stamp that still hold after the tree has been linked from,
- * with the file's identity first so `inodeOfStamp` can read it as a prefix.
+ * in the order `inodeOfStamp` and `modeOfStamp` read them out of.
  *
- * The status-change time is left out on purpose, and so is the link count that
- * moves with it. Making a hard link to a file moves both without touching one
- * of its bytes, and preparing an execution copy links every regular file of
- * the build, so a record taken when the build was published would stop
- * matching the moment the first deploy ran. What that leaves undetected is a
- * writer who changes a file and then puts its size, mode and modification time
- * back, which is somebody with write access to the versions root, who can
- * replace the whole build instead.
+ * The status-change time is the one field of the full stamp left out here. It
+ * moves when a hard link is made to the file, as the link count does, and
+ * preparing an execution copy links every regular file of the build, so a
+ * record taken when the build was first copied would stop matching the moment
+ * the next deploy ran. Neither the link count nor the owner has ever been in a
+ * stamp, so neither is compared. What this leaves undetected is a writer who
+ * changes a file and then puts its size, mode and modification time back, which
+ * is somebody with write access to the versions root, who can replace the whole
+ * build instead.
  */
 const durableStamp = (info: BigIntStats): string => [info.dev, info.ino, info.mode, info.size, info.mtimeNs].join(':');
 /** The device and inode a durable stamp opens with. Two paths whose stamps share it are one file, so they hold the same bytes. */
 export const inodeOfStamp = (durable: string): string => durable.split(':', 2).join(':');
+
+/** The `st_mode` a durable stamp carries third, file type bits and all, or null when the stamp holds no mode. */
+export function modeOfStamp(durable: string): number | null {
+  const [, , mode] = durable.split(':');
+  if (mode === undefined || !/^[0-9]+$/.test(mode)) return null;
+  const value = Number(mode);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+/** The `st_mode` bits that say what a path is, and what each kind of entry claims them to be. */
+export const FILE_TYPE_MASK = 0o170000;
+export const FILE_TYPE_BITS: Record<OwnedTreeEntry['type'], number> = {
+  directory: 0o040000,
+  file: 0o100000,
+  symlink: 0o120000,
+};
 export const byPath = (left: { path: string }, right: { path: string }): number => left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 
 /**

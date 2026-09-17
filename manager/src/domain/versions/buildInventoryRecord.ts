@@ -9,7 +9,10 @@ import { Logger } from '../Logger.js';
 
 import {
   durablePathStamp,
+  FILE_TYPE_BITS,
+  FILE_TYPE_MASK,
   inventoryOwnedTree,
+  modeOfStamp,
   ownedTreeDigest,
   type OwnedTreeEntry,
   type RecordedOwnedTree,
@@ -59,12 +62,32 @@ function isOwnedTreeEntry(raw: unknown): raw is OwnedTreeEntry {
 }
 
 /**
+ * Whether an entry says the same thing about a path as the stamp taken of it.
+ *
+ * The stamps prove which file each path is and the entries say what the copy
+ * builds there, so nothing holds the two together unless this does. A record
+ * that keeps every stamp and re-declares a regular file of the build as a
+ * symbolic link, or gives it another mode, would otherwise parse, and the copy
+ * would be built the way the record said.
+ *
+ * A symbolic link's mode is recorded as 0o777 whatever the platform gave it,
+ * so for a link only the type can be held to the stamp.
+ */
+function agreesWithStamp(entry: { mode: number; type: OwnedTreeEntry['type'] }, stamp: string | undefined): boolean {
+  const mode = stamp === undefined ? null : modeOfStamp(stamp);
+  if (mode === null || (mode & FILE_TYPE_MASK) !== FILE_TYPE_BITS[entry.type]) return false;
+  return entry.type === 'symlink' || (mode & 0o7777) === entry.mode;
+}
+
+/**
  * The record these bytes hold, or null for anything that is not one of this
  * build's.
  *
- * The digest is recomputed rather than believed, and every entry has to carry
- * a stamp, because the stamps are what a later copy proves the build by and an
- * entry with none would be proved by nothing at all.
+ * The digest is recomputed rather than believed, the stamps and the entries
+ * have to name the same paths and agree about each one, and the root has to be
+ * stamped as the directory whose mode the record gives. The stamps are what a
+ * later copy proves the build by, so a path either side holds alone is a path
+ * that copy would prove by nothing at all.
  */
 export function parseBuildInventoryRecord(bytes: Buffer, buildId: string): BuildInventoryRecord | null {
   let raw: unknown;
@@ -77,17 +100,19 @@ export function parseBuildInventoryRecord(bytes: Buffer, buildId: string): Build
       typeof durableStamps !== 'object' || durableStamps === null) {
     return null;
   }
-  const stamps = durableStamps as Record<string, unknown>;
-  if (!Object.values(stamps).every(stamp => typeof stamp === 'string')) return null;
-  const stamped = new Set(Object.keys(stamps));
-  if (!stamped.has('') || !entries.every(entry => stamped.has(entry.path))) return null;
+  const unchecked = durableStamps as Record<string, unknown>;
+  if (!Object.values(unchecked).every(stamp => typeof stamp === 'string')) return null;
+  const stamped = unchecked as Record<string, string>;
+  if (Object.keys(stamped).length !== entries.length + 1) return null;
+  if (!agreesWithStamp({ mode: rootMode as number, type: 'directory' }, stamped[''])) return null;
+  if (!entries.every(entry => agreesWithStamp(entry, stamped[entry.path]))) return null;
   const parsed: BuildInventoryRecord = {
     format: RECORD_FORMAT,
     buildId,
     digest,
     rootMode: rootMode as number,
     entries: entries as OwnedTreeEntry[],
-    durableStamps: stamps as Record<string, string>,
+    durableStamps: stamped,
   };
   return ownedTreeDigest(parsed) === digest ? parsed : null;
 }
