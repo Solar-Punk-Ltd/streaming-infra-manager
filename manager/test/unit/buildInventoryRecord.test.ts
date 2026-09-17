@@ -15,13 +15,14 @@ import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { afterEach, beforeEach, it } from 'node:test';
+import { afterEach, beforeEach, it, type TestContext } from 'node:test';
 
 import { Logger } from '../../src/domain/Logger.js';
 import {
   buildInventory,
   buildInventoryRecordPath,
   forgetRecordsOfGoneBuilds,
+  parseBuildInventoryRecord,
 } from '../../src/domain/versions/buildInventoryRecord.js';
 import { ownedTreeDigest, type OwnedTreeEntry } from '../../src/domain/versions/ownedTreeInventory.js';
 
@@ -39,23 +40,29 @@ beforeEach(async () => {
 });
 afterEach(async () => { await fsPromises.rm(root, { recursive: true, force: true }); });
 
-/** Everything `open` is asked for under the builds root, answered by `answer` and otherwise passed through. */
-function whenOpening(t: { mock: { method: typeof import('node:test').mock.method }; after: (fn: () => void) => void },
-  path: string, answer: () => never): void {
-  const real = fsPromises.open;
-  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof fsPromises.open>) => {
-    if (String(args[0]) === path) answer();
-    return real(...args);
-  });
+type MockedCall = 'open' | 'lstat' | 'rename';
+
+/** Replaces one filesystem call for the length of one test, and puts the named import back with it. */
+function insteadOf<K extends MockedCall>(t: TestContext, name: K, replacement: typeof fsPromises[K]): void {
+  const mocked = t.mock.method(fsPromises, name, replacement);
   syncBuiltinESMExports();
-  t.after(() => { syncBuiltinESMExports(); });
+  t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
+}
+
+/** The same call, refusing one path with `code` and passing every other through. */
+function refusing<K extends MockedCall>(name: K, path: string, code: string): typeof fsPromises[K] {
+  const real = fsPromises[name];
+  return (async (...args: unknown[]) => {
+    if (String(args[0]) === path) throw Object.assign(new Error(`${name} refused ${code}`), { code });
+    return (real as (...given: unknown[]) => unknown)(...args);
+  }) as typeof fsPromises[K];
 }
 
 it('prepares the deploy anyway when its record cannot be read, and says which error stopped it', async t => {
   const warnings: string[] = [];
   t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
   const first = await buildInventory(build);
-  whenOpening(t, recordPath, () => { throw Object.assign(new Error('input output error'), { code: 'EIO' }); });
+  insteadOf(t, 'open', refusing('open', recordPath, 'EIO'));
 
   const again = await buildInventory(build);
 
@@ -64,7 +71,14 @@ it('prepares the deploy anyway when its record cannot be read, and says which er
   assert.ok(warnings.some(line => line.includes('EIO')), warnings.join('\n'));
 });
 
-interface RecordOnDisk { rootMode: number; entries: OwnedTreeEntry[]; digest: string; durableStamps: Record<string, string> }
+interface RecordOnDisk {
+  format: number;
+  buildId: string;
+  rootMode: number;
+  entries: OwnedTreeEntry[];
+  digest: string;
+  durableStamps: Record<string, string>;
+}
 
 /** Rewrites the record the way somebody who can write beside the builds would, keeping it self consistent. */
 async function forge(change: (record: RecordOnDisk) => void): Promise<void> {
@@ -124,13 +138,7 @@ it('writes no record for a build holding a path its stamps cannot keep, and says
 
 it('keeps a record whose build the filesystem would not answer about', async t => {
   await buildInventory(build);
-  const real = fsPromises.lstat;
-  t.mock.method(fsPromises, 'lstat', async (...args: Parameters<typeof fsPromises.lstat>) => {
-    if (String(args[0]) === build) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
-    return real(...args);
-  });
-  syncBuiltinESMExports();
-  t.after(() => { syncBuiltinESMExports(); });
+  insteadOf(t, 'lstat', refusing('lstat', build, 'EACCES'));
 
   await forgetRecordsOfGoneBuilds(dirname(build));
 
@@ -140,9 +148,7 @@ it('keeps a record whose build the filesystem would not answer about', async t =
 it('cleans up after a record it could not put in place, and lets the deploy go on', async t => {
   const warnings: string[] = [];
   t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
-  t.mock.method(fsPromises, 'rename', async () => { throw Object.assign(new Error('read only file system'), { code: 'EROFS' }); });
-  syncBuiltinESMExports();
-  t.after(() => { syncBuiltinESMExports(); });
+  insteadOf(t, 'rename', (async () => { throw Object.assign(new Error('read only file system'), { code: 'EROFS' }); }) as typeof fsPromises.rename);
 
   const taken = await buildInventory(build);
 
@@ -150,4 +156,42 @@ it('cleans up after a record it could not put in place, and lets the deploy go o
   assert.ok(warnings.some(line => line.includes('was not recorded')), warnings.join('\n'));
   assert.deepEqual((await fsPromises.readdir(dirname(build))).filter(name => name !== basename(build)), [],
     'a half written record was left beside the builds');
+});
+
+it('reads back the record it wrote, and leaves nothing else beside the build', async () => {
+  const first = await buildInventory(build);
+
+  const second = await buildInventory(build);
+
+  assert.equal(first.hashed, true);
+  assert.equal(second.hashed, false, 'the record it had just written was not read back');
+  assert.deepEqual(second.record, first.record);
+  assert.deepEqual((await fsPromises.readdir(dirname(build))).sort(), [commit, `${commit}${'.inventory.json'}`]);
+});
+
+it('forgets the record of a build that is no longer there, and keeps the record of one that is', async () => {
+  await buildInventory(build);
+  const orphan = buildInventoryRecordPath(join(dirname(build), 'b'.repeat(40)));
+  await fsPromises.writeFile(orphan, '{}');
+
+  await forgetRecordsOfGoneBuilds(dirname(build));
+
+  assert.equal(existsSync(orphan), false, 'the record of a pruned build stays for the next build at that id to inherit');
+  assert.ok(existsSync(recordPath), 'the record of a build that is still there was taken');
+});
+
+it('refuses bytes that are not a sound record of this build', async () => {
+  await buildInventory(build);
+  const bytes = await fsPromises.readFile(recordPath);
+  const sound = JSON.parse(bytes.toString('utf8')) as RecordOnDisk;
+  const spoiled = (change: Partial<RecordOnDisk>) => Buffer.from(JSON.stringify({ ...sound, ...change }));
+
+  assert.ok(parseBuildInventoryRecord(bytes, commit), 'this build own record does not parse, so the rows below prove nothing');
+  assert.equal(parseBuildInventoryRecord(Buffer.from('not json at all'), commit), null, 'bytes that are not JSON');
+  assert.equal(parseBuildInventoryRecord(bytes, 'b'.repeat(40)), null, 'a record of another build');
+  assert.equal(parseBuildInventoryRecord(spoiled({ format: 2 }), commit), null, 'a format nothing here wrote');
+  assert.equal(parseBuildInventoryRecord(spoiled({ digest: 'e'.repeat(64) }), commit), null, 'a digest of other entries');
+  const unstamped = { ...sound.durableStamps };
+  delete unstamped['.env.sample'];
+  assert.equal(parseBuildInventoryRecord(spoiled({ durableStamps: unstamped }), commit), null, 'an entry with no stamp');
 });
