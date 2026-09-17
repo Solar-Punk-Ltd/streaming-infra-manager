@@ -355,7 +355,11 @@ export class ProfileService {
     bee_publishers?: string | null;
     bee_url?: string | null;
     rpc_endpoint?: string | null;
-    /** Absent is the manager's own endpoint when it has one, else the stack's. */
+    /**
+     * Absent is read off the rest of the body: custom when an address is given,
+     * the stack's for an ultra-light node, else the manager's own endpoint when
+     * it has one and the stack's otherwise.
+     */
     rpc_endpoint_source?: RpcEndpointSource | null;
     /** Absent is the mode the stack ships this deployment's node in. */
     node_mode?: NodeMode | null;
