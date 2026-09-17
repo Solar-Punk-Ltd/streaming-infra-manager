@@ -47,7 +47,7 @@ describe('the stamp reading a pool result already carries', () => {
     });
   });
 
-  it('keeps a batch the manager reports beyond saving beyond saving', () => {
+  it('keeps a batch the manager reports beyond saving', () => {
     for (const state of ['expired', 'gone'] as const) {
       const health = rungStampHealth(rung({ stampState: state, stampTtl: 0 }), BATCH);
       assert.equal(health?.dead, true, state);
