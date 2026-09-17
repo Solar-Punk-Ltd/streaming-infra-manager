@@ -17,8 +17,10 @@ record. The branch has been deployed twice, on 2026-09-11 and 2026-09-13, and
 what those passes found is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). A
 postage batch was bought with real money on the second. No chequebook transfer
-has been made with real money. Corrected 2026-09-17 against the code at
-`0c0354c`: the paragraph on new uploader starts, which decision D16 amended.
+has been made with real money. Corrected twice on 2026-09-17: the paragraph on
+new uploader starts, first against the code at `0c0354c` for decision D16, then
+in `50363c5` for the further ruling that the chequebook check never refuses a
+start, which `667aee5` built.
 
 ## Balances and new uploader starts
 
