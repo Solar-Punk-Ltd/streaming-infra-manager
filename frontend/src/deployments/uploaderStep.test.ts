@@ -86,7 +86,18 @@ describe('the uploader step once the uploader has been asked', () => {
     );
   });
 
-  it('counts one attempt as one', () => {
+  it('says what the node last failed with, which is why it is being waited for', () => {
+    const step = uploaderStep({
+      state: 'waiting_for_node',
+      reasons: ['node_unavailable'],
+      waitingSince: WAITING_SINCE,
+      node: { url: 'http://172.17.0.1:10015', attempts: 4, lastError: 'timeout of 20000ms exceeded' },
+    });
+
+    assert.match(step?.detail ?? '', /last error: timeout of 20000ms exceeded/);
+  });
+
+  it('counts one attempt as one, and says no error before one has failed', () => {
     const step = uploaderStep({
       state: 'waiting_for_node',
       reasons: ['node_unavailable'],
@@ -95,6 +106,7 @@ describe('the uploader step once the uploader has been asked', () => {
 
     assert.match(step?.detail ?? '', /1 attempt so far/);
     assert.doesNotMatch(step?.detail ?? '', /1 attempts/);
+    assert.doesNotMatch(step?.detail ?? '', /last error/);
   });
 
   it('names the gate and the rung in plain words when a gate warned', () => {

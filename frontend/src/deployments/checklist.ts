@@ -556,8 +556,11 @@ function waitingDetail(health: UploaderHealthReading): string {
   const since = health.waitingSince
     ? ` since ${formatDateTime(health.waitingSince)}`
     : '';
+  // Absent until an attempt has failed, which a wait reports before it has made
+  // one, so this says why the node is being waited for rather than only that it is.
+  const why = node?.lastError ? `, last error: ${node.lastError}` : '';
   const tries = node
-    ? ` ${node.attempts === 1 ? '1 attempt' : `${node.attempts} attempts`} so far.`
+    ? ` ${node.attempts === 1 ? '1 attempt' : `${node.attempts} attempts`} so far${why}.`
     : '';
   return `Waiting for its Bee node${where}${since}.${tries} It keeps trying and finishes starting when the node answers.`;
 }
