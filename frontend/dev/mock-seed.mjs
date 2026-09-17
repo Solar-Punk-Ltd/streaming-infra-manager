@@ -8,7 +8,10 @@
  */
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
-import { PLUR_PER_BZZ } from '@streaming-infra-manager/common';
+import {
+  DEFAULT_RPC_ENDPOINT_SOURCE,
+  PLUR_PER_BZZ,
+} from '@streaming-infra-manager/common';
 
 import { commitOfVersion } from './mock-versions.mjs';
 
@@ -182,6 +185,13 @@ export function makeProfile(input) {
     stamp_id: input.stamp_id ?? null,
     bee_publishers: input.bee_publishers ?? null,
     bee_url: input.bee_url ?? null,
+    // The two the manager stores about this deployment's Bee node. Null mode
+    // means the mode the stack starts that node in, which is what every
+    // deployment made before T27 carries, and the source and the address
+    // travel together the way the manager's own columns make them.
+    node_mode: input.node_mode ?? null,
+    rpc_endpoint_source: input.rpc_endpoint_source ?? DEFAULT_RPC_ENDPOINT_SOURCE,
+    rpc_endpoint: input.rpc_endpoint ?? null,
     // Whether one is stored, never the value: the manager answers this and
     // hands the passphrase over only to the page building a publish URL.
     has_srt_passphrase: Boolean(input.srt_passphrase),

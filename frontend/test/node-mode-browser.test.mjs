@@ -63,7 +63,10 @@ async function startMockManager(t) {
     process.execPath,
     [
       '--import', 'tsx', '--conditions=development', '--input-type=module',
-      '-e', "await import('./dev/mock-manager.mjs'); process.send({ ready: true });",
+      // The seed leaves a blocked deploy attempt behind, which holds every deploy
+      // of a version with shared image tags. Released, as an operator would
+      // release it from the Versions page before creating anything.
+      '-e', "import { state } from './dev/mock-seed.mjs'; await import('./dev/mock-manager.mjs'); state.attempts = []; process.send({ ready: true });",
     ],
     { cwd: frontend, env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] },
   );
@@ -123,11 +126,22 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   const fill = (selector, value) =>
     fillWhenPresent(evaluate, found(selector), value, `the ${selector} field`);
   /** One radio card of a ChoiceGroup, which carries its title as its label. */
-  const choose = async (label) => {
-    await clickSelected(`input[type=radio][aria-label=${JSON.stringify(label)}]`, `the ${label} choice`);
+  const choose = (label) =>
+    clickSelected(`input[type=radio][aria-label=${JSON.stringify(label)}]`, `the ${label} choice`);
+  /** A goal card, which is a radio made of a whole card rather than an input. */
+  const chooseGoal = async (title) => {
+    await clickWhenEnabled(
+      evaluate,
+      `[...document.querySelectorAll('[role=radio]')].find(node => node.textContent.trim().startsWith(${JSON.stringify(title)}))`,
+      `the ${title} goal`,
+      COLD_OPTIMIZE_BUDGET_MS,
+    );
+    await settled();
   };
-  const chosen = (label) =>
-    evaluate(`${found(`input[type=radio][aria-label=${JSON.stringify(label)}]`)}?.checked ?? null`);
+  const radio = (label) => found(`input[type=radio][aria-label=${JSON.stringify(label)}]`);
+  /** Whether that choice is selected, or null where the page offers it at all. */
+  const chosen = (label) => evaluate(`${radio(label)}?.checked ?? null`);
+  const disabled = (label) => evaluate(`${radio(label)}?.disabled ?? null`);
   const next = async () => { await click('Continue'); await settled(); };
   /**
    * The version picker is offered whenever the choice is not already made for
@@ -155,7 +169,7 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   /** The wizard from the goal card to the deployment page it lands on. */
   const create = async (goal, name, settings) => {
     await click('New deployment');
-    await clickSelected(`input[type=radio][aria-label=${JSON.stringify(goal)}]`, `the ${goal} goal`);
+    await chooseGoal(goal);
     await next();
     await fill('input[placeholder="main-stage"], input[placeholder="viewer-eu"]', name);
     await continueFromBasics();
@@ -170,11 +184,9 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   const ultraLight = await create('Watch a stream', 'gateway-offline', async () => {
     await waitFor(body, (text) => text.includes('Node mode'), 'the node mode question');
     assert.equal(await chosen('Ultra-light'), true, 'a viewer gateway starts on the mode that costs nothing');
-    assert.equal(
-      await evaluate(`${found('input[type=radio][aria-label="Manager\\'s endpoint"]')} !== null`),
-      false,
-      'an ultra-light node reaches no chain, so it is asked about none',
-    );
+    // Null is the absence of the control, which is the assertion: an
+    // ultra-light node reaches no chain, so it is asked about none.
+    assert.equal(await chosen("Manager's endpoint"), null);
   });
   assert.match(ultraLight, /Ultra-light, download only/);
   const ultraLightPage = await body();
@@ -190,7 +202,7 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
     );
     // The stack gives its gateway an empty endpoint, which is what makes that
     // node ultra-light, so a light one cannot take that default.
-    assert.equal(await evaluate(`${found('input[type=radio][aria-label="Stack default"]')}?.disabled ?? null`), true);
+    assert.equal(await disabled('Stack default'), true);
   });
   assert.match(light, /Light, publishes/);
   assert.match(light, /Manager's endpoint/);
@@ -212,8 +224,11 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   const stored = await evaluate(`fetch('/profiles').then(r => r.json()).then(body => body.profiles
     .filter(profile => ['gateway-offline', 'gateway-on-chain', 'stage-on-chain'].includes(profile.name))
     .map(profile => [profile.name, profile.node_mode, profile.rpc_endpoint_source, profile.rpc_endpoint]))`);
+  // The source is stored even for the node that reaches no chain: a body that
+  // left it out would be read by the manager as the same answer, and the page
+  // reads the mode before the source.
   assert.deepEqual(stored.sort(), [
-    ['gateway-offline', 'ultra-light', 'stack', null],
+    ['gateway-offline', 'ultra-light', 'manager', null],
     ['gateway-on-chain', 'light', 'manager', null],
     ['stage-on-chain', null, 'manager', null],
   ]);

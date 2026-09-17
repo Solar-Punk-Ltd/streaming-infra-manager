@@ -29,7 +29,13 @@ import {
 import { DEV_PASSWORD, DEV_USERNAME } from '../dev/mock-auth.mjs';
 
 const bootstrap = `
+import { state } from './dev/mock-seed.mjs';
 await import('./dev/mock-manager.mjs');
+// The seed leaves one blocked deploy attempt behind, and while it is unresolved
+// the mock refuses every deploy of a version with shared image tags, which is
+// every save here. Released, as an operator would release it from the Versions
+// page before editing anything.
+state.attempts = [];
 process.send({ ready: true });
 `;
 
@@ -53,6 +59,21 @@ async function request(path, method = 'GET', body) {
     body: response.status === 204 ? null : await response.json(),
     cookie: response.headers.get('set-cookie'),
   };
+}
+
+/**
+ * Waits for a freshly created deployment to finish deploying.
+ *
+ * Its own deploy attempt is open while it does, and an edit of a busy
+ * deployment is refused, here as on a host.
+ */
+async function running(name) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { body } = await request(`/profiles/${name}`);
+    if (body.status === 'RUNNING') return body;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  throw new Error(`${name} never finished deploying`);
 }
 
 /** A create body with everything the mock needs but the node choices. */
@@ -148,10 +169,23 @@ describe('what the offline manager stores for a new node', { concurrency: false,
     assert.equal(body.rpc_endpoint, null);
   });
 
-  it('stores nothing for a create that names neither', async () => {
+  /**
+   * A body that names no source still means one. An address and nothing else
+   * is a custom endpoint, and otherwise the manager's own is what it offers,
+   * which is the whole point of having one configured.
+   */
+  it('reads a create that names no source as the manager own endpoint', async () => {
     const { body } = await request('/profiles', 'POST', newViewer('offline-plain-gateway'));
 
     assert.equal(body.node_mode, null);
+    assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
+  });
+
+  it('reads it as the stack default on a manager that has none', async () => {
+    await request('/config?state=none');
+    const { body } = await request('/profiles', 'POST', newViewer('offline-stackbound-gateway'));
+    await request('/config?state=configured');
+
     assert.equal(body.rpc_endpoint_source, STACK_RPC_ENDPOINT_SOURCE);
   });
 
@@ -230,6 +264,7 @@ describe('what an edit of that node may change', { concurrency: false, timeout: 
       }),
     );
 
+    await running('offline-moving-gateway');
     const { status, body } = await request('/profiles/offline-moving-gateway', 'PUT', {
       kind: 'viewer',
       feed_owner: `0x${'1'.repeat(40)}`,
@@ -248,6 +283,7 @@ describe('what an edit of that node may change', { concurrency: false, timeout: 
       node_mode: ULTRA_LIGHT_NODE_MODE,
     }));
 
+    await running('offline-fixed-gateway');
     const { status, body } = await request('/profiles/offline-fixed-gateway', 'PUT', {
       kind: 'viewer',
       feed_owner: `0x${'1'.repeat(40)}`,

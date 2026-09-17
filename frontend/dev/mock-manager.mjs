@@ -23,8 +23,17 @@ import {
   bzzToPlur,
   chequebookHealthFrom,
   chequebookHealthPayload,
+  configuredBeeRpcEndpoint,
+  CUSTOM_RPC_ENDPOINT_SOURCE,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+  DEFAULT_RPC_ENDPOINT_SOURCE,
+  defaultServicesFor,
+  effectiveNodeMode,
+  impliedRpcEndpointSource,
+  keptRpcEndpointSource,
+  nodeModeProblem,
   plurToBzz,
+  rpcEndpointChoiceProblem,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -87,6 +96,25 @@ const STAMP_SETTLE_MS = 4_000;
 const CHEQUEBOOK_SETTLE_MS = 3_000;
 
 const CHEQUEBOOK_FLOOR_PLUR = bzzToPlur(DEFAULT_CHEQUEBOOK_FLOOR_BZZ);
+
+/**
+ * The chain endpoint this offline manager is configured with, which is what it
+ * offers every Bee node it creates. A real one reads BEE_RPC_ENDPOINT.
+ */
+const BEE_RPC_ENDPOINT = 'https://rpc.offline.example:8545/k/synthetic-not-a-key';
+
+/**
+ * Whether it is running as a manager that has one. `GET /config?state=none`
+ * turns it off and `?state=configured` puts it back, so the wizard can be
+ * reviewed both ways. It sticks, the way every other faked state here does:
+ * the page reads /config once at boot, so a state that lasted one request
+ * could never be seen.
+ */
+let beeRpcEndpointConfigured = true;
+
+function managerEndpoint() {
+  return beeRpcEndpointConfigured ? BEE_RPC_ENDPOINT : null;
+}
 
 // ----------------------------------------------------------- transitions
 
@@ -402,6 +430,7 @@ const EDITABLE_FIELDS = [
   'stamp_id',
   'bee_publishers',
   'bee_url',
+  'rpc_endpoint',
 ];
 
 /** The manager's rule: a note saved from a page that loaded before another save is refused. */
@@ -429,9 +458,40 @@ function applySecrets(profile, body) {
   setSrtPassphrase(profile, body.srt_passphrase);
 }
 
+/**
+ * Why this edit cannot be stored, or null.
+ *
+ * A node's mode is chosen when it is created: a body may repeat the mode the
+ * deployment already runs in and may not name another. The endpoint moves, by
+ * the same shared rule a create is held to.
+ */
+function nodeEditProblem(profile, body) {
+  const mode = body.node_mode ?? undefined;
+  if (mode && mode !== effectiveNodeMode(profile)) {
+    return 'a node’s mode is chosen when it is created';
+  }
+  const source =
+    body.rpc_endpoint_source ??
+    keptRpcEndpointSource(body.rpc_endpoint, profile.rpc_endpoint_source);
+  return rpcEndpointChoiceProblem({
+    source,
+    url: body.rpc_endpoint,
+    managerHasEndpoint: beeRpcEndpointConfigured,
+    nodeMode: mode ?? profile.node_mode,
+    services: defaultServicesFor(profile),
+  });
+}
+
 /** PUT semantics, like the manager: every editable field is replaced, an absent one becomes null. */
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
+  profile.rpc_endpoint_source =
+    body.rpc_endpoint_source ??
+    keptRpcEndpointSource(body.rpc_endpoint, profile.rpc_endpoint_source);
+  // The source and the address travel together, so a row can never say it
+  // takes the manager's endpoint while holding one of its own.
+  if (profile.rpc_endpoint_source !== CUSTOM_RPC_ENDPOINT_SOURCE) profile.rpc_endpoint = null;
+  if (body.node_mode) profile.node_mode = body.node_mode;
   applySecrets(profile, body);
 }
 
@@ -443,9 +503,48 @@ function applyEdits(profile, body) {
   applySecrets(profile, body);
 }
 
+/**
+ * The two things a create says about its Bee node, resolved the way the
+ * manager resolves them, or why they cannot be stored.
+ *
+ * A body that names no source means one all the same: an address and nothing
+ * else is a custom endpoint, and otherwise the manager's own is what it offers.
+ * The refusals are the shared rules, so a form that passes here passes on a
+ * host.
+ */
+function nodeChoicesFor(body, extra = {}) {
+  const shape = {
+    kind: extra.kind ?? body.kind ?? 'custom',
+    components: extra.components ?? body.components,
+    node_mode: body.node_mode ?? null,
+  };
+  const source =
+    body.rpc_endpoint_source ??
+    impliedRpcEndpointSource(body.rpc_endpoint, beeRpcEndpointConfigured);
+  return {
+    rpc_endpoint_source: source,
+    node_mode: shape.node_mode,
+    rpc_endpoint: source === CUSTOM_RPC_ENDPOINT_SOURCE ? (body.rpc_endpoint ?? null) : null,
+    problem:
+      rpcEndpointChoiceProblem({
+        source,
+        url: body.rpc_endpoint,
+        managerHasEndpoint: beeRpcEndpointConfigured,
+        nodeMode: shape.node_mode,
+        services: defaultServicesFor(shape),
+      }) ?? nodeModeProblem(shape),
+  };
+}
+
+function refuse(res, problem) {
+  send(res, 400, { error: 'validation_error', errors: [problem] });
+}
+
 function createFromBody(body, extra = {}) {
+  const { problem, ...choices } = nodeChoicesFor(body, extra);
   const profile = makeProfile({
     ...body,
+    ...choices,
     ...extra,
     status: 'DEPLOYING',
     created_at: new Date().toISOString(),
@@ -464,12 +563,19 @@ const ROUTES = [
   [
     'GET',
     /^\/config$/,
-    (_req, res) =>
+    (req, res) => {
+      const asked = new URL(req.url, 'http://mock').searchParams.get('state');
+      if (asked === 'none' || asked === 'unconfigured') beeRpcEndpointConfigured = false;
+      else if (asked === 'configured') beeRpcEndpointConfigured = true;
       send(res, 200, {
         host: PUBLIC_HOST,
         srtPassphrase: HOST_PASSPHRASE,
         chequebookFloorBzz: plurToBzz(CHEQUEBOOK_FLOOR_PLUR),
-      }),
+        // The host and never the URL: this one carries a path after it, which
+        // is where a real endpoint's API key would sit.
+        beeRpcEndpoint: configuredBeeRpcEndpoint(managerEndpoint()),
+      });
+    },
   ],
   ['GET', /^\/profiles$/, (_req, res) => send(res, 200, { profiles: state.profiles })],
   [
@@ -481,9 +587,9 @@ const ROUTES = [
         return send(res, 409, { error: `profile ${body.name} already exists` });
       }
       const versionProblem = newDeploymentVersionProblem(body.stack_version_id);
-      if (versionProblem) {
-        return send(res, 400, { error: 'validation_error', errors: [versionProblem] });
-      }
+      if (versionProblem) return refuse(res, versionProblem);
+      const { problem } = nodeChoicesFor(body);
+      if (problem) return refuse(res, problem);
       send(res, 202, createFromBody(body));
     },
   ],
@@ -510,6 +616,8 @@ const ROUTES = [
         send(res, 409, notesConflict(profile));
         return;
       }
+      const editProblem = nodeEditProblem(profile, body);
+      if (editProblem) return refuse(res, editProblem);
       const notesBefore = profile.notes;
       replaceEditable(profile, body);
       if (profile.notes !== notesBefore) profile.notes_revision += 1;
@@ -649,10 +757,13 @@ const ROUTES = [
     async (req, res) => {
       const body = await readBody(req);
       const versionProblem = newDeploymentVersionProblem(body.stack_version_id);
-      if (versionProblem) {
-        return send(res, 400, { error: 'validation_error', errors: [versionProblem] });
-      }
+      if (versionProblem) return refuse(res, versionProblem);
       const isPool = Boolean(body.abr_ladder);
+      // Judged on what a member will be rather than on the group body, because
+      // a pool's members are four bee-uploaders whatever the body's kind says.
+      const memberShape = isPool ? { kind: 'custom', components: ['bee-uploader'] } : {};
+      const { problem } = nodeChoicesFor(body, memberShape);
+      if (problem) return refuse(res, problem);
       const group = {
         id: takeGroupId(),
         name: body.group_name,
