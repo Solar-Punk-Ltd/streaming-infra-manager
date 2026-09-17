@@ -1441,6 +1441,7 @@ reviewer could not prove either way are left as they are: the SRS retry window
 recorded on the T25 row (`e9f1d56`) and not built: a feed head read whose
 transfer breaks, on a node that then fails the liveness check, is rethrown
 with the transport code where the wait's classifier does not look, so the
-boot ends once and docker restarts it where D16 wants a wait. One alternative
-in the classifier and one test through bee-js's own error shape, on Levi's
-word.
+boot ends once and docker restarts it where D16 wants a wait. Levi took the
+fix the same night: `b3d8c1ad`, `8a9eaf66` and `66ed0d4a` on `feat/manager-line`,
+the classifier reading the transport code from `statusText` where bee-js puts
+it, the T25 row has the detail.

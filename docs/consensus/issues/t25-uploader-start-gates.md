@@ -122,7 +122,7 @@ the step says why the node is being waited for and not only that it is.
 `?state=waiting_for_node`, `?state=warned` or `?state=ok` to move it, sticking on
 the node entry so the page's ten second re-read keeps showing it.
 
-## Follow-up, found 2026-09-17 evening, not built
+## Follow-up, found 2026-09-17 evening, built the same night
 
 The docs and comment review of that evening measured one boot path rather than
 reading it, and found a gap in the wait. A feed head read whose transfer breaks
@@ -150,3 +150,14 @@ text) and one test built through bee-js's own error shape, an hour on the
 stack's line. Accepting costs the one exit and the restart. Recommendation:
 fix, on Levi's word, as its own change with its test, since the review that
 found it was words only. Owner: Levi's decision, recorded in the handover.
+
+Levi took the fix. Built on `feat/manager-line` as `b3d8c1ad` (the red case,
+built through bee-js's own `BeeResponseError` the way its http wrapper
+constructs it, one of three transport shapes failing: `ECONNRESET` and
+`ECONNREFUSED` name their code inside the message and were caught by the text
+match by luck, a dropped body says "response stream aborted" and names
+nothing), `8a9eaf66` (`transportCodeOf` reads `code` and falls back to
+`statusText`, the status check still runs first so a 4xx cannot become a wait,
+both docblocks rewritten) and `66ed0d4a` (the catalog's liveness case asserts
+the rethrow is one the wait retries). Uploader suite 1576 tests, lint and
+typecheck green.
