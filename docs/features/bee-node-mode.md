@@ -16,7 +16,9 @@ the fixes file are under `docs/consensus/`). The stack half was merged into the
 manager's line of the stack, `feat/manager-line`, at 5553652c and pinned the
 same day, so a gateway created light is light once that pin is deployed. Until
 the host runs that pin, its choice is recorded and written but read by nothing. Written at
-`b56ae6f` on `main-v2` with the stack pinned at `55b22bf1`.
+`b56ae6f` on `main-v2` with the stack pinned at `55b22bf1`, and re-read on the evening of
+2026-09-17 in the docs and comment review, with the stack pinned at `52164ebf`, the head of
+`feat/manager-line` after that review's 42 stack commits.
 
 ## What the stack ships
 
