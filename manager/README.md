@@ -20,9 +20,14 @@ on the same host can never collide on a port.
 cp manager/.env.sample manager/.env
 cd manager
 docker compose up --build -d
-curl localhost:9876/health                      # {"status":"ok"}
+curl localhost:8080/health                      # {"status":"ok"}
 docker compose exec -it api node dist/cli.js user:add <username>
 ```
+
+That is the web container's port, `WEB_PORT`, 8080 by default, because the api
+container publishes no port of its own and the web container's nginx forwards
+`/health` and the rest of the API to it. Under `pnpm dev` the API answers on
+`localhost:9876` directly, which is what the curl examples further down assume.
 
 Until that last command has been run once, every route but `/health` and
 `POST /auth/login` answers 401, and the sign-in page says so.
@@ -606,8 +611,9 @@ Notes:
   redeploy.
 
 Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
-exposes the web port, and for the API use the manager port directly on the
-host):
+exposes the web port, which is the way to the API under compose too, because the
+api container publishes no port of its own. The port below is the `pnpm dev`
+one, so read `8080` for `9876` when the manager runs under compose):
 
 ```bash
 # one-shot (cookies.txt comes from the sign-in under Example session)
@@ -621,7 +627,9 @@ curl -N -b cookies.txt localhost:9876/metrics/stream
 
 Sign in first. The cookie file carries the session through the rest, and every
 request that is not a GET also needs the `X-Requested-With` header, without
-which the manager answers 403 whatever the cookie says.
+which the manager answers 403 whatever the cookie says. The port below is the
+`pnpm dev` one. Under compose the same paths answer on the web port,
+`localhost:8080`.
 
 ```bash
 # Sign in once, keeping the session cookie in a file
