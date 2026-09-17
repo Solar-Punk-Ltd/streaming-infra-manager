@@ -17,7 +17,8 @@ record. The branch has been deployed twice, on 2026-09-11 and 2026-09-13, and
 what those passes found is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). A
 postage batch was bought with real money on the second. No chequebook transfer
-has been made with real money.
+has been made with real money. Corrected 2026-09-17 against the code at
+`0c0354c`: the paragraph on new uploader starts, which decision D16 amended.
 
 ## Balances and new uploader starts
 
@@ -28,11 +29,14 @@ successful reading. The manager's configured floor is shown consistently in
 the UI and enforced on paths that start an uploader. The default floor is
 0.5 BZZ. The protocol amount uses PLUR, with 10^16 PLUR per BZZ.
 
-Under Levi's decided D02 policy, a new uploader start is refused when a critical
-funding or postage prerequisite cannot be verified. A missing reading is not
-permission to accept a new paid start. This policy does not automatically stop
-an existing stream. Engine-only recovery and node bootstrap remain separate
-from starting an uploader.
+Under decision D16 of 2026-09-17, which amends D02 of 2026-09-07, a node that
+does not answer no longer refuses a new uploader start. Both of the manager's
+start checks, the batch and the chequebook, log a warning and let the start
+through when the node says nothing. What they still refuse is an answer the
+node gave: a batch it calls unknown, expired or not usable yet, a chequebook
+balance under the floor, or a balance it answered with that cannot be read at
+all. Neither policy automatically stops an existing stream. Engine-only
+recovery and node bootstrap remain separate from starting an uploader.
 
 A read-only balance or readiness check does not submit money. Filling the
 chequebook requires an explicit confirmed transfer intent. The manager does

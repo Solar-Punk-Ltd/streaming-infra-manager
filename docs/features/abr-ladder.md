@@ -1,7 +1,8 @@
 # ABR Ladder
 
 Status, 2026-09-16: built and merged to `main-v2`, page checked against the code at ecaea40.
-Corrected 2026-09-17: "The address" below, after the first real pool on the live host was
+Corrected 2026-09-17 against the code at `0c0354c`: "The address", the D16 paragraphs under
+"The ABR Uploader", and the "Manager" table. The first real pool on the live host had been
 handed a public address no Bee node listens on.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
@@ -183,8 +184,9 @@ starting** (decision D16, the owner: "we should be able to start the uploader bu
 maybe say its node not available, try to reconnect or something"). Both checks of
 the manager's own start gate, the batch and the chequebook, log a node that says
 nothing and let the start through. What they still refuse is an answer the node
-gave: a batch it calls unknown, expired or not usable yet, or a chequebook
-balance under the floor. The uploader then waits for its node instead of exiting, and
+gave: a batch it calls unknown, expired or not usable yet, a chequebook
+balance under the floor, or a balance the node answered with that cannot be
+read at all. The uploader then waits for its node instead of exiting, and
 reports that wait on its own `/health`. The deployment page reads that route
 every ten seconds and the **Uploader running** step says which node is being
 waited for, how many attempts it has made and since when, and clears when the

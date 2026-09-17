@@ -1,6 +1,6 @@
 # T25. The uploader starts whatever its chequebook and postage readings say
 
-Source: Levi, 2026-09-17, on the refused deploy of `abr-pool-stage-1`. Priority: P1 on his word. Depends on: T24 for the address, this row for the gate. Decision: D15, Levi, 2026-09-17: "The uploader and engine should be able to start no matter what the status of the chequebook is", and a four second timeout on a chain-backed read is too short. Size: S in the stack, plus the pin bump here.
+Source: Levi, 2026-09-17, on the refused deploy of `abr-pool-stage-1`. Priority: P1 on his word. Depends on: T24 for the address. The gate is this row's own work. Decision: D15, Levi, 2026-09-17: "The uploader and engine should be able to start no matter what the status of the chequebook is", and a four second timeout on a chain-backed read is too short. Size: S in the stack, plus the pin bump here.
 
 The stack's `stream-uploader` refuses to start when `ChequebookGate` cannot read a node's chequebook or reads one under 0.5 BZZ, and `PostageGate` refuses on a batch it cannot read or that is nearly out. Both reads run on `BEE_REQUEST_TIMEOUT_MS`, 4000 ms, a per-request deadline derived for the upload loop. A chequebook balance is a contract read through the node's RPC endpoint and can take longer than that on a public endpoint. On 2026-09-17 the gate's refusal hid the real fault (T24) behind "chequebook is absent or unreadable: timeout of 4000ms exceeded", and docker restarted the uploader in a loop until the deploy guard refused the deploy.
 

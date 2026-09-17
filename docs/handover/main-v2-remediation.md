@@ -1251,19 +1251,20 @@ per rung, and funded and stamped them by hand, then the ABR uploader
 `abr-pool-stage-1`, all on 0696a28. The pool took 8 minutes 21 seconds to
 deploy, of which the four deploy scripts took 32 seconds: each member waited
 about 117 seconds for its execution copy, which hashes all 43,000 files of the
-build on the source and again on the hard-linked copy, one file at a time,
-while the same hashing with a C tool inside the api container takes 6 seconds.
-The uploader's deploy was then refused: its pool string named every node at
-`http://157.90.34.105:10015` and siblings, composed from `PUBLIC_HOST`, while
-the T06 bind step puts every local Bee API on the Docker bridge address alone,
-10.200.0.1 on that host. Nothing answered on the public address from the host
-or from any container, the manager's own probe had logged that, the wizard read
-"Publishing is not verified" for every rung, and the uploader's chequebook gate
-refused with a four second timeout that blamed the chequebook. Docker restarted
-the uploader until the deploy guard refused the deploy. Separately, every
-running Bee node read "Funding not checked" on the lists and sat under "Needs
-attention", because lists never fetched balances and the checklist called a
-reading it never took a problem.
+build twice, once on the source and once on the hard-linked copy, and walks
+their stamps four times, one file at a time, while the same hashing with a C
+tool inside the api container takes 6 seconds. The uploader's deploy was then
+refused: its pool string named every node at `http://157.90.34.105:10015` and
+siblings, composed from `PUBLIC_HOST`, while the T06 bind step puts every local
+Bee API on the Docker bridge address alone, 10.200.0.1 on that host. Nothing
+answered on the public address from the host or from any container, the
+manager's own probe had logged that, the wizard read "Publishing is not
+verified" for every rung, and the uploader's chequebook gate refused with a
+four second timeout that blamed the chequebook. Docker restarted the uploader
+until the deploy guard refused the deploy. Separately, every running Bee node
+read "Funding not checked" on the lists and sat under "Needs attention",
+because lists never fetched balances and the checklist called a reading it
+never took a problem.
 
 **Rulings.** D15: the stack's uploader starts whatever its chequebook and
 postage readings say, its start gates warn by default and
@@ -1286,11 +1287,11 @@ and never calls an unread wallet or stamp a problem, the deployments page
 fetches chequebook readings and its filter uses them, pool member rows take the
 stamp state from the manager's own pool result, the wizard's pool step shows
 what the probe found per rung, the pool card says where its addresses work
-(8b665b4 to f60b93c, 00f9784 to 394f67c). The stack branch
-`fix/uploader-start-gates-warn` carries T25's first phase (f520f4ba, 7aa81ff7,
-Solar-Punk-Ltd/swarm-hls-stream, pushed, not merged). Two reviews, one for
-correctness and one for security, found no P1 and their P2 items are in those
-commits or recorded below.
+(8b665b4, 5c6316a, 2b6feeb, 0eecace, 8cff4fa, 39ae189, f60b93c, 00f9784,
+e90ac0b, 0195aee, 394f67c). The stack branch `fix/uploader-start-gates-warn`
+carries T25's first phase (f520f4ba, 7aa81ff7, Solar-Punk-Ltd/swarm-hls-stream,
+pushed, not merged). Two reviews, one for correctness and one for security,
+found no P1 and their P2 items are in those commits or recorded below.
 
 **Verified.** Manager unit 2552, common 360, frontend 239, typecheck and build
 clean, on the laptop and on the verification box, where the session branch
@@ -1302,30 +1303,37 @@ L112 in the estate's verify-e2e plan, with a diagnostic in the test (cabbf13)
 for the next run. The stack branch passed the box at standard depth. GitHub's
 checks run on Levi's push of main-v2.
 
-**Built later the same night.** T23, the execution copy: a build's inventory
-is recorded once in a sibling file `<buildId>.inventory.json` beside the
-builds, later copies prove the build by a stat walk against it (device,
-inode, mode, size and modification time, not the status-change time, which
-every hard link moves) and a linked copy by inode identity, so the steady
-state reads no byte of the build (5933766 to 7bf650f). Two reviews, one
+**Built later the same night.** T23, the execution copy: a build's inventory is
+recorded once in a sibling file `<buildId>.inventory.json` beside the builds,
+later copies prove the build by a stat walk against it (device, inode, mode,
+size and modification time, not the status-change time, which every hard link
+moves) and a linked copy by inode identity, so the steady state reads no byte
+of the build (5933766, 259c660, 98f3afa, 9d1c08e, 7bf650f). Two reviews, one
 for correctness and one for security, reproduced two P1 defects in that first
-version, a record outliving its pruned build and stranding a reused build id,
-and the record's file name read as a build id by the settings rebuild, plus a
-record that could list fewer files than it stamped. All closed in e32ac8a to
-9fd92e0, with a test file for the record, a refusal that names the record's
-path, and a tripwire that every file of the build an engine mounts goes in
-read-only. Measured on a synthetic tree of 20,000 files: 18.7 seconds before,
-9.0 after, not yet measured on the host. T25's second phase, D16, in the
-stack: the uploader's API listens first and a node that does not answer is
-waited for with a backoff, `/health` says `waiting_for_node` with the node's
-URL, attempts and last error, a warned start gate is latched there as
-`start_gate_warned`, every node is read under warn, URLs are stripped from
-messages, and the timeout has a ceiling (60caae7b to 46c9d120, green on the
-box). In the manager: neither half of its own start gate refuses a node that
-says nothing, `GET /profiles/:name/uploader-health` maps the uploader's own
-health to one reading, and the deployment page's uploader step says waiting,
-warned, unhealthy, healthy or unreachable (4fe7e20 to 43ec8e8). Manager unit
-2596, frontend 249, common 360, typecheck and builds clean.
+version and one more defect beside them. The first P1: a record outlived the
+build it described once that build was pruned, and stranded a reused build id.
+The second P1: the record's own file name was read as a build id by the
+settings rebuild, which is the manager rebuilding a deployment's stack after an
+operator changes its settings. The third defect: a record could list fewer
+files than it stamped. All closed in e32ac8a, 4463da8, ee87d0c, 1d095a7,
+addfe22, 31784fa, 97d78f6, e08a41f, 2c4d46e, a9fd7b5, 9fd92e0, with a test file
+for the record, a refusal that names the record's path, and a tripwire that
+every file of the build an engine mounts goes in read-only. Measured on a
+synthetic tree of 20,000 files: 18.2 to 18.7 seconds before, 15.1 on the first
+copy of a build after, which still hashes it once, and 9.0 on every copy after
+that. Not yet measured on the host. T25's second phase, D16, in the stack: the
+uploader's API listens first and a node that does not answer is waited for with
+a backoff. `/health` says `waiting_for_node` with the node's URL, attempts and
+last error, and a warned start gate is latched there as `start_gate_warned`.
+Under the warn setting the uploader reads every rung rather than stopping at
+the first one that fails. URLs are stripped from the messages and the timeout
+has a ceiling (60caae7b to 46c9d120, green on the box). In the manager: neither
+half of its own start gate refuses a node that says nothing,
+`GET /profiles/:name/uploader-health` maps the uploader's own health to
+one reading, and the deployment page's uploader step says waiting, warned,
+unhealthy, healthy or unreachable (4fe7e20, 1b65b22, 4d8db8d, 4d57267, 968de8c,
+d4a4e8c, 0772067, fa576d7, 73f347a, 43ec8e8). Manager unit 2596, frontend 249,
+common 360, typecheck and builds clean.
 
 **Open.** The stack branch is not merged into main-v3 and the manager still
 pins 7e2de6f7, so the waiting state reaches the host only after Levi merges

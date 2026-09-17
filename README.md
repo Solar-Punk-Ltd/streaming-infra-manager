@@ -7,14 +7,18 @@ stack. Targets two dedicated servers:
 - **Watcher**: N lightweight Docker containers running a Bee ultra-light node
   and the React streaming client, plus a small interface to start and stop them.
 
-It also deploys the two halves of an ABR stage, which normally live on different
-machines under different managers:
+It also deploys the two halves of an ABR stage, which normally run on this one
+host under this manager:
 
 - **ABR Node Pool**: a deployment group with one Bee node per quality rung, as
   the publish targets. Produces the `BEE_PUBLISHERS` string.
 - **ABR Uploader**: `srs` and `stream-uploader` publishing to that pool. It has
-  no Bee node and no postage of its own. You paste the pool's `BEE_PUBLISHERS`
-  in.
+  no Bee node and no postage of its own. The wizard copies the pool's
+  `BEE_PUBLISHERS` string into it.
+
+An uploader on another machine is possible, and it needs two things: a
+`BEE_LOCAL_HOST` naming an address that machine can reach, and a Bee API bind
+that admits it. See [deploy/README.md](deploy/README.md) for the bind.
 
 See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 

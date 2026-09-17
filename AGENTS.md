@@ -20,9 +20,10 @@ The five triage labels the review used, `needs-triage`, `needs-info`, `ready-for
 `ready-for-human` and `wontfix`, are defined and applied in `docs/consensus/PRD.md`, which also
 carries every review round, the task table and Levi's decisions D01 to D10. Decisions D11 to D14
 were taken during the slices built after the merge and live in their briefs and fixes files in the
-same directory, which `docs/consensus/README.md` lists in order. Decision D15 (2026-09-17, the
-stack's uploader starts whatever its chequebook says) lives in `docs/consensus/issues/t25-uploader-start-gates.md`,
-and rows T23 to T27, added the same day, are listed at the end of `docs/consensus/issues/README.md`.
+same directory, which `docs/consensus/README.md` lists in order. Decisions D15 and D16 (2026-09-17:
+the stack's uploader starts whatever its chequebook says, and the manager starts it even when its
+node does not answer) live in `docs/consensus/issues/t25-uploader-start-gates.md`, and rows T23 to
+T27, added the same day, are listed at the end of `docs/consensus/issues/README.md`.
 
 `docs/consensus/prs/` holds one draft pull request body per row, kept as the per-row record of
 what was built and checked. `docs/consensus/README.md` maps the whole directory.

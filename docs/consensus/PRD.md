@@ -446,7 +446,7 @@ Recorded by Fable from Levi's message "as recommended on all", given after a pla
 | ID | Decided | Unblocks |
 | --- | --- | --- |
 | D01 | Every version is capped at slot `min(version maximum, 100)`. The cap counts every stored deployment record, stopped ones included. | The cap part of T06. |
-| D02 | A new uploader start is refused when its node does not answer the stamp or chequebook check, with a retry action. Running uploaders and engine-only recreates are untouched. | The refusal in T07 and T12. |
+| D02 | A new uploader start is refused when its node does not answer the stamp or chequebook check, with a retry action. Running uploaders and engine-only recreates are untouched. Amended by D16 of 2026-09-17, see `issues/t25-uploader-start-gates.md`: a node that does not answer no longer refuses the start. | The refusal in T07 and T12. |
 | D03 | The wizard generates a passphrase when the host has none, keeps the host-wide passphrase as the default when one exists, and keeps unencrypted ingest as an explicit expert choice with its warning. Existing deployments are unchanged. | Nothing further, T13's minimum was already ready. The policy is settled. |
 | D04 | Guided stamp purchase shows a quote first with no preselected spend, keeps the expert inputs, and enforces a spending ceiling in the submission path. **Still needed from Levi: the preset capacities and lifetimes, and the ceiling.** | T14, once the numbers arrive. |
 | D05 | The funded review node is kept and reused. Paid steps run only after a spending cap and a duration are set. **Still needed from Levi: the cap, the duration, what to publish, and what happens to the node's funds after the test.** | The paid steps of T22, once the numbers arrive. |

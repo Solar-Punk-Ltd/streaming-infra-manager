@@ -25,7 +25,7 @@ Then by dependency: T01 (after T01a), T03 (after T01), T04a, T04b (after T04a), 
 
 ## Decisions taken (PRD "### Decisions taken by Levi, 2026-09-07")
 
-D01 cap min(version maximum, 100) counting stopped records. D02 refuse a new uploader start when its node does not answer. D03 generate a passphrase when the host has none, host default kept, expert unencrypted kept. D04 quote first, no preselected spend, ceiling enforced. D05 review node kept and reused. D06 CI checks required on main-v2, Levi's bypass, agents never push. D07 a default that loses Tested stays default with a warning. D08 no historical build catalogue. D09 image-name fix on main-v3 plus bundled bump, Levi's commits. D10 assertion override behind a typed confirmation.
+D01 cap min(version maximum, 100) counting stopped records. D02 refuse a new uploader start when its node does not answer, amended by D16 of 2026-09-17, see `t25-uploader-start-gates.md`: a node that does not answer no longer refuses the start. D03 generate a passphrase when the host has none, host default kept, expert unencrypted kept. D04 quote first, no preselected spend, ceiling enforced. D05 review node kept and reused. D06 CI checks required on main-v2, Levi's bypass, agents never push. D07 a default that loses Tested stays default with a warning. D08 no historical build catalogue. D09 image-name fix on main-v3 plus bundled bump, Levi's commits. D10 assertion override behind a typed confirmation.
 
 ## Added 2026-09-17, from the first node pool on the live host
 
