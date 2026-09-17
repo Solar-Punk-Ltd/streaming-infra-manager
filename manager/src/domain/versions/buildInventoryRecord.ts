@@ -92,18 +92,33 @@ export function parseBuildInventoryRecord(bytes: Buffer, buildId: string): Build
   return ownedTreeDigest(parsed) === digest ? parsed : null;
 }
 
-/** Nothing here follows a link or reads through one, the way everything else that touches an owned tree does not. */
+const errnoOf = (err: unknown): string | null => {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return typeof code === 'string' ? code : null;
+};
+
+/**
+ * The record's bytes, or null for every reason there might not be any.
+ *
+ * Nothing here follows a link or reads through one, the way everything else
+ * that touches an owned tree does not. Nothing here fails a deploy either: a
+ * record is a saving and never a dependency, so a filesystem that will not hand
+ * it over costs the build a reading and says so, the same way one that will not
+ * take the record back costs the next deploy one. Only an error with no errno,
+ * which is a mistake in this file rather than an answer from the filesystem,
+ * is raised.
+ */
 async function recordBytes(path: string): Promise<Buffer | null> {
   let handle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  } catch (err) {
-    if (['ENOENT', 'ELOOP', 'EMLINK', 'ENOTDIR'].includes((err as NodeJS.ErrnoException).code ?? '')) return null;
-    throw err;
-  }
-  try {
     return (await handle.stat()).isFile() ? await handle.readFile() : null;
-  } finally { await handle.close(); }
+  } catch (err) {
+    const code = errnoOf(err);
+    if (code === null) throw err;
+    if (code !== 'ENOENT') logger.warn(`[Executions] the inventory record ${path} could not be read (${code}). Its build is read again.`);
+    return null;
+  } finally { await handle?.close(); }
 }
 
 export async function readBuildInventoryRecord(buildRoot: string): Promise<BuildInventoryRecord | null> {
