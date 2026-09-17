@@ -47,7 +47,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   let nodeMode = 'unfunded';
   let holdRefresh = true;
   let holdAfterWrite = 0;
-  const writes = [], held = [], refreshes = [], freshMembership = [];
+  const writes = [], held = [], refreshes = [], freshMembership = [], readsSeen = [];
   const server = await createServer({ root: frontend, configFile: false, cacheDir: viteCacheFor('pool-draft'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
@@ -74,6 +74,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
           const reply = () => json(path === '/profiles' ? { profiles: globalsReady ? profiles : [] } : { groups: globalsReady ? [group] : [] });
           if (writes.length > holdAfterWrite && holdRefresh) {
             const uncached = /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
+            readsSeen.push(`${path} cache-control=${JSON.stringify(req.headers['cache-control'] ?? null)} pragma=${JSON.stringify(req.headers['pragma'] ?? null)}`);
             (uncached ? freshMembership : refreshes).push({ path, reply });
           } else reply();
           return;
@@ -176,7 +177,8 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership').catch(async (err) => {
     const page = (await body()).replace(/\s+/g, ' ').slice(0, 600);
     const route = await evaluate('location.hash');
-    throw new Error(`${err.message}. Writes ${writes.length}, held pool replies ${held.length}, cached refreshes ${refreshes.length}, route ${route}. `
+    const dialogOpen = await evaluate(`!!document.querySelector('[role=dialog]')`);
+    throw new Error(`${err.message}. Writes ${writes.length}, held pool replies ${held.length}, cached refreshes ${refreshes.length}, route ${route}, dialog open ${dialogOpen}. Reads held after the write: ${JSON.stringify(readsSeen)}. `
       + `Page exceptions: ${JSON.stringify(browser.errors)}. Blocked requests: ${JSON.stringify(browser.blockedRequests)}. The page said: ${JSON.stringify(page)}`);
   });
   globalsReady = true; freshMembership.splice(0).forEach(entry => entry.reply());
