@@ -29,7 +29,7 @@ D01 cap min(version maximum, 100) counting stopped records. D02 refuse a new upl
 
 ## Added 2026-09-17, from the first node pool on the live host
 
-Five rows after the set above, numbered on. T24 and T26 are defects found on the host at 0696a28 and fixed first. T25 is Levi's ruling D15 on the stack's uploader. T23 is the recommended next task on his word. T27 is a feature Levi confirmed and scoped the same day, and it is being built.
+Five rows after the set above, numbered on. T24 and T26 are defects found on the host at 0696a28 and fixed first. T25 is Levi's ruling D15 on the stack's uploader. T23 is the recommended next task on his word. T27 is a feature Levi confirmed and scoped the same day, built the same day in all three halves and pinned.
 
 - T23, execution copy cost (P2, next task): hash a build once at publish, verify by stamps, show progress.
 - T24, pool string address (P1): the URL an uploader is handed is the bridge address a container on the host reaches, never PUBLIC_HOST.

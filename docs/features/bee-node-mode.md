@@ -12,10 +12,10 @@ day: the mode and the endpoint are chosen when a node is created, the node's
 page shows both, an ultra-light node has no funding or stamp steps, and funding
 stays as it is, by hand, with no wallet held by the manager. The manager and
 frontend halves are on `main-v2`, reviewed and fixed the same day (the brief and
-the fixes file are under `docs/consensus/`). The stack half is on the branch
-`feat/bee-node-mode` of the stack and not yet merged or pinned, so until that
-pin moves a gateway created light starts ultra-light in practice, with its
-choice recorded and written but read by nothing. Written at
+the fixes file are under `docs/consensus/`). The stack half was merged into the
+manager's line of the stack, `feat/manager-line`, at 5553652c and pinned the
+same day, so a gateway created light is light once that pin is deployed. Until
+the host runs that pin, its choice is recorded and written but read by nothing. Written at
 `b56ae6f` on `main-v2` with the stack pinned at `55b22bf1`.
 
 ## What the stack ships
@@ -26,9 +26,9 @@ the three rung nodes, a chain endpoint read from `RPC_ENDPOINT`, with the public
 4568 refusals in two hours on 2026-09-15, which is why the manager offers its
 own first. The viewer gateway ships ultra-light: no endpoint and SWAP off, and
 since T27 those two are settings, `BEE_GATEWAY_RPC_ENDPOINT` and
-`BEE_GATEWAY_SWAP_ENABLE`, whose defaults are the old literals (stack branch
-`feat/bee-node-mode`, 75f9b1e1 and 251bb1c1, the rendered gateway with neither
-key measured byte-identical to the one before). A deployment
+`BEE_GATEWAY_SWAP_ENABLE`, whose defaults are the old literals (stack commits
+75f9b1e1, 251bb1c1 and 5553652c on `feat/manager-line`, the rendered gateway
+with neither key measured byte-identical to the one before). A deployment
 that sets neither gets the gateway it always got, and a test in the stack's
 deploy suite holds the defaults there. That supersedes the ruling of 2026-09-15
 that a viewer node is always ultra-light and can only be changed by editing the
