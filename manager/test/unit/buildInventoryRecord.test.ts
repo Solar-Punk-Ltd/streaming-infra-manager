@@ -10,14 +10,19 @@
  * Unit test, no database and no Docker, but the builds are real files.
  */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, it } from 'node:test';
 
 import { Logger } from '../../src/domain/Logger.js';
-import { buildInventory, buildInventoryRecordPath } from '../../src/domain/versions/buildInventoryRecord.js';
+import {
+  buildInventory,
+  buildInventoryRecordPath,
+  forgetRecordsOfGoneBuilds,
+} from '../../src/domain/versions/buildInventoryRecord.js';
 import { ownedTreeDigest, type OwnedTreeEntry } from '../../src/domain/versions/ownedTreeInventory.js';
 
 const commit = 'a'.repeat(40);
@@ -102,4 +107,47 @@ it('refuses a record that re-declares the mode of a file it stamped', async () =
   const again = await buildInventory(build);
 
   assert.equal(again.hashed, true, 'a record that changed a file mode was believed, so the copy would be made with it');
+});
+
+it('writes no record for a build holding a path its stamps cannot keep, and says why once', async t => {
+  // `stamps['__proto__'] = ...` sets a prototype instead of a key, so such a record is one reading it back refuses.
+  const warnings: string[] = [];
+  t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
+  await fsPromises.writeFile(join(build, '__proto__'), 'SYNTHETIC=proto\n');
+
+  const taken = await buildInventory(build);
+
+  assert.equal(taken.hashed, true);
+  assert.equal(existsSync(recordPath), false, 'a record was written that reading it back would refuse, so this build is re-hashed for ever');
+  assert.equal(warnings.filter(line => line.includes(build)).length, 1, warnings.join('\n'));
+});
+
+it('keeps a record whose build the filesystem would not answer about', async t => {
+  await buildInventory(build);
+  const real = fsPromises.lstat;
+  t.mock.method(fsPromises, 'lstat', async (...args: Parameters<typeof fsPromises.lstat>) => {
+    if (String(args[0]) === build) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    return real(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { syncBuiltinESMExports(); });
+
+  await forgetRecordsOfGoneBuilds(dirname(build));
+
+  assert.ok(existsSync(recordPath), 'a build the filesystem would not answer about was taken for one that is gone');
+});
+
+it('cleans up after a record it could not put in place, and lets the deploy go on', async t => {
+  const warnings: string[] = [];
+  t.mock.method(Logger.prototype, 'warn', (...args: unknown[]) => { warnings.push(args.join(' ')); });
+  t.mock.method(fsPromises, 'rename', async () => { throw Object.assign(new Error('read only file system'), { code: 'EROFS' }); });
+  syncBuiltinESMExports();
+  t.after(() => { syncBuiltinESMExports(); });
+
+  const taken = await buildInventory(build);
+
+  assert.equal(taken.hashed, true);
+  assert.ok(warnings.some(line => line.includes('was not recorded')), warnings.join('\n'));
+  assert.deepEqual((await fsPromises.readdir(dirname(build))).filter(name => name !== basename(build)), [],
+    'a half written record was left beside the builds');
 });

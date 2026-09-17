@@ -168,6 +168,18 @@ async function writeBuildInventoryRecord(buildRoot: string, record: BuildInvento
   }
 }
 
+/**
+ * Whether the record stamps exactly the paths it lists and the one more for the
+ * root, which is what reading it back requires.
+ *
+ * The one path a stamp map cannot keep is `__proto__`, because assigning it as
+ * a key sets a prototype instead. A build carrying a file of that name is
+ * better read again on every deploy, with a line saying so, than recorded into
+ * a file every read of it refuses.
+ */
+const stampsEveryPath = (record: BuildInventoryRecord): boolean =>
+  Object.keys(record.durableStamps).length === record.entries.length + 1;
+
 /** The build a file beside the builds names, or null when the file is not a record of one. */
 function buildOfRecordName(name: string): string | null {
   const at = name.indexOf(RECORD_SUFFIX);
@@ -176,19 +188,24 @@ function buildOfRecordName(name: string): string | null {
   return rest === '' || rest.endsWith(PENDING_SUFFIX) ? name.slice(0, at) : null;
 }
 
+/** The errno values that mean the build is not there. Anything else the filesystem says is not an answer, and the record stays. */
+const GONE = ['ENOENT', 'ENOTDIR'];
+
 /**
- * Removes the records of builds that are gone, and the half written ones a
- * crashed writer left beside them.
+ * Removes the records of builds that are gone.
  *
- * Prune removes a build directory and passes over everything beside it whose
- * name is not a build id, so without this the record of a pruned build would
- * sit there for the life of the host.
+ * A record is not a build, so it outlives the directory it describes unless
+ * something takes it, and the next build published at that id would inherit it.
+ * Prune calls this, and so does the writing of a new record. A record only half
+ * written when its writer died goes the same way, but only once its own build
+ * is gone too, because until then it cannot be told from one being written now.
  */
 export async function forgetRecordsOfGoneBuilds(buildsParent: string): Promise<void> {
   for (const name of await readdir(buildsParent)) {
     const build = buildOfRecordName(name);
     if (build === null) continue;
-    const gone = await lstat(join(buildsParent, build)).then(info => !info.isDirectory(), () => true);
+    const gone = await lstat(join(buildsParent, build))
+      .then(info => !info.isDirectory(), (err: unknown) => GONE.includes(errnoOf(err) ?? ''));
     if (gone) await unlink(join(buildsParent, name)).catch(() => undefined);
   }
 }
@@ -228,12 +245,21 @@ export async function buildInventory(buildRoot: string): Promise<BuildInventory>
     entries: taken.entries,
     durableStamps: taken.durableStamps,
   };
+  const buildsParent = dirname(buildRoot);
+  if (!stampsEveryPath(record)) {
+    logger.warn(`[Executions] ${buildRoot} holds a path no record can stamp, so nothing is recorded for it and every deploy reads it again.`);
+  } else {
+    try {
+      await assertOwnedDirectory(buildsParent);
+      await writeBuildInventoryRecord(buildRoot, record);
+    } catch (err) {
+      logger.warn(`[Executions] the inventory of ${buildRoot} was not recorded: ${getErrorMessage(err)}. The next copy of this build reads it again.`);
+    }
+  }
   try {
-    await assertOwnedDirectory(dirname(buildRoot));
-    await writeBuildInventoryRecord(buildRoot, record);
-    await forgetRecordsOfGoneBuilds(dirname(buildRoot));
+    await forgetRecordsOfGoneBuilds(buildsParent);
   } catch (err) {
-    logger.warn(`[Executions] the inventory of ${buildRoot} was not recorded: ${getErrorMessage(err)}. The next copy of this build reads it again.`);
+    logger.warn(`[Executions] the inventory records beside ${buildsParent} were not swept: ${getErrorMessage(err)}`);
   }
   return { record, hashed: true, tookMs: Date.now() - started };
 }
