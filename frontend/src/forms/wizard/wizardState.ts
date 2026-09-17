@@ -26,6 +26,12 @@ export type HostChoice = 'this' | 'custom';
 export type PassphraseChoice = 'host' | 'generate' | 'custom';
 export type KeyChoice = 'generate' | 'paste';
 export type StampChoice = 'later' | 'paste';
+/**
+ * Whether a deployment runs a Bee node of its own or posts to somebody else's.
+ *
+ * Not how much of a chain that node runs with, which is bee's own word `mode`
+ * and lives in `nodeMode`.
+ */
 export type BeeChoice = 'own' | 'external';
 /** Take it from something on this manager, or paste it from somewhere else. */
 export type SourceChoice = 'pick' | 'paste';
@@ -48,7 +54,7 @@ export interface WizardState {
   pastedKey: string;
   stampMode: StampChoice;
   stampId: string;
-  beeMode: BeeChoice;
+  beeChoice: BeeChoice;
   beeUrl: string;
   feedMode: SourceChoice;
   /** Profile name of the stream to follow, when it is one on this manager. */
@@ -183,7 +189,7 @@ export function initialWizardState(
     pastedKey: '',
     stampMode: 'later',
     stampId: '',
-    beeMode: 'own',
+    beeChoice: 'own',
     beeUrl: '',
     feedMode: prefill?.feedStreamer || streams.length > 0 ? 'pick' : 'paste',
     feedStreamer: prefilledStream,
@@ -296,7 +302,7 @@ export function chosenComponents(state: WizardState): string[] {
  * what the group is created with.
  */
 export function usesExternalBee(state: WizardState): boolean {
-  return state.goal === 'stream' && !state.group && state.beeMode === 'external';
+  return state.goal === 'stream' && !state.group && state.beeChoice === 'external';
 }
 
 /**

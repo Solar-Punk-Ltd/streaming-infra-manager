@@ -163,7 +163,7 @@ function settingsError(
   }
 
   if (state.goal === 'stream') {
-    if (state.beeMode === 'external') {
+    if (state.beeChoice === 'external') {
       if (!state.beeUrl.trim()) return 'Enter the Bee API address';
       const problem = beeUrlProblem(state.beeUrl);
       if (problem) return `Bee API: ${problem}`;

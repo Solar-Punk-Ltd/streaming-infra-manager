@@ -51,8 +51,8 @@ export function StreamSettings(props: WizardStepProps) {
         <FormField label="Bee node">
           <ChoiceGroup
             name="wizard-bee"
-            value={state.beeMode}
-            onChange={(beeMode) => update({ beeMode })}
+            value={state.beeChoice}
+            onChange={(beeChoice) => update({ beeChoice })}
             choices={[
               {
                 value: 'own',
