@@ -829,10 +829,11 @@ export class ProfileService {
    *
    * Almost always that is the engine alone, and the Bee node and the uploader
    * are left running because taking them down would interrupt an upload that
-   * has nothing to do with the change. The exception is
-   * `OME_HLS_POLL_INTERVAL_MS`, which compose puts in the uploader's
-   * environment, so a change to it has to recreate the uploader as well or the
-   * new value never reaches the process that reads it.
+   * has nothing to do with the change. The exceptions are the keys the uploader
+   * reads too: `OME_HLS_POLL_INTERVAL_MS`, which compose puts in the uploader's
+   * environment alone, and `HLS_FRAGMENT`, which both containers read. A change
+   * to either recreates the uploader as well, or the new value never reaches
+   * the process that reads it.
    */
   async updateEngineSettings(
     name: string,
