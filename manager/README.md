@@ -158,6 +158,14 @@ an address arriving with no source is read as a custom one, which is what this
 API took before the field existed. An update that names no source keeps the
 stored choice unless the address it belongs to went with the same body.
 
+`POST /groups` takes `node_mode`, `rpc_endpoint_source` and `rpc_endpoint` on
+the same terms as `engine_settings`, one answer written to every member, and
+holds them to the same rules over the services the members are actually given.
+A node pool's members are one Bee node each whatever the body's `components`
+say, so a pool asked for `ultra-light` is refused rather than created as nodes
+that cannot upload, and a member appended to a group later takes what its
+siblings run rather than being asked again.
+
 `node_mode` is how much of a chain this deployment's Bee node runs with:
 `light` has a chequebook, gas and postage and can publish, `ultra-light` has no
 chain at all and can only retrieve. Empty is the mode the stack ships that node
