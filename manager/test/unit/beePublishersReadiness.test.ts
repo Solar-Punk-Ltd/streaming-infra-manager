@@ -334,14 +334,15 @@ describe('beePublishersForGroup — rung address and status', () => {
     );
   });
 
-  // PUBLIC_HOST unset: every rung composes to http://localhost:100N5, which works
-  // nowhere but the manager's own machine — and used to be served as finished.
+  // BEE_LOCAL_HOST=127.0.0.1, or a native manager: every rung composes to
+  // http://127.0.0.1:100N5, which works nowhere but the manager's own machine,
+  // and used to be served as finished.
   it('refuses a loopback address without needing a probe to say so', async () => {
     const { service } = serviceFor({ urls: forEveryRung('loopback') });
     const result = await service.beePublishersForGroup(GROUP.id);
     assert.equal(result.ready, false);
     assert.equal(result.missing.length, DEFAULT_ABR_RUNGS.length);
-    assert.ok(result.missing.every((m) => m.reason.includes('PUBLIC_HOST')));
+    assert.ok(result.missing.every((m) => m.reason.includes('BEE_LOCAL_HOST')));
   });
 
   // An uploader is a container on this host and T06 binds every local bee API to

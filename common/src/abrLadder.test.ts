@@ -375,14 +375,15 @@ describe('assembleBeePublishers — rung address and status', () => {
     }
   });
 
-  // PUBLIC_HOST unset: the value assembles and works nowhere but this machine.
+  // BEE_LOCAL_HOST=127.0.0.1, or a native manager: the value assembles and works
+  // nowhere but this machine.
   it('refuses a loopback address', () => {
     const result = assembleBeePublishers(
       full().map((r) => ({ ...r, urlState: 'loopback' as const })),
     );
     assert.equal(result.ready, false);
     assert.equal(result.missing.length, ABR_LADDER_SIZE);
-    assert.ok(result.missing.every((m) => m.reason.includes('PUBLIC_HOST')));
+    assert.ok(result.missing.every((m) => m.reason.includes('BEE_LOCAL_HOST')));
   });
 
   it('refuses an ssh target used as an address', () => {
@@ -414,7 +415,7 @@ describe('assembleBeePublishers — rung address and status', () => {
       ),
     );
     assert.equal(result.missing.length, 1);
-    assert.ok(result.missing[0]!.reason.includes('PUBLIC_HOST'));
+    assert.ok(result.missing[0]!.reason.includes('BEE_LOCAL_HOST'));
   });
 
   it('warns without withholding when nothing answered at an address', () => {

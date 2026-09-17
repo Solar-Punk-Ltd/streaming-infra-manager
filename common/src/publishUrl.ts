@@ -10,9 +10,11 @@
  * Two of the ways it goes wrong are provable without touching the network, which
  * matters because they are silent otherwise:
  *
- *  - **A loopback host.** `resolveServerHost()` falls back to `localhost` when
- *    PUBLIC_HOST is unset, and logs a warning nobody reads. The value assembles
- *    fine and cannot work anywhere but this machine.
+ *  - **A loopback host.** The host in a pool string is the address
+ *    `BEE_LOCAL_HOST` names, or the Docker bridge address the manager resolves
+ *    when that is unset, so a loopback one comes from `BEE_LOCAL_HOST=127.0.0.1`
+ *    or from a manager running natively. The value assembles fine and cannot
+ *    work anywhere but this machine.
  *  - **An ssh target used as a network address.** `profiles.host` holds a *deploy*
  *    target, the schema documents it as "localhost, an ssh alias, or user@host".
  *    A `user@host` target composes to `http://deploy@1.2.3.4:10055`, which is not
@@ -112,7 +114,7 @@ export function publishUrlHealth(state: PublishUrlState): PublishUrlHealth {
 export function publishUrlReason(state: PublishUrlState): string | null {
   switch (state) {
     case 'loopback':
-      return 'this rung’s address points at the manager’s own machine — set PUBLIC_HOST so the uploader gets a reachable one';
+      return 'this rung’s address points at the manager’s own machine, so an uploader container reaches nothing there. The host in a pool string is what BEE_LOCAL_HOST names, or the Docker bridge address the manager resolves when it is unset, so set BEE_LOCAL_HOST to an address a container can reach';
     case 'ssh-target':
       return 'this rung’s address carries ssh user info, so it is a deploy target rather than a network address — set the profile’s host to the node’s own hostname or IP';
     case 'malformed':
@@ -212,6 +214,6 @@ export function rpcEndpointProblem(
 /** Why a URL is worth a second look although it does not block. */
 export function publishUrlWarning(state: PublishUrlState): string | null {
   return state === 'unreachable'
-    ? 'nothing answered at this rung’s address — either it is not reachable from outside this host, or the manager itself cannot loop back to it'
+    ? 'nothing answered at this rung’s address. That address is what BEE_LOCAL_HOST names, or the Docker bridge address the manager resolved, so either the node is not listening on it or nothing routes to it from where the manager probed'
     : null;
 }

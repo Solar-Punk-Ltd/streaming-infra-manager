@@ -20,8 +20,8 @@ describe('classifyPublishUrl', () => {
     assert.equal(classifyPublishUrl('http://streamer1:10055'), 'ok');
   });
 
-  // PUBLIC_HOST unset falls back to localhost with only a log line, and the
-  // assembled value then works nowhere but the manager's own machine.
+  // BEE_LOCAL_HOST=127.0.0.1, or a manager running natively with no bridge to
+  // read, and the assembled value then works nowhere but the manager's machine.
   it('rejects a loopback host, however spelled', () => {
     for (const host of ['localhost', '127.0.0.1', '0.0.0.0', 'LOCALHOST']) {
       assert.equal(classifyPublishUrl(`http://${host}:10055`), 'loopback');
@@ -88,6 +88,24 @@ describe('publishUrlReason / publishUrlWarning', () => {
     assert.ok(publishUrlWarning('unreachable'));
     assert.equal(publishUrlWarning('ok'), null);
     assert.equal(publishUrlWarning('loopback'), null);
+  });
+
+  // A pool string has carried the local address since T06 bound every local bee
+  // API to the docker bridge, so PUBLIC_HOST is no longer the host in it and an
+  // operator sent to that variable is sent to the wrong one.
+  it('sends an operator to the variable a loopback address can come from', () => {
+    const reason = publishUrlReason('loopback') ?? '';
+
+    assert.match(reason, /BEE_LOCAL_HOST/);
+    assert.doesNotMatch(reason, /PUBLIC_HOST/);
+  });
+
+  it('says where the address that did not answer came from', () => {
+    const warning = publishUrlWarning('unreachable') ?? '';
+
+    assert.match(warning, /BEE_LOCAL_HOST/);
+    assert.match(warning, /bridge/);
+    assert.doesNotMatch(warning, /PUBLIC_HOST/);
   });
 });
 
