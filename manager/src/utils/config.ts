@@ -3,6 +3,7 @@ import 'dotenv/config';
 import {
   bzzToPlur,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
+  rpcEndpointProblem,
 } from '@streaming-infra-manager/common';
 
 function required(name: string): string {
@@ -38,6 +39,28 @@ function chequebookFloorPlur(): bigint {
   return plur;
 }
 
+/**
+ * The chain endpoint this manager offers every Bee node created from the
+ * wizard, or null when the operator configured none.
+ *
+ * A malformed value stops the process rather than being dropped, for the reason
+ * the chequebook floor does: a deployment created against a dropped endpoint
+ * falls back to the stack's own, a public RPC that answered one node 4568 HTTP
+ * 429s in two hours, and nothing anywhere would say it had.
+ *
+ * Never logged. Such a URL can carry an API key, in its userinfo or its path,
+ * and the manager answers only its host to a browser.
+ *
+ * Exported so the refusal can be tested without the process exiting.
+ */
+export function beeRpcEndpoint(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  const problem = rpcEndpointProblem(value);
+  if (problem) throw new Error(`BEE_RPC_ENDPOINT: ${problem}`);
+  return value;
+}
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -51,6 +74,8 @@ export interface AppConfig {
    * into the api container at this same absolute path.
    */
   stackVersionsRoot: string;
+  /** See `beeRpcEndpoint`. Null when the operator configured none. */
+  beeRpcEndpoint: string | null;
 }
 
 export const config: AppConfig = {
@@ -64,4 +89,5 @@ export const config: AppConfig = {
     'STACK_VERSIONS_ROOT',
     '/home/solarpunk/streaming-infra-manager-versions',
   ),
+  beeRpcEndpoint: beeRpcEndpoint(process.env.BEE_RPC_ENDPOINT),
 };

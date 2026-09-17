@@ -1,5 +1,5 @@
 import { createChequebookOperationsService } from './domain/chequebook/createChequebookOperationsService.js';
-import { getErrorStack, plurToBzz,
+import { configuredBeeRpcEndpoint, getErrorStack, plurToBzz,
   getErrorMessage,
 } from '@streaming-infra-manager/common';
 
@@ -78,6 +78,11 @@ function logStartupConfig(): void {
     `[Boot]   chequebookFloor: ${plurToBzz(config.chequebookFloorPlur)} BZZ`,
   );
   logger.info(`[Boot]   database: ${redactDatabaseUrl(config.databaseUrl)}`);
+  // The host alone, never the URL: an endpoint can carry an API key, and this
+  // line goes to the log.
+  logger.info(
+    `[Boot]   bee RPC endpoint: ${configuredBeeRpcEndpoint(config.beeRpcEndpoint).host ?? '(unset → the stack’s own)'}`,
+  );
   logger.info(`[Boot]   bundled stack: ${BUNDLED_STACK_ROOT}`);
   logger.info(`[Boot]   stack versions root: ${config.stackVersionsRoot}`);
 }
@@ -397,6 +402,7 @@ async function main(): Promise<void> {
       portReservations,
       eventBus,
       metricsCollector,
+      beeRpcEndpoint: config.beeRpcEndpoint,
     },
     config.port,
     config.host,

@@ -1,3 +1,4 @@
+import { configuredBeeRpcEndpoint } from '@streaming-infra-manager/common';
 import { Request, Response, Router } from 'express';
 
 import { Logger } from '../../domain/Logger.js';
@@ -12,10 +13,16 @@ const logger = Logger.getInstance();
  * shows is provably the one the deploy gate refuses on. The passphrase comes
  * from whoever knows where the bundled stack runs, its legacy tree or its
  * current build, rather than from a fixed path.
+ *
+ * `beeRpcEndpoint` is the manager's own chain endpoint, BEE_RPC_ENDPOINT. The
+ * wizard offers it first to every Bee node it creates, so a page has to know
+ * whether there is one and which it is. Only its host travels: the URL itself
+ * can carry an API key, and this answer goes to every signed-in browser.
  */
 export function createConfigRouter(
   chequebookFloorBzz: string,
   hostPassphrase: () => Promise<string | null>,
+  beeRpcEndpoint: string | null,
 ): Router {
   const router = Router();
 
@@ -24,7 +31,12 @@ export function createConfigRouter(
       const host = resolveServerHost();
       const srtPassphrase = await hostPassphrase();
       logger.info(`[config] GET /config → host=${host}`);
-      res.json({ host, srtPassphrase, chequebookFloorBzz });
+      res.json({
+        host,
+        srtPassphrase,
+        chequebookFloorBzz,
+        beeRpcEndpoint: configuredBeeRpcEndpoint(beeRpcEndpoint),
+      });
     } catch (err) {
       next(err);
     }

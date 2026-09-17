@@ -14,7 +14,9 @@ let app: RouterTestApp;
 let passphrase: string | null = 'pass-one';
 
 before(async () => {
-  app = await startRouterTestApp(createConfigRouter('0.5', async () => passphrase));
+  app = await startRouterTestApp(
+    createConfigRouter('0.5', async () => passphrase, 'https://user:key@rpc.example.org:8545/v1/secret'),
+  );
 });
 
 after(() => app.close());
@@ -35,5 +37,30 @@ describe('GET /config', () => {
     const res = await call(app, 'GET', '/');
 
     assert.equal((res.body as { srtPassphrase: string | null }).srtPassphrase, null);
+  });
+
+  it('answers the host of the manager’s RPC endpoint and nothing after it', async () => {
+    // The wizard offers this endpoint first, so a page has to be able to say
+    // which one it is. The URL itself may carry an API key in its userinfo or
+    // its path, and this answer reaches every signed-in browser.
+    const res = await call(app, 'GET', '/');
+
+    const body = res.body as { beeRpcEndpoint: { configured: boolean; host: string | null } };
+    assert.deepEqual(body.beeRpcEndpoint, { configured: true, host: 'rpc.example.org:8545' });
+    assert.doesNotMatch(JSON.stringify(res.body), /secret|key/);
+  });
+
+  it('says the manager has none when it was given none', async () => {
+    const bare = await startRouterTestApp(createConfigRouter('0.5', async () => null, null));
+    try {
+      const res = await call(bare, 'GET', '/');
+
+      assert.deepEqual(
+        (res.body as { beeRpcEndpoint: unknown }).beeRpcEndpoint,
+        { configured: false, host: null },
+      );
+    } finally {
+      bare.close();
+    }
   });
 });

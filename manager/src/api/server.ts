@@ -71,6 +71,8 @@ export interface ApiDeps {
   firewallInventory?: FirewallInventoryExporter;
   eventBus: EventBus;
   metricsCollector: MetricsCollector;
+  /** The manager's own chain endpoint, BEE_RPC_ENDPOINT, or null for none. */
+  beeRpcEndpoint: string | null;
 }
 
 export interface ApiServerHandle {
@@ -102,7 +104,11 @@ export function startApiServer(
 
   app.use(
     '/config',
-    createConfigRouter(deps.chequebookService.floorBzz, () => deps.stackVersionService.hostPassphrase()),
+    createConfigRouter(
+      deps.chequebookService.floorBzz,
+      () => deps.stackVersionService.hostPassphrase(),
+      deps.beeRpcEndpoint,
+    ),
   );
   app.use('/metrics', metrics);
   app.use('/events', events.router);
