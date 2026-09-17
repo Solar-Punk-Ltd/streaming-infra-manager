@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { resolveLocalPublisherHost } from '../../src/domain/localHost.js';
+import { localPublisherHostReader, resolveLocalPublisherHost } from '../../src/domain/localHost.js';
 
 const BRIDGE = '10.200.0.1';
 const DOCKER_HOST_NAME = 'host.docker.internal';
@@ -111,5 +111,58 @@ describe('resolveLocalPublisherHost', () => {
       warn: spy.warn,
     });
     assert.equal(host, DOCKER_HOST_NAME);
+  });
+});
+
+/**
+ * The reader is what the pool assembly calls, and it remembers an answer the
+ * lookup actually produced. A failed lookup is not an answer: caching its
+ * fallback would hand out the bare name for the life of the process while the
+ * manager's own probe, which resolves that name inside its container, reads
+ * every rung as reachable.
+ */
+describe('localPublisherHostReader', () => {
+  it('asks dns again after a lookup that failed', async () => {
+    const spy = spies();
+    let attempts = 0;
+    const read = localPublisherHostReader({
+      env: {},
+      isInContainer: () => true,
+      lookupIpv4: async (hostname) => {
+        attempts += 1;
+        return attempts === 1 ? spy.fails(hostname) : spy.answers(hostname);
+      },
+      warn: spy.warn,
+    });
+    assert.equal(await read(), DOCKER_HOST_NAME);
+    assert.equal(await read(), BRIDGE);
+    assert.equal(await read(), BRIDGE);
+    assert.deepEqual(spy.looked, [DOCKER_HOST_NAME, DOCKER_HOST_NAME]);
+  });
+
+  it('asks dns once when the lookup answered', async () => {
+    const spy = spies();
+    const read = localPublisherHostReader({
+      env: {},
+      isInContainer: () => true,
+      lookupIpv4: spy.answers,
+      warn: spy.warn,
+    });
+    assert.equal(await read(), BRIDGE);
+    assert.equal(await read(), BRIDGE);
+    assert.deepEqual(spy.looked, [DOCKER_HOST_NAME]);
+  });
+
+  it('warns when the docker host resolves to a public address, and still answers it', async () => {
+    const spy = spies();
+    const read = localPublisherHostReader({
+      env: {},
+      isInContainer: () => true,
+      lookupIpv4: async () => '8.8.8.8',
+      warn: spy.warn,
+    });
+    assert.equal(await read(), '8.8.8.8');
+    assert.equal(spy.warnings.length, 1);
+    assert.ok(spy.warnings[0]!.includes('8.8.8.8'), spy.warnings[0]);
   });
 });

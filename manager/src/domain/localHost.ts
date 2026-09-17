@@ -52,6 +52,40 @@ export type LocalPublisherHostReader = () => Promise<string>;
 export async function resolveLocalPublisherHost(
   deps: LocalPublisherHostDeps = {},
 ): Promise<string> {
+  return (await readLocalPublisherHost(deps)).host;
+}
+
+/**
+ * The reader the pool assembly calls, remembering an answer the lookup actually
+ * produced. A failed lookup is not an answer: its fallback is the bare name,
+ * which the manager's own probe resolves inside its container while an uploader
+ * container resolves it nowhere, so caching it would hand out a string that
+ * reads as reachable and reaches nothing for the life of the process.
+ */
+export function localPublisherHostReader(
+  deps: LocalPublisherHostDeps = {},
+): LocalPublisherHostReader {
+  let known: Promise<string> | null = null;
+  return async () => {
+    if (known) return known;
+    const reading = await readLocalPublisherHost(deps);
+    if (reading.settled) known = Promise.resolve(reading.host);
+    return reading.host;
+  };
+}
+
+/** The bridge address cannot change while the manager runs, so a settled answer is read once. */
+export const localPublisherHost: LocalPublisherHostReader = localPublisherHostReader();
+
+interface LocalPublisherHostReading {
+  host: string;
+  /** False when the lookup failed and the host is the fallback name. */
+  settled: boolean;
+}
+
+async function readLocalPublisherHost(
+  deps: LocalPublisherHostDeps,
+): Promise<LocalPublisherHostReading> {
   const {
     env = process.env,
     isInContainer = () => existsSync('/.dockerenv'),
@@ -64,9 +98,9 @@ export async function resolveLocalPublisherHost(
   if (override) {
     return override === DOCKER_HOST_NAME
       ? literalAddressOf(override, lookupIpv4, warn)
-      : override;
+      : { host: override, settled: true };
   }
-  if (!isInContainer()) return DOCKER_HOST_NAME;
+  if (!isInContainer()) return { host: DOCKER_HOST_NAME, settled: true };
   return literalAddressOf(DOCKER_HOST_NAME, lookupIpv4, warn);
 }
 
@@ -74,20 +108,35 @@ async function literalAddressOf(
   name: string,
   lookupIpv4: (hostname: string) => Promise<string>,
   warn: (message: string) => void,
-): Promise<string> {
+): Promise<LocalPublisherHostReading> {
   try {
-    return await lookupIpv4(name);
+    const address = await lookupIpv4(name);
+    if (!isPrivateIpv4(address)) {
+      warn(
+        `[localHost] ${name} resolved to ${address}, which is not a private address. A docker host gateway is one, ` +
+          'so check the host-gateway mapping of the api container before a pool string carries this.',
+      );
+    }
+    return { host: address, settled: true };
   } catch (err) {
     warn(
       `[localHost] ${name} did not resolve (${getErrorMessage(err)}), so a pool string carries the name. ` +
         'An uploader container on Linux resolves it nowhere, and BEE_LOCAL_HOST is the override for that.',
     );
-    return name;
+    return { host: name, settled: false };
   }
 }
 
-let resolution: Promise<string> | null = null;
-
-/** The bridge address cannot change while the manager runs, so it is read once. */
-export const localPublisherHost: LocalPublisherHostReader = () =>
-  (resolution ??= resolveLocalPublisherHost());
+/** RFC 1918, loopback and link-local: every range a docker bridge or a laptop resolver answers with. */
+function isPrivateIpv4(address: string): boolean {
+  const parts = address.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [first, second] = parts as [number, number, number, number];
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    first === 127 ||
+    (first === 169 && second === 254)
+  );
+}
