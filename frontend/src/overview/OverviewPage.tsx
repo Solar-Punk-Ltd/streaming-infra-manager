@@ -25,12 +25,13 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusDot } from '../components/StatusDot';
 import { needsAttention, readinessOf } from '../deployments/readiness';
 import { isRunning, SHAPE_LABEL, shapeOf, statusLabelOf } from '../deployments/shape';
-import { poolStampHealths } from '../groups/rungStampHealth';
+import { mergedStampHealths, poolStampHealths } from '../groups/rungStampHealth';
 import { usePoolResults } from '../groups/useBeePublishers';
 import { StaleReadings } from '../resources/StaleReadings';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
 import { useChequebookHealths } from '../uploaders/useChequebookHealths';
+import { useStampHealths } from '../uploaders/useStampHealths';
 import { usePublishUrl } from '../deployments/usePublishUrl';
 import { useMetrics } from '../useMetrics';
 import { ActivityCard } from './ActivityCard';
@@ -43,7 +44,11 @@ export function OverviewPage() {
   const { snapshot, stale, staleSeconds } = useMetrics();
   const poolResults = usePoolResults(groups, profiles);
   const chequebooks = useChequebookHealths(profiles);
-  const stampHealths = poolStampHealths(poolResults, profiles);
+  const nodeStamps = useStampHealths(profiles);
+  const stampHealths = mergedStampHealths(
+    poolStampHealths(poolResults, profiles),
+    nodeStamps,
+  );
 
   if (!profiles) {
     return (

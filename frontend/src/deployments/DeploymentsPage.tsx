@@ -19,10 +19,11 @@ import { isLadderKind } from '@streaming-infra-manager/common';
 import { useEditors } from '../app/EditorsContext';
 import { useDeployments } from '../app/useDeploymentsStore';
 import { EmptyState } from '../components/EmptyState';
-import { poolStampHealths } from '../groups/rungStampHealth';
+import { mergedStampHealths, poolStampHealths } from '../groups/rungStampHealth';
 import { usePoolResults } from '../groups/useBeePublishers';
 import type { Profile } from '../types';
 import { useChequebookHealths } from '../uploaders/useChequebookHealths';
+import { useStampHealths } from '../uploaders/useStampHealths';
 import { DeploymentRow } from './DeploymentRow';
 import { GroupBlockRows } from './GroupBlockRows';
 import { needsAttention } from './readiness';
@@ -59,7 +60,11 @@ export function DeploymentsPage({ search }: { search: string }) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const poolResults = usePoolResults(groups, profiles);
   const chequebooks = useChequebookHealths(profiles);
-  const stampHealths = poolStampHealths(poolResults, profiles);
+  const nodeStamps = useStampHealths(profiles);
+  const stampHealths = mergedStampHealths(
+    poolStampHealths(poolResults, profiles),
+    nodeStamps,
+  );
 
   if (!profiles) {
     return (

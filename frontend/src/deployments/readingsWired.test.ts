@@ -51,6 +51,19 @@ describe('the readings a view hands to a readiness verdict', () => {
     assert.deepEqual(offenders(NO_STAMP_READING), []);
   });
 
+  it('leaves no page judging deployments it never asked about', () => {
+    const missing = ['deployments/DeploymentsPage.tsx', 'overview/OverviewPage.tsx'].flatMap(
+      (page) => {
+        const source = readFileSync(path.join(SOURCE_ROOT, page), 'utf8');
+        return ['useChequebookHealths(', 'useStampHealths(']
+          .filter((hook) => !source.includes(hook))
+          .map((hook) => `${page} takes no ${hook}`);
+      },
+    );
+
+    assert.deepEqual(missing, []);
+  });
+
   it('read the source it means to, so finding nothing means something', () => {
     const files = scanned();
 

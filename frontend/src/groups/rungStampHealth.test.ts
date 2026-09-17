@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import type { BeePublishersResult, LadderRungState } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
-import { poolStampHealths, rungStampHealth } from './rungStampHealth';
+import { mergedStampHealths, poolStampHealths, rungStampHealth } from './rungStampHealth';
 
 const BATCH = `0x${'a'.repeat(64)}`;
 
@@ -99,5 +99,26 @@ describe('the stamp reading a pool result already carries', () => {
     assert.deepEqual([...healths.keys()], ['abr-pool-1-360p', 'abr-pool-1-480p']);
     assert.equal(healths.get('abr-pool-1-360p')?.ok, true);
     assert.equal(healths.get('abr-pool-1-480p')?.dead, true);
+  });
+});
+
+describe('two sources of the same reading', () => {
+  const live = { state: 'active' as const, ok: true, dead: false, ttl: 9 };
+  const expired = { state: 'expired' as const, ok: false, dead: true, ttl: 0 };
+
+  it('keeps what the manager read of a rung over what a page polled', () => {
+    const merged = mergedStampHealths(
+      new Map([['abr-pool-1-360p', live]]),
+      new Map([['abr-pool-1-360p', expired], ['bee-1', expired]]),
+    );
+
+    assert.equal(merged.get('abr-pool-1-360p')?.state, 'active');
+    assert.equal(merged.get('bee-1')?.state, 'expired');
+  });
+
+  it('falls back to the poll for a member no pool result covers', () => {
+    const merged = mergedStampHealths(new Map(), new Map([['abr-pool-1-360p', expired]]));
+
+    assert.equal(merged.get('abr-pool-1-360p')?.state, 'expired');
   });
 });

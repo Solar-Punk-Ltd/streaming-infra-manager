@@ -17,7 +17,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusDot } from '../components/StatusDot';
 import type { Tone } from '../components/tone';
 import { poolProblems } from '../groups/groupReadiness';
-import type { PoolStampHealths } from '../groups/rungStampHealth';
+import type { StampHealths } from '../uploaders/useStampHealths';
 import {
   CHEQUEBOOK_EMPTY,
   CHEQUEBOOK_LOW,
@@ -49,7 +49,7 @@ export function AttentionList({
   /** What each node said about its chequebook, for the nodes that answered. */
   chequebooks: ChequebookHealths;
   /** What the manager's pool assembly says each member's batch is worth. */
-  stampHealths: PoolStampHealths;
+  stampHealths: StampHealths;
 }) {
   const total = profiles.length + pools.length;
 

@@ -7,10 +7,8 @@ import {
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
+import type { StampHealths } from '../uploaders/useStampHealths';
 import type { PoolResults } from './useBeePublishers';
-
-/** What each pool member's batch is worth, by profile name. */
-export type PoolStampHealths = ReadonlyMap<string, StampHealth>;
 
 /**
  * What the manager's own pool assembly already learned about a rung's batch.
@@ -43,7 +41,7 @@ export function rungStampHealth(
 export function poolStampHealths(
   results: PoolResults,
   profiles: Profile[] | null,
-): PoolStampHealths {
+): StampHealths {
   const recorded = new Map(
     (profiles ?? []).map((profile) => [profile.name, profile.stamp_id]),
   );
@@ -59,4 +57,20 @@ export function poolStampHealths(
 
 function healthOf(state: StampState, ttl: number | null): StampHealth {
   return { state, ok: state === 'active', dead: isDeadStampState(state), ttl };
+}
+
+/**
+ * One reading per deployment, from the two ways a page comes by one.
+ *
+ * The manager reads every rung's batch while it assembles a pool string, and
+ * that reading is the one to keep for a member it covers: it is taken with the
+ * pool's own fetch rather than by asking the same node again. A page's own poll
+ * answers for every node no pool result covers, and for a member whose pool
+ * result has not arrived.
+ */
+export function mergedStampHealths(
+  fromPools: StampHealths,
+  fromNodes: StampHealths,
+): StampHealths {
+  return new Map([...fromNodes, ...fromPools]);
 }

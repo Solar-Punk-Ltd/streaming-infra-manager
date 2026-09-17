@@ -219,3 +219,26 @@ describe('a row that reads the wallet itself', () => {
     assert.equal(readinessOf(member, live, paying, null).label, 'Funding not checked');
   });
 });
+
+describe('a standalone Bee node a list polled for its batch', () => {
+  const standalone: Profile = {
+    ...runningProfile,
+    name: 'bee-1',
+    components: [...ABR_RUNG_COMPONENTS],
+    containers: [{ service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
+    stamp_id: `0x${'a'.repeat(64)}`,
+  };
+  const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
+
+  it('warns and counts once the node says the batch has run out', () => {
+    const expired: StampHealth = { state: 'expired', ok: false, dead: true, ttl: 0 };
+
+    assert.equal(readinessOf(standalone, expired, paying).label, 'Stamp expired');
+    assert.equal(needsAttention(standalone, expired, paying), true);
+  });
+
+  it('waits, and counts nothing, while it has no answer from that node', () => {
+    assert.equal(readinessOf(standalone, undefined, paying).label, 'Stamp not checked');
+    assert.equal(needsAttention(standalone, undefined, paying), false);
+  });
+});
