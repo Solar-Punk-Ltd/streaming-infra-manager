@@ -180,10 +180,11 @@ nothing invalidates a copy that has gone wrong:
 
 **Since 2026-09-17 a rung that is not answering does not stop the uploader
 starting** (decision D16, the owner: "we should be able to start the uploader but
-maybe say its node not available, try to reconnect or something"). The manager's
-own start gate logs a node that says nothing and lets the start through, keeping
-its refusal only for a batch the node answered about and called unknown, expired
-or not usable yet. The uploader then waits for its node instead of exiting, and
+maybe say its node not available, try to reconnect or something"). Both checks of
+the manager's own start gate, the batch and the chequebook, log a node that says
+nothing and let the start through. What they still refuse is an answer the node
+gave: a batch it calls unknown, expired or not usable yet, or a chequebook
+balance under the floor. The uploader then waits for its node instead of exiting, and
 reports that wait on its own `/health`. The deployment page reads that route
 every ten seconds and the **Uploader running** step says which node is being
 waited for, how many attempts it has made and since when, and clears when the

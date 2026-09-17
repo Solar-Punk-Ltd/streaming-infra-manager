@@ -47,12 +47,21 @@ The stack half is on `fix/uploader-start-gates-warn` in
 the pinned `7e2de6f7` reports none of the new fields and the manager reads that
 as no waiting state reported.
 
-⚠️ Not built, and the owner's to rule on: `ChequebookService.assertFunded`, the
-second check of the same gate, still throws `BeeNodeError` on a node that does
-not answer the chequebook read (`manager/src/domain/ChequebookService.ts`, the
-catch at line 188, from commit `50e778e` under D02). So on a deployment with its
-own Bee node a silent node still refuses the start, at that check rather than at
-the stamp check, and D16 is only half in effect. `manager/README.md` has said
-since before either change that a chequebook the node cannot be asked about does
-not block the deploy, which is the behaviour D16 asks for and not the behaviour
-the code has.
+`d4a4e8c` closed the half that was left: `ChequebookService.assertFunded`, the
+gate's second check, was still throwing `BeeNodeError` on a node that did not
+answer the chequebook read, from commit `50e778e` under D02, so a silent node
+refused the start one check later and D16 was only half in effect. It now logs
+the node it could not reach and lets the start through. A balance under the
+floor still refuses, and so does a balance the node answered with that cannot be
+read at all, because in each the node answered. `manager/README.md` says that of
+both checks now.
+
+Three smaller things followed. `0772067` moved the five deploy-target spellings
+that mean this machine into `LOCAL_DEPLOY_TARGETS` in
+`manager/src/domain/localHost.ts`, so `StampService` and `UploaderHealthService`
+read one set rather than a copy each. `fa576d7` put the node's last error on the
+waiting line, "4 attempts so far, last error: timeout of 20000ms exceeded", so
+the step says why the node is being waited for and not only that it is.
+`73f347a` gave the offline mock the route, `ok` by default and
+`?state=waiting_for_node`, `?state=warned` or `?state=ok` to move it, sticking on
+the node entry so the page's ten second re-read keeps showing it.
