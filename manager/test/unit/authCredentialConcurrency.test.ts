@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import { AuthService, type SessionInfo } from '../../src/domain/auth/AuthService.js';
 import type { CredentialRepository } from '../../src/domain/auth/CredentialRepository.js';
+import { LoginLimiter } from '../../src/domain/auth/LoginLimiter.js';
 import { OpenStreams } from '../../src/domain/auth/OpenStreams.js';
 import { verifyPassword } from '../../src/domain/auth/passwordHash.js';
 import { InMemoryCredentialRepository } from '../support/InMemoryCredentialRepository.js';
@@ -97,5 +98,46 @@ describe('password verification and credential writes', () => {
     assert.ok(stored);
     assert.equal(await verifyPassword(FIRST_PASSWORD, stored.password_hash), true);
     assert.equal(await verifyPassword(SECOND_PASSWORD, stored.password_hash), false);
+  });
+
+  it('settles correct-current attempts when the replacement is weak', async () => {
+    const users = new InMemoryUserRepository();
+    const sessions = new InMemorySessionRepository(users);
+    const credentials = new InMemoryCredentialRepository(users, sessions);
+    const auth = new AuthService(users, sessions, credentials, new OpenStreams(), new LoginLimiter());
+    const added = await auth.addUser('owner', OLD_PASSWORD);
+    const current = session({ id: added.id, username: added.username, isAdmin: true });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await assert.rejects(auth.changePassword(current, OLD_PASSWORD, 'weak'));
+    }
+    await auth.changePassword(current, OLD_PASSWORD, FIRST_PASSWORD);
+
+    const stored = await users.findById(added.id);
+    assert.ok(stored);
+    assert.equal(await verifyPassword(FIRST_PASSWORD, stored.password_hash), true);
+  });
+
+  it('settles verified sign-ins when session cleanup fails', async () => {
+    const users = new InMemoryUserRepository();
+    const sessions = new InMemorySessionRepository(users);
+    const credentials = new InMemoryCredentialRepository(users, sessions);
+    const auth = new AuthService(users, sessions, credentials, new OpenStreams(), new LoginLimiter());
+    await auth.addUser('owner', OLD_PASSWORD);
+    const deleteExpired = sessions.deleteExpired.bind(sessions);
+    let failures = 5;
+    sessions.deleteExpired = async (...args) => {
+      if (failures-- > 0) throw new Error('synthetic session cleanup failure');
+      return deleteExpired(...args);
+    };
+    const input = { username: 'owner', password: OLD_PASSWORD, ip: '127.0.0.1', userAgent: 'test' };
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await assert.rejects(auth.signIn(input), /synthetic session cleanup failure/);
+    }
+    const signedIn = await auth.signIn(input);
+
+    assert.ok(signedIn.token);
+    assert.equal(sessions.size(), 1);
   });
 });
