@@ -142,12 +142,12 @@ export class PostgresExecutionRootRepository {
     const snapshot = await this.find(id);
     if (!snapshot || snapshot.state !== 'launch-uncertain') return null;
     return this.transaction(async client => {
-      // The shared order: the profile, the daemon admission lock, the
+      // The shared order: the daemon admission lock, the profile, the
       // references, then the execution row.
+      await lockAttemptDaemon(client, snapshot.target.daemonId);
       const profile = (await client.query<{ instance_id: string }>(
         'SELECT instance_id FROM profiles WHERE name = $1 FOR SHARE', [snapshot.profile.name],
       )).rows[0];
-      await lockAttemptDaemon(client, snapshot.target.daemonId);
       const activeAttempt = await client.query(
         "SELECT 1 FROM deploy_attempts WHERE daemon_id = $1 AND project = $2 AND state <> 'released' LIMIT 1",
         [snapshot.target.daemonId, snapshot.project],
