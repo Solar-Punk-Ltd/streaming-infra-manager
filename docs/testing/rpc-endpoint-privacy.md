@@ -47,10 +47,13 @@ group responses and a source-only switch.
 ## Limits
 
 No database test ran locally because this checkout has no configured disposable
-PostgreSQL mapping. `manager/test/database/profileNodeMode.test.ts` records the
-database projection, omission preservation, replacement and group behavior for
-the verification server. Full typecheck, build and suite verification are also
-left to that server under the repository's verification rule.
+PostgreSQL mapping. On 2026-09-19, [run 35440997869](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35440997869)
+tested `e88581a42483e8caf7fa6a3ca41b5492a8b74f1e` in the PR workflow's disposable
+databases. All 547 database tests passed, including the public projection,
+omission preservation, replacement and group cases in
+`manager/test/database/profileNodeMode.test.ts`. Build, typechecks and the
+complete unit, native and browser suites passed on that commit too. This is
+automated test evidence, not a live host result.
 
 ## Backslash boundary follow-up
 
@@ -64,4 +67,5 @@ The projection now converts backslashes to path separators before it extracts
 the host. The focused SQL and privacy files pass 14 tests. The disposable
 PostgreSQL test also persists this exact shape and checks find, list, group
 create and group list projections against the private endpoint reader. It was
-not run locally for the database mapping reason above.
+not run locally for the database mapping reason above. It passed in the
+completed PR database run cited above.

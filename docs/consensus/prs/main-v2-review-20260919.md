@@ -20,11 +20,11 @@ Each finding has a regression that failed before its fix. Focused checks passed 
 
 Independent Astra review covered the production corrections. Review also caught and closed a backslash URL disclosure and an incomplete-copy interval. The first five-fix candidate passed the server build, typechecks, unit suites and native transport suites. Later combined runs caught an unused import and three incomplete test fixtures, all corrected in separate commits.
 
-The latest combined server run passed build and typechecks, then found eight outdated test setups after the private RPC projection changed. Those setups are corrected. All 34 focused cases in the affected suites pass, including a new refusal for a historical job that never owned its deployment.
+A combined server run passed build and typechecks, then found eight outdated test setups after the private RPC projection changed. Those setups are corrected. All 34 focused cases in the affected suites pass, including a new refusal for a historical job that never owned its deployment.
 
 The PR's first run passed build, typechecks, unit and native checks. Its database job ran all 547 tests with no skips. The new controlled lock-order test was the only failure, with PostgreSQL reporting `55P03` on the profile row while cleanup waited for daemon admission. The reviewed correction now takes the daemon lock before the profile lock, matching engine configuration admission.
 
-The final combined checks are pending. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision. No pending result is represented as passing.
+Verification completed on 2026-09-19 at `e88581a42483e8caf7fa6a3ca41b5492a8b74f1e`. [Run 35440997869](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35440997869) passed build and typechecks, 3,422 unit tests, seven native transport tests, 547 PostgreSQL tests across 36 suites, and 261 browser-suite tests across 34 files. All 4,237 tests passed with zero failures and zero skips. The lock-order regression passed after the correction. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision.
 
 ## Limits
 

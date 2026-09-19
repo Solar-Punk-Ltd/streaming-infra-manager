@@ -1,6 +1,6 @@
 # Execution-root retention after partial deploys
 
-Status: done locally, broad verification pending on the verification box.
+Status: verified on 2026-09-19 at `e88581a42483e8caf7fa6a3ca41b5492a8b74f1e`.
 
 Date: 2026-09-19. Baseline: `a5b4253`.
 
@@ -28,4 +28,6 @@ bash /Users/kisslevente/Documents/git/estate/tools/lane.sh --name infra-retentio
 
 GREEN passed 92 tests in 17 suites with no failures, skips or cancellations. The cases cover a full SRS and uploader execution, a successful uploader-only replacement that retains the engine's root, later failed launches, unavailable and malformed observation, unregistered execution mounts, interrupted `deleting` recovery, the manager API's administrative versions-root and host-root mounts, a foreign parent bind, and cleanup after all deployment mounts move.
 
-The PostgreSQL regression records two additional guarantees. An open or blocked deploy attempt prevents the claim. A new launcher waits on the same daemon advisory lock while cleanup claims a root. This suite was not run locally because its isolated PostgreSQL runner is not configured in this worktree. Broad tests, builds and typechecks are assigned to the verification box.
+The PostgreSQL regressions prove that an open or blocked deploy attempt prevents the claim, a new launcher waits on the daemon advisory lock while cleanup claims a root, and cleanup acquires that lock before the profile row to match engine configuration admission. The last regression failed with PostgreSQL `55P03` before the lock-order correction in [run 35440776388](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35440776388).
+
+[Run 35440997869](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35440997869) passed all 547 PostgreSQL tests across 36 suites, including these regressions. The same commit passed build, typechecks, 3,422 unit tests, seven native transport tests and 261 browser-suite tests. All 4,237 tests passed with zero skips. PostgreSQL ran in the PR workflow's disposable databases because the shared verification mapping does not provision this repository's nine task databases. No live host behavior was tested.
