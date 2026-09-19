@@ -359,8 +359,7 @@ below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
-stack, `feat/manager-line`, the manager's own line of the stack until it is
-merged into `main-v3` on Levi's word, publishes SRS's HTTP API port per
+stack, `v3.1` as of 2026-09-19, publishes SRS's HTTP API port per
 deployment as `SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
 `main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
 API needs a `<Managers>` block the template does not carry on either.
@@ -382,7 +381,7 @@ setting the drawer marks as not read (`notInConfig`).
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
 `deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-the bundled `feat/manager-line`, from the commit that added them. A
+the bundled `v3.1`. A
 version without the hook, such as the stack's `main-v2`, renders its template
 and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
@@ -443,12 +442,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on the bundled `feat/manager-line`, 999 on the older `main-v2`, and the
+(99 on the bundled `v3.1`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
-`feat/manager-line`, are generated the first
+`v3.1`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.

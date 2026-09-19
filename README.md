@@ -26,8 +26,8 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 - `manager/swarm-hls-stream/`: a git submodule pointing at
   [Solar-Punk-Ltd/swarm-hls-stream](https://github.com/Solar-Punk-Ltd/swarm-hls-stream),
-  tracking `feat/manager-line`, the manager's own line of the stack since
-  2026-09-17 (see the note under "Updating the upstream submodule"). This is
+  pinned to release `v3.1` (`2c4867aee359928263155c50d82c13e6b1362f4b`)
+  as of 2026-09-19, with `main` as its tracked branch. This is
   the upstream application source, with the
   packages under `packages/` and the engine trees under `engines/`. The commit
   it records is the **bundled** stack version, and that version is the default
@@ -146,16 +146,20 @@ fetched. Go back to Option A or B.
 
 ## Updating the upstream submodule
 
-To pull the latest commits from the branch the submodule tracks, `feat/manager-line`:
+The bundled stack is pinned to `v3.1` as of 2026-09-19. That release includes
+PR #241 and the manager integration work previously carried by
+`feat/manager-line`. The upstream default branch is now `main`.
 
-Why that branch and not `main-v3`, since 2026-09-17: the stack's `main-v3` was
-put back to the commit a colleague's open pull request had merged, so that
-pull request merges without conflict, and everything the manager had pinned
-since then, 143 commits when the line was cut and every commit pinned since,
-lives on `feat/manager-line` until the two are resolved and merged into
-`main-v3` on Levi's word. Until then `main-v3` is
-older than the manager's stack, and a version added with `main-v3` as its git
-reference builds that older code.
+Prefer an explicit release when upgrading the bundled stack:
+
+```sh
+git -C manager/swarm-hls-stream fetch origin tag v3.1
+git -C manager/swarm-hls-stream checkout --detach v3.1
+git add manager/swarm-hls-stream
+git commit -m "chore: pin swarm-hls-stream v3.1"
+```
+
+To test the latest upstream `main` instead, use the tracked branch:
 
 ```sh
 git submodule update --remote manager/swarm-hls-stream
