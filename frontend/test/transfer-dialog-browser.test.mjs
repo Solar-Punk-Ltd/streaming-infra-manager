@@ -125,6 +125,17 @@ async function screenshot(browser, fixture, name, width) {
   return path;
 }
 
+test('the fill dialog says a low chequebook warns but does not block an uploader start', async t => {
+  const h = await fixture(t);
+  const browser = await open(t, h);
+
+  await click(browser, 'Fill chequebook');
+  await visible(browser, 'Below 0.5 BZZ');
+  const text = await browser.evaluate(`${DIALOG}.innerText`);
+  assert.match(text, /does not block an uploader start/i);
+  assert.doesNotMatch(text, /will not start an uploader/i);
+});
+
 test('actual dialog restores an unknown saved intent after balance failure, opposite direction and reload', async t => {
   const h = await fixture(t, { unknown: true });
   const browser = await open(t, h);

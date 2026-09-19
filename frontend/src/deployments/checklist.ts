@@ -496,13 +496,22 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
     return runningUploaderStep(uploaderHealth);
   }
 
-  const ready = isRunning(profile) && canDeployUploader(profile) && stampHealth.ok && fundingStep(input).state === 'ok' && (!input.nodeReadiness || input.nodeReadiness.state === 'ready');
+  // The manager asks the node again before it changes containers. A node that
+  // says nothing and any chequebook balance are warning states under D15 and
+  // D16, so neither can hide the action. A stamp the node already reported as
+  // missing, expired or not usable is the evidence that still blocks it.
+  const ready =
+    isRunning(profile) &&
+    canDeployUploader(profile) &&
+    (stampHealth.state === 'active' || stampHealth.state === 'unknown');
   return {
     title,
     problem: 'Uploader not started',
     state: ready ? 'warn' : 'off',
     detail: ready
-      ? 'Stamp is set. Start the uploader to complete the stack.'
+      ? stampHealth.state === 'active'
+        ? 'Stamp is set. Start the uploader to complete the stack.'
+        : 'A stamp is recorded. Start rechecks it. A node that does not answer may leave the uploader waiting, while a stamp the node reports unusable is refused.'
       : 'Start is held until the earlier readiness checks pass. Existing containers are left running.',
     action: ready
       ? { label: 'Start uploader', kind: 'deploy-uploader', primary: true }

@@ -50,43 +50,80 @@ describe('one readiness blocker', () => {
     assert.match(readySummary(state).title, /chequebook empty/i);
   });
 
-  it('requires verified chequebook funding before a new uploader action', () => {
-    const state = input({ chequebook: null, stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 }, profile: { ...runningProfile, stamp_id: 'batch' } });
-    const steps = buildChecklist(state);
-    assert.equal(firstBlocker(steps)?.problem, 'Funding not checked');
-    assert.equal(firstBlocker(steps)?.action?.kind, 'refresh-node');
-    assert.equal(steps.some((step) => step.action?.kind === 'deploy-uploader'), false);
+  it('offers an uploader start through low or unreadable chequebook warnings', () => {
+    for (const chequebook of [
+      null,
+      { state: 'low' as const, availablePlur: 1_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n },
+      { state: 'unknown' as const, availablePlur: null, floorPlur: 5_000_000_000_000_000n },
+    ]) {
+      const state = input({
+        chequebook,
+        stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000 },
+        profile: { ...runningProfile, stamp_id: 'batch' },
+      });
+
+      assert.equal(
+        buildChecklist(state).some((step) => step.action?.kind === 'deploy-uploader'),
+        true,
+        chequebook?.state ?? 'no chequebook reading',
+      );
+    }
   });
 
-  it('cannot enable a new uploader using otherwise valid readings while the Bee observation is stale', () => {
+  it('offers an uploader start while the Bee observation is stale or unreachable', () => {
+    for (const stateName of ['stale', 'unreachable'] as const) {
+      const state = input({
+        profile: { ...runningProfile, stamp_id: 'batch' },
+        stampHealth: { state: 'unknown', ok: false, dead: false, ttl: null },
+        chequebook: { state: 'unknown', availablePlur: null, floorPlur: 5_000_000_000_000_000n },
+        nodeReadiness: { state: stateName, label: 'Bee did not answer', detail: 'The node could not be read.' },
+      });
+
+      assert.equal(
+        buildChecklist(state).some((step) => step.action?.kind === 'deploy-uploader'),
+        true,
+        stateName,
+      );
+    }
+  });
+
+  it('still blocks an uploader start with missing or proven bad postage', () => {
+    const cases: Array<{ profile: Profile; stampHealth: StampHealth }> = [
+      { profile: runningProfile, stampHealth: stampHealthFrom(null, null) },
+      {
+        profile: { ...runningProfile, stamp_id: 'batch' },
+        stampHealth: { state: 'gone', ok: false, dead: true, ttl: null },
+      },
+      {
+        profile: { ...runningProfile, stamp_id: 'batch' },
+        stampHealth: { state: 'expired', ok: false, dead: true, ttl: 0 },
+      },
+      {
+        profile: { ...runningProfile, stamp_id: 'batch' },
+        stampHealth: { state: 'pending', ok: false, dead: false, ttl: null },
+      },
+    ];
+
+    for (const candidate of cases) {
+      const steps = buildChecklist(input(candidate));
+      assert.equal(
+        steps.some((step) => step.action?.kind === 'deploy-uploader'),
+        false,
+        candidate.stampHealth.state,
+      );
+    }
+  });
+
+  it('does not offer a second uploader action while the deployment is changing', () => {
     const state = input({
-      profile: { ...runningProfile, stamp_id: 'batch' },
+      profile: { ...runningProfile, status: 'DEPLOYING', stamp_id: 'batch' },
       stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 },
       chequebook: { state: 'ok', availablePlur: 10000000000000000n, floorPlur: 5000000000000000n },
       nodeReadiness: { state: 'stale', label: 'Bee observation stale', detail: 'Previous check is stale.' },
     });
-    assert.equal(readinessFor(state).label, 'Bee observation stale');
-    assert.equal(firstBlocker(buildChecklist(state))?.action?.kind, 'refresh-node');
-    assert.equal(buildChecklist(state).some(step => step.action?.kind === 'deploy-uploader'), false);
-    assert.equal(state.profile.status, 'RUNNING');
-  });
-
-  it('does not blame passing funding and stamp checks when the earlier API or deployment checks block startup', () => {
-    for (const status of ['RUNNING', 'DEPLOYING'] as const) {
-      const state = input({
-        profile: { ...runningProfile, status, stamp_id: 'batch' },
-        stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 },
-        chequebook: { state: 'ok', availablePlur: 10000000000000000n, floorPlur: 5000000000000000n },
-        nodeReadiness: { state: 'stale', label: 'Bee observation stale', detail: 'Previous check is stale.' },
-      });
-      const steps = buildChecklist(state);
-      assert.equal(steps.find(step => step.title === 'Bee node funded')?.state, 'ok');
-      assert.equal(steps.find(step => step.title === 'Postage stamp set')?.state, 'ok');
-      const uploader = steps.find(step => step.title === 'Uploader running');
-      assert.equal(uploader?.action, undefined);
-      assert.match(uploader?.detail ?? '', /earlier readiness checks/i);
-      assert.doesNotMatch(uploader?.detail ?? '', /funding and the stamp can be verified/i);
-    }
+    const uploader = buildChecklist(state).find(step => step.title === 'Uploader running');
+    assert.equal(uploader?.action, undefined);
+    assert.match(uploader?.detail ?? '', /earlier readiness checks/i);
   });
 
   it('does not call a recorded stamp and running containers ready or playable', () => {

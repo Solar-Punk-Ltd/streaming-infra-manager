@@ -90,14 +90,14 @@ test('readiness and container diagnostics use current observations in the browse
   }
   await evaluate('window.fixtureNow = performance.now.bind(performance); performance.now = () => window.fixtureNow() + 31000');
   await waitFor(body, text => text.includes('Bee observation stale'), 'expired observation');
-  assert.equal(await hasUploader(), false);
+  assert.equal(await hasUploader(), true);
   hold = true;
   await click('Retry node checks');
   await waitFor(() => held.length, count => count >= 1, 'held reload');
-  assert.equal(await hasUploader(), false);
+  assert.equal(await hasUploader(), true);
   mode = 'failed'; hold = false; held.splice(0).forEach(reply => reply());
   await waitFor(body, text => text.includes('Bee unreachable'), 'failed reload');
-  assert.equal(await hasUploader(), false);
+  assert.equal(await hasUploader(), true);
   mode = 'initializing'; await click('Retry node checks');
   await waitFor(body, text => text.includes('Bee initializing'), 'initializing response');
   assert.match(await body(), /No completion estimate/);
@@ -105,7 +105,7 @@ test('readiness and container diagnostics use current observations in the browse
   await evaluate(`location.hash = '#/deployments/second-stream'`);
   await waitFor(() => held.length, count => count >= 1, 'second deployment loading');
   assert.match(await body(), /No current Bee API observation/);
-  assert.equal(await hasUploader(), false);
+  assert.equal(await hasUploader(), true);
   mode = 'ready'; hold = false; held.splice(0).forEach(reply => reply());
   await waitFor(body, text => text.includes('Bee reports its API is ready') && text.includes('second-stream'), 'new deployment observations');
   assert.equal(await hasUploader(), true);
@@ -121,7 +121,7 @@ test('readiness and container diagnostics use current observations in the browse
   await evaluate('performance.now = () => window.fixtureNow() + 93000');
   holdWallet = false; held.splice(0).forEach(reply => reply());
   await waitFor(() => evaluate(`!![...document.querySelectorAll('#storage button')].find(button => button.textContent.trim() === 'Refresh' && !button.disabled)`), Boolean, 'the storage Refresh button to be enabled again');
-  assert.equal(await hasUploader(), false);
+  assert.equal(await hasUploader(), true);
   assert.match(await body(), /Bee observation stale/);
   for (const phase of ['starting', 'restarting', null]) {
     second.status = 'DEPLOYING'; second.deployment_phase = phase;
