@@ -12,7 +12,7 @@ import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
-const base = { name: 'test-stream', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
+const base = { name: 'test-stream', instance_id: '11111111-1111-4111-8111-111111111111', kind: 'streamer', status: 'RUNNING', port_slot: 1, notes: null, last_error: null, last_error_at: null,
   created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:00:00Z', engine_settings: {}, has_engine_config: false, engine_config_error: null,
   stamp_id: 'a'.repeat(64), public_key: '1'.repeat(40), containers: [{ service: 'srs', ports: {} }, { service: 'bee-uploader', ports: {} }], pendingStamp: false };
 const second = { ...base, name: 'second-stream', port_slot: 2 };
@@ -25,10 +25,12 @@ async function freePort() {
 }
 
 test('readiness and container diagnostics use current observations in the browser', async (t) => {
+  let primary = { ...base };
+  let nodeAddress = '0x' + 'b'.repeat(40);
   let mode = 'ready';
   let hold = false;
   let holdWallet = false;
-  const held = [], logRequests = [], writes = [];
+  const held = [], logRequests = [], writes = [], events = new Set();
   const server = await createServer({
     root: frontend, configFile: false, cacheDir: viteCacheFor('readiness'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
@@ -40,11 +42,15 @@ test('readiness and container diagnostics use current observations in the browse
         if (!/^\/(auth|profiles|groups|config|events|metrics|versions)(\/|$)/.test(path)) return next();
         if (req.method !== 'GET') { writes.push({ path, method: req.method }); return json({}, 405); }
         if (path === '/auth/session') return json({ username: 'readiness-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' });
-        if (path === '/profiles') return json({ profiles: [base, second] });
+        if (path === '/profiles') return json({ profiles: [primary, second] });
         if (path === '/groups') return json({ groups: [] });
         if (path === '/versions') return json([]);
         if (path === '/config') return json({ host: 'offline.example', srtPassphrase: null, chequebookFloorBzz: '0.5' });
-        if (path === '/events' || path.startsWith('/metrics')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': fixture\n\n'); return; }
+        if (path === '/events' || path.startsWith('/metrics')) {
+          res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': fixture\n\n');
+          if (path === '/events') { events.add(res); req.on('close', () => events.delete(res)); }
+          return;
+        }
         if (path.includes('/containers/') && path.endsWith('/logs')) {
           logRequests.push(path); res.setHeader('content-type', 'text/plain');
           return res.end(`Only ${path.split('/')[4]} logs for ${path.split('/')[2]}`);
@@ -52,10 +58,10 @@ test('readiness and container diagnostics use current observations in the browse
         function beeResponse() {
           if (mode === 'failed' && /\/(wallet|stamps|chainstate)$/.test(path)) return json({ error: 'Node unavailable', code: 'bee_node_unreachable' }, 503);
           if (path.endsWith('/readiness')) return json({ state: mode === 'failed' ? 'unreachable' : mode, observedAt: new Date().toISOString(), healthStatus: 'ok', readinessStatus: mode === 'ready' ? 'ready' : 'notReady', version: '2.8.2', apiVersion: '8.1.0', chainProgress: null });
-          if (path.endsWith('/address')) return json({ ethereum: '0x' + 'b'.repeat(40) });
+          if (path.endsWith('/address')) return json({ ethereum: nodeAddress });
           if (path.endsWith('/wallet')) return json({ nativeTokenBalance: '1000000000000000000', bzzBalance: '10000000000000000' });
           if (path.endsWith('/chainstate')) return json({ chainTip: 20, block: 20, totalAmount: '1', currentPrice: '1' });
-          if (path.endsWith('/stamps')) return json({ stamps: [{ batchID: base.stamp_id, batchTTL: 500000, usable: true, exists: true, depth: 20, amount: '1', utilization: 0 }] });
+          if (path.endsWith('/stamps')) return json({ stamps: [{ batchID: primary.stamp_id, batchTTL: 500000, usable: true, exists: true, depth: 20, amount: '1', utilization: 0 }] });
           if (path.endsWith('/chequebook')) return json({ address: '0x' + 'c'.repeat(40), totalBalance: '10000000000000000', availableBalance: '10000000000000000', totalSent: '0', totalReceived: '0', health: { state: 'ok', availablePlur: '10000000000000000', floorPlur: '5000000000000000' } });
           return json({}, 404);
         }
@@ -75,12 +81,33 @@ test('readiness and container diagnostics use current observations in the browse
   const hasUploader = () => evaluate(`!!${buttonWithText('Start uploader')}`);
   const click = text => clickWhenEnabled(evaluate, buttonWithText(text), `an enabled ${text} button`);
   const clickSelected = (selector, description) => clickWhenEnabled(evaluate, `document.querySelector(${JSON.stringify(selector)})`, description);
+  function replacePrimary(patch) {
+    primary = { ...primary, ...patch };
+    for (const response of events) response.write(`event: profile.changed\ndata: ${JSON.stringify({ profile: primary })}\n\n`);
+  }
   await call('Page.navigate', { url: `${origin}/#/deployments/test-stream` });
   try { await waitFor(body, text => text.includes('Bee reports its API is ready'), 'current Bee readiness'); }
   catch (error) { console.log(await body(), browser.errors); throw error; }
   assert.equal(await hasUploader(), true);
   assert.match(await body(), /Checked \d{4}-\d{2}-\d{2}T/);
   assert.doesNotMatch(await body(), /usually within a minute|Ready to stream|Watchable/);
+  await waitFor(() => events.size, count => count > 0, 'profile event stream');
+  const oldAddress = nodeAddress;
+  const replacementAddress = '0x' + 'd'.repeat(40);
+  hold = true;
+  nodeAddress = replacementAddress;
+  replacePrimary({
+    instance_id: '22222222-2222-4222-8222-222222222222',
+    updated_at: '2026-09-08T00:00:01Z',
+  });
+  await waitFor(() => held.length, count => count >= 1, 'replacement node checks');
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  assert.doesNotMatch(await body(), new RegExp(oldAddress));
+  assert.equal(await evaluate('document.querySelector(\'button[aria-label="copy address"]\') === null'), true);
+  hold = false;
+  held.splice(0).forEach(reply => reply());
+  await waitFor(body, text => text.includes(replacementAddress), 'replacement node address');
+  assert.doesNotMatch(await body(), new RegExp(oldAddress));
   for (const service of ['bee-uploader', 'srs']) {
     await clickSelected(`button[aria-label="View ${service} logs"]`, `the View ${service} logs button`);
     await waitFor(body, text => text.includes(`Only ${service} logs`), `${service} selected logs`);
