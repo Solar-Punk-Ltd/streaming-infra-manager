@@ -22,7 +22,9 @@ Independent Astra review covered the production corrections. Review also caught 
 
 The latest combined server run passed build and typechecks, then found eight outdated test setups after the private RPC projection changed. Those setups are corrected. All 34 focused cases in the affected suites pass, including a new refusal for a historical job that never owned its deployment.
 
-The final combined checks are pending. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision. A new controlled database regression first checks the cleanup lock order against concurrent engine configuration admission. Its correction follows the failing run. No pending database or browser result is represented as passing.
+The PR's first run passed build, typechecks, unit and native checks. Its database job ran all 547 tests with no skips. The new controlled lock-order test was the only failure, with PostgreSQL reporting `55P03` on the profile row while cleanup waited for daemon admission. The reviewed correction now takes the daemon lock before the profile lock, matching engine configuration admission.
+
+The final combined checks are pending. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision. No pending result is represented as passing.
 
 ## Limits
 
