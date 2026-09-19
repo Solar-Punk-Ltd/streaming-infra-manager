@@ -17,10 +17,10 @@ const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
 let nextName = 0;
 
-function setup(initial = false) {
+function setup(initial = false, stackVersionId = 404) {
   const profile = makeProfile({
     name: `test-${++nextName}`,
-    stack_version_id: 404,
+    stack_version_id: stackVersionId,
     status: initial ? 'DEPLOYING' : 'RUNNING',
     components: ['srs'],
     stamp_id: 'a'.repeat(64),
@@ -36,7 +36,9 @@ describe('a missing stack version is not the bundled version', () => {
   for (const action of ['reserveDeploy', 'startDeploy', 'startDeployUploader', 'startInitialDeploy'] as const) {
     it(`${action} refuses the missing row before a reference or script starts`, async () => {
       const h = setup(action === 'startInitialDeploy');
-      const before = structuredClone(h.profile);
+      const before = structuredClone(h.profiles.rows.get(h.profile.name));
+      assert.ok(before);
+      assert.equal('rpc_endpoint' in before, false);
       const call = action === 'startDeployUploader'
         ? h.orchestrator.startDeployUploader(h.profile)
         : h.orchestrator[action](h.profile, ['srs']);
@@ -80,8 +82,7 @@ describe('a missing stack version is not the bundled version', () => {
   }
 
   it('still deploys a legitimate bundled legacy row with a null root', async () => {
-    const h = setup();
-    h.profile.stack_version_id = 1;
+    const h = setup(false, 1);
     await h.orchestrator.startDeploy(h.profile, ['srs']);
     assert.equal(h.runner.runs.length, 1);
     assert.equal(h.runner.runs[0]?.options.cwd, process.env.SHLS_ROOT);
