@@ -35,7 +35,7 @@ export interface BuildInventoryRecord extends RecordedOwnedTree {
 
 export interface BuildInventory {
   record: BuildInventoryRecord;
-  /** True when this call read and hashed the build, rather than answering from the record beside it. */
+  /** True only when this caller hashed the build. False for an on-disk record or another caller's active inventory. */
   hashed: boolean;
   tookMs: number;
 }
