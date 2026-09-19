@@ -45,7 +45,8 @@ services:
       # docker daemon resolves as host paths, so the two must match.
       - ${STACK_VERSIONS_ROOT:-/home/solarpunk/streaming-infra-manager-versions}:${STACK_VERSIONS_ROOT:-/home/solarpunk/streaming-infra-manager-versions}
       # Read-only host visibility for the resource monitor (see HostCollector):
-      #   /host/proc   → host CPU + RAM usage (/proc/stat, /proc/meminfo)
+      #   /host/proc   → host CPU + RAM + network usage
+      #                  (/proc/stat, /proc/meminfo, /proc/1/net/dev)
       #   /host/rootfs → host disk used/total (statfs on the root filesystem)
       - /proc:/host/proc:ro
       - /:/host/rootfs:ro

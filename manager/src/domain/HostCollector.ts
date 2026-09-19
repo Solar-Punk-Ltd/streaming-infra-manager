@@ -114,10 +114,10 @@ function perSecond(
   return Math.max(0, (current - previous) / seconds);
 }
 
-// Docker does not namespace /proc, so the bind-mounted /host/proc (or plain
-// /proc) already shows host numbers. Disk space is the exception: statfs
-// follows the mount namespace, hence /host/rootfs. Every read degrades to null
-// independently so one unreadable source never breaks a whole sample.
+// Most files in the bind-mounted /host/proc expose host counters. Its net
+// directory follows the reading process's network namespace, so traffic uses
+// the host init process's view at 1/net/dev. Disk space follows the mount
+// namespace, hence /host/rootfs. Every read degrades to null independently.
 export class HostCollector {
   private readonly procPath: string;
   private readonly rootfsPath: string;
@@ -194,7 +194,7 @@ export class HostCollector {
     (NetTotals & { rxRate: number; txRate: number }) | null
   > {
     try {
-      const text = await readFile(join(this.procPath, 'net/dev'), 'utf8');
+      const text = await readFile(join(this.procPath, '1/net/dev'), 'utf8');
       const totals = parseNetDevTotals(text);
       const now = Date.now();
       const prev = this.prevNet;
