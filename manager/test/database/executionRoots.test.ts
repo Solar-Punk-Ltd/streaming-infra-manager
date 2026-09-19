@@ -10,6 +10,7 @@ import pg, { type Pool } from 'pg';
 
 import { EventBus } from '../../src/domain/EventBus.js';
 import { PostgresDeployAttemptRepository } from '../../src/domain/PostgresDeployAttemptRepository.js';
+import { lockAttemptDaemon } from '../../src/domain/deployAttemptSql.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresExecutionRootRepository } from '../../src/domain/versions/PostgresExecutionRootRepository.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
@@ -409,6 +410,37 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
 
     assert.equal((await bounded(cleanup))?.state, 'deleting');
     assert.equal((await bounded(launcher)).state, 'open');
+  });
+
+  it('waits for daemon admission before locking the retiring profile', async () => {
+    const replaced = await launched();
+    await nextDeployJob();
+    await launched();
+    const waiting = signal<number>();
+    const cleanupPool = instrumentPool(async (text, pid, run) => {
+      if (/pg_advisory_xact_lock/.test(text)) waiting.resolve(pid);
+      return run();
+    });
+    const daemonOwner = await pool.connect();
+    let cleanup: ReturnType<PostgresExecutionRootRepository['claimRetiredCleanup']> | undefined;
+    let claimed: Awaited<ReturnType<PostgresExecutionRootRepository['claimRetiredCleanup']>> | undefined;
+    try {
+      await daemonOwner.query('BEGIN');
+      await lockAttemptDaemon(daemonOwner, 'synthetic-daemon');
+      cleanup = new PostgresExecutionRootRepository(cleanupPool, join(root, '.executions'))
+        .claimRetiredCleanup(replaced.executionId);
+      await assertBlocked(await bounded(waiting.promise));
+
+      assert.equal((await daemonOwner.query(
+        'SELECT name FROM profiles WHERE name = $1 FOR UPDATE NOWAIT', ['owned'],
+      )).rows[0]!.name, 'owned');
+    } finally {
+      await daemonOwner.query('ROLLBACK').catch(() => undefined);
+      daemonOwner.release();
+      if (cleanup) claimed = await bounded(cleanup);
+    }
+
+    assert.equal(claimed?.state, 'deleting');
   });
 
   it('keeps the copy a deployment is still running from, however old its job is', async () => {
