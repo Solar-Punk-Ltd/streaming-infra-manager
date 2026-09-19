@@ -45,32 +45,32 @@ const ENDPOINT = 'https://rpc.example.org';
 const BACKSLASH_ENDPOINT = String.raw`https://rpc.example.org\synthetic-key`;
 const USERINFO_ENDPOINTS = [
   {
-    name: 'userinfo-basic',
+    name: 'ui-basic',
     endpoint: 'https://synthetic-user:synthetic-secret@rpc.example.org/v3/synthetic-key',
     host: 'rpc.example.org',
   },
   {
-    name: 'userinfo-encoded-multiple',
+    name: 'ui-multiple',
     endpoint: 'https://synthetic%40user:synthetic%3Asecret@tenant@rpc.example.org/v3/synthetic-key',
     host: 'rpc.example.org',
   },
   {
-    name: 'userinfo-ipv6',
+    name: 'ui-ipv6',
     endpoint: 'https://synthetic-user:synthetic-secret@[2001:db8::1]:8545/v3/synthetic-key',
     host: '[2001:db8::1]:8545',
   },
   {
-    name: 'userinfo-incomplete-authority',
+    name: 'ui-incomplete',
     endpoint: 'https://synthetic-user:synthetic-secret@/v3/synthetic-key',
     host: null,
   },
   {
-    name: 'userinfo-empty-host',
+    name: 'ui-empty',
     endpoint: 'https://synthetic-user:synthetic-secret@',
     host: null,
   },
   {
-    name: 'userinfo-empty-host-query',
+    name: 'ui-empty-query',
     endpoint: 'https://synthetic-user:synthetic-secret@?x=1',
     host: null,
   },
