@@ -231,6 +231,12 @@ carries the passphrase in clear, logs its reader the same way. `GET /config` sti
 host-wide passphrase to a signed-in user. So the follow-up above landed, and went further than the
 list-versus-page split it proposed.
 
+**Changed on 2026-09-19.** A revealed passphrase is scoped to the profile instance, intent
+revision and update time that requested it. Saving a new passphrase under the same deployment name
+immediately removes the old one from the rendered publish URL while the new reveal is pending. A
+late answer for the earlier revision cannot replace the new URL or become the value copied after
+the rotation.
+
 ## PR split
 
 1. **Login gate**: migration, hashing, sessions, limiter, middleware, routes, CLI, sign-in page,

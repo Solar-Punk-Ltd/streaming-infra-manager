@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useDeployments } from '../app/useDeploymentsStore';
 import { fetchSrtPassphrase } from '../data';
@@ -19,8 +19,24 @@ export interface PublishUrl {
 
 /** What one view has been told, and about which deployment. */
 interface Revealed {
-  name: string;
+  generation: number;
   passphrase: string | null;
+}
+
+interface RevealInputs {
+  name: string;
+  profileRevision: string;
+  holdsOwn: boolean;
+  hostPassphrase: string | null;
+  serverHost: string;
+}
+
+function sameInputs(left: RevealInputs, right: RevealInputs): boolean {
+  return left.name === right.name &&
+    left.profileRevision === right.profileRevision &&
+    left.holdsOwn === right.holdsOwn &&
+    left.hostPassphrase === right.hostPassphrase &&
+    left.serverHost === right.serverHost;
 }
 
 /**
@@ -41,9 +57,23 @@ export function usePublishUrl(profile: Profile, shown = false): PublishUrl {
   const { hostPassphrase } = useDeployments();
   const serverHost = useServerHost();
   const { name, has_srt_passphrase: holdsOwn } = profile;
+  const inputs: RevealInputs = {
+    name,
+    profileRevision: `${profile.instance_id}:${profile.intent_revision}:${profile.updated_at}`,
+    holdsOwn,
+    hostPassphrase,
+    serverHost,
+  };
+  const currentInputs = useRef(inputs);
+  const requestGeneration = useRef(0);
+  if (!sameInputs(currentInputs.current, inputs)) {
+    currentInputs.current = inputs;
+    requestGeneration.current += 1;
+  }
+  const generation = requestGeneration.current;
   const [revealed, setRevealed] = useState<Revealed | null>(null);
 
-  const readPassphrase = useCallback(async (): Promise<string | null> => {
+  const readPassphrase = useCallback(async (): Promise<Revealed | null> => {
     const passphrase = await publishPassphrase(
       { name, has_srt_passphrase: holdsOwn },
       hostPassphrase,
@@ -51,22 +81,27 @@ export function usePublishUrl(profile: Profile, shown = false): PublishUrl {
       // A reveal that fails leaves the operator the address without the
       // passphrase rather than nothing, and the next click asks again.
     ).catch(() => hostPassphrase);
-    setRevealed({ name, passphrase });
-    return passphrase;
-  }, [hostPassphrase, holdsOwn, name]);
+    if (requestGeneration.current !== generation) return null;
+    const answer = { generation, passphrase };
+    setRevealed(answer);
+    return answer;
+  }, [generation, hostPassphrase, holdsOwn, name]);
 
   useEffect(() => {
     if (shown) void readPassphrase();
   }, [readPassphrase, shown]);
 
-  // Answered about another deployment is the same as not answered: this view
-  // moved on before the hook was told again.
-  const passphrase = revealed?.name === name ? revealed.passphrase : null;
+  // A profile revision may rotate its own passphrase while keeping the same
+  // name and the same `has_srt_passphrase` flag. Until that revision's reveal
+  // answers, no URL or copy action may retain the earlier secret.
+  const passphrase = revealed?.generation === generation ? revealed.passphrase : null;
 
   return {
     url: srtPublishUrl(profile, serverHost, passphrase),
     copy: async () => {
-      const whole = srtPublishUrl(profile, serverHost, await readPassphrase());
+      const answer = await readPassphrase();
+      if (!answer) return;
+      const whole = srtPublishUrl(profile, serverHost, answer.passphrase);
       if (!whole) return;
       await navigator.clipboard.writeText(whole).catch(() => undefined);
     },
