@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 
-import type { GroupKind } from '@streaming-infra-manager/common';
+import {
+  configuredBeeRpcEndpoint,
+  type GroupKind,
+} from '@streaming-infra-manager/common';
 
 import {
   DeploymentGroupRepository,
@@ -333,7 +336,7 @@ export class InMemoryGroups {
     }
     if (shared.private_key) this.profiles.privateKeys.set(name, shared.private_key);
     if (shared.srt_passphrase) this.profiles.passphrases.set(name, shared.srt_passphrase);
-    const row = makeProfile({
+    const fixture = makeProfile({
       name,
       kind: shared.kind,
       notes: shared.notes,
@@ -354,6 +357,11 @@ export class InMemoryGroups {
       port_slot: slot,
       group_id: groupId,
     });
+    const { rpc_endpoint: endpoint, ...row } = fixture;
+    const metadata = configuredBeeRpcEndpoint(endpoint);
+    row.has_rpc_endpoint = metadata.configured;
+    row.rpc_endpoint_host = metadata.host;
+    if (endpoint) this.profiles.rpcEndpoints.set(name, endpoint);
     this.profiles.rows.set(name, row);
     this.profiles.reservations.planNow(
       shared.daemon_id,
@@ -368,6 +376,7 @@ export class InMemoryGroups {
   private undo(names: readonly string[]): void {
     for (const name of names) {
       this.profiles.rows.delete(name);
+      this.profiles.rpcEndpoints.delete(name);
       this.profiles.reservations.dropProfile(name);
     }
   }

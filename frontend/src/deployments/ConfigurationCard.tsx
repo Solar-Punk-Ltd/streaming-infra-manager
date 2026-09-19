@@ -205,7 +205,7 @@ function endpointHost(
 ): string | null {
   const source = endpointSourceOf(profile);
   if (source === CUSTOM_RPC_ENDPOINT_SOURCE) {
-    return configuredBeeRpcEndpoint(profile.rpc_endpoint).host;
+    return profile.rpc_endpoint_host ?? null;
   }
   return source === MANAGER_RPC_ENDPOINT_SOURCE ? beeRpcEndpoint.host : null;
 }

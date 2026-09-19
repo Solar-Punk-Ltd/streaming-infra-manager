@@ -55,7 +55,7 @@ import { engineRoutes } from './mock-engine.mjs';
 import { createMockChequebookJournal } from './mock-chequebook.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
-import { readBody, send, sendScriptRun } from './mock-http.mjs';
+import { readBody, send as sendRaw, sendScriptRun } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
 import {
   defaultVersionId,
@@ -120,8 +120,27 @@ function managerEndpoint() {
 
 const eventClients = new Set();
 
+function publicValue(value) {
+  if (Array.isArray(value)) return value.map(publicValue);
+  if (!value || typeof value !== 'object') return value;
+  const projected = Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, publicValue(entry)]),
+  );
+  if ('rpc_endpoint_source' in projected && 'rpc_endpoint' in projected) {
+    const endpoint = configuredBeeRpcEndpoint(projected.rpc_endpoint);
+    delete projected.rpc_endpoint;
+    projected.has_rpc_endpoint = endpoint.configured;
+    projected.rpc_endpoint_host = endpoint.host;
+  }
+  return projected;
+}
+
+function send(res, status, body, headers) {
+  sendRaw(res, status, publicValue(body), headers);
+}
+
 function publish(event) {
-  const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+  const frame = `event: ${event.type}\ndata: ${JSON.stringify(publicValue(event))}\n\n`;
   for (const client of eventClients) client.write(frame);
 }
 
@@ -430,7 +449,6 @@ const EDITABLE_FIELDS = [
   'stamp_id',
   'bee_publishers',
   'bee_url',
-  'rpc_endpoint',
 ];
 
 /** The manager's rule: a note saved from a page that loaded before another save is refused. */
@@ -472,11 +490,23 @@ function nodeEditProblem(profile, body) {
   }
   return rpcEndpointChoiceProblem({
     source: editedSource(profile, body),
-    url: body.rpc_endpoint,
+    url: editedEndpoint(profile, body),
     managerHasEndpoint: beeRpcEndpointConfigured,
     nodeMode: mode ?? profile.node_mode,
     services: defaultServicesFor(profile),
   });
+}
+
+/** The custom address after this edit, preserving it unless the body changes it or its source. */
+function editedEndpoint(profile, body) {
+  if ('rpc_endpoint' in body) return body.rpc_endpoint ?? null;
+  if (
+    body.rpc_endpoint_source !== undefined &&
+    body.rpc_endpoint_source !== CUSTOM_RPC_ENDPOINT_SOURCE
+  ) {
+    return null;
+  }
+  return profile.rpc_endpoint;
 }
 
 /** Where an edit leaves this node's endpoint, named or kept. */
@@ -484,7 +514,7 @@ function editedSource(profile, body) {
   return (
     body.rpc_endpoint_source ??
     keptRpcEndpointSource({
-      url: body.rpc_endpoint,
+      url: editedEndpoint(profile, body),
       stored: profile.rpc_endpoint_source,
       managerHasEndpoint: beeRpcEndpointConfigured,
       nodeMode: body.node_mode ?? profile.node_mode,
@@ -497,9 +527,7 @@ function editedSource(profile, body) {
 function replaceEditable(profile, body) {
   for (const field of EDITABLE_FIELDS) profile[field] = body[field] ?? null;
   profile.rpc_endpoint_source = editedSource(profile, body);
-  // The source and the address travel together, so a row can never say it
-  // takes the manager's endpoint while holding one of its own.
-  if (profile.rpc_endpoint_source !== CUSTOM_RPC_ENDPOINT_SOURCE) profile.rpc_endpoint = null;
+  profile.rpc_endpoint = editedEndpoint(profile, body);
   if (body.node_mode) profile.node_mode = body.node_mode;
   applySecrets(profile, body);
 }
@@ -508,6 +536,10 @@ function replaceEditable(profile, body) {
 function applyEdits(profile, body) {
   for (const field of EDITABLE_FIELDS) {
     if (field in body) profile[field] = body[field] ?? null;
+  }
+  if ('rpc_endpoint' in body || 'rpc_endpoint_source' in body) {
+    profile.rpc_endpoint_source = editedSource(profile, body);
+    profile.rpc_endpoint = editedEndpoint(profile, body);
   }
   applySecrets(profile, body);
 }
@@ -851,6 +883,9 @@ const ROUTES = [
             components: template.components ?? null,
             feed_owner: template.feed_owner ?? null,
             notes: template.notes ?? null,
+            node_mode: template.node_mode ?? null,
+            rpc_endpoint_source: template.rpc_endpoint_source,
+            rpc_endpoint: template.rpc_endpoint,
             srt_passphrase: srtPassphraseOf(template.name),
           },
           { group_id: group.id },

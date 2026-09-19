@@ -133,7 +133,9 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
 
     assert.equal(read?.node_mode, 'light');
     assert.equal(read?.rpc_endpoint_source, 'custom');
-    assert.equal(read?.rpc_endpoint, ENDPOINT);
+    assert.equal(read?.has_rpc_endpoint, true);
+    assert.equal(read?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('chosen'))?.rpcEndpoint, ENDPOINT);
   });
 
   it('refuses a custom source with no address', async () => {
@@ -187,7 +189,7 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint_source, 'manager');
   });
 
-  it('refuses a caller that empties the address and leaves the source custom', async () => {
+  it('refuses an explicit clear that leaves the source custom', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('stranded', 'custom', 'RUNNING', {
       rpc_endpoint_source: 'custom',
@@ -198,7 +200,10 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     // never sends this, and the column's CHECK is what says so for anything
     // that would.
     await assert.rejects(
-      () => profiles.updateEditable('stranded', 'custom', { notes: 'edited' }),
+      () => profiles.updateEditable('stranded', 'custom', {
+        notes: 'edited',
+        rpc_endpoint: null,
+      }),
       /profiles_rpc_endpoint_source_pairing/,
     );
   });
@@ -218,6 +223,24 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint_source, 'manager');
   });
 
+  it('keeps a stored custom address through an update that says nothing', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('held-custom', 'viewer', 'RUNNING', {
+      node_mode: 'light',
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: ENDPOINT,
+    }, PLACEMENT);
+
+    const written = await profiles.updateEditable('held-custom', 'viewer', {
+      notes: 'edited',
+    });
+
+    assert.equal(written?.rpc_endpoint_source, 'custom');
+    assert.equal(written?.has_rpc_endpoint, true);
+    assert.equal(written?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('held-custom'))?.rpcEndpoint, ENDPOINT);
+  });
+
   it('stores the address and the source the caller resolved together', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('adopting', 'custom', 'RUNNING', {}, PLACEMENT);
@@ -228,7 +251,9 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     });
 
     assert.equal(written?.rpc_endpoint_source, 'custom');
-    assert.equal(written?.rpc_endpoint, ENDPOINT);
+    assert.equal(written?.has_rpc_endpoint, true);
+    assert.equal(written?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('adopting'))?.rpcEndpoint, ENDPOINT);
   });
 
   it('gives every member of a group the mode and the endpoint it was created with', async () => {
@@ -254,7 +279,15 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
       members.map((member) => member.rpc_endpoint_source),
       ['custom', 'custom'],
     );
-    assert.deepEqual(members.map((member) => member.rpc_endpoint), [ENDPOINT, ENDPOINT]);
+    assert.deepEqual(members.map((member) => member.has_rpc_endpoint), [true, true]);
+    assert.deepEqual(members.map((member) => member.rpc_endpoint_host), [
+      'rpc.example.org',
+      'rpc.example.org',
+    ]);
+    assert.deepEqual(
+      await Promise.all(members.map((member) => profiles.rpcEndpointOf(member.name))),
+      [{ rpcEndpoint: ENDPOINT }, { rpcEndpoint: ENDPOINT }],
+    );
   });
 
   it('gives a group that names neither what the stack ships', async () => {
@@ -306,7 +339,9 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     // It has always reached the chain through that address, so anything but
     // custom would move it somewhere else on its next deploy.
     assert.equal(read?.rpc_endpoint_source, 'custom');
-    assert.equal(read?.rpc_endpoint, ENDPOINT);
+    assert.equal(read?.has_rpc_endpoint, true);
+    assert.equal(read?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('legacy'))?.rpcEndpoint, ENDPOINT);
     assert.equal(read?.node_mode, null);
   });
 });

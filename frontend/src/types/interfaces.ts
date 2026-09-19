@@ -45,8 +45,10 @@ export interface Profile {
   bee_publishers?: string | null;
   /** Explicit bee API URL. Only applies when no local bee-uploader runs. */
   bee_url?: string | null;
-  /** The address behind a `custom` endpoint source, and nothing else carries one. */
-  rpc_endpoint?: string | null;
+  /** Whether a custom endpoint is stored. The URL itself is never answered. */
+  has_rpc_endpoint: boolean;
+  /** The custom endpoint's host and port, without its secret-bearing path. */
+  rpc_endpoint_host?: string | null;
   /**
    * Where this deployment's Bee node reaches the chain. Absent reads as the
    * column's own default, the stack's endpoint. See `endpointSourceOf`.

@@ -31,7 +31,7 @@ const member = (rung: string): Profile => ({
   name: `abr-pool-1-${rung}`, kind: 'streamer', port_slot: 1, notes: null, notes_revision: 0,
   status: 'RUNNING', last_error: null, last_error_at: null, last_full_deploy_commit: null,
   created_at: '2026-09-15T00:00:00Z', updated_at: '2026-09-15T00:00:00Z',
-  engine_settings: {}, has_private_key: false, has_srt_passphrase: false, has_engine_config: false,
+  engine_settings: {}, has_private_key: false, has_rpc_endpoint: false, has_srt_passphrase: false, has_engine_config: false,
   engine_config_error: null, engine_config_state: null, group_id: 1,
   instance_id: '00000000-0000-4000-8000-000000000003',
   engine_config_revision: 0, intent_revision: 0, components: ['bee-uploader'],

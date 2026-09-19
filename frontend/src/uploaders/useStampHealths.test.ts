@@ -17,7 +17,7 @@ const node = (overrides: Partial<Profile> = {}): Profile => ({
   name: 'bee-1', kind: 'streamer', port_slot: 1, notes: null, notes_revision: 0,
   status: 'RUNNING', last_error: null, last_error_at: null, last_full_deploy_commit: null,
   created_at: '2026-09-15T00:00:00Z', updated_at: '2026-09-15T00:00:00Z',
-  engine_settings: {}, has_private_key: false, has_srt_passphrase: false, has_engine_config: false,
+  engine_settings: {}, has_private_key: false, has_rpc_endpoint: false, has_srt_passphrase: false, has_engine_config: false,
   engine_config_error: null, engine_config_state: null,
   instance_id: '00000000-0000-4000-8000-000000000005',
   engine_config_revision: 0, intent_revision: 0, stamp_id: BATCH,

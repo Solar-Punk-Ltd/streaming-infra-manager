@@ -1,4 +1,5 @@
 import {
+  configuredBeeRpcEndpoint,
   DEFAULT_RPC_ENDPOINT_SOURCE,
   type EngineSettings,
   isPendingStamp,
@@ -28,8 +29,10 @@ import {
 
 import { InMemoryPortReservations } from './InMemoryPortReservations.js';
 
-export function makeProfile(over: Partial<Profile> = {}): Profile {
-  return {
+export type ProfileFixture = Profile & { rpc_endpoint?: string | null };
+
+export function makeProfile(over: Partial<ProfileFixture> = {}): ProfileFixture {
+  const profile: ProfileFixture = {
     name: 'stage',
     port_slot: 1,
     kind: 'streamer',
@@ -49,6 +52,8 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     bee_publishers: null,
     bee_url: null,
     rpc_endpoint: null,
+    has_rpc_endpoint: false,
+    rpc_endpoint_host: null,
     rpc_endpoint_source: DEFAULT_RPC_ENDPOINT_SOURCE,
     node_mode: null,
     has_srt_passphrase: false,
@@ -65,6 +70,11 @@ export function makeProfile(over: Partial<Profile> = {}): Profile {
     group_id: null,
     ...over,
   };
+  if (profile.rpc_endpoint) {
+    profile.has_rpc_endpoint = true;
+    profile.rpc_endpoint_host = configuredBeeRpcEndpoint(profile.rpc_endpoint).host;
+  }
+  return profile;
 }
 
 function definedFields(data: ProfileWriteData): Partial<Profile> {
@@ -109,14 +119,30 @@ export class InMemoryProfiles {
   /** The `srt_passphrase` column, kept apart from the rows for the same reason. */
   readonly passphrases = new Map<string, string>();
 
+  /** The custom RPC URL, kept apart from the rows returned to pages and events. */
+  readonly rpcEndpoints = new Map<string, string>();
+
   onDeleted?: (name: string) => void;
 
   constructor(
-    profiles: readonly Profile[] = [],
+    profiles: readonly ProfileFixture[] = [],
     /** The reservation table the allocator writes, when a test gave it one. */
     readonly reservations: InMemoryPortReservations = new InMemoryPortReservations(),
   ) {
-    for (const profile of profiles) this.rows.set(profile.name, profile);
+    for (const profile of profiles) this.storeFixture(profile);
+  }
+
+  private storeFixture(profile: ProfileFixture): Profile {
+    const { rpc_endpoint: endpoint, ...publicProfile } = profile;
+    const metadata = configuredBeeRpcEndpoint(endpoint);
+    if (endpoint) this.rpcEndpoints.set(profile.name, endpoint);
+    const row: Profile = {
+      ...publicProfile,
+      has_rpc_endpoint: metadata.configured,
+      rpc_endpoint_host: metadata.host,
+    };
+    this.rows.set(profile.name, row);
+    return row;
   }
 
   /** The slots every stored record holds, stopped ones included. */
@@ -162,25 +188,35 @@ export class InMemoryProfiles {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
     const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
     if (slot === null) return null;
-    const { private_key: key, srt_passphrase: passphrase, ...rest } = data;
+    const {
+      private_key: key,
+      srt_passphrase: passphrase,
+      rpc_endpoint: rpcEndpoint,
+      ...rest
+    } = data;
     if (key) this.privateKeys.set(name, key);
     if (passphrase) this.passphrases.set(name, passphrase);
-    const row = makeProfile({
+    if (rpcEndpoint) this.rpcEndpoints.set(name, rpcEndpoint);
+    const endpointMetadata = configuredBeeRpcEndpoint(rpcEndpoint);
+    const fixture = makeProfile({
       name,
       kind,
       status,
       ...definedFields(rest),
+      rpc_endpoint: rpcEndpoint,
       // COALESCE($18, 'stack') in the real INSERT: a create that names no
       // source stores the stack's endpoint rather than a null the column
       // refuses.
       rpc_endpoint_source: rest.rpc_endpoint_source ?? DEFAULT_RPC_ENDPOINT_SOURCE,
+      has_rpc_endpoint: endpointMetadata.configured,
+      rpc_endpoint_host: endpointMetadata.host,
       has_private_key: Boolean(key),
       has_srt_passphrase: Boolean(passphrase),
       engine_settings: { ...engineSettings },
       port_slot: slot,
       stack_version_id: placement.stackVersionId,
     });
-    this.rows.set(name, row);
+    const row = this.storeFixture(fixture);
     this.reservations.planNow(placement.daemonId, name, portPlanFor(placement.table, slot), `allocated with ${name}`);
     return row;
   }
@@ -222,6 +258,7 @@ export class InMemoryProfiles {
     this.rows.delete(name);
     this.privateKeys.delete(name);
     this.passphrases.delete(name);
+    this.rpcEndpoints.delete(name);
     this.reservations.dropProfile(name);
     this.onDeleted?.(name);
     return { port_slot: row.port_slot };
@@ -324,10 +361,19 @@ export class InMemoryProfiles {
     // A secret the write leaves out keeps the stored one, the way the real
     // statement does: COALESCE for the key, and for the passphrase a write
     // that happens only while the body named it, so an explicit null clears.
-    const { private_key: key, srt_passphrase: passphrase, node_mode: mode, ...rest } = data;
+    const {
+      private_key: key,
+      srt_passphrase: passphrase,
+      node_mode: mode,
+      rpc_endpoint: rpcEndpoint,
+      ...rest
+    } = data;
     if (key) this.privateKeys.set(name, key);
     if (passphrase === null) this.passphrases.delete(name);
     else if (passphrase !== undefined) this.passphrases.set(name, passphrase);
+    if (rpcEndpoint === null) this.rpcEndpoints.delete(name);
+    else if (rpcEndpoint !== undefined) this.rpcEndpoints.set(name, rpcEndpoint);
+    const endpointMetadata = configuredBeeRpcEndpoint(this.rpcEndpoints.get(name));
     const fields = definedFields(rest);
     const notesChanged = 'notes' in fields && fields.notes !== row.notes;
     return this.write(name, {
@@ -338,6 +384,8 @@ export class InMemoryProfiles {
       // deployment is created and what an emptied address means is the
       // service's to work out, not the statement's.
       rpc_endpoint_source: rest.rpc_endpoint_source ?? row.rpc_endpoint_source,
+      has_rpc_endpoint: endpointMetadata.configured,
+      rpc_endpoint_host: endpointMetadata.host,
       ...(mode == null ? {} : { node_mode: mode }),
       ...(key ? { has_private_key: true } : {}),
       ...(passphrase === undefined
@@ -389,6 +437,33 @@ export class InMemoryProfiles {
 
   async privateKeyOf(name: string): Promise<string | null> {
     return this.privateKeys.get(name) ?? null;
+  }
+
+  async rpcEndpointOf(
+    name: string,
+    owner?: ExpectedDeployOwner,
+  ): Promise<{ rpcEndpoint: string | null } | null> {
+    const profile = this.rows.get(name);
+    if (!profile) return null;
+    if (owner && (
+      profile.instance_id !== owner.instanceId ||
+      profile.intent_revision !== owner.intentRevision ||
+      profile.engine_config_revision !== owner.configRevision ||
+      profile.stack_version_id !== owner.stackVersionId
+    )) return null;
+    return { rpcEndpoint: this.rpcEndpoints.get(name) ?? null };
+  }
+
+  async rpcEndpointForDeploy(
+    name: string,
+    owner: ExpectedDeployOwner,
+    jobReferenceId: number | null,
+  ): Promise<{ rpcEndpoint: string | null } | null> {
+    const snapshot = await this.rpcEndpointOf(name, owner);
+    const profile = this.rows.get(name);
+    if (!snapshot || profile?.status !== 'DEPLOYING') return null;
+    if ((this.activeDeployJobs.get(name) ?? null) !== jobReferenceId) return null;
+    return snapshot;
   }
 
   async srtPassphraseOf(name: string): Promise<string | null> {

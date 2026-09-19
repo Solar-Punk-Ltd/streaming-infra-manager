@@ -89,6 +89,7 @@ const SECRET_COLUMNS: readonly string[] = [
   'stack_secrets',
   'engine_config',
   'srt_passphrase',
+  'rpc_endpoint',
 ];
 
 describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
@@ -147,6 +148,17 @@ describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {
       selected().includes('has_srt_passphrase'),
       'the row has to say whether a passphrase is stored, so the drawer knows ' +
         'which pass mode the deployment is on without being handed the value',
+    );
+  });
+
+  it('describes a custom RPC endpoint without selecting its URL', () => {
+    assert.ok(
+      selected().includes('has_rpc_endpoint'),
+      'the row has to say whether a custom endpoint is stored so an unchanged edit can keep it',
+    );
+    assert.ok(
+      selected().includes('rpc_endpoint_host'),
+      'the row has to show the endpoint host without exposing a key in its path',
     );
   });
 

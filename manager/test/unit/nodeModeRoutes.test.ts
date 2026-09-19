@@ -163,8 +163,14 @@ describe('what a read answers about a deployment’s node', () => {
     const listed = (list.body as { profiles: Profile[] }).profiles[0];
     assert.equal(listed?.node_mode, 'light');
     assert.equal(listed?.rpc_endpoint_source, 'custom');
+    assert.equal(listed?.has_rpc_endpoint, true);
+    assert.equal(listed?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal('rpc_endpoint' in (listed ?? {}), false);
     const single = one.body as Profile;
     assert.equal(single.node_mode, 'light');
     assert.equal(single.rpc_endpoint_source, 'custom');
+    assert.equal(single.has_rpc_endpoint, true);
+    assert.equal(single.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal('rpc_endpoint' in single, false);
   });
 });

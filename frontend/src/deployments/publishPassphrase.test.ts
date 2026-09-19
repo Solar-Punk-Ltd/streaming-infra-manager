@@ -31,6 +31,7 @@ function stage(over: Partial<Profile> = {}): Profile {
     components: ['srs', 'stream-uploader'],
     engine_settings: {},
     has_private_key: false,
+    has_rpc_endpoint: false,
     has_srt_passphrase: false,
     has_engine_config: false,
     engine_config_error: null,

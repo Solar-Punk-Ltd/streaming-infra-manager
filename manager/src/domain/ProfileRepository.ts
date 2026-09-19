@@ -14,6 +14,10 @@ import { ProfileConfigError } from './errors/index.js';
 import type { StackSecrets } from './versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from './versions/buildLedger.js';
 
+export interface RpcEndpointSnapshot {
+  rpcEndpoint: string | null;
+}
+
 export interface ProfileWriteData {
   notes?: string | null;
   components?: string[] | null;
@@ -199,10 +203,10 @@ export class ProfileRepository {
    *   null comes back when it moved, the same as for a row that is gone.
    *
    * Every field here is replaced, so one the body leaves out becomes null.
-   * The two secrets are the exception, for the reason `engine_settings` is:
-   * neither is answered to a page, so no page can send one back, and a PUT
-   * that says nothing about them would otherwise clear the feed's identity and
-   * the ingest passphrase on the next save of a note.
+   * The three secrets are the exception, for the reason `engine_settings` is:
+   * none is answered to a page, so no page can send one back, and a PUT that
+   * says nothing about them would otherwise clear the feed's identity, the
+   * ingest passphrase, or the custom chain endpoint on the next save.
    *
    * They differ in what an operator may still ask for. A key is replaced and
    * never cleared, which COALESCE says exactly. A passphrase can also be given
@@ -213,8 +217,10 @@ export class ProfileRepository {
    * `node_mode` is a third case: a node's mode is chosen when it is created, so
    * a body that says nothing keeps the stored one rather than clearing it.
    *
-   * `rpc_endpoint_source` is a fourth, and this statement has no opinion about
-   * it: a caller that names none keeps what is stored. What an update means by
+   * `rpc_endpoint` behaves like the passphrase. An absent field keeps the
+   * stored URL and an explicit null clears it. `rpc_endpoint_source` is a
+   * fourth case, and this statement has no opinion about it: a caller that
+   * names none keeps what is stored. What an update means by
    * an address arriving or going is `keptRpcEndpointSource`, which needs to
    * know whether this manager has an endpoint of its own, a thing no statement
    * can see. ProfileService answers it there and writes the answer here. A
@@ -229,7 +235,11 @@ export class ProfileRepository {
     engineSettings?: EngineSettings,
     expectedNotesRevision?: number,
   ): Promise<Profile | null> {
-    const { srt_passphrase: passphrase, ...named } = dataWithOptionalValues;
+    const {
+      srt_passphrase: passphrase,
+      rpc_endpoint: rpcEndpoint,
+      ...named
+    } = dataWithOptionalValues;
     const data = nullify(named);
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
@@ -245,14 +255,14 @@ export class ProfileRepository {
              stamp_id = $9,
              bee_publishers = $10,
              bee_url = $11,
-             rpc_endpoint = $12,
-             rpc_endpoint_source = COALESCE($17::text, rpc_endpoint_source),
-             node_mode = COALESCE($18::text, node_mode),
-             srt_passphrase = CASE WHEN $13::boolean THEN $14::text ELSE srt_passphrase END,
-             engine_settings = COALESCE($15::jsonb, engine_settings),
+             rpc_endpoint = CASE WHEN $12::boolean THEN $13::text ELSE rpc_endpoint END,
+             rpc_endpoint_source = COALESCE($18::text, rpc_endpoint_source),
+             node_mode = COALESCE($19::text, node_mode),
+             srt_passphrase = CASE WHEN $14::boolean THEN $15::text ELSE srt_passphrase END,
+             engine_settings = COALESCE($16::jsonb, engine_settings),
              updated_at = NOW()
        WHERE name = $1
-         AND ($16::int IS NULL OR notes_revision = $16::int)
+         AND ($17::int IS NULL OR notes_revision = $17::int)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -266,7 +276,8 @@ export class ProfileRepository {
         data.stamp_id,
         data.bee_publishers,
         data.bee_url,
-        data.rpc_endpoint,
+        rpcEndpoint !== undefined,
+        rpcEndpoint ?? null,
         passphrase !== undefined,
         passphrase ?? null,
         engineSettings === undefined ? null : JSON.stringify(engineSettings),
@@ -370,6 +381,62 @@ export class ProfileRepository {
       [name],
     );
     return result.rows[0]?.private_key ?? null;
+  }
+
+  /**
+   * The custom chain endpoint, read separately from the row that reaches pages
+   * and events. The optional owner binds an edit's read to the profile version
+   * that will be claimed before any write can land.
+   */
+  async rpcEndpointOf(
+    name: string,
+    owner?: ExpectedDeployOwner,
+  ): Promise<RpcEndpointSnapshot | null> {
+    const result = await this.pool.query<{ rpc_endpoint: string | null }>(
+      `SELECT rpc_endpoint FROM profiles
+       WHERE name = $1
+         AND ($2::uuid IS NULL OR instance_id = $2::uuid)
+         AND ($3::bigint IS NULL OR intent_revision = $3::bigint)
+         AND ($4::bigint IS NULL OR engine_config_revision = $4::bigint)
+         AND ($5::bigint IS NULL OR stack_version_id = $5::bigint)`,
+      [
+        name,
+        owner?.instanceId ?? null,
+        owner?.intentRevision ?? null,
+        owner?.configRevision ?? null,
+        owner?.stackVersionId ?? null,
+      ],
+    );
+    const row = result.rows[0];
+    return row ? { rpcEndpoint: row.rpc_endpoint } : null;
+  }
+
+  /**
+   * The endpoint owned by one claimed deploy. The job reference and all four
+   * profile revisions make this the same snapshot that may write the env file.
+   */
+  async rpcEndpointForDeploy(
+    name: string,
+    owner: ExpectedDeployOwner,
+    jobReferenceId: number | null,
+  ): Promise<RpcEndpointSnapshot | null> {
+    const result = await this.pool.query<{ rpc_endpoint: string | null }>(
+      `SELECT rpc_endpoint FROM profiles
+       WHERE name = $1 AND instance_id = $2 AND intent_revision = $3
+         AND engine_config_revision = $4 AND stack_version_id = $5
+         AND status = 'DEPLOYING'
+         AND deploy_job_reference_id IS NOT DISTINCT FROM $6::integer`,
+      [
+        name,
+        owner.instanceId,
+        owner.intentRevision,
+        owner.configRevision,
+        owner.stackVersionId,
+        jobReferenceId,
+      ],
+    );
+    const row = result.rows[0];
+    return row ? { rpcEndpoint: row.rpc_endpoint } : null;
   }
 
   /**

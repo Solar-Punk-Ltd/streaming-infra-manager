@@ -166,7 +166,9 @@ describe('what the offline manager stores for a new node', { concurrency: false,
     assert.equal(status, 202);
     assert.equal(body.node_mode, LIGHT_NODE_MODE);
     assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
-    assert.equal(body.rpc_endpoint, null);
+    assert.equal(body.has_rpc_endpoint, false);
+    assert.equal(body.rpc_endpoint_host, null);
+    assert.equal('rpc_endpoint' in body, false);
   });
 
   /**
@@ -265,7 +267,9 @@ describe('what the offline manager stores for a new node', { concurrency: false,
     for (const profile of body.profiles) {
       assert.equal(profile.node_mode, LIGHT_NODE_MODE);
       assert.equal(profile.rpc_endpoint_source, CUSTOM_RPC_ENDPOINT_SOURCE);
-      assert.equal(profile.rpc_endpoint, 'http://host.docker.internal:9000');
+      assert.equal(profile.has_rpc_endpoint, true);
+      assert.equal(profile.rpc_endpoint_host, 'host.docker.internal:9000');
+      assert.equal('rpc_endpoint' in profile, false);
     }
   });
 });
@@ -293,7 +297,34 @@ describe('what an edit of that node may change', { concurrency: false, timeout: 
 
     assert.equal(status, 202);
     assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
-    assert.equal(body.rpc_endpoint, null);
+    assert.equal(body.has_rpc_endpoint, false);
+    assert.equal(body.rpc_endpoint_host, null);
+    assert.equal('rpc_endpoint' in body, false);
+  });
+
+  it('clears a custom address when only the replacement source is sent', async () => {
+    await request(
+      '/profiles',
+      'POST',
+      newViewer('offline-source-only-gateway', {
+        node_mode: LIGHT_NODE_MODE,
+        rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
+        rpc_endpoint: 'http://host.docker.internal:9000',
+      }),
+    );
+
+    await running('offline-source-only-gateway');
+    const { status, body } = await request('/profiles/offline-source-only-gateway', 'PUT', {
+      kind: 'viewer',
+      feed_owner: `0x${'1'.repeat(40)}`,
+      node_mode: LIGHT_NODE_MODE,
+      rpc_endpoint_source: MANAGER_RPC_ENDPOINT_SOURCE,
+    });
+
+    assert.equal(status, 202);
+    assert.equal(body.rpc_endpoint_source, MANAGER_RPC_ENDPOINT_SOURCE);
+    assert.equal(body.has_rpc_endpoint, false);
+    assert.equal('rpc_endpoint' in body, false);
   });
 
   it('refuses a mode that is not the one the node was created with', async () => {

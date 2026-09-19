@@ -77,6 +77,25 @@ describe('the env file and the deploy claim', () => {
     assert.equal(runner.runs.length, 0);
     assert.deepEqual(profiles.markErrorCalls, []);
   });
+
+  it('deploys a stored custom endpoint after an unrelated edit omits the URL', async () => {
+    withBaseEnv();
+    const endpoint = 'https://rpc.example.invalid/v3/synthetic-key';
+    const stored = makeProfile({
+      name: STAGE,
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: endpoint,
+    });
+    const { orchestrator, profiles } = orchestratorHarness([stored]);
+
+    const edited = await profiles.updateEditable(STAGE, stored.kind, {
+      notes: 'the endpoint was not edited',
+    });
+    assert.ok(edited);
+    await orchestrator.startDeploy(edited, undefined);
+
+    assert.match(readFileSync(envPath, 'utf8'), new RegExp(`^RPC_ENDPOINT=${endpoint}$`, 'm'));
+  });
 });
 
 /**

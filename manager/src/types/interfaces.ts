@@ -45,15 +45,15 @@ export interface Profile {
    * beeTargetProblem, which makes such a deployment name a node or a pool.
    */
   bee_url: string | null;
-  /**
-   * The address a `custom` source uses. Null under `manager` and `stack`, where
-   * `rpc_endpoint_source` below says which endpoint applies.
-   */
-  rpc_endpoint: string | null;
+  /** Whether this deployment stores a custom endpoint, never the URL itself. */
+  has_rpc_endpoint: boolean;
+  /** The custom endpoint's host and port, without its path, query or fragment. */
+  rpc_endpoint_host: string | null;
   /**
    * Where that endpoint comes from: this manager's own configured one, the
-   * stack's default, or `rpc_endpoint` above. Only `custom` carries an address
-   * of its own, and the column pairs the two. See migrations/035.
+   * stack's default, or a custom URL stored outside this public row. Only
+   * `custom` carries an address of its own, and the column pairs the two. See
+   * migrations/035.
    */
   rpc_endpoint_source: RpcEndpointSource;
   /**

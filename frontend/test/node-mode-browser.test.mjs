@@ -242,18 +242,18 @@ test('a node is created in the mode and on the endpoint the wizard offered', asy
   assert.match(ownPage, /Custom \(rpc\.example\.org\)/);
   assert.doesNotMatch(ownPage, /not-a-key/);
 
-  // What the manager actually stored, rather than what the page rendered.
+  // What the manager answers, rather than what the page rendered.
   const stored = await evaluate(`fetch('/profiles').then(r => r.json()).then(body => body.profiles
     .filter(profile => ['gateway-offline', 'gateway-on-chain', 'stage-on-chain', 'stage-own-endpoint'].includes(profile.name))
-    .map(profile => [profile.name, profile.node_mode, profile.rpc_endpoint_source, profile.rpc_endpoint]))`);
+    .map(profile => [profile.name, profile.node_mode, profile.rpc_endpoint_source, profile.has_rpc_endpoint, profile.rpc_endpoint_host, 'rpc_endpoint' in profile]))`);
   // The node with no chain is left on the stack's endpoint rather than handed
-  // the manager's, which it would never read. The whole address is stored for
-  // the one that named its own, which is what the two pages above never show.
+  // the manager's, which it would never read. The custom endpoint is represented
+  // by presence and host metadata, while its secret-bearing path stays private.
   assert.deepEqual(stored.sort(), [
-    ['gateway-offline', 'ultra-light', 'stack', null],
-    ['gateway-on-chain', 'light', 'manager', null],
-    ['stage-on-chain', null, 'manager', null],
-    ['stage-own-endpoint', null, 'custom', KEYED_ENDPOINT],
+    ['gateway-offline', 'ultra-light', 'stack', false, null, false],
+    ['gateway-on-chain', 'light', 'manager', false, null, false],
+    ['stage-on-chain', null, 'manager', false, null, false],
+    ['stage-own-endpoint', null, 'custom', true, 'rpc.example.org', false],
   ]);
   assert.deepEqual(browser.errors, []);
 });
