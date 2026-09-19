@@ -3,11 +3,15 @@
 Two workflows under `.github/workflows`. Neither reaches a host, a Bee node or
 funds. **A green check says nothing about a host, a Bee node or funds.**
 
-## checks, on every pull request and push to main-v2
+## checks, on every pull request and push to main
 
 Three jobs, all on `ubuntu-latest`. Decision D06 of 2026-09-07: turning the
 requirement on is a repository setting Levi makes after the workflow has run
-once, and he keeps a bypass. Agents never push to `main-v2`.
+once, and he keeps a bypass. Main-branch pushes still require Levi's explicit instruction.
+
+The 2026-09-19 release transition keeps both `main` and `main-v2` in the workflow
+triggers so the candidate is checked before consolidation and the final `main`
+continues to run all three jobs. Levi explicitly authorized this consolidation.
 
 **Where this stands, 2026-09-16, on `main-v2`.** This page was written at
 `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed.

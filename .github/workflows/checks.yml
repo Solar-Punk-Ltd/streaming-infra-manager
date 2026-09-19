@@ -1,4 +1,4 @@
-# The checks main-v2 requires before a merge, D06. Three jobs: the build and
+# The checks main requires before a merge, D06. Three jobs: the build and
 # unit suites, the 34 SQL suites against nine disposable databases, and the
 # browser suites against a real headless Chrome.
 # Counts drift as suites are added. Re-measure rather than trusting them. What they prove and what they
@@ -7,9 +7,9 @@ name: checks
 
 on:
   pull_request:
-    branches: [main-v2]
+    branches: [main, main-v2]
   push:
-    branches: [main-v2]
+    branches: [main, main-v2]
 
 permissions:
   contents: read
