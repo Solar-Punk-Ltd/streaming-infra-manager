@@ -32,7 +32,11 @@ beforeEach(async () => {
   executions = join(root, '.executions');
   await mkdir(executions, { mode: 0o700 });
   store = new InMemoryExecutionRoots(executions, () => randomUUID());
-  service = new ExecutionRootService(store, executions);
+  service = new ExecutionRootService(store, executions, async target => ({
+    readDaemonId: async () => target.daemonId,
+    listAllContainers: async () => [],
+    inspectContainer: async () => null,
+  }));
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -83,6 +87,26 @@ describe('the execution copies a restart left', () => {
     assert.deepEqual(outcome, { removed: [], kept: [launched.executionId] });
     assert.equal(existsSync(launched.root), true);
     assert.equal(store.stateOf(launched.executionId), 'launch-uncertain');
+  });
+
+  it('keeps an interrupted deletion while a container still mounts that root', async () => {
+    const deleting = await copyLeftBehind('deleting');
+    const mounted = {
+      Id: 'a'.repeat(64),
+      State: { Status: 'running' },
+      Config: { Labels: {} },
+      Mounts: [{ Type: 'bind', Source: `${deleting.root}/entrypoint.sh`, Destination: '/entrypoint.sh' }],
+    };
+    service = new ExecutionRootService(store, executions, async target => ({
+      readDaemonId: async () => target.daemonId,
+      listAllContainers: async () => [{ Id: mounted.Id }],
+      inspectContainer: async () => mounted,
+    }));
+
+    const outcome = await service.reclaimInterrupted();
+
+    assert.deepEqual(outcome, { removed: [], kept: [deleting.executionId] });
+    assert.equal(existsSync(deleting.root), true);
   });
 
   it('keeps a copy it could not remove, and carries on with the rest', async () => {

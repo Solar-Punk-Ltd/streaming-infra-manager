@@ -85,7 +85,8 @@ function attribute(container: ExecutionContainerObservation, roots: Map<string, 
     if (matches.length === 0) unmatched.add(mount.source);
   }
   const working = container.workingDirectory === null ? undefined : workingDirectories.get(container.workingDirectory);
-  const unknownExecutionMount = [...unmatched].some(path => contains(parent, path));
+  const unknownExecutionMount = [...unmatched].some(path => contains(parent, path)) ||
+    (container.workingDirectory !== null && !working && contains(parent, container.workingDirectory));
   let attribution: ExecutionAttribution;
   if (!working) attribution = { state: 'unknown', reason: 'no-registered-working-directory' };
   else if ([...dependencies.keys()].some(id => id !== working.executionId)) attribution = { state: 'ambiguous', reason: 'mixed-execution-roots' };

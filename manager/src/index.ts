@@ -49,6 +49,7 @@ import { StackVersionService } from './domain/versions/StackVersionService.js';
 import { ExecutionRootService } from './domain/versions/ExecutionRootService.js';
 import { PostgresExecutionRootRepository } from './domain/versions/PostgresExecutionRootRepository.js';
 import { executionsRootFor } from './domain/versions/stackPaths.js';
+import { isLocalTarget } from './domain/ports/DeployTargets.js';
 import { config } from './utils/config.js';
 import { BUNDLED_STACK_ROOT } from './utils/envUtils.js';
 import { resolveServerHost } from './utils/serverHost.js';
@@ -182,6 +183,7 @@ async function main(): Promise<void> {
   const executionRoots = new ExecutionRootService(
     new PostgresExecutionRootRepository(database.pool, executionsParent),
     executionsParent,
+    async target => isLocalTarget(target.alias) ? containerControl.executionMountReader() : null,
   );
   const stackVersionService = new StackVersionService(
     stackVersionRepository,

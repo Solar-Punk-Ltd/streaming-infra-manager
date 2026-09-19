@@ -5,6 +5,7 @@ import {
   SRS_SERVICE,
 } from '@streaming-infra-manager/common';
 import Docker from 'dockerode';
+import type { ExecutionDockerReader } from './versions/executionMountCapture.js';
 import { connect } from 'node:net';
 import { dirname } from 'node:path';
 
@@ -134,6 +135,7 @@ export interface ContainerHandle {
  */
 export type InspectedContainer = Pick<Docker.ContainerInspectInfo, 'Id' | 'RestartCount'> & {
   Config?: { Labels?: Record<string, string> };
+  Mounts?: Array<{ Type?: string; Source?: string; Destination?: string }>;
   NetworkSettings?: { Ports?: unknown };
   HostConfig?: { NetworkMode?: string };
   State: Pick<Docker.ContainerInspectInfo['State'], 'Status' | 'StartedAt'>;
@@ -294,6 +296,43 @@ export class ContainerControl {
       throw new DockerUnavailableError();
     }
     return info.ID;
+  }
+
+  /**
+   * One reader bound to the local Docker client. It returns only the fields
+   * execution retention needs, so container environment values never enter
+   * the observation.
+  */
+  executionMountReader(): ExecutionDockerReader {
+    const read = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
+      if (signal.aborted) throw new Error('Docker observation was aborted');
+      let rejectAborted: ((reason?: unknown) => void) | undefined;
+      const aborted = new Promise<never>((_, reject) => { rejectAborted = reject; });
+      const onAbort = () => rejectAborted?.(new Error('Docker observation was aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      try { return await Promise.race([this.withinLimit(operation()), aborted]); }
+      finally { signal.removeEventListener('abort', onAbort); }
+    };
+    return {
+      readDaemonId: async signal => {
+        const info = await read(() => this.docker.info(), signal) as { ID?: unknown };
+        return info.ID;
+      },
+      listAllContainers: signal => read(() => this.docker.listContainers({ all: true }), signal),
+      inspectContainer: async (id, signal) => {
+        const inspected = await read(() => this.docker.getContainer(id).inspect(), signal);
+        return {
+          Id: inspected.Id,
+          State: { Status: inspected.State.Status },
+          Config: { Labels: inspected.Config?.Labels },
+          Mounts: inspected.Mounts?.map(mount => ({
+            Type: mount.Type,
+            Source: mount.Source,
+            Destination: mount.Destination,
+          })),
+        };
+      },
+    };
   }
 
   async publishedPorts(): Promise<Omit<PublishedPortsSnapshot, 'daemonId'>> {

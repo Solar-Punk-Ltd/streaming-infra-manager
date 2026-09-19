@@ -60,7 +60,11 @@ async function setup(options: { copies?: boolean } = {}) {
     const found = harness.profiles.rows.get(name);
     return found?.instance_id;
   });
-  const service = new ExecutionRootService(store, executionsRootFor(versionsRoot));
+  const service = new ExecutionRootService(store, executionsRootFor(versionsRoot), async target => ({
+    readDaemonId: async () => target.daemonId,
+    listAllContainers: async () => [],
+    inspectContainer: async () => null,
+  }));
   const harness = orchestratorHarness(profiles, undefined, versionsRoot, undefined, undefined,
     options.copies === false ? undefined : service);
   const v3 = await harness.versions.insert({ name: 'v3', gitRef: 'main-v3', rootPath: join(versionsRoot, 'v3') });

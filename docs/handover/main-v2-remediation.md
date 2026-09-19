@@ -1012,6 +1012,14 @@ Merged into `feat/ai-remediation` on 2026-09-11. The brief is `../consensus/EXAC
 
 **Not in this slice, and named so it is not mistaken for done.** T01's atomic begin and revert, the creator receipt and the release of operation holds. The full-daemon mount observation is still unused: it attributes a container to a copy by its compose working directory, which only holds for a local target, because `deploy.sh` rsyncs the tree to a remote base before running compose there. Retirement is authorised by the replacing deploy's own success instead, which holds for both. And a build already deployed from before this change still carries the files those deploys left, which the first copy of it copies too. They are inert and no new writes reach a build.
 
+**Retention correction, 2026-09-19, at `a5b4253` plus the execution-retention fix.** The earlier success rule was unsafe for a partial deploy. An uploader-only success created a new execution for the uploader, while the untouched SRS or OME container kept bind mounts into the previous execution. The success hook then retired and deleted that previous root. A later engine restart could no longer read its entrypoint or healthcheck.
+
+Local launched-root cleanup now runs only after a complete all-container mount inventory proves that the candidate is not mounted. Missing or malformed mount data, an unstable container list, a changed daemon, an unregistered execution path and an unavailable reader all retain the roots. An open or blocked deploy attempt also retains them under the daemon's admission lock. An interrupted cleanup left in `deleting` passes through the same mount veto at boot. Once every mount has moved and the durable job and supersession checks still hold, cleanup proceeds and releases the build hold.
+
+The inventory sees the manager API too. Its administrative versions-root mount and `/` mount reach every execution but do not make it a consumer of every deployment. The narrow exception requires a Compose `api` container outside `.executions` with both exact administrative mount pairs from `manager/docker-compose.yml`. An exact execution bind on that container still retains the root. Any other container's parent bind also retains every execution reachable beneath it. Fixtures cover both the real manager mount shape and an unlabelled foreign parent bind.
+
+Remote deployments remain conservative. Their remote rsync paths cannot be matched to the manager's local execution paths without an explicit path mapping. Their launched roots are retained, which preserves safety and can grow local disk use.
+
 ## A walkthrough of the whole interface, 2026-09-11
 
 Levi asked for an end to end pass over everything the manager offers, through a browser, and for what it turned up to be fixed.

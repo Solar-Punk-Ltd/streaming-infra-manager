@@ -23,6 +23,7 @@ import {
   MAX_CONFIG_BYTES,
 } from '../../src/domain/ContainerControl.js';
 import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
+import { captureExecutionMounts } from '../../src/domain/versions/executionMountCapture.js';
 import {
   fakeDocker,
   frame,
@@ -66,6 +67,59 @@ describe('daemon identity verification', () => {
     await control.daemonId();
     docker.info = async () => { throw new Error('offline'); };
     await assert.rejects(control.daemonId());
+  });
+});
+
+describe('execution mount inventory', () => {
+  it('reads every container in every state through the local daemon-bound client', async () => {
+    const id = 'a'.repeat(64);
+    const docker = fakeDocker([{ id, labels: labels('stage', 'srs'), inspectAnswer: {
+      Id: id,
+      RestartCount: 0,
+      State: { Status: 'exited', StartedAt: '2026-09-19T00:00:00Z' },
+      Config: { Labels: {
+        ...labels('stage', 'srs'),
+        'com.docker.compose.project.working_dir': '/srv/versions/.executions/one/tree/deploy',
+      } },
+      Mounts: [{ Type: 'bind', Source: '/srv/versions/.executions/one/tree/entrypoint.sh', Destination: '/entrypoint.sh' }],
+    } }]);
+    docker.info = async () => ({ ID: 'retention-daemon' });
+
+    const captured = await captureExecutionMounts(
+      new ContainerControl(new EventBus(), docker).executionMountReader(),
+      { daemonId: 'retention-daemon' },
+    );
+
+    assert.equal(captured.state, 'complete');
+    if (captured.state !== 'complete') return;
+    assert.deepEqual(captured.containers.map(container => ({
+      id: container.id,
+      status: container.status,
+      mounts: container.mounts,
+    })), [{
+      id,
+      status: 'exited',
+      mounts: [{ type: 'bind', source: '/srv/versions/.executions/one/tree/entrypoint.sh', destination: '/entrypoint.sh' }],
+    }]);
+    assert.deepEqual(docker.listCalls.map(call => call.all), [true, true]);
+  });
+
+  it('keeps a missing mount inventory unknown', async () => {
+    const id = 'b'.repeat(64);
+    const docker = fakeDocker([{ id, labels: labels('stage', 'srs'), inspectAnswer: {
+      Id: id,
+      RestartCount: 0,
+      State: { Status: 'running', StartedAt: '2026-09-19T00:00:00Z' },
+      Config: { Labels: labels('stage', 'srs') },
+    } }]);
+    docker.info = async () => ({ ID: 'retention-daemon' });
+
+    const captured = await captureExecutionMounts(
+      new ContainerControl(new EventBus(), docker).executionMountReader(),
+      { daemonId: 'retention-daemon' },
+    );
+
+    assert.deepEqual(captured, { state: 'unknown', reason: 'invalid-container-inspect', cleanupAuthorized: false });
   });
 });
 

@@ -3,6 +3,7 @@ import { basename, dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { versionRemovalProblem } from './versionRemovalMarker.js';
 import type { Pool, PoolClient } from 'pg';
+import { lockAttemptDaemon } from '../deployAttemptSql.js';
 import { targetAlias } from '../ports/DeployTargets.js';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord, type ExecutionRootRegistration, type ExecutionRootState } from './ExecutionRoot.js';
 import { buildDirFor } from './stackPaths.js';
@@ -130,24 +131,32 @@ export class PostgresExecutionRootRepository {
    * that is gone, or one whose instance is not this copy's. Anything else
    * keeps the copy and keeps its hold on the build, which is the safe side.
    *
-   * The target daemon is deliberately not consulted. Removing a copy is local
-   * filesystem work, and a target that cannot be reached must not be what
-   * leaves a deployment's old trees on the disk for good.
+   * Physical mount observation happens before this durable claim. Local
+   * targets need complete daemon evidence and remote targets retain their
+   * roots because their rsynced paths are in another filesystem namespace.
+   * This transaction takes the daemon's admission lock so no same-project
+   * launcher can cross the final ownership check.
    */
   async claimRetiredCleanup(id: string): Promise<ExecutionRootRecord | null> {
     assertExecutionId(id);
     const snapshot = await this.find(id);
     if (!snapshot || snapshot.state !== 'launch-uncertain') return null;
     return this.transaction(async client => {
-      // The shared order: the profile, then the references, then the execution row.
+      // The shared order: the profile, the daemon admission lock, the
+      // references, then the execution row.
       const profile = (await client.query<{ instance_id: string }>(
         'SELECT instance_id FROM profiles WHERE name = $1 FOR SHARE', [snapshot.profile.name],
       )).rows[0];
+      await lockAttemptDaemon(client, snapshot.target.daemonId);
+      const activeAttempt = await client.query(
+        "SELECT 1 FROM deploy_attempts WHERE daemon_id = $1 AND project = $2 AND state <> 'released' LIMIT 1",
+        [snapshot.target.daemonId, snapshot.project],
+      );
       const job = (await client.query<{ resolved_at: Date | null }>(
         'SELECT resolved_at FROM build_references WHERE id = $1 FOR SHARE', [snapshot.jobReferenceId],
       )).rows[0];
       const record = await this.readLocked(client, id);
-      if (!record || record.state !== 'launch-uncertain' || job?.resolved_at === null) return null;
+      if (!record || record.state !== 'launch-uncertain' || activeAttempt.rowCount || !job?.resolved_at) return null;
       // The comparison stays inside the database on purpose. A timestamp read
       // into JavaScript keeps milliseconds and the column keeps microseconds,
       // so a row sent back as a parameter compares as newer than itself.
