@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 
 import { DeployService } from '../../domain/DeployService.js';
+import type { OpenStreams } from '../../domain/auth/OpenStreams.js';
 import { STREAM_UPLOADER_SERVICE } from '../../domain/stampLogic.js';
 import {
   deployBodySchema,
@@ -12,9 +13,9 @@ import { profileNameSchema } from '../../schemas/profile.js';
 import { ALL_SERVICES, ActionKind } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
-import { pipeRunHandleToSSE } from '../sse.js';
+import { pipeRunHandleToSSE, registerAuthenticatedRunStream } from '../sse.js';
 
-export function createActionsRouter(deployService: DeployService): Router {
+export function createActionsRouter(deployService: DeployService, openStreams: OpenStreams): Router {
   const router = Router();
 
   const runAction = async (
@@ -24,16 +25,22 @@ export function createActionsRouter(deployService: DeployService): Router {
     input: { services?: string[] } = {},
   ) => {
     const profileName = req.params.name as string;
-    const handle = await deployService.run(profileName, action, input);
-    pipeRunHandleToSSE(
-      res,
-      handle,
-      {
-        script: `${action}.sh`,
-        args: [`--profile=${profileName}`, ...(input.services ?? [])],
-      },
-      { killOnClose: action === 'health' },
-    );
+    const authenticated = registerAuthenticatedRunStream(req, res, openStreams);
+    try {
+      const handle = await deployService.run(profileName, action, input);
+      pipeRunHandleToSSE(
+        res,
+        handle,
+        {
+          script: `${action}.sh`,
+          args: [`--profile=${profileName}`, ...(input.services ?? [])],
+        },
+        { killOnClose: action === 'health', authenticated },
+      );
+    } catch (err) {
+      authenticated.release();
+      throw err;
+    }
   };
 
   router.post(
@@ -53,13 +60,19 @@ export function createActionsRouter(deployService: DeployService): Router {
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const profileName = req.params.name as string;
-      const handle = await deployService.run(profileName, 'deploy-uploader');
-      // The action runs the submodule's deploy.sh scoped to the uploader,
-      // report that, not a nonexistent "deploy-uploader.sh".
-      pipeRunHandleToSSE(res, handle, {
-        script: 'deploy.sh',
-        args: [`--profile=${profileName}`, STREAM_UPLOADER_SERVICE],
-      });
+      const authenticated = registerAuthenticatedRunStream(req, res, openStreams);
+      try {
+        const handle = await deployService.run(profileName, 'deploy-uploader');
+        // The action runs the submodule's deploy.sh scoped to the uploader,
+        // report that, not a nonexistent "deploy-uploader.sh".
+        pipeRunHandleToSSE(res, handle, {
+          script: 'deploy.sh',
+          args: [`--profile=${profileName}`, STREAM_UPLOADER_SERVICE],
+        }, { authenticated });
+      } catch (err) {
+        authenticated.release();
+        throw err;
+      }
     }),
   );
 

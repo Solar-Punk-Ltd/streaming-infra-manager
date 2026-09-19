@@ -78,11 +78,14 @@ holding the same user row lock. A login or second replacement that verified an
 older hash cannot create a session or overwrite the newer password.
 
 Signing out, revoking a user's sessions, removing a user or changing a password
-also closes that session's open event streams at once, so a browser stops
-receiving profile events the moment it stops being signed in. A session that
-runs out rather than being revoked has its streams closed within a minute, and a
-stream is not activity, so a page left open with nothing but its streams still
-idles out after twelve hours.
+also closes that session's open event and command streams at once, so a browser
+stops receiving profile events, command output or version build output the
+moment it stops being signed in. Closing an output stream does not cancel an
+accepted deploy, stop or version build. A health check is stopped when its
+stream closes because its result has no caller left. A session that runs out
+rather than being revoked has its streams closed within a minute, and a stream
+is not activity, so a page left open with nothing but its streams still idles
+out after twelve hours.
 
 Five wrong passwords for a username, or from one address, start a one minute
 lockout that doubles per further attempt up to an hour, answered as 429 with
