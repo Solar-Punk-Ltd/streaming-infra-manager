@@ -8,10 +8,23 @@ import { PostgresCredentialRepository } from '../../src/domain/auth/PostgresCred
 
 const port = Number(process.env.T01_TEST_PG_PORT);
 const connection = { host: '127.0.0.1', port, user: 'postgres', database: 't01_test', connectionTimeoutMillis: 10000 };
+const SIGNAL_TIMEOUT_MS = 2_000;
 
 function signal<T = void>() {
   let resolve!: (value: T) => void;
   return { promise: new Promise<T>(done => { resolve = done; }), resolve };
+}
+
+async function boundedSignal<T>(promise: Promise<T>, description: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out waiting for ${description}`)), SIGNAL_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function untilBlocked(pool: Pool, pid: number): Promise<void> {
@@ -85,7 +98,7 @@ describe('credential admission in isolated PostgreSQL', { skip: !Number.isIntege
       tokenHash: 'a'.repeat(64), userId, expiresAt: new Date(Date.now() + 60_000), ip: null, userAgent: null,
     }, new Date());
 
-    await untilBlocked(pool, await waiting.promise);
+    await untilBlocked(pool, await boundedSignal(waiting.promise, 'the session credential query'));
     await blocker.query('COMMIT');
 
     assert.equal(await admitted, false);
@@ -109,12 +122,17 @@ describe('credential admission in isolated PostgreSQL', { skip: !Number.isIntege
       return run();
     }));
     const winner = first.changePassword(userId, 'old-hash', 'winner-hash', 'a'.repeat(64));
-    await entered.promise;
-    const stale = second.changePassword(userId, 'old-hash', 'stale-hash', 'b'.repeat(64));
-    await untilBlocked(pool, await waiting.promise);
-    release.resolve();
+    let stale: Promise<boolean> | undefined;
+    try {
+      await boundedSignal(entered.promise, 'the winning password replacement query');
+      stale = second.changePassword(userId, 'old-hash', 'stale-hash', 'b'.repeat(64));
+      await untilBlocked(pool, await boundedSignal(waiting.promise, 'the stale password replacement query'));
+    } finally {
+      release.resolve();
+    }
 
     assert.equal(await winner, true);
+    assert.ok(stale);
     assert.equal(await stale, false);
     assert.equal((await pool.query<{ password_hash: string }>(
       'SELECT password_hash FROM users WHERE id = $1', [userId],
