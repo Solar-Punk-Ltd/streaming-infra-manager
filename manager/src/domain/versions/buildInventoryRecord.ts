@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
@@ -25,6 +25,7 @@ const RECORD_SUFFIX = '.inventory.json';
 const PENDING_SUFFIX = '.pending';
 const RECORD_FORMAT = 1;
 const SHA256 = /^[a-f0-9]{64}$/;
+const activeInventories = new Map<string, Promise<BuildInventory>>();
 
 export interface BuildInventoryRecord extends RecordedOwnedTree {
   format: typeof RECORD_FORMAT;
@@ -234,7 +235,7 @@ export async function forgetRecordsOfGoneBuilds(buildsParent: string): Promise<v
  * A record that cannot be written is a warning and not a failure: the deploy
  * goes ahead on the inventory this call took, and the next one takes another.
  */
-export async function buildInventory(buildRoot: string): Promise<BuildInventory> {
+async function takeBuildInventory(buildRoot: string): Promise<BuildInventory> {
   const started = Date.now();
   const existing = await readBuildInventoryRecord(buildRoot);
   if (existing && existing.durableStamps[''] === await durablePathStamp(buildRoot)) {
@@ -266,4 +267,21 @@ export async function buildInventory(buildRoot: string): Promise<BuildInventory>
     logger.warn(`[Executions] the inventory records beside ${buildsParent} were not swept: ${getErrorMessage(err)}`);
   }
   return { record, hashed: true, tookMs: Date.now() - started };
+}
+
+export async function buildInventory(buildRoot: string): Promise<BuildInventory> {
+  const started = Date.now();
+  const key = resolve(buildRoot);
+  const active = activeInventories.get(key);
+  if (active) {
+    const result = await active;
+    return { record: result.record, hashed: false, tookMs: Date.now() - started };
+  }
+  const inventory = takeBuildInventory(buildRoot);
+  activeInventories.set(key, inventory);
+  try {
+    return await inventory;
+  } finally {
+    if (activeInventories.get(key) === inventory) activeInventories.delete(key);
+  }
 }

@@ -191,6 +191,55 @@ it('accepts a hard link made and removed while hashing an immutable build file',
   assert.ok(taken.record.entries.some(entry => entry.path === 'deploy/deploy.sh' && entry.type === 'file'));
 });
 
+it('shares one cold inventory between simultaneous callers', async t => {
+  const file = join(build, 'deploy', 'deploy.sh');
+  const realOpen = fsPromises.open;
+  let reads = 0;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>(resolve => { releaseFirst = resolve; });
+  let firstOpened!: () => void;
+  const openedFirst = new Promise<void>(resolve => { firstOpened = resolve; });
+  insteadOf(t, 'open', (async (...args: unknown[]) => {
+    if (String(args[0]) === file) {
+      reads++;
+      firstOpened();
+      if (reads === 1) await firstHeld;
+    }
+    return (realOpen as (...input: unknown[]) => ReturnType<typeof fsPromises.open>)(...args);
+  }) as typeof fsPromises.open);
+
+  const first = buildInventory(build);
+  await openedFirst;
+  const second = buildInventory(build);
+  await new Promise(resolve => setImmediate(resolve));
+  releaseFirst();
+  const results = await Promise.all([first, second]);
+
+  assert.equal(reads, 1, `simultaneous callers hashed the same immutable file ${reads} times`);
+  assert.equal(results.filter(result => result.hashed).length, 1, 'more than one caller reported doing the shared hash');
+  assert.equal(results[0].record.digest, results[1].record.digest);
+});
+
+it('evicts a failed shared inventory so every waiter fails and a later caller retries', async t => {
+  const file = join(build, 'deploy', 'deploy.sh');
+  const realOpen = fsPromises.open;
+  let failures = 1;
+  const opened = t.mock.method(fsPromises, 'open', (async (...args: unknown[]) => {
+    if (String(args[0]) === file && failures-- > 0) throw new Error('synthetic inventory failure');
+    return (realOpen as (...input: unknown[]) => ReturnType<typeof fsPromises.open>)(...args);
+  }) as typeof fsPromises.open);
+  syncBuiltinESMExports();
+
+  const failed = await Promise.allSettled([buildInventory(build), buildInventory(build)]);
+  opened.mock.restore();
+  syncBuiltinESMExports();
+  const retried = await buildInventory(build);
+
+  assert.deepEqual(failed.map(result => result.status), ['rejected', 'rejected']);
+  assert.ok(failed.every(result => result.status === 'rejected' && /synthetic inventory failure/.test(String(result.reason))));
+  assert.equal(retried.hashed, true);
+});
+
 it('forgets the record of a build that is no longer there, and keeps the record of one that is', async () => {
   await buildInventory(build);
   const orphan = buildInventoryRecordPath(join(dirname(build), 'b'.repeat(40)));
