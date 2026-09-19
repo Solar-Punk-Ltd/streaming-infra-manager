@@ -3,20 +3,20 @@ import { chmod, copyFile, link, lstat, mkdir, rm, symlink, writeFile } from 'nod
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertExecutionId, assertExecutionRegistration, executionRootPath, type ExecutionRootRecord } from './ExecutionRoot.js';
-import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, readBuildManifest } from './buildManifest.js';
+import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, parseBuildManifestBytes } from './buildManifest.js';
 import { COPY_INSTEAD } from './buildTreeClone.js';
 import { hostConfigFilesOf } from './hostConfigCapture.js';
 import {
   durableStampOwnedTree,
   inodeOfStamp,
   inventoryLinkedTree,
-  inventoryOwnedTree,
+  inventorySharedOwnedTree,
   ownedTreeDigest,
   sha256,
   type FileDigestSource,
   type RecordedOwnedTree,
 } from './ownedTreeInventory.js';
-import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile } from './ownedTreePaths.js';
+import { assertOwnedDirectory, assertSeparateOwnedTrees, readOwnedFile, readSharedOwnedFile } from './ownedTreePaths.js';
 
 export interface ExecutionCopyOptions {
   onProgress?: (copiedFiles: number) => Promise<void>;
@@ -132,11 +132,11 @@ export async function copyExecutionRoot(
   await assertOwnedDirectory(executionsParent);
   const ownerRoot = dirname(root);
   await assertSeparateOwnedTrees(record.source.root, ownerRoot);
-  const source = options.sourceInventory ? structuredClone(options.sourceInventory) : await inventoryOwnedTree(record.source.root);
+  const source = options.sourceInventory ? structuredClone(options.sourceInventory) : await inventorySharedOwnedTree(record.source.root);
   if (ownedTreeDigest(source) !== record.source.artifactDigest) throw new Error('Execution source digest changed.');
-  await readOwnedFile(record.source.root, BUILD_MANIFEST_FILE);
-  await readOwnedFile(record.source.root, BUILD_COMPLETE_MARKER);
-  const manifest = readBuildManifest(record.source.root).manifest;
+  const manifestBytes = await readSharedOwnedFile(record.source.root, BUILD_MANIFEST_FILE);
+  await readSharedOwnedFile(record.source.root, BUILD_COMPLETE_MARKER);
+  const manifest = parseBuildManifestBytes(manifestBytes, join(record.source.root, BUILD_MANIFEST_FILE)).manifest;
   if (manifest?.buildId !== record.source.buildId || manifest.commit !== record.source.commit) throw new Error('Execution source build identity changed.');
   const sourceChanged = (during: string) => new Error(`Execution source changed during ${during}.${options.sourceInventoryPath
     ? ` It was proved against ${options.sourceInventoryPath}, which is removed to have the source read again.` : ''}`);

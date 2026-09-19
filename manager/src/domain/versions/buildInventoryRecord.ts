@@ -11,7 +11,7 @@ import {
   durablePathStamp,
   FILE_TYPE_BITS,
   FILE_TYPE_MASK,
-  inventoryOwnedTree,
+  inventorySharedOwnedTree,
   modeOfStamp,
   ownedTreeDigest,
   type OwnedTreeEntry,
@@ -240,7 +240,7 @@ export async function buildInventory(buildRoot: string): Promise<BuildInventory>
   if (existing && existing.durableStamps[''] === await durablePathStamp(buildRoot)) {
     return { record: existing, hashed: false, tookMs: Date.now() - started };
   }
-  const taken = await inventoryOwnedTree(buildRoot);
+  const taken = await inventorySharedOwnedTree(buildRoot);
   const record: BuildInventoryRecord = {
     format: RECORD_FORMAT,
     buildId: basename(buildRoot),

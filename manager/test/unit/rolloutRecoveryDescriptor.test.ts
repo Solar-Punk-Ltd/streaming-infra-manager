@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,6 +51,46 @@ describe('captured config rollback artifact evidence', () => {
   it('refuses source mutation between the inventory and its proof', async () => {
     await assert.rejects(captureRolloutRecovery(version, parent, { afterInventory: async () => {
       await writeFile(join(artifact, 'source.sh'), 'synthetic changed source');
+    } }), /changed/i);
+  });
+
+  it('accepts a hard link made and removed after immutable source inventory', async () => {
+    const transient = join(parent, 'transient-source-link');
+
+    const captured = await captureRolloutRecovery(version, parent, { afterInventory: async () => {
+      await link(join(artifact, 'source.sh'), transient);
+      await unlink(transient);
+    } });
+
+    assert.equal(captured.kind, 'immutable-build');
+  });
+
+  it('accepts a hard link made and removed while reading immutable recovery metadata', async t => {
+    const manifest = join(artifact, BUILD_MANIFEST_FILE);
+    const transient = join(parent, 'transient-evidence-link');
+    const realOpen = fs.openSync;
+    let linked = false;
+    t.mock.method(fs, 'openSync', ((...args: Parameters<typeof fs.openSync>) => {
+      const fd = Reflect.apply(realOpen, fs, args) as number;
+      if (!linked && args[0] === manifest) {
+        linked = true;
+        fs.linkSync(manifest, transient);
+        fs.unlinkSync(transient);
+      }
+      return fd;
+    }) as typeof fs.openSync);
+    syncBuiltinESMExports();
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+    const captured = await captureRolloutRecovery(version, parent);
+
+    assert.equal(linked, true, 'the recovery manifest was never linked during its bounded read');
+    assert.equal(captured.kind, 'immutable-build');
+  });
+
+  it('refuses a source mode change between immutable inventory and proof', async () => {
+    await assert.rejects(captureRolloutRecovery(version, parent, { afterInventory: async () => {
+      await chmod(join(artifact, 'source.sh'), 0o600);
     } }), /changed/i);
   });
 

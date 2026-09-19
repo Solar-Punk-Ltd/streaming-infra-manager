@@ -65,6 +65,56 @@ it('links the exact source into the copy and records ownership outside the writa
   assert.equal((await lstat(join(dirname(item.root), 'owner.json'))).mode & 0o777, 0o600);
 });
 
+it('accepts a hard link made and removed while reading immutable build metadata', async t => {
+  const item = await record();
+  const sourceInventory = await inventoryOwnedTree(source);
+  const manifest = join(source, '.stack-manifest.json');
+  const transient = join(root, 'transient-manifest-link');
+  const realOpen = fsPromises.open;
+  let linked = false;
+  const opened = t.mock.method(fsPromises, 'open', (async (...args: unknown[]) => {
+    const handle = await (realOpen as (...input: unknown[]) => ReturnType<typeof fsPromises.open>)(...args);
+    if (!linked && String(args[0]) === manifest) {
+      linked = true;
+      await fsPromises.link(manifest, transient);
+      await fsPromises.unlink(transient);
+    }
+    return handle;
+  }) as typeof fsPromises.open);
+  syncBuiltinESMExports();
+  t.after(() => { opened.mock.restore(); syncBuiltinESMExports(); });
+
+  const copied = await copyExecutionRoot(item, executions, { sourceInventory });
+
+  assert.equal(linked, true, 'the manifest was never linked during its read, so this test proves nothing');
+  assert.equal(copied.artifactDigest, item.source.artifactDigest);
+});
+
+it('accepts hard-link churn on a shared file while verifying the linked copy', async t => {
+  const item = await record();
+  const destination = join(item.root, '.env.sample');
+  const transient = join(root, 'transient-copy-link');
+  const realLstat = fsPromises.lstat;
+  let destinationStats = 0;
+  let linked = false;
+  const stated = t.mock.method(fsPromises, 'lstat', (async (...args: unknown[]) => {
+    const info = await (realLstat as (...input: unknown[]) => ReturnType<typeof fsPromises.lstat>)(...args);
+    if (String(args[0]) === destination && ++destinationStats === 2) {
+      linked = true;
+      await fsPromises.link(destination, transient);
+      await fsPromises.unlink(transient);
+    }
+    return info;
+  }) as typeof fsPromises.lstat);
+  syncBuiltinESMExports();
+  t.after(() => { stated.mock.restore(); syncBuiltinESMExports(); });
+
+  const copied = await copyExecutionRoot(item, executions);
+
+  assert.equal(linked, true, 'the linked destination file never changed ctime during verification');
+  assert.equal(copied.artifactDigest, item.source.artifactDigest);
+});
+
 it('shares every regular file with the build, and nothing else', async () => {
   const item = await record();
   const { entries } = await inventoryOwnedTree(source);

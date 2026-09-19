@@ -169,6 +169,28 @@ it('reads back the record it wrote, and leaves nothing else beside the build', a
   assert.deepEqual((await fsPromises.readdir(dirname(build))).sort(), [commit, `${commit}${'.inventory.json'}`]);
 });
 
+it('accepts a hard link made and removed while hashing an immutable build file', async t => {
+  const file = join(build, 'deploy', 'deploy.sh');
+  const transient = join(root, 'transient-build-link');
+  const realOpen = fsPromises.open;
+  let linked = false;
+  insteadOf(t, 'open', (async (...args: unknown[]) => {
+    const handle = await (realOpen as (...input: unknown[]) => ReturnType<typeof fsPromises.open>)(...args);
+    if (!linked && String(args[0]) === file) {
+      linked = true;
+      await fsPromises.link(file, transient);
+      await fsPromises.unlink(transient);
+    }
+    return handle;
+  }) as typeof fsPromises.open);
+
+  const taken = await buildInventory(build);
+
+  assert.equal(linked, true, 'the build file was never linked during its read, so this test proves nothing');
+  assert.equal(taken.hashed, true);
+  assert.ok(taken.record.entries.some(entry => entry.path === 'deploy/deploy.sh' && entry.type === 'file'));
+});
+
 it('forgets the record of a build that is no longer there, and keeps the record of one that is', async () => {
   await buildInventory(build);
   const orphan = buildInventoryRecordPath(join(dirname(build), 'b'.repeat(40)));
