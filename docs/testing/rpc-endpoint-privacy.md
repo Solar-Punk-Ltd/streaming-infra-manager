@@ -69,3 +69,28 @@ PostgreSQL test also persists this exact shape and checks find, list, group
 create and group list projections against the private endpoint reader. It was
 not run locally for the database mapping reason above. It passed in the
 completed PR database run cited above.
+
+## URL userinfo follow-up
+
+Copilot comment `4053142114` identified a P1 gap on 2026-09-19. A stored URL
+containing `synthetic-user:synthetic-secret@rpc.example.org` produced the
+userinfo as public host metadata. The database accepts this URL shape, so
+request validation alone cannot protect existing rows. A small projection
+correction is preferable to exposing stored credentials to profile readers.
+
+The repository regression failed in [run 35442940317](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35442940317)
+at `b4edc3c824245f2b251f564155b55b69d9bdadec`. PostgreSQL returned
+`synthetic-user:synthetic-secret` instead of `rpc.example.org`. This was the only
+failure among 548 database tests, with zero skips.
+
+The projection now extracts the complete authority after normalizing backslash
+boundaries, removes everything through the last `@`, and returns null for an
+empty remainder. Matching the complete authority prevents an incomplete URL
+from falling back to a credential prefix. The exact private URL stays stored.
+
+The regression exercises profile insert, find, list and update responses,
+group creation and member lists, plus exact private endpoint reads. Its six
+synthetic inputs cover ordinary userinfo, encoded userinfo with multiple `@`
+characters, IPv6 with a port, and empty-host forms ending at a slash, a query
+or the end of the URL. The earlier backslash regression remains in the suite.
+The current result is recorded in PR 42's database check for each pushed commit.

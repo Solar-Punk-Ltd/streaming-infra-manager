@@ -26,6 +26,17 @@ The PR's first run passed build, typechecks, unit and native checks. Its databas
 
 Verification completed on 2026-09-19 at `e88581a42483e8caf7fa6a3ca41b5492a8b74f1e`. [Run 35440997869](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35440997869) passed build and typechecks, 3,422 unit tests, seven native transport tests, 547 PostgreSQL tests across 36 suites, and 261 browser-suite tests across 34 files. All 4,237 tests passed with zero failures and zero skips. The lock-order regression passed after the correction. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision.
 
+## Copilot follow-up
+
+All three comments were verified. Comment `4053142114` exposed a P1 gap where
+URL userinfo could become public host metadata. The projection now strips the
+complete userinfo and returns null for an empty host, while preserving the
+stored private endpoint. A real PostgreSQL regression reproduced the exposure
+in [run 35442940317](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35442940317).
+Its six synthetic cases cover profile and group responses, updates and private
+reads. Comments `4053142123` and `4053142127` identified stale pending statements.
+The verification records now name the completed run and exact commit above.
+
 ## Limits
 
 Remote execution copies are conservatively retained when there is no trustworthy mount reader, which can increase disk use. No live infrastructure behavior was exercised or changed. The streaming-stack pin, dependencies and repository settings are unchanged. The separate swarm-hls PR 241 remains outside this batch.
