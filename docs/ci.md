@@ -452,16 +452,28 @@ Secrets Levi sets: `ITEST_PASSWORD`, the password of the user the suite signs
 in as. The workflow refuses to start without it and never prints it. Only
 whether it is set is ever looked at.
 
-**`engine-startup-failure.test.ts` has never run.** It is T01's
-container-backed startup failure: a config file the manager's own check accepts
+**2026-09-19, v3.1 compatibility run.** Run 35444459944 first exercised this
+workflow by dispatch. SRS parser isolation, OME admission and image isolation
+passed. Integration exposed a stale test topology: without `.stack-commit`
+the manager used a mutable checkout, which recovery correctly refused, and
+its unprivileged process could not remove Bee-owned directories.
+
+The integration job now writes the exact gitlink to `.stack-commit`, starts
+only the manager as root to match the production API container, and waits for
+the pinned bundled version to publish an immutable build. `/health` alone does
+not prove that asynchronous build has finished. The gate checks its status,
+layout, build id, commit and root before any test starts. The test client stays
+unprivileged. Rollback and complete-removal assertions remain unchanged.
+
+`engine-startup-failure.test.ts` is T01's container-backed startup failure: a config file the manager's own check accepts
 and SRS exits on at start, asserted to end the rollout in `reverted` with the
 deployment back `RUNNING` on the previous file and a card that offers nothing
 to press. The file is the version's own template with one added line,
 `work_dir /no/such/directory;`, and the two observations that make that the
 right file, one for the parse and one for the start, are in the test's header
 with the image digest and the date, taken again on the corrected pin the day
-it was corrected. It is typechecked and reviewed here and nothing more. Its
-first execution is Levi's dispatch of this workflow.
+it was corrected. The failed first run above is recorded separately from the corrected topology's
+acceptance result.
 
 When one of its assertions fails it prints the rollout's reason, which carries
 the engine's own last lines, and the file SRS was started on carries that

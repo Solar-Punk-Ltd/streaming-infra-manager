@@ -142,7 +142,12 @@ jobs:
         working-directory: manager
         run: |
           mkdir -p "$BEE_DATA_ROOT" "$STACK_VERSIONS_ROOT"
-          nohup node dist/index.js > "$RUNNER_TEMP/manager.log" 2>&1 &
+          git rev-parse HEAD:manager/swarm-hls-stream > .stack-commit
+          # Production's API runs as root and can remove Bee-owned directories.
+          # Keep the test client unprivileged and elevate only that API process.
+          NODE_BIN="$(command -v node)"
+          nohup sudo --preserve-env=DATABASE_URL,SHLS_ROOT,STACK_VERSIONS_ROOT,BEE_DATA_ROOT \
+            "$NODE_BIN" dist/index.js > "$RUNNER_TEMP/manager.log" 2>&1 &
           for _ in $(seq 1 30); do
             if curl -fsS "$MANAGER_URL/health" > /dev/null; then exit 0; fi
             sleep 1
@@ -150,6 +155,43 @@ jobs:
           echo "the manager did not answer /health within 30 s" >&2
           cat "$RUNNER_TEMP/manager.log" >&2
           exit 1
+
+      - name: Wait for the pinned immutable bundled build
+        working-directory: manager
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import pg from 'pg';
+          const expectedCommit = readFileSync('.stack-commit', 'utf8').trim();
+          const expectedRoot = join(process.env.STACK_VERSIONS_ROOT, 'bundled');
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const deadline = Date.now() + 10 * 60_000;
+          let ready = false;
+          try {
+            while (Date.now() < deadline) {
+              const { rows: [row] } = await pool.query(
+                `SELECT status, layout, build_id, commit_sha, root_path, last_error
+                   FROM stack_versions WHERE name = $1`,
+                ['bundled'],
+              );
+              if (row?.status === 'failed') {
+                throw new Error(`Bundled build failed: ${row.last_error ?? 'no reason recorded'}`);
+              }
+              ready = row?.status === 'ready'
+                && row.layout === 'builds'
+                && Boolean(row.build_id)
+                && row.commit_sha === expectedCommit
+                && row.root_path === expectedRoot;
+              if (ready) break;
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            if (!ready) throw new Error('Pinned immutable build was not ready within 10 minutes');
+            console.log(`Ready: immutable bundled build of ${expectedCommit}`);
+          } finally {
+            await pool.end();
+          }
+          NODE
 
       - name: Create the user the suite signs in as
         # The CLI takes the password on stdin and nowhere else. Node hands it
