@@ -5,7 +5,6 @@ import {
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
   type ConfiguredBeeRpcEndpoint,
-  configuredBeeRpcEndpoint,
   CUSTOM_RPC_ENDPOINT_SOURCE,
   effectiveNodeMode,
   MANAGER_RPC_ENDPOINT_SOURCE,
