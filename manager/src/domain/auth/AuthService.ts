@@ -133,20 +133,30 @@ export class AuthService {
       throw new InvalidCredentialsError();
     }
 
-    attempt.succeed();
-
     const now = new Date();
     await this.sessions.deleteExpired(now, idleSince(now));
 
     const token = createSessionToken();
-    await this.sessions.create({
-      tokenHash: hashSessionToken(token),
-      userId: user.id,
-      expiresAt: absoluteExpiryFrom(now),
-      ip: input.ip,
-      userAgent: input.userAgent,
-    });
-    await this.users.markSignedIn(user.id, now);
+    const admitted = await this.credentials.admitSession(
+      user.id,
+      user.password_hash,
+      {
+        tokenHash: hashSessionToken(token),
+        userId: user.id,
+        expiresAt: absoluteExpiryFrom(now),
+        ip: input.ip,
+        userAgent: input.userAgent,
+      },
+      now,
+    );
+    if (!admitted) {
+      attempt.fail();
+      logger.warn(
+        `[Auth] failed sign-in: username="${input.username}" ip=${input.ip}`,
+      );
+      throw new InvalidCredentialsError();
+    }
+    attempt.succeed();
 
     logger.info(`[Auth] ${user.username} signed in from ${input.ip}`);
     return { token };
@@ -303,16 +313,23 @@ export class AuthService {
       );
       throw new InvalidCredentialsError();
     }
-    attempt.succeed();
-
     const problem = passwordProblem(next, user.username);
     if (problem) throw new WeakPasswordError(problem);
 
-    await this.credentials.changePassword(
+    const changed = await this.credentials.changePassword(
       user.id,
+      user.password_hash,
       await hashPassword(next),
       session.tokenHash,
     );
+    if (!changed) {
+      attempt.fail();
+      logger.warn(
+        `[Auth] password change refused, current password changed: ${user.username}`,
+      );
+      throw new InvalidCredentialsError();
+    }
+    attempt.succeed();
     this.openStreams.closeUser(user.id, session.tokenHash);
     logger.info(`[Auth] password changed: ${user.username}`);
   }

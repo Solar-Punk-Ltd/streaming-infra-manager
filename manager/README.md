@@ -73,6 +73,9 @@ that did not arrive over TLS and the sign-in would loop.
 The token is 32 random bytes. The database stores only its SHA-256, so a dump of
 the sessions table signs nobody in. A session ends after twelve hours of
 inactivity, and fourteen days after it started whatever happens in between.
+Session admission and password replacement recheck the password hash while
+holding the same user row lock. A login or second replacement that verified an
+older hash cannot create a session or overwrite the newer password.
 
 Signing out, revoking a user's sessions, removing a user or changing a password
 also closes that session's open event streams at once, so a browser stops
