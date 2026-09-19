@@ -72,7 +72,7 @@ describe('the passphrase the publish URL carries', () => {
     assert.equal(
       publishUrlNeedsReveal(stage({
         components: ['ome', 'stream-uploader'],
-        containers: [{ service: 'ome', ports: {} }],
+        containers: [{ service: 'ome', ports: {}, buildId: null, buildCommit: null }],
         has_srt_passphrase: true,
       })),
       false,
