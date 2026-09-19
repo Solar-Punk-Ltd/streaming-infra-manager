@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { requestTimeoutMs } from '../integration/requestTimeout.js';
 import { requestHeaders, sessionCookieFrom } from '../integration/session.js';
 import {
   belongsToRun,
@@ -189,5 +190,72 @@ describe('what a request carries', () => {
 
   it('sends no cookie when signed out', () => {
     assert.equal('cookie' in requestHeaders({ method: 'GET', cookie: null, hasBody: false }), false);
+  });
+});
+
+describe('request response budgets', () => {
+  it('gives deployment writes the proxy response budget', () => {
+    const deploymentWrites = [
+      ['POST', '/profiles'],
+      ['PUT', '/profiles/viewer-1'],
+      ['PUT', '/profiles/viewer-1/engine-config'],
+      ['POST', '/groups'],
+      ['PATCH', '/groups/7/config'],
+      ['POST', '/groups/7/members'],
+    ] as const;
+
+    for (const [method, path] of deploymentWrites) {
+      assert.equal(requestTimeoutMs(method, path), 300_000, `${method} ${path}`);
+    }
+  });
+
+  it('keeps reads, authentication and cleanup on the fast default', () => {
+    const fastRequests = [
+      ['GET', '/profiles'],
+      ['POST', '/auth/login'],
+      ['POST', '/auth/logout'],
+      ['DELETE', '/profiles/viewer-1'],
+      ['POST', '/groups/7'],
+      ['PATCH', '/groups/7'],
+    ] as const;
+
+    for (const [method, path] of fastRequests) {
+      assert.equal(requestTimeoutMs(method, path), 30_000, `${method} ${path}`);
+    }
+  });
+
+  it('applies the deployment budget in the HTTP helper and preserves an explicit signal', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalTimeout = AbortSignal.timeout;
+    const selectedTimeouts: number[] = [];
+    const sentSignals: AbortSignal[] = [];
+    const automaticSignal = new AbortController().signal;
+    const explicitSignal = new AbortController().signal;
+
+    AbortSignal.timeout = ((milliseconds: number) => {
+      selectedTimeouts.push(milliseconds);
+      return automaticSignal;
+    }) as typeof AbortSignal.timeout;
+    globalThis.fetch = (async (_input, init) => {
+      sentSignals.push(init?.signal as AbortSignal);
+      return {
+        status: 204,
+        text: async () => '',
+        headers: { getSetCookie: () => [] },
+      } as unknown as Response;
+    }) as typeof fetch;
+
+    try {
+      const { requestWith } = await import('../integration/helpers.js');
+
+      await requestWith('PUT', '/profiles/viewer-1', { notes: 'changed' });
+      await requestWith('DELETE', '/profiles/viewer-1', undefined, { signal: explicitSignal });
+
+      assert.deepEqual(selectedTimeouts, [300_000]);
+      assert.deepEqual(sentSignals, [automaticSignal, explicitSignal]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      AbortSignal.timeout = originalTimeout;
+    }
   });
 });
