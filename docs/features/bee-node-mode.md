@@ -51,6 +51,9 @@ Status, 2026-09-19, based on `a5b4253` and fixed on
 `fix/main-v2-rpc-privacy`: a custom URL is private deployment input. Profile
 responses and deployment events expose only `has_rpc_endpoint` and
 `rpc_endpoint_host`. The host contains no userinfo, path, query or fragment.
+The database projection treats a backslash after an HTTP host as a path
+boundary, matching the URL parser instead of returning the path as part of the
+public host metadata.
 The repository reads the full URL separately only for endpoint redaction and
 for a claimed deployment that is about to write its env file.
 

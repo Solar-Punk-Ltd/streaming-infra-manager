@@ -51,3 +51,17 @@ PostgreSQL mapping. `manager/test/database/profileNodeMode.test.ts` records the
 database projection, omission preservation, replacement and group behavior for
 the verification server. Full typecheck, build and suite verification are also
 left to that server under the repository's verification rule.
+
+## Backslash boundary follow-up
+
+An independent review found that the application URL parser treats a backslash
+after an HTTP host as a slash, while the SQL host projection did not. The
+focused SQL test went red for
+`https://rpc.example.org\synthetic-key`, because the public metadata could
+contain `rpc.example.org\synthetic-key`.
+
+The projection now converts backslashes to path separators before it extracts
+the host. The focused SQL and privacy files pass 14 tests. The disposable
+PostgreSQL test also persists this exact shape and checks find, list, group
+create and group list projections against the private endpoint reader. It was
+not run locally for the database mapping reason above.

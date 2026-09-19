@@ -41,6 +41,7 @@ const PLACEMENT = {
 };
 
 const ENDPOINT = 'https://rpc.example.org';
+const BACKSLASH_ENDPOINT = String.raw`https://rpc.example.org\synthetic-key`;
 
 /**
  * What every member of a group is created with, as ProfileService builds it.
@@ -136,6 +137,48 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(read?.has_rpc_endpoint, true);
     assert.equal(read?.rpc_endpoint_host, 'rpc.example.org');
     assert.equal((await profiles.rpcEndpointOf('chosen'))?.rpcEndpoint, ENDPOINT);
+  });
+
+  it('keeps a backslash path private in every public repository projection', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('backslash', 'viewer', 'RUNNING', {
+      node_mode: 'light',
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: BACKSLASH_ENDPOINT,
+    }, PLACEMENT);
+
+    const found = await profiles.findByName('backslash');
+    const listed = (await profiles.list()).find((profile) => profile.name === 'backslash');
+    for (const profile of [found, listed]) {
+      assert.equal(profile?.has_rpc_endpoint, true);
+      assert.equal(profile?.rpc_endpoint_host, 'rpc.example.org');
+      assert.doesNotMatch(JSON.stringify(profile), /synthetic-key/);
+    }
+    assert.equal(
+      (await profiles.rpcEndpointOf('backslash'))?.rpcEndpoint,
+      BACKSLASH_ENDPOINT,
+    );
+
+    const groups = new DeploymentGroupRepository(pool);
+    const { group, profiles: created } = await groups.createGroupWithMembers(
+      'backslash-pool',
+      STANDARD_GROUP_KIND,
+      [{ name: 'backslash-member' }],
+      sharedParams({
+        node_mode: 'light',
+        rpc_endpoint_source: 'custom',
+        rpc_endpoint: BACKSLASH_ENDPOINT,
+      }),
+    );
+    const members = await groups.listMembers(group.id);
+    for (const profile of [...created, ...members]) {
+      assert.equal(profile.rpc_endpoint_host, 'rpc.example.org');
+      assert.doesNotMatch(JSON.stringify(profile), /synthetic-key/);
+    }
+    assert.equal(
+      (await profiles.rpcEndpointOf('backslash-member'))?.rpcEndpoint,
+      BACKSLASH_ENDPOINT,
+    );
   });
 
   it('refuses a custom source with no address', async () => {
