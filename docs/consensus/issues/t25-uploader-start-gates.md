@@ -161,3 +161,18 @@ nothing), `8a9eaf66` (`transportCodeOf` reads `code` and falls back to
 both docblocks rewritten) and `66ed0d4a` (the catalog's liveness case asserts
 the rethrow is one the wait retries). Uploader suite 1576 tests, lint and
 typecheck green.
+
+## Interface alignment, 2026-09-19
+
+The deployment checklist now offers **Start uploader** when the chequebook is
+low or unreadable, or when the Bee API observation is stale or unreachable.
+Those readings stay visible as warnings. A missing stamp, or a stamp the node
+reported as pending, expired or absent, still withholds the action. The fill
+chequebook dialog now says that a balance below the displayed floor may stall
+uploads but does not block an uploader start.
+
+The focused `frontend/src/deployments/readiness.test.ts` run first failed its
+two new D15/D16 cases, then passed after the checklist change. The focused real
+browser case in `frontend/test/transfer-dialog-browser.test.mjs` first saw the
+old claim that the manager would not start an uploader, then passed with the
+corrected sentence.

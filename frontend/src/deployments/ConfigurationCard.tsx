@@ -5,7 +5,6 @@ import {
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
   type ConfiguredBeeRpcEndpoint,
-  configuredBeeRpcEndpoint,
   CUSTOM_RPC_ENDPOINT_SOURCE,
   effectiveNodeMode,
   MANAGER_RPC_ENDPOINT_SOURCE,
@@ -205,7 +204,7 @@ function endpointHost(
 ): string | null {
   const source = endpointSourceOf(profile);
   if (source === CUSTOM_RPC_ENDPOINT_SOURCE) {
-    return configuredBeeRpcEndpoint(profile.rpc_endpoint).host;
+    return profile.rpc_endpoint_host ?? null;
   }
   return source === MANAGER_RPC_ENDPOINT_SOURCE ? beeRpcEndpoint.host : null;
 }

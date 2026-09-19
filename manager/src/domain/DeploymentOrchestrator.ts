@@ -365,6 +365,7 @@ export interface UploaderGate {
 interface DeploySecrets {
   streamKey: string | null;
   srtPassphrase: string | null;
+  rpcEndpoint: string | null;
 }
 
 export class DeploymentOrchestrator {
@@ -1033,16 +1034,23 @@ export class DeploymentOrchestrator {
       // Read here and nowhere else: neither is a column of the row, so that no
       // page and no event carries them. This is where each becomes a line in a
       // file the containers read.
+      const rpcEndpoint = await this.profiles.rpcEndpointForDeploy(
+        profile.name,
+        failure.owner,
+        build.referenceId,
+      );
+      if (!rpcEndpoint) throw new ProfileInstanceChangedError(profile.name);
       const secrets: DeploySecrets = {
         streamKey: await this.profiles.privateKeyOf(profile.name),
         srtPassphrase: await this.profiles.srtPassphraseOf(profile.name),
+        rpcEndpoint: rpcEndpoint.rpcEndpoint,
       };
       const written = writeProfileEnv(paths.root, profile.name, {
         engine,
         stampId: profile.stamp_id,
         beePublishers: profile.bee_publishers,
         beeUrl: profile.bee_url,
-        rpcEndpoint: profile.rpc_endpoint,
+        rpcEndpoint: secrets.rpcEndpoint,
         rpcEndpointSource: profile.rpc_endpoint_source,
         managerRpcEndpoint: this.managerRpcEndpoint ?? null,
         // From the profile's own components and its stored mode, as
@@ -1075,7 +1083,7 @@ export class DeploymentOrchestrator {
         paths,
         script: paths.deploy,
         args: this.buildDeployScriptArgs(profile, services, reservation.host),
-        redactedEndpoints: [profile.rpc_endpoint],
+        redactedEndpoints: [secrets.rpcEndpoint],
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
         beforeLaunch: execution && this.executions

@@ -47,6 +47,22 @@ fix. `rpc_endpoint_source` is `manager`, `stack` or `custom`, and the deployment
 deployments with a URL became `custom` and the rest `stack`, which is what they
 were running.
 
+Status, 2026-09-19, based on `a5b4253` and fixed on
+`fix/main-v2-rpc-privacy`: a custom URL is private deployment input. Profile
+responses and deployment events expose only `has_rpc_endpoint` and
+`rpc_endpoint_host`. The host contains no userinfo, path, query or fragment.
+The database projection treats a backslash after an HTTP host as a path
+boundary, matching the URL parser instead of returning the path as part of the
+public host metadata.
+The repository reads the full URL separately only for endpoint redaction and
+for a claimed deployment that is about to write its env file.
+
+An edit page starts its custom endpoint field empty. Leaving an existing custom
+choice unchanged omits the URL from the request and preserves the stored URL.
+Typing a replacement sends that replacement. Choosing the manager or stack
+source clears the stored custom URL, including when an API client sends only
+the replacement source.
+
 The shared rules live in `common`: `effectiveNodeMode` answers the mode for
 every reader, `nodeModeProblem` refuses an ultra-light publisher with "an
 ultra-light node cannot upload", and `rpcEndpointChoiceProblem` refuses the
@@ -105,3 +121,8 @@ one for correctness and one for security, and one of the frontend half. Not
 yet run on the verification box, not yet deployed, and not yet exercised on a
 real Bee node: a light gateway's chequebook coming up through the two keys is
 proved on the rendered compose command, not on a running node.
+
+The 2026-09-19 privacy regression ran focused manager service, SQL projection,
+deployment env and log redaction tests, plus frontend edit and offline manager
+tests. The red and green evidence and the unrun database limit are recorded in
+`docs/testing/rpc-endpoint-privacy.md`.

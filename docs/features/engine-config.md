@@ -109,6 +109,15 @@ Every recovery claim and write checks that the operation still owns the same
 deployment and revisions. A newer edit, stop, start, deletion or replacement
 supersedes the old operation. An old watcher must not undo the newer action.
 
+The selected stack can also refuse its own startup command before the manager
+commits RUNNING. That is an apply failure rather than a manager-watch failure.
+If recovery then recreates the previous file successfully, the deployment is
+RUNNING again while the operation remains `failed`, its reason says the
+previous file is back, and the card offers Verify. A failure detected later by
+the manager's watch ends `reverted` when the same recovery succeeds. These two
+states distinguish where the candidate failed, while both preserve the actual
+recovery outcome.
+
 | State | Meaning and next action |
 | --- | --- |
 | `applying` | The operation is storing or recreating on the selected file or template. Wait for its outcome. |

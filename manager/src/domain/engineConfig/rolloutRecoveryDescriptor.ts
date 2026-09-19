@@ -3,7 +3,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from '
 import { isAbsolute, join, resolve } from 'node:path';
 import { parseStackContract, stackVersionNameProblem, type StackContract } from '@streaming-infra-manager/common';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE, buildIdProblem, parseBuildManifestBytes } from '../versions/buildManifest.js';
-import { inventoryOwnedTree, ownedTreeDigest, sha256, stampOwnedTree } from '../versions/ownedTreeInventory.js';
+import { inventorySharedOwnedTree, ownedTreeDigest, sha256, sharedStampOwnedTree } from '../versions/ownedTreeInventory.js';
 import { assertOwnedVersionParent } from '../versions/ownedVersionParent.js';
 import { buildDirFor, versionRootFor } from '../versions/stackPaths.js';
 import type { DeployVersionSnapshot } from '../versions/StackVersionRepository.js';
@@ -96,7 +96,7 @@ function evidenceBytes(root: string, file: string): Buffer {
     const current = lstatSync(path, { bigint: true });
     if (length > limit) throw new Error('Recovery evidence exceeds its bounded size limit.');
     if ([opened, after, current].some(info => !info.isFile() || info.isSymbolicLink() || info.dev !== before.dev || info.ino !== before.ino ||
-      info.size !== before.size || info.mode !== before.mode || info.mtimeNs !== before.mtimeNs || info.ctimeNs !== before.ctimeNs)) throw new Error('Recovery evidence changed while reading.');
+      info.size !== before.size || info.mode !== before.mode || info.mtimeNs !== before.mtimeNs)) throw new Error('Recovery evidence changed while reading.');
     assertOwnedVersionParent(root);
     return bytes.subarray(0, length);
   } finally { closeSync(fd); }
@@ -123,14 +123,14 @@ export async function captureRolloutRecovery(
     return parseRolloutRecoveryDescriptor({ format: 1, kind: 'legacy-unproven', version, reason: 'mutable-legacy-source' })!;
   }
   const evidence = evidenceOf(version, versionsRoot);
-  const inventory = await inventoryOwnedTree(evidence.root);
+  const inventory = await inventorySharedOwnedTree(evidence.root);
   await options.afterInventory?.();
   // The stamps the inventory recorded, read back as a stat of each path and no
   // payload at all. A write, a chmod, a replacement and a path that arrives or
   // leaves each move one, so a tree that matches stamp for stamp is the tree
   // that was inventoried, and a second read-and-hash pass over the whole build
   // tree is not what proves it.
-  if (!isDeepStrictEqual(await stampOwnedTree(evidence.root), inventory.stamps) ||
+  if (!isDeepStrictEqual(await sharedStampOwnedTree(evidence.root), inventory.sharedStamps) ||
       !isDeepStrictEqual(evidenceOf(version, versionsRoot), evidence)) throw new Error('Recovery source changed during capture.');
   return parseRolloutRecoveryDescriptor({ format: 1, kind: 'immutable-build', version,
     artifactDigest: ownedTreeDigest(inventory),

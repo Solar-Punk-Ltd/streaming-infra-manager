@@ -6,6 +6,7 @@ import express from 'express';
 import { errorHandler } from '../../src/api/middleware/errorHandler.js';
 import { notFound } from '../../src/api/middleware/notFound.js';
 import { createVersionsRouter } from '../../src/api/routes/versions.js';
+import { OpenStreams } from '../../src/domain/auth/OpenStreams.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
 
@@ -50,7 +51,15 @@ export async function startVersionsTestApp(
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
-  app.use('/versions', createVersionsRouter(service));
+  app.use((req, _res, next) => {
+    req.authSession = {
+      tokenHash: 'a'.repeat(64),
+      user: { id: 1, username: 'test', isAdmin: true },
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    next();
+  });
+  app.use('/versions', createVersionsRouter(service, new OpenStreams()));
   app.use(notFound);
   app.use(errorHandler);
 

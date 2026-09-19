@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
 import { EventBus } from '../../src/domain/EventBus.js';
+import { PostgresDeployAttemptRepository } from '../../src/domain/PostgresDeployAttemptRepository.js';
+import { lockAttemptDaemon } from '../../src/domain/deployAttemptSql.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresExecutionRootRepository } from '../../src/domain/versions/PostgresExecutionRootRepository.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
@@ -354,6 +356,91 @@ describe('execution ownership in isolated PostgreSQL', { skip: !Number.isInteger
 
     assert.equal(await repository.claimRetiredCleanup(replaced.executionId), null);
     assert.equal((await repository.find(replaced.executionId))!.state, 'launch-uncertain');
+  });
+
+  it('keeps a replaced copy while a launcher for its project remains unresolved', async () => {
+    const replaced = await launched();
+    await nextDeployJob();
+    await launched();
+    const attempt = (await pool.query<{ id: number }>(
+      `INSERT INTO deploy_attempts (daemon_id, project, job_id, kind, services, pre_job_container_ids)
+       VALUES ('synthetic-daemon', 'owned', 'retention-attempt', 'fixed', ARRAY['srs'], ARRAY[]::text[]) RETURNING id`,
+    )).rows[0]!;
+
+    assert.equal(await repository.claimRetiredCleanup(replaced.executionId), null);
+    await pool.query("UPDATE deploy_attempts SET state = 'blocked' WHERE id = $1", [attempt.id]);
+    assert.equal(await repository.claimRetiredCleanup(replaced.executionId), null);
+    await pool.query("UPDATE deploy_attempts SET state = 'released', resolved_at = NOW() WHERE id = $1", [attempt.id]);
+    assert.equal((await repository.claimRetiredCleanup(replaced.executionId))?.state, 'deleting');
+  });
+
+  it('serializes a new launcher behind the cleanup claim on its daemon', async () => {
+    const replaced = await launched();
+    await nextDeployJob();
+    await launched();
+    const checked = signal();
+    const release = signal();
+    const waiting = signal<number>();
+    const cleanupPool = instrumentPool(async (text, _pid, run) => {
+      const result = await run();
+      if (/FROM deploy_attempts/.test(text)) { checked.resolve(); await release.promise; }
+      return result;
+    });
+    const launcherPool = instrumentPool(async (text, pid, run) => {
+      if (/pg_advisory_xact_lock/.test(text)) waiting.resolve(pid);
+      return run();
+    });
+    const cleanup = new PostgresExecutionRootRepository(cleanupPool, join(root, '.executions'))
+      .claimRetiredCleanup(replaced.executionId);
+    await bounded(checked.promise);
+    const launcher = new PostgresDeployAttemptRepository(launcherPool).open({
+      daemonId: 'synthetic-daemon',
+      target: 'localhost',
+      project: 'owned',
+      jobId: 'after-cleanup',
+      kind: 'fixed',
+      services: ['srs'],
+      preJobContainerIds: [],
+    });
+    try {
+      await assertBlocked(await bounded(waiting.promise));
+    } finally {
+      release.resolve();
+    }
+
+    assert.equal((await bounded(cleanup))?.state, 'deleting');
+    assert.equal((await bounded(launcher)).state, 'open');
+  });
+
+  it('waits for daemon admission before locking the retiring profile', async () => {
+    const replaced = await launched();
+    await nextDeployJob();
+    await launched();
+    const waiting = signal<number>();
+    const cleanupPool = instrumentPool(async (text, pid, run) => {
+      if (/pg_advisory_xact_lock/.test(text)) waiting.resolve(pid);
+      return run();
+    });
+    const daemonOwner = await pool.connect();
+    let cleanup: ReturnType<PostgresExecutionRootRepository['claimRetiredCleanup']> | undefined;
+    let claimed: Awaited<ReturnType<PostgresExecutionRootRepository['claimRetiredCleanup']>> | undefined;
+    try {
+      await daemonOwner.query('BEGIN');
+      await lockAttemptDaemon(daemonOwner, 'synthetic-daemon');
+      cleanup = new PostgresExecutionRootRepository(cleanupPool, join(root, '.executions'))
+        .claimRetiredCleanup(replaced.executionId);
+      await assertBlocked(await bounded(waiting.promise));
+
+      assert.equal((await daemonOwner.query(
+        'SELECT name FROM profiles WHERE name = $1 FOR UPDATE NOWAIT', ['owned'],
+      )).rows[0]!.name, 'owned');
+    } finally {
+      await daemonOwner.query('ROLLBACK').catch(() => undefined);
+      daemonOwner.release();
+      if (cleanup) claimed = await bounded(cleanup);
+    }
+
+    assert.equal(claimed?.state, 'deleting');
   });
 
   it('keeps the copy a deployment is still running from, however old its job is', async () => {

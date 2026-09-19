@@ -78,14 +78,14 @@ describe('the endpoint source a body may carry', () => {
     );
   });
 
-  it('refuses a custom source with no address', async () => {
+  it('requires an address for a new custom source and lets an update preserve one', async () => {
     await assert.rejects(
       () => create({ rpc_endpoint_source: 'custom' }),
       /a custom RPC endpoint needs an address/,
     );
-    await assert.rejects(
-      () => update({ rpc_endpoint_source: 'custom' }),
-      /a custom RPC endpoint needs an address/,
+    assert.equal(
+      (await update({ rpc_endpoint_source: 'custom' })).rpc_endpoint_source,
+      'custom',
     );
   });
 
@@ -245,15 +245,15 @@ describe('an edit of a deployment that already exists', () => {
     assert.equal(harness.profiles.rows.get('stage')?.rpc_endpoint_source, 'custom');
   });
 
-  it('takes the custom choice away with the address it belongs to', async () => {
+  it('takes the custom choice away when the address is explicitly cleared', async () => {
     const harness = profileServiceHarness([
       stored({ rpc_endpoint_source: 'custom', rpc_endpoint: ENDPOINT }),
     ]);
 
-    await harness.service.update('stage', { notes: 'cleared' });
+    await harness.service.update('stage', { notes: 'cleared', rpc_endpoint: null });
 
     const row = harness.profiles.rows.get('stage');
-    assert.equal(row?.rpc_endpoint, null);
+    assert.equal(harness.profiles.rpcEndpoints.has('stage'), false);
     assert.equal(row?.rpc_endpoint_source, 'stack');
   });
 
@@ -266,10 +266,10 @@ describe('an edit of a deployment that already exists', () => {
       MANAGER_ENDPOINT,
     );
 
-    await harness.service.update('stage', { notes: 'cleared' });
+    await harness.service.update('stage', { notes: 'cleared', rpc_endpoint: null });
 
     const row = harness.profiles.rows.get('stage');
-    assert.equal(row?.rpc_endpoint, null);
+    assert.equal(harness.profiles.rpcEndpoints.has('stage'), false);
     assert.equal(row?.rpc_endpoint_source, 'manager');
   });
 

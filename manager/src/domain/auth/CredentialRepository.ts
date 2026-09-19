@@ -1,19 +1,31 @@
+import type { NewSession } from './SessionRepository.js';
+
 /**
- * The writes that change a password, as one step.
+ * Credential-gated session and password writes.
  *
- * Setting the hash and dropping the user's other sessions used to be two
- * statements. If the second one failed the password had changed and the
- * sessions it was being changed because of were still open, which is the exact
- * situation the "your other browsers were signed out" promise rules out.
+ * Password verification is deliberately outside this repository because it is
+ * expensive. Each write compares the verified snapshot again while holding
+ * the user row lock, so a password replacement cannot race that verification.
  */
 export interface CredentialRepository {
   /**
-   * Sets the password hash and deletes every session of the user except the
-   * one making the change, atomically.
+   * Creates the session and records the login only if the verified password
+   * hash is still current.
+   */
+  admitSession(
+    userId: number,
+    verifiedPasswordHash: string,
+    session: NewSession,
+    signedInAt: Date,
+  ): Promise<boolean>;
+  /**
+   * Sets the password hash and deletes every other session atomically, only if
+   * the verified password hash is still current.
    */
   changePassword(
     userId: number,
+    verifiedPasswordHash: string,
     passwordHash: string,
     keepSessionTokenHash: string,
-  ): Promise<void>;
+  ): Promise<boolean>;
 }

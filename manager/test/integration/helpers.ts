@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 
 import { IntegrationResources } from './IntegrationResources.js';
+import { requestTimeoutMs } from './requestTimeout.js';
 import { requestHeaders, sessionCookieFrom } from './session.js';
 import {
   baseUrlOf,
@@ -115,7 +116,7 @@ async function rawRequest(
 ): Promise<{ status: number; text: string; setCookies: string[] }> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    signal: options.signal ?? AbortSignal.timeout(30_000),
+    signal: options.signal ?? AbortSignal.timeout(requestTimeoutMs(method, path)),
     headers: requestHeaders({
       method,
       cookie: options.cookie === undefined ? session : options.cookie,

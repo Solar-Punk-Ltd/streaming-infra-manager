@@ -11,6 +11,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  beePublishersValue,
+  DEFAULT_ABR_RUNGS,
   stampHealthFrom,
   type UploaderHealthReading,
 } from '@streaming-infra-manager/common';
@@ -25,7 +27,7 @@ const profile: Profile = {
   name: 'main-stage', kind: 'streamer', port_slot: 1, notes: null, notes_revision: 0,
   status: 'RUNNING', last_error: null, last_error_at: null, last_full_deploy_commit: null,
   created_at: '2026-09-17T00:00:00Z', updated_at: '2026-09-17T00:00:00Z',
-  engine_settings: {}, has_private_key: false, has_srt_passphrase: false, has_engine_config: false,
+  engine_settings: {}, has_private_key: false, has_rpc_endpoint: false, has_srt_passphrase: false, has_engine_config: false,
   engine_config_error: null, engine_config_state: null,
   instance_id: '00000000-0000-4000-8000-000000000002',
   engine_config_revision: 0, intent_revision: 0, stamp_id: BATCH,
@@ -171,5 +173,106 @@ describe('the uploader step once the uploader has been asked', () => {
 
     assert.equal(step?.problem, 'Uploader not started');
     assert.doesNotMatch(step?.detail ?? '', /health route/);
+  });
+});
+
+const pool = beePublishersValue(
+  DEFAULT_ABR_RUNGS.map((rung, index) => ({
+    rungName: rung,
+    url: `http://10.0.0.${index + 1}:${10015 + index * 10}`,
+    batchId: String(index + 1).repeat(64),
+  })),
+);
+
+const abrProfile: Profile = {
+  ...profile,
+  name: 'abr-stage',
+  kind: 'abr-uploader',
+  components: ['srs', 'stream-uploader'],
+  stamp_id: null,
+  bee_publishers: pool,
+  containers: [
+    { service: 'srs', ports: {}, buildId: null, buildCommit: null },
+    { service: 'stream-uploader', ports: {}, buildId: null, buildCommit: null },
+  ],
+};
+
+const abrUploaderStep = (uploaderHealth: UploaderHealthReading, candidate = abrProfile) =>
+  buildChecklist(input({
+    profile: candidate,
+    stampHealth: stampHealthFrom(null, null),
+    uploaderHealth,
+  })).find((step) => step.title === 'Uploader running');
+
+describe('a pool-backed ABR uploader reports its own health', () => {
+  it('shows the wait for a pool node', () => {
+    const step = abrUploaderStep({
+      state: 'waiting_for_node',
+      reasons: ['node_unavailable'],
+      node: { url: 'http://10.0.0.1:10015', attempts: 2 },
+    });
+
+    assert.equal(step?.state, 'busy');
+    assert.equal(step?.problem, 'Uploader waiting for its node');
+  });
+
+  it('shows a pool start-gate warning', () => {
+    const step = abrUploaderStep({
+      state: 'warned',
+      reasons: ['start_gate_warned'],
+      startGateWarnings: [{ gate: 'PostageGate', rung: '360p' }],
+    });
+
+    assert.equal(step?.state, 'warn');
+    assert.match(step?.detail ?? '', /360p rung/);
+  });
+
+  it('shows an unhealthy pool-backed uploader', () => {
+    const step = abrUploaderStep({ state: 'unhealthy', reasons: ['postage_refused'] });
+
+    assert.equal(step?.state, 'err');
+    assert.match(step?.detail ?? '', /postage refused/);
+  });
+
+  it('shows a healthy pool-backed uploader', () => {
+    const step = abrUploaderStep({ state: 'ok', reasons: [] });
+
+    assert.equal(step?.state, 'ok');
+    assert.equal(step?.detail, 'The uploader reports healthy.');
+  });
+
+  it('puts pool configuration before uploader health and asks for no single-node stamp', () => {
+    const steps = buildChecklist(input({
+      profile: abrProfile,
+      stampHealth: stampHealthFrom(null, null),
+      uploaderHealth: { state: 'ok', reasons: [] },
+    }));
+
+    assert.deepEqual(
+      steps.map((step) => step.title),
+      ['Containers running', 'Node pool configured', 'Uploader running'],
+    );
+  });
+
+  it('offers start from a valid pool without a stamp of its own', () => {
+    const stopped = {
+      ...abrProfile,
+      containers: abrProfile.containers.filter((container) => container.service !== 'stream-uploader'),
+    };
+    const step = abrUploaderStep({ state: 'not_deployed', reasons: [] }, stopped);
+
+    assert.equal(step?.action?.kind, 'deploy-uploader');
+  });
+
+  it('withholds start until the pool string is usable', () => {
+    const invalid = {
+      ...abrProfile,
+      bee_publishers: 'not-a-pool',
+      containers: abrProfile.containers.filter((container) => container.service !== 'stream-uploader'),
+    };
+    const step = abrUploaderStep({ state: 'not_deployed', reasons: [] }, invalid);
+
+    assert.equal(step?.state, 'off');
+    assert.equal(step?.action, undefined);
   });
 });

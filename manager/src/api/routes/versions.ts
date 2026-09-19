@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 
 import type { StackSettingsSave } from '@streaming-infra-manager/common';
 
+import type { OpenStreams } from '../../domain/auth/OpenStreams.js';
 import { StackVersionService } from '../../domain/versions/StackVersionService.js';
 import {
   CreateVersionBody,
@@ -13,7 +14,7 @@ import {
 } from '../../schemas/version.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
-import { pipeRunHandleToSSE } from '../sse.js';
+import { pipeRunHandleToSSE, registerAuthenticatedRunStream } from '../sse.js';
 
 const BUILD_SCRIPT_NAME = 'stack-version-build.sh';
 
@@ -30,7 +31,7 @@ function versionIdOf(req: Request): number {
  * browser goes away: the build carries on and the row lands ready or failed
  * either way.
  */
-export function createVersionsRouter(versions: StackVersionService): Router {
+export function createVersionsRouter(versions: StackVersionService, openStreams: OpenStreams): Router {
   const router = Router();
 
   router.get(
@@ -44,12 +45,18 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     '/',
     validateBody(createVersionSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const body = req.body as CreateVersionBody;
-      const build = await versions.add(body.name, body.ref);
-      pipeRunHandleToSSE(res, build.handle, {
-        script: BUILD_SCRIPT_NAME,
-        args: [build.version.name, build.version.gitRef],
-      });
+      const authenticated = registerAuthenticatedRunStream(req, res, openStreams);
+      try {
+        const body = req.body as CreateVersionBody;
+        const build = await versions.add(body.name, body.ref);
+        pipeRunHandleToSSE(res, build.handle, {
+          script: BUILD_SCRIPT_NAME,
+          args: [build.version.name, build.version.gitRef],
+        }, { authenticated });
+      } catch (err) {
+        authenticated.release();
+        throw err;
+      }
     }),
   );
 
@@ -57,11 +64,17 @@ export function createVersionsRouter(versions: StackVersionService): Router {
     '/:id/update',
     validateParams(versionIdSchema),
     asyncHandler(async (req: Request, res: Response) => {
-      const build = await versions.update(versionIdOf(req));
-      pipeRunHandleToSSE(res, build.handle, {
-        script: BUILD_SCRIPT_NAME,
-        args: [build.version.name, build.version.gitRef],
-      });
+      const authenticated = registerAuthenticatedRunStream(req, res, openStreams);
+      try {
+        const build = await versions.update(versionIdOf(req));
+        pipeRunHandleToSSE(res, build.handle, {
+          script: BUILD_SCRIPT_NAME,
+          args: [build.version.name, build.version.gitRef],
+        }, { authenticated });
+      } catch (err) {
+        authenticated.release();
+        throw err;
+      }
     }),
   );
 

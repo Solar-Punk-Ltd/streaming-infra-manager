@@ -96,7 +96,7 @@ export function createEngineRouter(
         stripUnknown: true,
       });
       const name = req.params.name as string;
-      const profile = await profileService.getByName(name);
+      const rpcEndpoint = await profileService.rpcEndpointForRedaction(name);
       const text = await containers.logs(
         name,
         req.params.service as string,
@@ -107,7 +107,7 @@ export function createEngineRouter(
       // rendering this. The host stays, which is what tells two endpoints apart.
       res
         .type(TEXT_PLAIN)
-        .send(redactEndpoints(text, [managerRpcEndpoint, profile.rpc_endpoint]));
+        .send(redactEndpoints(text, [managerRpcEndpoint, rpcEndpoint]));
     }),
   );
 

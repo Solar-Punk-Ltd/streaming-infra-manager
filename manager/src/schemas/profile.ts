@@ -208,6 +208,7 @@ const rpcEndpointSourceField = (
       const body = this.parent as EndpointChoiceBody;
       const { rpc_endpoint: url, node_mode: nodeMode } = body;
       if (value === undefined && !onCreate) return true;
+      if (!onCreate && value === 'custom' && url === undefined) return true;
       const problem = rpcEndpointChoiceProblem({
         source:
           (value as RpcEndpointSource | undefined) ??

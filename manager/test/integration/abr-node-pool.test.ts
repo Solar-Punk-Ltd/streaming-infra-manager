@@ -1,12 +1,11 @@
 /**
  * ABR node pool integration tests.
  *
- * A pool is four `bee-uploader` profiles named `<pool>-<rung>`, created STOPPED
- * — `createGroup` never calls the orchestrator — so unlike the other suites
- * these start no containers and run in seconds. What they exercise is the part
- * that is easy to get wrong and invisible to unit tests: the group row's kind
- * surviving a round trip, the member names the rungs are derived from, and the
- * three refusals that keep a pool from being edited like a fan-out group.
+ * A pool is four `bee-uploader` profiles named `<pool>-<rung>`. Group creation
+ * deploys every member, so each case waits for the members it creates before it
+ * exercises the group behavior. The suite covers the group row's kind, the
+ * member names the rungs are derived from, and the three refusals that keep a
+ * pool from being edited like a fan-out group.
  *
  * Requires the full stack running (see README.md).
  */
@@ -20,14 +19,21 @@ import {
   beePublishers,
   cleanup,
   createGroup,
-  getProfile,
   listGroupMembers,
   requireStack,
   uniqueName,
+  waitForRunningServices,
 } from './helpers.js';
 
 const BATCH = (seed: string) => seed.replace(/\D/g, '').padEnd(64, '0');
+const DEPLOY_TIMEOUT = 240_000;
 
+const waitForMembersRunning = (names: readonly string[]) =>
+  Promise.all(names.map((name) => waitForRunningServices(
+    name,
+    [BEE_UPLOADER],
+    { timeoutMs: DEPLOY_TIMEOUT },
+  )));
 
 before(requireStack);
 after(async () => {
@@ -49,6 +55,11 @@ describe('ABR node pool', () => {
     assert.equal(group.kind, 'abr-node-pool');
     assert.equal(group.size, RUNGS.length);
     assert.equal(profiles.length, RUNGS.length);
+    for (const profile of profiles) {
+      assert.equal(profile.status, 'DEPLOYING', `${profile.name} auto-deploy`);
+    }
+
+    await waitForMembersRunning(profiles.map((profile) => profile.name));
 
     const members = await listGroupMembers(group.id);
     assert.deepEqual(
@@ -61,19 +72,20 @@ describe('ABR node pool', () => {
       // A rung runs no stream-uploader, so it is never "pending" a stamp even
       // though it very much needs one before it can publish.
       assert.equal(member.pendingStamp, false, `${member.name} pendingStamp`);
-      assert.equal(member.status, 'STOPPED', `${member.name} status`);
+      assert.equal(member.status, 'RUNNING', `${member.name} status`);
       assert.equal(member.group_id, group.id);
     }
   });
 
   it('withholds BEE_PUBLISHERS and names every rung that is not ready', async () => {
     const pool = uniqueName('pool');
-    const { group } = await createGroup({
+    const { group, profiles } = await createGroup({
       group_name: pool,
       size: 1,
       kind: 'custom',
       abr_ladder: true,
     });
+    await waitForMembersRunning(profiles.map((profile) => profile.name));
 
     const result = await beePublishers(group.id);
     assert.equal(result.ready, false);
@@ -81,11 +93,12 @@ describe('ABR node pool', () => {
     assert.deepEqual(
       result.missing.map((m) => m.rung).sort(),
       [...RUNGS].sort(),
-      'every rung is stopped and unstamped, so every rung blocks',
+      'every running rung is unstamped, so every rung blocks',
     );
-    for (const note of result.missing) {
-      assert.ok(note.reason.length > 0, `${note.rung} should say why`);
-    }
+    assert.deepEqual(
+      result.missing.map((note) => note.reason),
+      RUNGS.map(() => 'no postage batch set on this rung yet'),
+    );
   });
 
   it('refuses one stamp for the whole pool at creation', async () => {
@@ -105,12 +118,13 @@ describe('ABR node pool', () => {
 
   it('refuses a bulk stamp edit and refuses appending members', async () => {
     const pool = uniqueName('pool');
-    const { group } = await createGroup({
+    const { group, profiles } = await createGroup({
       group_name: pool,
       size: 1,
       kind: 'custom',
       abr_ladder: true,
     });
+    await waitForMembersRunning(profiles.map((profile) => profile.name));
 
     const stamped = await apiRaw('PATCH', `/groups/${group.id}/config`, {
       stamp_id: BATCH('480'),
@@ -136,36 +150,33 @@ describe('ABR node pool', () => {
 
   it('still allows the edits that are safe across a pool', async () => {
     const pool = uniqueName('pool');
-    const { group } = await createGroup({
+    const { group, profiles } = await createGroup({
       group_name: pool,
       size: 1,
       kind: 'custom',
       abr_ladder: true,
       notes: 'before',
     });
+    const memberNames = profiles.map((profile) => profile.name);
+    await waitForMembersRunning(memberNames);
 
     const patched = await apiRaw('PATCH', `/groups/${group.id}/config`, {
       notes: 'after',
     });
-    // Assert the PATCH succeeded. Without this a 409 or 500 would go
-    // unreported, and the loop below would then be checking nothing.
-    assert.ok(
-      patched.status >= 200 && patched.status < 300,
+    assert.equal(
+      patched.status,
+      202,
       `PATCH /groups/${group.id}/config -> ${patched.status}: ${JSON.stringify(patched.body)}`,
     );
+    const accepted = patched.body as { profiles: { name: string; status: string }[] };
+    assert.equal(accepted.profiles.length, RUNGS.length);
+    for (const profile of accepted.profiles) {
+      assert.equal(profile.status, 'DEPLOYING', `${profile.name} redeploy`);
+    }
 
-    const members = await listGroupMembers(group.id);
-    // listGroupMembers filters the profile list on `group_id`, which comes out
-    // of PROFILE_COLUMNS. Drop that column and every group_id is undefined,
-    // `members` is empty, the loop body never runs and this test passes having
-    // proved nothing about bulk propagation. Pin the count first.
-    assert.equal(
-      members.length,
-      RUNGS.length,
-      `expected ${RUNGS.length} rungs, got ${members.length}`,
-    );
-    for (const m of members) {
-      assert.equal((await getProfile(m.name)).notes, 'after');
+    const running = await waitForMembersRunning(memberNames);
+    for (const member of running) {
+      assert.equal(member.notes, 'after');
     }
   });
 
@@ -184,13 +195,14 @@ describe('ABR node pool', () => {
   });
 
   it('has no BEE_PUBLISHERS to assemble for an ordinary fan-out group', async () => {
-    const name = uniqueName('fanout');
-    const { group } = await createGroup({
+    const name = uniqueName('fo');
+    const { group, profiles } = await createGroup({
       group_name: name,
       size: 2,
       kind: 'custom',
       components: [BEE_UPLOADER],
     });
+    await waitForMembersRunning(profiles.map((profile) => profile.name));
 
     assert.equal(group.kind, 'standard');
     const { status, body } = await apiRaw(

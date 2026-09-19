@@ -11,11 +11,14 @@ export function CopyBox({
   value,
   copyLabel = 'Copy',
   href,
+  disabled = false,
 }: {
   value: string;
   copyLabel?: string;
   /** Renders the value as a link as well, for anything that opens in a browser. */
   href?: string;
+  /** Prevents copying a value that is still being completed. */
+  disabled?: boolean;
 }) {
   const copy = () => {
     void navigator.clipboard.writeText(value).catch(() => undefined);
@@ -47,7 +50,7 @@ export function CopyBox({
           {value}
         </Box>
       )}
-      <Button size="small" onClick={copy} sx={{ flex: 'none' }}>
+      <Button size="small" onClick={copy} disabled={disabled} sx={{ flex: 'none' }}>
         {copyLabel}
       </Button>
     </Box>

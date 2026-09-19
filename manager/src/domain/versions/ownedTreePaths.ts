@@ -81,22 +81,39 @@ export async function assertOwnedDirectory(root: string, path = ''): Promise<voi
 }
 
 export async function readOwnedFile(root: string, path: string): Promise<Buffer> {
+  return readOwnedFileWith(root, path, true);
+}
+
+/**
+ * Reads a regular file from an immutable tree whose files may be hard linked elsewhere.
+ *
+ * Creating or removing another link changes ctime on the shared inode without changing
+ * its bytes or durable identity. Mutable and exclusively owned trees keep using the
+ * stricter `readOwnedFile` check above.
+ */
+export async function readSharedOwnedFile(root: string, path: string): Promise<Buffer> {
+  return readOwnedFileWith(root, path, false);
+}
+
+async function readOwnedFileWith(root: string, path: string, compareCtime: boolean): Promise<Buffer> {
   assertRelativeTreePath(path);
   const parent = dirname(path);
   await assertOwnedDirectory(root, parent === '.' ? '' : parent);
   const fullPath = join(root, path);
   const before = await lstat(fullPath, { bigint: true });
   if (!before.isFile() || before.isSymbolicLink()) throw new Error('Owned-tree file is not a regular file or is a symbolic link.');
+  const unchanged = (info: typeof before): boolean => info.isFile() && !info.isSymbolicLink() &&
+    info.dev === before.dev && info.ino === before.ino && info.size === before.size && info.mode === before.mode &&
+    info.mtimeNs === before.mtimeNs && (!compareCtime || info.ctimeNs === before.ctimeNs);
   const handle = await open(fullPath, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const opened = await handle.stat({ bigint: true });
-    if (before.dev !== opened.dev || before.ino !== opened.ino) throw new Error('Owned-tree file changed while opening.');
+    if (!unchanged(opened)) throw new Error('Owned-tree file changed while opening.');
     const bytes = await handle.readFile();
     const after = await handle.stat({ bigint: true });
     const current = await lstat(fullPath, { bigint: true });
     await assertOwnedDirectory(root, parent === '.' ? '' : parent);
-    if ([after, current].some((info) => info.dev !== before.dev || info.ino !== before.ino ||
-      info.size !== before.size || info.mode !== before.mode || info.mtimeNs !== before.mtimeNs || info.ctimeNs !== before.ctimeNs)) {
+    if ([after, current].some(info => !unchanged(info))) {
       throw new Error('Owned-tree file changed while reading.');
     }
     return bytes;

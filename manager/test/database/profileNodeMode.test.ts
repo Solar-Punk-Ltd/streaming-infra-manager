@@ -23,6 +23,7 @@ import {
   type SharedProfileParams,
 } from '../../src/domain/DeploymentGroupRepository.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import type { Profile } from '../../src/types/index.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
 const connection = {
@@ -41,6 +42,53 @@ const PLACEMENT = {
 };
 
 const ENDPOINT = 'https://rpc.example.org';
+const BACKSLASH_ENDPOINT = String.raw`https://rpc.example.org\synthetic-key`;
+const USERINFO_ENDPOINTS = [
+  {
+    name: 'ui-basic',
+    endpoint: 'https://synthetic-user:synthetic-secret@rpc.example.org/v3/synthetic-key',
+    host: 'rpc.example.org',
+  },
+  {
+    name: 'ui-multiple',
+    endpoint: 'https://synthetic%40user:synthetic%3Asecret@tenant@rpc.example.org/v3/synthetic-key',
+    host: 'rpc.example.org',
+  },
+  {
+    name: 'ui-ipv6',
+    endpoint: 'https://synthetic-user:synthetic-secret@[2001:db8::1]:8545/v3/synthetic-key',
+    host: '[2001:db8::1]:8545',
+  },
+  {
+    name: 'ui-incomplete',
+    endpoint: 'https://synthetic-user:synthetic-secret@/v3/synthetic-key',
+    host: null,
+  },
+  {
+    name: 'ui-empty',
+    endpoint: 'https://synthetic-user:synthetic-secret@',
+    host: null,
+  },
+  {
+    name: 'ui-empty-query',
+    endpoint: 'https://synthetic-user:synthetic-secret@?x=1',
+    host: null,
+  },
+] as const;
+
+function assertUserinfoStaysOutOfPublicProfile(
+  profile: Profile | null | undefined,
+  expectedHost: string | null,
+): void {
+  assert.ok(profile);
+  assert.equal(profile.has_rpc_endpoint, true);
+  assert.equal(profile.rpc_endpoint_host, expectedHost);
+  assert.equal('rpc_endpoint' in profile, false);
+  assert.doesNotMatch(
+    JSON.stringify(profile),
+    /synthetic-user|synthetic-secret|synthetic%40user|synthetic%3asecret/i,
+  );
+}
 
 /**
  * What every member of a group is created with, as ProfileService builds it.
@@ -133,7 +181,110 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
 
     assert.equal(read?.node_mode, 'light');
     assert.equal(read?.rpc_endpoint_source, 'custom');
-    assert.equal(read?.rpc_endpoint, ENDPOINT);
+    assert.equal(read?.has_rpc_endpoint, true);
+    assert.equal(read?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('chosen'))?.rpcEndpoint, ENDPOINT);
+  });
+
+  it('keeps a backslash path private in every public repository projection', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('backslash', 'viewer', 'RUNNING', {
+      node_mode: 'light',
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: BACKSLASH_ENDPOINT,
+    }, PLACEMENT);
+
+    const found = await profiles.findByName('backslash');
+    const listed = (await profiles.list()).find((profile) => profile.name === 'backslash');
+    for (const profile of [found, listed]) {
+      assert.equal(profile?.has_rpc_endpoint, true);
+      assert.equal(profile?.rpc_endpoint_host, 'rpc.example.org');
+      assert.doesNotMatch(JSON.stringify(profile), /synthetic-key/);
+    }
+    assert.equal(
+      (await profiles.rpcEndpointOf('backslash'))?.rpcEndpoint,
+      BACKSLASH_ENDPOINT,
+    );
+
+    const groups = new DeploymentGroupRepository(pool);
+    const { group, profiles: created } = await groups.createGroupWithMembers(
+      'backslash-pool',
+      STANDARD_GROUP_KIND,
+      [{ name: 'backslash-member' }],
+      sharedParams({
+        node_mode: 'light',
+        rpc_endpoint_source: 'custom',
+        rpc_endpoint: BACKSLASH_ENDPOINT,
+      }),
+    );
+    const members = await groups.listMembers(group.id);
+    for (const profile of [...created, ...members]) {
+      assert.equal(profile.rpc_endpoint_host, 'rpc.example.org');
+      assert.doesNotMatch(JSON.stringify(profile), /synthetic-key/);
+    }
+    assert.equal(
+      (await profiles.rpcEndpointOf('backslash-member'))?.rpcEndpoint,
+      BACKSLASH_ENDPOINT,
+    );
+  });
+
+  it('keeps URL userinfo private in every public repository projection', async () => {
+    await migrate(pool);
+    const groups = new DeploymentGroupRepository(pool);
+
+    for (const sample of USERINFO_ENDPOINTS) {
+      const inserted = await profiles.insertWithFreeSlot(
+        sample.name,
+        'viewer',
+        'RUNNING',
+        {
+          node_mode: 'light',
+          rpc_endpoint_source: 'custom',
+          rpc_endpoint: sample.endpoint,
+        },
+        PLACEMENT,
+      );
+      assertUserinfoStaysOutOfPublicProfile(inserted, sample.host);
+      assertUserinfoStaysOutOfPublicProfile(
+        await profiles.findByName(sample.name),
+        sample.host,
+      );
+      assertUserinfoStaysOutOfPublicProfile(
+        (await profiles.list()).find((profile) => profile.name === sample.name),
+        sample.host,
+      );
+      assertUserinfoStaysOutOfPublicProfile(
+        await profiles.updateEditable(sample.name, 'viewer', {
+          notes: 'userinfo stays private after an unrelated update',
+        }),
+        sample.host,
+      );
+      assert.equal(
+        (await profiles.rpcEndpointOf(sample.name))?.rpcEndpoint,
+        sample.endpoint,
+      );
+
+      const { group, profiles: created } = await groups.createGroupWithMembers(
+        `${sample.name}-group`,
+        STANDARD_GROUP_KIND,
+        [{ name: `${sample.name}-member` }],
+        sharedParams({
+          node_mode: 'light',
+          rpc_endpoint_source: 'custom',
+          rpc_endpoint: sample.endpoint,
+        }),
+      );
+      for (const profile of created) {
+        assertUserinfoStaysOutOfPublicProfile(profile, sample.host);
+      }
+      for (const profile of await groups.listMembers(group.id)) {
+        assertUserinfoStaysOutOfPublicProfile(profile, sample.host);
+      }
+      assert.equal(
+        (await profiles.rpcEndpointOf(`${sample.name}-member`))?.rpcEndpoint,
+        sample.endpoint,
+      );
+    }
   });
 
   it('refuses a custom source with no address', async () => {
@@ -187,7 +338,7 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint_source, 'manager');
   });
 
-  it('refuses a caller that empties the address and leaves the source custom', async () => {
+  it('refuses an explicit clear that leaves the source custom', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('stranded', 'custom', 'RUNNING', {
       rpc_endpoint_source: 'custom',
@@ -198,7 +349,10 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     // never sends this, and the column's CHECK is what says so for anything
     // that would.
     await assert.rejects(
-      () => profiles.updateEditable('stranded', 'custom', { notes: 'edited' }),
+      () => profiles.updateEditable('stranded', 'custom', {
+        notes: 'edited',
+        rpc_endpoint: null,
+      }),
       /profiles_rpc_endpoint_source_pairing/,
     );
   });
@@ -218,6 +372,24 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     assert.equal(written?.rpc_endpoint_source, 'manager');
   });
 
+  it('keeps a stored custom address through an update that says nothing', async () => {
+    await migrate(pool);
+    await profiles.insertWithFreeSlot('held-custom', 'viewer', 'RUNNING', {
+      node_mode: 'light',
+      rpc_endpoint_source: 'custom',
+      rpc_endpoint: ENDPOINT,
+    }, PLACEMENT);
+
+    const written = await profiles.updateEditable('held-custom', 'viewer', {
+      notes: 'edited',
+    });
+
+    assert.equal(written?.rpc_endpoint_source, 'custom');
+    assert.equal(written?.has_rpc_endpoint, true);
+    assert.equal(written?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('held-custom'))?.rpcEndpoint, ENDPOINT);
+  });
+
   it('stores the address and the source the caller resolved together', async () => {
     await migrate(pool);
     await profiles.insertWithFreeSlot('adopting', 'custom', 'RUNNING', {}, PLACEMENT);
@@ -228,7 +400,9 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     });
 
     assert.equal(written?.rpc_endpoint_source, 'custom');
-    assert.equal(written?.rpc_endpoint, ENDPOINT);
+    assert.equal(written?.has_rpc_endpoint, true);
+    assert.equal(written?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('adopting'))?.rpcEndpoint, ENDPOINT);
   });
 
   it('gives every member of a group the mode and the endpoint it was created with', async () => {
@@ -254,7 +428,15 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
       members.map((member) => member.rpc_endpoint_source),
       ['custom', 'custom'],
     );
-    assert.deepEqual(members.map((member) => member.rpc_endpoint), [ENDPOINT, ENDPOINT]);
+    assert.deepEqual(members.map((member) => member.has_rpc_endpoint), [true, true]);
+    assert.deepEqual(members.map((member) => member.rpc_endpoint_host), [
+      'rpc.example.org',
+      'rpc.example.org',
+    ]);
+    assert.deepEqual(
+      await Promise.all(members.map((member) => profiles.rpcEndpointOf(member.name))),
+      [{ rpcEndpoint: ENDPOINT }, { rpcEndpoint: ENDPOINT }],
+    );
   });
 
   it('gives a group that names neither what the stack ships', async () => {
@@ -306,7 +488,9 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
     // It has always reached the chain through that address, so anything but
     // custom would move it somewhere else on its next deploy.
     assert.equal(read?.rpc_endpoint_source, 'custom');
-    assert.equal(read?.rpc_endpoint, ENDPOINT);
+    assert.equal(read?.has_rpc_endpoint, true);
+    assert.equal(read?.rpc_endpoint_host, 'rpc.example.org');
+    assert.equal((await profiles.rpcEndpointOf('legacy'))?.rpcEndpoint, ENDPOINT);
     assert.equal(read?.node_mode, null);
   });
 });

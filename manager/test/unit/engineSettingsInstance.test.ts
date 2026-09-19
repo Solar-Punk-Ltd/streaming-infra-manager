@@ -36,9 +36,11 @@ async function setup() {
   harness.events.subscribe(event => events.push(event));
   return { ...harness, service, app, events,
     replace() {
-      const replacement = makeProfile({ ...initial(), instance_id: replacementId, engine_settings: { HLS_FRAGMENT: '6' }, intent_revision: 40 });
-      harness.profiles.rows.set('observed', replacement);
-      return replacement;
+      return harness.profiles.write('observed', {
+        instance_id: replacementId,
+        engine_settings: { HLS_FRAGMENT: '6' },
+        intent_revision: 40,
+      })!;
     },
   };
 }
@@ -169,8 +171,11 @@ describe('engine settings saves are bound to the observed instance', { timeout: 
     it(`rejects invalid expected identity ${JSON.stringify(expectedInstanceId)}`, async () => {
       const h = await setup();
       try {
+        const before = structuredClone(h.profiles.rows.get('observed'));
+        assert.ok(before);
+        assert.equal('rpc_endpoint' in before, false);
         assert.equal((await callEngine(h.app, 'PUT', '/profiles/observed/engine-settings', { HLS_FRAGMENT: '2', expectedInstanceId })).status, 400);
-        assert.deepEqual(h.profiles.rows.get('observed'), initial());
+        assert.deepEqual(h.profiles.rows.get('observed'), before);
         assert.deepEqual(h.events, []);
         assert.deepEqual(h.runner.runs, []);
       } finally { await h.app.close(); }

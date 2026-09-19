@@ -1,4 +1,5 @@
 import type { CredentialRepository } from '../../src/domain/auth/CredentialRepository.js';
+import type { NewSession } from '../../src/domain/auth/SessionRepository.js';
 
 import type { InMemorySessionRepository } from './InMemorySessionRepository.js';
 import type { InMemoryUserRepository } from './InMemoryUserRepository.js';
@@ -16,12 +17,27 @@ export class InMemoryCredentialRepository implements CredentialRepository {
     private readonly sessions: InMemorySessionRepository,
   ) {}
 
+  async admitSession(
+    userId: number,
+    verifiedPasswordHash: string,
+    session: NewSession,
+    signedInAt: Date,
+  ): Promise<boolean> {
+    if (!this.users.passwordHashIs(userId, verifiedPasswordHash)) return false;
+    await this.sessions.create(session);
+    await this.users.markSignedIn(userId, signedInAt);
+    return true;
+  }
+
   async changePassword(
     userId: number,
+    verifiedPasswordHash: string,
     passwordHash: string,
     keepSessionTokenHash: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (!this.users.passwordHashIs(userId, verifiedPasswordHash)) return false;
     this.users.setPasswordHash(userId, passwordHash);
     this.sessions.deleteForUserExcept(userId, keepSessionTokenHash);
+    return true;
   }
 }

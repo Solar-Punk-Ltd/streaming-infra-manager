@@ -89,7 +89,7 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
               {sourcePlur !== null && sourcePlur > 0n && <Button size="small" disabled={!canEdit} onClick={() => setAmount(plurToBzzExact(sourcePlur))}>Use all</Button>}
             </Stack>
             <Typography variant="body2">{copy.route}. This creates an on-chain transaction and costs gas. Review the amount before confirming.</Typography>
-            {direction === 'fill' && <Typography variant="caption" color="text.secondary">Below {floorBzz} BZZ this manager will not start an uploader for this node.</Typography>}
+            {direction === 'fill' && <Typography variant="caption" color="text.secondary">Below {floorBzz} BZZ uploads may stall. This balance does not block an uploader start.</Typography>}
           </>}
           {editingNew && step === 'review' && amountPlur !== null && <>
             <Typography variant="h6">{plurToBzzExact(amountPlur)} BZZ</Typography>

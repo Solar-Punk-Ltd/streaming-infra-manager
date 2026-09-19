@@ -124,8 +124,8 @@ export function startApiServer(
   app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));
   app.use('/groups', createGroupsRouter(deps.profileService, deps.beeRpcEndpoint !== null));
-  app.use('/versions', createVersionsRouter(deps.stackVersionService));
-  app.use('/', createActionsRouter(deps.deployService));
+  app.use('/versions', createVersionsRouter(deps.stackVersionService, deps.openStreams));
+  app.use('/', createActionsRouter(deps.deployService, deps.openStreams));
   app.use('/', createStampRouter(deps.stampService));
   app.use('/', createChequebookRouter(deps.chequebookService, deps.chequebookOperations));
   app.use('/', createEngineRouter(deps.profileService, deps.containerControl, deps.beeRpcEndpoint));

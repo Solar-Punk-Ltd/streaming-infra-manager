@@ -495,6 +495,13 @@ export class ProfileService {
     return this.repo.srtPassphraseOf(name);
   }
 
+  /** A private read used only to remove this deployment's endpoint from logs. */
+  async rpcEndpointForRedaction(name: string): Promise<string | null> {
+    const snapshot = await this.repo.rpcEndpointOf(name);
+    if (!snapshot) throw new ProfileNotFoundError(name);
+    return snapshot.rpcEndpoint;
+  }
+
   async update(
     name: string,
     input: {
@@ -550,8 +557,23 @@ export class ProfileService {
       stamp_id: input.stamp_id,
       bee_publishers: input.bee_publishers,
       bee_url: input.bee_url,
-      rpc_endpoint: input.rpc_endpoint,
     });
+    const storedRpcEndpoint = await this.repo.rpcEndpointOf(
+      name,
+      deployOwnerOf(existing),
+    );
+    if (!storedRpcEndpoint) throw new ProfileInstanceChangedError(name);
+    const sourceClearsRpcEndpoint =
+      input.rpc_endpoint === undefined &&
+      input.rpc_endpoint_source !== undefined &&
+      input.rpc_endpoint_source !== null &&
+      input.rpc_endpoint_source !== 'custom';
+    const proposedRpcEndpoint =
+      input.rpc_endpoint !== undefined
+        ? input.rpc_endpoint
+        : sourceClearsRpcEndpoint
+          ? null
+          : storedRpcEndpoint.rpcEndpoint;
     // Kept out of the nullify above, because for the passphrase an absent
     // field and an explicit null are different answers: keep the stored one,
     // and go back to the host-wide one.
@@ -568,7 +590,7 @@ export class ProfileService {
     const rpcEndpointSource =
       input.rpc_endpoint_source ??
       keptRpcEndpointSource({
-        url: edits.rpc_endpoint,
+        url: proposedRpcEndpoint,
         stored: existing.rpc_endpoint_source,
         managerHasEndpoint: Boolean(this.managerRpcEndpoint),
         nodeMode: modeEdit ?? existing.node_mode,
@@ -585,7 +607,10 @@ export class ProfileService {
           ? existing.has_srt_passphrase
           : passphraseEdit !== null,
     };
-    this.assertNodeChoicesHold(name, proposed);
+    this.assertNodeChoicesHold(name, {
+      ...proposed,
+      rpc_endpoint: proposedRpcEndpoint,
+    });
 
     // A body that omits bee_publishers clears it. For an abr-uploader that
     // silently removes the only thing it publishes through, and neither yup
@@ -623,6 +648,9 @@ export class ProfileService {
         {
           ...edits,
           private_key: keyEdit,
+          ...(input.rpc_endpoint === undefined && !sourceClearsRpcEndpoint
+            ? {}
+            : { rpc_endpoint: proposedRpcEndpoint }),
           rpc_endpoint_source: rpcEndpointSource,
           ...(modeEdit === undefined ? {} : { node_mode: modeEdit }),
           ...(passphraseEdit === undefined
@@ -1446,6 +1474,11 @@ export class ProfileService {
       throw new InvalidStackVersionError(`Stack version ${canonical.stack_version_id} does not exist`);
     }
     const placement = await this.placementFor(version, canonical.host, canonical.components);
+    const rpcEndpoint = await this.repo.rpcEndpointOf(
+      canonical.name,
+      deployOwnerOf(canonical),
+    );
+    if (!rpcEndpoint) throw new ProfileInstanceChangedError(canonical.name);
     const shared: SharedProfileParams = {
       kind: canonical.kind,
       notes: canonical.notes,
@@ -1468,7 +1501,7 @@ export class ProfileService {
       // that already made both choices.
       node_mode: canonical.node_mode,
       rpc_endpoint_source: canonical.rpc_endpoint_source,
-      rpc_endpoint: canonical.rpc_endpoint,
+      rpc_endpoint: rpcEndpoint.rpcEndpoint,
       stack_version_id: canonical.stack_version_id,
       // So an appended member cuts the same segments as the siblings it joins.
       engine_settings: canonical.engine_settings,

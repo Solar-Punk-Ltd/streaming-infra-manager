@@ -32,6 +32,12 @@ the UI. On the paths that start an uploader a balance under it is a warning,
 never a refusal, on the owner's ruling of 2026-09-17. The default floor is
 0.5 BZZ. The protocol amount uses PLUR, with 10^16 PLUR per BZZ.
 
+The deployment page scopes its node readings to the profile's instance UUID.
+If a deployment is deleted and recreated under the same name, the old wallet
+address and its copy action disappear as soon as the replacement profile
+arrives. They stay absent while the replacement node is unreadable, then only
+the replacement address is shown.
+
 Under decision D16 of 2026-09-17, which amends D02 of 2026-09-07, a node that
 does not answer no longer refuses a new uploader start. The chequebook check
 never refuses at all, on the owner's further ruling the same day: a node that

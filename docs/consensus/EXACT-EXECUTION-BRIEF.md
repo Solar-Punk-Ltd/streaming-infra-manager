@@ -60,7 +60,7 @@ Steady state is one copy per deployment, two while a deploy is in flight, three 
 Named so Levi can rule on them rather than find them missing. None of them is required for a deployment to stop writing into its build.
 
 - **T01's atomic begin and revert wiring, creator receipts and operation-hold release.** The repository APIs exist and are inactive. They are a separate slice with their own review, and they depend on this one rather than the other way round.
-- **The full-daemon mount observation as the retirement authority.** `observeExecutionMounts` attributes a container to a copy by its compose working directory. That works only for a local target: `deploy.sh` rsyncs the tree to a remote base before running compose there, so a remote container's working directory is never one of our paths. Retirement here is authorised by the replacing deploy's own success and by the job reference being resolved, which holds for both target kinds. The helper stays where it is for T01's attribution work.
+- **The full-daemon mount observation as the retirement authority.** This was the 2026-09-11 decision and was superseded by the 2026-09-19 correction below. A successful partial deploy does not prove that untouched services moved from the earlier root.
 - **Builds that were deployed from before this change** carry the `.env`, `.env.<profile>` and `deploy/config.json` files those deploys left. The first copy made from such a build copies them too, because the copy is verified byte for byte against its source. They are inert, the copy is 0700, and no new writes reach a build after this slice. Worth one line in the handover, not worth a migration.
 
 ## What must keep holding
@@ -86,3 +86,15 @@ Named so Levi can rule on them rather than find them missing. None of them is re
 The manager unit suite and the database suite green, `pnpm test` green, the three CI jobs green on the pushed head, a handover section in `docs/handover/main-v2-remediation.md` with the dated result, and this brief updated to done.
 
 All of it. Manager unit 2354 cases, the whole database directory 524 against nine disposable databases, the shared package 321, the frontend unit suites 100, the native transport suites 7, none skipped, every typecheck clean. The result and the two defects the proving turned up are in the handover's own section.
+
+## Retention correction, 2026-09-19
+
+Priority: P1. A successful uploader-only deploy is a normal operation, and it left the SRS or OME container bind-mounted to the previous execution while `keep: 1` deleted that root. A later container restart then lost its entrypoint or healthcheck. This affects users and can take a running stream down.
+
+Launched cleanup now needs both durable ownership and physical absence. For the local target, the manager reads the same daemon identity before and after a complete inventory of every container in every state. It inspects only state, Compose identity, working directory and mounts. A root named by a direct bind or a non-manager parent bind stays. An unregistered path below `.executions`, a changed container set, a daemon mismatch, malformed or missing mount data, a timeout, or any unreadable observation keeps every candidate.
+
+The manager API itself mounts the versions root at the same absolute path and mounts the host root at `/host/rootfs`. Those administrative ancestor mounts make every execution reachable but are not a deployment consuming every execution. The exception requires an identified Compose `api` container outside `.executions` with both exact administrative source and destination pairs. An exact execution bind still retains the root even on that container. Every other ancestor bind retains the roots beneath it. The actual manager API shape and an unlabelled foreign parent bind are regression fixtures.
+
+The observation is a veto. It is not deletion authority. `claimRetiredCleanup` still requires the execution's own job to be resolved and the deployment to have moved on. Under the profile lock it now also takes the same daemon admission lock used to open deploy attempts, then refuses while that project has an open or blocked launcher. The deploy attempt is judged before the success hook asks for cleanup. This closes the race between observation and a launcher being admitted. Restart recovery applies the same mount veto to a row already in `deleting`, because an older manager may have claimed it under the earlier rule.
+
+Remote targets stay isolated. Their Compose working directories and bind sources are paths below the remote rsync base, not the manager's local execution roots. The manager does not translate one namespace into the other. It retains launched remote copies until a daemon-bound remote observation is designed and proved. This is safe and may use additional local disk.

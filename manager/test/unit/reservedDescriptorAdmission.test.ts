@@ -4,8 +4,12 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import type { StackContract } from '@streaming-infra-manager/common';
 import type { DeployReservation } from '../../src/domain/DeploymentOrchestrator.js';
-import { DeployAttemptRefusedError } from '../../src/domain/errors/index.js';
+import {
+  DeployAttemptRefusedError,
+  ProfileInstanceChangedError,
+} from '../../src/domain/errors/index.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
+import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
@@ -65,12 +69,34 @@ describe('a reserved deployment captures its build before port work', () => {
 
   it('uses an already captured reservation without describing it again', async () => {
     const h = await setup();
-    const build = await h.ledger.seedJob(h.profile.name, await h.versions.findById(1), ['srs']);
+    const build = await h.ledger.describe(
+      h.profile.name,
+      await h.versions.findById(1),
+      ['srs'],
+      deployOwnerOf(h.profile),
+    );
     h.ledger.describe = async () => { throw new Error('duplicate description'); };
     h.versions.findById = async () => { throw new Error('version reread after capture'); };
     await h.orchestrator.runReserved({ ...h.reservation, build }, h.profile);
     assert.equal(h.runner.runs.length, 1);
     assert.deepEqual((await h.profiles.reservations.listByProfile(h.profile.name)).map(port => port.port), [19010]);
+  });
+
+  it('refuses a seeded historical job that never owned the deployment', async () => {
+    const h = await setup();
+    const build = await h.ledger.seedJob(
+      h.profile.name,
+      await h.versions.findById(1),
+      ['srs'],
+    );
+
+    await assert.rejects(
+      h.orchestrator.runReserved({ ...h.reservation, build }, h.profile),
+      ProfileInstanceChangedError,
+    );
+
+    assert.equal(h.profiles.activeDeployJobs.has(h.profile.name), false);
+    assert.equal(h.runner.runs.length, 0);
   });
 
   for (const captured of [false, true]) {

@@ -60,6 +60,11 @@ export class InMemoryUserRepository implements UserRepository {
     );
   }
 
+  /** The row-lock comparison used by the in-memory credential transaction. */
+  passwordHashIs(id: number, expected: string): boolean {
+    return this.rows.some((row) => row.id === id && row.password_hash === expected);
+  }
+
   async markSignedIn(id: number, at: Date): Promise<void> {
     this.rows = this.rows.map((row) =>
       row.id === id ? { ...row, last_login_at: at } : row,

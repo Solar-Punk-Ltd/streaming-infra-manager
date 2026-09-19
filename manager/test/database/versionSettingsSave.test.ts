@@ -26,6 +26,7 @@ import pg, { type Pool } from 'pg';
 import { errorHandler } from '../../src/api/middleware/errorHandler.js';
 import { notFound } from '../../src/api/middleware/notFound.js';
 import { createVersionsRouter } from '../../src/api/routes/versions.js';
+import { OpenStreams } from '../../src/domain/auth/OpenStreams.js';
 import { EventBus } from '../../src/domain/EventBus.js';
 import {
   commitHostConfig,
@@ -104,7 +105,7 @@ describe('settings saves in isolated PostgreSQL schemas', {
       if (req.method === 'PUT') sawSave();
       next();
     });
-    app.use('/versions', createVersionsRouter(service));
+    app.use('/versions', createVersionsRouter(service, new OpenStreams()));
     app.use(notFound);
     app.use(errorHandler);
     server = http.createServer(app);

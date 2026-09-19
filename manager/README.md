@@ -73,13 +73,19 @@ that did not arrive over TLS and the sign-in would loop.
 The token is 32 random bytes. The database stores only its SHA-256, so a dump of
 the sessions table signs nobody in. A session ends after twelve hours of
 inactivity, and fourteen days after it started whatever happens in between.
+Session admission and password replacement recheck the password hash while
+holding the same user row lock. A login or second replacement that verified an
+older hash cannot create a session or overwrite the newer password.
 
 Signing out, revoking a user's sessions, removing a user or changing a password
-also closes that session's open event streams at once, so a browser stops
-receiving profile events the moment it stops being signed in. A session that
-runs out rather than being revoked has its streams closed within a minute, and a
-stream is not activity, so a page left open with nothing but its streams still
-idles out after twelve hours.
+also closes that session's open event and command streams at once, so a browser
+stops receiving profile events, command output or version build output the
+moment it stops being signed in. Closing an output stream does not cancel an
+accepted deploy, stop or version build. A health check is stopped when its
+stream closes because its result has no caller left. A session that runs out
+rather than being revoked has its streams closed within a minute, and a stream
+is not activity, so a page left open with nothing but its streams still idles
+out after twelve hours.
 
 Five wrong passwords for a username, or from one address, start a one minute
 lockout that doubles per further attempt up to an hour, answered as 429 with
@@ -141,6 +147,12 @@ It never fails for a reading. Nothing answering is `unreachable`, a deployment
 with no uploader container is `not_deployed`, a start gate that warned instead of
 refusing is `warned`, and a stack older than D16 reports none of the new fields
 and so reads as `ok` or `unhealthy` on its own status alone.
+
+The deployment checklist renders that health step for a single-node stream and
+for a pool-backed `abr-uploader`. An ABR uploader puts its pool configuration
+first and needs no single-node stamp or funding check of its own. Once the pool
+string is usable, the same waiting, warned, unhealthy and healthy readings are
+shown from the uploader's route.
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
@@ -347,8 +359,7 @@ below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
-stack, `feat/manager-line`, the manager's own line of the stack until it is
-merged into `main-v3` on Levi's word, publishes SRS's HTTP API port per
+stack, `v3.1` as of 2026-09-19, publishes SRS's HTTP API port per
 deployment as `SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
 `main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
 API needs a `<Managers>` block the template does not carry on either.
@@ -370,7 +381,7 @@ setting the drawer marks as not read (`notInConfig`).
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
 `deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-the bundled `feat/manager-line`, from the commit that added them. A
+the bundled `v3.1`. A
 version without the hook, such as the stack's `main-v2`, renders its template
 and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
@@ -431,12 +442,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on the bundled `feat/manager-line`, 999 on the older `main-v2`, and the
+(99 on the bundled `v3.1`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
-`feat/manager-line`, are generated the first
+`v3.1`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.
@@ -609,11 +620,12 @@ Notes:
 - `outside` subtracts exactly for CPU and memory only. Network and disk I/O are
   measured at different points for the host and for containers, so they are shown
   side by side rather than subtracted.
-- **Host CPU/RAM/disk need read-only host mounts** (`/proc → /host/proc`,
+- **Host CPU/RAM/network/disk need read-only host mounts** (`/proc → /host/proc`,
   `/ → /host/rootfs`, already wired in `docker-compose.yml`). Without them,
   host fields fall back to capacity only or `null`. Infra and per-container
-  numbers still work from the docker socket alone. Adding the mounts requires a
-  redeploy.
+  numbers still work from the docker socket alone. Host network traffic is read
+  from `/host/proc/1/net/dev`, the host init process's network view. Adding the
+  mounts requires a redeploy.
 
 Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
 exposes the web port, which is the way to the API under compose too, because the
@@ -696,7 +708,7 @@ it creates, the address the API binds and where it reads the host's own numbers:
 | `MANAGER_SSH_DIR`     | `/home/solarpunk/manager-ssh`                      | The ssh identity the manager deploys to other hosts with: the deploy key, `known_hosts`, and an `ssh_config` with a `Host` block per target alias. Mounted at `/root/.ssh` in the api container, whose image links `/etc/ssh/ssh_config` to the `ssh_config` in it. `deploy.sh` creates the directory, empty, so it is only filled when a deployment's host is not `localhost`. See [deploy/README.md](../deploy/README.md). |
 | `BEE_RPC_ENDPOINT`    | none                                               | The chain endpoint every Bee node created here is offered first, which is what `rpc_endpoint_source: manager` writes into a deployment's env file. Optional, and a malformed value stops the manager at startup rather than reverting to the stack's public RPC. Such a URL can carry an API key: `GET /config` answers only its host, the container logs this manager serves and the deploy output it stores have it taken out of them, and the manager's own boot line prints its host. The Bee node prints the whole address into its own container log on the host it runs on, which no manager code can prevent, so the safe shape is an address carrying no key, such as a proxy on the host that holds it. Removing the variable from a manager that has deployments on it refuses their next edit and their next deploy with it named, which is the alternative to moving them onto the public endpoint in silence. |
 | `MANAGER_HOST`        | `0.0.0.0`                                          | The address the API binds. Every interface by default, which is what the `web` container needs to reach the `api` container. Narrow it to `127.0.0.1` when the manager runs on the host and the port should answer nothing but the loopback. |
-| `HOST_PROC`           | `/host/proc`, then `/proc`                         | Where the resource monitor reads the host's CPU and memory. `docker-compose.yml` bind-mounts the host's `/proc` there read-only, and the fallback is the container's own `/proc`, so a manager run outside Docker reports its own box. |
+| `HOST_PROC`           | `/host/proc`, then `/proc`                         | Where the resource monitor reads the host's CPU, memory, disk I/O and init process network view. `docker-compose.yml` bind-mounts the host's `/proc` there read-only, and the fallback is the current machine's `/proc`, so a manager run outside Docker reports its own box. |
 | `HOST_ROOTFS`         | `/host/rootfs`, then `/`                           | Where the resource monitor reads the host's disk, mounted read-only the same way, with the same fallback. |
 
 The first two are bind-mounted into the api container at the same absolute path

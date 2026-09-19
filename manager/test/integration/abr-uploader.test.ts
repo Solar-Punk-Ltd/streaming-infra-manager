@@ -248,7 +248,14 @@ describe('the update path enforces the same rules as create', () => {
       private_key: TEST_KEY,
     });
     assert.equal(status, 202, JSON.stringify(body));
-    assert.equal((body as { bee_publishers: string }).bee_publishers, SYNTHETIC);
+    const created = body as { instance_id: string; bee_publishers: string };
+    const settled = await waitForSettled(name);
+    assert.equal(
+      settled.instance_id,
+      created.instance_id,
+      'the created instance must be the one that settled',
+    );
+    assert.equal(created.bee_publishers, SYNTHETIC);
   });
 });
 

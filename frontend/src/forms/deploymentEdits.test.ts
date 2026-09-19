@@ -40,6 +40,8 @@ function viewer(over: Partial<Profile> = {}): Profile {
     feed_owner: '0x1111111111111111111111111111111111111111',
     engine_settings: {},
     has_private_key: false,
+    has_rpc_endpoint: false,
+    rpc_endpoint_host: null,
     has_srt_passphrase: false,
     has_engine_config: false,
     engine_config_error: null,
@@ -109,7 +111,8 @@ function uploader(over: Partial<Profile> = {}): Profile {
 function customEndpoint(over: Partial<Profile> = {}): Profile {
   return uploader({
     rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
-    rpc_endpoint: 'http://host.docker.internal:9000',
+    has_rpc_endpoint: true,
+    rpc_endpoint_host: 'host.docker.internal:9000',
     ...over,
   });
 }
@@ -152,9 +155,30 @@ describe('the RPC endpoint a deployment names for itself', () => {
     assert.equal(fieldsFor(pooled).poolString, true);
   });
 
-  it('starts from what the deployment already holds, and empty when it holds none', () => {
-    assert.equal(initialEdits(customEndpoint()).rpcEndpoint, 'http://host.docker.internal:9000');
+  it('starts empty because the stored address is never answered to the drawer', () => {
+    assert.equal(initialEdits(customEndpoint()).rpcEndpoint, '');
     assert.equal(initialEdits(uploader()).rpcEndpoint, '');
+  });
+
+  it('accepts an unchanged stored custom endpoint without transmitting it', () => {
+    const profile = customEndpoint();
+    const initial = initialEdits(profile);
+
+    assert.equal(
+      editProblem(initial, fieldsFor(profile), { profile, managerHasEndpoint: true }),
+      null,
+    );
+
+    const body = bodyFor(
+      profile,
+      initial,
+      { ...initial, notes: 'only the note changed' },
+      fieldsFor(profile),
+      profile.notes_revision,
+    );
+    assert.equal(body.rpc_endpoint_source, CUSTOM_RPC_ENDPOINT_SOURCE);
+    assert.equal(body.rpc_endpoint, undefined);
+    assert.ok(!('rpc_endpoint' in body));
   });
 
   it('refuses an address that is not one before it is sent', () => {
@@ -413,11 +437,12 @@ describe('the three sources the Edit drawer offers for an RPC endpoint', () => {
     const custom = initialEdits(
       uploader({
         rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
-        rpc_endpoint: 'http://host.docker.internal:9000',
+        has_rpc_endpoint: true,
+        rpc_endpoint_host: 'host.docker.internal:9000',
       }),
     );
     assert.equal(custom.rpcEndpointSource, CUSTOM_RPC_ENDPOINT_SOURCE);
-    assert.equal(custom.rpcEndpoint, 'http://host.docker.internal:9000');
+    assert.equal(custom.rpcEndpoint, '');
   });
 
   it('refuses the manager endpoint on a manager that has none', () => {
@@ -453,7 +478,8 @@ describe('the three sources the Edit drawer offers for an RPC endpoint', () => {
   it('sends the source and drops the address the source no longer carries', () => {
     const profile = uploader({
       rpc_endpoint_source: CUSTOM_RPC_ENDPOINT_SOURCE,
-      rpc_endpoint: 'http://host.docker.internal:9000',
+      has_rpc_endpoint: true,
+      rpc_endpoint_host: 'host.docker.internal:9000',
     });
     const initial = initialEdits(profile);
 

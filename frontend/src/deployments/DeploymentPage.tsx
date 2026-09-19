@@ -92,10 +92,12 @@ export function DeploymentPage({
   // The hook has to run unconditionally, so the two cases are two components
   // rather than one with a conditional call. A viewer has no Bee node to ask,
   // and asking anyway would put a node-unreachable banner on every viewer page.
+  // The instance key is the deployment lifetime. Deleting and recreating the
+  // same name must discard every hook reading and copy action from the old node.
   return ownsBeeNode(profile) ? (
-    <WithBeeNode profile={profile} focus={focus} />
+    <WithBeeNode key={profile.instance_id} profile={profile} focus={focus} />
   ) : (
-    <DeploymentBody profile={profile} focus={focus} bee={null} />
+    <DeploymentBody key={profile.instance_id} profile={profile} focus={focus} bee={null} />
   );
 }
 
@@ -259,6 +261,7 @@ function DeploymentBody({
               url={publishUrl}
               hostPassphrase={hostPassphrase}
               ready={readiness.tone === 'ok'}
+              passphrasePending={publish.pending}
             />
           )}
 

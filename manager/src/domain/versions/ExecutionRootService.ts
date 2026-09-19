@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
@@ -8,6 +9,8 @@ import { Logger } from '../Logger.js';
 import type { ExecutionRootRecord, ExecutionRootRegistration } from './ExecutionRoot.js';
 import { buildInventory, buildInventoryRecordPath } from './buildInventoryRecord.js';
 import { readBuildManifest } from './buildManifest.js';
+import { observeExecutionMounts, type AttributedExecutionContainer } from './executionMountAttribution.js';
+import type { ExecutionDockerReader } from './executionMountCapture.js';
 import { currentExecutionOf, executionsToRetire } from './executionRetention.js';
 import { copyExecutionRoot, removeExecutionRoot, type ExecutionCopyOptions } from './executionRootFiles.js';
 import type { RecordedOwnedTree } from './ownedTreeInventory.js';
@@ -74,6 +77,24 @@ export interface ReclaimedExecutions {
   kept: string[];
 }
 
+export type ExecutionMountReaderFor = (
+  target: ExecutionRootRecord['target'],
+) => Promise<ExecutionDockerReader | null>;
+
+function isManagerAdministrativeContainer(
+  container: AttributedExecutionContainer,
+  executionsParent: string,
+): boolean {
+  const versionsRoot = dirname(executionsParent);
+  const hasVersionsRoot = container.mounts.some(mount =>
+    mount.type === 'bind' && mount.source === versionsRoot && mount.destination === versionsRoot);
+  const hasHostRoot = container.mounts.some(mount =>
+    mount.type === 'bind' && mount.source === '/' && mount.destination === '/host/rootfs');
+  return container.project !== null && container.service === 'api' && container.workingDirectory !== null &&
+    container.workingDirectory !== executionsParent && !container.workingDirectory.startsWith(`${executionsParent}/`) &&
+    hasVersionsRoot && hasHostRoot;
+}
+
 /**
  * What the deploy machinery asks of an execution copy.
  *
@@ -108,6 +129,7 @@ export class ExecutionRootService implements ExecutionRoots {
   constructor(
     private readonly roots: ExecutionRootStore,
     private readonly executionsParent: string,
+    private readonly mountReaderFor?: ExecutionMountReaderFor,
   ) {}
 
   /**
@@ -198,12 +220,50 @@ export class ExecutionRootService implements ExecutionRoots {
    */
   async retireSuperseded(profileName: string, input: { keep: number }): Promise<void> {
     try {
-      for (const record of executionsToRetire(await this.roots.listUnreleased(), { profileName, ...input })) {
+      const records = await this.roots.listUnreleased();
+      const candidates = executionsToRetire(records, { profileName, ...input });
+      for (const record of await this.unmountedCandidates(records, candidates)) {
         await this.remove(record.executionId, () => this.roots.claimRetiredCleanup(record.executionId));
       }
     } catch (err) {
       logger.warn(`[Executions] ${profileName}: an older copy was not retired: ${getErrorMessage(err)}. It keeps its hold on its build.`);
     }
+  }
+
+  private async unmountedCandidates(
+    records: ExecutionRootRecord[],
+    candidates: ExecutionRootRecord[],
+  ): Promise<ExecutionRootRecord[]> {
+    if (candidates.length === 0 || !this.mountReaderFor) return [];
+    const removable: ExecutionRootRecord[] = [];
+    const targets = new Map<string, ExecutionRootRecord[]>();
+    for (const candidate of candidates) {
+      const key = `${candidate.target.alias}\0${candidate.target.daemonId}`;
+      targets.set(key, [...(targets.get(key) ?? []), candidate]);
+    }
+    for (const group of targets.values()) {
+      const target = group[0]!.target;
+      const reader = await this.mountReaderFor(target);
+      if (!reader) continue;
+      const observed = await observeExecutionMounts(reader, {
+        daemonId: target.daemonId,
+        executionsParent: this.executionsParent,
+        records,
+      });
+      if (observed.state !== 'complete') continue;
+      if (observed.containers.some(container => container.dependencyState === 'unknown')) continue;
+      removable.push(...group.filter(record => !observed.containers.some(container => {
+        const dependsOnRecord = container.dependencies.some(dependency => dependency.executionId === record.executionId);
+        const specificBind = container.mounts.some(mount => mount.type === 'bind' && mount.source !== null &&
+          (mount.source === record.root || mount.source.startsWith(`${record.root}/`)));
+        if (specificBind || container.workingDirectoryExecutionId === record.executionId) return true;
+        if (!dependsOnRecord) return false;
+        // Only the manager API's exact compose-shaped administrative mounts
+        // are exempt. Every other parent bind can consume the copy beneath it.
+        return !isManagerAdministrativeContainer(container, this.executionsParent);
+      })));
+    }
+    return removable;
   }
 
   /** The copy this deployment runs its scripts from, or null when it runs from a build. */
@@ -221,7 +281,8 @@ export class ExecutionRootService implements ExecutionRoots {
    */
   async reclaimInterrupted(): Promise<ReclaimedExecutions> {
     const outcome: ReclaimedExecutions = { removed: [], kept: [] };
-    for (const record of await this.roots.listUnreleased()) {
+    const records = await this.roots.listUnreleased();
+    for (const record of records) {
       const claim = {
         registered: () => this.roots.claimUnstartedCleanup(record.executionId),
         ready: () => this.roots.claimUnstartedCleanup(record.executionId),
@@ -233,6 +294,10 @@ export class ExecutionRootService implements ExecutionRoots {
         continue;
       }
       try {
+        if (record.state === 'deleting' && (await this.unmountedCandidates(records, [record])).length === 0) {
+          outcome.kept.push(record.executionId);
+          continue;
+        }
         await this.remove(record.executionId, claim);
         outcome.removed.push(record.executionId);
       } catch (err) {

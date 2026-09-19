@@ -2,8 +2,12 @@
 
 This setup describes the authenticated T10 harness. It was written on 2026-09-10
 on `feat/ai-remediation`, which has since merged into `main-v2`, so it is on
-`main-v2` now. These instructions are not authorization for a deployment run,
-and no run of this suite against a real deployment has happened.
+`main-v2` now. These instructions are not authorization for a deployment run.
+The manual Docker workflow ran this suite twice on 2026-09-19. Runs
+[`35444459944`](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35444459944)
+and
+[`35445301149`](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35445301149)
+both failed before the deployment cases could complete.
 
 End-to-end tests that drive a **running** manager over HTTP, the way the browser does: signed in, with the session cookie on every request and the write header on every write. They create real deployments through the API, wait for them to come up, exercise modify, stop and remove, and the group features.
 
@@ -71,15 +75,25 @@ A same-name replacement is retained. Cleanup does not acquire new authority
 from current group membership. An empty-group deletion checks the recorded group
 identity and empty membership together and never cascades to new members.
 
+An accepted creation response confirms identity and starts deployment work. It
+does not mean the returned profile has left `DEPLOYING`. Tests that finish or
+remove a newly created profile first wait for that exact instance to reach the
+state their assertions require. Run
+[`35446479777`](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35446479777)
+on 2026-09-19 exposed two missing waits when cleanup reached the profiles before
+their deploys completed. Cleanup does not retry a refused write.
+
 Cleanup continues across independent resources and reports all failures in an
-aggregate error. Request/header/body work defaults to five seconds per call,
-and accepted deletion is observed for up to 60 seconds with one-second polls.
+aggregate error. Cleanup requests carry an explicit five-second signal, and
+accepted deletion is observed for up to 60 seconds with one-second polls.
 Timeouts do not automatically retry a write. Unknown creation coverage is also
 reported. No failed cleanup is silently counted as a clean run.
 
 These guards are locally accepted at T10 `284790c`, including the integration
-after hooks. They have not been exercised against a live deployment by this
-remediation session. The funded review deployment is never a disposable target.
+after hooks. The 2026-09-19 Docker jobs exercised them against disposable
+workflow deployments. Their unresolved creation reports preserved the rule
+that a lost response grants no cleanup authority. The funded review deployment
+is never a disposable target.
 
 ## What it covers
 
@@ -96,16 +110,17 @@ remediation session. The funded review deployment is never a disposable target.
 
 This whole suite also has a job of its own, `integration`, in the manual
 workflow `.github/workflows/docker-checks.yml`. That workflow is
-`workflow_dispatch` only and no job of it has ever run on a GitHub runner, so
-`engine-startup-failure.test.ts` has never executed anywhere. See
+`workflow_dispatch` only. Two jobs ran on GitHub-hosted runners on 2026-09-19.
+The clean rerun reached `engine-startup-failure.test.ts`, where its first create
+lost the response at the former 30-second client limit. See
 [../../../docs/ci.md](../../../docs/ci.md).
 
 ## Notes and limitations
 
 - Viewer-group cases use two members. The ABR pool cases create a fixed four-rung pool. Multiple suite files can run concurrently, so two is not a whole-suite resource cap.
-- The waits are generous (`waitForStatus` gives up after about 4 minutes per deploy) so a genuinely stuck deploy fails loudly instead of hanging.
+- Ordinary reads and authentication wait at most 30 seconds for a response. Deployment writes wait at most 300 seconds, matching the production JSON proxy budget. After an accepted write, `waitForStatus` separately polls readiness for up to 240 seconds. Cleanup supplies its own five-second request signal.
 - A lost creation response may leave a resource whose identity was never confirmed. The suite reports that uncertainty and does not search by prefix and delete candidates.
-- T10's own checks, at `284790c`, passed 960 manager, 288 common and 31 real SQL tests plus types. Those are the numbers of that branch as it was merged, not a rerun of the repository as it stands. Synthetic HTTP tests exercise the real helper and cleanup reporting. None of them establishes that this deployment integration suite ran.
+- T10's own checks, at `284790c`, passed 960 manager, 288 common and 31 real SQL tests plus types. Those are the numbers of that branch as it was merged, not a rerun of the repository as it stands. The 2026-09-19 Docker jobs establish that this deployment integration suite ran, but they do not establish a passing suite.
 
 ## Separate local regression suites
 

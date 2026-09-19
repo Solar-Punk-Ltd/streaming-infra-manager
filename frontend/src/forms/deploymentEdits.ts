@@ -88,7 +88,7 @@ export function initialEdits(profile: Profile | null): DeploymentEdits {
     stampId: profile?.stamp_id ?? '',
     beeUrl: profile?.bee_url ?? '',
     rpcEndpointSource: profile ? endpointSourceOf(profile) : DEFAULT_RPC_ENDPOINT_SOURCE,
-    rpcEndpoint: profile?.rpc_endpoint ?? '',
+    rpcEndpoint: '',
     poolString: profile?.bee_publishers ?? '',
     feedOwner: profile?.feed_owner ?? '',
     notes: profile?.notes ?? '',
@@ -179,7 +179,12 @@ export function editProblem(
     // The shared rule, asked with what the save will carry, so the drawer
     // refuses exactly what the manager would rather than sending a filled-in
     // form to be refused at the API.
-    const problem = rpcEndpointChoiceProblem({
+    const keepsStoredCustom =
+      edits.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE &&
+      !edits.rpcEndpoint.trim() &&
+      profile.has_rpc_endpoint &&
+      endpointSourceOf(profile) === CUSTOM_RPC_ENDPOINT_SOURCE;
+    const problem = keepsStoredCustom ? null : rpcEndpointChoiceProblem({
       source: edits.rpcEndpointSource,
       url: edits.rpcEndpointSource === CUSTOM_RPC_ENDPOINT_SOURCE ? edits.rpcEndpoint : '',
       managerHasEndpoint,
@@ -239,7 +244,6 @@ export function bodyFor(
     stamp_id: profile.stamp_id ?? undefined,
     bee_publishers: profile.bee_publishers ?? undefined,
     bee_url: profile.bee_url ?? undefined,
-    rpc_endpoint: profile.rpc_endpoint ?? undefined,
     rpc_endpoint_source: endpointSourceOf(profile),
     // A node's mode is chosen when it is created and the manager refuses a body
     // that names a different one, so the stored one goes back untouched. A

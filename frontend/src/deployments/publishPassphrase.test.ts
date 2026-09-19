@@ -16,6 +16,7 @@ import { describe, it } from 'node:test';
 
 import type { Profile } from '../types';
 import { publishPassphrase, type PassphraseReader } from './publishPassphrase';
+import { publishUrlNeedsReveal } from './usePublishUrl';
 import { srtPublishUrl } from '../urls';
 
 const HOST_WIDE = 'lab-host-passphrase';
@@ -31,6 +32,7 @@ function stage(over: Partial<Profile> = {}): Profile {
     components: ['srs', 'stream-uploader'],
     engine_settings: {},
     has_private_key: false,
+    has_rpc_endpoint: false,
     has_srt_passphrase: false,
     has_engine_config: false,
     engine_config_error: null,
@@ -61,6 +63,23 @@ function reader(answer: string | null = OWN): PassphraseReader & { asked: string
 }
 
 describe('the passphrase the publish URL carries', () => {
+  it('waits only for an SRT deployment that owns its passphrase', () => {
+    assert.equal(
+      publishUrlNeedsReveal(stage({ has_srt_passphrase: true })),
+      true,
+    );
+    assert.equal(publishUrlNeedsReveal(stage()), false);
+    assert.equal(
+      publishUrlNeedsReveal(stage({
+        components: ['ome', 'stream-uploader'],
+        containers: [{ service: 'ome', ports: {}, buildId: null, buildCommit: null }],
+        has_srt_passphrase: true,
+      })),
+      false,
+      'OvenMediaEngine takes no SRT passphrase',
+    );
+  });
+
   it('is the host-wide one for a deployment that holds none, asked of nobody', async () => {
     const read = reader();
 
