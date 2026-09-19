@@ -20,7 +20,9 @@ Each finding has a regression that failed before its fix. Focused checks passed 
 
 Independent Astra review covered the production corrections. Review also caught and closed a backslash URL disclosure and an incomplete-copy interval. The first five-fix candidate passed the server build, typechecks, unit suites and native transport suites. Later combined runs caught an unused import and three incomplete test fixtures, all corrected in separate commits.
 
-The final combined server run is pending. Real PostgreSQL regressions and the complete browser suite still need the repository's existing PR checks. The shared verification mapping does not provision this repository's nine task databases, so those checks are not represented as passing.
+The latest combined server run passed build and typechecks, then found eight outdated test setups after the private RPC projection changed. Those setups are corrected. All 34 focused cases in the affected suites pass, including a new refusal for a historical job that never owned its deployment.
+
+The final combined checks are pending. The existing PR workflow supplies the nine disposable PostgreSQL databases and complete browser suite that the shared verification mapping does not provision. A new controlled database regression first checks the cleanup lock order against concurrent engine configuration admission. Its correction follows the failing run. No pending database or browser result is represented as passing.
 
 ## Limits
 
