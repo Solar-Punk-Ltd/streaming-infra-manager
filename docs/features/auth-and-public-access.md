@@ -235,7 +235,9 @@ list-versus-page split it proposed.
 revision and update time that requested it. Saving a new passphrase under the same deployment name
 immediately removes the old one from the rendered publish URL while the new reveal is pending. A
 late answer for the earlier revision cannot replace the new URL or become the value copied after
-the rotation.
+the rotation. While that revision's reveal is pending, the deployment page explains the wait and
+disables its Publish copy control so it cannot copy an incomplete URL. Deployments with no own
+passphrase and OvenMediaEngine publish URLs remain available immediately.
 
 ## PR split
 

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { OME_SERVICE } from '@streaming-infra-manager/common';
+
 import { useDeployments } from '../app/useDeploymentsStore';
 import { fetchSrtPassphrase } from '../data';
 import { useServerHost } from '../ServerHostContext';
 import type { Profile } from '../types';
 import { srtPublishUrl } from '../urls';
 import { publishPassphrase } from './publishPassphrase';
+import { engineOf } from './shape';
 
 export interface PublishUrl {
   /**
@@ -13,8 +16,15 @@ export interface PublishUrl {
    * has been revealed, which is the whole URL for a deployment needing none.
    */
   url: string | null;
+  /** Whether this revision still needs its own passphrase before it is complete. */
+  pending: boolean;
   /** Puts the whole URL on the clipboard, asking for the passphrase first. */
   copy: () => Promise<void>;
+}
+
+/** Whether this engine's publish URL needs a per-deployment reveal. */
+export function publishUrlNeedsReveal(profile: Profile): boolean {
+  return profile.has_srt_passphrase && engineOf(profile) !== OME_SERVICE;
 }
 
 /** What one view has been told, and about which deployment. */
@@ -98,6 +108,7 @@ export function usePublishUrl(profile: Profile, shown = false): PublishUrl {
 
   return {
     url: srtPublishUrl(profile, serverHost, passphrase),
+    pending: publishUrlNeedsReveal(profile) && revealed?.generation !== generation,
     copy: async () => {
       const answer = await readPassphrase();
       if (!answer) return;

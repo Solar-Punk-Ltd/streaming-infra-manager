@@ -261,6 +261,7 @@ function DeploymentBody({
               url={publishUrl}
               hostPassphrase={hostPassphrase}
               ready={readiness.tone === 'ok'}
+              passphrasePending={publish.pending}
             />
           )}
 

@@ -35,12 +35,15 @@ export function PublishCard({
   url,
   hostPassphrase,
   ready,
+  passphrasePending,
 }: {
   profile: Profile;
   url: string;
   hostPassphrase: string | null;
   /** Whether all currently observed prerequisites pass the checklist. */
   ready: boolean;
+  /** Whether the URL still lacks this profile revision's own passphrase. */
+  passphrasePending: boolean;
 }) {
   return (
     <SectionCard title="Publish" sub="OBS, FFmpeg or any SRT sender">
@@ -48,9 +51,15 @@ export function PublishCard({
         <Alert severity={ready ? 'info' : 'warning'}>
           {deploymentProgressText(profile)}
         </Alert>
-        <CopyBox value={url} />
+        <CopyBox value={url} disabled={passphrasePending} />
+        {passphrasePending && (
+          <Typography variant="caption" color="text.secondary">
+            Reading this deployment&apos;s passphrase. Copy is available when the complete URL is ready.
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary">
-          {passphraseNote(profile, hostPassphrase)} Change{' '}
+          {!passphrasePending && <>{passphraseNote(profile, hostPassphrase)} </>}
+          Change{' '}
           <code>live/stream</code> to your own app and stream name if you use
           one.
         </Typography>

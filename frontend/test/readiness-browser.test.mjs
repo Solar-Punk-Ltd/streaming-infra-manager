@@ -141,8 +141,36 @@ test('readiness and container diagnostics use current observations in the browse
   );
   const replacementRead = heldPassphrases.find(read => read.value === ownPassphrase);
   assert.equal(replacementRead.value, ownPassphrase);
+  const publishCopyButton = `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Copy' && button.closest('.MuiPaper-root')?.innerText.includes('OBS, FFmpeg'))`;
+  assert.equal(
+    await evaluate(`(${publishCopyButton}).disabled`),
+    true,
+    'the incomplete replacement URL cannot be copied',
+  );
+  assert.match(
+    await body(),
+    /Reading this deployment's passphrase/,
+    'the held reveal is explained beside the URL',
+  );
+  assert.doesNotMatch(
+    await body(),
+    /already in the URL/,
+    'the pending explanation does not also claim the URL is complete',
+  );
+  await evaluate(`window.copiedPublishUrl = null; (${publishCopyButton}).click()`);
+  await evaluate('new Promise(resolve => requestAnimationFrame(resolve))');
+  assert.equal(
+    await evaluate('window.copiedPublishUrl ?? null'),
+    null,
+    'clicking a disabled Copy control writes no incomplete URL',
+  );
   replacementRead.reply();
   await waitFor(body, text => text.includes(`passphrase=${ownPassphrase}`), 'the replacement publish URL');
+  await waitFor(
+    () => evaluate(`(${publishCopyButton}).disabled`),
+    disabled => disabled === false,
+    'the complete replacement URL to become copyable',
+  );
   heldPassphrases.at(oldRead).reply();
   await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   assert.match(await body(), new RegExp(`passphrase=${ownPassphrase}`));
