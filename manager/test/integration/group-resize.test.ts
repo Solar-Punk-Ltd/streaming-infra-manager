@@ -135,6 +135,14 @@ describe('group resize (Feature B): grow, size-sync, shrink, auto-delete', () =>
     const grown = await addGroupMembers(group.id, 1);
     assert.equal(grown.profiles.length, 1);
     const readded = grown.profiles[0]!;
+    const running = await waitForRunningServices(readded.name, [BEE_GATEWAY, CLIENT], {
+      timeoutMs: DEPLOY_TIMEOUT,
+    });
+    assert.equal(
+      running.instance_id,
+      readded.instance_id,
+      'the re-added instance must be the one that became ready',
+    );
     assert.equal(
       readded.name,
       p2,

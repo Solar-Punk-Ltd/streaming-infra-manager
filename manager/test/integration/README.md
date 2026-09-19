@@ -75,6 +75,14 @@ A same-name replacement is retained. Cleanup does not acquire new authority
 from current group membership. An empty-group deletion checks the recorded group
 identity and empty membership together and never cascades to new members.
 
+An accepted creation response confirms identity and starts deployment work. It
+does not mean the returned profile has left `DEPLOYING`. Tests that finish or
+remove a newly created profile first wait for that exact instance to reach the
+state their assertions require. Run
+[`35446479777`](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/actions/runs/35446479777)
+on 2026-09-19 exposed two missing waits when cleanup reached the profiles before
+their deploys completed. Cleanup does not retry a refused write.
+
 Cleanup continues across independent resources and reports all failures in an
 aggregate error. Cleanup requests carry an explicit five-second signal, and
 accepted deletion is observed for up to 60 seconds with one-second polls.
