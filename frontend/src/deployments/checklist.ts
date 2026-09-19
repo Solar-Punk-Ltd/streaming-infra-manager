@@ -110,8 +110,12 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
       steps.push(stampStep(input));
     }
   }
-  if (isStreamLike(profile, shape)) steps.push(uploaderStep(input));
-  if (shape === 'abr-uploader') steps.push(poolStep(profile));
+  if (shape === 'abr-uploader') {
+    steps.push(poolStep(profile));
+    steps.push(uploaderStep(input));
+  } else if (isStreamLike(profile, shape)) {
+    steps.push(uploaderStep(input));
+  }
   if (shape === 'viewer' || hasService(profile, 'client')) {
     steps.push(followingStep(input));
   }
@@ -500,16 +504,22 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
   // says nothing and any chequebook balance are warning states under D15 and
   // D16, so neither can hide the action. A stamp the node already reported as
   // missing, expired or not usable is the evidence that still blocks it.
+  const poolBacked = shapeOf(profile) === 'abr-uploader';
+  const prerequisiteReady = poolBacked
+    ? !beePublishersProblem(profile.bee_publishers)
+    : stampHealth.state === 'active' || stampHealth.state === 'unknown';
   const ready =
     isRunning(profile) &&
     canDeployUploader(profile) &&
-    (stampHealth.state === 'active' || stampHealth.state === 'unknown');
+    prerequisiteReady;
   return {
     title,
     problem: 'Uploader not started',
     state: ready ? 'warn' : 'off',
     detail: ready
-      ? stampHealth.state === 'active'
+      ? poolBacked
+        ? 'The node pool is configured. Start the uploader to complete the stack.'
+        : stampHealth.state === 'active'
         ? 'Stamp is set. Start the uploader to complete the stack.'
         : 'A stamp is recorded. Start rechecks it. A node that does not answer may leave the uploader waiting, while a stamp the node reports unusable is refused.'
       : 'Start is held until the earlier readiness checks pass. Existing containers are left running.',

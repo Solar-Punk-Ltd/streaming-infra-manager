@@ -142,6 +142,12 @@ with no uploader container is `not_deployed`, a start gate that warned instead o
 refusing is `warned`, and a stack older than D16 reports none of the new fields
 and so reads as `ok` or `unhealthy` on its own status alone.
 
+The deployment checklist renders that health step for a single-node stream and
+for a pool-backed `abr-uploader`. An ABR uploader puts its pool configuration
+first and needs no single-node stamp or funding check of its own. Once the pool
+string is usable, the same waiting, warned, unhealthy and healthy readings are
+shown from the uploader's route.
+
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
 from the moment create returns and the settings route refuses a busy one. It is
