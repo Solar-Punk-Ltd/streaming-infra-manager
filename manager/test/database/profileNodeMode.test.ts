@@ -23,6 +23,7 @@ import {
   type SharedProfileParams,
 } from '../../src/domain/DeploymentGroupRepository.js';
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import type { Profile } from '../../src/types/index.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
 const connection = {
@@ -42,6 +43,52 @@ const PLACEMENT = {
 
 const ENDPOINT = 'https://rpc.example.org';
 const BACKSLASH_ENDPOINT = String.raw`https://rpc.example.org\synthetic-key`;
+const USERINFO_ENDPOINTS = [
+  {
+    name: 'userinfo-basic',
+    endpoint: 'https://synthetic-user:synthetic-secret@rpc.example.org/v3/synthetic-key',
+    host: 'rpc.example.org',
+  },
+  {
+    name: 'userinfo-encoded-multiple',
+    endpoint: 'https://synthetic%40user:synthetic%3Asecret@tenant@rpc.example.org/v3/synthetic-key',
+    host: 'rpc.example.org',
+  },
+  {
+    name: 'userinfo-ipv6',
+    endpoint: 'https://synthetic-user:synthetic-secret@[2001:db8::1]:8545/v3/synthetic-key',
+    host: '[2001:db8::1]:8545',
+  },
+  {
+    name: 'userinfo-incomplete-authority',
+    endpoint: 'https://synthetic-user:synthetic-secret@/v3/synthetic-key',
+    host: null,
+  },
+  {
+    name: 'userinfo-empty-host',
+    endpoint: 'https://synthetic-user:synthetic-secret@',
+    host: null,
+  },
+  {
+    name: 'userinfo-empty-host-query',
+    endpoint: 'https://synthetic-user:synthetic-secret@?x=1',
+    host: null,
+  },
+] as const;
+
+function assertUserinfoStaysOutOfPublicProfile(
+  profile: Profile | null | undefined,
+  expectedHost: string | null,
+): void {
+  assert.ok(profile);
+  assert.equal(profile.has_rpc_endpoint, true);
+  assert.equal(profile.rpc_endpoint_host, expectedHost);
+  assert.equal('rpc_endpoint' in profile, false);
+  assert.doesNotMatch(
+    JSON.stringify(profile),
+    /synthetic-user|synthetic-secret|synthetic%40user|synthetic%3asecret/i,
+  );
+}
 
 /**
  * What every member of a group is created with, as ProfileService builds it.
@@ -179,6 +226,65 @@ describe('the node mode and endpoint source columns in isolated PostgreSQL', {
       (await profiles.rpcEndpointOf('backslash-member'))?.rpcEndpoint,
       BACKSLASH_ENDPOINT,
     );
+  });
+
+  it('keeps URL userinfo private in every public repository projection', async () => {
+    await migrate(pool);
+    const groups = new DeploymentGroupRepository(pool);
+
+    for (const sample of USERINFO_ENDPOINTS) {
+      const inserted = await profiles.insertWithFreeSlot(
+        sample.name,
+        'viewer',
+        'RUNNING',
+        {
+          node_mode: 'light',
+          rpc_endpoint_source: 'custom',
+          rpc_endpoint: sample.endpoint,
+        },
+        PLACEMENT,
+      );
+      assertUserinfoStaysOutOfPublicProfile(inserted, sample.host);
+      assertUserinfoStaysOutOfPublicProfile(
+        await profiles.findByName(sample.name),
+        sample.host,
+      );
+      assertUserinfoStaysOutOfPublicProfile(
+        (await profiles.list()).find((profile) => profile.name === sample.name),
+        sample.host,
+      );
+      assertUserinfoStaysOutOfPublicProfile(
+        await profiles.updateEditable(sample.name, 'viewer', {
+          notes: 'userinfo stays private after an unrelated update',
+        }),
+        sample.host,
+      );
+      assert.equal(
+        (await profiles.rpcEndpointOf(sample.name))?.rpcEndpoint,
+        sample.endpoint,
+      );
+
+      const { group, profiles: created } = await groups.createGroupWithMembers(
+        `${sample.name}-group`,
+        STANDARD_GROUP_KIND,
+        [{ name: `${sample.name}-member` }],
+        sharedParams({
+          node_mode: 'light',
+          rpc_endpoint_source: 'custom',
+          rpc_endpoint: sample.endpoint,
+        }),
+      );
+      for (const profile of created) {
+        assertUserinfoStaysOutOfPublicProfile(profile, sample.host);
+      }
+      for (const profile of await groups.listMembers(group.id)) {
+        assertUserinfoStaysOutOfPublicProfile(profile, sample.host);
+      }
+      assert.equal(
+        (await profiles.rpcEndpointOf(`${sample.name}-member`))?.rpcEndpoint,
+        sample.endpoint,
+      );
+    }
   });
 
   it('refuses a custom source with no address', async () => {
