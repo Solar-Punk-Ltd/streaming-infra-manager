@@ -463,17 +463,25 @@ only the manager as root to match the production API container, and waits for
 the pinned bundled version to publish an immutable build. `/health` alone does
 not prove that asynchronous build has finished. The gate checks its status,
 layout, build id, commit and root before any test starts. The test client stays
-unprivileged. Rollback and complete-removal assertions remain unchanged.
+unprivileged.
 
-`engine-startup-failure.test.ts` is T01's container-backed startup failure: a config file the manager's own check accepts
-and SRS exits on at start, asserted to end the rollout in `reverted` with the
-deployment back `RUNNING` on the previous file and a card that offers nothing
-to press. The file is the version's own template with one added line,
+`engine-startup-failure.test.ts` is T01's container-backed startup-command
+failure. A config file the manager's own check accepts makes SRS exit at start,
+so stack v3.1's `assert-started.sh` refuses the apply before the manager commits
+RUNNING or starts its watch. A successful recovery ends the operation in
+`failed`, brings the deployment back `RUNNING` on the previous file, and shows
+an error notice with an explicit Verify action. A failure discovered later by
+the manager's post-start watch ends `reverted` after successful recovery. That
+separate path is covered by the engine-config unit tests.
+
+The integration file uses the version's own template with one added line,
 `work_dir /no/such/directory;`, and the two observations that make that the
 right file, one for the parse and one for the start, are in the test's header
 with the image digest and the date, taken again on the corrected pin the day
-it was corrected. The failed first run above is recorded separately from the corrected topology's
-acceptance result.
+it was corrected. Run 35446479777 at `722b379e` proved the startup refusal,
+successful previous-file recovery and restored services. Its sole rollout
+assertion failure was the stale `reverted` expectation, while the recorded
+state was the contract's `failed` outcome.
 
 When one of its assertions fails it prints the rollout's reason, which carries
 the engine's own last lines, and the file SRS was started on carries that

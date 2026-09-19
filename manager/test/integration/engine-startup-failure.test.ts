@@ -1,12 +1,13 @@
 /**
- * T01: a config file the manager's own check accepts and the engine dies on.
+ * T01: a config file the manager's own check accepts and the stack's startup gate refuses.
  *
  * The check asks SRS whether it would read the file. That is a parse, and a
  * parse cannot tell whether the engine will still be up in twenty seconds. So
- * a rollout stores the file, recreates the engine on it, watches, and puts the
- * previous file back when the engine does not stay up. This is the file that
- * separates the two, and this test is the only place the whole path runs
- * against real containers.
+ * a rollout stores the file and asks the stack to recreate the engine on it.
+ * The stack's startup gate sees that SRS fell over and returns nonzero before
+ * the manager commits RUNNING or starts its own watch. The manager records that
+ * apply as failed and puts the previous file back. This test is the only place
+ * that whole path runs against real containers.
  *
  * The file is the version's own template with one line added:
  *
@@ -32,9 +33,10 @@
  * turned out to name an image no tag points at any more. Same two answers:
  * the parse exited 0 and the start exited 255 on the chdir line.
  *
- * This file has never run. It needs the whole stack deployed on a runner, so
- * its first run is Levi's dispatch of the docker-backed workflow. See
- * docs/ci.md.
+ * Run 35446479777 exercised this path against stack v3.1 on 2026-09-19. The
+ * startup command refused the poisoned file and recovery brought the template
+ * back. The first expectation incorrectly called that `reverted`, which is the
+ * state for a later manager watch failure. See docs/ci.md.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
@@ -96,8 +98,8 @@ after(async () => {
   await cleanup();
 });
 
-describe('a config file the check accepts and the engine dies on', () => {
-  it('reverts to the previous file and leaves the deployment running on it', async () => {
+describe('a config file the manager check accepts and the stack startup gate refuses', () => {
+  it('records a failed apply, restores the previous file, and leaves the deployment running', async () => {
     const name = uniqueName('startup');
     await createProfile({ name, kind: 'streamer', notes: 'engine startup failure' });
     await waitForRunningServices(name, [BEE_UPLOADER, SRS], { timeoutMs: DEPLOY_TIMEOUT });
@@ -120,8 +122,8 @@ describe('a config file the check accepts and the engine dies on', () => {
     // Actions log. The tail is matched on its redacted copy and the stored file
     // on whether it is gone, both from test/support/redactedAssertions.
     const reason = ended.error ? redactEngineOutput(ended.error) : '(no reason)';
-    assert.equal(ended.state, 'reverted', `the rollout ended ${ended.state}, not reverted: ${reason}`);
-    assert.ok(ended.error, 'a reverted rollout has to say why');
+    assert.equal(ended.state, 'failed', `the rollout ended ${ended.state}, not failed: ${reason}`);
+    assert.ok(ended.error, 'a failed rollout has to say why');
     assertMatchesRedacted(
       ended.error,
       /so the previous one is back/,
@@ -135,10 +137,10 @@ describe('a config file the check accepts and the engine dies on', () => {
     assertNull(ended.config, 'the template is back, so the stored file is gone');
 
     const notice = rolloutNotice(ended.state, { engine: ended.engine, hasConfig: ended.config !== null }, ended.error);
-    assert.ok(notice, 'a reverted rollout shows a notice');
-    assert.equal(notice.severity, 'warning');
+    assert.ok(notice, 'a failed rollout shows a notice');
+    assert.equal(notice.severity, 'error');
     assert.equal(notice.showsReason, true, 'the reason is the rest of the story and the card shows it');
-    assert.deepEqual(notice.offers, [], 'a finished revert leaves the operator nothing to press');
+    assert.deepEqual(notice.offers, ['verify'], 'a failed apply offers an explicit verification attempt');
 
     const running = await waitForRunningServices(name, [BEE_UPLOADER, SRS], { timeoutMs: DEPLOY_TIMEOUT });
     assert.equal(running.status, 'RUNNING', 'the deployment is up again on the previous file');
