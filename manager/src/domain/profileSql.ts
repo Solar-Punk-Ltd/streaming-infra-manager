@@ -30,7 +30,17 @@ export const PROFILE_COLUMNS = `
   (private_key IS NOT NULL) AS has_private_key,
   bee_publishers, bee_url,
   (rpc_endpoint IS NOT NULL) AS has_rpc_endpoint,
-  substring(replace(rpc_endpoint, chr(92), '/') FROM '(?i)^https?://([^/@?#]+)') AS rpc_endpoint_host,
+  NULLIF(
+    regexp_replace(
+      substring(
+        replace(rpc_endpoint, chr(92), '/')
+        FROM '(?i)^https?://([^/?#]*)([/?#]|$)'
+      ),
+      '^.*@',
+      ''
+    ),
+    ''
+  ) AS rpc_endpoint_host,
   rpc_endpoint_source, node_mode, engine_settings,
   (srt_passphrase IS NOT NULL) AS has_srt_passphrase,
   (engine_config IS NOT NULL) AS has_engine_config, engine_config_error, engine_config_state,
