@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 
 import { ProfileService } from '../../domain/ProfileService.js';
 import { UploaderHealthService } from '../../domain/UploaderHealthService.js';
+import { UploaderLifecycleService } from '../../domain/UploaderLifecycleService.js';
 import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import {
   CreateProfileInput,
@@ -27,6 +28,7 @@ export function createProfilesRouter(
   profileService: ProfileService,
   uploaderHealth: UploaderHealthService,
   managerHasEndpoint: boolean,
+  uploaderLifecycle?: UploaderLifecycleService,
 ): Router {
   const router = Router();
   const schemaContext = () => ({ managerHasEndpoint });
@@ -86,6 +88,14 @@ export function createProfilesRouter(
     validateParams(profileNameSchema),
     asyncHandler(async (req: Request, res: Response) => {
       res.json(await uploaderHealth.read(req.params.name as string));
+    }),
+  );
+
+  router.get(
+    '/:name/uploader-lifecycle',
+    validateParams(profileNameSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      res.json(await uploaderLifecycle?.read(req.params.name as string) ?? { state: 'unavailable' });
     }),
   );
 

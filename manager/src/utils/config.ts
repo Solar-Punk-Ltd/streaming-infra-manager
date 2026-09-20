@@ -64,6 +64,18 @@ export function beeRpcEndpoint(raw: string | undefined): string | null {
   return value;
 }
 
+/** The public admin-console base, or null when this manager does not name one. */
+export function streamAdminConsoleUrl(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error('STREAM_ADMIN_CONSOLE_URL must be an HTTP or HTTPS URL'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('STREAM_ADMIN_CONSOLE_URL must be an HTTP or HTTPS base URL without credentials, query, or fragment');
+  }
+  return url.href.replace(/\/$/, '');
+}
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -79,6 +91,7 @@ export interface AppConfig {
   stackVersionsRoot: string;
   /** See `beeRpcEndpoint`. Null when the operator configured none. */
   beeRpcEndpoint: string | null;
+  streamAdminConsoleUrl: string | null;
 }
 
 export const config: AppConfig = {
@@ -93,4 +106,5 @@ export const config: AppConfig = {
     '/home/solarpunk/streaming-infra-manager-versions',
   ),
   beeRpcEndpoint: beeRpcEndpoint(process.env.BEE_RPC_ENDPOINT),
+  streamAdminConsoleUrl: streamAdminConsoleUrl(process.env.STREAM_ADMIN_CONSOLE_URL),
 };

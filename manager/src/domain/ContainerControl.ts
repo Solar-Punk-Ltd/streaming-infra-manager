@@ -75,6 +75,7 @@ const DEFAULT_LOG_LINES = 200;
  * is worse than a truncated one.
  */
 export const MAX_CONFIG_BYTES = 256 * 1024;
+const MAX_LIFECYCLE_BYTES = 64 * 1024;
 
 /**
  * What a log read is allowed to cost.
@@ -489,6 +490,22 @@ export class ContainerControl {
       maxBytes: MAX_CONFIG_BYTES,
       totalMs: this.limits.dockerTimeoutMs,
     });
+    return demultiplexDockerStream(raw);
+  }
+
+  /**
+   * Reads the uploader lifecycle with its token remaining inside the container.
+   * The command is fixed so no caller-controlled string can reach the shell.
+   */
+  async uploaderLifecycle(profile: string): Promise<string> {
+    const container = await this.find(profile, 'stream-uploader');
+    const exec = await this.withinLimit(container.exec({
+      Cmd: ['sh', '-ec', 'curl -fsS --max-time 3 -H "Authorization: Bearer $API_AUTH_TOKEN" http://127.0.0.1:${API_PORT}/stream/lifecycle'],
+      AttachStdout: true,
+      AttachStderr: true,
+    }));
+    const stream = await this.withinLimit(exec.start({ Detach: false }));
+    const raw = await readBounded(stream, { maxBytes: MAX_LIFECYCLE_BYTES, totalMs: this.limits.dockerTimeoutMs });
     return demultiplexDockerStream(raw);
   }
 

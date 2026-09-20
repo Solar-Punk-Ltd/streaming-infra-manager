@@ -23,6 +23,7 @@ export function createConfigRouter(
   chequebookFloorBzz: string,
   hostPassphrase: () => Promise<string | null>,
   beeRpcEndpoint: string | null,
+  streamAdminConsoleUrl: string | null = null,
 ): Router {
   const router = Router();
 
@@ -36,6 +37,7 @@ export function createConfigRouter(
         srtPassphrase,
         chequebookFloorBzz,
         beeRpcEndpoint: configuredBeeRpcEndpoint(beeRpcEndpoint),
+        streamAdminConsoleUrl,
       });
     } catch (err) {
       next(err);
