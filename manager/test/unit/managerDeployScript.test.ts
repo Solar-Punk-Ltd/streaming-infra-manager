@@ -6,11 +6,13 @@
  * host, a network and a signing key. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
@@ -21,6 +23,7 @@ const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters'
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
 const adapter = readFileSync(ADAPTER_SCRIPT, 'utf8');
+const execFileAsync = promisify(execFile);
 
 /** Every `rsync ...` invocation, each up to its destination line. */
 function rsyncs(): string[] {
@@ -44,7 +47,7 @@ describe('deploy/deploy.sh', () => {
 
   it('binds the staged candidate digest before the installed guard may transition it', () => {
     const digest = script.indexOf('"$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT"');
-    const rename = script.indexOf('mv "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
+    const rename = script.indexOf('mv --no-target-directory "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
     const transition = script.indexOf('"$GUARD_BIN" manager');
 
     assert.notEqual(digest, -1);
@@ -52,6 +55,61 @@ describe('deploy/deploy.sh', () => {
     assert.ok(transition > rename);
     assert.match(script.slice(transition), /--candidate-root "\$CANDIDATE_ROOT"/);
     assert.match(script.slice(transition), /--state-root "\$GUARD_STATE_ROOT"/);
+  });
+
+  it('publishes only one of two candidates that observed the digest path absent', async (t) => {
+    const functions = script.match(
+      /reconcile_existing_candidate\(\) \{[\s\S]*?\n\}\n\npublish_candidate\(\) \{[\s\S]*?\n\}/,
+    )?.[0];
+    assert.ok(functions, 'the production candidate publisher is present');
+    const root = mkdtempSync(join(tmpdir(), 'manager-candidate-publish-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const releases = join(root, 'releases');
+    const first = join(releases, '.incoming-a');
+    const second = join(releases, '.incoming-b');
+    const barrier = join(root, 'barrier');
+    const bin = join(root, 'bin');
+    mkdirSync(first, { recursive: true });
+    mkdirSync(second, { recursive: true });
+    mkdirSync(barrier);
+    mkdirSync(bin);
+    writeFileSync(join(first, 'artifact'), 'same candidate\n');
+    writeFileSync(join(second, 'artifact'), 'same candidate\n');
+    const digest = 'd'.repeat(64);
+    const guard = join(bin, 'guard');
+    writeFileSync(guard, `#!/bin/bash\nprintf '%s\\n' '${digest}'\n`);
+    chmodSync(guard, 0o700);
+    const rename = join(bin, 'rename.mjs');
+    writeFileSync(rename, `import { renameSync } from 'node:fs';\nconst [flag, source, target] = process.argv.slice(2);\nif (flag !== '--no-target-directory') process.exit(2);\nrenameSync(source, target);\n`);
+    const mv = join(bin, 'mv');
+    writeFileSync(mv, `#!/bin/bash
+set -euo pipefail
+touch "\${PUBLISH_BARRIER}/$$"
+while [ "$(find "\${PUBLISH_BARRIER}" -type f | wc -l | tr -d ' ')" -lt 2 ]; do sleep 0.01; done
+exec '${process.execPath}' '${rename}' "$@"
+`);
+    chmodSync(mv, 0o700);
+    const harness = join(root, 'publish.sh');
+    writeFileSync(harness, `#!/bin/bash
+set -euo pipefail
+INCOMING_ROOT="$1"
+RELEASES_ROOT="$2"
+CANDIDATE_DIGEST='${digest}'
+CANDIDATE_ROOT="\${RELEASES_ROOT}/\${CANDIDATE_DIGEST}"
+GUARD_BIN="$3"
+${functions}
+publish_candidate
+`);
+    chmodSync(harness, 0o700);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, PUBLISH_BARRIER: barrier };
+
+    await Promise.all([
+      execFileAsync(harness, [first, releases, guard], { env }),
+      execFileAsync(harness, [second, releases, guard], { env }),
+    ]);
+
+    assert.deepEqual(readdirSync(releases), [digest]);
+    assert.equal(readFileSync(join(releases, digest, 'artifact'), 'utf8'), 'same candidate\n');
   });
 
   it('routes the receipt credential only through the installed guard process environment', () => {
