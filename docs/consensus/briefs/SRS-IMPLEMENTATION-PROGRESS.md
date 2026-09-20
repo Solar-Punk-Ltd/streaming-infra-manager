@@ -1,7 +1,7 @@
 # SRS continuation implementation
 
 Status: active. Isolated implementation authorized. Shared plan registered after owner-relayed coordination.
-Date: 2026-09-20.
+Date: 2026-09-21.
 Coordinator: OpenAI-hosted Astra. Sol implements admin and uploader. Terra implements the first viewer slice.
 
 ## Owner decisions and authorization
@@ -23,17 +23,27 @@ Current proposal: `docs/consensus/SRS-RECONNECT-CONTINUATION-PLAN-v2.md`. Its re
 | Admin foundation | feat/srs-reconnect-continuation | /private/tmp/srs-continuation-20260920-admin | Sol, continuation_admin |
 | Uploader waiting/resume | feat/srs-reconnect-continuation | /private/tmp/srs-continuation-20260920-stack | Sol, continuation_stack |
 | Viewer selection | feat/srs-continuation-viewer | /private/tmp/srs-continuation-20260920-viewer | Terra, continuation_viewer |
-| Manager lifecycle display | feat/srs-continuation-manager | /private/tmp/srs-continuation-20260920-manager-ui | Terra, continuation_viewer, next bounded slice |
+| Manager lifecycle display | feat/srs-continuation-manager | /private/tmp/srs-continuation-20260920-manager-ui | Sol, continuation_manager_finish, after Terra's first checkpoint |
 
 Baselines checked locally and remotely: manager 87673c99, stack 2c4867ae, admin 48848678. Canonical checkouts unchanged.
 
 ## Progress
 
-- R01 source/client correlation, busy-publisher and disconnect probes passed on SRS 6.0.191 for RTMP and SRT, including source plus a transcoded ABR rung. Wire contract integration remains in progress.
-- R02 pure lifecycle invariants committed at 38e9c8c after the red checkpoint 01ac893. Five focused tests passed. Real Postgres red proved the missing lifecycle columns while its legacy control passed. Schema and recording invariants landed at c08d452, schema compatibility at 56d3a1c, and nullable-identity review repairs at f5166b6. Claims, reporting routes and Continue operations are next. Legacy streams remain unenrolled.
-- R03 in-memory waiting/resume foundation landed at 93f7121 after red checkpoint 87c26f3e. Seven focused tests passed. The shared audio timestamp parser prerequisite landed at 4b08614 with 17 parser tests passing. Advancing video/audio timestamps landed at f013234 with ten focused tests passing. Durable admission storage landed at d9f3544 with six focused store tests passing. Startup recovery, SRS integration and durable pending media remain in progress. Metadata durability alone does not preserve queued footage.
-- R06 initial playback-selection fix landed at f750fbc4 with five focused tests and a deliberate helper fault detected. Managed catalogue parsing, playback selection and the first mounted-page browser harness landed at 866c5b7. Focused catalogue/selection tests passed 39 cases. Browser setup corrections and immutable replay wiring are still in progress. No browser acceptance result is claimed yet.
-- Remaining R04/R05/R07/R08/R09/R10/R11 are pending those foundations. No claim of feature completion or runtime acceptance.
+| Task | Current implementation and evidence | Still required |
+| --- | --- | --- |
+| R01 | SRS 6.0.191 source/client, busy-publisher and disconnect probes passed for RTMP and SRT, including one transcoded rung. Shared lookup, claim, report and continuation contracts are recorded | Actual format fingerprint and full media integration |
+| R02 | Lifecycle schema, closed-state SQL guards, claims, ordered reporting, retained replay and catalogue projection are committed. Full database suite passed 94 tests at 16c0b4d. Nine controlled database overlap regressions passed after accde85 | Later exact-candidate checks |
+| R03 | Durable claim attempts, original deadline recovery, source identity and same-uploader reconnect are implemented. a228356 passed 22 focused recovery tests. 3d4f7a5 binds ABR rung callbacks to their original source generation, with 31 focused SRS tests passing | Final R04 integration |
+| R04 | 9c9a80a bounds retained media storage and seals completed checkpoints. Eighteen store tests passed, including crash injection and measured linear fixture growth | Accepted-byte runtime integration, actual format checks, complete finalization and A+B+C continuation |
+| R05 | Owner/internal operation routes and monotonic allocation exist. Nine database races passed. 2269812 and stack 40a4c384 implement separate immediate-empty-predecessor proof | Console controls and runtime preparation integration |
+| R06 | Immutable master/rung selection and explicit later-run switching are implemented. f15945a fixes browser fixture compile boundaries and import sorting | Mounted browser positive/negative proof and real decode remain pending |
+| R07 | Strict stack capability capture and first manager service/UI checkpoint are committed separately | Contract/freshness/polling review repairs and meaningful manager/browser tests |
+| R08 | Release, enrollment and external-guard boundaries are documented | Implementation and incompatible-release refusal proof |
+| R09 | Early engine probes and focused source/database tests exist | Complete isolated dev-Bee media harness and executed V01 to V22 inventory |
+| R10 | Isolated product branches and verification mapping are published as needed | Reviewed companion PRs, exact stack pin and release packet |
+| R11 | Test host access works. Existing disposable Postgres is retained | Separate real OBS/Swarm acceptance and owner-coordinated deployment |
+
+No feature-completion or runtime-acceptance claim is made. Existing live deployments remain unchanged.
 
 Later R06 checkpoint: 05815c23 fixes catalogue type validation, 0871ddb implements captured master/rung replay and run-aware selection, and 0c6c884 extends the mounted-page browser regression. Focused client tests passed 44 cases. Changed-file lint and the fixture module smoke passed. Actual browser RED/GREEN remains pending access to push and dispatch the checks. The viewer worker has moved to the bounded R07 manager display slice in a separate worktree. R04 accepted-media durability is specified in `SRS-ACCEPTED-MEDIA-DURABILITY.md` for the next uploader slice.
 
@@ -76,6 +86,14 @@ Admin f7450f7 fixes the remaining backend lint errors without dropping the lint 
 
 Viewer e96e7d2 fixes the TypeScript narrowing and is pushed for deep run 35520266029. Isolated negative-control commit 438a759 is pushed on `test/srs-continuation-browser-negative` for run 35520264386. It removes only the watch page's replay prop and must never be merged. Both runs are pending. Admin run 35520105015 tested f7450f7 exactly. Its database job passed. The ordinary job found nineteen frontend lint errors, primarily existing test mocks and type assertions. They are assigned as a separate lint repair. Typechecking and unit tests did not run.
 
+Both viewer runs subsequently passed build and lint, then stopped on undeclared browser-fixture Window properties during typechecking. Neither reached its browser assertions. The correction is assigned, including the isolated negative-control branch. This remains setup evidence, not the required red/green behavioral proof.
+
+Latest verification on 2026-09-21: admin df5bee7 passed full lint and typechecking in run 35521391377. Its ordinary suite then failed one existing frontend date expectation because it assumed a different timezone. It passed 128 other frontend tests. This is assigned as a deterministic test repair. The database job result is recorded separately, not inferred from the ordinary job. Full output is `.scratch/admin-df5bee7-box-failed.log`.
+
+Viewer runs 35521109692 and 35521107222 stopped at import sorting after the type declaration repair. Neither reached the browser. Sol corrected the fixture declaration boundary and imports in f15945a, with focused e2e and fixture compilation passing. That exact positive candidate is running as 35521764584. The corresponding isolated negative candidate 7f7c9e2 is running as 35521779446. It still removes only the real watch page's immutable replay binding and is never a merge candidate.
+
+Controlled database overlap tests passed nine cases after accde85. A request that waited on the stream lock had retained a stale joined-row snapshot. The repair locks the stream first, then reads and locks its current run. Cases include different and identical Continue requests, both orderings of preparation versus cancellation and claim versus cancellation, competing claims, and both orderings of old and new reports. Each asserts one authority and retained replay without deadlock or a server error.
+
 Levi explicitly emphasized asynchronous and concurrent operations. The review requires controlled overlapping transactions and delayed callbacks, not only sequential state-transition tests. Admin continuation tests currently prove the sequential flows. The additional overlapping Continue, prepare/cancel, claim/cancel and stale-report checks remain assigned. A discovered terminal-operation problem also needs repair: cancelling or failing preparation must not permanently prevent a later explicit Continue.
 
 The reviewed allocation repair consumes a run identity even when its preparation fails or is cancelled. A fresh request allocates above all previous identities, under the existing stream lock. Repeating an old request still returns its own terminal operation. Cancelling an already prepared but unclaimed run records a verified empty outcome while preserving its predecessor checkpoint and replay. Claim and cancel must take the same lock so a claimed run cannot be described as empty.
@@ -96,6 +114,9 @@ Cross-provider review, OpenAI-hosted Astra. These are implementation findings, n
 | Cancelled or failed preparation prevents a later Continue | P1. Ordinary owner cancellation or preparation failure permanently strands that stream's continuation authorization | Retain every operation identity, allocate a new monotonic run for a new request, and prove cancellation against concurrent claims. This adds a small migration and focused database races while preserving the old replay | Assigned to admin |
 | Delayed claim reply grants a new sixty-second budget | P1. A plausible lost response followed by recovery can admit input after the original attempt expired | Bind the returned claim to its persisted original deadline. A reply at thirty seconds leaves thirty seconds, and a reply after expiry closes before admission. The small repair avoids granting a fresh window after an outage | Assigned to uploader |
 | Delayed ABR rung callback inherits the replacement source identity | P1. A plausible delayed callback during an ordinary reconnect can add old source footage to the replacement recording | Bind the rung's SRS connection to the base generation at admission. A router regression delivers rung A after source B and proves refusal before queue or duplicate-filter mutation. This costs a small connection map and protects cumulative footage | Assigned to uploader |
+| Per-segment records duplicate every prior segment | P1. Ordinary long broadcasts with short segments would retain quadratic history and repeatedly parse it on synchronous admission, risking disk exhaustion and blocked ingest | Use bounded per-segment placement records and a recoverable run index/checkpoint. Prove linear retained-byte and read-operation growth with a counted fixture. The localized store repair avoids paying for full histories on every segment | Assigned to uploader before R04 integration |
+| First manager display does not honor the frozen wire and freshness contract | P2. Normal polling can show unavailable for valid responses or replace Closed with a delayed Waiting result | Repair the field mapping, per-request ordering and clock-independent observation age. Use the uploader's existing Node runtime for its private loopback read. Focused parser, container and delayed-poll tests cost a bounded UI/service change and avoid misleading operators | Assigned to manager worker |
+| Request logging includes private recovery-query identity | P1. Every ordinary recovery query now carries claim identity, while the logger writes the full original URL | Log the path without query parameters and prove sentinel private values are absent. This small middleware regression avoids retaining private identity in logs | Assigned to admin |
 
 The viewer findings are assigned to continuation_viewer and remain open until their focused checks and the browser run prove the repairs. The durable pre-claim journal, report outbox and accepted-media spool are required implementation boundaries, not completed evidence.
 

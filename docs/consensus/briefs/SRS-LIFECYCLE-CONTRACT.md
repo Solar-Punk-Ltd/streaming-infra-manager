@@ -52,6 +52,10 @@ Operation states are pending, ready, failed, cancelled and claimed. There is at 
 
 A durably verified empty closed run may also be continued with empty history. Empty means no media was accepted. Failed uploads of accepted media never qualify. The closed report retains its private checkpoint UUID and explicit empty outcome without fabricating a completed recording. An empty continuation preserves any earlier completed replay.
 
+Assigned-uploader operation responses may include `previousEmptyOutcome: { runNumber, checkpointReference, acceptedMediaCount: 0 }`. This private proof names the immediate `previousRunNumber`, taken from that immutable closed run only when its reason is empty and its opaque checkpoint is present. The uploader verifies it against its own sealed zero-accepted checkpoint. A missing retained recording is never sufficient proof of emptiness. `retainedRecording` independently names the latest completed replay, which can be older than the immediate empty predecessor. Owner operation responses and public catalogue entries omit the private empty proof.
+
+Failed or cancelled preparation consumes its allocated run identity. A fresh owner request allocates above every prior identity under the stream lock. The original request ID continues to reconcile its original terminal outcome. Cancelling a prepared run proves that it is still unclaimed under that same lock before recording an empty outcome. A claimed run cannot be cancelled as empty.
+
 ## Completed replay and private checkpoint
 
 The internal snapshot has a run number, an opaque checkpoint UUID, an exact master reference and an exact reference for every expected rendition. The UUID names a record in the assigned uploader's durable checkpoint store. It is neither a host path nor a public catalogue value. Loss of that record blocks continuation until it can be restored or safely adopted from verified recording data.
