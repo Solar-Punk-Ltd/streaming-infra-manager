@@ -159,11 +159,16 @@ export class InstalledReleaseGuardRunner {
       });
       current.emitter.on('stdout', (chunk: string) => emitter.emit('stdout', chunk));
       current.emitter.on('stderr', (chunk: string) => emitter.emit('stderr', chunk));
-      current.emitter.once('error', (error: Error) => {
-        if (!cancelled) finish('error', error);
-      });
+      current.emitter.once('error', (error: Error) => finish('error', error));
       current.emitter.once('done', (outcome: { code: number; signal: NodeJS.Signals | null }) => {
-        if (ended || cancelled) return;
+        if (ended) return;
+        if (cancelled) {
+          finish('done', {
+            code: outcome.code === 0 && outcome.signal === null ? -1 : outcome.code,
+            signal: outcome.signal,
+          });
+          return;
+        }
         if (outcome.code !== 0 || outcome.signal) finish('done', outcome);
         else startNext();
       });
@@ -175,7 +180,6 @@ export class InstalledReleaseGuardRunner {
         if (ended || cancelled) return;
         cancelled = true;
         current?.kill();
-        finish('done', { code: -1, signal: 'SIGTERM' });
       },
     };
   }

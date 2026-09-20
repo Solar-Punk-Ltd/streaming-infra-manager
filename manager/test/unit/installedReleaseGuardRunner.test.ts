@@ -197,11 +197,12 @@ describe('installed release guard runner', () => {
     handle.emitter.on('done', (outcome) => outcomes.push(outcome));
 
     handle.kill();
+    assert.deepEqual(outcomes, [], 'cancellation stays unresolved until the child actually closes');
     child.handles[0]!.emitter.emit('done', { code: 0, signal: null });
 
     assert.equal(child.handles[0]!.killed, 1);
     assert.equal(child.handles.length, 1);
-    assert.deepEqual(outcomes, [{ code: -1, signal: 'SIGTERM' }]);
+    assert.deepEqual(outcomes, [{ code: -1, signal: null }]);
   });
 
   it('does not start a later guarded role after an error and a late done event', async () => {
