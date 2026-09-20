@@ -31,7 +31,7 @@ const V3_CONTRACT: StackContract = {
   maxSlot: 99,
   requiredSecrets: ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'],
   engineDefaults: { HLS_FRAGMENT: '0.5' },
-  features: { srsApiPort: true, chequebookGate: true, sharedImageTags: true },
+  features: { srsApiPort: true, chequebookGate: true, sharedImageTags: true, srsLifecycleV1: false },
   chequebookMinBzz: '0.5',
   engineConfig: { srs: true, ome: true },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
@@ -50,7 +50,7 @@ const V2_CONTRACT: StackContract = {
   maxSlot: 999,
   requiredSecrets: [],
   engineDefaults: { HLS_FRAGMENT: '1.5' },
-  features: { srsApiPort: false, chequebookGate: false, sharedImageTags: true },
+  features: { srsApiPort: false, chequebookGate: false, sharedImageTags: true, srsLifecycleV1: false },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: 'ossrs/srs:6', ome: 'airensoft/ovenmediaengine:latest' },
@@ -167,6 +167,15 @@ describe('describeStackContract', () => {
 });
 
 describe('parseStackContract', () => {
+  it('keeps version-one SRS lifecycle capability evidence and defaults old contracts to false', () => {
+    const capable = JSON.parse(JSON.stringify(V3_CONTRACT)) as Record<string, unknown>;
+    const features = capable.features as Record<string, unknown>;
+    features.srsLifecycleV1 = true;
+
+    assert.equal(parseStackContract(capable)?.features.srsLifecycleV1, true);
+    assert.equal(parseStackContract(V3_CONTRACT)?.features.srsLifecycleV1, false);
+  });
+
   it('reads back what it stored', () => {
     const stored: unknown = JSON.parse(JSON.stringify(V3_CONTRACT));
     assert.deepEqual(parseStackContract(stored), V3_CONTRACT);

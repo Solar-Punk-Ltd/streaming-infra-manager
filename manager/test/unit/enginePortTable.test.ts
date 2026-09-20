@@ -9,6 +9,10 @@ import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 const contract = readStackContract(fileURLToPath(new URL('../fixtures/stack/v3/', import.meta.url)));
 
 describe('effective OME port ownership', () => {
+  it('reads version-one lifecycle capability only from the immutable stack evidence', () => {
+    assert.equal(contract.features.srsLifecycleV1, true);
+  });
+
   it('reads the two actual Compose aliases and preserves them through stored-contract parsing', () => {
     assert.deepEqual(contract.portAliases?.map(port => [port.name, port.service, port.protocol]).sort(), [
       ['OME_HLS_PORT', 'ome', 'tcp'], ['OME_SRT_PORT', 'ome', 'udp'],

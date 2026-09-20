@@ -59,6 +59,8 @@ export interface StackContractFeatures {
    * be read, because unknown must not run concurrently.
    */
   sharedImageTags: boolean;
+  /** The stack captures version-one SRS lifecycle observations for its manager. */
+  srsLifecycleV1: boolean;
 }
 
 /** Per engine: whether the version runs it on a config file of the operator's own when asked. */
@@ -310,6 +312,7 @@ export function parseStackContract(value: unknown): StackContract | null {
       // Absent from a contract an older manager stored, which was never
       // classified, and unknown must not run concurrently.
       sharedImageTags: features.sharedImageTags !== false,
+      srsLifecycleV1: features.srsLifecycleV1 === true,
     },
     chequebookMinBzz:
       typeof value.chequebookMinBzz === 'string' ? value.chequebookMinBzz : null,

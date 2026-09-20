@@ -39,6 +39,7 @@ const SLOT_CAP_RE = /--portSlot=<N>\s*\(1-(\d+)\)/;
 const LIB_SCRIPT = join('deploy', 'scripts', '_lib.sh');
 const DEPLOY_SCRIPT = join('deploy', 'scripts', 'deploy.sh');
 const DEPLOY_COMPOSE = join('deploy', 'docker-compose.yml');
+const CAPABILITIES_FILE = join('deploy', 'capabilities.json');
 
 /**
  * The compose override a version ships when its engine can run on a config
@@ -117,6 +118,7 @@ export function readStackContract(root: string): StackContract {
       srsApiPort: ports.some((port) => port.name === SRS_API_PORT_VAR),
       chequebookGate: chequebookMinBzz !== null,
       sharedImageTags: sharedTags.shared,
+      srsLifecycleV1: readsSrsLifecycleV1(root),
     },
     chequebookMinBzz,
     engineConfig: readEngineConfigSupport(root),
@@ -176,6 +178,29 @@ function readRequired(root: string, relative: string): string {
 function readOptional(root: string, relative: string): string {
   const path = join(root, relative);
   return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
+/**
+ * A capability is enabled only by the versioned stack evidence that names this
+ * protocol. An absent, malformed, or newer document remains unsupported.
+ */
+function readsSrsLifecycleV1(root: string): boolean {
+  const raw = readOptional(root, CAPABILITIES_FILE);
+  if (!raw) return false;
+
+  try {
+    const evidence: unknown = JSON.parse(raw);
+    if (!isRecord(evidence) || evidence.schemaVersion !== 1 || !isRecord(evidence.capabilities)) {
+      return false;
+    }
+    return evidence.capabilities.srsLifecycle === 1;
+  } catch {
+    return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 // --------------------------------------------------------------- the ports
