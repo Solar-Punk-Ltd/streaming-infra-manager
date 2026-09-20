@@ -45,6 +45,8 @@ export interface ComposeUpgradeSettings {
   firstUse: boolean;
   /** The database volume of this project, without the project name Compose prefixes it with. */
   postgresVolume: string;
+  /** Exact installation-bound database volume name, when a release guard supplied one. */
+  postgresVolumeName?: string;
   /** Where the new api answers inside the project network. */
   apiHealthUrl: string;
   timeouts?: ComposeUpgradeTimeouts;
@@ -337,7 +339,7 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
    * is how a database gets treated as new.
    */
   private async hasPostgresVolume(project: string): Promise<boolean> {
-    const name = `${project}_${this.settings.postgresVolume}`;
+    const name = this.postgresVolumeName(project);
     const argv = ['docker', 'volume', 'ls', '-q', '--filter', `name=^${name}$`];
     const result = await this.run(argv, { timeoutMs: this.timeouts.command });
     if (result.code !== 0) {
@@ -363,12 +365,16 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
     if (!hasVolume) {
       const api = await this.serviceContainerIds(project, API_SERVICE);
       if (api.length > 0) {
-        throw new Error(`This host has an ${API_SERVICE} container but no ${project}_${this.settings.postgresVolume} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
+        throw new Error(`This host has an ${API_SERVICE} container but no ${this.postgresVolumeName(project)} volume, so its database was removed under a manager that is still installed. Look at the host before deploying again.`);
       }
     }
     await this.compose(project, ['up', '-d', '--no-build', POSTGRES_SERVICE]);
     await this.waitForHealthyPostgres(project);
     return this.settings.firstUse || !hasVolume;
+  }
+
+  private postgresVolumeName(project: string): string {
+    return this.settings.postgresVolumeName ?? `${project}_${this.settings.postgresVolume}`;
   }
 
   private async waitForHealthyPostgres(project: string): Promise<void> {

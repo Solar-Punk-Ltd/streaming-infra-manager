@@ -14,9 +14,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { DEFAULT_BUNDLED_BUILD_MS, type ComposeUpgradeSettings } from '../../../src/cli/ComposeUpgradeOperations.js';
+import {
+  ComposeUpgradeOperations,
+  DEFAULT_BUNDLED_BUILD_MS,
+  type ComposeUpgradeSettings,
+} from '../../../src/cli/ComposeUpgradeOperations.js';
+import type { CommandRunner } from '../../../src/cli/commandRunner.js';
 import { processStreams } from '../../../src/cli/commandStreams.js';
 import { MANAGER_UPGRADE_USAGE, runManagerUpgradeCommand } from '../../../src/cli/managerUpgrade.js';
+import type { ManagerUpgradeDatabase } from '../../../src/cli/managerUpgradeDatabase.js';
 import { Logger } from '../../../src/domain/Logger.js';
 import { MANAGER_POSTGRES_VOLUME } from '../../../src/domain/versions/managerProject.js';
 import type { BundledBuildOutcome, ManagerUpgradeOperations } from '../../../src/domain/versions/ManagerUpgrade.js';
@@ -302,15 +308,86 @@ describe('manager:upgrade', () => {
     const run = await upgrade(argvWith({
       '--compose-file': composeFile,
       '--compose-override': composeOverride,
+      '--postgres-volume-name': 'manager-isolated-pg',
     }, ['--public-edge']));
 
     assert.equal(run.error, null);
     assert.deepEqual(settings, {
       versionsRoot, composeFile, composeOverride, bundledStackRoot: BUNDLED_STACK_ROOT, publicEdge: true, firstUse: false,
       postgresVolume: MANAGER_POSTGRES_VOLUME,
+      postgresVolumeName: 'manager-isolated-pg',
       apiHealthUrl: `http://api:${config.port}/health`,
       timeouts: { bundledBuild: Number(BUNDLED_TIMEOUT) * 1000 },
     });
+  });
+
+  it('refuses an unsafe exact postgres volume before opening the host', async () => {
+    const run = await upgrade(argvWith({ '--postgres-volume-name': 'manager/pg' }));
+
+    assert.match(run.error?.message ?? '', /--postgres-volume-name/);
+    assert.equal(opened, 0);
+  });
+
+  it('runs the real coordinator against the exact isolated volume and inherited layout', async (t) => {
+    const expected = {
+      MANAGER_ROOT: mutableRoot,
+      POSTGRES_PORT: '25432',
+      WEB_PORT: '28080',
+      BEE_DATA_ROOT: join(root, 'isolation/data'),
+      STACK_VERSIONS_ROOT: join(root, 'isolation/versions'),
+      MANAGER_SSH_DIR: join(root, 'isolation/ssh'),
+    };
+    const previous = Object.fromEntries(Object.keys(expected).map((name) => [name, process.env[name]]));
+    Object.assign(process.env, expected);
+    t.after(() => {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    const calls: string[][] = [];
+    let postgresListings = 0;
+    const runner: CommandRunner = async (argv) => {
+      calls.push([...argv]);
+      const text = argv.join(' ');
+      if (text.includes('ps -a --format json postgres')) {
+        postgresListings += 1;
+        return {
+          code: 0,
+          stdout: postgresListings === 1 ? '' : '{"State":"running","Health":"healthy"}\n',
+          stderr: '',
+          killed: false,
+          signal: null,
+        };
+      }
+      if (text.includes('docker volume ls')) {
+        return { code: 0, stdout: 'manager-isolated-pg\n', stderr: '', killed: false, signal: null };
+      }
+      return { code: 0, stdout: '', stderr: '', killed: false, signal: null };
+    };
+    const database: ManagerUpgradeDatabase = {
+      readPublication: async () => { throw new Error('stop after exact-volume preflight'); },
+      migrate: async () => {},
+      readBundledVersion: async () => null,
+      close: async () => {},
+    };
+    await assert.rejects(
+      runManagerUpgradeCommand(
+        argvWith({ '--postgres-volume-name': 'manager-isolated-pg' }),
+        { out: () => {}, err: () => {} },
+        {
+          versionsRoot,
+          operations: (given) => ({
+            operations: new ComposeUpgradeOperations(given, database, runner),
+            close: async () => {},
+          }),
+        },
+      ),
+      /stop after exact-volume preflight/,
+    );
+    assert.ok(calls.some((call) => call.includes('name=^manager-isolated-pg$')));
+    assert.equal(calls.some((call) => call.includes('name=^manager_manager-pg$')), false);
+    for (const [name, value] of Object.entries(expected)) assert.equal(process.env[name], value);
   });
 
   it('refuses a relative image-pinning compose override before opening the host', async () => {
