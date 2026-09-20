@@ -46,6 +46,7 @@ if (flag !== '--state-root' || !stateRoot) process.exit(2);
 if (command === 'install') {
   mkdirSync(stateRoot, { recursive: true });
   writeFileSync(stateRoot + '/installed.json', '{}');
+  writeFileSync(stateRoot + '/install-arguments.json', JSON.stringify(process.argv.slice(2)));
 } else if (command === 'status') {
   process.stdout.write('legacy\\n');
 } else process.exit(2);
@@ -59,13 +60,27 @@ if (command === 'install') {
       '--manager-web-port', '18080',
       '--uploader-profile', 'managed',
       '--uploader-port-slot', '1',
-      '--uploader-services', 'bee-uploader,srs,stream-uploader',
+      '--uploader-services', 'bee-gateway,bee-uploader,bee-uploader-1080p,bee-uploader-480p,bee-uploader-720p,client,srs,stream-uploader',
       '--viewer-profile', 'viewer',
       '--viewer-port-slot', '2',
       '--viewer-services', 'bee-gateway,client',
     ], { env: { ...process.env, HOME: home } });
 
     assert.match(result.stdout, /installed in legacy mode/);
+    const installedArguments = JSON.parse(
+      await readFile(join(home, '.local/state/streaming-release-guard/install-arguments.json'), 'utf8'),
+    );
+    assert.deepEqual(installedArguments.slice(-2), [
+      '--viewer-services',
+      'bee-gateway,client',
+    ]);
+    assert.deepEqual(installedArguments.slice(
+      installedArguments.indexOf('--uploader-services'),
+      installedArguments.indexOf('--uploader-services') + 2,
+    ), [
+      '--uploader-services',
+      'bee-gateway,bee-uploader,bee-uploader-1080p,bee-uploader-480p,bee-uploader-720p,client,srs,stream-uploader',
+    ]);
     const codeRoot = join(home, '.local/lib/streaming-release-guard/current');
     for (const output of OUTPUTS) assert.equal((await lstat(join(codeRoot, output))).isFile(), true);
     const launcher = await readFile(join(home, '.local/bin/streaming-release-guard'), 'utf8');

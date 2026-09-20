@@ -610,7 +610,16 @@ function validateDeploymentTargets(raw: unknown): {
       throw new Error('release guard deployment targets are invalid');
     }
     if (role === 'uploader') {
-      const allowed = new Set(['bee-gateway', 'bee-uploader', 'client', 'srs', 'stream-uploader']);
+      const allowed = new Set([
+        'bee-gateway',
+        'bee-uploader',
+        'bee-uploader-1080p',
+        'bee-uploader-480p',
+        'bee-uploader-720p',
+        'client',
+        'srs',
+        'stream-uploader',
+      ]);
       if (
         services.some((service) => !allowed.has(service)) ||
         !services.includes('srs') ||

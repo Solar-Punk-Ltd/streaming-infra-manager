@@ -51,7 +51,16 @@ const UPLOADER_TARGET = {
   profile: 'managed',
   portSlot: 1,
   target: 'local' as const,
-  services: ['bee-uploader', 'srs', 'stream-uploader'],
+  services: [
+    'bee-gateway',
+    'bee-uploader',
+    'bee-uploader-1080p',
+    'bee-uploader-480p',
+    'bee-uploader-720p',
+    'client',
+    'srs',
+    'stream-uploader',
+  ],
 };
 const VIEWER_TARGET = {
   profile: 'viewer',
