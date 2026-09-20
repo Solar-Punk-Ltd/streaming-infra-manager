@@ -34,6 +34,8 @@ All routes below retain the existing internal bearer-token authentication. Token
 
 Claims use an expected revision and request ID. Concurrent different claims have one winner. An exact retry cannot return a cached open permission after the run closed. It returns the current result or a closed refusal.
 
+Negotiated managed lookup and every managed claim/recovery view include a private top-level `expectedRenditions` array. Each entry has `name`, `topic`, `width`, `height`, `bandwidth` and `avgBandwidth`. Entries have unique names and topics and are sorted lexically by name. An empty array represents passthrough single video or audio. These fields come from the immutable run rows captured at enrollment, never the latest capability heartbeat. The uploader compares the full authoritative array to its configured ladder before checkpoint creation and admission, then persists that exact array. A mismatch refuses admission. Negotiated legacy responses omit it.
+
 The uploader persists the claim request identity and original admission deadline before sending the claim. If the server commits but its response is lost, a fresh process retries that exact request. It does not mint a new request ID or begin a fresh sixty-second window. A report outbox likewise retains the exact sequence and canonical payload across retries. Network recovery does not change the media admission deadline.
 
 Reports use a strictly increasing sequence within a claim. An identical sequence and payload is idempotent. A lower sequence is stale. Reusing a sequence with different data is a conflict. An old run or claim cannot mutate the current run. Retrying a report after a catalogue-write failure republishes the committed state without applying the transition twice.
