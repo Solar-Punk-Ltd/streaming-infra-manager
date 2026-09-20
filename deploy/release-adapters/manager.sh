@@ -206,6 +206,9 @@ services:
   web:
     image: ${web_image}
     pull_policy: never
+volumes:
+  manager-pg:
+    name: ${postgres_volume_name}
 EOF
         manager_domain="$(
             sed -n 's/^MANAGER_DOMAIN=//p' "${manager_root}/.env" 2>/dev/null |
@@ -256,7 +259,10 @@ EOF
     verify)
         api_container="$(compose ps -q api)"
         web_container="$(compose ps -q web)"
-        if ! [[ "$api_container" =~ ^[A-Za-z0-9_.:-]+$ ]] || ! [[ "$web_container" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+        postgres_container="$(compose ps -q postgres)"
+        if ! [[ "$api_container" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
+            ! [[ "$web_container" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
+            ! [[ "$postgres_container" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
             echo "manager release adapter could not identify one running container per service" >&2
             exit 1
         fi
@@ -269,6 +275,11 @@ EOF
         fi
         api_image="$(docker inspect --format '{{.Image}}' "$api_container")"
         web_image="$(docker inspect --format '{{.Image}}' "$web_container")"
+        postgres_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$postgres_container")"
+        if [ "$postgres_mount" != "$postgres_volume_name" ]; then
+            echo "manager release adapter did not verify the bound database volume" >&2
+            exit 1
+        fi
         write_images "$api_image" "$web_image"
         ;;
 esac
