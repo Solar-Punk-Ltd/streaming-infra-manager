@@ -42,6 +42,27 @@ const MANAGER_TARGET = {
   postgresPort: 15_432,
   webPort: 18_080,
 };
+
+async function testGuardInstallation(root: string, stateRoot: string) {
+  const codeRoot = join(root, 'installed-guard/lib/streaming-release-guard/current');
+  await mkdir(codeRoot, { recursive: true });
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(
+    join(codeRoot, 'container-binding.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      stateRoot,
+    }),
+  );
+  return { codeRoot, stateRoot };
+}
+
+async function testManagerVerifyWork(root: string) {
+  const workRoot = join(root, 'adapter-work');
+  await mkdir(workRoot, { recursive: true });
+  await writeFile(join(workRoot, 'manager-image-override.yml'), 'services: {}\n');
+  return workRoot;
+}
 const ISOLATED_MANAGER_TARGET = {
   mode: 'isolated' as const,
   projectName: 'manager-isolated',
@@ -148,7 +169,7 @@ async function waitForLockFixture(child: ChildProcessByStdio<null, Readable, Rea
 }
 
 async function temporaryRoot(t: { after(callback: () => Promise<void>): void }) {
-  const root = await mkdtemp(join(tmpdir(), 'release-guard-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'release-guard-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -1408,12 +1429,16 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const stateRoot = join(root, 'state');
     await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const guardInstallation = await testGuardInstallation(root, stateRoot);
 
     const result = await runReleaseTransition({
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'manager', id: 'default' },
-      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
+      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }),
     });
 
     assert.deepEqual(result.receipt.artifact.images, [
@@ -1488,9 +1513,14 @@ fi
     const oldPath = process.env.PATH;
     process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
     t.after(() => { process.env.PATH = oldPath; });
+    const guardInstallation = await testGuardInstallation(root, join(root, 'state'));
+    const workRoot = await testManagerVerifyWork(root);
 
     await assert.rejects(
-      new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }).verify({
+      new FixedReleaseAdapter('manager', workRoot, {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }).verify({
         candidateRoot: await realpath(candidate),
         treeDigest: 'a'.repeat(64),
         slot: { role: 'manager', id: 'default' },
@@ -1542,6 +1572,7 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const edgeState = join(edgeRoot, 'state');
     await installReleaseGuard(edgeState, INSTALLATION_ID);
+    const edgeGuard = await testGuardInstallation(edgeRoot, edgeState);
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(edgeState),
@@ -1549,6 +1580,7 @@ fi
         slot: { role: 'manager', id: 'default' },
         adapter: new FixedReleaseAdapter('manager', join(edgeRoot, 'adapter-work'), {
           target: ISOLATED_MANAGER_TARGET,
+          guardInstallation: edgeGuard,
         }),
       }),
       /release adapter transition failed/,
@@ -1575,6 +1607,7 @@ fi
     };
     const occupiedState = join(occupiedRoot, 'state');
     await installReleaseGuard(occupiedState, INSTALLATION_ID);
+    const occupiedGuard = await testGuardInstallation(occupiedRoot, occupiedState);
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(occupiedState),
@@ -1582,6 +1615,7 @@ fi
         slot: { role: 'manager', id: 'default' },
         adapter: new FixedReleaseAdapter('manager', join(occupiedRoot, 'adapter-work'), {
           target: occupiedTarget,
+          guardInstallation: occupiedGuard,
         }),
       }),
       /release adapter transition failed/,
@@ -1629,9 +1663,14 @@ fi
     const oldPath = process.env.PATH;
     process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
     t.after(() => { process.env.PATH = oldPath; });
+    const guardInstallation = await testGuardInstallation(root, join(root, 'state'));
+    const workRoot = await testManagerVerifyWork(root);
 
     await assert.rejects(
-      new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }).verify({
+      new FixedReleaseAdapter('manager', workRoot, {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }).verify({
         candidateRoot: await realpath(candidate),
         treeDigest: 'a'.repeat(64),
         slot: { role: 'manager', id: 'default' },
@@ -1685,13 +1724,17 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const stateRoot = join(root, 'state');
     await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const guardInstallation = await testGuardInstallation(root, stateRoot);
 
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(stateRoot),
         candidateRoot: candidate,
         slot: { role: 'manager', id: 'default' },
-        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
+        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), {
+          target: MANAGER_TARGET,
+          guardInstallation,
+        }),
       }),
       /release adapter transition failed with exit 42/,
     );
