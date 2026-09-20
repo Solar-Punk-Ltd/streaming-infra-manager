@@ -54,6 +54,7 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
             const plan = planIndex === -1 ? undefined : plans.splice(planIndex, 1)[0];
             const request = {
               name,
+              plannedState: plan?.body?.streams?.[0]?.state ?? null,
               closed: false,
               reply() {
                 if (res.writableEnded || res.destroyed || !plan) return;
@@ -94,7 +95,15 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
     1_500,
   );
   assert.match(await body(), /Admin console link is not configured/);
-  await waitFor(body, (text) => text.includes('Finishing recording'), 'later closed state');
+  await waitFor(
+    body,
+    (text) => text.includes('Finishing recording'),
+    'later closed state',
+  ).catch((error) => {
+    throw new Error(
+      `${error.message}. Requests: ${JSON.stringify(requests.map(({ name, plannedState, closed }) => ({ name, plannedState, closed })))}. Browser errors: ${JSON.stringify(browser.errors)}.`,
+    );
+  });
   const slowWaiting = requests[1];
   assert.ok(slowWaiting, 'the earlier waiting request is still held');
   slowWaiting.reply();
@@ -111,6 +120,11 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
     body,
     (text) => text.includes('Broadcast status unavailable') && !text.includes('Finishing recording'),
     'old deployment state to disappear before the new response',
+  );
+  await waitFor(
+    () => requests.filter((request) => request.name === 'beta').length,
+    (count) => count === 1,
+    'the held beta request',
   );
   const oldName = requests.find((request) => request.name === 'beta');
   assert.ok(oldName, 'the beta request is held');
@@ -169,4 +183,22 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
   await evaluate('window.lifecycleTest.unmount()');
   await waitFor(body, (text) => text.includes('Lifecycle test unmounted'), 'hook component to unmount');
   await waitFor(() => unmountedRequest.closed, Boolean, 'unmounted request to be aborted');
+
+  enqueue('zeta', reading('live'), true);
+  await evaluate('window.lifecycleTest.setPollingPolicy(1000, 400)');
+  await select('zeta', 'zeta-1');
+  await waitFor(
+    () => requests.filter((request) => request.name === 'zeta').length,
+    (count) => count === 1,
+    'delayed latest response',
+  );
+  const delayedLatest = requests.find((request) => request.name === 'zeta');
+  await delay(450);
+  delayedLatest.reply();
+  await waitFor(
+    body,
+    (text) => text.includes('Broadcast status unavailable'),
+    'response older than the active freshness window to remain unavailable',
+  );
+  assert.doesNotMatch(await body(), /\bLive\b/);
 });

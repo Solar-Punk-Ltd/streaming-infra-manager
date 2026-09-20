@@ -1,5 +1,6 @@
 import {
   STREAM_UPLOADER_SERVICE,
+  UPLOADER_LIFECYCLE_STALE_AFTER_MS,
   type UploaderLifecycleReading,
   type UploaderLifecycleState,
   type UploaderLifecycleStream,
@@ -29,7 +30,6 @@ const PERMISSION_BY_STATE: Record<UploaderLifecycleState, string> = {
   closed: 'closed',
   vod: 'closed',
 };
-const STALE_AFTER_MS = 30_000;
 const MAX_STREAMS = 100;
 const MAX_STREAM_ID_LENGTH = 256;
 const MAX_TIMESTAMP_LENGTH = 64;
@@ -115,7 +115,12 @@ function parseStream(
   const lastObservedAt = Date.parse(raw.lastObservedAt);
   const initialAgeMs = observedAt - lastObservedAt;
   if (initialAgeMs < 0) return null;
-  if (ACTIVE_STATES.has(state) && initialAgeMs > STALE_AFTER_MS) return null;
+  if (
+    ACTIVE_STATES.has(state) &&
+    initialAgeMs > UPLOADER_LIFECYCLE_STALE_AFTER_MS
+  ) {
+    return null;
+  }
   return {
     adminId: raw.adminStreamId,
     runNumber: Number(raw.runNumber),

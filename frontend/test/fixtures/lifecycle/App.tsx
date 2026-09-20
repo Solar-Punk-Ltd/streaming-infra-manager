@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
 
 import { LifecycleCard } from '../../../src/deployments/LifecycleCard';
-import {
-  type UploaderLifecyclePollingPolicy,
-  useUploaderLifecycle,
-} from '../../../src/deployments/useUploaderLifecycle';
+import { useUploaderLifecycle } from '../../../src/deployments/useUploaderLifecycle';
 import type { Profile } from '../../../src/types';
 
-const POLLING_POLICY: UploaderLifecyclePollingPolicy = {
+const DEFAULT_POLLING_POLICY = {
   pollEveryMs: 100,
   staleAfterMs: 400,
 };
@@ -41,6 +38,7 @@ function profile(name: string, instanceId: string): Profile {
 
 interface LifecycleTestControl {
   select(name: string, instanceId: string): void;
+  setPollingPolicy(pollEveryMs: number, staleAfterMs: number): void;
   setAdminConsoleUrl(value: string | null): void;
   unmount(): void;
 }
@@ -51,11 +49,12 @@ declare global {
   }
 }
 
-function Reading({ selected, adminConsoleUrl }: {
+function Reading({ selected, adminConsoleUrl, pollingPolicy }: {
   selected: Profile;
   adminConsoleUrl: string | null;
+  pollingPolicy: { pollEveryMs: number; staleAfterMs: number };
 }) {
-  const reading = useUploaderLifecycle(selected, true, POLLING_POLICY);
+  const reading = useUploaderLifecycle(selected, true, pollingPolicy);
   return (
     <LifecycleCard
       reading={reading}
@@ -68,12 +67,16 @@ export function App() {
   const [selected, setSelected] = useState(() => profile('alpha', 'alpha-1'));
   const [adminConsoleUrl, setAdminConsoleUrl] = useState<string | null>(null);
   const [mounted, setMounted] = useState(true);
+  const [pollingPolicy, setPollingPolicy] = useState(DEFAULT_POLLING_POLICY);
 
   useEffect(() => {
     window.lifecycleTest = {
       select(name, instanceId) {
         setSelected(profile(name, instanceId));
         setMounted(true);
+      },
+      setPollingPolicy(pollEveryMs, staleAfterMs) {
+        setPollingPolicy({ pollEveryMs, staleAfterMs });
       },
       setAdminConsoleUrl,
       unmount() {
@@ -86,7 +89,11 @@ export function App() {
   }, []);
 
   return mounted ? (
-    <Reading selected={selected} adminConsoleUrl={adminConsoleUrl} />
+    <Reading
+      selected={selected}
+      adminConsoleUrl={adminConsoleUrl}
+      pollingPolicy={pollingPolicy}
+    />
   ) : (
     <p>Lifecycle test unmounted.</p>
   );
