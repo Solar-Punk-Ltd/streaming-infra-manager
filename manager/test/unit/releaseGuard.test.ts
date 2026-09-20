@@ -1292,6 +1292,32 @@ printf '%s\\n' '{"schemaVersion":1}' > "$5"
     });
   });
 
+  it('refuses an admin preflight that does not echo the guard-bound runtime assignment', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'admin');
+    await capableCandidate(candidate, 'admin');
+    const adapterPath = join(candidate, 'web2-admin/backend/release-adapter.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' '{"schemaVersion":1,"runtime":{"managedLifecycleVersion":1,"uploaderId":"wrong"}}' > "$5"
+`);
+    await chmod(adapterPath, 0o700);
+
+    const adapter = new FixedReleaseAdapter('admin', join(root, 'work'), {
+      target: MANAGER_TARGET,
+      runtime: { managedLifecycleVersion: 1, uploaderId: UPLOADER_ID },
+    });
+    await assert.rejects(
+      adapter.preflight({
+        candidateRoot: candidate,
+        treeDigest: 'a'.repeat(64),
+        slot: { role: 'admin', id: 'default' },
+      }),
+      /admin runtime assignment/,
+    );
+  });
+
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
@@ -1852,6 +1878,17 @@ esac
         '--services', 'srs,stream-uploader',
       ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
       /argument --profile is not supported/,
+    );
+    await assert.rejects(
+      runReleaseGuardCli([
+        'admin',
+        '--state-root', '/tmp/state',
+        '--candidate-root', '/tmp/candidate',
+        '--work-root', '/tmp/work',
+        '--admin-url', 'http://admin',
+        '--managed-lifecycle-version', '1',
+      ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
+      /managed runtime assignment is invalid/,
     );
   });
 

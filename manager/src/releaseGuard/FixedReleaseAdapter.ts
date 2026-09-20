@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { canonicalJson } from './ReleaseGuardStore.js';
 import type {
+  AdminReleaseRuntime,
   ReleaseAdapter,
   ReleaseBuildPlan,
   ReleaseImageSet,
@@ -28,11 +29,13 @@ export interface FixedAdapterArguments {
   target?: ComposeReleaseTarget | ManagerReleaseTarget | StackReleaseTarget;
   fixtureNetwork?: FixtureNetworkBinding;
   operation?: StackReleaseOperation;
+  runtime?: AdminReleaseRuntime;
 }
 
 interface ResolvedAdapterContext {
-  fixtureNetwork: ResolvedFixtureNetworkBinding;
+  fixtureNetwork?: ResolvedFixtureNetworkBinding;
   fixtureVolumeNames?: string[];
+  runtime?: AdminReleaseRuntime;
 }
 
 /** Runs only the fixed adapter belonging to the selected component role. */
@@ -61,6 +64,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       this.args.fixtureNetwork,
       this.args.target,
       this.args.operation,
+      this.args.runtime,
     );
     return this.resolvedContext ?? null;
   }
@@ -154,12 +158,14 @@ function validateRuntimePreflight(
   fixtureNetwork: FixtureNetworkBinding | undefined,
   target: FixedAdapterArguments['target'],
   operation: StackReleaseOperation | undefined,
+  runtime: AdminReleaseRuntime | undefined,
 ): ResolvedAdapterContext | undefined {
   const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
   const expectsFixtureVolumes = role === 'uploader' && fixtureNetwork !== undefined;
-  const expectedKeys = fixtureNetwork
-    ? ['fixtureNetworkId', ...(expectsFixtureVolumes ? ['fixtureVolumeNames'] : [])]
-    : [];
+  const expectedKeys = [
+    ...(fixtureNetwork ? ['fixtureNetworkId', ...(expectsFixtureVolumes ? ['fixtureVolumeNames'] : [])] : []),
+    ...(runtime ? ['runtime'] : []),
+  ];
   if (role !== 'uploader') {
     if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
       throw new Error('release adapter preflight result is invalid');
@@ -189,13 +195,26 @@ function validateRuntimePreflight(
       throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
     }
   }
-  if (!fixtureNetwork) return undefined;
+  if (runtime) {
+    if (
+      role !== 'admin' ||
+      !isRecord(raw) ||
+      !isRecord(raw.runtime) ||
+      !hasExactKeys(raw.runtime, ['managedLifecycleVersion', 'uploaderId']) ||
+      raw.runtime.managedLifecycleVersion !== runtime.managedLifecycleVersion ||
+      raw.runtime.uploaderId !== runtime.uploaderId
+    ) {
+      throw new Error('release adapter admin runtime assignment is invalid');
+    }
+  }
+  if (!fixtureNetwork && !runtime) return undefined;
+  const resolved: ResolvedAdapterContext = {};
+  if (runtime) resolved.runtime = runtime;
+  if (!fixtureNetwork) return resolved;
   if (typeof fixtureNetworkId !== 'string' || !/^[0-9a-f]{64}$/.test(fixtureNetworkId)) {
     throw new Error('release adapter fixture network result is invalid');
   }
-  const resolved: ResolvedAdapterContext = {
-    fixtureNetwork: { ...fixtureNetwork, networkId: fixtureNetworkId },
-  };
+  resolved.fixtureNetwork = { ...fixtureNetwork, networkId: fixtureNetworkId };
   if (expectsFixtureVolumes) {
     if (!target || !('profile' in target)) throw new Error('release adapter fixture volume result is invalid');
     const expected = [`${target.profile}_srs-media`, `${target.profile}_uploader-state`].sort();

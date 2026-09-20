@@ -13,6 +13,7 @@ import {
   runStackPreparation,
 } from './ReleaseTransition.js';
 import type {
+  AdminReleaseRuntime,
   ReleaseRole,
   ReleaseSlot,
   StackReleaseOperation,
@@ -144,12 +145,14 @@ export async function runReleaseGuardCli(
     'work-root',
     'admin-url',
     'slot-id',
+    ...(role === 'admin' ? ['managed-lifecycle-version', 'managed-uploader-id'] : []),
   ]);
   const flags = parseFlags(rest, allowed);
   const slot = releaseSlot(role, flags.get('slot-id'));
+  const runtime = role === 'admin' ? adminRuntime(flags) : undefined;
   const destination = receiptDestination(flags, env);
   const store = new ReleaseGuardStore(required(flags, 'state-root'));
-  const adapterArgs = await adapterArguments(role, store);
+  const adapterArgs = await adapterArguments(role, store, undefined, runtime);
   await runReleaseTransition({
     store,
     candidateRoot: required(flags, 'candidate-root'),
@@ -184,13 +187,27 @@ async function adapterArguments(
   role: ReleaseRole,
   store: ReleaseGuardStore,
   operation?: StackReleaseOperation,
+  runtime?: AdminReleaseRuntime,
 ): Promise<FixedAdapterArguments> {
   const fixtureNetwork = await store.fixtureNetwork();
   return {
     target: await store.deploymentTarget(role),
     ...(fixtureNetwork ? { fixtureNetwork } : {}),
     ...(operation ? { operation } : {}),
+    ...(runtime ? { runtime } : {}),
   };
+}
+
+function adminRuntime(flags: Map<string, string>): AdminReleaseRuntime {
+  const version = flags.get('managed-lifecycle-version');
+  const uploaderId = flags.get('managed-uploader-id');
+  if (version === undefined && uploaderId === undefined) {
+    return { managedLifecycleVersion: null, uploaderId: null };
+  }
+  if (version !== '1' || uploaderId === undefined || !UPLOADER_ID.test(uploaderId)) {
+    throw new Error('admin managed runtime assignment is invalid');
+  }
+  return { managedLifecycleVersion: 1, uploaderId };
 }
 
 function releaseServices(value: string): string[] {

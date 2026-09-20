@@ -39,6 +39,10 @@ export interface ResolvedFixtureNetworkBinding extends FixtureNetworkBinding {
   networkId: string;
 }
 
+export type AdminReleaseRuntime =
+  | { managedLifecycleVersion: null; uploaderId: null }
+  | { managedLifecycleVersion: 1; uploaderId: string };
+
 export interface ReleaseImage {
   service: string;
   imageId: string;
