@@ -29,6 +29,8 @@ export interface ComposeUpgradeTimeouts {
 export interface ComposeUpgradeSettings {
   versionsRoot: string;
   composeFile: string;
+  /** Guard-owned Compose file that pins immutable images and release mounts. */
+  composeOverride?: string;
   /** The tree the manager ships with, whose parent holds the commit it pins. */
   bundledStackRoot: string;
   /** Whether this deploy asked for the public HTTPS edge. */
@@ -277,7 +279,9 @@ export class ComposeUpgradeOperations implements ManagerUpgradeOperations {
   }
 
   private composeArgv(project: string, args: readonly string[]): string[] {
-    return ['docker', 'compose', '-p', project, '-f', this.settings.composeFile,
+    const files = ['-f', this.settings.composeFile];
+    if (this.settings.composeOverride) files.push('-f', this.settings.composeOverride);
+    return ['docker', 'compose', '-p', project, ...files,
       '--project-directory', dirname(this.settings.composeFile), ...args];
   }
 
