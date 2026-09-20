@@ -14,13 +14,24 @@ path_exists() {
 }
 
 sync_paths() {
-    node - "$@" <<'NODE'
-const fs = require('node:fs');
-for (const path of process.argv.slice(2)) {
-  const descriptor = fs.openSync(path, fs.constants.O_RDONLY);
-  try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+    if [ "$(uname -s)" = Linux ]; then
+        for path in "$@"; do sync -f "$path"; done
+    else
+        sync
+    fi
 }
-NODE
+
+new_owner_token() {
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        IFS= read -r owner_token < /proc/sys/kernel/random/uuid
+    else
+        owner_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    fi
+    if [[ ! "$owner_token" =~ $UUID_PATTERN ]]; then
+        echo "ERROR: release bootstrap owner token source is invalid" >&2
+        exit 1
+    fi
+    printf '%s\n' "$owner_token"
 }
 
 require_absent_installation() {
@@ -39,7 +50,7 @@ begin_bootstrap() {
     fi
     sync_paths "$(dirname "$BOOTSTRAP_LOCK")"
     require_absent_installation
-    owner_token="$(node -e "process.stdout.write(require('node:crypto').randomUUID())")"
+    owner_token="$(new_owner_token)"
     printf '%s\n' "$owner_token" > "${BOOTSTRAP_OWNER}.tmp"
     chmod 600 "${BOOTSTRAP_OWNER}.tmp"
     sync_paths "${BOOTSTRAP_OWNER}.tmp"

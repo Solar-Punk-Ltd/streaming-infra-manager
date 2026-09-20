@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -20,6 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const DEPLOY_ENTRY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
 const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-managed.sh');
 const STANDALONE_DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-standalone.sh');
+const RELEASE_MODE_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-mode.sh');
 const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
 const COMPOSE_FILE = join(here, '..', '..', 'docker-compose.yml');
 
@@ -116,6 +117,27 @@ describe('deploy/deploy.sh', () => {
     execFileSync('bash', ['-n', DEPLOY_ENTRY_SCRIPT]);
     execFileSync('bash', ['-n', DEPLOY_SCRIPT]);
     execFileSync('bash', ['-n', STANDALONE_DEPLOY_SCRIPT]);
+  });
+
+  it('acquires and releases the pristine-host lease without host Node', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'manager-release-no-node-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const bin = join(root, 'bin');
+    const home = join(root, 'home');
+    mkdirSync(bin);
+    mkdirSync(home);
+    for (const command of ['chmod', 'dirname', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname', 'uuidgen']) {
+      symlinkSync(execFileSync('which', [command], { encoding: 'utf8' }).trim(), join(bin, command));
+    }
+    const env = { ...process.env, HOME: home, PATH: bin };
+
+    const begin = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    assert.match(begin.stdout, /^bootstrap:[0-9a-f-]{36}\n$/);
+    const ownerToken = begin.stdout.trim().slice('bootstrap:'.length);
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', ownerToken], { env });
+
+    assert.equal(existsSync(join(home, '.local/state/streaming-release-bootstrap.lock')), false);
+    assert.doesNotMatch(readFileSync(RELEASE_MODE_SCRIPT, 'utf8'), /\bnode\b/);
   });
 
   it('dispatches only a pristine installation to the standalone deploy path', async (t) => {
