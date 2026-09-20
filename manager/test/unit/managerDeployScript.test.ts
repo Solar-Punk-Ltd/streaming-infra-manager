@@ -557,7 +557,8 @@ publish_candidate
   it('derives an isolated layout without live roots or public edge', () => {
     assert.match(composeFile, /127\.0\.0\.1:\$\{POSTGRES_PORT:-5432\}:5432/);
     assert.match(composeFile, /\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}:\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}/);
-    assert.match(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
+    assert.match(adapter, /guard_state_root="\$\(plan_value guardInstallation:stateRoot\)"/);
+    assert.doesNotMatch(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
     assert.match(adapter, /isolation_root="\$\{guard_state_root\}\/isolation\/\$\{project_name\}"/);
     assert.match(adapter, /isolated manager release cannot enable the public edge/);
     assert.match(adapter, /manager isolated release port is already occupied/);
