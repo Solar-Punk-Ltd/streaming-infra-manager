@@ -500,7 +500,7 @@ export class ContainerControl {
   async uploaderLifecycle(profile: string): Promise<string> {
     const container = await this.find(profile, 'stream-uploader');
     const exec = await this.withinLimit(container.exec({
-      Cmd: ['sh', '-ec', 'curl -fsS --max-time 3 -H "Authorization: Bearer $API_AUTH_TOKEN" http://127.0.0.1:${API_PORT}/stream/lifecycle'],
+      Cmd: ['node', '-e', 'const c=new AbortController();setTimeout(()=>c.abort(),3000).unref();fetch(`http://127.0.0.1:${process.env.API_PORT}/stream/lifecycle`,{headers:{Authorization:`Bearer ${process.env.API_AUTH_TOKEN}`},signal:c.signal}).then(async r=>{if(!r.ok)throw Error();const b=Buffer.from(await r.arrayBuffer());if(b.length>65536)throw Error();process.stdout.write(b)}).catch(()=>process.exit(1))'],
       AttachStdout: true,
       AttachStderr: true,
     }));
