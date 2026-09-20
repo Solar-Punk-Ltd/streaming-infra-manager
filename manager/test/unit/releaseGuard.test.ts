@@ -30,6 +30,7 @@ const execFileAsync = promisify(execFile);
 const INSTALLATION_ID = '11111111-1111-4111-8111-111111111111';
 const UPLOADER_ID = 'srs-uploader-a';
 const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
+const WEB_IMAGE_ID = `sha256:${'b'.repeat(64)}`;
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
 
@@ -473,6 +474,69 @@ esac
     assert.equal(transitionPlan.temporaryProject.startsWith('release-'), true);
     assert.equal(transitionPlan.activeArtifactPath, null);
     assert.deepEqual(transitionPlan.images, [{ service: 'stream-uploader', imageId: IMAGE_ID }]);
+  });
+
+  it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate, 'manager');
+    await mkdir(join(candidate, 'manager'), { recursive: true });
+    await writeFile(join(candidate, 'manager/docker-compose.yml'), 'services: {}\n');
+    await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
+    await copyFile(
+      join(REPO, 'deploy/release-adapters/manager.sh'),
+      join(candidate, 'deploy/release-adapters/manager.sh'),
+    );
+    await chmod(join(candidate, 'deploy/release-adapters/manager.sh'), 0o700);
+    const fakeBin = join(root, 'bin');
+    await mkdir(fakeBin);
+    const docker = join(fakeBin, 'docker');
+    await writeFile(docker, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$(dirname "$0")/docker.log"
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+  case "\${!#}" in
+    *-api) printf '%s\\n' '${IMAGE_ID}' ;;
+    *-web) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+    *) exit 31 ;;
+  esac
+elif [ "$1" = compose ] && [ "\${!#}" = api ]; then
+  printf '%s\\n' manager-api-container
+elif [ "$1" = compose ] && [ "\${!#}" = web ]; then
+  printf '%s\\n' manager-web-container
+elif [ "$1" = inspect ]; then
+  case "\${!#}" in
+    manager-api-container) printf '%s\\n' '${IMAGE_ID}' ;;
+    manager-web-container) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+    *) exit 32 ;;
+  esac
+fi
+`);
+    await chmod(docker, 0o700);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
+    t.after(() => { process.env.PATH = oldPath; });
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+
+    const result = await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'manager', id: 'default' },
+      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work')),
+    });
+
+    assert.deepEqual(result.receipt.artifact.images, [
+      { service: 'api', imageId: IMAGE_ID },
+      { service: 'web', imageId: WEB_IMAGE_ID },
+    ]);
+    const calls = await readFile(join(fakeBin, 'docker.log'), 'utf8');
+    assert.match(calls, /--project-name release-[0-9a-f]{20} .* build api web/);
+    assert.match(calls, /--project-name manager .*manager-image-override\.yml up -d --no-build api web/);
+    assert.doesNotMatch(calls, /image tag|--project-name manager .* build/);
+    const override = await readFile(join(root, 'adapter-work/manager-image-override.yml'), 'utf8');
+    assert.match(override, new RegExp(`image: ${IMAGE_ID}`));
+    assert.match(override, new RegExp(`image: ${WEB_IMAGE_ID}`));
   });
 
   it('kills the adapter process group on timeout and retains a redacted diagnostic', async (t) => {
