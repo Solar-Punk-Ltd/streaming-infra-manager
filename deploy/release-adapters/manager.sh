@@ -64,6 +64,11 @@ if (key === 'temporaryProject') {
   process.stdout.write(plan.temporaryProject);
   process.exit(0);
 }
+if (key === 'treeDigest') {
+  if (typeof plan.treeDigest !== 'string' || !/^[0-9a-f]{64}$/.test(plan.treeDigest)) process.exit(2);
+  process.stdout.write(plan.treeDigest);
+  process.exit(0);
+}
 if (key.startsWith('image:')) {
   const service = key.slice('image:'.length);
   const image = Array.isArray(plan.images)
@@ -84,6 +89,17 @@ fi
 
 if [ ! -f "$compose_file" ] || [ -L "$compose_file" ]; then
     echo "manager release adapter compose file is missing" >&2
+    exit 2
+fi
+
+release_commit_file="${candidate_root}/.release-commit"
+if [ ! -f "$release_commit_file" ] || [ -L "$release_commit_file" ]; then
+    echo "manager release adapter source commit is missing" >&2
+    exit 2
+fi
+release_commit="$(tr -d '\r\n' < "$release_commit_file")"
+if ! [[ "$release_commit" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+    echo "manager release adapter source commit is invalid" >&2
     exit 2
 fi
 
@@ -129,16 +145,81 @@ case "$phase" in
     transition)
         api_image="$(plan_value image:api)"
         web_image="$(plan_value image:web)"
+        tree_digest="$(plan_value treeDigest)"
+        work_root="$(cd "$(dirname "$plan")" && pwd -P)"
+        guard_code_root="/home/solarpunk/.local/lib/streaming-release-guard/current"
+        guard_state_root="/home/solarpunk/.local/state/streaming-release-guard"
         override="$(dirname "$plan")/manager-image-override.yml"
         umask 077
         cat > "$override" <<EOF
 services:
   api:
     image: ${api_image}
+    environment:
+      SHLS_ROOT: ${candidate_root}/manager/swarm-hls-stream
+    volumes:
+      - type: bind
+        source: ${candidate_root}
+        target: ${candidate_root}
+        read_only: true
+      - type: bind
+        source: ${work_root}
+        target: ${work_root}
+      - type: bind
+        source: ${guard_code_root}
+        target: /opt/streaming-release-guard
+        read_only: true
+      - type: bind
+        source: ${guard_state_root}
+        target: ${guard_state_root}
   web:
     image: ${web_image}
 EOF
-        compose -f "$override" up -d --no-build api web
+        manager_domain="$(
+            sed -n 's/^MANAGER_DOMAIN=//p' "${manager_root}/.env" 2>/dev/null |
+                tail -n 1 |
+                tr -d '\r' |
+                tr '[:upper:]' '[:lower:]' |
+                sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
+                sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
+        )"
+        postgres_volume="manager_manager-pg"
+        data_volume="$(docker volume ls -q --filter "name=^${postgres_volume}$")"
+        api_containers="$(docker ps -aq \
+            --filter 'label=com.docker.compose.project=manager' \
+            --filter 'label=com.docker.compose.service=api' \
+            --filter 'label=com.docker.compose.oneoff=False')"
+        postgres_containers="$(docker ps -aq \
+            --filter 'label=com.docker.compose.project=manager' \
+            --filter 'label=com.docker.compose.service=postgres' \
+            --filter 'label=com.docker.compose.oneoff=False')"
+        is_first_use=false
+        if [ -z "$data_volume" ]; then
+            if [ -n "$api_containers" ]; then
+                echo "manager release adapter found an api container without its database volume" >&2
+                exit 1
+            fi
+            if [ -z "$postgres_containers" ]; then
+                is_first_use=true
+            fi
+        fi
+        upgrade_args=(
+            node dist/cli.js manager:upgrade \
+            --manager-commit "$release_commit" \
+            --manager-digest "$tree_digest" \
+            --image-id "$api_image" \
+            --project manager \
+            --compose-file "$compose_file" \
+            --compose-override "$override" \
+            --mutable-root "$candidate_root"
+        )
+        if [ "$is_first_use" = true ]; then
+            upgrade_args+=(--first-use)
+        fi
+        if [ -n "$manager_domain" ]; then
+            upgrade_args+=(--public-edge)
+        fi
+        compose -f "$override" run --rm --no-deps -T api "${upgrade_args[@]}" < /dev/null
         ;;
     verify)
         api_container="$(compose ps -q api)"
