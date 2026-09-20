@@ -1,0 +1,474 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { chmod, lstat, mkdir, open, rename, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import {
+  RELEASE_GUARD_MINIMUM,
+  RELEASE_GUARD_SCHEMA_VERSION,
+  type PendingReleaseReceipt,
+  type ActiveArtifactMetadata,
+  type ReleaseArtifact,
+  type ReleaseGuardReceipt,
+  type ReleaseGuardAttempt,
+  type ReleaseGuardState,
+  type ReleaseImage,
+  type ReleaseSlot,
+  type StoredReleaseSlot,
+} from './ReleaseGuardTypes.js';
+
+const MARKER = 'installed.json';
+const STATE = 'state.json';
+const PENDING = 'pending';
+const TRANSITIONS = 'transitions';
+const LOCK = 'state.lock';
+const MAX_STATE_BYTES = 256 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DIGEST = /^[0-9a-f]{64}$/;
+const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
+const SERVICE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const UPLOADER_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
+
+class MissingGuardFileError extends Error {}
+
+/** Creates a guard installation once. Existing or partial installations refuse. */
+export async function installReleaseGuard(root: string, installationId: string = randomUUID()): Promise<void> {
+  requireUuid(installationId, 'installation id');
+  const existingRoot = await lstat(root).catch((error: unknown) => {
+    if (isMissing(error)) return null;
+    throw error;
+  });
+  if (existingRoot && (!existingRoot.isDirectory() || existingRoot.isSymbolicLink())) {
+    throw new Error('release guard state root must be a real directory');
+  }
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700);
+  const marker = join(root, MARKER);
+  const statePath = join(root, STATE);
+  if (
+    await exists(marker) ||
+    await exists(statePath) ||
+    await exists(join(root, PENDING)) ||
+    await exists(join(root, TRANSITIONS)) ||
+    await exists(join(root, LOCK))
+  ) {
+    throw new Error('release guard is already installed or partially initialized');
+  }
+  await mkdir(join(root, PENDING), { mode: 0o700 });
+  await mkdir(join(root, TRANSITIONS), { mode: 0o700 });
+  const state: ReleaseGuardState = {
+    schemaVersion: RELEASE_GUARD_SCHEMA_VERSION,
+    installationId,
+    generation: 0,
+    slots: {},
+    attempt: null,
+  };
+  await atomicWrite(root, STATE, canonicalJson(state));
+  await atomicWrite(root, MARKER, canonicalJson({ schemaVersion: 1, installationId }));
+}
+
+/** Durable monotonic release requirements owned by the installed wrapper. */
+export class ReleaseGuardStore {
+  constructor(private readonly root: string) {}
+
+  async read(): Promise<ReleaseGuardState> {
+    await requireRegularFile(join(this.root, MARKER), 'installed guard marker is missing');
+    const marker = await readBounded(join(this.root, MARKER));
+    const raw = await readBounded(join(this.root, STATE)).catch((error: unknown) => {
+      if (error instanceof MissingGuardFileError) throw new Error('installed guard state is missing');
+      throw new Error('installed guard state is unreadable');
+    });
+    try {
+      const state = parseState(JSON.parse(raw));
+      const installed = parseMarker(JSON.parse(marker));
+      if (installed.installationId !== state.installationId) throw new Error('installation mismatch');
+      return state;
+    } catch {
+      throw new Error('installed guard state is invalid');
+    }
+  }
+
+  async withTransition<T>(action: (lease: ReleaseTransitionLease) => Promise<T>): Promise<T> {
+    return this.withLock(() => action(new ReleaseTransitionLease(this.root, this)));
+  }
+
+  async pendingReceipt(slot: ReleaseSlot): Promise<string | null> {
+    const valid = validateSlot(slot);
+    const state = await this.read();
+    if (
+      state.attempt?.phase !== 'verified' ||
+      slotKey(state.attempt.receipt.slot) !== slotKey(valid)
+    ) {
+      return null;
+    }
+    try {
+      const body = await readBounded(join(this.root, PENDING, pendingFile(valid)));
+      if (body !== state.attempt.body) throw new Error('release receipt outbox does not match verified state');
+      return body;
+    } catch (error) {
+      if (error instanceof MissingGuardFileError) return null;
+      throw error;
+    }
+  }
+
+  async acknowledge(exactBody: string): Promise<void> {
+    await this.withLock(async () => {
+      const receipt = parseReceipt(JSON.parse(exactBody));
+      const state = await this.read();
+      if (state.attempt?.phase !== 'verified' || state.attempt.body !== exactBody) {
+        throw new Error('release receipt acknowledgement does not match verified state');
+      }
+      const path = join(this.root, PENDING, pendingFile(receipt.slot));
+      const pending = await readBounded(path);
+      if (pending !== exactBody) throw new Error('release receipt acknowledgement does not match the durable outbox');
+      await atomicWrite(this.root, STATE, canonicalJson({ ...state, attempt: null }));
+      await rm(path);
+      await syncDirectory(join(this.root, PENDING));
+    });
+  }
+
+  private async withLock<T>(action: () => Promise<T>): Promise<T> {
+    const lock = join(this.root, LOCK);
+    try {
+      await mkdir(lock, { mode: 0o700 });
+    } catch (error) {
+      if (isRecord(error) && error.code === 'EEXIST') {
+        throw new Error('another release guard transition is active, or its crash lock requires operator recovery');
+      }
+      throw error;
+    }
+    try {
+      return await action();
+    } finally {
+      await rm(lock, { recursive: true, force: true });
+      await syncDirectory(this.root);
+    }
+  }
+}
+
+/** Operations available only while the host-wide transition lease is held. */
+class ReleaseTransitionLease {
+  constructor(
+    private readonly root: string,
+    private readonly store: ReleaseGuardStore,
+  ) {}
+
+  async prepare(input: {
+    slot: ReleaseSlot;
+    artifact: ReleaseArtifact;
+  }): Promise<PendingReleaseReceipt> {
+    const state = await this.store.read();
+    const slot = validateSlot(input.slot);
+    const artifact = validateArtifact(input.artifact);
+    if (state.attempt) {
+      if (
+        state.attempt.phase === 'prepared' &&
+        slotKey(state.attempt.receipt.slot) === slotKey(slot) &&
+        canonicalJson(state.attempt.receipt.artifact) === canonicalJson(artifact)
+      ) {
+        return { receipt: state.attempt.receipt, body: state.attempt.body };
+      }
+      throw new Error('a release guard transition or receipt is unresolved');
+    }
+    const generation = state.generation + 1;
+    if (!Number.isSafeInteger(generation)) throw new Error('release guard generation is exhausted');
+    const core: ReleaseGuardState = {
+      ...state,
+      generation,
+      slots: {
+        ...state.slots,
+        [slotKey(slot)]: { minimums: RELEASE_GUARD_MINIMUM, artifact },
+      },
+      attempt: null,
+    };
+    const receipt: ReleaseGuardReceipt = {
+      schemaVersion: RELEASE_GUARD_SCHEMA_VERSION,
+      installationId: core.installationId,
+      generation,
+      stateDigest: sha256(canonicalJson(core)),
+      slot,
+      minimums: RELEASE_GUARD_MINIMUM,
+      artifact,
+    };
+    const body = canonicalJson(receipt);
+    await atomicWrite(this.root, STATE, canonicalJson({
+      ...core,
+      attempt: { phase: 'prepared', receipt, body },
+    }));
+    return { receipt, body };
+  }
+
+  async markVerified(exactBody: string): Promise<void> {
+    const state = await this.store.read();
+    if (state.attempt?.phase !== 'prepared' || state.attempt.body !== exactBody) {
+      throw new Error('verified release does not match the prepared transition');
+    }
+    await atomicWrite(
+      join(this.root, PENDING),
+      pendingFile(state.attempt.receipt.slot),
+      exactBody,
+    );
+    await atomicWrite(this.root, STATE, canonicalJson({
+      ...state,
+      attempt: { ...state.attempt, phase: 'verified' },
+    }));
+  }
+
+  async writeActiveArtifact(exactBody: string): Promise<string> {
+    const state = await this.store.read();
+    if (state.attempt?.phase !== 'prepared' || state.attempt.body !== exactBody) {
+      throw new Error('active artifact does not match the prepared transition');
+    }
+    const receipt = state.attempt.receipt;
+    if (receipt.slot.role !== 'admin' || receipt.slot.id !== 'default') {
+      throw new Error('active artifact metadata is only defined for admin/default');
+    }
+    const metadata: ActiveArtifactMetadata = {
+      schemaVersion: 1,
+      installationId: receipt.installationId,
+      generation: receipt.generation,
+      slot: receipt.slot,
+      artifact: receipt.artifact,
+    };
+    const directory = join(
+      this.root,
+      TRANSITIONS,
+      `${receipt.generation}-${receipt.slot.role}-${receipt.slot.id}`,
+    );
+    await mkdir(directory, { mode: 0o700 }).catch(async (error: unknown) => {
+      if (!isRecord(error) || error.code !== 'EEXIST') throw error;
+    });
+    const directoryStat = await lstat(directory);
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+      throw new Error('active artifact metadata directory is invalid');
+    }
+    const path = join(directory, 'active-artifact.json');
+    const body = canonicalJson(metadata);
+    if (await exists(path)) {
+      if (await readBounded(path) !== body) throw new Error('active artifact metadata path is already bound differently');
+      return path;
+    }
+    await atomicWrite(directory, 'active-artifact.json', body);
+    await chmod(path, 0o444);
+    await syncDirectory(directory);
+    return path;
+  }
+}
+
+export function canonicalJson(value: unknown): string {
+  return `${JSON.stringify(sortValue(value))}\n`;
+}
+
+export function parseReceipt(raw: unknown): ReleaseGuardReceipt {
+  if (!isRecord(raw) || !hasExactKeys(raw, [
+    'schemaVersion',
+    'installationId',
+    'generation',
+    'stateDigest',
+    'slot',
+    'minimums',
+    'artifact',
+  ])) throw new Error('release receipt is invalid');
+  if (raw.schemaVersion !== 1) throw new Error('release receipt is invalid');
+  requireUuid(raw.installationId, 'release receipt installation id');
+  if (!Number.isSafeInteger(raw.generation) || Number(raw.generation) < 1) throw new Error('release receipt is invalid');
+  if (typeof raw.stateDigest !== 'string' || !DIGEST.test(raw.stateDigest)) throw new Error('release receipt is invalid');
+  if (!isMinimum(raw.minimums)) throw new Error('release receipt is invalid');
+  return {
+    schemaVersion: 1,
+    installationId: raw.installationId,
+    generation: Number(raw.generation),
+    stateDigest: raw.stateDigest,
+    slot: validateSlot(raw.slot),
+    minimums: RELEASE_GUARD_MINIMUM,
+    artifact: validateArtifact(raw.artifact),
+  };
+}
+
+function parseState(raw: unknown): ReleaseGuardState {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', 'installationId', 'generation', 'slots', 'attempt'])) {
+    throw new Error('release guard state is invalid');
+  }
+  if (raw.schemaVersion !== 1) throw new Error('release guard state is invalid');
+  requireUuid(raw.installationId, 'release guard installation id');
+  if (!Number.isSafeInteger(raw.generation) || Number(raw.generation) < 0 || !isRecord(raw.slots)) {
+    throw new Error('release guard state is invalid');
+  }
+  if (Object.keys(raw.slots).length > 256) throw new Error('release guard state is invalid');
+  const slots: Record<string, StoredReleaseSlot> = {};
+  for (const [key, value] of Object.entries(raw.slots)) {
+    if (!isRecord(value) || !hasExactKeys(value, ['minimums', 'artifact']) || !isMinimum(value.minimums)) {
+      throw new Error('release guard state is invalid');
+    }
+    const slot = slotFromKey(key);
+    slots[slotKey(slot)] = {
+      minimums: RELEASE_GUARD_MINIMUM,
+      artifact: validateArtifact(value.artifact),
+    };
+  }
+  let attempt: ReleaseGuardAttempt | null = null;
+  if (raw.attempt !== null) {
+    if (!isRecord(raw.attempt) || !hasExactKeys(raw.attempt, ['phase', 'receipt', 'body']) ||
+        (raw.attempt.phase !== 'prepared' && raw.attempt.phase !== 'verified') || typeof raw.attempt.body !== 'string') {
+      throw new Error('release guard state is invalid');
+    }
+    const receipt = parseReceipt(raw.attempt.receipt);
+    const storedSlot = slots[slotKey(receipt.slot)];
+    const core: ReleaseGuardState = {
+      schemaVersion: 1,
+      installationId: raw.installationId,
+      generation: Number(raw.generation),
+      slots,
+      attempt: null,
+    };
+    if (
+      canonicalJson(receipt) !== raw.attempt.body ||
+      receipt.installationId !== raw.installationId ||
+      receipt.generation !== raw.generation ||
+      receipt.stateDigest !== sha256(canonicalJson(core)) ||
+      !storedSlot ||
+      canonicalJson(receipt.artifact) !== canonicalJson(storedSlot.artifact)
+    ) {
+      throw new Error('release guard state is invalid');
+    }
+    const phase = raw.attempt.phase;
+    attempt = { phase, receipt, body: raw.attempt.body };
+  }
+  return {
+    schemaVersion: 1,
+    installationId: raw.installationId,
+    generation: Number(raw.generation),
+    slots,
+    attempt,
+  };
+}
+
+function parseMarker(raw: unknown): { schemaVersion: 1; installationId: string } {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', 'installationId']) || raw.schemaVersion !== 1) {
+    throw new Error('release guard marker is invalid');
+  }
+  requireUuid(raw.installationId, 'release guard installation id');
+  return { schemaVersion: 1, installationId: raw.installationId };
+}
+
+function validateSlot(raw: unknown): ReleaseSlot {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['role', 'id']) || typeof raw.role !== 'string' || typeof raw.id !== 'string') {
+    throw new Error('release slot is invalid');
+  }
+  if (!['manager', 'admin', 'uploader', 'viewer'].includes(raw.role)) throw new Error('release slot is invalid');
+  if (raw.role === 'uploader') {
+    if (!UPLOADER_ID.test(raw.id)) throw new Error('uploader slot id is invalid');
+  } else if (raw.id !== 'default') {
+    throw new Error(`${raw.role} slot id must be default`);
+  }
+  return { role: raw.role as ReleaseSlot['role'], id: raw.id };
+}
+
+function validateArtifact(raw: unknown): ReleaseArtifact {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['treeDigest', 'images']) || typeof raw.treeDigest !== 'string' || !DIGEST.test(raw.treeDigest) || !Array.isArray(raw.images) || raw.images.length === 0 || raw.images.length > 32) {
+    throw new Error('release artifact is invalid');
+  }
+  const images = raw.images.map(validateImage).sort((a, b) =>
+    a.service < b.service ? -1 : a.service > b.service ? 1 : 0,
+  );
+  if (new Set(images.map((image) => image.service)).size !== images.length) throw new Error('release artifact has duplicate services');
+  return { treeDigest: raw.treeDigest, images };
+}
+
+function validateImage(raw: unknown): ReleaseImage {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['service', 'imageId']) || typeof raw.service !== 'string' || !SERVICE.test(raw.service) || typeof raw.imageId !== 'string' || !IMAGE_ID.test(raw.imageId)) {
+    throw new Error('release image is invalid');
+  }
+  return { service: raw.service, imageId: raw.imageId };
+}
+
+function isMinimum(raw: unknown): raw is { srsLifecycle: 1 } {
+  return isRecord(raw) && hasExactKeys(raw, ['srsLifecycle']) && raw.srsLifecycle === 1;
+}
+
+function slotKey(slot: ReleaseSlot): string {
+  return `${slot.role}/${slot.id}`;
+}
+
+function slotFromKey(key: string): ReleaseSlot {
+  const slash = key.indexOf('/');
+  if (slash < 1) throw new Error('release slot key is invalid');
+  return validateSlot({ role: key.slice(0, slash), id: key.slice(slash + 1) });
+}
+
+function pendingFile(slot: ReleaseSlot): string {
+  return `${slot.role}-${slot.id}.json`;
+}
+
+function requireUuid(value: unknown, name: string): asserts value is string {
+  if (typeof value !== 'string' || !UUID.test(value)) throw new Error(`${name} must be a UUID`);
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sortValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortValue(value[key])]));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  return actual.length === keys.length && keys.slice().sort().every((key, index) => actual[index] === key);
+}
+
+async function readBounded(path: string): Promise<string> {
+  await requireRegularFile(path, 'file is missing');
+  const handle = await open(path, 'r');
+  try {
+    const stat = await handle.stat();
+    if (stat.size > MAX_STATE_BYTES) throw new Error('release guard file is oversized');
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+async function requireRegularFile(path: string, missingMessage: string): Promise<void> {
+  const stat = await lstat(path).catch((error: unknown) => {
+    if (isMissing(error)) throw new MissingGuardFileError(missingMessage);
+    throw error;
+  });
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('release guard file is not a regular file');
+}
+
+async function atomicWrite(directory: string, name: string, body: string): Promise<void> {
+  const temporary = join(directory, `.${name}.${randomUUID()}.tmp`);
+  const destination = join(directory, name);
+  const handle = await open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(body, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temporary, destination);
+  await syncDirectory(directory);
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const handle = await open(path, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  return lstat(path).then(() => true, (error: unknown) => isMissing(error) ? false : Promise.reject(error));
+}
+
+function isMissing(error: unknown): boolean {
+  return isRecord(error) && error.code === 'ENOENT';
+}
