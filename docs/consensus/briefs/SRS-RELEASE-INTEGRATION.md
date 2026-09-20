@@ -66,6 +66,14 @@ One transition lease covers preflight through runtime verification. A durable un
 
 Bootstrap installs the guard and initial state, stages capable candidates, runs preflight, builds the immutable artifacts, persists the minimum and pending receipt, transitions, verifies the artifacts and submits each slot's receipt. The admin also checks its current artifact and a fresh matching uploader profile before enrolling the first stream. Compatible updates use the same path. This protocol never restores a database over accepted footage.
 
+### Manager staging and existing upgrade protections
+
+The reviewed host layout places installed code under `/home/solarpunk/.local/lib/streaming-release-guard/current/`, its entry point at `/home/solarpunk/.local/bin/streaming-release-guard`, and durable state and transition work under `/home/solarpunk/.local/state/streaming-release-guard/`. Manager candidates are staged in a new incoming directory, then published under `/home/solarpunk/streaming-infra-manager-releases/manager/<treeDigest>/`. A release must not rsync over the legacy installation or a published candidate. This describes source implementation and a future coordinated installation, not a change made on the host.
+
+The API and the upgrade container see the candidate and guard state at the same absolute paths as the host. Docker resolves bind sources on the host, so mounting a candidate at a different legacy path inside the API would select the wrong files. The override sets `SHLS_ROOT` to the candidate's `manager/swarm-hls-stream` path, whose parent holds its recorded stack pin. Installed code may use the read-only `/opt/streaming-release-guard` mount because that path is not a Docker bind source. The legacy tree stays untouched for existing references.
+
+The adapter must retain the existing `manager:upgrade` coordinator. Its stop-old-API, migration, first-use database checks, public-edge handling, health check and bundled-build result remain part of deployment. Directly starting api/web with Compose is not an equivalent replacement. Pass the pinned image override into that coordinator and every Compose operation it owns. Check the actual adapter boundary with a refusing migration and require that the new API never starts in that case.
+
 ## Required checks
 
 The manager checks cover fresh waiting, closed/finalizing, completed replay, stale status, missing capability and credential-free output. The enrollment checks cover idle versus active legacy rows, unsupported or stale capabilities and failed legacy adoption.
