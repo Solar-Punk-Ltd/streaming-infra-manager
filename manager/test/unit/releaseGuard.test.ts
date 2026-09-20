@@ -595,7 +595,7 @@ fi
         slot: { role: 'manager', id: 'default' },
         adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work')),
       }),
-      /failed during migration/,
+      /release adapter transition failed with exit 42/,
     );
 
     const calls = await readFile(join(fakeBin, 'docker.log'), 'utf8');
@@ -604,7 +604,7 @@ fi
     assert.equal((await new ReleaseGuardStore(stateRoot).read()).attempt?.phase, 'prepared');
   });
 
-  it('kills the adapter process group on timeout and retains a redacted diagnostic', async (t) => {
+  it('kills the adapter process group on timeout without surfacing captured output', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
     await capableCandidate(candidate);
@@ -618,7 +618,8 @@ case "$phase" in
   preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5" ;;
   build) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
   transition)
-    echo 'compose transition refused ADMIN_API_TOKEN=do-not-report-this' >&2
+    echo '{"POSTGRES_PASSWORD":"stdout-sentinel"}'
+    printf '%s\n' 'compose transition refused "ADMIN_API_TOKEN=stderr-sentinel"' >&2
     (sleep 0.4; echo late > "$(dirname "$candidate")/late-write") &
     sleep 5
     ;;
@@ -638,8 +639,8 @@ esac
         adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work'), {}, 100),
       }),
       (error: Error) => {
-        assert.match(error.message, /timed out: compose transition refused ADMIN_API_TOKEN=<redacted>/);
-        assert.doesNotMatch(error.message, /do-not-report-this/);
+        assert.match(error.message, /release adapter transition timed out \(stdout \d+ bytes, stderr \d+ bytes\)/);
+        assert.doesNotMatch(error.message, /stdout-sentinel|stderr-sentinel|POSTGRES_PASSWORD|ADMIN_API_TOKEN/);
         return true;
       },
     );
