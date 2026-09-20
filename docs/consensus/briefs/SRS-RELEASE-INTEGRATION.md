@@ -14,6 +14,14 @@ The manager reads the selected deployment's uploader through its existing contai
 
 Show the sixty-second policy only where the selected immutable stack build advertises this capability. A stale or failed read says status unavailable. A running container does not become Live by inference. A missing admin console link is reported as unconfigured rather than generated from an internal API hostname. Deployment Start, Stop and Restart retain their infrastructure meaning.
 
+R07 names are now fixed. The immutable stack tree carries `deploy/capabilities.json` with `{ "schemaVersion": 1, "capabilities": { "srsLifecycle": 1 } }`. The manager captures this as `features.srsLifecycleV1`, defaulting to false for absent, malformed or unsupported evidence. A capable build still needs an enabled version-1 runtime response. The file is added to the stack only with its implementation, and its presence alone never enrolls a stream.
+
+The manager's optional `STREAM_ADMIN_CONSOLE_URL` setting is the public admin console base URL. It is separate from the uploader's internal API address. Validate HTTP or HTTPS, refuse embedded credentials or query parameters, and build the existing admin HashRouter link `#/streams/<encoded admin UUID>`. A missing setting leaves a clear unconfigured-link message. No live setting is changed by this work.
+
+In the uploader response, `observedAt` is the uploader's snapshot-generation time, not the manager's receipt time. Each `lastObservedAt` is the uploader's last validated observation of that run state. The manager records its own receipt time separately. Compute the initial observation age from the two uploader timestamps, then add time elapsed since receipt. This avoids assuming identical host clocks. Active state becomes unavailable after thirty seconds without a fresh validated observation. Closed and completed facts remain terminal facts. A successful read must not relabel an unreconciled journal as a fresh active observation.
+
+The UI ignores replies from a superseded polling request or deployment identity. A slow earlier Waiting response cannot replace a later Closed response. Timeout, failure, unsupported version and stale observation have explicit unavailable results rather than fabricated Live or countdown values.
+
 ## Enrollment and mixed versions
 
 The uploader feature names are `SRS_LIFECYCLE_VERSION=1` and `SRS_UPLOADER_ID`. The existing admin ingest configuration names one SRS endpoint, so enrollment can bind to one configured uploader identity. Do not build a fleet registry for this feature.
