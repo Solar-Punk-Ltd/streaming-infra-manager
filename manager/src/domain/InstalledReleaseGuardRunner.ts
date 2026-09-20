@@ -137,6 +137,7 @@ export class InstalledReleaseGuardRunner {
     const emitter = new EventEmitter();
     let current: RunHandle | null = null;
     let ended = false;
+    let cancelled = false;
     let nextIndex = 0;
 
     const finish = (event: 'done' | 'error', value: unknown) => {
@@ -145,6 +146,7 @@ export class InstalledReleaseGuardRunner {
       emitter.emit(event, value);
     };
     const startNext = () => {
+      if (ended || cancelled) return;
       const invocation = route.invocations[nextIndex++];
       if (!invocation) {
         finish('done', { code: 0, signal: null });
@@ -157,8 +159,11 @@ export class InstalledReleaseGuardRunner {
       });
       current.emitter.on('stdout', (chunk: string) => emitter.emit('stdout', chunk));
       current.emitter.on('stderr', (chunk: string) => emitter.emit('stderr', chunk));
-      current.emitter.once('error', (error: Error) => finish('error', error));
+      current.emitter.once('error', (error: Error) => {
+        if (!cancelled) finish('error', error);
+      });
       current.emitter.once('done', (outcome: { code: number; signal: NodeJS.Signals | null }) => {
+        if (ended || cancelled) return;
         if (outcome.code !== 0 || outcome.signal) finish('done', outcome);
         else startNext();
       });
@@ -166,7 +171,12 @@ export class InstalledReleaseGuardRunner {
     startNext();
     return {
       emitter,
-      kill: () => current?.kill(),
+      kill: () => {
+        if (ended || cancelled) return;
+        cancelled = true;
+        current?.kill();
+        finish('done', { code: -1, signal: 'SIGTERM' });
+      },
     };
   }
 }

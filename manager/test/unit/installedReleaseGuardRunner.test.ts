@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,11 @@ import {
   InstalledReleaseGuardRunner,
   type InstalledReleaseRoute,
 } from '../../src/domain/InstalledReleaseGuardRunner.js';
+import type {
+  RunHandle,
+  RunOptions,
+  ScriptSpawner,
+} from '../../src/domain/ScriptRunner.js';
 import { installReleaseGuard } from '../../src/releaseGuard/ReleaseGuardStore.js';
 
 import { FakeScriptRunner } from '../support/FakeScriptRunner.js';
@@ -35,6 +41,21 @@ async function installed(
 function guarded(route: InstalledReleaseRoute): Extract<InstalledReleaseRoute, { kind: 'guard' }> {
   assert.equal(route.kind, 'guard');
   return route as Extract<InstalledReleaseRoute, { kind: 'guard' }>;
+}
+
+class ControlledSpawner implements ScriptSpawner {
+  readonly handles: Array<RunHandle & { killed: number }> = [];
+
+  run(_script: string, _args: string[], _options?: RunOptions): RunHandle {
+    const emitter = new EventEmitter();
+    const handle = {
+      emitter,
+      killed: 0,
+      kill: () => { handle.killed += 1; },
+    };
+    this.handles.push(handle);
+    return handle;
+  }
 }
 
 describe('installed release guard runner', () => {
@@ -143,6 +164,82 @@ describe('installed release guard runner', () => {
     assert.equal(child.runs[1]!.args[0], 'uploader');
     child.finish(1);
     assert.deepEqual(outcomes, [{ code: 0, signal: null }]);
+  });
+
+  it('does not start a later guarded role after the composite run is cancelled', async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'installed-release-runner-'));
+    await installReleaseGuard(stateRoot, undefined, {
+      uploader: {
+        profile: 'combined',
+        portSlot: 7,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+      viewer: {
+        profile: 'combined',
+        portSlot: 7,
+        target: 'local',
+        services: ['client'],
+      },
+    });
+    const child = new ControlledSpawner();
+    const runner = new InstalledReleaseGuardRunner(child, stateRoot);
+    const route = guarded(await runner.route({
+      profile: 'combined',
+      portSlot: 7,
+      uploaderId: 'srs-uploader-a',
+      services: ['client', 'srs', 'stream-uploader'],
+      candidateRoot: '/candidate/combined',
+      lifecycle: { ...ADMIN, profile: 'combined' },
+    }));
+    const handle = runner.run(route, { cwd: '/candidate/combined' });
+    const outcomes: unknown[] = [];
+    handle.emitter.on('done', (outcome) => outcomes.push(outcome));
+
+    handle.kill();
+    child.handles[0]!.emitter.emit('done', { code: 0, signal: null });
+
+    assert.equal(child.handles[0]!.killed, 1);
+    assert.equal(child.handles.length, 1);
+    assert.deepEqual(outcomes, [{ code: -1, signal: 'SIGTERM' }]);
+  });
+
+  it('does not start a later guarded role after an error and a late done event', async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'installed-release-runner-'));
+    await installReleaseGuard(stateRoot, undefined, {
+      uploader: {
+        profile: 'combined',
+        portSlot: 7,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+      viewer: {
+        profile: 'combined',
+        portSlot: 7,
+        target: 'local',
+        services: ['client'],
+      },
+    });
+    const child = new ControlledSpawner();
+    const runner = new InstalledReleaseGuardRunner(child, stateRoot);
+    const route = guarded(await runner.route({
+      profile: 'combined',
+      portSlot: 7,
+      uploaderId: 'srs-uploader-a',
+      services: ['client', 'srs', 'stream-uploader'],
+      candidateRoot: '/candidate/combined',
+      lifecycle: { ...ADMIN, profile: 'combined' },
+    }));
+    const handle = runner.run(route, { cwd: '/candidate/combined' });
+    const errors: Error[] = [];
+    handle.emitter.on('error', (error) => errors.push(error));
+
+    child.handles[0]!.emitter.emit('error', new Error('viewer failed'));
+    child.handles[0]!.emitter.emit('done', { code: 0, signal: null });
+
+    assert.equal(child.handles.length, 1);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]!.message, /viewer failed/);
   });
 
   it('routes an unrelated profile through the scoped legacy stack path', async () => {
