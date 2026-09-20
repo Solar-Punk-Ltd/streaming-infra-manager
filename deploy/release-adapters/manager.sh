@@ -217,7 +217,12 @@ services:
     pull_policy: never
     environment:
       SHLS_ROOT: ${candidate_root}/manager/swarm-hls-stream
+      MANAGER_ROOT: ${candidate_root}
+      POSTGRES_PORT: "${POSTGRES_PORT}"
       WEB_PORT: "${WEB_PORT}"
+      BEE_DATA_ROOT: ${BEE_DATA_ROOT}
+      STACK_VERSIONS_ROOT: ${STACK_VERSIONS_ROOT}
+      MANAGER_SSH_DIR: ${MANAGER_SSH_DIR}
     volumes:
       - type: bind
         source: ${candidate_root}
@@ -286,6 +291,7 @@ EOF
             --project "$project_name" \
             --compose-file "$compose_file" \
             --compose-override "$override" \
+            --postgres-volume-name "$postgres_volume_name" \
             --mutable-root "$candidate_root"
         )
         if [ "$is_first_use" = true ]; then

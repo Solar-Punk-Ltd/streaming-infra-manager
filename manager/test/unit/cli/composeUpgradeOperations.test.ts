@@ -180,6 +180,33 @@ describe('the manager upgrade against one Compose project', () => {
     ]);
   });
 
+  it('checks the exact installation-bound postgres volume name', async () => {
+    const exactVolume = 'manager-isolated-pg';
+    const upgrade = new ComposeUpgradeOperations(
+      { versionsRoot, composeFile: COMPOSE_FILE, composeOverride: COMPOSE_OVERRIDE, bundledStackRoot,
+        publicEdge: false, firstUse: false, postgresVolume: MANAGER_POSTGRES_VOLUME,
+        postgresVolumeName: exactVolume, apiHealthUrl: HEALTH_URL, timeouts: TIMEOUTS },
+      database(),
+      runner.run,
+      async () => ({ status: 200 }),
+    );
+    runner.answer(
+      'ps -a --format json postgres',
+      { stdout: '' },
+      { stdout: containers('running', 'healthy') },
+    );
+    runner.answer(`docker volume ls -q --filter name=^${exactVolume}$`, { stdout: `${exactVolume}\n` });
+    runner.answer('up -d --no-build postgres', {});
+
+    await upgrade.readPublication(request);
+
+    assert.ok(
+      runner.calls.some((call) => call.includes(`name=^${exactVolume}$`)),
+      JSON.stringify(runner.calls),
+    );
+    assert.equal(runner.calls.some((call) => call.includes(`name=^${PROJECT}_${MANAGER_POSTGRES_VOLUME}$`)), false);
+  });
+
   describe('deciding about Postgres before it reads anything', () => {
     it('reads through a Postgres that is already running and healthy, starting nothing', async () => {
       runner.answer('ps -a --format json postgres', { stdout: containers('running', 'healthy') });

@@ -233,7 +233,7 @@ publish_candidate
   it('gives the upgrade the identity of the manager, of the image and how long to wait for the bundled build', () => {
     const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
     for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project "$project_name"',
-      '--compose-file', '--compose-override', '--mutable-root']) {
+      '--compose-file', '--compose-override', '--postgres-volume-name "$postgres_volume_name"', '--mutable-root']) {
       assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
     }
     assert.match(adapter, /api_image="\$\(plan_value image:api\)"/);
@@ -326,6 +326,9 @@ publish_candidate
     assert.match(adapter, /isolated manager release cannot enable the public edge/);
     assert.match(adapter, /manager isolated release port is already occupied/);
     assert.doesNotMatch(adapter, /guard_(?:code|state)_root="\/home\/solarpunk/);
+    for (const value of ['MANAGER_ROOT', 'POSTGRES_PORT', 'WEB_PORT', 'BEE_DATA_ROOT', 'STACK_VERSIONS_ROOT', 'MANAGER_SSH_DIR']) {
+      assert.match(adapter, new RegExp(`      ${value}:`), `${value} reaches the inner coordinator`);
+    }
   });
 
   it('verifies the running manager source, data, versions, ssh, and database mounts', () => {
