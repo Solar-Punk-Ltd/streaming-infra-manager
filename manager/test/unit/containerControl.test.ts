@@ -21,6 +21,7 @@ import {
   ContainerControl,
   type ContainerControlLimits,
   MAX_CONFIG_BYTES,
+  MAX_LIFECYCLE_BYTES,
 } from '../../src/domain/ContainerControl.js';
 import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
 import { captureExecutionMounts } from '../../src/domain/versions/executionMountCapture.js';
@@ -183,6 +184,84 @@ describe('ContainerControl.find', () => {
     await assert.rejects(
       () => control.restart('stream1', 'srs'),
       /No srs container is running for stream1\. Start the deployment/,
+    );
+  });
+});
+
+describe('ContainerControl.uploaderLifecycle', () => {
+  it('uses the exact deployment container and keeps the bearer token inside its process', async () => {
+    const body = JSON.stringify({
+      lifecycleVersion: 1,
+      observedAt: '2026-09-20T00:00:00.000Z',
+      streams: [],
+    });
+    const { control, docker } = controlOver([
+      {
+        id: 'other-uploader',
+        labels: labels('stream2', 'stream-uploader'),
+        execBytes: frame('wrong'),
+      },
+      {
+        id: 'own-uploader',
+        labels: labels('stream1', 'stream-uploader'),
+        execBytes: frame(body),
+      },
+    ]);
+
+    assert.equal(await control.uploaderLifecycle('stream1'), body);
+    assert.deepEqual(docker.listCalls[0]?.filters, {
+      label: [
+        `${COMPOSE_PROJECT_LABEL}=stream1`,
+        `${COMPOSE_SERVICE_LABEL}=stream-uploader`,
+      ],
+    });
+    const command = docker.execCommands[0] ?? [];
+    assert.deepEqual(command.slice(0, 2), ['node', '-e']);
+    assert.match(command[2] ?? '', /API_AUTH_TOKEN/);
+    assert.match(command[2] ?? '', /redirect:\s*['"]error['"]/);
+    assert.match(command[2] ?? '', /getReader\(\)/);
+    assert.match(command[2] ?? '', /API_PORT/);
+    assert.match(command[2] ?? '', /3000/);
+    assert.doesNotMatch(
+      command[2] ?? '',
+      /arrayBuffer\(\)|console\.|process\.env\)/,
+    );
+    assert.doesNotMatch(JSON.stringify(command), /test-session|secret-token/);
+  });
+
+  it('refuses a missing or disappeared uploader container', async () => {
+    const missing = controlOver([
+      { id: 'other', labels: labels('stream2', 'stream-uploader') },
+    ]);
+    await assert.rejects(
+      () => missing.control.uploaderLifecycle('stream1'),
+      /No stream-uploader container is running/,
+    );
+
+    const disappeared = controlOver([
+      { id: 'gone', labels: labels('stream1', 'stream-uploader') },
+    ]);
+    disappeared.docker.getContainer = () => {
+      throw new Error('container disappeared');
+    };
+    await assert.rejects(
+      () => disappeared.control.uploaderLifecycle('stream1'),
+      /container disappeared/,
+    );
+  });
+
+  it('bounds output before it can enter the manager response', async () => {
+    const { control } = controlOver([
+      {
+        id: 'own-uploader',
+        labels: labels('stream1', 'stream-uploader'),
+        execBytes: frame('x'.repeat(MAX_LIFECYCLE_BYTES + 1)),
+      },
+    ]);
+
+    await assert.rejects(
+      () => control.uploaderLifecycle('stream1'),
+      /exceeded|bytes/i,
     );
   });
 });
