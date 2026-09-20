@@ -45,6 +45,7 @@ export interface ServerConfig {
    * its path or its user info, and this answer reaches every signed-in page.
    */
   beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
+  streamAdminConsoleUrl: string | null;
 }
 
 /** A manager that named no endpoint of its own, and the answer a failed read gives. */
@@ -63,6 +64,7 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
       srtPassphrase?: string | null;
       chequebookFloorBzz?: string;
       beeRpcEndpoint?: ConfiguredBeeRpcEndpoint;
+      streamAdminConsoleUrl?: string | null;
     }>('/config');
     return {
       host: body.host,
@@ -70,6 +72,7 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
       chequebookFloorBzz:
         body.chequebookFloorBzz ?? DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
       beeRpcEndpoint: body.beeRpcEndpoint ?? NO_BEE_RPC_ENDPOINT,
+      streamAdminConsoleUrl: body.streamAdminConsoleUrl ?? null,
     };
   } catch {
     return {
@@ -77,6 +80,7 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
       srtPassphrase: null,
       chequebookFloorBzz: DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
       beeRpcEndpoint: NO_BEE_RPC_ENDPOINT,
+      streamAdminConsoleUrl: null,
     };
   }
 }

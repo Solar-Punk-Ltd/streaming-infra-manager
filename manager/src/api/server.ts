@@ -16,6 +16,7 @@ import { MetricsCollector } from '../domain/MetricsCollector.js';
 import { ProfileService } from '../domain/ProfileService.js';
 import { StampService } from '../domain/StampService.js';
 import { UploaderHealthService } from '../domain/UploaderHealthService.js';
+import { UploaderLifecycleService } from '../domain/UploaderLifecycleService.js';
 import { StackVersionService } from '../domain/versions/StackVersionService.js';
 import type { DeploymentOrchestrator } from '../domain/DeploymentOrchestrator.js';
 import type { VerifiedDeployTargets } from '../domain/ports/VerifiedDeployTargets.js';
@@ -60,6 +61,7 @@ export interface ApiDeps {
   chequebookService: ChequebookService;
   chequebookOperations: ChequebookOperationsService;
   uploaderHealthService: UploaderHealthService;
+  uploaderLifecycleService?: UploaderLifecycleService;
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   stackVersionService: StackVersionService;
@@ -73,6 +75,7 @@ export interface ApiDeps {
   metricsCollector: MetricsCollector;
   /** The manager's own chain endpoint, BEE_RPC_ENDPOINT, or null for none. */
   beeRpcEndpoint: string | null;
+  streamAdminConsoleUrl: string | null;
 }
 
 export interface ApiServerHandle {
@@ -108,6 +111,7 @@ export function startApiServer(
       deps.chequebookService.floorBzz,
       () => deps.stackVersionService.hostPassphrase(),
       deps.beeRpcEndpoint,
+      deps.streamAdminConsoleUrl,
     ),
   );
   app.use('/metrics', metrics);
@@ -119,7 +123,7 @@ export function startApiServer(
   );
   app.use(
     '/profiles',
-    createProfilesRouter(deps.profileService, deps.uploaderHealthService, deps.beeRpcEndpoint !== null),
+    createProfilesRouter(deps.profileService, deps.uploaderHealthService, deps.beeRpcEndpoint !== null, deps.uploaderLifecycleService),
   );
   app.use('/profiles', createSrtPassphraseRouter(deps.profileService));
   app.use('/targets', createTargetsRouter(deps.deployTargets, deps.portReservations, deps.portInventory, deps.firewallInventory));

@@ -52,6 +52,8 @@ import { ownsBeeNode, readinessFor } from './readiness';
 import { StorageCard } from './StorageCard';
 import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
+import { LifecycleCard } from './LifecycleCard';
+import { useUploaderLifecycle } from './useUploaderLifecycle';
 
 const STORAGE_ANCHOR = 'storage';
 
@@ -121,7 +123,7 @@ function DeploymentBody({
   focus: DeploymentFocus;
   bee: BeeUtils | null;
 }) {
-  const { profiles, groups, serverHost, hostPassphrase, beeRpcEndpoint, reload, versions, attempts } =
+  const { profiles, groups, serverHost, hostPassphrase, beeRpcEndpoint, streamAdminConsoleUrl, reload, versions, attempts } =
     useDeployments();
   const actions = useActions();
   const release = useAttemptRelease();
@@ -151,6 +153,7 @@ function DeploymentBody({
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const version =
     versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
+  const lifecycle = useUploaderLifecycle(profile, Boolean(version?.contract?.features.srsLifecycleV1 && uploaderDeployed));
   const rung = group ? rungFromMemberName(group.name, profile.name) : null;
   const stampHealth = stampHealthFrom(
     profile.stamp_id,
@@ -281,6 +284,7 @@ function DeploymentBody({
               streamerName={streamer?.name ?? null}
             />
           )}
+          {version?.contract?.features.srsLifecycleV1 && <LifecycleCard reading={lifecycle} adminConsoleUrl={streamAdminConsoleUrl} />}
 
           {bee && (
             <StorageCard

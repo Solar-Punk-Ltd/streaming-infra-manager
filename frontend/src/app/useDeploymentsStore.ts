@@ -43,6 +43,7 @@ export interface DeploymentsStore {
   chequebookFloorBzz: string;
   /** The chain endpoint this manager offers the Bee nodes it creates, host only. */
   beeRpcEndpoint: ConfiguredBeeRpcEndpoint;
+  streamAdminConsoleUrl: string | null;
   /** The /events stream is open, so what is on screen is live. */
   connected: boolean;
   activity: ActivityEntry[];
@@ -128,6 +129,7 @@ export function useDeploymentsStore(): DeploymentsStore {
   const [beeRpcEndpoint, setBeeRpcEndpoint] = useState<ConfiguredBeeRpcEndpoint>(
     () => ({ configured: false, host: null }),
   );
+  const [streamAdminConsoleUrl, setStreamAdminConsoleUrl] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -203,6 +205,7 @@ export function useDeploymentsStore(): DeploymentsStore {
         setHostPassphrase(config.srtPassphrase);
         setChequebookFloorBzz(config.chequebookFloorBzz);
         setBeeRpcEndpoint(config.beeRpcEndpoint);
+        setStreamAdminConsoleUrl(config.streamAdminConsoleUrl);
       })
       .catch(() => undefined);
   }, []);
@@ -287,6 +290,7 @@ export function useDeploymentsStore(): DeploymentsStore {
       hostPassphrase,
       chequebookFloorBzz,
       beeRpcEndpoint,
+      streamAdminConsoleUrl,
       connected,
       activity,
       loadError,

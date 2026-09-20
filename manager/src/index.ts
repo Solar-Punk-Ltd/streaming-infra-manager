@@ -29,6 +29,7 @@ import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
 import { StampService } from './domain/StampService.js';
 import { UploaderHealthService } from './domain/UploaderHealthService.js';
+import { UploaderLifecycleService } from './domain/UploaderLifecycleService.js';
 import { UploaderStartGate } from './domain/UploaderStartGate.js';
 import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
@@ -273,6 +274,12 @@ async function main(): Promise<void> {
     containerRepository,
     stackVersionRepository,
   );
+  const uploaderLifecycleService = new UploaderLifecycleService(
+    profileRepository,
+    containerRepository,
+    stackVersionRepository,
+    containerControl,
+  );
   chequebookOperations = createChequebookOperationsService(database.pool, {
     rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
     dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
@@ -397,6 +404,7 @@ async function main(): Promise<void> {
       chequebookService,
       chequebookOperations,
       uploaderHealthService,
+      uploaderLifecycleService,
       containerControl,
       engineConfigService,
       stackVersionService,
@@ -408,6 +416,7 @@ async function main(): Promise<void> {
       eventBus,
       metricsCollector,
       beeRpcEndpoint: config.beeRpcEndpoint,
+      streamAdminConsoleUrl: config.streamAdminConsoleUrl,
     },
     config.port,
     config.host,
