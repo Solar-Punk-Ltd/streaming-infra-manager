@@ -14,12 +14,12 @@ This page separates focused implementation checks from assembled media acceptanc
 | V04 | Focused reconnect and source-progress tests distinguish media from connection attempts | Actual stalled-input and static-picture controls |
 | V05 | Same-uploader reconnect has focused orchestrator coverage | Labeled A/B media, actual audio/video decode and seam seeking |
 | V06 | Source-generation and rung callbacks have focused SRS coverage | Complete ladder playback and individual-rung loss in the media arrangement |
-| V07 | Ordered admin reports, stale callbacks and source identity have focused coverage | Production managed rendition registry, delayed cross-run responses and assembled media checks |
+| V07 | Ordered admin reports, stale callbacks and source identity have focused coverage | Final candidate managed rendition registry checks and assembled media checks. Production registry and delayed response regressions now exist |
 | V08 | Durable store failures, original cutoff recovery and closure retries have focused coverage. The Linux writer test remains unexecuted on macOS | Linux writer competition and actual process kills at the recorded durability boundaries |
 | V09 | Cumulative checkpoint seeding and prepared-successor admission have focused coverage, including cancelled intermediate runs | Decode A+B+C across fresh uploader processes and compare old snapshot bytes |
 | V10 | Controlled Continue/cancel/claim overlaps and identical report retry bodies have passed | Assembled admin outage and lost-response cases |
 | V11 | Viewer snapshot selection and expected-ladder validation have focused coverage | Production ABR report integration and old-rung playback after later runs |
-| V12 | Sealed-checkpoint recovery avoids a second finalization in focused tests | Durable final-master publication intent plus real Bee failure and process-kill checks |
+| V12 | Sealed-checkpoint recovery avoids a second finalization in focused tests | Correct the SDK reference-recovery error in the implemented durable master intent, then real Bee failure and process-kill checks |
 | V13 | Managed legacy-route refusal, direct ingress checks and credential-log sentinel tests exist | Final candidate API suites and actual direct-rung refusal |
 | V14 | Manifest and large-payload readers have existing tests | A cumulative playlist over 4 KiB through both actual viewer gateway read paths |
 | V15 | Frozen checkpoint and ladder validation exist | Actual opening-media fingerprint, verified legacy adoption and unavailable old-chunk tests |
