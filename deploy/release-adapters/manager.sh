@@ -159,6 +159,7 @@ case "$phase" in
 services:
   api:
     image: ${api_image}
+    pull_policy: never
     environment:
       SHLS_ROOT: ${candidate_root}/manager/swarm-hls-stream
     volumes:
@@ -178,6 +179,7 @@ services:
         target: ${guard_state_root}
   web:
     image: ${web_image}
+    pull_policy: never
 EOF
         manager_domain="$(
             sed -n 's/^MANAGER_DOMAIN=//p' "${manager_root}/.env" 2>/dev/null |
@@ -230,6 +232,13 @@ EOF
         web_container="$(compose ps -q web)"
         if ! [[ "$api_container" =~ ^[A-Za-z0-9_.:-]+$ ]] || ! [[ "$web_container" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
             echo "manager release adapter could not identify one running container per service" >&2
+            exit 1
+        fi
+        api_status="$(docker inspect --format '{{.State.Status}}' "$api_container")"
+        web_status="$(docker inspect --format '{{.State.Status}}' "$web_container")"
+        web_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$web_container")"
+        if [ "$api_status" != running ] || [ "$web_status" != running ] || [ "$web_health" != healthy ]; then
+            echo "manager release adapter did not verify running healthy services" >&2
             exit 1
         fi
         api_image="$(docker inspect --format '{{.Image}}' "$api_container")"
