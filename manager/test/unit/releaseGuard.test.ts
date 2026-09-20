@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -38,6 +38,69 @@ const MANAGER_TARGET = {
 };
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
+const FIXTURE_READY_TIMEOUT_MS = 5_000;
+const FIXTURE_DIAGNOSTIC_BYTES = 8 * 1024;
+
+function inheritedModuleLoaderArgs(): string[] {
+  const args: string[] = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const argument = process.execArgv[index];
+    if (argument === '--import' || argument === '--loader') {
+      const value = process.execArgv[index + 1];
+      if (value !== undefined) args.push(argument, value);
+      index += 1;
+    } else if (
+      argument.startsWith('--import=') ||
+      argument.startsWith('--loader=') ||
+      argument === '--conditions' ||
+      argument.startsWith('--conditions=')
+    ) {
+      args.push(argument);
+      if (argument === '--conditions' && process.execArgv[index + 1] !== undefined) {
+        args.push(process.execArgv[index + 1]);
+        index += 1;
+      }
+    }
+  }
+  return args;
+}
+
+async function waitForLockFixture(child: ChildProcessWithoutNullStreams): Promise<void> {
+  await new Promise<void>((resolveReady, rejectReady) => {
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(
+      () => finish(new Error(`lock fixture readiness timed out: ${stderr}`)),
+      FIXTURE_READY_TIMEOUT_MS,
+    );
+    const onStdout = (chunk: Buffer) => {
+      stdout = `${stdout}${chunk.toString('utf8')}`.slice(-FIXTURE_DIAGNOSTIC_BYTES);
+      if (stdout.includes('locked\n')) finish();
+    };
+    const onStderr = (chunk: Buffer) => {
+      stderr = `${stderr}${chunk.toString('utf8')}`.slice(-FIXTURE_DIAGNOSTIC_BYTES);
+    };
+    const onError = () => finish(new Error('lock fixture could not start'));
+    const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(new Error(
+        `lock fixture closed before readiness (exit ${code ?? 'none'}, signal ${signal ?? 'none'}): ${stderr}`,
+      ));
+    };
+    function finish(error?: Error) {
+      clearTimeout(timeout);
+      child.stdout.off('data', onStdout);
+      child.stderr.off('data', onStderr);
+      child.off('error', onError);
+      child.off('close', onClose);
+      if (error) rejectReady(error);
+      else resolveReady();
+    }
+    child.stdout.on('data', onStdout);
+    child.stderr.on('data', onStderr);
+    child.once('error', onError);
+    child.once('close', onClose);
+  });
+}
 
 async function temporaryRoot(t: { after(callback: () => Promise<void>): void }) {
   const root = await mkdtemp(join(tmpdir(), 'release-guard-'));
@@ -221,22 +284,16 @@ describe('external release guard state', () => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);
     const child = spawn(process.execPath, [
-      '--conditions=development',
-      '--import', join(REPO, 'manager/node_modules/tsx/dist/loader.mjs'),
+      ...inheritedModuleLoaderArgs(),
       join(REPO, 'manager/test/fixtures/releaseGuardHoldLock.ts'),
       root,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     t.after(() => { if (!child.killed) child.kill('SIGKILL'); });
-    await new Promise<void>((resolveLock, rejectLock) => {
-      child.once('error', rejectLock);
-      child.stdout.once('data', (chunk: Buffer) => {
-        if (chunk.toString('utf8') !== 'locked\n') rejectLock(new Error('lock fixture did not acquire the guard'));
-        else resolveLock();
-      });
-    });
+    await waitForLockFixture(child);
 
+    const closed = new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
     assert.equal(child.kill('SIGKILL'), true);
-    await new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
+    await closed;
     assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
     await assert.rejects(
       new ReleaseGuardStore(root).withTransition(async () => undefined),
