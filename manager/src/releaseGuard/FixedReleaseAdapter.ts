@@ -14,7 +14,6 @@ import type { ReleaseRole } from './ReleaseGuardTypes.js';
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PREFLIGHT_BYTES = 4 * 1024;
 const DEFAULT_PHASE_TIMEOUT_MS = 20 * 60_000;
-const DIAGNOSTIC_BYTES = 4096;
 const TERMINATION_GRACE_MS = 250;
 
 export interface FixedAdapterArguments {
@@ -104,7 +103,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     }
     const argv = [adapter, phase, '--plan', planPath];
     if (output) argv.push('--output', output);
-    await runBounded(argv, candidateRoot, this.timeoutMs);
+    await runBounded(argv, candidateRoot, this.timeoutMs, phase);
   }
 }
 
@@ -160,7 +159,12 @@ export function adapterRelativePath(role: ReleaseRole): string {
   return 'deploy/scripts/release-adapter.sh';
 }
 
-async function runBounded(argv: string[], cwd: string, timeoutMs: number): Promise<void> {
+async function runBounded(
+  argv: string[],
+  cwd: string,
+  timeoutMs: number,
+  phase: 'preflight' | 'build' | 'transition' | 'verify',
+): Promise<void> {
   await new Promise<void>((resolveRun, rejectRun) => {
     const child = spawn('/bin/bash', argv, {
       cwd,
@@ -168,16 +172,16 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number): Promi
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     });
-    let stdout = '';
-    let stderr = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let timedOut = false;
     let settled = false;
     let force: ReturnType<typeof setTimeout> | undefined;
     child.stdout?.on('data', (chunk: Buffer) => {
-      stdout = `${stdout}${chunk.toString('utf8')}`.slice(-DIAGNOSTIC_BYTES);
+      stdoutBytes = Math.min(Number.MAX_SAFE_INTEGER, stdoutBytes + chunk.length);
     });
     child.stderr?.on('data', (chunk: Buffer) => {
-      stderr = `${stderr}${chunk.toString('utf8')}`.slice(-DIAGNOSTIC_BYTES);
+      stderrBytes = Math.min(Number.MAX_SAFE_INTEGER, stderrBytes + chunk.length);
     });
     const killGroup = (signal: NodeJS.Signals) => {
       if (child.pid === undefined) return;
@@ -204,23 +208,16 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number): Promi
       settled = true;
       clearTimeout(timeout);
       if (force) clearTimeout(force);
-      const diagnostic = redactedDiagnostic(stderr, stdout);
+      const counts = `stdout ${stdoutBytes} bytes, stderr ${stderrBytes} bytes`;
       if (timedOut) {
-        rejectRun(new Error(`release adapter timed out${diagnostic}`));
+        rejectRun(new Error(`release adapter ${phase} timed out (${counts})`));
         return;
       }
       if (code === 0 && signal === null) resolveRun();
-      else rejectRun(new Error(`release adapter ${signal ? 'was terminated' : 'failed'}${diagnostic}`));
+      else if (signal) rejectRun(new Error(`release adapter ${phase} was terminated by ${signal} (${counts})`));
+      else rejectRun(new Error(`release adapter ${phase} failed with exit ${code ?? 'unknown'} (${counts})`));
     });
   });
-}
-
-function redactedDiagnostic(stderr: string, stdout: string): string {
-  const text = (stderr.trim() || stdout.trim())
-    .replace(/\bBearer\s+[^\s]+/gi, 'Bearer <redacted>')
-    .replace(/\b([A-Z0-9_]*(?:TOKEN|PASSWORD|PASSPHRASE|SECRET|PRIVATE_KEY)[A-Z0-9_]*)=\S+/gi, '$1=<redacted>')
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1<redacted>@');
-  return text === '' ? '' : `: ${text}`;
 }
 
 function adapterEnvironment(): NodeJS.ProcessEnv {
