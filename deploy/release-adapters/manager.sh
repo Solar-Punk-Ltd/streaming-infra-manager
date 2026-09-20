@@ -54,6 +54,34 @@ if (
   process.stderr.write('manager release adapter plan is invalid\n');
   process.exit(2);
 }
+const args = plan.arguments;
+const target = args?.target;
+const fixtureNetwork = args?.fixtureNetwork;
+const argumentKeys = args !== null && typeof args === 'object' && !Array.isArray(args)
+  ? Object.keys(args).sort().join(',')
+  : '';
+const fixtureKeys = fixtureNetwork !== null && typeof fixtureNetwork === 'object' && !Array.isArray(fixtureNetwork)
+  ? Object.keys(fixtureNetwork).sort().join(',')
+  : '';
+const expectedFixtureKeys = expectedPhase === 'preflight' ? 'fixtureId,name' : 'fixtureId,name,networkId';
+const fixtureIsValid = fixtureNetwork === undefined || (
+  fixtureKeys === expectedFixtureKeys &&
+  typeof fixtureNetwork.fixtureId === 'string' &&
+  /^srs-continuation-20260920-[a-z0-9]{8,16}$/.test(fixtureNetwork.fixtureId) &&
+  fixtureNetwork.name === `${fixtureNetwork.fixtureId}-network` &&
+  (expectedFixtureKeys === 'fixtureId,name' || /^[0-9a-f]{64}$/.test(fixtureNetwork.networkId))
+);
+if (
+  (argumentKeys !== 'target' && argumentKeys !== 'fixtureNetwork,target') ||
+  target === null ||
+  typeof target !== 'object' ||
+  Array.isArray(target) ||
+  !fixtureIsValid ||
+  (fixtureNetwork !== undefined && target.mode !== 'isolated')
+) {
+  process.stderr.write('manager release adapter plan is invalid\n');
+  process.exit(2);
+}
 if (key === 'candidateRoot') {
   if (typeof plan.candidateRoot !== 'string') process.exit(2);
   process.stdout.write(plan.candidateRoot);
@@ -70,11 +98,7 @@ if (key === 'treeDigest') {
   process.exit(0);
 }
 if (key.startsWith('target:')) {
-  const target = plan.arguments?.target;
   if (
-    target === null ||
-    typeof target !== 'object' ||
-    Array.isArray(target) ||
     Object.keys(target).sort().join(',') !== 'mode,postgresPort,postgresVolumeName,projectName,webPort' ||
     (target.mode !== 'production' && target.mode !== 'isolated') ||
     typeof target.projectName !== 'string' ||
@@ -97,6 +121,13 @@ if (key.startsWith('target:')) {
   const value = target[name];
   if (typeof value !== 'string' && typeof value !== 'number') process.exit(2);
   process.stdout.write(String(value));
+  process.exit(0);
+}
+if (key.startsWith('fixtureNetwork:')) {
+  const name = key.slice('fixtureNetwork:'.length);
+  const value = fixtureNetwork?.[name] ?? '';
+  if (typeof value !== 'string') process.exit(2);
+  process.stdout.write(value);
   process.exit(0);
 }
 if (key.startsWith('image:')) {
@@ -140,6 +171,10 @@ export MANAGER_ROOT="$candidate_root"
 export POSTGRES_PORT WEB_PORT
 POSTGRES_PORT="$(plan_value target:postgresPort)"
 WEB_PORT="$(plan_value target:webPort)"
+fixture_network_name="$(plan_value fixtureNetwork:name)"
+fixture_id="$(plan_value fixtureNetwork:fixtureId)"
+fixture_network_id="$(plan_value fixtureNetwork:networkId)"
+manager_fixture_network_name="${project_name}-fixture-manager"
 guard_code_root="${HOME}/.local/lib/streaming-release-guard/current"
 guard_state_root="${HOME}/.local/state/streaming-release-guard"
 export PUBLIC_HOST BEE_DATA_ROOT STACK_VERSIONS_ROOT MANAGER_SSH_DIR
@@ -175,6 +210,139 @@ compose() {
         "$@"
 }
 
+require_shared_fixture_network() {
+    [ -n "$fixture_network_name" ] || return 0
+    actual_fixture_network_id="$(docker network inspect --format '{{.Id}}' "$fixture_network_name")"
+    if ! [[ "$actual_fixture_network_id" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "manager fixture network id is invalid" >&2
+        exit 1
+    fi
+    if [ -n "$fixture_network_id" ] && [ "$actual_fixture_network_id" != "$fixture_network_id" ]; then
+        echo "manager fixture network id does not match" >&2
+        exit 1
+    fi
+    if [ "$(docker network inspect --format '{{.Internal}}' "$fixture_network_name")" != true ]; then
+        echo "manager fixture network is not internal" >&2
+        exit 1
+    fi
+    if [ "$(docker network inspect --format '{{index .Labels "org.solarpunk.srs-continuation.fixture"}}' "$fixture_network_name")" != "$fixture_id" ]; then
+        echo "manager fixture network identity does not match" >&2
+        exit 1
+    fi
+    if [ "$(docker network inspect --format '{{index .Labels "org.solarpunk.srs-continuation.managed"}}' "$fixture_network_name")" != true ]; then
+        echo "manager fixture network is not managed" >&2
+        exit 1
+    fi
+}
+
+require_manager_fixture_network() {
+    [ -n "$fixture_network_name" ] || return 0
+    actual_manager_network_id="$(docker network inspect --format '{{.Id}}' "$manager_fixture_network_name")"
+    if ! [[ "$actual_manager_network_id" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "manager private fixture network id is invalid" >&2
+        exit 1
+    fi
+    if [ "$(docker network inspect --format '{{.Internal}}' "$manager_fixture_network_name")" != true ] ||
+        [ "$(docker network inspect --format '{{index .Labels "org.solarpunk.srs-continuation.fixture"}}' "$manager_fixture_network_name")" != "$fixture_id" ] ||
+        [ "$(docker network inspect --format '{{index .Labels "org.solarpunk.srs-continuation.managed"}}' "$manager_fixture_network_name")" != true ]; then
+        echo "manager private fixture network identity does not match" >&2
+        exit 1
+    fi
+}
+
+require_fixture_container() {
+    local container="$1"
+    [ -n "$fixture_network_name" ] || return 0
+    if [ "$(docker inspect --format '{{index .Config.Labels "org.solarpunk.srs-continuation.fixture"}}' "$container")" != "$fixture_id" ] ||
+        [ "$(docker inspect --format '{{index .Config.Labels "org.solarpunk.srs-continuation.managed"}}' "$container")" != true ]; then
+        echo "manager fixture container identity does not match" >&2
+        exit 1
+    fi
+}
+
+require_fixture_limits() {
+    local container="$1"
+    [ -n "$fixture_network_name" ] || return 0
+    if [ "$(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container")" != 1000000000 ] ||
+        [ "$(docker inspect --format '{{.HostConfig.Memory}}' "$container")" != 1073741824 ] ||
+        [ "$(docker inspect --format '{{.HostConfig.PidsLimit}}' "$container")" != 256 ]; then
+        echo "manager fixture resource limits do not match" >&2
+        exit 1
+    fi
+}
+
+require_fixture_membership() {
+    local container="$1"
+    local role="$2"
+    [ -n "$fixture_network_name" ] || return 0
+    local networks
+    networks="$(docker inspect --format '{{json .NetworkSettings.Networks}}' "$container")"
+    if ! node - "$networks" "$role" "$manager_fixture_network_name" "$actual_manager_network_id" \
+        "$fixture_network_name" "$actual_fixture_network_id" <<'NODE'
+const [serialized, role, managerName, managerId, sharedName, sharedId] = process.argv.slice(2);
+try {
+  const networks = JSON.parse(serialized);
+  const names = Object.keys(networks).sort();
+  const expected = role === 'api' ? [managerName, sharedName].sort() : [managerName];
+  if (names.length !== expected.length || names.some((name, index) => name !== expected[index])) process.exit(1);
+  if (networks[managerName]?.NetworkID !== managerId) process.exit(1);
+  if (role === 'api') {
+    if (networks[sharedName]?.NetworkID !== sharedId) process.exit(1);
+    const aliases = networks[sharedName]?.Aliases;
+    if (!Array.isArray(aliases) || !aliases.includes('manager-api') || aliases.includes('api')) process.exit(1);
+  }
+} catch {
+  process.exit(1);
+}
+NODE
+    then
+        echo "manager fixture network membership does not match" >&2
+        exit 1
+    fi
+}
+
+require_fixture_ports() {
+    local container="$1"
+    local role="$2"
+    [ -n "$fixture_network_name" ] || return 0
+    local ports
+    ports="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$container")"
+    if ! node - "$ports" "$role" "$POSTGRES_PORT" "$WEB_PORT" <<'NODE'
+const [serialized, role, postgresPort, webPort] = process.argv.slice(2);
+try {
+  const ports = JSON.parse(serialized);
+  const published = Object.entries(ports).flatMap(([containerPort, bindings]) =>
+    Array.isArray(bindings) ? bindings.map((binding) => ({ containerPort, ...binding })) : [],
+  );
+  if (role === 'api') process.exit(published.length === 0 ? 0 : 1);
+  const expectedContainerPort = role === 'postgres' ? '5432/tcp' : '80/tcp';
+  const expectedHostPort = role === 'postgres' ? postgresPort : webPort;
+  if (
+    published.length !== 1 ||
+    published[0].containerPort !== expectedContainerPort ||
+    published[0].HostIp !== '127.0.0.1' ||
+    published[0].HostPort !== expectedHostPort
+  ) process.exit(1);
+} catch {
+  process.exit(1);
+}
+NODE
+    then
+        echo "manager fixture published ports do not match" >&2
+        exit 1
+    fi
+}
+
+require_fixture_volume() {
+    [ -n "$fixture_network_name" ] || return 0
+    if [ "$(docker volume inspect --format '{{.Name}}' "$postgres_volume_name")" != "$postgres_volume_name" ] ||
+        [ "$(docker volume inspect --format '{{index .Labels "org.solarpunk.srs-continuation.fixture"}}' "$postgres_volume_name")" != "$fixture_id" ] ||
+        [ "$(docker volume inspect --format '{{index .Labels "org.solarpunk.srs-continuation.managed"}}' "$postgres_volume_name")" != true ]; then
+        echo "manager fixture database volume identity does not match" >&2
+        exit 1
+    fi
+}
+
 write_images() {
     local api_image="$1"
     local web_image="$2"
@@ -188,9 +356,15 @@ write_images() {
 case "$phase" in
     preflight)
         umask 077
-        printf '%s\n' '{"schemaVersion":1}' > "$output"
+        require_shared_fixture_network
+        if [ -n "$fixture_network_name" ]; then
+            printf '{"schemaVersion":1,"fixtureNetworkId":"%s"}\n' "$actual_fixture_network_id" > "$output"
+        else
+            printf '%s\n' '{"schemaVersion":1}' > "$output"
+        fi
         ;;
     build)
+        require_shared_fixture_network
         temporary_project="$(plan_value temporaryProject)"
         docker compose \
             --project-name "$temporary_project" \
@@ -202,6 +376,7 @@ case "$phase" in
         write_images "$api_image" "$web_image"
         ;;
     transition)
+        require_shared_fixture_network
         api_image="$(plan_value image:api)"
         web_image="$(plan_value image:web)"
         tree_digest="$(plan_value treeDigest)"
@@ -210,7 +385,85 @@ case "$phase" in
         chmod 700 "$MANAGER_SSH_DIR"
         override="$(dirname "$plan")/manager-image-override.yml"
         umask 077
-        cat > "$override" <<EOF
+        if [ -n "$fixture_network_name" ]; then
+            cat > "$override" <<EOF
+services:
+  postgres:
+    labels:
+      org.solarpunk.srs-continuation.fixture: ${fixture_id}
+      org.solarpunk.srs-continuation.managed: "true"
+    networks:
+      fixture_manager:
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+    cpus: 1
+    mem_limit: 1073741824
+    pids_limit: 256
+  api:
+    image: ${api_image}
+    pull_policy: never
+    environment:
+      SHLS_ROOT: ${candidate_root}/manager/swarm-hls-stream
+      MANAGER_ROOT: ${candidate_root}
+      POSTGRES_PORT: "${POSTGRES_PORT}"
+      WEB_PORT: "${WEB_PORT}"
+      BEE_DATA_ROOT: ${BEE_DATA_ROOT}
+      STACK_VERSIONS_ROOT: ${STACK_VERSIONS_ROOT}
+      MANAGER_SSH_DIR: ${MANAGER_SSH_DIR}
+      RELEASE_GUARD_STATE_ROOT: ${guard_state_root}
+    labels:
+      org.solarpunk.srs-continuation.fixture: ${fixture_id}
+      org.solarpunk.srs-continuation.managed: "true"
+    networks:
+      fixture_manager:
+    ports: !reset []
+    cpus: 1
+    mem_limit: 1073741824
+    pids_limit: 256
+    volumes:
+      - type: bind
+        source: ${candidate_root}
+        target: ${candidate_root}
+        read_only: true
+      - type: bind
+        source: ${work_root}
+        target: ${work_root}
+      - type: bind
+        source: ${guard_code_root}
+        target: /opt/streaming-release-guard
+        read_only: true
+      - type: bind
+        source: ${guard_state_root}
+        target: ${guard_state_root}
+  web:
+    image: ${web_image}
+    pull_policy: never
+    labels:
+      org.solarpunk.srs-continuation.fixture: ${fixture_id}
+      org.solarpunk.srs-continuation.managed: "true"
+    networks:
+      fixture_manager:
+    ports: !override
+      - "127.0.0.1:${WEB_PORT}:80"
+    cpus: 1
+    mem_limit: 1073741824
+    pids_limit: 256
+volumes:
+  manager-pg:
+    name: ${postgres_volume_name}
+    labels:
+      org.solarpunk.srs-continuation.fixture: ${fixture_id}
+      org.solarpunk.srs-continuation.managed: "true"
+networks:
+  fixture_manager:
+    name: ${manager_fixture_network_name}
+    internal: true
+    labels:
+      org.solarpunk.srs-continuation.fixture: ${fixture_id}
+      org.solarpunk.srs-continuation.managed: "true"
+EOF
+        else
+            cat > "$override" <<EOF
 services:
   api:
     image: ${api_image}
@@ -223,6 +476,7 @@ services:
       BEE_DATA_ROOT: ${BEE_DATA_ROOT}
       STACK_VERSIONS_ROOT: ${STACK_VERSIONS_ROOT}
       MANAGER_SSH_DIR: ${MANAGER_SSH_DIR}
+      RELEASE_GUARD_STATE_ROOT: ${guard_state_root}
     volumes:
       - type: bind
         source: ${candidate_root}
@@ -245,6 +499,7 @@ volumes:
   manager-pg:
     name: ${postgres_volume_name}
 EOF
+        fi
         manager_domain="$(
             sed -n 's/^MANAGER_DOMAIN=//p' "${manager_root}/.env" 2>/dev/null |
                 tail -n 1 |
@@ -301,11 +556,49 @@ EOF
             upgrade_args+=(--public-edge)
         fi
         compose -f "$override" run --rm --no-deps -T api "${upgrade_args[@]}" < /dev/null
+        if [ -n "$fixture_network_name" ]; then
+            require_manager_fixture_network
+            api_container="$(compose -f "$override" ps -q api)"
+            if ! [[ "$api_container" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+                echo "manager release adapter could not identify the api container for fixture attachment" >&2
+                exit 1
+            fi
+            api_networks="$(docker inspect --format '{{json .NetworkSettings.Networks}}' "$api_container")"
+            shared_membership="$(node - "$api_networks" "$fixture_network_name" "$actual_fixture_network_id" <<'NODE'
+const [serialized, name, id] = process.argv.slice(2);
+try {
+  const network = JSON.parse(serialized)[name];
+  if (!network) process.stdout.write('missing');
+  else if (network.NetworkID !== id) process.stdout.write('wrong');
+  else {
+    const aliases = network.Aliases;
+    process.stdout.write(Array.isArray(aliases) && aliases.includes('manager-api') && !aliases.includes('api') ? 'exact' : 'wrong');
+  }
+} catch {
+  process.stdout.write('wrong');
+}
+NODE
+)"
+            case "$shared_membership" in
+                missing) docker network connect --alias manager-api "$fixture_network_name" "$api_container" ;;
+                exact) ;;
+                *)
+                    echo "manager fixture api has a conflicting shared-network attachment" >&2
+                    exit 1
+                    ;;
+            esac
+        fi
         ;;
     verify)
-        api_container="$(compose ps -q api)"
-        web_container="$(compose ps -q web)"
-        postgres_container="$(compose ps -q postgres)"
+        require_shared_fixture_network
+        override="$(dirname "$plan")/manager-image-override.yml"
+        if [ ! -f "$override" ] || [ -L "$override" ]; then
+            echo "manager release adapter image override is missing" >&2
+            exit 1
+        fi
+        api_container="$(compose -f "$override" ps -q api)"
+        web_container="$(compose -f "$override" ps -q web)"
+        postgres_container="$(compose -f "$override" ps -q postgres)"
         if ! [[ "$api_container" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
             ! [[ "$web_container" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
             ! [[ "$postgres_container" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
@@ -314,8 +607,11 @@ EOF
         fi
         api_status="$(docker inspect --format '{{.State.Status}}' "$api_container")"
         web_status="$(docker inspect --format '{{.State.Status}}' "$web_container")"
+        postgres_status="$(docker inspect --format '{{.State.Status}}' "$postgres_container")"
         web_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$web_container")"
-        if [ "$api_status" != running ] || [ "$web_status" != running ] || [ "$web_health" != healthy ]; then
+        postgres_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$postgres_container")"
+        if [ "$api_status" != running ] || [ "$web_status" != running ] || [ "$postgres_status" != running ] ||
+            [ "$web_health" != healthy ] || [ "$postgres_health" != healthy ]; then
             echo "manager release adapter did not verify running healthy services" >&2
             exit 1
         fi
@@ -336,6 +632,22 @@ EOF
         if [ "$postgres_mount" != "$postgres_volume_name" ]; then
             echo "manager release adapter did not verify the bound database volume" >&2
             exit 1
+        fi
+        if [ -n "$fixture_network_name" ]; then
+            require_manager_fixture_network
+            require_fixture_container "$api_container"
+            require_fixture_limits "$api_container"
+            require_fixture_membership "$api_container" api
+            require_fixture_ports "$api_container" api
+            require_fixture_container "$web_container"
+            require_fixture_limits "$web_container"
+            require_fixture_membership "$web_container" web
+            require_fixture_ports "$web_container" web
+            require_fixture_container "$postgres_container"
+            require_fixture_limits "$postgres_container"
+            require_fixture_membership "$postgres_container" postgres
+            require_fixture_ports "$postgres_container" postgres
+            require_fixture_volume
         fi
         write_images "$api_image" "$web_image"
         ;;
