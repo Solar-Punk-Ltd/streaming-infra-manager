@@ -30,6 +30,12 @@ describe('uploader lifecycle response', () => {
     assert.deepEqual(lifecycleReading(payload(stream('waiting', '2026-09-19T23:59:39.000Z')), new Date(observedAt)), { state: 'unavailable' });
   });
 
+  it('uses uploader timestamps without assuming the manager clock matches', () => {
+    for (const receipt of ['2026-09-19T23:55:10.000Z', '2026-09-20T00:05:10.000Z']) {
+      assert.deepEqual(lifecycleReading(payload(stream('live')), new Date(receipt)), { state: 'available', streams: [{ adminId: ADMIN_ID, runNumber: 2, state: 'live' }] });
+    }
+  });
+
   it('keeps closed and VOD facts after the active freshness window', () => {
     for (const state of ['closed', 'vod']) {
       assert.deepEqual(lifecycleReading(payload(stream(state)), new Date('2026-09-20T01:00:00.000Z')), { state: 'available', streams: [{ adminId: ADMIN_ID, runNumber: 2, state }] });
