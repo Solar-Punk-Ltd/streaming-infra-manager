@@ -295,6 +295,82 @@ describe('installed release guard deployments', () => {
     await assert.rejects(readFile(join(build, 'engines', 'srs', '.env.stage')), /ENOENT/);
   });
 
+  it('preserves the held-back service set in a guard-owned first-start preparation', async () => {
+    const profile = makeProfile({
+      name: 'prepare-stage',
+      stack_version_id: 2,
+      stamp_id: null,
+      instance_id: randomUUID(),
+    });
+    const { harness, row, store } = await setup({
+      profile,
+      managed: {
+        profile: profile.name,
+        adminApiToken: 'synthetic-preparation-token-at-least-32-bytes',
+      },
+      releaseTargets: {
+        uploader: {
+          profile: profile.name,
+          portSlot: profile.port_slot,
+          target: 'local',
+          services: ['bee-uploader', 'srs', 'stream-uploader'],
+        },
+      },
+    });
+
+    const run = await deploy(harness, row);
+
+    assert.equal(run.args[0], 'prepare-uploader');
+    assert.deepEqual(run.args.slice(-2), ['--services', 'bee-uploader,srs']);
+    assert.equal(run.options.env?.ADMIN_API_TOKEN, undefined);
+    assert.equal(run.options.env?.RELEASE_GUARD_ADMIN_TOKEN, undefined);
+    assert.match(
+      await readFile(join(store.records[0]!.root, '.env.prepare-stage'), 'utf8'),
+      /SRS_LIFECYCLE_VERSION=\n/,
+    );
+    assert.equal(
+      await readFile(join(store.records[0]!.root, 'engines/srs/.env.prepare-stage'), 'utf8'),
+      'SRS_HTTP_PORT=8080\n',
+    );
+  });
+
+  it('routes a later uploader-only start through a guarded subset update', async () => {
+    const profile = makeProfile({
+      name: 'update-stage',
+      stack_version_id: 2,
+      stamp_id: 'a'.repeat(64),
+      instance_id: randomUUID(),
+    });
+    const { harness, row, store } = await setup({
+      profile,
+      managed: {
+        profile: profile.name,
+        adminApiToken: 'synthetic-update-token-at-least-32-bytes',
+      },
+      releaseTargets: {
+        uploader: {
+          profile: profile.name,
+          portSlot: profile.port_slot,
+          target: 'local',
+          services: ['bee-uploader', 'srs', 'stream-uploader'],
+        },
+      },
+    });
+
+    await harness.orchestrator.startDeployUploader(row());
+    const run = harness.runner.runs.at(-1)!;
+    harness.runner.finish(harness.runner.runs.length - 1);
+    await untilRunning(harness.profiles, profile.name);
+
+    assert.equal(run.args[0], 'update-uploader');
+    assert.deepEqual(run.args.slice(-2), ['--services', 'stream-uploader']);
+    assert.equal(run.options.env?.ADMIN_API_TOKEN, 'synthetic-update-token-at-least-32-bytes');
+    assert.match(
+      await readFile(join(store.records[0]!.root, '.env.update-stage'), 'utf8'),
+      /SRS_LIFECYCLE_VERSION=1/,
+    );
+  });
+
   it('routes an installed viewer profile through the viewer guard', async () => {
     const profile = makeProfile({
       name: 'viewer-a',

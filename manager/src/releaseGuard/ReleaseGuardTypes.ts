@@ -26,10 +26,9 @@ export interface StackReleaseTarget {
   services: string[];
 }
 
-export interface StackReleaseOperation {
-  kind: 'prepare' | 'update';
-  mutatingServices: string[];
-}
+export type StackReleaseOperation =
+  | { kind: 'prepare'; mutatingServices: string[] }
+  | { kind: 'update'; mutatingServices: string[] };
 
 export interface FixtureNetworkBinding {
   name: string;

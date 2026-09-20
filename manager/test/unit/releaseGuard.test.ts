@@ -1654,6 +1654,45 @@ esac
 });
 
 describe('installed release guard command', () => {
+  it('runs a fixed uploader preparation without receipt credentials', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const adapterPath = join(candidate, 'deploy/scripts/release-adapter.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+phase="$1"
+echo "$phase" >> '${join(root, 'phases')}'
+case "$phase" in
+  preflight) printf '%s\\n' '{"schemaVersion":1,"preparationReady":true}' > "$5" ;;
+  build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"srs","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+  transition) ;;
+esac
+`);
+    await chmod(adapterPath, 0o700);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+
+    assert.equal(await runReleaseGuardCli([
+      'prepare-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', candidate,
+      '--work-root', join(root, 'work'),
+      '--slot-id', UPLOADER_ID,
+      '--services', 'srs',
+    ], {}), 'uploader preparation verified');
+    assert.equal(await readFile(join(root, 'phases'), 'utf8'), 'preflight\nbuild\ntransition\nverify\n');
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).generation, 0);
+  });
+
   it('installs a typed isolated manager target through the fixed command', async (t) => {
     const root = await temporaryRoot(t);
     await runReleaseGuardCli([
@@ -1809,6 +1848,39 @@ esac
       ], env), expected);
       await assert.rejects(lstat(called), { code: 'ENOENT' });
     }
+  });
+
+  it('validates subset update receipt credentials before invoking the uploader adapter', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    const stateRoot = join(root, 'state');
+    const called = join(root, 'adapter-called');
+    await capableCandidate(candidate);
+    await mkdir(join(candidate, 'deploy/scripts'), { recursive: true });
+    await writeFile(join(candidate, 'deploy/scripts/release-adapter.sh'), `#!/bin/bash
+set -euo pipefail
+touch '${called}'
+`);
+    await chmod(join(candidate, 'deploy/scripts/release-adapter.sh'), 0o700);
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+
+    await assert.rejects(runReleaseGuardCli([
+      'update-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', candidate,
+      '--work-root', join(root, 'work'),
+      '--admin-url', 'http://admin.internal:9877',
+      '--slot-id', UPLOADER_ID,
+      '--services', 'stream-uploader',
+    ], {}), /RELEASE_GUARD_ADMIN_TOKEN/);
+    await assert.rejects(lstat(called), { code: 'ENOENT' });
   });
 });
 

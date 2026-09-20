@@ -104,8 +104,8 @@ describe('installed release guard runner', () => {
     assert.doesNotMatch(JSON.stringify(child.runs[0]!.args), /synthetic-token/);
   });
 
-  it('identifies a held-back protected uploader for a guard-owned preparation', async () => {
-    const { runner, child } = await installed({
+  it('routes a held-back protected uploader through guard-owned preparation', async () => {
+    const { runner, child, stateRoot } = await installed({
       uploader: {
         profile: 'managed',
         portSlot: 4,
@@ -114,21 +114,55 @@ describe('installed release guard runner', () => {
       },
     });
 
-    const route = await runner.route({
+    const route = guarded(await runner.route({
       profile: 'managed',
       portSlot: 4,
       uploaderId: 'srs-uploader-a',
       services: ['bee-uploader', 'srs'],
       candidateRoot: '/candidate/managed',
       lifecycle: ADMIN,
-    });
+    }));
+    assert.equal(route.includesUploader, false);
+    runner.run(route, { cwd: '/candidate/managed' });
+    assert.deepEqual(child.runs[0]!.args, [
+      'prepare-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', '/candidate/managed',
+      '--work-root', join(stateRoot, 'manager-work', 'managed', 'uploader'),
+      '--slot-id', 'srs-uploader-a',
+      '--services', 'bee-uploader,srs',
+    ]);
+    assert.deepEqual(child.runs[0]!.options.env, {});
+  });
 
-    assert.deepEqual(route, {
-      kind: 'protected-subset',
-      role: 'uploader',
-      operation: 'prepare',
+  it('routes uploader-only startup through a guarded subset update', async () => {
+    const { runner, child, stateRoot } = await installed({
+      uploader: {
+        profile: 'managed',
+        portSlot: 4,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
     });
-    assert.equal(child.runs.length, 0);
+    const route = guarded(await runner.route({
+      profile: 'managed',
+      portSlot: 4,
+      uploaderId: 'srs-uploader-a',
+      services: ['stream-uploader'],
+      candidateRoot: '/candidate/managed',
+      lifecycle: ADMIN,
+    }));
+    runner.run(route, { cwd: '/candidate/managed' });
+    assert.equal(route.includesUploader, true);
+    assert.deepEqual(child.runs[0]!.args, [
+      'update-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', '/candidate/managed',
+      '--work-root', join(stateRoot, 'manager-work', 'managed', 'uploader'),
+      '--admin-url', ADMIN.adminApiUrl,
+      '--slot-id', 'srs-uploader-a',
+      '--services', 'stream-uploader',
+    ]);
   });
 
   it('routes an installed viewer target and sequences viewer before uploader', async () => {

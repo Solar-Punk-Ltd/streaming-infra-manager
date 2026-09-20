@@ -7,8 +7,16 @@ import {
   type ReleaseGuardDeploymentTargets,
 } from './ReleaseGuardStore.js';
 import { submitPendingReceipt, validateReleaseReceiptDestination } from './ReleaseReceiptSubmitter.js';
-import { digestReleaseCandidate, runReleaseTransition } from './ReleaseTransition.js';
-import type { ReleaseRole, ReleaseSlot } from './ReleaseGuardTypes.js';
+import {
+  digestReleaseCandidate,
+  runReleaseTransition,
+  runStackPreparation,
+} from './ReleaseTransition.js';
+import type {
+  ReleaseRole,
+  ReleaseSlot,
+  StackReleaseOperation,
+} from './ReleaseGuardTypes.js';
 
 const TOKEN_ENV = 'RELEASE_GUARD_ADMIN_TOKEN';
 const ADMIN_URL_ENV = 'RELEASE_GUARD_ADMIN_URL';
@@ -85,6 +93,49 @@ export async function runReleaseGuardCli(
     });
     return 'release receipt acknowledged';
   }
+  if (command === 'prepare-uploader' || command === 'update-uploader') {
+    const isUpdate = command === 'update-uploader';
+    const allowed = new Set([
+      'state-root',
+      'candidate-root',
+      'work-root',
+      'slot-id',
+      'services',
+      ...(isUpdate ? ['admin-url'] : []),
+    ]);
+    const flags = parseFlags(rest, allowed);
+    const slot = releaseSlot('uploader', flags.get('slot-id'));
+    const operation: StackReleaseOperation = {
+      kind: isUpdate ? 'update' : 'prepare',
+      mutatingServices: releaseServices(required(flags, 'services')),
+    };
+    const store = new ReleaseGuardStore(required(flags, 'state-root'));
+    const adapter = new FixedReleaseAdapter(
+      'uploader',
+      required(flags, 'work-root'),
+      await adapterArguments('uploader', store, operation),
+    );
+    if (!isUpdate) {
+      await runStackPreparation({
+        store,
+        candidateRoot: required(flags, 'candidate-root'),
+        slot,
+        mutatingServices: operation.mutatingServices,
+        adapter,
+      });
+      return 'uploader preparation verified';
+    }
+    const destination = receiptDestination(flags, env);
+    await runReleaseTransition({
+      store,
+      candidateRoot: required(flags, 'candidate-root'),
+      slot,
+      operation: operation as Extract<StackReleaseOperation, { kind: 'update' }>,
+      adapter,
+    });
+    await submitPendingReceipt({ store, slot, ...destination });
+    return 'uploader subset release verified and acknowledged';
+  }
   if (!command || !ROLES.has(command as ReleaseRole)) throw new Error('release guard command is invalid');
   const role = command as ReleaseRole;
   const allowed = new Set([
@@ -132,12 +183,29 @@ function releaseSlot(roleValue: string, id: string | undefined): ReleaseSlot {
 async function adapterArguments(
   role: ReleaseRole,
   store: ReleaseGuardStore,
+  operation?: StackReleaseOperation,
 ): Promise<FixedAdapterArguments> {
   const fixtureNetwork = await store.fixtureNetwork();
   return {
     target: await store.deploymentTarget(role),
     ...(fixtureNetwork ? { fixtureNetwork } : {}),
+    ...(operation ? { operation } : {}),
   };
+}
+
+function releaseServices(value: string): string[] {
+  const services = value.split(',');
+  const sorted = [...services].sort();
+  if (
+    services.length === 0 ||
+    services.length > 32 ||
+    services.some((service) => !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(service)) ||
+    new Set(services).size !== services.length ||
+    services.some((service, index) => service !== sorted[index])
+  ) {
+    throw new Error('release guard services are invalid');
+  }
+  return services;
 }
 
 function installationTargets(flags: Map<string, string>): ReleaseGuardDeploymentTargets {

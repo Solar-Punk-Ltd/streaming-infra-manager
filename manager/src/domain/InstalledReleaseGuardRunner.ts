@@ -30,11 +30,6 @@ interface GuardInvocation {
 export type InstalledReleaseRoute =
   | { kind: 'stack-script'; protectedProfile: false }
   | {
-    kind: 'protected-subset';
-    role: 'uploader' | 'viewer';
-    operation: 'prepare' | 'update';
-  }
-  | {
     kind: 'guard';
     includesUploader: boolean;
     roles: readonly ('viewer' | 'uploader')[];
@@ -93,10 +88,29 @@ export class InstalledReleaseGuardRunner {
     const covered = [...new Set(exact.flatMap(({ target }) => target.services))];
     if (exact.length === 0 || !sameServices(covered, input.services)) {
       const update = input.services.includes('stream-uploader');
+      if (!matches.some(({ role }) => role === 'uploader')) {
+        throw new Error('installed viewer target cannot be deployed as a partial service set');
+      }
+      const lifecycle = input.lifecycle;
+      if (update && (!lifecycle || lifecycle.profile !== input.profile)) {
+        throw new Error('installed uploader target does not match the configured managed profile');
+      }
+      const command = update ? 'update-uploader' : 'prepare-uploader';
+      const args = [
+        command,
+        '--state-root', this.stateRoot,
+        '--candidate-root', input.candidateRoot,
+        '--work-root', join(this.stateRoot, 'manager-work', input.profile, 'uploader'),
+        ...(update ? ['--admin-url', lifecycle!.adminApiUrl] : []),
+        '--slot-id', input.uploaderId,
+        '--services', [...input.services].sort().join(','),
+      ];
       return {
-        kind: 'protected-subset',
-        role: matches.some(({ role }) => role === 'uploader') ? 'uploader' : 'viewer',
-        operation: update ? 'update' : 'prepare',
+        kind: 'guard',
+        includesUploader: update,
+        roles: ['uploader'],
+        invocations: [{ role: 'uploader', args }],
+        environment: update ? releaseEnvironment(lifecycle!) : {},
       };
     }
 
@@ -124,12 +138,7 @@ export class InstalledReleaseGuardRunner {
       includesUploader,
       roles: invocations.map(({ role }) => role),
       invocations,
-      environment: {
-        ADMIN_API_TOKEN: lifecycle.adminApiToken,
-        ADMIN_API_URL: lifecycle.adminApiUrl,
-        RELEASE_GUARD_ADMIN_TOKEN: lifecycle.adminApiToken,
-        RELEASE_GUARD_ADMIN_URL: lifecycle.adminApiUrl,
-      },
+      environment: releaseEnvironment(lifecycle),
     };
   }
 
@@ -183,4 +192,13 @@ export class InstalledReleaseGuardRunner {
       },
     };
   }
+}
+
+function releaseEnvironment(lifecycle: ManagedSrsLifecycleConfig): Record<string, string> {
+  return {
+    ADMIN_API_TOKEN: lifecycle.adminApiToken,
+    ADMIN_API_URL: lifecycle.adminApiUrl,
+    RELEASE_GUARD_ADMIN_TOKEN: lifecycle.adminApiToken,
+    RELEASE_GUARD_ADMIN_URL: lifecycle.adminApiUrl,
+  };
 }

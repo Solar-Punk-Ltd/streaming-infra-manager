@@ -1081,12 +1081,6 @@ export class DeploymentOrchestrator {
           'The installed release guard can only deploy its local target. No remote deployment was started.',
         );
       }
-      if (releaseRoute?.kind === 'protected-subset') {
-        throw new ProfileConfigError(
-          profile.name,
-          'This protected deployment needs a guarded subset operation before it can start. No deployment was started.',
-        );
-      }
       const managedSrs = this.managedSrsEnv(
         profile,
         version,
@@ -1142,7 +1136,7 @@ export class DeploymentOrchestrator {
       );
 
       const services = [...reservation.services];
-      if (releaseRoute?.kind === 'guard' && releaseRoute.includesUploader) {
+      if (releaseRoute?.kind === 'guard' && releaseRoute.roles.includes('uploader')) {
         await bootstrapEngineProfileEnv(paths.root, engine, profile.name);
       }
       return await this.runJob({
