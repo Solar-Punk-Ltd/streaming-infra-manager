@@ -59,13 +59,13 @@ export function lifecycleReading(raw: unknown, receivedAt: Date): UploaderLifecy
 }
 
 function parseStream(raw: unknown, observedAt: number, receivedAt: Date): UploaderLifecycleStream | null {
-  if (!isRecord(raw) || typeof raw.adminId !== 'string' || !isUuid(raw.adminId) || !Number.isInteger(raw.runNumber) || raw.runNumber < 1 || typeof raw.state !== 'string' || typeof raw.lastObservedAt !== 'string') return null;
+  if (!isRecord(raw) || typeof raw.adminStreamId !== 'string' || !isUuid(raw.adminStreamId) || !Number.isInteger(raw.runNumber) || raw.runNumber < 1 || typeof raw.state !== 'string' || typeof raw.lastObservedAt !== 'string') return null;
   if (!ACTIVE_STATES.has(raw.state as UploaderLifecycleState) && !TERMINAL_STATES.has(raw.state as UploaderLifecycleState)) return null;
   const lastObservedAt = Date.parse(raw.lastObservedAt);
-  if (!Number.isFinite(lastObservedAt)) return null;
+  if (!Number.isFinite(lastObservedAt) || observedAt < lastObservedAt || observedAt > receivedAt.getTime()) return null;
   const state = raw.state as UploaderLifecycleState;
-  if (ACTIVE_STATES.has(state) && Math.max(0, observedAt - lastObservedAt) + Math.max(0, receivedAt.getTime() - observedAt) > STALE_AFTER_MS) return null;
-  return { adminId: raw.adminId, runNumber: raw.runNumber, state };
+  if (ACTIVE_STATES.has(state) && observedAt - lastObservedAt > STALE_AFTER_MS) return null;
+  return { adminId: raw.adminStreamId, runNumber: raw.runNumber, state };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
