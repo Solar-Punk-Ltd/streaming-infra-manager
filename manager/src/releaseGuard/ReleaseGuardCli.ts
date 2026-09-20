@@ -57,10 +57,22 @@ export async function runReleaseGuardCli(
     const lease = await new ReleaseGuardStore(required(flags, 'state-root')).beginLegacyLease();
     return lease.mode === 'managed' ? 'managed' : `legacy:${lease.ownerToken}`;
   }
+  if (command === 'begin-stack-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'profile']));
+    const lease = await new ReleaseGuardStore(required(flags, 'state-root'))
+      .beginStackLegacyLease(required(flags, 'profile'));
+    return `legacy:${lease.ownerToken}`;
+  }
   if (command === 'finish-legacy') {
     const flags = parseFlags(rest, new Set(['state-root', 'owner-token']));
     await new ReleaseGuardStore(required(flags, 'state-root')).finishLegacyLease(required(flags, 'owner-token'));
     return 'legacy deployment lease released';
+  }
+  if (command === 'finish-stack-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'owner-token']));
+    await new ReleaseGuardStore(required(flags, 'state-root'))
+      .finishLegacyLease(required(flags, 'owner-token'));
+    return 'legacy stack deployment lease released';
   }
   if (command === 'retry') {
     const flags = parseFlags(rest, new Set(['state-root', 'role', 'slot-id', 'admin-url']));

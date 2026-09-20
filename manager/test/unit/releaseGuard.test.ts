@@ -525,6 +525,33 @@ describe('external release guard state', () => {
     assert.deepEqual(await store.beginLegacyLease(), { mode: 'managed' });
     await assert.rejects(lstat(join(root, 'state.lock')), /ENOENT/);
   });
+
+  it('leases unrelated stack profiles after activation while protecting every installed target', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID, {
+      manager: MANAGER_TARGET,
+      admin: { projectName: 'admin-test', postgresVolumeName: 'admin-test-pg', webPort: 19_080 },
+      uploader: UPLOADER_TARGET,
+      viewer: VIEWER_TARGET,
+    });
+    const store = new ReleaseGuardStore(root);
+    await verifiedReceipt(store, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '4'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+
+    for (const profile of ['manager-test', 'admin-test', 'managed', 'viewer']) {
+      await assert.rejects(store.beginStackLegacyLease(profile), /protected by the installed release guard/);
+    }
+    const lease = await store.beginStackLegacyLease('unrelated-b');
+    assert.match(lease.ownerToken, /^[0-9a-f-]{36}$/);
+    await assert.rejects(store.withTransition(async () => undefined), /crash lock requires operator recovery/);
+    await store.finishLegacyLease(lease.ownerToken);
+    await assert.rejects(lstat(join(root, 'state.lock')), /ENOENT/);
+  });
 });
 
 describe('guarded release transition', () => {
@@ -1408,6 +1435,30 @@ describe('installed release guard command', () => {
         '--owner-token', ownerToken,
       ], {}),
       'legacy deployment lease released',
+    );
+  });
+
+  it('exposes an owner-bound unrelated stack lease through fixed commands', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID, { uploader: UPLOADER_TARGET });
+
+    await assert.rejects(
+      runReleaseGuardCli(['begin-stack-legacy', '--state-root', root, '--profile', UPLOADER_TARGET.profile], {}),
+      /protected by the installed release guard/,
+    );
+    const result = await runReleaseGuardCli([
+      'begin-stack-legacy',
+      '--state-root', root,
+      '--profile', 'unrelated-b',
+    ], {});
+    assert.match(result, /^legacy:[0-9a-f-]{36}$/);
+    assert.equal(
+      await runReleaseGuardCli([
+        'finish-stack-legacy',
+        '--state-root', root,
+        '--owner-token', result.slice('legacy:'.length),
+      ], {}),
+      'legacy stack deployment lease released',
     );
   });
 

@@ -176,6 +176,37 @@ export class ReleaseGuardStore {
     }
   }
 
+  async beginStackLegacyLease(profile: string): Promise<{ ownerToken: string }> {
+    if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(profile)) throw new Error('legacy stack profile is invalid');
+    await this.acquireLock();
+    try {
+      const state = await this.read();
+      const installed = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+      if (installed.installationId !== state.installationId) {
+        throw new Error('release guard deployment targets are invalid');
+      }
+      const protectedNames = new Set([
+        installed.targets.manager?.projectName,
+        installed.targets.admin?.projectName,
+        installed.targets.uploader?.profile,
+        installed.targets.viewer?.profile,
+      ].filter((name): name is string => name !== undefined));
+      if (protectedNames.has(profile)) {
+        throw new Error('stack profile is protected by the installed release guard');
+      }
+      const ownerToken = randomUUID();
+      await atomicWrite(join(this.root, LOCK), LEGACY_OWNER, canonicalJson({
+        schemaVersion: 1,
+        installationId: state.installationId,
+        ownerToken,
+      }));
+      return { ownerToken };
+    } catch (error) {
+      await this.releaseEmptyLock().catch(() => undefined);
+      throw error;
+    }
+  }
+
   async finishLegacyLease(ownerToken: string): Promise<void> {
     requireUuid(ownerToken, 'legacy lease owner token');
     const state = await this.read();
