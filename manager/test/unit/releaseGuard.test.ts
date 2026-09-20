@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -705,7 +706,13 @@ elif [ "$1" = inspect ]; then
   elif [[ "$*" == *State.Health.Status* ]]; then
     printf '%s\\n' healthy
   elif [[ "$*" == *Mounts* ]]; then
-    printf '%s\\n' '${MANAGER_TARGET.postgresVolumeName}'
+    case "$*" in
+      *manager-postgres-container) printf '%s\\n' '${MANAGER_TARGET.postgresVolumeName}' ;;
+      *'/root/.ssh'*) printf '%s\\n' "\${HOME}/manager-ssh" ;;
+      *streaming-infra-manager-data*) printf '%s\\n' "\${HOME}/streaming-infra-manager-data" ;;
+      *streaming-infra-manager-versions*) printf '%s\\n' "\${HOME}/streaming-infra-manager-versions" ;;
+      *) printf '%s\\n' "$(cd "$(dirname "$0")/.." && pwd -P)/candidate" ;;
+    esac
   else
     case "\${!#}" in
       manager-api-container) printf '%s\\n' '${IMAGE_ID}' ;;
@@ -757,6 +764,7 @@ fi
     assert.match(calls, /inspect --format .*State\.Status.*manager-web-container/);
     assert.match(calls, /inspect --format .*State\.Health\.Status.*manager-web-container/);
     assert.match(calls, /inspect --format .*Mounts.*manager-postgres-container/);
+    assert.match(calls, /inspect --format .*Mounts.*manager-api-container/);
   });
 
   it('refuses a manager whose postgres container mounted a different volume', async (t) => {
@@ -814,6 +822,91 @@ fi
       }),
       /release adapter verify failed/,
     );
+  });
+
+  it('refuses an isolated public edge or occupied port before the upgrade coordinator', async (t) => {
+    async function candidateWithDocker(root: string, managerDomain: string) {
+      const candidate = join(root, 'candidate');
+      await capableCandidate(candidate, 'manager');
+      await mkdir(join(candidate, 'manager'), { recursive: true });
+      await writeFile(join(candidate, 'manager/docker-compose.yml'), 'services: {}\n');
+      await writeFile(join(candidate, 'manager/.env'), `MANAGER_DOMAIN=${managerDomain}\n`);
+      await writeFile(join(candidate, '.release-commit'), `${'c'.repeat(40)}\n`);
+      await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
+      await copyFile(
+        join(REPO, 'deploy/release-adapters/manager.sh'),
+        join(candidate, 'deploy/release-adapters/manager.sh'),
+      );
+      await chmod(join(candidate, 'deploy/release-adapters/manager.sh'), 0o700);
+      const fakeBin = join(root, 'bin');
+      await mkdir(fakeBin);
+      const docker = join(fakeBin, 'docker');
+      await writeFile(docker, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$(dirname "$0")/docker.log"
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+  case "\${!#}" in
+    *-api) printf '%s\\n' '${IMAGE_ID}' ;;
+    *-web) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+  esac
+fi
+`);
+      await chmod(docker, 0o700);
+      return { candidate, fakeBin };
+    }
+
+    const edgeRoot = await temporaryRoot(t);
+    const edge = await candidateWithDocker(edgeRoot, 'manager.example.test');
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${edge.fakeBin}:${oldPath ?? ''}`;
+    t.after(() => { process.env.PATH = oldPath; });
+    const edgeState = join(edgeRoot, 'state');
+    await installReleaseGuard(edgeState, INSTALLATION_ID);
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(edgeState),
+        candidateRoot: edge.candidate,
+        slot: { role: 'manager', id: 'default' },
+        adapter: new FixedReleaseAdapter('manager', join(edgeRoot, 'adapter-work'), {
+          target: ISOLATED_MANAGER_TARGET,
+        }),
+      }),
+      /release adapter transition failed/,
+    );
+    assert.doesNotMatch(await readFile(join(edge.fakeBin, 'docker.log'), 'utf8'), /manager:upgrade/);
+
+    const occupiedRoot = await temporaryRoot(t);
+    const occupied = await candidateWithDocker(occupiedRoot, '');
+    process.env.PATH = `${occupied.fakeBin}:${oldPath ?? ''}`;
+    const server = createServer();
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once('error', rejectListen);
+      server.listen({ host: '127.0.0.1', port: 0 }, resolveListen);
+    });
+    t.after(async () => {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    });
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const occupiedTarget = {
+      ...ISOLATED_MANAGER_TARGET,
+      postgresPort: address.port,
+      webPort: address.port === 65_535 ? 65_534 : address.port + 1,
+    };
+    const occupiedState = join(occupiedRoot, 'state');
+    await installReleaseGuard(occupiedState, INSTALLATION_ID);
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(occupiedState),
+        candidateRoot: occupied.candidate,
+        slot: { role: 'manager', id: 'default' },
+        adapter: new FixedReleaseAdapter('manager', join(occupiedRoot, 'adapter-work'), {
+          target: occupiedTarget,
+        }),
+      }),
+      /release adapter transition failed/,
+    );
+    assert.doesNotMatch(await readFile(join(occupied.fakeBin, 'docker.log'), 'utf8'), /manager:upgrade/);
   });
 
   it('refuses a manager whose pinned web container is not healthy', async (t) => {

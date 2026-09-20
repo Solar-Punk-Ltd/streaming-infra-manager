@@ -9,7 +9,7 @@ services:
     volumes:
       - manager-pg:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U manager -d manager"]
       interval: 5s
@@ -33,12 +33,12 @@ services:
       DATABASE_URL: postgres://manager:${POSTGRES_PASSWORD:-manager}@postgres:5432/manager
       MANAGER_PORT: "9876"
       PUBLIC_HOST: ${PUBLIC_HOST:-}
-      SHLS_ROOT: /home/solarpunk/streaming-infra-manager/manager/swarm-hls-stream
+      SHLS_ROOT: ${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}/manager/swarm-hls-stream
       BEE_DATA_ROOT: ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
       STACK_VERSIONS_ROOT: ${STACK_VERSIONS_ROOT:-/home/solarpunk/streaming-infra-manager-versions}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/solarpunk/streaming-infra-manager:/home/solarpunk/streaming-infra-manager
+      - ${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}:${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}
       - ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}:${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
       # Added stack versions, at the same absolute path on both sides. Each
       # checkout carries compose files with relative volumes, which the host
