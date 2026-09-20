@@ -84,6 +84,10 @@ if (command === 'install') {
     ]);
     const codeRoot = join(home, '.local/lib/streaming-release-guard/current');
     for (const output of OUTPUTS) assert.equal((await lstat(join(codeRoot, output))).isFile(), true);
+    assert.deepEqual(JSON.parse(await readFile(join(codeRoot, 'container-binding.json'), 'utf8')), {
+      schemaVersion: 1,
+      stateRoot: join(home, '.local/state/streaming-release-guard'),
+    });
     const containerLauncher = await readFile(join(codeRoot, 'streaming-release-guard'), 'utf8');
     assert.match(containerLauncher, /\/opt\/streaming-release-guard\/ReleaseGuardCli\.js/);
     assert.equal((await lstat(join(codeRoot, 'streaming-release-guard'))).mode & 0o777, 0o555);
@@ -152,6 +156,17 @@ if (command === 'install') {
       '--fixture-network-name', `${fixtureId}-network`,
       '--fixture-id', fixtureId,
     ];
+    const missingOutput = join(packet, 'manager/dist/releaseGuard/ReleaseTransition.js');
+    await unlink(missingOutput);
+    await assert.rejects(
+      execFileAsync(join(packet, 'deploy/install-release-guard.sh'), args, {
+        env: { ...process.env, HOME: home },
+      }),
+      /build output is incomplete/,
+    );
+    await assert.rejects(lstat(guardRoot), { code: 'ENOENT' });
+    await writeFile(missingOutput, 'export {};\n');
+
     const unrelated = join(canonicalRoot, 'unrelated');
     await mkdir(unrelated);
     await writeFile(join(unrelated, 'sentinel'), 'unchanged\n');
@@ -172,6 +187,13 @@ if (command === 'install') {
 
     assert.equal((await lstat(join(guardRoot, 'bin/streaming-release-guard'))).isFile(), true);
     assert.equal((await lstat(join(guardRoot, 'state/streaming-release-guard'))).isDirectory(), true);
+    assert.deepEqual(JSON.parse(await readFile(join(
+      guardRoot,
+      'lib/streaming-release-guard/current/container-binding.json',
+    ), 'utf8')), {
+      schemaVersion: 1,
+      stateRoot: join(guardRoot, 'state/streaming-release-guard'),
+    });
     await assert.rejects(lstat(join(home, '.local/bin/streaming-release-guard')), { code: 'ENOENT' });
     const launcher = await readFile(join(guardRoot, 'bin/streaming-release-guard'), 'utf8');
     assert.doesNotMatch(launcher, /HOME/);

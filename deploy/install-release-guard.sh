@@ -44,10 +44,6 @@ if [ -n "$fixture_id" ] || [ -n "$fixture_network_name" ]; then
         echo "release guard fixture guard root is invalid" >&2
         exit 1
     fi
-    if ! mkdir -m 700 "$installation_root"; then
-        echo "release guard fixture guard root is invalid" >&2
-        exit 1
-    fi
 else
     installation_root="${HOME}/.local"
 fi
@@ -91,6 +87,11 @@ for file in "${files[@]}"; do
     fi
 done
 
+if [ -n "$fixture_id" ] && ! mkdir -m 700 "$installation_root"; then
+    echo "release guard fixture guard root is invalid" >&2
+    exit 1
+fi
+
 if [ -n "$fixture_id" ]; then
     lease_result="$("$release_mode_source" begin-bootstrap-install --fixture-id "$fixture_id")"
 else
@@ -115,6 +116,19 @@ for file in "${files[@]}"; do
     install -m 0444 "${source_root}/${file}" "${code_root}/${file}"
 done
 install -m 0555 "$container_launcher_source" "${code_root}/streaming-release-guard"
+node - "${code_root}/container-binding.json" "$state_root" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const [output, stateRoot] = process.argv.slice(2);
+if (!path.isAbsolute(stateRoot) || path.normalize(stateRoot) !== stateRoot) process.exit(1);
+const descriptor = fs.openSync(output, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o444);
+try {
+  fs.writeFileSync(descriptor, `${JSON.stringify({ schemaVersion: 1, stateRoot })}\n`);
+  fs.fsyncSync(descriptor);
+} finally {
+  fs.closeSync(descriptor);
+}
+NODE
 printf '%s\n' '{"type":"module"}' > "${code_root}/package.json"
 chmod 0444 "${code_root}/package.json"
 install -m 0555 "$launcher_source" "$launcher"
