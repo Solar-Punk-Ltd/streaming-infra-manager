@@ -75,14 +75,23 @@ if (key.startsWith('target:')) {
     target === null ||
     typeof target !== 'object' ||
     Array.isArray(target) ||
-    Object.keys(target).sort().join(',') !== 'postgresVolumeName,projectName,webPort' ||
+    Object.keys(target).sort().join(',') !== 'mode,postgresPort,postgresVolumeName,projectName,webPort' ||
+    (target.mode !== 'production' && target.mode !== 'isolated') ||
     typeof target.projectName !== 'string' ||
     !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(target.projectName) ||
     typeof target.postgresVolumeName !== 'string' ||
     !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(target.postgresVolumeName) ||
+    !Number.isSafeInteger(target.postgresPort) ||
+    target.postgresPort < 1 ||
+    target.postgresPort > 65535 ||
     !Number.isSafeInteger(target.webPort) ||
     target.webPort < 1 ||
-    target.webPort > 65535
+    target.webPort > 65535 ||
+    (target.mode === 'isolated' && (
+      target.postgresPort === 5432 ||
+      target.webPort === 8080 ||
+      target.postgresPort === target.webPort
+    ))
   ) process.exit(2);
   const name = key.slice('target:'.length);
   const value = target[name];
@@ -124,18 +133,39 @@ if ! [[ "$release_commit" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
     exit 2
 fi
 
-export PUBLIC_HOST
-PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+deployment_mode="$(plan_value target:mode)"
 project_name="$(plan_value target:projectName)"
 postgres_volume_name="$(plan_value target:postgresVolumeName)"
-export WEB_PORT
+export MANAGER_ROOT="$candidate_root"
+export POSTGRES_PORT WEB_PORT
+POSTGRES_PORT="$(plan_value target:postgresPort)"
 WEB_PORT="$(plan_value target:webPort)"
-export BEE_DATA_ROOT="${HOME}/streaming-infra-manager-data"
-export STACK_VERSIONS_ROOT="${HOME}/streaming-infra-manager-versions"
-MANAGER_SSH_DIR="$(sed -n 's/^MANAGER_SSH_DIR=//p' "${manager_root}/.env" 2>/dev/null | tail -n 1 | tr -d '\r"' | tr -d "'")"
-export MANAGER_SSH_DIR="${MANAGER_SSH_DIR:-${HOME}/manager-ssh}"
-mkdir -p "$MANAGER_SSH_DIR"
-chmod 700 "$MANAGER_SSH_DIR"
+guard_code_root="${HOME}/.local/lib/streaming-release-guard/current"
+guard_state_root="${HOME}/.local/state/streaming-release-guard"
+export PUBLIC_HOST BEE_DATA_ROOT STACK_VERSIONS_ROOT MANAGER_SSH_DIR
+if [ "$deployment_mode" = isolated ]; then
+    isolation_root="${guard_state_root}/isolation/${project_name}"
+    PUBLIC_HOST=""
+    BEE_DATA_ROOT="${isolation_root}/data"
+    STACK_VERSIONS_ROOT="${isolation_root}/versions"
+    MANAGER_SSH_DIR="${isolation_root}/ssh"
+else
+    PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+    BEE_DATA_ROOT="${HOME}/streaming-infra-manager-data"
+    STACK_VERSIONS_ROOT="${HOME}/streaming-infra-manager-versions"
+    configured_ssh_dir="$(sed -n 's/^MANAGER_SSH_DIR=//p' "${manager_root}/.env" 2>/dev/null | tail -n 1 | tr -d '\r"' | tr -d "'")"
+    MANAGER_SSH_DIR="${configured_ssh_dir:-${HOME}/manager-ssh}"
+fi
+
+port_available() {
+    node - "$1" <<'NODE'
+const net = require('node:net');
+const port = Number(process.argv[2]);
+const server = net.createServer();
+server.once('error', () => process.exit(1));
+server.listen({ host: '127.0.0.1', port }, () => server.close(() => process.exit(0)));
+NODE
+}
 
 compose() {
     docker compose \
@@ -176,8 +206,8 @@ case "$phase" in
         web_image="$(plan_value image:web)"
         tree_digest="$(plan_value treeDigest)"
         work_root="$(cd "$(dirname "$plan")" && pwd -P)"
-        guard_code_root="/home/solarpunk/.local/lib/streaming-release-guard/current"
-        guard_state_root="/home/solarpunk/.local/state/streaming-release-guard"
+        mkdir -p "$BEE_DATA_ROOT" "$STACK_VERSIONS_ROOT" "$MANAGER_SSH_DIR"
+        chmod 700 "$MANAGER_SSH_DIR"
         override="$(dirname "$plan")/manager-image-override.yml"
         umask 077
         cat > "$override" <<EOF
@@ -218,6 +248,10 @@ EOF
                 sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
                 sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
         )"
+        if [ "$deployment_mode" = isolated ] && [ -n "$manager_domain" ]; then
+            echo "isolated manager release cannot enable the public edge" >&2
+            exit 1
+        fi
         postgres_volume="$postgres_volume_name"
         data_volume="$(docker volume ls -q --filter "name=^${postgres_volume}$")"
         api_containers="$(docker ps -aq \
@@ -228,6 +262,12 @@ EOF
             --filter "label=com.docker.compose.project=${project_name}" \
             --filter 'label=com.docker.compose.service=postgres' \
             --filter 'label=com.docker.compose.oneoff=False')"
+        if [ "$deployment_mode" = isolated ] && [ -z "$api_containers" ] && [ -z "$postgres_containers" ]; then
+            if ! port_available "$POSTGRES_PORT" || ! port_available "$WEB_PORT"; then
+                echo "manager isolated release port is already occupied" >&2
+                exit 1
+            fi
+        fi
         is_first_use=false
         if [ -z "$data_volume" ]; then
             if [ -n "$api_containers" ]; then
@@ -275,6 +315,17 @@ EOF
         fi
         api_image="$(docker inspect --format '{{.Image}}' "$api_container")"
         web_image="$(docker inspect --format '{{.Image}}' "$web_container")"
+        manager_mount="$(docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${candidate_root}\"}}{{.Source}}{{end}}{{end}}" "$api_container")"
+        data_mount="$(docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${BEE_DATA_ROOT}\"}}{{.Source}}{{end}}{{end}}" "$api_container")"
+        versions_mount="$(docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${STACK_VERSIONS_ROOT}\"}}{{.Source}}{{end}}{{end}}" "$api_container")"
+        ssh_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/root/.ssh"}}{{.Source}}{{end}}{{end}}' "$api_container")"
+        if [ "$manager_mount" != "$candidate_root" ] ||
+            [ "$data_mount" != "$BEE_DATA_ROOT" ] ||
+            [ "$versions_mount" != "$STACK_VERSIONS_ROOT" ] ||
+            [ "$ssh_mount" != "$MANAGER_SSH_DIR" ]; then
+            echo "manager release adapter did not verify the bound manager mounts" >&2
+            exit 1
+        fi
         postgres_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$postgres_container")"
         if [ "$postgres_mount" != "$postgres_volume_name" ]; then
             echo "manager release adapter did not verify the bound database volume" >&2

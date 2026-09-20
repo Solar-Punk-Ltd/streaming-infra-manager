@@ -19,9 +19,11 @@ import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService
 const here = dirname(fileURLToPath(import.meta.url));
 const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
 const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
+const COMPOSE_FILE = join(here, '..', '..', 'docker-compose.yml');
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
 const adapter = readFileSync(ADAPTER_SCRIPT, 'utf8');
+const composeFile = readFileSync(COMPOSE_FILE, 'utf8');
 const execFileAsync = promisify(execFile);
 
 /** Every `rsync ...` invocation, each up to its destination line. */
@@ -256,10 +258,10 @@ publish_candidate
    * the directory itself, empty, as the user it runs as, before compose sees it.
    */
   it('creates the ssh identity directory as the deploying user before any container is made', () => {
-    const made = adapter.indexOf('mkdir -p "$MANAGER_SSH_DIR"');
+    const made = adapter.indexOf('mkdir -p "$BEE_DATA_ROOT" "$STACK_VERSIONS_ROOT" "$MANAGER_SSH_DIR"');
     assert.notEqual(made, -1, 'the ssh identity directory is created with mode 700');
-    assert.ok(made < adapter.indexOf('build api web'), 'before the images are built');
-    assert.match(adapter, /export MANAGER_SSH_DIR=/);
+    assert.ok(made < adapter.indexOf('compose -f "$override" run'), 'before the upgrade container is made');
+    assert.match(adapter, /export PUBLIC_HOST BEE_DATA_ROOT STACK_VERSIONS_ROOT MANAGER_SSH_DIR/);
     assert.match(adapter, /chmod 700 "\$MANAGER_SSH_DIR"/);
   });
 
@@ -300,18 +302,44 @@ publish_candidate
   it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
     // The remote block runs under set -e with pipefail, so a failing pipe inside this
     // substitution would end it here and the warning, the upgrade and the receipt would never run.
-    const line = adapter.split('\n').find((one) => one.startsWith('PUBLIC_HOST="'));
+    const line = adapter.split('\n').find((one) => one.includes('PUBLIC_HOST="$(ip -4 route get'));
     assert.ok(line, 'the remote block reads the address of the host');
     assert.match(line, /\|\| true\)"$/);
     assert.ok(adapter.indexOf('PUBLIC_HOST=') > -1);
   });
 
-  it('uses only the installation-bound project, volume, and loopback web port', () => {
+  it('uses only the installation-bound mode, project, volume, and loopback ports', () => {
+    assert.match(adapter, /deployment_mode="\$\(plan_value target:mode\)"/);
     assert.match(adapter, /project_name="\$\(plan_value target:projectName\)"/);
     assert.match(adapter, /postgres_volume_name="\$\(plan_value target:postgresVolumeName\)"/);
+    assert.match(adapter, /POSTGRES_PORT="\$\(plan_value target:postgresPort\)"/);
     assert.match(adapter, /WEB_PORT="\$\(plan_value target:webPort\)"/);
     assert.match(adapter, /--project-name "\$project_name"/);
     assert.match(adapter, /postgres_volume="\$postgres_volume_name"/);
+  });
+
+  it('derives an isolated layout without live roots or public edge', () => {
+    assert.match(composeFile, /127\.0\.0\.1:\$\{POSTGRES_PORT:-5432\}:5432/);
+    assert.match(composeFile, /\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}:\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}/);
+    assert.match(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
+    assert.match(adapter, /isolation_root="\$\{guard_state_root\}\/isolation\/\$\{project_name\}"/);
+    assert.match(adapter, /isolated manager release cannot enable the public edge/);
+    assert.match(adapter, /manager isolated release port is already occupied/);
+    assert.doesNotMatch(adapter, /guard_(?:code|state)_root="\/home\/solarpunk/);
+  });
+
+  it('verifies the running manager source, data, versions, ssh, and database mounts', () => {
+    for (const destination of [
+      '"$candidate_root"',
+      '"$BEE_DATA_ROOT"',
+      '"$STACK_VERSIONS_ROOT"',
+      '/root/.ssh',
+      '/var/lib/postgresql/data',
+    ]) {
+      assert.ok(adapter.includes(destination), `the adapter checks ${destination}`);
+    }
+    assert.match(adapter, /did not verify the bound manager mounts/);
+    assert.match(adapter, /did not verify the bound database volume/);
   });
 
   it('never asks compose to print a rendered configuration', () => {
