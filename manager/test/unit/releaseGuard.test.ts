@@ -47,6 +47,18 @@ const ISOLATED_MANAGER_TARGET = {
   postgresPort: 25_432,
   webPort: 28_080,
 };
+const UPLOADER_TARGET = {
+  profile: 'managed',
+  portSlot: 1,
+  target: 'local' as const,
+  services: ['bee-uploader', 'srs', 'stream-uploader'],
+};
+const VIEWER_TARGET = {
+  profile: 'viewer',
+  portSlot: 2,
+  target: 'local' as const,
+  services: ['bee-gateway', 'client'],
+};
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
 const FIXTURE_READY_TIMEOUT_MS = 5_000;
@@ -162,9 +174,15 @@ async function verifiedReceipt(
 describe('external release guard state', () => {
   it('binds validated deployment targets to the guard installation', async (t) => {
     const root = await temporaryRoot(t);
-    await installReleaseGuard(root, INSTALLATION_ID, { manager: MANAGER_TARGET });
+    await installReleaseGuard(root, INSTALLATION_ID, {
+      manager: MANAGER_TARGET,
+      uploader: UPLOADER_TARGET,
+      viewer: VIEWER_TARGET,
+    });
     const store = new ReleaseGuardStore(root);
     assert.deepEqual(await store.deploymentTarget('manager'), MANAGER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('uploader'), UPLOADER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('viewer'), VIEWER_TARGET);
     await assert.rejects(store.deploymentTarget('admin'), /admin target is not installed/);
 
     const targetPath = join(root, 'targets.json');
@@ -176,6 +194,18 @@ describe('external release guard state', () => {
     await assert.rejects(
       installReleaseGuard(join(root, 'invalid'), INSTALLATION_ID, {
         manager: { ...MANAGER_TARGET, projectName: 'manager/test' },
+      }),
+      /deployment targets are invalid/,
+    );
+    await assert.rejects(
+      installReleaseGuard(join(root, 'invalid-uploader'), INSTALLATION_ID, {
+        uploader: { ...UPLOADER_TARGET, services: ['ome', 'stream-uploader'] },
+      }),
+      /deployment targets are invalid/,
+    );
+    await assert.rejects(
+      installReleaseGuard(join(root, 'invalid-viewer'), INSTALLATION_ID, {
+        viewer: { ...VIEWER_TARGET, profile: 'viewer/path' },
       }),
       /deployment targets are invalid/,
     );
@@ -718,7 +748,9 @@ esac
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'uploader', id: UPLOADER_ID },
-      adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work')),
+      adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work'), {
+        target: UPLOADER_TARGET,
+      }),
     });
 
     assert.equal(await readFile(join(root, 'phases'), 'utf8'), 'preflight\nbuild\ntransition\nverify\n');
@@ -726,6 +758,7 @@ esac
     assert.equal(transitionPlan.temporaryProject.startsWith('release-'), true);
     assert.equal(transitionPlan.activeArtifactPath, null);
     assert.deepEqual(transitionPlan.images, [{ service: 'stream-uploader', imageId: IMAGE_ID }]);
+    assert.deepEqual(transitionPlan.arguments, { target: UPLOADER_TARGET });
   });
 
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
@@ -1139,9 +1172,18 @@ describe('installed release guard command', () => {
       '--manager-postgres-volume-name', ISOLATED_MANAGER_TARGET.postgresVolumeName,
       '--manager-postgres-port', String(ISOLATED_MANAGER_TARGET.postgresPort),
       '--manager-web-port', String(ISOLATED_MANAGER_TARGET.webPort),
+      '--uploader-profile', UPLOADER_TARGET.profile,
+      '--uploader-port-slot', String(UPLOADER_TARGET.portSlot),
+      '--uploader-services', UPLOADER_TARGET.services.join(','),
+      '--viewer-profile', VIEWER_TARGET.profile,
+      '--viewer-port-slot', String(VIEWER_TARGET.portSlot),
+      '--viewer-services', VIEWER_TARGET.services.join(','),
     ], {});
 
-    assert.deepEqual(await new ReleaseGuardStore(root).deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
+    const store = new ReleaseGuardStore(root);
+    assert.deepEqual(await store.deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('uploader'), UPLOADER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('viewer'), VIEWER_TARGET);
   });
 
   it('reports only the durable release mode', async (t) => {
@@ -1186,7 +1228,7 @@ describe('installed release guard command', () => {
     assert.equal(digest, await digestTree(resolve(candidate)));
   });
 
-  it('offers only fixed component roles and typed uploader arguments', async () => {
+  it('offers only fixed component roles and installation-bound stack arguments', async () => {
     await assert.rejects(runReleaseGuardCli(['shell', '--command', 'docker stop all']), /command is invalid/);
     await assert.rejects(
       runReleaseGuardCli([
@@ -1197,7 +1239,7 @@ describe('installed release guard command', () => {
         '--admin-url', 'http://admin',
         '--profile', 'stage',
       ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
-      /manager release does not accept deployment arguments/,
+      /argument --profile is not supported/,
     );
     await assert.rejects(
       runReleaseGuardCli([
@@ -1212,7 +1254,7 @@ describe('installed release guard command', () => {
         '--target', 'local',
         '--services', 'srs,stream-uploader',
       ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
-      /uploader slot id is invalid/,
+      /argument --profile is not supported/,
     );
   });
 

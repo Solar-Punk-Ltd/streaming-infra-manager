@@ -9,7 +9,7 @@ import type {
   ReleaseImageSet,
   ReleaseTransitionPlan,
 } from './ReleaseTransition.js';
-import type { ComposeReleaseTarget, ManagerReleaseTarget, ReleaseRole } from './ReleaseGuardTypes.js';
+import type { ComposeReleaseTarget, ManagerReleaseTarget, ReleaseRole, StackReleaseTarget } from './ReleaseGuardTypes.js';
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PREFLIGHT_BYTES = 4 * 1024;
@@ -17,10 +17,7 @@ const DEFAULT_PHASE_TIMEOUT_MS = 20 * 60_000;
 const TERMINATION_GRACE_MS = 250;
 
 export interface FixedAdapterArguments {
-  profile?: string;
-  portSlot?: number;
-  target?: string | ComposeReleaseTarget | ManagerReleaseTarget;
-  services?: string[];
+  target?: ComposeReleaseTarget | ManagerReleaseTarget | StackReleaseTarget;
 }
 
 /** Runs only the fixed adapter belonging to the selected component role. */

@@ -57,6 +57,12 @@ if (command === 'install') {
       '--manager-postgres-volume-name', 'manager-test-pg',
       '--manager-postgres-port', '15432',
       '--manager-web-port', '18080',
+      '--uploader-profile', 'managed',
+      '--uploader-port-slot', '1',
+      '--uploader-services', 'bee-uploader,srs,stream-uploader',
+      '--viewer-profile', 'viewer',
+      '--viewer-port-slot', '2',
+      '--viewer-services', 'bee-gateway,client',
     ], { env: { ...process.env, HOME: home } });
 
     assert.match(result.stdout, /installed in legacy mode/);

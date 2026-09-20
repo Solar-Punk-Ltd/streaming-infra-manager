@@ -16,6 +16,7 @@ import {
   type ReleaseImage,
   type ReleaseSlot,
   type StoredReleaseSlot,
+  type StackReleaseTarget,
 } from './ReleaseGuardTypes.js';
 
 const MARKER = 'installed.json';
@@ -37,6 +38,8 @@ const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 export interface ReleaseGuardDeploymentTargets {
   manager?: ManagerReleaseTarget;
   admin?: ComposeReleaseTarget;
+  uploader?: StackReleaseTarget;
+  viewer?: StackReleaseTarget;
 }
 
 class MissingGuardFileError extends Error {}
@@ -127,7 +130,9 @@ export class ReleaseGuardStore {
 
   async deploymentTarget(role: 'manager'): Promise<ManagerReleaseTarget>;
   async deploymentTarget(role: 'admin'): Promise<ComposeReleaseTarget>;
-  async deploymentTarget(role: 'manager' | 'admin'): Promise<ManagerReleaseTarget | ComposeReleaseTarget> {
+  async deploymentTarget(role: 'uploader' | 'viewer'): Promise<StackReleaseTarget>;
+  async deploymentTarget(role: 'manager' | 'admin' | 'uploader' | 'viewer'): Promise<ManagerReleaseTarget | ComposeReleaseTarget | StackReleaseTarget>;
+  async deploymentTarget(role: 'manager' | 'admin' | 'uploader' | 'viewer'): Promise<ManagerReleaseTarget | ComposeReleaseTarget | StackReleaseTarget> {
     const state = await this.read();
     const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
     if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
@@ -503,7 +508,7 @@ function validateDeploymentTargets(raw: unknown): {
     throw new Error('release guard deployment targets are invalid');
   }
   requireUuid(raw.installationId, 'release guard installation id');
-  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => key !== 'manager' && key !== 'admin')) {
+  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => !['manager', 'admin', 'uploader', 'viewer'].includes(key))) {
     throw new Error('release guard deployment targets are invalid');
   }
   const targets: ReleaseGuardDeploymentTargets = {};
@@ -552,6 +557,50 @@ function validateDeploymentTargets(raw: unknown): {
       ...common,
       mode: target.mode,
       postgresPort: Number(target.postgresPort),
+    };
+  }
+  for (const role of ['uploader', 'viewer'] as const) {
+    const target = raw.targets[role];
+    if (target === undefined) continue;
+    if (
+      !isRecord(target) ||
+      !hasExactKeys(target, ['profile', 'portSlot', 'services', 'target']) ||
+      typeof target.profile !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(target.profile) ||
+      !Number.isSafeInteger(target.portSlot) ||
+      Number(target.portSlot) < 1 ||
+      Number(target.portSlot) > 99 ||
+      target.target !== 'local' ||
+      !Array.isArray(target.services) ||
+      target.services.some((service) => typeof service !== 'string')
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    const services = target.services as string[];
+    const sorted = [...services].sort();
+    if (new Set(services).size !== services.length || services.some((service, index) => service !== sorted[index])) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    if (role === 'uploader') {
+      const allowed = new Set(['bee-gateway', 'bee-uploader', 'client', 'srs', 'stream-uploader']);
+      if (
+        services.some((service) => !allowed.has(service)) ||
+        !services.includes('srs') ||
+        !services.includes('stream-uploader')
+      ) {
+        throw new Error('release guard deployment targets are invalid');
+      }
+    } else if (
+      services.join(',') !== 'client' &&
+      services.join(',') !== 'bee-gateway,client'
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets[role] = {
+      profile: target.profile,
+      portSlot: Number(target.portSlot),
+      target: 'local',
+      services: [...services],
     };
   }
   return { schemaVersion: 1, installationId: raw.installationId, targets };

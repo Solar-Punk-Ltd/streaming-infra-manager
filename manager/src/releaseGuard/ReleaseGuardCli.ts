@@ -36,6 +36,12 @@ export async function runReleaseGuardCli(
       'admin-project-name',
       'admin-postgres-volume-name',
       'admin-web-port',
+      'uploader-profile',
+      'uploader-port-slot',
+      'uploader-services',
+      'viewer-profile',
+      'viewer-port-slot',
+      'viewer-services',
     ]));
     await installReleaseGuard(required(flags, 'state-root'), undefined, installationTargets(flags));
     return 'release guard installed';
@@ -73,16 +79,12 @@ export async function runReleaseGuardCli(
     'work-root',
     'admin-url',
     'slot-id',
-    'profile',
-    'port-slot',
-    'target',
-    'services',
   ]);
   const flags = parseFlags(rest, allowed);
   const slot = releaseSlot(role, flags.get('slot-id'));
   const destination = receiptDestination(flags, env);
   const store = new ReleaseGuardStore(required(flags, 'state-root'));
-  const adapterArgs = await adapterArguments(role, flags, store);
+  const adapterArgs = await adapterArguments(role, store);
   await runReleaseTransition({
     store,
     candidateRoot: required(flags, 'candidate-root'),
@@ -115,31 +117,9 @@ function releaseSlot(roleValue: string, id: string | undefined): ReleaseSlot {
 
 async function adapterArguments(
   role: ReleaseRole,
-  flags: Map<string, string>,
   store: ReleaseGuardStore,
 ): Promise<FixedAdapterArguments> {
-  const names = ['profile', 'port-slot', 'target', 'services'];
-  if (role === 'manager' || role === 'admin') {
-    if (names.some((name) => flags.has(name))) throw new Error(`${role} release does not accept deployment arguments`);
-    return { target: await store.deploymentTarget(role) };
-  }
-  if (role === 'viewer') {
-    if (names.some((name) => flags.has(name))) throw new Error('viewer release does not accept deployment arguments');
-    return {};
-  }
-  const portSlotText = required(flags, 'port-slot');
-  if (!/^\d+$/.test(portSlotText)) throw new Error('uploader port slot is invalid');
-  const portSlot = Number(portSlotText);
-  if (!Number.isSafeInteger(portSlot) || portSlot < 1 || portSlot > 99) throw new Error('uploader port slot is invalid');
-  const services = required(flags, 'services').split(',');
-  if (services.some((service) => !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(service)) || new Set(services).size !== services.length) {
-    throw new Error('uploader services are invalid');
-  }
-  const profile = required(flags, 'profile');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profile)) throw new Error('uploader profile is invalid');
-  const target = required(flags, 'target');
-  if (target !== 'local') throw new Error('installed uploader adapter target must be local');
-  return { profile, portSlot, target, services };
+  return { target: await store.deploymentTarget(role) };
 }
 
 function installationTargets(flags: Map<string, string>): ReleaseGuardDeploymentTargets {
@@ -179,6 +159,23 @@ function installationTargets(flags: Map<string, string>): ReleaseGuardDeployment
       postgresVolumeName: postgresVolumeName!,
       postgresPort,
       webPort,
+    };
+  }
+  for (const role of ['uploader', 'viewer'] as const) {
+    const profile = flags.get(`${role}-profile`);
+    const portSlotText = flags.get(`${role}-port-slot`);
+    const servicesText = flags.get(`${role}-services`);
+    const values = [profile, portSlotText, servicesText];
+    const supplied = values.filter((value) => value !== undefined).length;
+    if (supplied === 0) continue;
+    if (supplied !== values.length || !/^\d+$/.test(portSlotText!)) {
+      throw new Error(`release guard ${role} target is incomplete`);
+    }
+    targets[role] = {
+      profile: profile!,
+      portSlot: Number(portSlotText),
+      target: 'local',
+      services: servicesText!.split(','),
     };
   }
   return targets;

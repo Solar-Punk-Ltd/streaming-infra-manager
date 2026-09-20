@@ -19,6 +19,13 @@ export interface ManagerReleaseTarget extends ComposeReleaseTarget {
   postgresPort: number;
 }
 
+export interface StackReleaseTarget {
+  profile: string;
+  portSlot: number;
+  target: 'local';
+  services: string[];
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;
