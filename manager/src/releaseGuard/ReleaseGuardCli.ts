@@ -1,3 +1,5 @@
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FixedReleaseAdapter, type FixedAdapterArguments } from './FixedReleaseAdapter.js';
@@ -14,6 +16,7 @@ import {
 } from './ReleaseTransition.js';
 import type {
   AdminReleaseRuntime,
+  GuardInstallationBinding,
   ReleaseRole,
   ReleaseSlot,
   StackReleaseOperation,
@@ -151,8 +154,12 @@ export async function runReleaseGuardCli(
   const slot = releaseSlot(role, flags.get('slot-id'));
   const runtime = role === 'admin' ? adminRuntime(flags) : undefined;
   const destination = receiptDestination(flags, env);
-  const store = new ReleaseGuardStore(required(flags, 'state-root'));
-  const adapterArgs = await adapterArguments(role, store, undefined, runtime);
+  const stateRoot = required(flags, 'state-root');
+  const store = new ReleaseGuardStore(stateRoot);
+  const guardInstallation = role === 'manager'
+    ? await installedGuardBinding(stateRoot)
+    : undefined;
+  const adapterArgs = await adapterArguments(role, store, undefined, runtime, guardInstallation);
   await runReleaseTransition({
     store,
     candidateRoot: required(flags, 'candidate-root'),
@@ -188,6 +195,7 @@ async function adapterArguments(
   store: ReleaseGuardStore,
   operation?: StackReleaseOperation,
   runtime?: AdminReleaseRuntime,
+  guardInstallation?: GuardInstallationBinding,
 ): Promise<FixedAdapterArguments> {
   const fixtureNetwork = await store.fixtureNetwork();
   return {
@@ -195,7 +203,51 @@ async function adapterArguments(
     ...(fixtureNetwork ? { fixtureNetwork } : {}),
     ...(operation ? { operation } : {}),
     ...(runtime ? { runtime } : {}),
+    ...(guardInstallation ? { guardInstallation } : {}),
   };
+}
+
+async function installedGuardBinding(stateRoot: string): Promise<GuardInstallationBinding> {
+  if (!isAbsolute(stateRoot) || normalize(stateRoot) !== stateRoot) {
+    throw new Error('installed guard binding is invalid');
+  }
+  const codeRoot = dirname(fileURLToPath(import.meta.url));
+  const [codeStat, stateStat, canonicalCode, canonicalState] = await Promise.all([
+    lstat(codeRoot),
+    lstat(stateRoot),
+    realpath(codeRoot),
+    realpath(stateRoot),
+  ]).catch(() => {
+    throw new Error('installed guard binding is invalid');
+  });
+  if (
+    !codeStat.isDirectory() || codeStat.isSymbolicLink() || canonicalCode !== codeRoot ||
+    !stateStat.isDirectory() || stateStat.isSymbolicLink() || canonicalState !== stateRoot
+  ) {
+    throw new Error('installed guard binding is invalid');
+  }
+  const bindingPath = `${codeRoot}/container-binding.json`;
+  const bindingStat = await lstat(bindingPath).catch(() => null);
+  if (!bindingStat?.isFile() || bindingStat.isSymbolicLink() || bindingStat.size < 1 || bindingStat.size > 4_096) {
+    throw new Error('installed guard binding is invalid');
+  }
+  let binding: unknown;
+  try {
+    binding = JSON.parse(await readFile(bindingPath, 'utf8'));
+  } catch {
+    throw new Error('installed guard binding is invalid');
+  }
+  if (
+    binding === null ||
+    typeof binding !== 'object' ||
+    Array.isArray(binding) ||
+    Object.keys(binding).sort().join(',') !== 'schemaVersion,stateRoot' ||
+    (binding as { schemaVersion?: unknown }).schemaVersion !== 1 ||
+    (binding as { stateRoot?: unknown }).stateRoot !== stateRoot
+  ) {
+    throw new Error('installed guard binding is invalid');
+  }
+  return { codeRoot, stateRoot };
 }
 
 function adminRuntime(flags: Map<string, string>): AdminReleaseRuntime {

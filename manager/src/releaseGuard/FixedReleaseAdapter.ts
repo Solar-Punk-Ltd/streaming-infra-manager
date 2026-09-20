@@ -13,6 +13,7 @@ import type {
   AdminReleaseRuntime,
   ComposeReleaseTarget,
   FixtureNetworkBinding,
+  GuardInstallationBinding,
   ManagerReleaseTarget,
   ReleaseRole,
   ResolvedFixtureNetworkBinding,
@@ -30,12 +31,14 @@ export interface FixedAdapterArguments {
   fixtureNetwork?: FixtureNetworkBinding;
   operation?: StackReleaseOperation;
   runtime?: AdminReleaseRuntime;
+  guardInstallation?: GuardInstallationBinding;
 }
 
 interface ResolvedAdapterContext {
   fixtureNetwork?: ResolvedFixtureNetworkBinding;
   fixtureVolumeNames?: string[];
   runtime?: AdminReleaseRuntime;
+  guardInstallation?: GuardInstallationBinding;
 }
 
 /** Runs only the fixed adapter belonging to the selected component role. */
@@ -65,6 +68,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       this.args.target,
       this.args.operation,
       this.args.runtime,
+      this.args.guardInstallation,
     );
     return this.resolvedContext ?? null;
   }
@@ -159,12 +163,14 @@ function validateRuntimePreflight(
   target: FixedAdapterArguments['target'],
   operation: StackReleaseOperation | undefined,
   runtime: AdminReleaseRuntime | undefined,
+  guardInstallation: GuardInstallationBinding | undefined,
 ): ResolvedAdapterContext | undefined {
   const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
   const expectsFixtureVolumes = role === 'uploader' && fixtureNetwork !== undefined;
   const expectedKeys = [
     ...(fixtureNetwork ? ['fixtureNetworkId', ...(expectsFixtureVolumes ? ['fixtureVolumeNames'] : [])] : []),
     ...(runtime ? ['runtime'] : []),
+    ...(guardInstallation ? ['guardInstallation'] : []),
   ];
   if (role !== 'uploader') {
     if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
@@ -207,9 +213,22 @@ function validateRuntimePreflight(
       throw new Error('release adapter admin runtime assignment is invalid');
     }
   }
-  if (!fixtureNetwork && !runtime) return undefined;
+  if (guardInstallation) {
+    if (
+      role !== 'manager' ||
+      !isRecord(raw) ||
+      !isRecord(raw.guardInstallation) ||
+      !hasExactKeys(raw.guardInstallation, ['codeRoot', 'stateRoot']) ||
+      raw.guardInstallation.codeRoot !== guardInstallation.codeRoot ||
+      raw.guardInstallation.stateRoot !== guardInstallation.stateRoot
+    ) {
+      throw new Error('release adapter installed guard binding is invalid');
+    }
+  }
+  if (!fixtureNetwork && !runtime && !guardInstallation) return undefined;
   const resolved: ResolvedAdapterContext = {};
   if (runtime) resolved.runtime = runtime;
+  if (guardInstallation) resolved.guardInstallation = guardInstallation;
   if (!fixtureNetwork) return resolved;
   if (typeof fixtureNetworkId !== 'string' || !/^[0-9a-f]{64}$/.test(fixtureNetworkId)) {
     throw new Error('release adapter fixture network result is invalid');

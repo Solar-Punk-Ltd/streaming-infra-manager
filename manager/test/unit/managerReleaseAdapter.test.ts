@@ -28,10 +28,15 @@ const managerNetworkName = `${target.projectName}-fixture-manager`;
 async function temporaryRoot(t: { after(callback: () => Promise<void>): void }): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'manager-release-adapter-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  return root;
+  return realpath(root);
 }
 
-async function candidateAt(root: string): Promise<{ adapter: string; candidate: string; home: string }> {
+async function candidateAt(root: string): Promise<{
+  adapter: string;
+  candidate: string;
+  guardInstallation: { codeRoot: string; stateRoot: string };
+  home: string;
+}> {
   const candidate = join(root, 'candidate');
   const adapter = join(candidate, 'deploy/release-adapters/manager.sh');
   await mkdir(dirname(adapter), { recursive: true });
@@ -43,10 +48,24 @@ async function candidateAt(root: string): Promise<{ adapter: string; candidate: 
   await writeFile(join(candidate, '.release-commit'), `${'c'.repeat(40)}\n`);
   const home = join(root, 'home');
   await mkdir(home);
-  return { adapter, candidate: await realpath(candidate), home };
+  const guardInstallation = {
+    codeRoot: join(root, 'installed-guard/lib/streaming-release-guard/current'),
+    stateRoot: join(root, 'installed-guard/state/streaming-release-guard'),
+  };
+  await mkdir(guardInstallation.codeRoot, { recursive: true });
+  await mkdir(guardInstallation.stateRoot, { recursive: true });
+  await writeFile(join(guardInstallation.codeRoot, 'container-binding.json'), JSON.stringify({
+    schemaVersion: 1,
+    stateRoot: guardInstallation.stateRoot,
+  }));
+  return { adapter, candidate: await realpath(candidate), guardInstallation, home };
 }
 
-function plan(phase: 'preflight' | 'transition' | 'verify', candidate: string) {
+function plan(
+  phase: 'preflight' | 'transition' | 'verify',
+  candidate: string,
+  guardInstallation: { codeRoot: string; stateRoot: string },
+) {
   const treeDigest = 'e'.repeat(64);
   return {
     schemaVersion: 1,
@@ -63,6 +82,7 @@ function plan(phase: 'preflight' | 'transition' | 'verify', candidate: string) {
         ],
     activeArtifactPath: null,
     arguments: {
+      guardInstallation,
       target,
       fixtureNetwork: {
         ...fixtureNetwork,
@@ -72,12 +92,12 @@ function plan(phase: 'preflight' | 'transition' | 'verify', candidate: string) {
   };
 }
 
-async function writeFakeDocker(root: string, candidate: string, home: string): Promise<string> {
+async function writeFakeDocker(root: string, candidate: string, guardStateRoot: string): Promise<string> {
   const bin = join(root, 'bin');
   await mkdir(bin);
   const docker = join(bin, 'docker');
   const sharedAttached = join(root, 'shared-attached');
-  const isolationRoot = join(home, '.local/state/streaming-release-guard/isolation', target.projectName);
+  const isolationRoot = join(guardStateRoot, 'isolation', target.projectName);
   const composeConfig = {
     name: target.projectName,
     services: Object.fromEntries(['postgres', 'api', 'web'].map((service) => [service, {
@@ -175,6 +195,7 @@ if (args[0] === 'network' && args[1] === 'inspect') {
 async function runAdapter(input: {
   adapter: string;
   candidate: string;
+  guardInstallation: { codeRoot: string; stateRoot: string };
   home: string;
   root: string;
   phase: 'preflight' | 'transition' | 'verify';
@@ -182,7 +203,7 @@ async function runAdapter(input: {
 }) {
   const planPath = join(input.root, `${input.phase}-plan.json`);
   const output = join(input.root, `${input.phase}.json`);
-  await writeFile(planPath, JSON.stringify(plan(input.phase, input.candidate)));
+  await writeFile(planPath, JSON.stringify(plan(input.phase, input.candidate, input.guardInstallation)));
   const args = [input.phase, '--plan', planPath];
   if (input.phase !== 'transition') args.push('--output', output);
   await execFileAsync(input.adapter, args, {
@@ -195,13 +216,14 @@ describe('manager fixture release adapter', () => {
   it('binds the derived internal manager network and writes the capped isolated topology', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = await candidateAt(root);
-    const bin = await writeFakeDocker(root, candidate.candidate, candidate.home);
+    const bin = await writeFakeDocker(root, candidate.candidate, candidate.guardInstallation.stateRoot);
     const env = { PATH: `${bin}:${process.env.PATH ?? ''}` };
 
     const preflightOutput = await runAdapter({ ...candidate, root, phase: 'preflight', env });
     assert.deepEqual(JSON.parse(await readFile(preflightOutput, 'utf8')), {
       schemaVersion: 1,
       fixtureNetworkId,
+      guardInstallation: candidate.guardInstallation,
     });
 
     await runAdapter({ ...candidate, root, phase: 'transition', env });
@@ -243,7 +265,7 @@ describe('manager fixture release adapter', () => {
   it('refuses the wrong manager fixture network identity during preflight', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = await candidateAt(root);
-    const bin = await writeFakeDocker(root, candidate.candidate, candidate.home);
+    const bin = await writeFakeDocker(root, candidate.candidate, candidate.guardInstallation.stateRoot);
 
     await assert.rejects(
       runAdapter({
@@ -259,7 +281,7 @@ describe('manager fixture release adapter', () => {
   it('refuses a foreign api container before attaching it to the shared network', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = await candidateAt(root);
-    const bin = await writeFakeDocker(root, candidate.candidate, candidate.home);
+    const bin = await writeFakeDocker(root, candidate.candidate, candidate.guardInstallation.stateRoot);
     const env = {
       PATH: `${bin}:${process.env.PATH ?? ''}`,
       FAKE_BAD_CONTAINER_LABEL: '1',
@@ -285,7 +307,7 @@ describe('manager fixture release adapter', () => {
     it(`refuses a running manager with the wrong ${name}`, async (t) => {
       const root = await temporaryRoot(t);
       const candidate = await candidateAt(root);
-      const bin = await writeFakeDocker(root, candidate.candidate, candidate.home);
+      const bin = await writeFakeDocker(root, candidate.candidate, candidate.guardInstallation.stateRoot);
       const baseEnv = { PATH: `${bin}:${process.env.PATH ?? ''}` };
       await runAdapter({ ...candidate, root, phase: 'transition', env: baseEnv });
 

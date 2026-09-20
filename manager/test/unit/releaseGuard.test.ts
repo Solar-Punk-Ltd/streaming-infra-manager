@@ -1318,6 +1318,36 @@ printf '%s\\n' '{"schemaVersion":1,"runtime":{"managedLifecycleVersion":1,"uploa
     );
   });
 
+  it('refuses a manager preflight that changes the installed guard binding', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'manager');
+    await capableCandidate(candidate, 'manager');
+    const adapterPath = join(candidate, 'deploy/release-adapters/manager.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' '{"schemaVersion":1,"guardInstallation":{"codeRoot":"/wrong/code","stateRoot":"/wrong/state"}}' > "$5"
+`);
+    await chmod(adapterPath, 0o700);
+    const guardInstallation = {
+      codeRoot: join(root, 'installed/lib/streaming-release-guard/current'),
+      stateRoot: join(root, 'installed/state/streaming-release-guard'),
+    };
+
+    const adapter = new FixedReleaseAdapter('manager', join(root, 'work'), {
+      target: MANAGER_TARGET,
+      guardInstallation,
+    });
+    await assert.rejects(
+      adapter.preflight({
+        candidateRoot: candidate,
+        treeDigest: 'a'.repeat(64),
+        slot: { role: 'manager', id: 'default' },
+      }),
+      /installed guard binding/,
+    );
+  });
+
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');

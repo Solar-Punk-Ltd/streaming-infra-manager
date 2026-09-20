@@ -43,6 +43,11 @@ export type AdminReleaseRuntime =
   | { managedLifecycleVersion: null; uploaderId: null }
   | { managedLifecycleVersion: 1; uploaderId: string };
 
+export interface GuardInstallationBinding {
+  codeRoot: string;
+  stateRoot: string;
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;

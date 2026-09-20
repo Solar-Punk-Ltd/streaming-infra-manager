@@ -34,6 +34,7 @@ compose_file="${manager_root}/docker-compose.yml"
 plan_value() {
     node - "$plan" "$phase" "$1" <<'NODE'
 const fs = require('node:fs');
+const path = require('node:path');
 
 const [planPath, expectedPhase, key] = process.argv.slice(2);
 let plan;
@@ -57,6 +58,7 @@ if (
 const args = plan.arguments;
 const target = args?.target;
 const fixtureNetwork = args?.fixtureNetwork;
+const guardInstallation = args?.guardInstallation;
 const argumentKeys = args !== null && typeof args === 'object' && !Array.isArray(args)
   ? Object.keys(args).sort().join(',')
   : '';
@@ -71,12 +73,20 @@ const fixtureIsValid = fixtureNetwork === undefined || (
   fixtureNetwork.name === `${fixtureNetwork.fixtureId}-network` &&
   (expectedFixtureKeys === 'fixtureId,name' || /^[0-9a-f]{64}$/.test(fixtureNetwork.networkId))
 );
+const guardKeys = guardInstallation !== null && typeof guardInstallation === 'object' && !Array.isArray(guardInstallation)
+  ? Object.keys(guardInstallation).sort().join(',')
+  : '';
+const guardIsValid = guardKeys === 'codeRoot,stateRoot' &&
+  [guardInstallation.codeRoot, guardInstallation.stateRoot].every((value) =>
+    typeof value === 'string' && path.isAbsolute(value) && path.normalize(value) === value,
+  );
 if (
-  (argumentKeys !== 'target' && argumentKeys !== 'fixtureNetwork,target') ||
+  (argumentKeys !== 'guardInstallation,target' && argumentKeys !== 'fixtureNetwork,guardInstallation,target') ||
   target === null ||
   typeof target !== 'object' ||
   Array.isArray(target) ||
   !fixtureIsValid ||
+  !guardIsValid ||
   (fixtureNetwork !== undefined && target.mode !== 'isolated')
 ) {
   process.stderr.write('manager release adapter plan is invalid\n');
@@ -130,6 +140,13 @@ if (key.startsWith('fixtureNetwork:')) {
   process.stdout.write(value);
   process.exit(0);
 }
+if (key.startsWith('guardInstallation:')) {
+  const name = key.slice('guardInstallation:'.length);
+  const value = guardInstallation[name];
+  if (typeof value !== 'string') process.exit(2);
+  process.stdout.write(value);
+  process.exit(0);
+}
 if (key.startsWith('image:')) {
   const service = key.slice('image:'.length);
   const image = Array.isArray(plan.images)
@@ -175,8 +192,34 @@ fixture_network_name="$(plan_value fixtureNetwork:name)"
 fixture_id="$(plan_value fixtureNetwork:fixtureId)"
 fixture_network_id="$(plan_value fixtureNetwork:networkId)"
 manager_fixture_network_name="${project_name}-fixture-manager"
-guard_code_root="${HOME}/.local/lib/streaming-release-guard/current"
-guard_state_root="${HOME}/.local/state/streaming-release-guard"
+guard_code_root="$(plan_value guardInstallation:codeRoot)"
+guard_state_root="$(plan_value guardInstallation:stateRoot)"
+if ! node - "$guard_code_root" "$guard_state_root" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const [codeRoot, stateRoot] = process.argv.slice(2);
+try {
+  for (const value of [codeRoot, stateRoot]) {
+    const stat = fs.lstatSync(value);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(value) !== value) process.exit(1);
+  }
+  const bindingPath = path.join(codeRoot, 'container-binding.json');
+  const bindingStat = fs.lstatSync(bindingPath);
+  if (!bindingStat.isFile() || bindingStat.isSymbolicLink() || bindingStat.size < 1 || bindingStat.size > 4096) process.exit(1);
+  const binding = JSON.parse(fs.readFileSync(bindingPath, 'utf8'));
+  if (
+    Object.keys(binding).sort().join(',') !== 'schemaVersion,stateRoot' ||
+    binding.schemaVersion !== 1 ||
+    binding.stateRoot !== stateRoot
+  ) process.exit(1);
+} catch {
+  process.exit(1);
+}
+NODE
+then
+    echo "manager installed guard binding is invalid" >&2
+    exit 1
+fi
 export PUBLIC_HOST BEE_DATA_ROOT STACK_VERSIONS_ROOT MANAGER_SSH_DIR
 if [ "$deployment_mode" = isolated ]; then
     isolation_root="${guard_state_root}/isolation/${project_name}"
@@ -357,11 +400,16 @@ case "$phase" in
     preflight)
         umask 077
         require_shared_fixture_network
-        if [ -n "$fixture_network_name" ]; then
-            printf '{"schemaVersion":1,"fixtureNetworkId":"%s"}\n' "$actual_fixture_network_id" > "$output"
-        else
-            printf '%s\n' '{"schemaVersion":1}' > "$output"
-        fi
+        node - "$output" "$guard_code_root" "$guard_state_root" "${actual_fixture_network_id:-}" <<'NODE'
+const fs = require('node:fs');
+const [output, codeRoot, stateRoot, fixtureNetworkId] = process.argv.slice(2);
+const result = {
+  schemaVersion: 1,
+  ...(fixtureNetworkId ? { fixtureNetworkId } : {}),
+  guardInstallation: { codeRoot, stateRoot },
+};
+fs.writeFileSync(output, `${JSON.stringify(result)}\n`, { mode: 0o600 });
+NODE
         ;;
     build)
         require_shared_fixture_network
