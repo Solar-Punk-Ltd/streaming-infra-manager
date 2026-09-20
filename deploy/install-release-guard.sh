@@ -30,7 +30,24 @@ if [ -n "$fixture_id" ] || [ -n "$fixture_network_name" ]; then
         echo "release guard fixture identity is invalid" >&2
         exit 2
     fi
-    installation_root="/home/solarpunk/srs-continuation-tests-20260920/${fixture_id}/guard"
+    fixture_base="/home/solarpunk/srs-continuation-tests-20260920"
+    fixture_parent="${fixture_base}/${fixture_id}"
+    installation_root="${fixture_parent}/guard"
+    if [ ! -d "$fixture_base" ] || [ -L "$fixture_base" ] ||
+        [ "$(cd "$fixture_base" && pwd -P)" != "$fixture_base" ] ||
+        [ ! -d "$fixture_parent" ] || [ -L "$fixture_parent" ] ||
+        [ "$(cd "$fixture_parent" && pwd -P)" != "$fixture_parent" ]; then
+        echo "release guard fixture parent is invalid" >&2
+        exit 1
+    fi
+    if [ -e "$installation_root" ] || [ -L "$installation_root" ]; then
+        echo "release guard fixture guard root is invalid" >&2
+        exit 1
+    fi
+    if ! mkdir -m 700 "$installation_root"; then
+        echo "release guard fixture guard root is invalid" >&2
+        exit 1
+    fi
 else
     installation_root="${HOME}/.local"
 fi

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -98,9 +98,10 @@ if (command === 'install') {
 
   it('derives one isolated guard installation from the validated fixture identity', async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'release-guard-fixture-installer-'));
-    const packet = join(root, 'packet');
-    const home = join(root, 'home');
-    const fixtureBase = join(root, 'fixture-installations');
+    const canonicalRoot = await realpath(root);
+    const packet = join(canonicalRoot, 'packet');
+    const home = join(canonicalRoot, 'home');
+    const fixtureBase = join(canonicalRoot, 'fixture-installations');
     const fixtureId = 'srs-continuation-20260920-a1b2c3d4';
     const guardRoot = join(fixtureBase, fixtureId, 'guard');
     t.after(async () => {
@@ -109,6 +110,7 @@ if (command === 'install') {
     });
     await mkdir(join(packet, 'deploy/release-guard'), { recursive: true });
     await mkdir(join(packet, 'manager/dist/releaseGuard'), { recursive: true });
+    await mkdir(join(fixtureBase, fixtureId), { recursive: true });
     for (const relative of [
       'deploy/install-release-guard.sh',
       'deploy/release-mode.sh',
@@ -150,6 +152,20 @@ if (command === 'install') {
       '--fixture-network-name', `${fixtureId}-network`,
       '--fixture-id', fixtureId,
     ];
+    const unrelated = join(canonicalRoot, 'unrelated');
+    await mkdir(unrelated);
+    await writeFile(join(unrelated, 'sentinel'), 'unchanged\n');
+    await symlink(unrelated, guardRoot);
+    await assert.rejects(
+      execFileAsync(join(packet, 'deploy/install-release-guard.sh'), args, {
+        env: { ...process.env, HOME: home },
+      }),
+      /fixture guard root is invalid/,
+    );
+    assert.equal(await readFile(join(unrelated, 'sentinel'), 'utf8'), 'unchanged\n');
+    await assert.rejects(lstat(join(unrelated, 'bin')), { code: 'ENOENT' });
+    await unlink(guardRoot);
+
     await execFileAsync(join(packet, 'deploy/install-release-guard.sh'), args, {
       env: { ...process.env, HOME: home },
     });

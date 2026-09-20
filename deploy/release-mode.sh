@@ -11,7 +11,18 @@ configure_paths() {
         installation_root="${HOME}/.local"
         BOOTSTRAP_LOCK="${HOME}/.local/state/streaming-release-bootstrap.lock"
     elif [ "$#" -eq 2 ] && [ "$1" = --fixture-id ] && [[ "$2" =~ $FIXTURE_ID_PATTERN ]]; then
-        installation_root="/home/solarpunk/srs-continuation-tests-20260920/${2}/guard"
+        fixture_base="/home/solarpunk/srs-continuation-tests-20260920"
+        fixture_parent="${fixture_base}/${2}"
+        installation_root="${fixture_parent}/guard"
+        if [ ! -d "$fixture_base" ] || [ -L "$fixture_base" ] ||
+            [ "$(cd "$fixture_base" && pwd -P)" != "$fixture_base" ] ||
+            [ ! -d "$fixture_parent" ] || [ -L "$fixture_parent" ] ||
+            [ "$(cd "$fixture_parent" && pwd -P)" != "$fixture_parent" ] ||
+            [ ! -d "$installation_root" ] || [ -L "$installation_root" ] ||
+            [ "$(cd "$installation_root" && pwd -P)" != "$installation_root" ]; then
+            echo "ERROR: release fixture guard root is invalid" >&2
+            exit 1
+        fi
         BOOTSTRAP_LOCK="${installation_root}/state/bootstrap.lock"
     else
         echo "ERROR: release fixture identity is invalid" >&2
