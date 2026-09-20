@@ -26,6 +26,10 @@ export async function runReleaseGuardCli(
     await installReleaseGuard(required(flags, 'state-root'));
     return 'release guard installed';
   }
+  if (command === 'status') {
+    const flags = parseFlags(rest, new Set(['state-root']));
+    return new ReleaseGuardStore(required(flags, 'state-root')).releaseMode();
+  }
   if (command === 'retry') {
     const flags = parseFlags(rest, new Set(['state-root', 'role', 'slot-id', 'admin-url']));
     const slot = releaseSlot(required(flags, 'role'), flags.get('slot-id'));

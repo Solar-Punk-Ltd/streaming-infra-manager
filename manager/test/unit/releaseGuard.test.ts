@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -81,6 +81,55 @@ async function verifiedReceipt(
 }
 
 describe('external release guard state', () => {
+  it('distinguishes a pristine legacy installation from durable managed activation', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    assert.equal(await store.releaseMode(), 'legacy');
+
+    await verifiedReceipt(store, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '1'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+
+    assert.equal(await store.releaseMode(), 'managed');
+    assert.deepEqual(
+      JSON.parse(await readFile(join(root, 'managed-required.json'), 'utf8')),
+      { schemaVersion: 1, installationId: INSTALLATION_ID },
+    );
+  });
+
+  it('refuses partial activation on either side of sentinel publication', async (t) => {
+    const stateFirst = join(await temporaryRoot(t), 'state-first');
+    await installReleaseGuard(stateFirst, INSTALLATION_ID);
+    const stateFirstStore = new ReleaseGuardStore(stateFirst);
+    await verifiedReceipt(stateFirstStore, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '2'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+    await rm(join(stateFirst, 'managed-required.json'));
+    await assert.rejects(stateFirstStore.releaseMode(), /activation sentinel is missing/);
+
+    const sentinelFirst = join(await temporaryRoot(t), 'sentinel-first');
+    await installReleaseGuard(sentinelFirst, INSTALLATION_ID);
+    await writeFile(
+      join(sentinelFirst, 'managed-required.json'),
+      `${JSON.stringify({ schemaVersion: 1, installationId: INSTALLATION_ID })}\n`,
+    );
+    await assert.rejects(new ReleaseGuardStore(sentinelFirst).releaseMode(), /activation state is partial/);
+
+    const linked = join(await temporaryRoot(t), 'linked');
+    await installReleaseGuard(linked, INSTALLATION_ID);
+    await symlink(join(linked, 'installed.json'), join(linked, 'managed-required.json'));
+    await assert.rejects(new ReleaseGuardStore(linked).releaseMode(), /activation sentinel is invalid/);
+  });
+
   it('fails closed when installed state disappears or becomes unreadable', async (t) => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);
@@ -236,12 +285,21 @@ describe('guarded release transition', () => {
     const stateRoot = join(root, 'state');
     await installReleaseGuard(stateRoot, INSTALLATION_ID);
     const counters = { build: 0, stop: 0, start: 0 };
+    const releaseAdapter = adapter(counters);
+    const move = releaseAdapter.transition;
+    releaseAdapter.transition = async (plan) => {
+      assert.deepEqual(
+        JSON.parse(await readFile(join(stateRoot, 'managed-required.json'), 'utf8')),
+        { schemaVersion: 1, installationId: INSTALLATION_ID },
+      );
+      await move(plan);
+    };
 
     const result = await runReleaseTransition({
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'uploader', id: UPLOADER_ID },
-      adapter: adapter(counters),
+      adapter: releaseAdapter,
     });
 
     assert.deepEqual(counters, { build: 1, stop: 1, start: 1 });
@@ -746,6 +804,12 @@ esac
 });
 
 describe('installed release guard command', () => {
+  it('reports only the durable release mode', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    assert.equal(await runReleaseGuardCli(['status', '--state-root', root], {}), 'legacy');
+  });
+
   it('digests one staged candidate without changing guard state', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
