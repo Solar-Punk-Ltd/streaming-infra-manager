@@ -28,9 +28,14 @@ export interface FixedAdapterArguments {
   fixtureNetwork?: FixtureNetworkBinding;
 }
 
+interface ResolvedAdapterContext {
+  fixtureNetwork: ResolvedFixtureNetworkBinding;
+  fixtureVolumeNames?: string[];
+}
+
 /** Runs only the fixed adapter belonging to the selected component role. */
 export class FixedReleaseAdapter implements ReleaseAdapter {
-  private resolvedFixtureNetwork: ResolvedFixtureNetworkBinding | undefined;
+  private resolvedContext: ResolvedAdapterContext | undefined;
 
   constructor(
     private readonly role: ReleaseRole,
@@ -47,8 +52,14 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     await rm(output, { force: true });
     await this.runPhase('preflight', plan, output);
     const raw = await readBoundedJson(output, MAX_PREFLIGHT_BYTES, 'preflight');
-    this.resolvedFixtureNetwork = validateRuntimePreflight(this.role, plan, raw, this.args.fixtureNetwork);
-    return this.resolvedFixtureNetwork ? { fixtureNetwork: this.resolvedFixtureNetwork } : null;
+    this.resolvedContext = validateRuntimePreflight(
+      this.role,
+      plan,
+      raw,
+      this.args.fixtureNetwork,
+      this.args.target,
+    );
+    return this.resolvedContext ?? null;
   }
 
   async build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet> {
@@ -100,8 +111,8 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       slot: plan.slot,
       images: 'images' in plan ? plan.images : [],
       activeArtifactPath: 'activeArtifactPath' in plan ? plan.activeArtifactPath : null,
-      arguments: this.resolvedFixtureNetwork
-        ? { ...this.args, fixtureNetwork: this.resolvedFixtureNetwork }
+      arguments: this.resolvedContext
+        ? { ...this.args, ...this.resolvedContext }
         : this.args,
     });
     const planHandle = await open(planPath, 'wx', 0o600);
@@ -134,9 +145,13 @@ function validateRuntimePreflight(
   plan: ReleaseBuildPlan,
   raw: unknown,
   fixtureNetwork: FixtureNetworkBinding | undefined,
-): ResolvedFixtureNetworkBinding | undefined {
+  target: FixedAdapterArguments['target'],
+): ResolvedAdapterContext | undefined {
   const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
-  const expectedKeys = fixtureNetwork ? ['fixtureNetworkId'] : [];
+  const expectsFixtureVolumes = role === 'uploader' && fixtureNetwork !== undefined;
+  const expectedKeys = fixtureNetwork
+    ? ['fixtureNetworkId', ...(expectsFixtureVolumes ? ['fixtureVolumeNames'] : [])]
+    : [];
   if (role !== 'uploader') {
     if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
       throw new Error('release adapter preflight result is invalid');
@@ -161,7 +176,24 @@ function validateRuntimePreflight(
   if (typeof fixtureNetworkId !== 'string' || !/^[0-9a-f]{64}$/.test(fixtureNetworkId)) {
     throw new Error('release adapter fixture network result is invalid');
   }
-  return { ...fixtureNetwork, networkId: fixtureNetworkId };
+  const resolved: ResolvedAdapterContext = {
+    fixtureNetwork: { ...fixtureNetwork, networkId: fixtureNetworkId },
+  };
+  if (expectsFixtureVolumes) {
+    if (!target || !('profile' in target)) throw new Error('release adapter fixture volume result is invalid');
+    const expected = [`${target.profile}_srs-media`, `${target.profile}_uploader-state`].sort();
+    if (
+      !isRecord(raw) ||
+      !Array.isArray(raw.fixtureVolumeNames) ||
+      raw.fixtureVolumeNames.some((name) => typeof name !== 'string') ||
+      (raw.fixtureVolumeNames as string[]).length !== expected.length ||
+      !(raw.fixtureVolumeNames as string[]).every((name, index) => name === expected[index])
+    ) {
+      throw new Error('release adapter fixture volume result is invalid');
+    }
+    resolved.fixtureVolumeNames = expected;
+  }
+  return resolved;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

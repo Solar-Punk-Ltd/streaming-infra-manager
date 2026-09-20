@@ -74,6 +74,10 @@ const FIXTURE_NETWORK = {
   fixtureId: 'srs-continuation-20260920-a1b2c3d4',
 };
 const FIXTURE_NETWORK_ID = 'c'.repeat(64);
+const FIXTURE_VOLUME_NAMES = [
+  `${UPLOADER_TARGET.profile}_srs-media`,
+  `${UPLOADER_TARGET.profile}_uploader-state`,
+];
 const TRANSITION_DIGEST = 'd'.repeat(64);
 const EMPTY_PREFLIGHT_TRANSITION_DIGEST = createHash('sha256').update('null\n').digest('hex');
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
@@ -851,7 +855,7 @@ phase="$1"
 candidate="$(cd "$(dirname "$0")/../.." && pwd)"
 echo "$phase" >> "$(dirname "$candidate")/phases"
 case "$phase" in
-  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true,"fixtureNetworkId":"${FIXTURE_NETWORK_ID}"}' > "$5" ;;
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true,"fixtureNetworkId":"${FIXTURE_NETWORK_ID}","fixtureVolumeNames":["${UPLOADER_TARGET.profile}_srs-media","${UPLOADER_TARGET.profile}_uploader-state"]}' > "$5" ;;
   build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
   transition) ;;
   *) exit 7 ;;
@@ -879,6 +883,7 @@ esac
     assert.deepEqual(transitionPlan.arguments, {
       target: UPLOADER_TARGET,
       fixtureNetwork: { ...FIXTURE_NETWORK, networkId: FIXTURE_NETWORK_ID },
+      fixtureVolumeNames: FIXTURE_VOLUME_NAMES,
     });
     assert.match((await new ReleaseGuardStore(stateRoot).read()).attempt?.transitionDigest ?? '', /^[0-9a-f]{64}$/);
   });
