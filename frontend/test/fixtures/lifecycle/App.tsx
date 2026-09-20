@@ -38,6 +38,7 @@ function profile(name: string, instanceId: string): Profile {
 
 interface LifecycleTestControl {
   select(name: string, instanceId: string): void;
+  setEnabled(enabled: boolean): void;
   setPollingPolicy(pollEveryMs: number, staleAfterMs: number): void;
   setAdminConsoleUrl(value: string | null): void;
   unmount(): void;
@@ -49,12 +50,13 @@ declare global {
   }
 }
 
-function Reading({ selected, adminConsoleUrl, pollingPolicy }: {
+function Reading({ selected, enabled, adminConsoleUrl, pollingPolicy }: {
   selected: Profile;
+  enabled: boolean;
   adminConsoleUrl: string | null;
   pollingPolicy: { pollEveryMs: number; staleAfterMs: number };
 }) {
-  const reading = useUploaderLifecycle(selected, true, pollingPolicy);
+  const reading = useUploaderLifecycle(selected, enabled, pollingPolicy);
   return (
     <LifecycleCard
       reading={reading}
@@ -65,6 +67,7 @@ function Reading({ selected, adminConsoleUrl, pollingPolicy }: {
 
 export function App() {
   const [selected, setSelected] = useState(() => profile('alpha', 'alpha-1'));
+  const [enabled, setEnabled] = useState(true);
   const [adminConsoleUrl, setAdminConsoleUrl] = useState<string | null>(null);
   const [mounted, setMounted] = useState(true);
   const [pollingPolicy, setPollingPolicy] = useState(DEFAULT_POLLING_POLICY);
@@ -75,6 +78,7 @@ export function App() {
         setSelected(profile(name, instanceId));
         setMounted(true);
       },
+      setEnabled,
       setPollingPolicy(pollEveryMs, staleAfterMs) {
         setPollingPolicy({ pollEveryMs, staleAfterMs });
       },
@@ -91,6 +95,7 @@ export function App() {
   return mounted ? (
     <Reading
       selected={selected}
+      enabled={enabled}
       adminConsoleUrl={adminConsoleUrl}
       pollingPolicy={pollingPolicy}
     />

@@ -15,10 +15,10 @@ const frontend = fileURLToPath(new URL('../', import.meta.url));
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 const ADMIN_ID = '11111111-1111-4111-8111-111111111111';
 
-function reading(state, initialAgeMs = 0) {
+function reading(state, initialAgeMs = 0, details = {}) {
   return {
     state: 'available',
-    streams: [{ adminId: ADMIN_ID, runNumber: 4, state, initialAgeMs }],
+    streams: [{ adminId: ADMIN_ID, runNumber: 4, state, initialAgeMs, ...details }],
   };
 }
 
@@ -82,9 +82,9 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
   const select = (name, instanceId) =>
     evaluate(`window.lifecycleTest.select(${JSON.stringify(name)}, ${JSON.stringify(instanceId)})`);
 
-  enqueue('alpha', reading('waiting'));
-  enqueue('alpha', reading('waiting'), true);
-  enqueue('alpha', reading('closed'));
+  enqueue('alpha', reading('waiting', 0, { deadlineRemainingMs: 60_000 }));
+  enqueue('alpha', reading('waiting', 0, { deadlineRemainingMs: 59_900 }), true);
+  enqueue('alpha', reading('closed', 0, { closeReason: 'reconnect_timeout' }));
   await call('Page.navigate', { url: `${origin}/test/fixtures/lifecycle/` });
 
   await waitFor(body, (text) => text.includes('Waiting for stream to resume'), 'fresh waiting state');
@@ -148,7 +148,7 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
   );
   const oldInstance = requests.filter((request) => request.name === 'gamma').at(-1);
   assert.ok(oldInstance, 'the old instance request is held');
-  enqueue('gamma', reading('closed'));
+  enqueue('gamma', reading('closed', 0, { closeReason: 'reconnect_timeout' }));
   await select('gamma', 'gamma-3');
   await waitFor(body, (text) => text.includes('Finishing recording'), 'replacement instance state');
   oldInstance.reply();
@@ -166,6 +166,30 @@ test('the actual lifecycle hook expires, sequences and detaches browser polls', 
     /Deployment controls only start, stop, or restart infrastructure/,
   );
 
+  await evaluate('window.lifecycleTest.setPollingPolicy(1000, 3000)');
+  enqueue('countdown', reading('waiting', 0, { deadlineRemainingMs: 1600 }));
+  enqueue('countdown', reading('waiting', 0, { deadlineRemainingMs: 600 }), true);
+  await select('countdown', 'countdown-1');
+  await waitFor(body, (text) => text.includes('2 seconds remain'), 'reconnect countdown to start from uploader-relative time');
+  await waitFor(body, (text) => text.includes('1 second remains'), 'reconnect countdown to use browser elapsed time', 1_500);
+
+  for (const [name, closeReason, text] of [
+    ['empty', 'empty', 'Broadcast ended without a recording'],
+    ['failed', 'finalization_failed', 'Recording finalization failed'],
+    ['recovery', 'recovery_required', 'Recording needs recovery'],
+    ['cancelled', 'cancelled', 'Broadcast was cancelled'],
+  ]) {
+    enqueue(name, reading('closed', 0, { closeReason }));
+    await select(name, `${name}-1`);
+    await waitFor(body, (page) => page.includes(text), `${name} closure label`);
+  }
+
+  await evaluate('window.lifecycleTest.setEnabled(false)');
+  await waitFor(body, (text) => text.includes('Broadcast status unavailable'), 'legacy deployment without lifecycle capability');
+  assert.doesNotMatch(await body(), /60-second reconnect policy/);
+  await evaluate('window.lifecycleTest.setEnabled(true)');
+
+  await evaluate('window.lifecycleTest.setPollingPolicy(100, 400)');
   enqueue('delta', reading('live', 250));
   enqueue('delta', reading('live', 250), true);
   await select('delta', 'delta-1');

@@ -1,6 +1,8 @@
 import {
   STREAM_UPLOADER_SERVICE,
   UPLOADER_LIFECYCLE_STALE_AFTER_MS,
+  UPLOADER_RECONNECT_WINDOW_MS,
+  type UploaderLifecycleCloseReason,
   type UploaderLifecycleReading,
   type UploaderLifecycleState,
   type UploaderLifecycleStream,
@@ -42,7 +44,6 @@ export class UploaderLifecycleService {
     private readonly containers: ContainerRepository,
     private readonly versions: StackVersionRepository,
     private readonly control: ContainerControl,
-    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async read(name: string): Promise<UploaderLifecycleReading> {
@@ -52,7 +53,7 @@ export class UploaderLifecycleService {
     const version = await this.versions.findById(profile.stack_version_id);
     if (!version?.contract?.features.srsLifecycleV1) return UNAVAILABLE;
     try {
-      return lifecycleReading(JSON.parse(await this.control.uploaderLifecycle(name)), this.now());
+      return lifecycleReading(JSON.parse(await this.control.uploaderLifecycle(name)));
     } catch {
       return UNAVAILABLE;
     }
@@ -63,7 +64,7 @@ export class UploaderLifecycleService {
   }
 }
 
-export function lifecycleReading(raw: unknown, receivedAt: Date): UploaderLifecycleReading {
+export function lifecycleReading(raw: unknown): UploaderLifecycleReading {
   if (
     !isRecord(raw) ||
     raw.lifecycleVersion !== 1 ||
@@ -76,18 +77,14 @@ export function lifecycleReading(raw: unknown, receivedAt: Date): UploaderLifecy
   const observedAt = Date.parse(raw.observedAt);
   const streams: UploaderLifecycleStream[] = [];
   for (const rawStream of raw.streams) {
-    const stream = parseStream(rawStream, observedAt, receivedAt);
+    const stream = parseStream(rawStream, observedAt);
     if (!stream) return UNAVAILABLE;
     streams.push(stream);
   }
   return { state: 'available', streams };
 }
 
-function parseStream(
-  raw: unknown,
-  observedAt: number,
-  _receivedAt: Date,
-): UploaderLifecycleStream | null {
+function parseStream(raw: unknown, observedAt: number): UploaderLifecycleStream | null {
   if (
     !isRecord(raw) ||
     typeof raw.streamId !== 'string' ||
@@ -121,11 +118,24 @@ function parseStream(
   ) {
     return null;
   }
+  const deadlineRemainingMs = state === 'waiting'
+    ? Date.parse(raw.reconnectDeadline as string) - observedAt
+    : undefined;
+  if (
+    deadlineRemainingMs !== undefined &&
+    (deadlineRemainingMs < 0 || deadlineRemainingMs > UPLOADER_RECONNECT_WINDOW_MS)
+  ) {
+    return null;
+  }
   return {
     adminId: raw.adminStreamId,
     runNumber: Number(raw.runNumber),
     state,
     initialAgeMs,
+    ...(deadlineRemainingMs === undefined ? {} : { deadlineRemainingMs }),
+    ...(state === 'closed'
+      ? { closeReason: raw.closeReason as UploaderLifecycleCloseReason }
+      : {}),
   };
 }
 
