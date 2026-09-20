@@ -22,14 +22,14 @@ This page separates focused implementation checks from assembled media acceptanc
 | V12 | Sealed-checkpoint recovery avoids a second finalization in focused tests. The SDK reference-recovery correction at 7a72f4ce passed inline and wrapped-payload checks using the real SDK with fake HTTP | Real Bee failure and process-kill checks |
 | V13 | Managed legacy-route refusal, direct ingress checks and credential-log sentinel tests exist | Final candidate API suites and actual direct-rung refusal |
 | V14 | Manifest and large-payload readers have existing tests | A cumulative playlist over 4 KiB through both actual viewer gateway read paths |
-| V15 | Actual format inspection is wired at 62cede49 with 38 focused checks. Admin legacy-adoption transactions passed five controlled PostgreSQL cases at 1b89e39 | Bounded probe-busy retry, shared canonical fingerprint correction, complete uploader adoption and unavailable old-chunk tests |
+| V15 | Actual format inspection is wired at 62cede49. Probe-busy retry, canonical fingerprints and displaced-result fencing are repaired through a1e7c79f, with 15 final focused format/probe checks. Admin legacy-adoption transactions passed seven PostgreSQL cases through 7562e4d | Complete uploader adoption and unavailable old-chunk tests |
 | V16 | Actual mounted watch-page Chrome test passed 3 cases. An isolated one-line fault produced the intended 2 failures | Real playback during grace and continuation, including a refreshed page and ABR selection |
 | V17 | Admin UI and manager lifecycle freshness tests passed focused checks. Manager Chrome regression ran | Final candidate browser suites and assembled two-tab/keyboard checks |
 | V18 | No cumulative media decoding claimed | Decode, identify and seek labeled content across every seam and quality |
 | V19 | Real old-SQL refusal and focused external release-guard checks exist. Removing the preflight produced the intended failure | Complete supported adapters, isolated installed-wrapper old-image refusals and mixed-version checks |
 | V20 | No acceptance run for this feature | Separately coordinated OBS and real Swarm validation. Funded deployments are not disposable fixtures |
 | V21 | Verified-empty outcomes, spool refusal and cancelled-ready continuation tests exist | Assembled first-empty, continued-empty and all-upload-failed cases |
-| V22 | Managed unpublish/publish preservation has a focused real PostgreSQL check | Final metadata/visibility checks, deployed fixture restart and compatible engine-config rollout preserving closure |
+| V22 | Managed unpublish/publish preservation and active-run overlap protection passed four real PostgreSQL cases through 13ea24f, including a blocked writer | Final metadata/visibility checks, deployed fixture restart and compatible engine-config rollout preserving closure |
 
 The media fixture design and pinned private-chain image candidates are in `media-harness.md`. The early protocol probes do not establish cumulative playback. The browser selection fixture deliberately substitutes its player, so its result is not video-decoding evidence. The private chain cannot establish real Swarm propagation or funded storage lifetime.
 
