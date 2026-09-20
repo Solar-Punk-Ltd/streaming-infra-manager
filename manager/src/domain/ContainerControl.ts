@@ -75,7 +75,48 @@ const DEFAULT_LOG_LINES = 200;
  * is worse than a truncated one.
  */
 export const MAX_CONFIG_BYTES = 256 * 1024;
-const MAX_LIFECYCLE_BYTES = 64 * 1024;
+export const MAX_LIFECYCLE_BYTES = 64 * 1024;
+const MAX_LIFECYCLE_FRAMED_BYTES = MAX_LIFECYCLE_BYTES * 2;
+
+const LIFECYCLE_READER_SCRIPT = [
+  `const MAX_BYTES = ${MAX_LIFECYCLE_BYTES};`,
+  "const rawPort = process.env.API_PORT || '3000';",
+  "if (!/^[0-9]{1,5}$/.test(rawPort)) throw new Error('invalid port');",
+  'const port = Number(rawPort);',
+  "if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('invalid port');",
+  'const token = process.env.API_AUTH_TOKEN;',
+  "if (typeof token !== 'string' || token.length === 0) throw new Error('missing token');",
+  'const controller = new AbortController();',
+  'const timeout = setTimeout(() => controller.abort(), 3000);',
+  'timeout.unref();',
+  'async function main() {',
+  '  try {',
+  "    const response = await fetch(`http://127.0.0.1:${port}/stream/lifecycle`, {",
+  '      headers: { Authorization: `Bearer ${token}` },',
+  "      redirect: 'error',",
+  '      signal: controller.signal,',
+  '    });',
+  "    if (!response.ok || !response.body) throw new Error('request failed');",
+  '    const reader = response.body.getReader();',
+  '    const chunks = [];',
+  '    let length = 0;',
+  '    for (;;) {',
+  '      const { done, value } = await reader.read();',
+  '      if (done) break;',
+  '      length += value.byteLength;',
+  '      if (length > MAX_BYTES) {',
+  '        await reader.cancel();',
+  "        throw new Error('response too large');",
+  '      }',
+  '      chunks.push(Buffer.from(value));',
+  '    }',
+  '    process.stdout.write(Buffer.concat(chunks, length));',
+  '  } finally {',
+  '    clearTimeout(timeout);',
+  '  }',
+  '}',
+  'main().catch(() => { process.exitCode = 1; });',
+].join('\n');
 
 /**
  * What a log read is allowed to cost.
@@ -500,13 +541,20 @@ export class ContainerControl {
   async uploaderLifecycle(profile: string): Promise<string> {
     const container = await this.find(profile, 'stream-uploader');
     const exec = await this.withinLimit(container.exec({
-      Cmd: ['node', '-e', 'const c=new AbortController();setTimeout(()=>c.abort(),3000).unref();fetch(`http://127.0.0.1:${process.env.API_PORT}/stream/lifecycle`,{headers:{Authorization:`Bearer ${process.env.API_AUTH_TOKEN}`},signal:c.signal}).then(async r=>{if(!r.ok)throw Error();const b=Buffer.from(await r.arrayBuffer());if(b.length>65536)throw Error();process.stdout.write(b)}).catch(()=>process.exit(1))'],
+      Cmd: ['node', '-e', LIFECYCLE_READER_SCRIPT],
       AttachStdout: true,
       AttachStderr: true,
     }));
     const stream = await this.withinLimit(exec.start({ Detach: false }));
-    const raw = await readBounded(stream, { maxBytes: MAX_LIFECYCLE_BYTES, totalMs: this.limits.dockerTimeoutMs });
-    return demultiplexDockerStream(raw);
+    const raw = await readBounded(stream, {
+      maxBytes: MAX_LIFECYCLE_FRAMED_BYTES,
+      totalMs: this.limits.dockerTimeoutMs,
+    });
+    const text = demultiplexDockerStream(raw);
+    if (Buffer.byteLength(text) > MAX_LIFECYCLE_BYTES) {
+      throw new Error('Uploader lifecycle response exceeded its byte limit');
+    }
+    return text;
   }
 
   /**

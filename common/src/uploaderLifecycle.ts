@@ -6,6 +6,8 @@ export interface UploaderLifecycleStream {
   adminId: string;
   runNumber: number;
   state: UploaderLifecycleState;
+  /** Age at manager receipt, measured only between uploader timestamps. */
+  initialAgeMs: number;
 }
 
 /** One bounded manager read. An unavailable result never fabricates a live state. */
