@@ -213,12 +213,13 @@ function validateUntouchedServices(
 ): void {
   const candidate = new Map(built.images.map((image) => [image.service, image.imageId]));
   const actual = new Map(running.images.map((image) => [image.service, image.imageId]));
-  if ([...actual.keys()].some((service) => !candidate.has(service))) {
-    throw new Error('running uploader target contains an unexpected service');
-  }
   const mutating = new Set(operation.mutatingServices);
-  for (const [service, imageId] of candidate) {
-    if (mutating.has(service)) continue;
+  const untouched = [...candidate.keys()].filter((service) => !mutating.has(service));
+  if (untouched.join(',') !== [...actual.keys()].join(',')) {
+    throw new Error('uploader validation did not return the exact untouched service set');
+  }
+  for (const service of untouched) {
+    const imageId = candidate.get(service)!;
     if (actual.get(service) !== imageId) {
       throw new Error(`untouched service ${service} does not match the guarded candidate`);
     }

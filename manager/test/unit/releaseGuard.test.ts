@@ -760,6 +760,43 @@ describe('guarded release transition', () => {
     assert.equal(state.attempt, null);
   });
 
+  it('refuses validation output that includes a mutating uploader service', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+        adapter: {
+          async preflight() { return null; },
+          async build() { return { schemaVersion: 1, images: built }; },
+          async validate() { return { schemaVersion: 1, images: built }; },
+          async transition() { assert.fail('transition must not run'); },
+          async verify() { return { schemaVersion: 1, images: built }; },
+        },
+      }),
+      /exact untouched service set/,
+    );
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).attempt, null);
+  });
+
   it('persists an updater attempt only after untouched services match and verifies the full target', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
