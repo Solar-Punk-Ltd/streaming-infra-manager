@@ -124,7 +124,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     }
     const argv = [adapter, phase, '--plan', planPath];
     if (output) argv.push('--output', output);
-    await runBounded(argv, candidateRoot, this.timeoutMs, phase);
+    await runBounded(argv, candidateRoot, this.timeoutMs, phase, this.role);
   }
 }
 
@@ -218,11 +218,12 @@ async function runBounded(
   cwd: string,
   timeoutMs: number,
   phase: 'preflight' | 'build' | 'transition' | 'verify',
+  role: ReleaseRole,
 ): Promise<void> {
   await new Promise<void>((resolveRun, rejectRun) => {
     const child = spawn('/bin/bash', argv, {
       cwd,
-      env: adapterEnvironment(),
+      env: adapterEnvironment(role),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     });
@@ -274,7 +275,19 @@ async function runBounded(
   });
 }
 
-function adapterEnvironment(): NodeJS.ProcessEnv {
+function adapterEnvironment(role: ReleaseRole): NodeJS.ProcessEnv {
   const names = ['PATH', 'HOME', 'DOCKER_HOST', 'XDG_RUNTIME_DIR'];
+  if (role === 'admin') {
+    names.push(
+      'POSTGRES_PASSWORD',
+      'BEE_URL',
+      'POSTAGE_BATCH_ID',
+      'FEED_PRIVATE_KEY',
+      'INTERNAL_API_TOKEN',
+      'INGEST_SRT_PASSPHRASE',
+    );
+  } else if (role === 'uploader') {
+    names.push('ADMIN_API_URL', 'ADMIN_API_TOKEN', 'API_AUTH_TOKEN');
+  }
   return Object.fromEntries(names.flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
 }

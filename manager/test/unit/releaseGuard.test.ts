@@ -888,6 +888,70 @@ esac
     assert.match((await new ReleaseGuardStore(stateRoot).read()).attempt?.transitionDigest ?? '', /^[0-9a-f]{64}$/);
   });
 
+  it('routes only fixed role environment values into adapter processes', async (t) => {
+    const root = await temporaryRoot(t);
+    const names = [
+      'POSTGRES_PASSWORD',
+      'BEE_URL',
+      'POSTAGE_BATCH_ID',
+      'FEED_PRIVATE_KEY',
+      'INTERNAL_API_TOKEN',
+      'INGEST_SRT_PASSPHRASE',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+      'API_AUTH_TOKEN',
+      'RELEASE_GUARD_ADMIN_TOKEN',
+    ];
+    const previous = new Map(names.map((name) => [name, process.env[name]]));
+    for (const name of names) process.env[name] = `test-only-${name.toLowerCase()}`;
+    t.after(() => {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    const admin = join(root, 'admin');
+    await capableCandidate(admin, 'admin');
+    const adminAdapter = join(admin, 'web2-admin/backend/release-adapter.sh');
+    await mkdir(dirname(adminAdapter), { recursive: true });
+    await writeFile(adminAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${ADMIN_API_TOKEN:-}" ]
+for name in POSTGRES_PASSWORD BEE_URL POSTAGE_BATCH_ID FEED_PRIVATE_KEY INTERNAL_API_TOKEN INGEST_SRT_PASSPHRASE; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1}' > "$5"
+`);
+    await chmod(adminAdapter, 0o700);
+    await new FixedReleaseAdapter('admin', join(root, 'admin-work'), { target: MANAGER_TARGET }).preflight({
+      candidateRoot: admin,
+      treeDigest: 'a'.repeat(64),
+      slot: { role: 'admin', id: 'default' },
+    });
+
+    const uploader = join(root, 'uploader');
+    await capableCandidate(uploader);
+    const uploaderAdapter = join(uploader, 'deploy/scripts/release-adapter.sh');
+    await mkdir(dirname(uploaderAdapter), { recursive: true });
+    await writeFile(uploaderAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${POSTGRES_PASSWORD:-}" ]
+for name in ADMIN_API_URL ADMIN_API_TOKEN API_AUTH_TOKEN; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5"
+`);
+    await chmod(uploaderAdapter, 0o700);
+    await new FixedReleaseAdapter('uploader', join(root, 'uploader-work'), { target: UPLOADER_TARGET }).preflight({
+      candidateRoot: uploader,
+      treeDigest: 'b'.repeat(64),
+      slot: { role: 'uploader', id: UPLOADER_ID },
+    });
+  });
+
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
