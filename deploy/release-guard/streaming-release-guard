@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+code_root="${HOME}/.local/lib/streaming-release-guard/current"
+if [ "$#" -eq 1 ] && [ "$1" = manager-stdin ]; then
+    exec node "${code_root}/ReleaseGuardManagerStdin.js"
+fi
+exec node "${code_root}/ReleaseGuardCli.js" "$@"
