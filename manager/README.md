@@ -722,7 +722,7 @@ reporting for that one deployment. Other capable SRS profiles keep their
 legacy behavior. Put an
 `op://` reference for `ADMIN_API_TOKEN` in that file and start the manager
 through `op run --env-file manager/.env -- ...`. The Compose file explicitly
-passes those three values into the API container. For a selected stack whose
+passes those four values into the API container. For a selected stack whose
 contract advertises `srsLifecycleV1`, the manager writes the lifecycle version
 and a persisted deployment `instance_id` into the profile env file. It supplies
 the admin boundary only to the local deploy process. The token never enters the
