@@ -16,4 +16,6 @@ Actual codec and audio-layout checks will use a bounded ffprobe subprocess. It i
 
 The image index contains per-platform attestation manifests. Their presence is not a claim that their signatures or contents were independently verified. No runtime image has yet been built for this feature. The isolated build must retain the exact image ID, installed APK versions, trusted package signature result and vulnerability/provenance readings before release readiness. No untrusted-package flag is permitted. No npm dependency is introduced for the media probe.
 
+The Node runtime release itself predates the Docker rebuild. The [official Node 22.23.2 release](https://nodejs.org/en/blog/release/v22.23.2) is dated 2026-07-29 and is a security release. The under-two-week flag above applies to the image rebuild. The [Alpine 3.23 community security database](https://secdb.alpinelinux.org/v3.23/community.json) returned 461 package entries. Its ffmpeg security-fix versions end at 8.0-r0, below the proposed 8.0.1-r1. This does not replace the still-pending installed transitive-package inventory and review.
+
 The approved package choice does not change any live service. The test host is used only for the isolated runtime and real-media validation authorized by Levi.
