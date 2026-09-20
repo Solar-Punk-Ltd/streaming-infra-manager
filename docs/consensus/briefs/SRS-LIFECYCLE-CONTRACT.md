@@ -12,6 +12,8 @@ The declared stream UUID is the admin identity. The topic and derived rendition 
 
 Lifecycle version 1 is opt-in. Legacy and OME streams remain outside it. Each managed run is assigned to one configured uploader identity. Claiming changes permission from open to claimed atomically. Run identity, assignment and claim identity accompany every report and recovery read. A closed permission never becomes open in the same run.
 
+The uploader opts in with `SRS_LIFECYCLE_VERSION=1` and `SRS_UPLOADER_ID` naming its stable assignment. An unset or empty version keeps the legacy default. Any nonempty unsupported version refuses startup. Version 1 requires admin mode and SRS. The manager can use the deployment instance UUID as the stable assignment, rather than a mutable display name. Admission journals live on the persistent state volume and outside ordinary media-recovery cleanup. No existing live configuration changes merely because these variables become available.
+
 Run states are ready, claimed, live, waiting, closed and vod. Claimed may become waiting before the first manifest publication succeeds. Live is reported only after usable media publication succeeds. Closed means admission has ended. VOD means final manifests and a durable continuation checkpoint are complete.
 
 The existing ingest lookup requires `X-Stream-Lifecycle-Version: 1` for managed rows. An old client receives the same not-found refusal as any other disallowed lookup. A configured managed uploader refuses a response without the matching lifecycle contract.
@@ -32,7 +34,11 @@ All routes below retain the existing internal bearer-token authentication. Token
 
 Claims use an expected revision and request ID. Concurrent different claims have one winner. An exact retry cannot return a cached open permission after the run closed. It returns the current result or a closed refusal.
 
+The uploader persists the claim request identity and original admission deadline before sending the claim. If the server commits but its response is lost, a fresh process retries that exact request. It does not mint a new request ID or begin a fresh sixty-second window. A report outbox likewise retains the exact sequence and canonical payload across retries. Network recovery does not change the media admission deadline.
+
 Reports use a strictly increasing sequence within a claim. An identical sequence and payload is idempotent. A lower sequence is stale. Reusing a sequence with different data is a conflict. An old run or claim cannot mutate the current run. Retrying a report after a catalogue-write failure republishes the committed state without applying the transition twice.
+
+A managed HTTP 409 never proves that a report was accepted. Internal reconciliation includes `lastAcceptedEvent: { sequence, digest }` when an event exists, plus the completed snapshot when present. The digest is SHA-256 over the validated report with object keys sorted lexically and array order retained. A shared fixture fixes the canonical form. The uploader clears a pending event only after a bound success or matching persisted evidence. These event fingerprints remain internal. Legacy report handling cannot supply this acknowledgement rule.
 
 Waiting reports carry the absolute reconnect deadline. Closed reports carry a reason. VOD reports carry the completed recording snapshot. Active observations use a ten-second heartbeat. The server records receipt time and labels an active observation unavailable after thirty seconds without a fresh report. Receipt time never resets the source deadline. Durable closed and completed facts do not expire into open permission.
 
@@ -91,6 +97,8 @@ DELETE of the current publishing client through the SRS API detached both RTMP a
 For one silent-socket sample per protocol, unpublish arrived 24,291 milliseconds after pausing the RTMP sender and 5,145 milliseconds after pausing the SRT sender. These are observations on this configuration, not promised timeouts. The lifecycle deadline comes from the last verified advancing source media, or the initial bounded claim when no media has arrived. A delayed unpublish cannot grant another sixty seconds.
 
 Source identity includes server ID, service ID, client ID and local generation. Only verified source progress may renew its no-progress budget. A rung, upload backlog, refused candidate or old callback may not. At the deadline, persist closed before accepting another callback, reporting state or finalizing. Kick an attached source and keep all later input refused until a new prepared run is claimed.
+
+Admission metadata and accepted media have separate durability obligations. Before acknowledging accepted media, retain its bytes and the stream, run, source, rendition and sequence identity durably. Keep pending work until its published reference is accounted for in recoverable history. An in-memory upload queue plus a durable deadline does not satisfy this requirement. Zero accepted media can produce a verified-empty outcome. Accepted media whose uploads failed must remain recoverable and cannot be relabeled empty.
 
 ## Evidence and remaining work
 
