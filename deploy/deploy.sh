@@ -87,16 +87,32 @@ printf '%s\n' "$MANAGER_COMMIT" > "${INCOMING_ROOT}/.release-commit"
 printf '%s\n' "$STACK_COMMIT" > "${INCOMING_ROOT}/manager/.stack-commit"
 CANDIDATE_DIGEST="$("$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT")"
 CANDIDATE_ROOT="${RELEASES_ROOT}/${CANDIDATE_DIGEST}"
-if [ -e "$CANDIDATE_ROOT" ]; then
+
+reconcile_existing_candidate() {
     EXISTING_DIGEST="$("$GUARD_BIN" digest --candidate-root "$CANDIDATE_ROOT")"
     if [ "$EXISTING_DIGEST" != "$CANDIDATE_DIGEST" ]; then
         echo "ERROR: the manager release path is already bound to different content" >&2
-        exit 1
+        return 1
     fi
     rm -rf "$INCOMING_ROOT"
-else
-    mv "$INCOMING_ROOT" "$CANDIDATE_ROOT"
-fi
+}
+
+publish_candidate() {
+    if [ -e "$CANDIDATE_ROOT" ]; then
+        reconcile_existing_candidate
+        return
+    fi
+    if mv --no-target-directory "$INCOMING_ROOT" "$CANDIDATE_ROOT"; then
+        return
+    fi
+    if [ ! -e "$CANDIDATE_ROOT" ]; then
+        echo "ERROR: the manager candidate could not be published" >&2
+        return 1
+    fi
+    reconcile_existing_candidate
+}
+
+publish_candidate
 
 WORK_ROOT="${GUARD_STATE_ROOT}/work/manager-${CANDIDATE_DIGEST}"
 mkdir -p -m 700 "$WORK_ROOT"
