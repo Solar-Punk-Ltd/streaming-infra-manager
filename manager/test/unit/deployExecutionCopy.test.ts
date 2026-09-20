@@ -326,4 +326,69 @@ describe('installed release guard deployments', () => {
     assert.equal(run.options.withholdOutput, true);
     assert.doesNotMatch(JSON.stringify(run.args), /synthetic-viewer-token/);
   });
+
+  it('refuses a remote installed viewer profile before any script starts', async () => {
+    const profile = makeProfile({
+      name: 'viewer-remote',
+      stack_version_id: 2,
+      kind: 'viewer',
+      components: ['client'],
+      host: 'remote.example',
+      instance_id: randomUUID(),
+    });
+    const { harness, row } = await setup({
+      profile,
+      managed: {
+        profile: 'some-uploader',
+        adminApiToken: 'synthetic-viewer-token-at-least-32-bytes',
+      },
+      releaseTargets: {
+        viewer: {
+          profile: 'viewer-remote',
+          portSlot: profile.port_slot,
+          target: 'local',
+          services: ['client'],
+        },
+      },
+    });
+
+    const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
+    await assert.rejects(
+      harness.orchestrator.runReserved(reservation, row()),
+      /installed release guard.*local target/i,
+    );
+    assert.equal(harness.runner.runs.length, 0);
+  });
+
+  it('refuses an explicit remote target for a local installed viewer before any script starts', async () => {
+    const profile = makeProfile({
+      name: 'viewer-override',
+      stack_version_id: 2,
+      kind: 'viewer',
+      components: ['client'],
+      instance_id: randomUUID(),
+    });
+    const { harness, row } = await setup({
+      profile,
+      managed: {
+        profile: 'some-uploader',
+        adminApiToken: 'synthetic-viewer-token-at-least-32-bytes',
+      },
+      releaseTargets: {
+        viewer: {
+          profile: 'viewer-override',
+          portSlot: profile.port_slot,
+          target: 'local',
+          services: ['client'],
+        },
+      },
+    });
+
+    const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
+    await assert.rejects(
+      harness.orchestrator.runReserved({ ...reservation, host: 'remote.example' }, row()),
+      /installed release guard.*local target/i,
+    );
+    assert.equal(harness.runner.runs.length, 0);
+  });
 });

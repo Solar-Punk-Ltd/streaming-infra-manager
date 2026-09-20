@@ -1070,6 +1070,17 @@ export class DeploymentOrchestrator {
       const engine = engineForComponents(profile.components);
       const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
       const releaseRoute = await this.releaseRoute(profile, reservation.services, paths.root);
+      const deployTarget = reservation.host ?? profile.host;
+      if (
+        releaseRoute &&
+        releaseRoute.kind !== 'stack-script' &&
+        !isLocalTarget(deployTarget)
+      ) {
+        throw new ProfileConfigError(
+          profile.name,
+          'The installed release guard can only deploy its local target. No remote deployment was started.',
+        );
+      }
       if (releaseRoute?.kind === 'protected-subset') {
         throw new ProfileConfigError(
           profile.name,
@@ -1081,7 +1092,6 @@ export class DeploymentOrchestrator {
         version,
         releaseRoute?.kind === 'guard' && releaseRoute.includesUploader,
       );
-      const deployTarget = reservation.host ?? profile.host;
       if (managedSrs && !isLocalTarget(deployTarget)) {
         throw new ProfileConfigError(
           profile.name,
