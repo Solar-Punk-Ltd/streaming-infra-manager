@@ -120,7 +120,7 @@ if (args[0] === 'network' && args[1] === 'inspect') {
   else process.exit(31);
 } else if (args[0] === 'network' && args[1] === 'connect') {
   if (!args.includes('--alias') || args[args.indexOf('--alias') + 1] !== 'manager-api') process.exit(33);
-  if (args.at(-2) !== ${JSON.stringify(fixtureNetwork.name)} || last !== containers.api) process.exit(34);
+  if (args.at(-2) !== networkId || last !== containers.api) process.exit(34);
   fs.writeFileSync(${JSON.stringify(sharedAttached)}, 'attached');
 } else if (args[0] === 'volume' && args[1] === 'ls') {
   out(volumeName);
@@ -144,7 +144,7 @@ if (args[0] === 'network' && args[1] === 'inspect') {
     else if (format.includes(${JSON.stringify(join(isolationRoot, 'versions'))})) out(${JSON.stringify(join(isolationRoot, 'versions'))});
     else out(${JSON.stringify(candidate)});
   } else if (format.includes('.Config.Labels')) {
-    if (format.includes('org.solarpunk.srs-continuation.fixture')) out(fixtureId);
+    if (format.includes('org.solarpunk.srs-continuation.fixture')) out(process.env.FAKE_BAD_CONTAINER_LABEL === '1' ? 'foreign-fixture' : fixtureId);
     else out('true');
   } else if (format.includes('.NetworkSettings.Networks')) {
     const managerMembership = { NetworkID: managerNetworkId, Aliases: [container === containers.api ? 'api' : container === containers.web ? 'web' : 'postgres'] };
@@ -225,7 +225,7 @@ describe('manager fixture release adapter', () => {
       .split('\n')
       .map((line) => JSON.parse(line) as string[]);
     assert.equal(
-      calls.filter((args) => args.join(' ') === `network connect --alias manager-api ${fixtureNetwork.name} manager-api-container`).length,
+      calls.filter((args) => args.join(' ') === `network connect --alias manager-api ${fixtureNetworkId} manager-api-container`).length,
       1,
     );
     assert.ok(!calls.some((args) => args.includes('--alias') && args[args.indexOf('--alias') + 1] === 'api'));
@@ -254,6 +254,26 @@ describe('manager fixture release adapter', () => {
       }),
       /fixture network identity does not match/,
     );
+  });
+
+  it('refuses a foreign api container before attaching it to the shared network', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = await candidateAt(root);
+    const bin = await writeFakeDocker(root, candidate.candidate, candidate.home);
+    const env = {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      FAKE_BAD_CONTAINER_LABEL: '1',
+    };
+
+    await assert.rejects(
+      runAdapter({ ...candidate, root, phase: 'transition', env }),
+      /fixture container identity does not match/,
+    );
+    const calls = (await readFile(join(root, 'docker.log'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    assert.equal(calls.some((args) => args[0] === 'network' && args[1] === 'connect'), false);
   });
 
   for (const [name, env, message] of [

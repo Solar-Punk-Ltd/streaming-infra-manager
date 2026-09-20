@@ -563,6 +563,7 @@ EOF
                 echo "manager release adapter could not identify the api container for fixture attachment" >&2
                 exit 1
             fi
+            require_fixture_container "$api_container"
             api_networks="$(docker inspect --format '{{json .NetworkSettings.Networks}}' "$api_container")"
             shared_membership="$(node - "$api_networks" "$fixture_network_name" "$actual_fixture_network_id" <<'NODE'
 const [serialized, name, id] = process.argv.slice(2);
@@ -580,7 +581,7 @@ try {
 NODE
 )"
             case "$shared_membership" in
-                missing) docker network connect --alias manager-api "$fixture_network_name" "$api_container" ;;
+                missing) docker network connect --alias manager-api "$actual_fixture_network_id" "$api_container" ;;
                 exact) ;;
                 *)
                     echo "manager fixture api has a conflicting shared-network attachment" >&2
