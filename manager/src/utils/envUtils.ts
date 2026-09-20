@@ -273,8 +273,6 @@ export interface ProfileEnvValues {
   managedSrs?: {
     lifecycleVersion: 1;
     uploaderId: string;
-    adminApiUrl: string;
-    adminApiToken: string;
   } | null;
 }
 
@@ -338,16 +336,6 @@ export function writeProfileEnv(
     contents,
     'SRS_UPLOADER_ID',
     managedSrs?.uploaderId ?? '',
-  );
-  contents = upsertEnvLine(
-    contents,
-    'ADMIN_API_URL',
-    managedSrs?.adminApiUrl ?? '',
-  );
-  contents = upsertEnvLine(
-    contents,
-    'ADMIN_API_TOKEN',
-    managedSrs?.adminApiToken ?? '',
   );
 
   // Stated explicitly both ways rather than only when false: this file is a
