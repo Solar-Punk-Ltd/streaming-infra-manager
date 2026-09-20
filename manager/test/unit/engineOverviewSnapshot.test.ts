@@ -141,7 +141,7 @@ describe('engine overview identity through the real HTTP route', { timeout: 1500
     const { harness, app } = await appFor(profileRow());
     const contract: StackContract = {
       ports: [], maxSlot: 99, allocationProblem: null, requiredSecrets: [], engineDefaults: { HLS_WINDOW: '12' },
-      features: { srsApiPort: false, chequebookGate: true, sharedImageTags: false }, chequebookMinBzz: '0.5',
+      features: { srsApiPort: false, chequebookGate: true, sharedImageTags: false, srsLifecycleV1: false }, chequebookMinBzz: '0.5',
       engineConfig: { srs: true, ome: true }, engineImages: { srs: null, ome: null }, warnings: [],
     };
     await harness.versions.setContract(1, contract);

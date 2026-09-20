@@ -50,7 +50,7 @@ const V3_CONTRACT: StackContract = {
   maxSlot: 99,
   requiredSecrets: [],
   engineDefaults: {},
-  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true },
+  features: { srsApiPort: true, chequebookGate: false, sharedImageTags: true, srsLifecycleV1: false },
   chequebookMinBzz: null,
   engineConfig: { srs: false, ome: false },
   engineImages: { srs: null, ome: null },
