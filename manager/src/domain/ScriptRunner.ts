@@ -15,8 +15,8 @@ export interface RunOptions {
   cwd?: string;
   /** Set for the script to read, over anything the environment already says. */
   env?: Record<string, string>;
-  /** Exact values removed from both output streams before any listener sees them. */
-  redactedValues?: readonly string[];
+  /** Consume child output without forwarding its bytes to listeners. */
+  withholdOutput?: boolean;
 }
 
 const SECRET_ARG_NAME = /^--[a-z0-9-]*(key|secret|passphrase|password|token)/i;
@@ -104,22 +104,30 @@ export class ScriptRunner implements ScriptSpawner {
       `[ScriptRunner] spawn ${scriptPath} ${describeArgsForLog(args)}`,
     );
 
-    const stdout = new StreamingRedactor(options.redactedValues);
-    const stderr = new StreamingRedactor(options.redactedValues);
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     child.stdout?.on('data', (b: Buffer) => {
-      const text = stdout.push(b.toString('utf8'));
-      if (text) emitter.emit('stdout', text);
+      if (options.withholdOutput) stdoutBytes += b.length;
+      else emitter.emit('stdout', b.toString('utf8'));
     });
     child.stderr?.on('data', (b: Buffer) => {
-      const text = stderr.push(b.toString('utf8'));
-      if (text) emitter.emit('stderr', text);
+      if (options.withholdOutput) stderrBytes += b.length;
+      else emitter.emit('stderr', b.toString('utf8'));
     });
     child.on('error', (err) => emitter.emit('error', err));
     child.on('close', (code, signal) => {
-      const finalStdout = stdout.flush();
-      const finalStderr = stderr.flush();
-      if (finalStdout) emitter.emit('stdout', finalStdout);
-      if (finalStderr) emitter.emit('stderr', finalStderr);
+      if (options.withholdOutput && stdoutBytes > 0) {
+        emitter.emit(
+          'stdout',
+          `[ScriptRunner] stdout withheld (${stdoutBytes} bytes)\n`,
+        );
+      }
+      if (options.withholdOutput && stderrBytes > 0) {
+        emitter.emit(
+          'stderr',
+          `[ScriptRunner] stderr withheld (${stderrBytes} bytes)\n`,
+        );
+      }
       emitter.emit('done', { code: code ?? -1, signal });
     });
 
@@ -129,60 +137,5 @@ export class ScriptRunner implements ScriptSpawner {
         if (!child.killed) child.kill('SIGTERM');
       },
     };
-  }
-}
-
-const REDACTED = '<redacted>';
-
-class StreamingRedactor {
-  private readonly values: string[];
-  private readonly holdCharacters: number;
-  private pending = '';
-
-  constructor(values: readonly string[] = []) {
-    this.values = [...new Set(values.filter(Boolean))].sort(
-      (a, b) => b.length - a.length,
-    );
-    this.holdCharacters = Math.max(
-      0,
-      ...this.values.map((value) => value.length - 1),
-    );
-  }
-
-  push(chunk: string): string {
-    if (this.values.length === 0) return chunk;
-    const combined = this.pending + chunk;
-    let emitEnd = Math.max(0, combined.length - this.holdCharacters);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const value of this.values) {
-        let start = combined.indexOf(value);
-        while (start >= 0 && start < emitEnd) {
-          if (start + value.length > emitEnd) {
-            emitEnd = start;
-            changed = true;
-            break;
-          }
-          start = combined.indexOf(value, start + 1);
-        }
-      }
-    }
-    const ready = combined.slice(0, emitEnd);
-    this.pending = combined.slice(emitEnd);
-    return this.redact(ready);
-  }
-
-  flush(): string {
-    const ready = this.redact(this.pending);
-    this.pending = '';
-    return ready;
-  }
-
-  private redact(text: string): string {
-    return this.values.reduce(
-      (redacted, value) => redacted.replaceAll(value, REDACTED),
-      text,
-    );
   }
 }

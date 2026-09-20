@@ -90,6 +90,7 @@ describe('managed SRS lifecycle deploy environment', () => {
     assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_URL, 'http://admin.internal');
     assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_TOKEN, TOKEN);
     assert.doesNotMatch(result.runner.runs[0]?.args.join(' ') ?? '', new RegExp(TOKEN));
+    assert.equal(result.runner.runs[0]?.options.withholdOutput, true);
   });
 
   it('clears stale managed settings for a stack without the capability', async () => {

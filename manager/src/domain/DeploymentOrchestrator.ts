@@ -271,7 +271,7 @@ interface JobConfig {
   script: string;
   args: string[];
   env?: Record<string, string>;
-  redactedValues?: readonly string[];
+  withholdOutput?: boolean;
 
   transitionTo?: ProfileStatus;
 
@@ -1126,9 +1126,7 @@ export class DeploymentOrchestrator {
             ADMIN_API_TOKEN: this.managedSrsLifecycle.adminApiToken,
           }
           : undefined,
-        redactedValues: managedSrs && this.managedSrsLifecycle
-          ? [this.managedSrsLifecycle.adminApiToken]
-          : undefined,
+        withholdOutput: Boolean(managedSrs && this.managedSrsLifecycle),
         redactedEndpoints: [secrets.rpcEndpoint],
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
@@ -1438,7 +1436,7 @@ export class DeploymentOrchestrator {
         ...beeDataDirsFor(cfg.profileName, cfg.target),
         ...cfg.env,
       },
-      redactedValues: cfg.redactedValues,
+      withholdOutput: cfg.withholdOutput,
     });
 
     let stderrTail = '';
