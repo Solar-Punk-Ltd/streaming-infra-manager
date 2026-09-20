@@ -74,6 +74,14 @@ The API and the upgrade container see the candidate and guard state at the same 
 
 The adapter must retain the existing `manager:upgrade` coordinator. Its stop-old-API, migration, first-use database checks, public-edge handling, health check and bundled-build result remain part of deployment. Directly starting api/web with Compose is not an equivalent replacement. Pass the pinned image override into that coordinator and every Compose operation it owns. Check the actual adapter boundary with a refusing migration and require that the new API never starts in that case.
 
+### Activation and secret transport
+
+An installation that has never enabled managed streaming retains its existing standalone deployment path. Explicit activation durably writes an installation-bound `managed-required` sentinel outside replaceable guard code before any protected service moves. Once that sentinel or other activation state exists, missing or invalid guard state must refuse deployment. A malformed or symlinked sentinel is an error. Partial state, sticky minimums or a pending attempt without the matching sentinel are also errors. They cannot select the legacy path. Tests must interrupt both sides of sentinel and state publication. This boundary protects supported operations on the trusted host, not deliberate deletion of all state by its administrator.
+
+Remote receipt submission does not assume SSH inherits a local `op run` environment. The fixed installed `manager-stdin` entry accepts a bounded NUL-framed stream containing exactly the internal token, admin URL and candidate digest. It validates the digest and derives paths from fixed roots. The token enters only the consuming guard process environment. It is not written to an artifact, passed in command arguments or included in output. Source checks refuse missing inputs. This needs no SSH daemon setting or secret-bearing file.
+
+The isolated validation installation needs its own typed Compose project, database volume and loopback web port. These are bound to the installation and frozen into each transition attempt. A retry cannot silently retarget another project or volume. Arbitrary shell commands and arbitrary Compose file paths are outside that configuration. The source adapter must not substitute live defaults when test identity inputs are missing.
+
 ## Required checks
 
 The manager checks cover fresh waiting, closed/finalizing, completed replay, stale status, missing capability and credential-free output. The enrollment checks cover idle versus active legacy rows, unsupported or stale capabilities and failed legacy adoption.
