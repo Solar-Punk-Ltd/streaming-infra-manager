@@ -7,6 +7,7 @@ GUARD_BIN="${HOME}/.local/bin/streaming-release-guard"
 GUARD_STATE_ROOT="${HOME}/.local/state/streaming-release-guard"
 BOOTSTRAP_LOCK="${HOME}/.local/state/streaming-release-bootstrap.lock"
 BOOTSTRAP_OWNER="${BOOTSTRAP_LOCK}/owner"
+BOOTSTRAP_RELEASE_CLAIM="${BOOTSTRAP_LOCK}/release.claim"
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 
 path_exists() {
@@ -75,7 +76,20 @@ finish_bootstrap() {
         echo "ERROR: release bootstrap owner token does not match" >&2
         exit 1
     fi
+    if ! ln "$BOOTSTRAP_OWNER" "$BOOTSTRAP_RELEASE_CLAIM"; then
+        echo "ERROR: release bootstrap lease is already being released or requires operator recovery" >&2
+        exit 1
+    fi
+    IFS= read -r claimed_owner < "$BOOTSTRAP_RELEASE_CLAIM"
+    if [ "$claimed_owner" != "$owner_token" ] || [ ! "$BOOTSTRAP_OWNER" -ef "$BOOTSTRAP_RELEASE_CLAIM" ]; then
+        rm "$BOOTSTRAP_RELEASE_CLAIM"
+        echo "ERROR: release bootstrap owner token does not match" >&2
+        exit 1
+    fi
     rm "$BOOTSTRAP_OWNER"
+    sync_paths "$BOOTSTRAP_LOCK"
+    rm "$BOOTSTRAP_RELEASE_CLAIM"
+    sync_paths "$BOOTSTRAP_LOCK"
     rmdir "$BOOTSTRAP_LOCK"
     sync_paths "$(dirname "$BOOTSTRAP_LOCK")"
     printf '%s\n' 'release bootstrap lease released'

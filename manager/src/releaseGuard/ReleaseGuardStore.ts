@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -27,6 +27,7 @@ const PENDING = 'pending';
 const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
 const LEGACY_OWNER = 'legacy-owner.json';
+const LEGACY_RELEASE_CLAIM = 'legacy-release.claim';
 const MAX_STATE_BYTES = 256 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -169,9 +170,11 @@ export class ReleaseGuardStore {
   async finishLegacyLease(ownerToken: string): Promise<void> {
     requireUuid(ownerToken, 'legacy lease owner token');
     const state = await this.read();
+    const ownerPath = join(this.root, LOCK, LEGACY_OWNER);
+    const claimPath = join(this.root, LOCK, LEGACY_RELEASE_CLAIM);
     let owner: unknown;
     try {
-      owner = JSON.parse(await readBounded(join(this.root, LOCK, LEGACY_OWNER)));
+      owner = JSON.parse(await readBounded(ownerPath));
     } catch {
       throw new Error('legacy deployment lease is invalid');
     }
@@ -184,7 +187,32 @@ export class ReleaseGuardStore {
     ) {
       throw new Error('legacy deployment lease owner token does not match');
     }
-    await rm(join(this.root, LOCK, LEGACY_OWNER));
+    try {
+      await link(ownerPath, claimPath);
+    } catch {
+      throw new Error('legacy deployment lease is already being released or requires operator recovery');
+    }
+    try {
+      const claimedOwner = JSON.parse(await readBounded(claimPath));
+      const [ownerStat, claimStat] = await Promise.all([lstat(ownerPath), lstat(claimPath)]);
+      if (
+        !isRecord(claimedOwner) ||
+        !hasExactKeys(claimedOwner, ['schemaVersion', 'installationId', 'ownerToken']) ||
+        claimedOwner.schemaVersion !== 1 ||
+        claimedOwner.installationId !== state.installationId ||
+        claimedOwner.ownerToken !== ownerToken ||
+        ownerStat.dev !== claimStat.dev ||
+        ownerStat.ino !== claimStat.ino
+      ) {
+        throw new Error('legacy deployment lease owner token does not match');
+      }
+    } catch (error) {
+      await rm(claimPath).catch(() => undefined);
+      throw error;
+    }
+    await rm(ownerPath);
+    await syncDirectory(join(this.root, LOCK));
+    await rm(claimPath);
     await syncDirectory(join(this.root, LOCK));
     await this.releaseEmptyLock();
   }

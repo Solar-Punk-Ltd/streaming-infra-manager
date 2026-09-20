@@ -131,6 +131,14 @@ async function temporaryRoot(t: { after(callback: () => Promise<void>): void }) 
   return root;
 }
 
+async function waitForFile(path: string): Promise<void> {
+  const deadline = Date.now() + FIXTURE_READY_TIMEOUT_MS;
+  while (!(await lstat(path).catch(() => null))) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`);
+    await delay(10);
+  }
+}
+
 async function capableCandidate(root: string, role = 'uploader') {
   const manifest = role === 'admin'
     ? join(root, 'web2-admin/backend/release-capabilities.json')
@@ -376,6 +384,76 @@ describe('external release guard state', () => {
 
     await store.finishLegacyLease(lease.ownerToken);
     await store.withTransition(async () => undefined);
+  });
+
+  it('cannot release a successor after a duplicate legacy finish pauses after reading the owner', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    const first = await store.beginLegacyLease();
+    assert.equal(first.mode, 'legacy');
+    if (first.mode !== 'legacy') throw new Error('expected a legacy lease');
+
+    const fixtureRoot = join(root, 'paused-finisher');
+    await mkdir(fixtureRoot);
+    await copyFile(
+      join(REPO, 'manager/src/releaseGuard/ReleaseGuardTypes.ts'),
+      join(fixtureRoot, 'ReleaseGuardTypes.ts'),
+    );
+    const storeSource = await readFile(
+      join(REPO, 'manager/src/releaseGuard/ReleaseGuardStore.ts'),
+      'utf8',
+    );
+    const ownerRead = 'owner = JSON.parse(await readBounded(ownerPath));';
+    assert.match(storeSource, new RegExp(ownerRead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    await writeFile(
+      join(fixtureRoot, 'ReleaseGuardStore.ts'),
+      storeSource.replace(ownerRead, `${ownerRead}
+      await writeFile(process.env.RELEASE_FINISH_READY!, 'ready\\n');
+      while (!(await lstat(process.env.RELEASE_FINISH_CONTINUE!).catch(() => null))) await delay(10);`)
+        .replace(
+          "import { chmod, link, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';",
+          "import { chmod, link, lstat, mkdir, open, rename, rm, rmdir, writeFile } from 'node:fs/promises';\nimport { setTimeout as delay } from 'node:timers/promises';",
+        ),
+    );
+    await writeFile(
+      join(fixtureRoot, 'finish.ts'),
+      "import { ReleaseGuardStore } from './ReleaseGuardStore.js';\nvoid new ReleaseGuardStore(process.argv[2]!).finishLegacyLease(process.argv[3]!);\n",
+    );
+    const ready = join(fixtureRoot, 'ready');
+    const resume = join(fixtureRoot, 'resume');
+    const paused = spawn(process.execPath, [
+      ...inheritedModuleLoaderArgs(),
+      join(fixtureRoot, 'finish.ts'),
+      root,
+      first.ownerToken,
+    ], {
+      env: { ...process.env, RELEASE_FINISH_READY: ready, RELEASE_FINISH_CONTINUE: resume },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let pausedStderr = '';
+    paused.stderr.on('data', (chunk: Buffer) => {
+      pausedStderr = `${pausedStderr}${chunk.toString('utf8')}`.slice(-FIXTURE_DIAGNOSTIC_BYTES);
+    });
+    t.after(() => { if (paused.exitCode === null) paused.kill('SIGKILL'); });
+    await Promise.race([
+      waitForFile(ready),
+      new Promise<never>((_resolve, reject) => paused.once('close', (code, signal) => {
+        reject(new Error(`paused finisher closed before readiness (exit ${code ?? 'none'}, signal ${signal ?? 'none'}): ${pausedStderr}`));
+      })),
+    ]);
+
+    await store.finishLegacyLease(first.ownerToken);
+    const successor = await store.beginLegacyLease();
+    assert.equal(successor.mode, 'legacy');
+    if (successor.mode !== 'legacy') throw new Error('expected a successor legacy lease');
+    await writeFile(resume, 'continue\n');
+    const pausedExit = await new Promise<number | null>((resolveClose) => paused.once('close', resolveClose));
+
+    assert.notEqual(pausedExit, 0);
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+    await assert.rejects(store.finishLegacyLease(first.ownerToken), /owner token does not match/);
+    await store.finishLegacyLease(successor.ownerToken);
   });
 
   it('keeps a killed legacy deployment locked for operator recovery', async (t) => {

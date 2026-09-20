@@ -126,7 +126,7 @@ describe('deploy/deploy.sh', () => {
     const home = join(root, 'home');
     mkdirSync(bin);
     mkdirSync(home);
-    for (const command of ['chmod', 'dirname', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname', 'uuidgen']) {
+    for (const command of ['chmod', 'dirname', 'ln', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname', 'uuidgen']) {
       symlinkSync(execFileSync('which', [command], { encoding: 'utf8' }).trim(), join(bin, command));
     }
     const env = { ...process.env, HOME: home, PATH: bin };
@@ -138,6 +138,51 @@ describe('deploy/deploy.sh', () => {
 
     assert.equal(existsSync(join(home, '.local/state/streaming-release-bootstrap.lock')), false);
     assert.doesNotMatch(readFileSync(RELEASE_MODE_SCRIPT, 'utf8'), /\bnode\b/);
+  });
+
+  it('cannot release a successor after a duplicate bootstrap finish pauses after reading the owner', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'manager-release-finish-race-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const home = join(root, 'home');
+    const wrappers = join(root, 'wrappers');
+    const ready = join(root, 'ready');
+    const resume = join(root, 'resume');
+    mkdirSync(home);
+    mkdirSync(wrappers);
+    for (const command of ['ln', 'rm']) {
+      const path = join(wrappers, command);
+      writeFileSync(path, `#!/bin/bash
+set -euo pipefail
+if [ ! -e '${ready}' ]; then
+  /usr/bin/touch '${ready}'
+  while [ ! -e '${resume}' ]; do /bin/sleep 0.01; done
+fi
+exec /bin/${command} "$@"
+`);
+      chmodSync(path, 0o700);
+    }
+    const env = { ...process.env, HOME: home };
+    const first = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    const firstOwner = first.stdout.trim().slice('bootstrap:'.length);
+    const paused = spawn('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], {
+      env: { ...env, PATH: `${wrappers}:${process.env.PATH ?? ''}` },
+      stdio: 'ignore',
+    });
+    t.after(() => { if (paused.exitCode === null) paused.kill('SIGKILL'); });
+    await waitForPath(ready);
+
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], { env });
+    const successor = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    const successorOwner = successor.stdout.trim().slice('bootstrap:'.length);
+    writeFileSync(resume, 'continue\n');
+    const pausedExit = await new Promise<number | null>((resolveClose) => paused.once('close', resolveClose));
+
+    assert.notEqual(pausedExit, 0);
+    assert.equal(
+      readFileSync(join(home, '.local/state/streaming-release-bootstrap.lock', 'owner'), 'utf8').trim(),
+      successorOwner,
+    );
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', successorOwner], { env });
   });
 
   it('dispatches only a pristine installation to the standalone deploy path', async (t) => {
