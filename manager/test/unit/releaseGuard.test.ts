@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -482,6 +482,8 @@ esac
     await capableCandidate(candidate, 'manager');
     await mkdir(join(candidate, 'manager'), { recursive: true });
     await writeFile(join(candidate, 'manager/docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(candidate, 'manager/.env'), 'MANAGER_DOMAIN=manager.example.test\n');
+    await writeFile(join(candidate, '.release-commit'), `${'c'.repeat(40)}\n`);
     await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
     await copyFile(
       join(REPO, 'deploy/release-adapters/manager.sh'),
@@ -532,11 +534,74 @@ fi
     ]);
     const calls = await readFile(join(fakeBin, 'docker.log'), 'utf8');
     assert.match(calls, /--project-name release-[0-9a-f]{20} .* build api web/);
-    assert.match(calls, /--project-name manager .*manager-image-override\.yml up -d --no-build api web/);
+    assert.match(calls, /--project-name manager .*manager-image-override\.yml run --rm --no-deps -T api node dist\/cli\.js manager:upgrade/);
+    assert.match(calls, /--compose-override .*manager-image-override\.yml/);
+    assert.match(calls, /--public-edge/);
     assert.doesNotMatch(calls, /image tag|--project-name manager .* build/);
     const override = await readFile(join(root, 'adapter-work/manager-image-override.yml'), 'utf8');
+    const transitionPlan = JSON.parse(await readFile(join(root, 'adapter-work/transition-plan.json'), 'utf8'));
+    const guardedCandidate = transitionPlan.candidateRoot as string;
+    const guardedWork = join(dirname(guardedCandidate), 'adapter-work');
     assert.match(override, new RegExp(`image: ${IMAGE_ID}`));
     assert.match(override, new RegExp(`image: ${WEB_IMAGE_ID}`));
+    assert.match(override, new RegExp(`source: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(override, new RegExp(`target: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(override, new RegExp(`SHLS_ROOT: ${join(guardedCandidate, 'manager/swarm-hls-stream').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(override, new RegExp(`source: ${guardedWork.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(override, new RegExp(`target: ${guardedWork.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  });
+
+  it('does not start the new manager outside the coordinator when its migration fails', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate, 'manager');
+    await mkdir(join(candidate, 'manager'), { recursive: true });
+    await writeFile(join(candidate, 'manager/docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(candidate, 'manager/.env'), 'MANAGER_DOMAIN=\n');
+    await writeFile(join(candidate, '.release-commit'), `${'c'.repeat(40)}\n`);
+    await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
+    await copyFile(
+      join(REPO, 'deploy/release-adapters/manager.sh'),
+      join(candidate, 'deploy/release-adapters/manager.sh'),
+    );
+    await chmod(join(candidate, 'deploy/release-adapters/manager.sh'), 0o700);
+    const fakeBin = join(root, 'bin');
+    await mkdir(fakeBin);
+    const docker = join(fakeBin, 'docker');
+    await writeFile(docker, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$(dirname "$0")/docker.log"
+if [ "$1" = image ]; then
+  case "\${!#}" in
+    *-api) printf '%s\\n' '${IMAGE_ID}' ;;
+    *-web) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+  esac
+elif [[ "$*" == *manager:upgrade* ]]; then
+  echo 'manager upgrade failed during migration' >&2
+  exit 42
+fi
+`);
+    await chmod(docker, 0o700);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
+    t.after(() => { process.env.PATH = oldPath; });
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'manager', id: 'default' },
+        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work')),
+      }),
+      /failed during migration/,
+    );
+
+    const calls = await readFile(join(fakeBin, 'docker.log'), 'utf8');
+    assert.match(calls, /manager:upgrade/);
+    assert.doesNotMatch(calls, /up -d/);
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).attempt?.phase, 'prepared');
   });
 
   it('kills the adapter process group on timeout and retains a redacted diagnostic', async (t) => {
