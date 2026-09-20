@@ -297,15 +297,26 @@ describe('manager:upgrade', () => {
 
   it('builds its host operations from the flags it was given', async () => {
     const composeFile = join(mutableRoot, 'docker-compose.yml');
+    const composeOverride = join(root, 'guard-work', 'manager-image-override.yml');
 
-    const run = await upgrade(argvWith({ '--compose-file': composeFile }, ['--public-edge']));
+    const run = await upgrade(argvWith({
+      '--compose-file': composeFile,
+      '--compose-override': composeOverride,
+    }, ['--public-edge']));
 
     assert.equal(run.error, null);
     assert.deepEqual(settings, {
-      versionsRoot, composeFile, bundledStackRoot: BUNDLED_STACK_ROOT, publicEdge: true, firstUse: false,
+      versionsRoot, composeFile, composeOverride, bundledStackRoot: BUNDLED_STACK_ROOT, publicEdge: true, firstUse: false,
       postgresVolume: MANAGER_POSTGRES_VOLUME,
       apiHealthUrl: `http://api:${config.port}/health`,
       timeouts: { bundledBuild: Number(BUNDLED_TIMEOUT) * 1000 },
     });
+  });
+
+  it('refuses a relative image-pinning compose override before opening the host', async () => {
+    const run = await upgrade(argvWith({ '--compose-override': 'guard/override.yml' }));
+
+    assert.match(run.error?.message ?? '', /--compose-override/);
+    assert.equal(opened, 0);
   });
 });

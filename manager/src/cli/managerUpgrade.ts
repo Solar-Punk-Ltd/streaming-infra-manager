@@ -22,6 +22,7 @@ const MANAGER_DIGEST = '--manager-digest';
 const IMAGE_ID = '--image-id';
 const PROJECT = '--project';
 const COMPOSE_FILE = '--compose-file';
+const COMPOSE_OVERRIDE = '--compose-override';
 const MUTABLE_ROOT = '--mutable-root';
 const PUBLIC_EDGE = '--public-edge';
 const FIRST_USE = '--first-use';
@@ -70,7 +71,7 @@ export const MANAGER_UPGRADE_USAGE = [
   'Usage:',
   `  node dist/cli.js ${MANAGER_UPGRADE} ${MANAGER_COMMIT} <sha> ${MANAGER_DIGEST} <sha256>`,
   `      ${IMAGE_ID} sha256:<sha256> ${PROJECT} <compose project>`,
-  `      ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path>`,
+  `      ${COMPOSE_FILE} <path> [${COMPOSE_OVERRIDE} <path>] ${MUTABLE_ROOT} <path>`,
   `      [${BUNDLED_TIMEOUT} <seconds>] [${PUBLIC_EDGE}] [${FIRST_USE}]`,
   '',
   'Brings the project back up on the image the deploy has just built, holding',
@@ -142,10 +143,12 @@ export async function runManagerUpgradeCommand(
   const versionsRoot = dependencies.versionsRoot ?? config.stackVersionsRoot;
   const { request, settings, environment } = withUsage(MANAGER_UPGRADE_USAGE, () => {
     const flags = parseFlags(argv, {
-      valued: [MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, BUNDLED_TIMEOUT],
+      valued: [MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, COMPOSE_OVERRIDE, MUTABLE_ROOT, BUNDLED_TIMEOUT],
       switches: [PUBLIC_EDGE, FIRST_USE],
     });
     assertComposeFileInside(flags.required(COMPOSE_FILE), flags.required(MUTABLE_ROOT));
+    const composeOverride = flags.optional(COMPOSE_OVERRIDE);
+    if (composeOverride !== undefined) assertPlainPath(COMPOSE_OVERRIDE, composeOverride);
     return {
       // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
       request: captureManagerUpgradeRequest({
@@ -155,6 +158,7 @@ export async function runManagerUpgradeCommand(
       settings: {
         versionsRoot,
         composeFile: flags.required(COMPOSE_FILE),
+        ...(composeOverride === undefined ? {} : { composeOverride }),
         bundledStackRoot: BUNDLED_STACK_ROOT,
         publicEdge: flags.has(PUBLIC_EDGE),
         firstUse: flags.has(FIRST_USE),
