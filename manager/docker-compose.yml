@@ -36,6 +36,9 @@ services:
       SHLS_ROOT: ${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}/manager/swarm-hls-stream
       BEE_DATA_ROOT: ${BEE_DATA_ROOT:-/home/solarpunk/streaming-infra-manager-data}
       STACK_VERSIONS_ROOT: ${STACK_VERSIONS_ROOT:-/home/solarpunk/streaming-infra-manager-versions}
+      SRS_LIFECYCLE_VERSION: ${SRS_LIFECYCLE_VERSION:-}
+      ADMIN_API_URL: ${ADMIN_API_URL:-}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}:${MANAGER_ROOT:-/home/solarpunk/streaming-infra-manager}

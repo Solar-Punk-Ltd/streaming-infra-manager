@@ -10,6 +10,7 @@ import type { ExecutionRoots } from '../../src/domain/versions/ExecutionRootServ
 import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import type { PublishedPortsSnapshot } from '../../src/domain/ports/PublishedPortsProbe.js';
 import { Profile } from '../../src/types/index.js';
+import type { ManagedSrsLifecycleConfig } from '../../src/utils/config.js';
 
 import { FakeScriptRunner } from './FakeScriptRunner.js';
 import { ALLOCATION_CONTRACT } from './allocationContract.js';
@@ -69,6 +70,7 @@ export function orchestratorHarness(
   executions?: ExecutionRoots,
   /** BEE_RPC_ENDPOINT, which a job's output is redacted against. */
   managerRpcEndpoint?: string | null,
+  managedSrsLifecycle?: ManagedSrsLifecycleConfig | null,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -130,6 +132,7 @@ export function orchestratorHarness(
     inventoryTargets,
     executions,
     managerRpcEndpoint,
+    managedSrsLifecycle,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published, operations };

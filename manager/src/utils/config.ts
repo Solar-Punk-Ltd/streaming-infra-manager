@@ -76,6 +76,57 @@ export function streamAdminConsoleUrl(raw: string | undefined): string | null {
   return url.href.replace(/\/$/, '');
 }
 
+const MANAGED_SRS_TOKEN = /^[\x21-\x7e]{32,8192}$/;
+
+export interface ManagedSrsLifecycleConfig {
+  lifecycleVersion: 1;
+  adminApiUrl: string;
+  adminApiToken: string;
+}
+
+/** The manager-side settings that enable lifecycle reporting in capable SRS stacks. */
+export function managedSrsLifecycleConfig(
+  env: Readonly<Record<string, string | undefined>>,
+): ManagedSrsLifecycleConfig | null {
+  const version = env.SRS_LIFECYCLE_VERSION?.trim() ?? '';
+  const adminApiUrl = env.ADMIN_API_URL?.trim() ?? '';
+  const adminApiToken = env.ADMIN_API_TOKEN ?? '';
+  if (!version && !adminApiUrl && !adminApiToken) return null;
+  if (version !== '1') {
+    throw new Error(
+      'SRS_LIFECYCLE_VERSION must be 1 when managed SRS lifecycle is configured',
+    );
+  }
+  if (!adminApiUrl) {
+    throw new Error('ADMIN_API_URL is required for managed SRS lifecycle');
+  }
+  if (!MANAGED_SRS_TOKEN.test(adminApiToken)) {
+    throw new Error('ADMIN_API_TOKEN is invalid for managed SRS lifecycle');
+  }
+  let url: URL;
+  try {
+    url = new URL(adminApiUrl);
+  } catch {
+    throw new Error('ADMIN_API_URL must be an HTTP or HTTPS base URL');
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      'ADMIN_API_URL must be an HTTP or HTTPS base URL without credentials, query, or fragment',
+    );
+  }
+  return {
+    lifecycleVersion: 1,
+    adminApiUrl: url.href.replace(/\/$/, ''),
+    adminApiToken,
+  };
+}
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -92,6 +143,7 @@ export interface AppConfig {
   /** See `beeRpcEndpoint`. Null when the operator configured none. */
   beeRpcEndpoint: string | null;
   streamAdminConsoleUrl: string | null;
+  managedSrsLifecycle: ManagedSrsLifecycleConfig | null;
 }
 
 export const config: AppConfig = {
@@ -107,4 +159,5 @@ export const config: AppConfig = {
   ),
   beeRpcEndpoint: beeRpcEndpoint(process.env.BEE_RPC_ENDPOINT),
   streamAdminConsoleUrl: streamAdminConsoleUrl(process.env.STREAM_ADMIN_CONSOLE_URL),
+  managedSrsLifecycle: managedSrsLifecycleConfig(process.env),
 };
