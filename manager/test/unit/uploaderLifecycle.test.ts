@@ -52,7 +52,6 @@ describe('uploader lifecycle response', () => {
         checkpointPath: '/private/state',
         nested: { claimId: 'secret' },
       }),
-      new Date(observedAt),
     );
 
     assert.deepEqual(reading, {
@@ -97,7 +96,7 @@ describe('uploader lifecycle response', () => {
     ];
 
     for (const value of invalid) {
-      assert.deepEqual(lifecycleReading(value, new Date(observedAt)), {
+      assert.deepEqual(lifecycleReading(value), {
         state: 'unavailable',
       });
     }
@@ -107,37 +106,90 @@ describe('uploader lifecycle response', () => {
     assert.equal(
       lifecycleReading(
         payload(stream('waiting', '2026-09-19T23:59:40.000Z')),
-        new Date(observedAt),
       ).state,
       'available',
     );
     assert.deepEqual(
       lifecycleReading(
         payload(stream('waiting', '2026-09-19T23:59:39.999Z')),
-        new Date(observedAt),
       ),
       { state: 'unavailable' },
     );
   });
 
-  it('uses uploader timestamps without assuming the manager clock matches', () => {
-    for (const receipt of [
-      '2026-09-19T23:55:10.000Z',
-      '2026-09-20T00:05:10.000Z',
+  it('derives freshness and the reconnect countdown only from uploader timestamps', () => {
+    for (const [sourceObservedAt, lastObservedAt, reconnectDeadline] of [
+      [
+        '2026-09-19T23:55:10.000Z',
+        '2026-09-19T23:55:00.000Z',
+        '2026-09-19T23:56:00.000Z',
+      ],
+      [
+        '2026-09-20T00:05:10.000Z',
+        '2026-09-20T00:05:00.000Z',
+        '2026-09-20T00:06:00.000Z',
+      ],
     ]) {
       assert.deepEqual(
-        lifecycleReading(payload(stream('live')), new Date(receipt)),
+        lifecycleReading({
+          lifecycleVersion: 1,
+          observedAt: sourceObservedAt,
+          streams: [
+            { ...stream('waiting', lastObservedAt), reconnectDeadline },
+          ],
+        }),
         {
           state: 'available',
           streams: [
             {
               adminId: ADMIN_ID,
               runNumber: 2,
-              state: 'live',
+              state: 'waiting',
               initialAgeMs: 10_000,
+              deadlineRemainingMs: 50_000,
             },
           ],
         },
+      );
+    }
+  });
+
+  it('projects validated closed reasons without private lifecycle fields', () => {
+    for (const closeReason of [
+      'reconnect_timeout',
+      'cancelled',
+      'recovery_required',
+      'finalization_failed',
+      'empty',
+    ]) {
+      assert.deepEqual(
+        lifecycleReading(payload({ ...stream('closed'), closeReason })),
+        {
+          state: 'available',
+          streams: [
+            {
+              adminId: ADMIN_ID,
+              runNumber: 2,
+              state: 'closed',
+              initialAgeMs: 10_000,
+              closeReason,
+            },
+          ],
+        },
+      );
+    }
+  });
+
+  it('refuses waiting deadlines outside the sixty-second reconnect window', () => {
+    for (const reconnectDeadline of [
+      '2026-09-20T00:00:09.999Z',
+      '2026-09-20T00:01:10.001Z',
+    ]) {
+      assert.deepEqual(
+        lifecycleReading(
+          payload({ ...stream('waiting'), reconnectDeadline }),
+        ),
+        { state: 'unavailable' },
       );
     }
   });
@@ -147,7 +199,6 @@ describe('uploader lifecycle response', () => {
       assert.equal(
         lifecycleReading(
           payload(stream(state, '2026-09-19T22:00:00.000Z')),
-          new Date('2026-09-20T01:00:00.000Z'),
         ).state,
         'available',
       );
@@ -210,7 +261,6 @@ describe('UploaderLifecycleService', () => {
         containers,
         versions,
         control,
-        () => new Date(observedAt),
       ),
     };
   }
