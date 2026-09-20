@@ -44,7 +44,23 @@ Implementation must retain these invariants:
 - The wrapper owns the preflight and the subsequent transition. A helper that is never called by the real wrapper does not pass validation.
 - The guard can allow a compatible recovery build. It never restores a database over accepted footage.
 
-The implementation worker must propose the minimal concrete artifact layout, candidate binding and bootstrap sequence before coding this guard. The layout must fit the actual admin, stack and manager entry points without installing a general host orchestration service. No live guard is installed by this brief.
+The following layout and bootstrap protocol were reviewed on 2026-09-21. They fit the component entry points without installing a general host orchestration service. No live guard is installed by this brief.
+
+### Installed guard and component receipts
+
+The canonical implementation belongs to the manager repository. Its installed code is outside candidate checkouts and images. The local manager API invokes that installed code through a read-only code mount and a durable host-state mount. Remote uploader transitions use the existing SSH transport to the remote installed wrapper. The host wrapper also gates replacement of the manager image itself. This protects supported deployment paths on a trusted host. It is not a security boundary against an administrator manually replacing containers or code with Docker access.
+
+Each guard installation has its own UUID and a monotonic durable generation. Its protected state retains sticky minimum capabilities, the last receipt and any pending receipt for each local component slot. Installed-but-missing, malformed, unreadable, oversized or symlinked state refuses a transition. State and the installation marker are atomically written and flushed. The state directory and files use owner-only permissions.
+
+The admin requires four slots before new managed enrollment: `manager/default`, `admin/default`, `viewer/default` and `uploader/<configured identity>`. The viewer may be on another host and remains required even when no viewer service is in the uploader's profile. The uploader identity uses the existing bounded grammar `[A-Za-z0-9_.:-]{1,200}`. It is not newly restricted to UUIDs. The installation UUID remains a separate identity.
+
+Each receipt has `schemaVersion: 1`, `installationId`, `generation`, `stateDigest`, `slot`, `minimums: { srsLifecycle: 1 }`, and `artifact`. The artifact binds a SHA-256 candidate tree digest and a service-sorted list of exact Docker image IDs. The fixed private route is `POST /api/internal/release-guard/receipts`. It uses the existing internal bearer token routed directly into the submitting process. Redirects are refused and time, response size and error output are bounded.
+
+The admin first binds an installation UUID to its slot. A later different installation is refused rather than silently replacing that authority. Higher generations cannot lower the minimum capability. An exact same-generation retry is idempotent. A changed body at the same generation conflicts. Separate hosts do not share one generation counter. A timestamp or environment flag is not evidence of an installed guard. Fresh uploader capability observations remain a separate thirty-second check.
+
+The wrapper checks the candidate before building or changing tags. It builds into isolated names, captures immutable image IDs, and supplies its own Compose override that pins those IDs with pulling and rebuilding disabled for the transition. A transition token binds the candidate tree, generated override and images. The sticky minimum and exact pending receipt are flushed before activation. Only after verifying the running images and tree does the wrapper submit that receipt. An ambiguous HTTP result retries the identical durable body. A failed receipt submission leaves compatible running code but blocks new enrollment until reconciled.
+
+Bootstrap installs the guard and initial state, stages capable candidates, runs preflight, builds the immutable artifacts, persists the minimum and pending receipt, transitions, verifies the artifacts and submits each slot's receipt. The admin also checks its current artifact and a fresh matching uploader profile before enrolling the first stream. Compatible updates use the same path. This protocol never restores a database over accepted footage.
 
 ## Required checks
 
