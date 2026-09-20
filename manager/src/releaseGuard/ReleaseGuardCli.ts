@@ -3,10 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { FixedReleaseAdapter, type FixedAdapterArguments } from './FixedReleaseAdapter.js';
 import { installReleaseGuard, ReleaseGuardStore } from './ReleaseGuardStore.js';
 import { submitPendingReceipt } from './ReleaseReceiptSubmitter.js';
-import { runReleaseTransition } from './ReleaseTransition.js';
+import { digestReleaseCandidate, runReleaseTransition } from './ReleaseTransition.js';
 import type { ReleaseRole, ReleaseSlot } from './ReleaseGuardTypes.js';
 
 const TOKEN_ENV = 'RELEASE_GUARD_ADMIN_TOKEN';
+const ADMIN_URL_ENV = 'RELEASE_GUARD_ADMIN_URL';
 const ROLES = new Set<ReleaseRole>(['manager', 'admin', 'uploader', 'viewer']);
 const UPLOADER_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 
@@ -16,6 +17,10 @@ export async function runReleaseGuardCli(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   const [command, ...rest] = argv;
+  if (command === 'digest') {
+    const flags = parseFlags(rest, new Set(['candidate-root']));
+    return digestReleaseCandidate(required(flags, 'candidate-root'));
+  }
   if (command === 'install') {
     const flags = parseFlags(rest, new Set(['state-root']));
     await installReleaseGuard(required(flags, 'state-root'));
@@ -27,7 +32,7 @@ export async function runReleaseGuardCli(
     await submitPendingReceipt({
       store: new ReleaseGuardStore(required(flags, 'state-root')),
       slot,
-      adminUrl: required(flags, 'admin-url'),
+      adminUrl: flags.get('admin-url') ?? requiredEnvironment(env, ADMIN_URL_ENV),
       token: requiredEnvironment(env, TOKEN_ENV),
     });
     return 'release receipt acknowledged';
@@ -62,7 +67,7 @@ export async function runReleaseGuardCli(
   await submitPendingReceipt({
     store,
     slot,
-    adminUrl: required(flags, 'admin-url'),
+    adminUrl: flags.get('admin-url') ?? requiredEnvironment(env, ADMIN_URL_ENV),
     token: requiredEnvironment(env, TOKEN_ENV),
   });
   return `${role} release verified and acknowledged`;

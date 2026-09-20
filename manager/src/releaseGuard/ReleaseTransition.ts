@@ -123,6 +123,11 @@ export async function digestTree(root: string): Promise<string> {
   return hash.digest('hex');
 }
 
+/** Returns the canonical digest of one real staged candidate directory. */
+export async function digestReleaseCandidate(candidateRoot: string): Promise<string> {
+  return digestTree(await requireCandidateRoot(candidateRoot));
+}
+
 async function requireCandidateRoot(value: string): Promise<string> {
   if (!isAbsolute(value)) throw new Error('candidate root must be absolute');
   const supplied = await lstat(value);

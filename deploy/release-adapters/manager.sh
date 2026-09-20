@@ -107,6 +107,10 @@ export PUBLIC_HOST
 PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
 export BEE_DATA_ROOT="${HOME}/streaming-infra-manager-data"
 export STACK_VERSIONS_ROOT="${HOME}/streaming-infra-manager-versions"
+MANAGER_SSH_DIR="$(sed -n 's/^MANAGER_SSH_DIR=//p' "${manager_root}/.env" 2>/dev/null | tail -n 1 | tr -d '\r"' | tr -d "'")"
+export MANAGER_SSH_DIR="${MANAGER_SSH_DIR:-${HOME}/manager-ssh}"
+mkdir -p "$MANAGER_SSH_DIR"
+chmod 700 "$MANAGER_SSH_DIR"
 
 compose() {
     docker compose \

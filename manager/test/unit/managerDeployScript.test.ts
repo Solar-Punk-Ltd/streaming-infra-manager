@@ -17,8 +17,10 @@ import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
+const adapter = readFileSync(ADAPTER_SCRIPT, 'utf8');
 
 /** Every `rsync ...` invocation, each up to its destination line. */
 function rsyncs(): string[] {
@@ -30,9 +32,36 @@ describe('deploy/deploy.sh', () => {
     execFileSync('bash', ['-n', DEPLOY_SCRIPT]);
   });
 
+  it('stages a new sibling candidate and never rsyncs over the live manager tree', () => {
+    const [repo] = rsyncs();
+    assert.ok(repo);
+    assert.match(script, /RELEASES_ROOT="\/home\/solarpunk\/streaming-infra-manager-releases\/manager"/);
+    assert.match(script, /INCOMING_ROOT="\$\{RELEASES_ROOT\}\/\.incoming-/);
+    assert.match(repo, /"\$\{SSH_TARGET\}:\$\{INCOMING_ROOT\}\/"/);
+    assert.doesNotMatch(repo, /"\$\{SSH_TARGET\}:\$\{REMOTE_PATH\}\/"/);
+    assert.match(repo, /--delete/);
+  });
+
+  it('binds the staged candidate digest before the installed guard may transition it', () => {
+    const digest = script.indexOf('"$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT"');
+    const rename = script.indexOf('mv "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
+    const transition = script.indexOf('"$GUARD_BIN" manager');
+
+    assert.notEqual(digest, -1);
+    assert.ok(rename > digest);
+    assert.ok(transition > rename);
+    assert.match(script.slice(transition), /--candidate-root "\$CANDIDATE_ROOT"/);
+    assert.match(script.slice(transition), /--state-root "\$GUARD_STATE_ROOT"/);
+  });
+
+  it('routes the receipt credential only through the installed guard process environment', () => {
+    assert.match(script, /: "\$\{RELEASE_GUARD_ADMIN_TOKEN:\?/);
+    assert.doesNotMatch(script, /--token|Bearer|RELEASE_GUARD_ADMIN_TOKEN=/);
+  });
+
   it('leaves the bundled tree the engines mount out of the rsync that deletes into the repo', () => {
-    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${REMOTE_PATH}/"'));
-    assert.ok(repo, 'the rsync into the repository');
+    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${INCOMING_ROOT}/"'));
+    assert.ok(repo, 'the rsync into the staged candidate');
     assert.match(repo, /--delete/);
     assert.match(repo, /--exclude 'manager\/swarm-hls-stream\/'/);
   });
@@ -43,8 +72,8 @@ describe('deploy/deploy.sh', () => {
    * ignored by git, so it is by definition not part of what a host runs.
    */
   it('leaves the working notes of whoever deployed on the machine they wrote them on', () => {
-    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${REMOTE_PATH}/"'));
-    assert.ok(repo, 'the rsync into the repository');
+    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${INCOMING_ROOT}/"'));
+    assert.ok(repo, 'the rsync into the staged candidate');
     assert.match(repo, /--exclude '\.scratch\/'/);
   });
 
@@ -70,7 +99,8 @@ describe('deploy/deploy.sh', () => {
   });
 
   it('pins the stack commit from the repository itself, not from a checkout of the submodule', () => {
-    assert.match(script, new RegExp(`git rev-parse HEAD:manager/swarm-hls-stream > manager/${STACK_COMMIT_FILE.replace('.', '\\.')}`));
+    assert.match(script, /STACK_COMMIT="\$\(git rev-parse HEAD:manager\/swarm-hls-stream\)"/);
+    assert.match(script, new RegExp(`printf '[^']+' "\\$STACK_COMMIT" > "\\$\{INCOMING_ROOT\}/manager/${STACK_COMMIT_FILE.replace('.', '\\.')}"`));
   });
 
   it('builds nothing of the streaming stack here, because the host fetches and builds it', () => {
@@ -91,21 +121,21 @@ describe('deploy/deploy.sh', () => {
     assert.equal(script.includes('TOOLCHAIN'), false);
   });
 
-  it('builds the image on the host and then runs the upgrade from it, not from the running api', () => {
-    const build = script.indexOf('docker compose build');
-    const upgrade = script.indexOf('docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+  it('lets the installed guard build before its adapter invokes the upgrade coordinator', () => {
+    const build = adapter.indexOf('build api web');
+    const upgrade = adapter.indexOf('node dist/cli.js manager:upgrade');
     assert.notEqual(build, -1, 'the image is built on the host');
     assert.notEqual(upgrade, -1, 'the upgrade runs in a container of the image just built');
     assert.ok(build < upgrade, 'the image exists before the upgrade runs from it');
   });
 
   it('decides on the host whether this manager has ever run here, before the one-off container exists', () => {
-    const run = script.indexOf('docker compose run --rm --no-deps -T api');
+    const run = adapter.indexOf('node dist/cli.js manager:upgrade');
     assert.notEqual(run, -1, 'the upgrade runs in a one-off container');
-    const before = script.slice(0, run);
-    assert.ok(before.includes('docker volume ls -q --filter name=^\\${POSTGRES_VOLUME}\\$'), 'the data volume is looked for by name');
-    assert.ok(before.includes('service_containers api'), 'so are the api containers of the project');
-    assert.ok(before.includes('service_containers postgres'), 'and the postgres ones');
+    const before = adapter.slice(0, run);
+    assert.ok(before.includes('docker volume ls -q --filter'), 'the data volume is looked for by name');
+    assert.ok(before.includes('label=com.docker.compose.service=api'), 'so are the api containers of the project');
+    assert.ok(before.includes('label=com.docker.compose.service=postgres'), 'and the postgres ones');
     assert.match(before, /label=com\.docker\.compose\.oneoff=False/, 'neither count a one-off container');
   });
 
@@ -113,45 +143,52 @@ describe('deploy/deploy.sh', () => {
     // A substitution inside a [ ... ] condition reports what it printed rather than that it
     // failed, so a daemon that is down would read as a host with nothing on it and take the
     // first use branch.
-    const before = script.slice(0, script.indexOf('docker compose run --rm --no-deps -T api')).split('\n');
-    for (const probe of ['docker volume ls -q --filter name=', 'service_containers api', 'service_containers postgres']) {
-      const asked = before.filter((line) => line.includes(probe));
-      assert.equal(asked.length, 1, `${probe} is asked in one place`);
-      assert.match(asked[0]!.trim(), /^[A-Z_]+="\\\$\(/, `${probe} is read into a variable of its own`);
+    const before = adapter.slice(0, adapter.indexOf('node dist/cli.js manager:upgrade'));
+    for (const [variable, probe] of [
+      ['data_volume', 'docker volume ls -q --filter'],
+      ['api_containers', 'label=com.docker.compose.service=api'],
+      ['postgres_containers', 'label=com.docker.compose.service=postgres'],
+    ]) {
+      const assignmentStart = before.indexOf(`${variable}="$(`);
+      const probeIndex = before.indexOf(probe);
+      const assignmentEnd = before.indexOf(')"', assignmentStart);
+      assert.notEqual(assignmentStart, -1, `${variable} has an assignment`);
+      assert.ok(assignmentStart < probeIndex && probeIndex < assignmentEnd, `${probe} is read into ${variable}`);
+      assert.equal(before.indexOf(probe, probeIndex + 1), -1, `${probe} is asked in one place`);
     }
   });
 
   it('stops before the upgrade when the data volume went missing under an installed manager', () => {
-    const abort = script.indexOf('so its database was removed under a manager that is still installed');
+    const abort = adapter.indexOf('found an api container without its database volume');
     assert.notEqual(abort, -1, 'the deploy says what it found');
-    assert.ok(abort < script.indexOf('docker compose run --rm --no-deps -T api'), 'and says it before anything is published');
-    assert.match(script.slice(abort, abort + 300), /exit 1/, 'the deploy stops there');
+    assert.ok(abort < adapter.indexOf('node dist/cli.js manager:upgrade'), 'and says it before anything is published');
+    assert.match(adapter.slice(abort, abort + 300), /exit 1/, 'the deploy stops there');
   });
 
   it('hands the first use answer to the upgrade rather than letting it probe from inside', () => {
-    assert.match(script, /FIRST_USE_FLAG="--first-use"/, 'the flag is set where the probes said so');
-    const upgrade = script.slice(script.indexOf('cli.js manager:upgrade'));
-    assert.ok(upgrade.includes('\\${FIRST_USE_FLAG}'), 'and reaches the command');
+    assert.match(adapter, /is_first_use=true/, 'the flag is set where the probes said so');
+    const upgrade = adapter.slice(adapter.indexOf('node dist/cli.js manager:upgrade'));
+    assert.ok(upgrade.includes('upgrade_args+=(--first-use)'), 'and reaches the command');
   });
 
   it('gives the upgrade the identity of the manager, of the image and how long to wait for the bundled build', () => {
-    const upgrade = script.slice(script.indexOf('manager:upgrade'));
+    const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
     for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project manager',
-      '--compose-file', '--mutable-root', '--bundled-timeout']) {
+      '--compose-file', '--compose-override', '--mutable-root']) {
       assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
     }
-    assert.match(script, /IMAGE_ID="\\\$\(docker image inspect --format '\{\{\.Id\}\}' manager-api\)"/);
+    assert.match(adapter, /api_image="\$\(plan_value image:api\)"/);
   });
 
   it('gives the upgrade no shipment, because the host builds the stack itself', () => {
-    const upgrade = script.slice(script.indexOf('manager:upgrade'));
+    const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
     for (const flag of ['--shipment-id', '--commit ', '--digest ', '--toolchain']) {
       assert.equal(upgrade.includes(flag), false, `the upgrade is not given ${flag}`);
     }
   });
 
-  it('lets the deployer say how long the bundled build may take, with a default of its own', () => {
-    assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
+  it('leaves the bundled build timeout at the coordinator default', () => {
+    assert.doesNotMatch(adapter, /--bundled-timeout/);
   });
 
   /**
@@ -162,11 +199,11 @@ describe('deploy/deploy.sh', () => {
    * the directory itself, empty, as the user it runs as, before compose sees it.
    */
   it('creates the ssh identity directory as the deploying user before any container is made', () => {
-    const remote = script.slice(script.indexOf('<<REMOTE'), script.indexOf('\nREMOTE\n'));
-    const made = remote.indexOf('mkdir -p -m 700 "\\${MANAGER_SSH_DIR}"');
+    const made = adapter.indexOf('mkdir -p "$MANAGER_SSH_DIR"');
     assert.notEqual(made, -1, 'the ssh identity directory is created with mode 700');
-    assert.ok(made < remote.indexOf('docker compose build'), 'before the images are built');
-    assert.match(remote, /export MANAGER_SSH_DIR=/);
+    assert.ok(made < adapter.indexOf('build api web'), 'before the images are built');
+    assert.match(adapter, /export MANAGER_SSH_DIR=/);
+    assert.match(adapter, /chmod 700 "\$MANAGER_SSH_DIR"/);
   });
 
   it('refuses an ssh target that would read as an option to ssh', () => {
@@ -177,67 +214,45 @@ describe('deploy/deploy.sh', () => {
     assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before ssh is given it');
   });
 
-  it('refuses a bundled timeout that is not whole seconds, before it reaches the remote quoting', () => {
-    const assignment = script.indexOf('BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-');
-    const checked = script.indexOf('if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]');
-    assert.notEqual(checked, -1, 'the value lands inside single quotes in the remote heredoc');
-    assert.ok(checked > assignment, 'after the value is settled');
-    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before anything runs on the host');
+  it('does not interpolate optional operator values into the remote shell', () => {
+    assert.doesNotMatch(script, /BUNDLED_TIMEOUT|PUBLIC_EDGE_FLAG|FIRST_USE_FLAG/);
   });
 
-  it('feeds both remote docker commands from /dev/null, so neither reads the rest of the script', () => {
-    // The remote block arrives on the stdin of one bash, and `run` and `exec` keep stdin open,
-    // so without this the lines below them are swallowed instead of run.
-    const run = script.slice(script.indexOf('docker compose run --rm --no-deps -T api'));
-    const closed = run.indexOf(')"');
-    assert.notEqual(closed, -1, 'the substitution that captures the receipt ends somewhere');
-    assert.match(run.slice(0, closed + 2), /\$\{PUBLIC_EDGE_FLAG\} < \/dev\/null\)"$/,
-      'the upgrade takes the edge decision and no standard input');
-    assert.match(script, /docker compose exec -T api [^\n]* < \/dev\/null/, 'and neither does the check that follows it');
+  it('closes the upgrade coordinator standard input inside the fixed adapter', () => {
+    assert.match(adapter, /compose -f "\$override" run [^\n]* "\$\{upgrade_args\[@\]\}" < \/dev\/null/);
   });
 
   it('asks for the public edge only where the domain says so', () => {
-    const branch = script.indexOf('COMPOSE_PROFILE_FLAG=""');
-    assert.equal(script.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
-    const decision = script.indexOf('PUBLIC_EDGE_FLAG="--public-edge"');
+    assert.equal(adapter.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
+    const decision = adapter.indexOf('upgrade_args+=(--public-edge)');
     assert.notEqual(decision, -1, 'the public branch sets it');
-    assert.ok(decision > script.indexOf('elif [[ "$MANAGER_DOMAIN" =~ $HOSTNAME_PATTERN ]]'), 'inside the branch that saw a host name');
-    assert.ok(decision < script.indexOf('\nelse\n', script.indexOf('elif [[ "$MANAGER_DOMAIN"')), 'and not below it');
-    assert.equal(branch, -1, 'the old compose profile flag is gone');
+    assert.ok(decision > adapter.indexOf('if [ -n "$manager_domain" ]'), 'inside the branch that saw a host name');
   });
 
-  it('prints the receipt the upgrade returned, after the command that returned it', () => {
-    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
-    assert.notEqual(captured, -1, 'the receipt is the one line the upgrade printed');
-    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
-    assert.notEqual(printed, -1, 'and the deploy prints it as it stands');
-    assert.ok(printed > captured, 'after the command that returned it, never before');
+  it('leaves the installed guard output attached to the deploy output', () => {
+    assert.doesNotMatch(script, /RECEIPT=/);
+    assert.match(script, /^"\$GUARD_BIN" manager \\/m);
   });
 
-  it('prints the receipt of an upgrade that failed, and only then fails the deploy', () => {
-    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
-    const kept = script.indexOf('|| UPGRADE_STATUS=\\$?');
-    assert.notEqual(kept, -1, 'the capture runs under set -e, where a failing substitution would end the block');
-    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
-    const failed = script.indexOf('exit "\\${UPGRADE_STATUS}"');
-    assert.ok(kept > captured, 'the status of the command is taken');
-    assert.ok(printed > kept, 'the receipt is printed with it in hand');
-    assert.ok(failed > printed, 'and the deploy fails after the deployer has read it');
+  it('lets a guard refusal fail the remote shell and the deploy', () => {
+    const remote = script.slice(script.lastIndexOf("<<'REMOTE'"));
+    assert.match(remote, /set -euo pipefail/);
+    assert.doesNotMatch(remote, /\|\| true|UPGRADE_STATUS/);
   });
 
   it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
     // The remote block runs under set -e with pipefail, so a failing pipe inside this
     // substitution would end it here and the warning, the upgrade and the receipt would never run.
-    const line = script.split('\n').find((one) => one.startsWith('PUBLIC_HOST="'));
+    const line = adapter.split('\n').find((one) => one.startsWith('PUBLIC_HOST="'));
     assert.ok(line, 'the remote block reads the address of the host');
     assert.match(line, /\|\| true\)"$/);
-    assert.ok(script.indexOf('WARNING: PUBLIC_HOST is empty') > script.indexOf('PUBLIC_HOST="'), 'and says so below it');
+    assert.ok(adapter.indexOf('PUBLIC_HOST=') > -1);
   });
 
   it('looks for the same data volume the upgrade names, so a rename on one side fails here', () => {
     // The script cannot import TypeScript, so its one literal is read back against the
     // constant the command uses and the two are changed together.
-    assert.ok(script.includes(`POSTGRES_VOLUME="manager_${MANAGER_POSTGRES_VOLUME}"`),
+    assert.ok(adapter.includes(`postgres_volume="manager_${MANAGER_POSTGRES_VOLUME}"`),
       `the deploy names the manager_${MANAGER_POSTGRES_VOLUME} volume of the manager project`);
   });
 
@@ -248,6 +263,6 @@ describe('deploy/deploy.sh', () => {
   });
 
   it('names the versions root on the host, which is where the bundled build lands', () => {
-    assert.ok(script.includes('streaming-infra-manager-versions'), 'the remote block exports it');
+    assert.ok(adapter.includes('streaming-infra-manager-versions'), 'the fixed adapter exports it');
   });
 });

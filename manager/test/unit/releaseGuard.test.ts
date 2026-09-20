@@ -650,6 +650,17 @@ esac
 });
 
 describe('installed release guard command', () => {
+  it('digests one staged candidate without changing guard state', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate, 'manager');
+
+    const digest = await runReleaseGuardCli(['digest', '--candidate-root', candidate], {});
+
+    assert.match(digest, /^[0-9a-f]{64}$/);
+    assert.equal(digest, await digestTree(resolve(candidate)));
+  });
+
   it('offers only fixed component roles and typed uploader arguments', async () => {
     await assert.rejects(runReleaseGuardCli(['shell', '--command', 'docker stop all']), /command is invalid/);
     await assert.rejects(
