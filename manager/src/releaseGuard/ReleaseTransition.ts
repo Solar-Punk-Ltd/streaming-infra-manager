@@ -46,6 +46,7 @@ export async function runReleaseTransition(input: {
   adapter: ReleaseAdapter;
 }): Promise<PendingReleaseReceipt> {
   return input.store.withTransition(async (lease) => {
+    await lease.assertMayBuild(input.slot);
     const candidateRoot = await requireCandidateRoot(input.candidateRoot);
     await requireLifecycleCapability(candidateRoot, input.slot.role);
     const treeDigest = await digestTree(candidateRoot);

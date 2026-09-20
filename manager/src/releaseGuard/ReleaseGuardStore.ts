@@ -152,6 +152,17 @@ class ReleaseTransitionLease {
     private readonly store: ReleaseGuardStore,
   ) {}
 
+  async assertMayBuild(input: ReleaseSlot): Promise<void> {
+    const slot = validateSlot(input);
+    const state = await this.store.read();
+    if (
+      state.attempt?.phase === 'verified' ||
+      (state.attempt?.phase === 'prepared' && slotKey(state.attempt.receipt.slot) !== slotKey(slot))
+    ) {
+      throw new Error('a release guard transition or receipt is unresolved');
+    }
+  }
+
   async prepare(input: {
     slot: ReleaseSlot;
     artifact: ReleaseArtifact;
