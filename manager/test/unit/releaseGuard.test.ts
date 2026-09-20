@@ -19,6 +19,7 @@ import {
 import {
   digestTree,
   runReleaseTransition,
+  runStackPreparation,
   type ReleaseAdapter,
 } from '../../src/releaseGuard/ReleaseTransition.js';
 import { submitPendingReceipt } from '../../src/releaseGuard/ReleaseReceiptSubmitter.js';
@@ -555,6 +556,257 @@ describe('external release guard state', () => {
 });
 
 describe('guarded release transition', () => {
+  it('records a preparation before moving a protected non-uploader subset and clears it only after verification', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['bee-uploader', 'srs', 'stream-uploader'],
+      },
+    });
+    const images = [
+      { service: 'bee-uploader', imageId: IMAGE_ID },
+      { service: 'srs', imageId: WEB_IMAGE_ID },
+    ];
+    let moved = false;
+    const releaseAdapter: ReleaseAdapter = {
+      async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+      async build() { return { schemaVersion: 1, images }; },
+      async transition() {
+        const journal = JSON.parse(await readFile(join(stateRoot, 'stack-operation.json'), 'utf8'));
+        assert.equal(journal.operation.kind, 'prepare');
+        assert.deepEqual(journal.operation.mutatingServices, ['bee-uploader', 'srs']);
+        const state = await new ReleaseGuardStore(stateRoot).read();
+        assert.equal(state.generation, 0);
+        assert.deepEqual(state.slots, {});
+        moved = true;
+      },
+      async verify() { return { schemaVersion: 1, images }; },
+    };
+
+    await runStackPreparation({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      mutatingServices: ['srs', 'bee-uploader'],
+      adapter: releaseAdapter,
+    });
+
+    assert.equal(moved, true);
+    await assert.rejects(readFile(join(stateRoot, 'stack-operation.json')), { code: 'ENOENT' });
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).generation, 0);
+  });
+
+  it('keeps a failed preparation unresolved, permits only its exact retry, and blocks release movement', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const differentCandidate = join(root, 'different-candidate');
+    await capableCandidate(differentCandidate);
+    await writeFile(join(differentCandidate, 'different.txt'), 'different candidate\n');
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const images = [{ service: 'srs', imageId: IMAGE_ID }];
+    const failedAdapter: ReleaseAdapter = {
+      async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+      async build() { return { schemaVersion: 1, images }; },
+      async transition() { throw new Error('synthetic movement ambiguity'); },
+      async verify() { return { schemaVersion: 1, images }; },
+    };
+    const input = {
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader' as const, id: UPLOADER_ID },
+      mutatingServices: ['srs'],
+    };
+
+    await assert.rejects(runStackPreparation({ ...input, adapter: failedAdapter }), /movement ambiguity/);
+    assert.equal((await lstat(join(stateRoot, 'stack-operation.json'))).isFile(), true);
+
+    const releaseCounters = { build: 0, stop: 0, start: 0 };
+    await assert.rejects(
+      runReleaseTransition({
+        store: input.store,
+        candidateRoot: candidate,
+        slot: input.slot,
+        adapter: adapter(releaseCounters),
+      }),
+      /stack preparation is unresolved/,
+    );
+    assert.deepEqual(releaseCounters, { build: 0, stop: 0, start: 0 });
+    await assert.rejects(input.store.beginLegacyLease(), /stack preparation is unresolved/);
+    await assert.rejects(input.store.beginStackLegacyLease('unrelated'), /stack preparation is unresolved/);
+    await assert.rejects(
+      runStackPreparation({ ...input, candidateRoot: differentCandidate, adapter: failedAdapter }),
+      /stack preparation does not match/,
+    );
+
+    let retried = 0;
+    await runStackPreparation({
+      ...input,
+      adapter: {
+        async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+        async build() { return { schemaVersion: 1, images }; },
+        async transition() { retried += 1; },
+        async verify() { return { schemaVersion: 1, images }; },
+      },
+    });
+    assert.equal(retried, 1);
+    await assert.rejects(readFile(join(stateRoot, 'stack-operation.json')), { code: 'ENOENT' });
+  });
+
+  it('refuses preparation after any uploader receipt, regardless of the supplied uploader id', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const store = new ReleaseGuardStore(stateRoot);
+    const existing = await verifiedReceipt(store, {
+      slot: { role: 'uploader', id: 'another-uploader' },
+      artifact: {
+        treeDigest: await digestTree(candidate),
+        images: [{ service: 'stream-uploader', imageId: IMAGE_ID }],
+      },
+    });
+    await store.acknowledge(existing.body);
+    let builds = 0;
+
+    await assert.rejects(
+      runStackPreparation({
+        store,
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        mutatingServices: ['srs'],
+        adapter: {
+          async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+          async build() {
+            builds += 1;
+            return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] };
+          },
+          async transition() {},
+          async verify() { return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] }; },
+        },
+      }),
+      /managed uploader release already exists/,
+    );
+    assert.equal(builds, 0);
+  });
+
+  it('validates every untouched uploader service before persisting an update or moving containers', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+    let transitions = 0;
+    const releaseAdapter: ReleaseAdapter = {
+      async preflight() { return null; },
+      async build() { return { schemaVersion: 1, images: built }; },
+      async validate() {
+        return {
+          schemaVersion: 1,
+          images: [{ service: 'srs', imageId: `sha256:${'c'.repeat(64)}` }],
+        };
+      },
+      async transition() { transitions += 1; },
+      async verify() { return { schemaVersion: 1, images: built }; },
+    };
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+        adapter: releaseAdapter,
+      }),
+      /untouched service srs does not match/,
+    );
+
+    assert.equal(transitions, 0);
+    const state = await new ReleaseGuardStore(stateRoot).read();
+    assert.equal(state.generation, 0);
+    assert.equal(state.attempt, null);
+  });
+
+  it('persists an updater attempt only after untouched services match and verifies the full target', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const store = new ReleaseGuardStore(stateRoot);
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+    let validated = false;
+    let moved = false;
+
+    await runReleaseTransition({
+      store,
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+      adapter: {
+        async preflight() { return null; },
+        async build() { return { schemaVersion: 1, images: built }; },
+        async validate() {
+          validated = true;
+          assert.equal((await store.read()).attempt, null);
+          return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] };
+        },
+        async transition() {
+          assert.equal(validated, true);
+          assert.equal((await store.read()).attempt?.phase, 'prepared');
+          moved = true;
+        },
+        async verify() { return { schemaVersion: 1, images: built }; },
+      },
+    });
+
+    assert.equal(moved, true);
+    assert.equal((await store.read()).attempt?.phase, 'verified');
+  });
+
   it('refuses the actual pre-feature manager candidate before build or service movement', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');

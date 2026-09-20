@@ -16,6 +16,7 @@ import type {
   ReleaseRole,
   ResolvedFixtureNetworkBinding,
   StackReleaseTarget,
+  StackReleaseOperation,
 } from './ReleaseGuardTypes.js';
 
 const MAX_RESULT_BYTES = 64 * 1024;
@@ -26,6 +27,7 @@ const TERMINATION_GRACE_MS = 250;
 export interface FixedAdapterArguments {
   target?: ComposeReleaseTarget | ManagerReleaseTarget | StackReleaseTarget;
   fixtureNetwork?: FixtureNetworkBinding;
+  operation?: StackReleaseOperation;
 }
 
 interface ResolvedAdapterContext {
@@ -58,12 +60,17 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       raw,
       this.args.fixtureNetwork,
       this.args.target,
+      this.args.operation,
     );
     return this.resolvedContext ?? null;
   }
 
   async build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet> {
     return this.runResultPhase('build', plan);
+  }
+
+  async validate(plan: ReleaseTransitionPlan): Promise<ReleaseImageSet> {
+    return this.runResultPhase('validate', plan);
   }
 
   async transition(plan: ReleaseTransitionPlan): Promise<void> {
@@ -75,7 +82,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
   }
 
   private async runResultPhase(
-    phase: 'build' | 'verify',
+    phase: 'build' | 'validate' | 'verify',
     plan: ReleaseBuildPlan | ReleaseTransitionPlan,
   ): Promise<ReleaseImageSet> {
     const output = join(this.workRoot, `${phase}.json`);
@@ -85,7 +92,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
   }
 
   private async runPhase(
-    phase: 'preflight' | 'build' | 'transition' | 'verify',
+    phase: 'preflight' | 'build' | 'validate' | 'transition' | 'verify',
     plan: ReleaseBuildPlan | ReleaseTransitionPlan,
     output?: string,
   ): Promise<void> {
@@ -146,6 +153,7 @@ function validateRuntimePreflight(
   raw: unknown,
   fixtureNetwork: FixtureNetworkBinding | undefined,
   target: FixedAdapterArguments['target'],
+  operation: StackReleaseOperation | undefined,
 ): ResolvedAdapterContext | undefined {
   const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
   const expectsFixtureVolumes = role === 'uploader' && fixtureNetwork !== undefined;
@@ -155,6 +163,15 @@ function validateRuntimePreflight(
   if (role !== 'uploader') {
     if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
       throw new Error('release adapter preflight result is invalid');
+    }
+  } else if (operation?.kind === 'prepare') {
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, ['schemaVersion', 'preparationReady', ...expectedKeys]) ||
+      raw.schemaVersion !== 1 ||
+      raw.preparationReady !== true
+    ) {
+      throw new Error('release adapter preparation preflight result is invalid');
     }
   } else {
     const invalid: string[] = [];
@@ -217,7 +234,7 @@ async function runBounded(
   argv: string[],
   cwd: string,
   timeoutMs: number,
-  phase: 'preflight' | 'build' | 'transition' | 'verify',
+  phase: 'preflight' | 'build' | 'validate' | 'transition' | 'verify',
   role: ReleaseRole,
 ): Promise<void> {
   await new Promise<void>((resolveRun, rejectRun) => {

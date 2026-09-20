@@ -18,6 +18,7 @@ import {
   type ReleaseSlot,
   type StoredReleaseSlot,
   type StackReleaseTarget,
+  type StackReleaseOperation,
 } from './ReleaseGuardTypes.js';
 
 const MARKER = 'installed.json';
@@ -29,6 +30,7 @@ const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
 const LEGACY_OWNER = 'legacy-owner.json';
 const LEGACY_RELEASE_CLAIM = 'legacy-release.claim';
+const STACK_OPERATION = 'stack-operation.json';
 const MAX_STATE_BYTES = 256 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -77,6 +79,7 @@ export async function installReleaseGuard(
     await exists(join(root, PENDING)) ||
     await exists(join(root, TRANSITIONS)) ||
     await exists(join(root, ACTIVATION)) ||
+    await exists(join(root, STACK_OPERATION)) ||
     await exists(join(root, LOCK))
   ) {
     throw new Error('release guard is already installed or partially initialized');
@@ -168,6 +171,9 @@ export class ReleaseGuardStore {
   async beginLegacyLease(): Promise<{ mode: 'managed' } | { mode: 'legacy'; ownerToken: string }> {
     await this.acquireLock();
     try {
+      if (await exists(join(this.root, STACK_OPERATION))) {
+        throw new Error('a guarded stack preparation is unresolved');
+      }
       if (await this.releaseMode() === 'managed') {
         await this.releaseEmptyLock();
         return { mode: 'managed' };
@@ -190,6 +196,9 @@ export class ReleaseGuardStore {
     if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(profile)) throw new Error('legacy stack profile is invalid');
     await this.acquireLock();
     try {
+      if (await exists(join(this.root, STACK_OPERATION))) {
+        throw new Error('a guarded stack preparation is unresolved');
+      }
       const state = await this.read();
       const installed = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
       if (installed.installationId !== state.installationId) {
@@ -338,6 +347,9 @@ class ReleaseTransitionLease {
 
   async assertMayBuild(input: ReleaseSlot): Promise<void> {
     const slot = validateSlot(input);
+    if (await exists(join(this.root, STACK_OPERATION))) {
+      throw new Error('a guarded stack preparation is unresolved');
+    }
     const state = await this.store.read();
     if (
       state.attempt?.phase === 'verified' ||
@@ -345,6 +357,61 @@ class ReleaseTransitionLease {
     ) {
       throw new Error('a release guard transition or receipt is unresolved');
     }
+  }
+
+  async assertMayPrepareStack(): Promise<void> {
+    const state = await this.store.read();
+    if (state.attempt) throw new Error('a release guard transition or receipt is unresolved');
+    if (Object.keys(state.slots).some((key) => key.startsWith('uploader/'))) {
+      throw new Error('a managed uploader release already exists for this installation');
+    }
+  }
+
+  async prepareStackOperation(input: {
+    slot: ReleaseSlot;
+    target: StackReleaseTarget;
+    operation: StackReleaseOperation;
+    artifact: ReleaseArtifact;
+    transitionDigest: string;
+  }): Promise<string> {
+    const state = await this.store.read();
+    if (!DIGEST.test(input.transitionDigest)) throw new Error('release transition digest is invalid');
+    const body = canonicalJson({
+      schemaVersion: 1,
+      installationId: state.installationId,
+      slot: validateSlot(input.slot),
+      target: input.target,
+      operation: input.operation,
+      artifact: validateArtifact(input.artifact),
+      transitionDigest: input.transitionDigest,
+    });
+    const path = join(this.root, STACK_OPERATION);
+    if (await exists(path)) {
+      let existing: string;
+      try {
+        existing = await readBounded(path);
+        JSON.parse(existing);
+      } catch {
+        throw new Error('guarded stack preparation state is invalid');
+      }
+      if (existing !== body) throw new Error('guarded stack preparation does not match the unresolved operation');
+      return existing;
+    }
+    await atomicWrite(this.root, STACK_OPERATION, body);
+    return body;
+  }
+
+  async completeStackOperation(exactBody: string): Promise<void> {
+    const path = join(this.root, STACK_OPERATION);
+    let existing: string;
+    try {
+      existing = await readBounded(path);
+    } catch {
+      throw new Error('guarded stack preparation state is invalid');
+    }
+    if (existing !== exactBody) throw new Error('guarded stack preparation completion does not match');
+    await rm(path);
+    await syncDirectory(this.root);
   }
 
   async prepare(input: {
