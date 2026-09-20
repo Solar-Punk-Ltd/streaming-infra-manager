@@ -57,7 +57,12 @@ activated, keeps the standalone deployment below. Once managed streaming is
 activated, the script stages an immutable sibling candidate and gives it to the
 installed release guard. A partial or invalid guard installation refuses before
 the rsync or any service change. Guard receipt credentials are required only on
-the activated path.
+the activated path. An absent installation uses a durable bootstrap lease while
+standalone deployment runs. An installed legacy guard holds its own transition
+lease for the same window. The installer takes the bootstrap lease too, so
+installation or activation cannot overtake a standalone deployment. A failed or
+interrupted standalone deployment leaves its lease in place for operator
+recovery instead of guessing whether host mutation completed.
 
 The standalone path rsyncs the repo, then builds the images on the server and
 runs the upgrade command that brings the project back up. The rsync leaves out

@@ -44,6 +44,16 @@ export async function runReleaseGuardCli(
     const flags = parseFlags(rest, new Set(['state-root']));
     return new ReleaseGuardStore(required(flags, 'state-root')).releaseMode();
   }
+  if (command === 'begin-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root']));
+    const lease = await new ReleaseGuardStore(required(flags, 'state-root')).beginLegacyLease();
+    return lease.mode === 'managed' ? 'managed' : `legacy:${lease.ownerToken}`;
+  }
+  if (command === 'finish-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'owner-token']));
+    await new ReleaseGuardStore(required(flags, 'state-root')).finishLegacyLease(required(flags, 'owner-token'));
+    return 'legacy deployment lease released';
+  }
   if (command === 'retry') {
     const flags = parseFlags(rest, new Set(['state-root', 'role', 'slot-id', 'admin-url']));
     const slot = releaseSlot(required(flags, 'role'), flags.get('slot-id'));

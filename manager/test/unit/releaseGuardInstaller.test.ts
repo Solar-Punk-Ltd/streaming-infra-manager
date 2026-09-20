@@ -30,11 +30,13 @@ describe('release guard source installer', () => {
     await mkdir(join(packet, 'deploy/release-guard'), { recursive: true });
     await mkdir(join(packet, 'manager/dist/releaseGuard'), { recursive: true });
     await copyFile(join(REPO, 'deploy/install-release-guard.sh'), join(packet, 'deploy/install-release-guard.sh'));
+    await copyFile(join(REPO, 'deploy/release-mode.sh'), join(packet, 'deploy/release-mode.sh'));
     await copyFile(
       join(REPO, 'deploy/release-guard/streaming-release-guard'),
       join(packet, 'deploy/release-guard/streaming-release-guard'),
     );
     await chmod(join(packet, 'deploy/install-release-guard.sh'), 0o700);
+    await chmod(join(packet, 'deploy/release-mode.sh'), 0o700);
     await chmod(join(packet, 'deploy/release-guard/streaming-release-guard'), 0o700);
     for (const output of OUTPUTS) await writeFile(join(packet, 'manager/dist/releaseGuard', output), 'export {};\n');
     await writeFile(join(packet, 'manager/dist/releaseGuard/ReleaseGuardCli.js'), `

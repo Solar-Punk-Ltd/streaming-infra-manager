@@ -11,11 +11,18 @@ if [[ "$SSH_TARGET" == -* ]]; then
 fi
 
 DEPLOY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RELEASE_MODE="$(ssh "$SSH_TARGET" bash -s < "${DEPLOY_ROOT}/release-mode.sh")"
+RELEASE_MODE="$(ssh "$SSH_TARGET" bash -s -- begin < "${DEPLOY_ROOT}/release-mode.sh")"
 
 case "$RELEASE_MODE" in
-    legacy)
-        exec "${DEPLOY_ROOT}/deploy-standalone.sh" "$SSH_TARGET"
+    bootstrap:*)
+        owner_token="${RELEASE_MODE#bootstrap:}"
+        "${DEPLOY_ROOT}/deploy-standalone.sh" "$SSH_TARGET"
+        ssh "$SSH_TARGET" bash -s -- finish-bootstrap "$owner_token" < "${DEPLOY_ROOT}/release-mode.sh"
+        ;;
+    guard:*)
+        owner_token="${RELEASE_MODE#guard:}"
+        "${DEPLOY_ROOT}/deploy-standalone.sh" "$SSH_TARGET"
+        ssh "$SSH_TARGET" bash -s -- finish-guard "$owner_token" < "${DEPLOY_ROOT}/release-mode.sh"
         ;;
     managed)
         exec "${DEPLOY_ROOT}/deploy-managed.sh" "$SSH_TARGET"

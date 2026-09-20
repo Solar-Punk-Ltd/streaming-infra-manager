@@ -324,6 +324,66 @@ describe('external release guard state', () => {
       /crash lock requires operator recovery/,
     );
   });
+
+  it('holds a legacy deployment lease across the standalone mutation window', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+
+    const lease = await store.beginLegacyLease();
+    assert.equal(lease.mode, 'legacy');
+    if (lease.mode !== 'legacy') throw new Error('expected a legacy lease');
+    assert.match(lease.ownerToken, /^[0-9a-f-]{36}$/);
+    await assert.rejects(
+      store.withTransition(async () => undefined),
+      /crash lock requires operator recovery/,
+    );
+    await assert.rejects(
+      store.finishLegacyLease('22222222-2222-4222-8222-222222222222'),
+      /owner token does not match/,
+    );
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+
+    await store.finishLegacyLease(lease.ownerToken);
+    await store.withTransition(async () => undefined);
+  });
+
+  it('keeps a killed legacy deployment locked for operator recovery', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const child = spawn(process.execPath, [
+      ...inheritedModuleLoaderArgs(),
+      join(REPO, 'manager/test/fixtures/releaseGuardHoldLegacy.ts'),
+      root,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    t.after(() => { if (!child.killed) child.kill('SIGKILL'); });
+    await waitForLockFixture(child);
+
+    const closed = new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
+    assert.equal(child.kill('SIGKILL'), true);
+    await closed;
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+    await assert.rejects(
+      new ReleaseGuardStore(root).beginLegacyLease(),
+      /crash lock requires operator recovery/,
+    );
+  });
+
+  it('refuses a legacy lease after activation wins the ordering', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    await verifiedReceipt(store, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '4'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+
+    assert.deepEqual(await store.beginLegacyLease(), { mode: 'managed' });
+    await assert.rejects(lstat(join(root, 'state.lock')), /ENOENT/);
+  });
 });
 
 describe('guarded release transition', () => {
@@ -1088,6 +1148,31 @@ describe('installed release guard command', () => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);
     assert.equal(await runReleaseGuardCli(['status', '--state-root', root], {}), 'legacy');
+  });
+
+  it('exposes an owner-bound legacy lease through fixed commands', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+
+    const result = await runReleaseGuardCli(['begin-legacy', '--state-root', root], {});
+    assert.match(result, /^legacy:[0-9a-f-]{36}$/);
+    const ownerToken = result.slice('legacy:'.length);
+    await assert.rejects(
+      runReleaseGuardCli([
+        'finish-legacy',
+        '--state-root', root,
+        '--owner-token', '22222222-2222-4222-8222-222222222222',
+      ], {}),
+      /owner token does not match/,
+    );
+    assert.equal(
+      await runReleaseGuardCli([
+        'finish-legacy',
+        '--state-root', root,
+        '--owner-token', ownerToken,
+      ], {}),
+      'legacy deployment lease released',
+    );
   });
 
   it('digests one staged candidate without changing guard state', async (t) => {

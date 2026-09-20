@@ -6,8 +6,8 @@
  * host, a network and a signing key. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -35,6 +35,7 @@ function rsyncs(): string[] {
 
 interface ReleaseDispatchFixture {
   calls: string;
+  deployRoot: string;
   entry: string;
   env: NodeJS.ProcessEnv;
   home: string;
@@ -53,7 +54,9 @@ function releaseDispatchFixture(t: { after(callback: () => void): void }): Relea
   const entry = join(deployRoot, 'deploy.sh');
   writeFileSync(entry, readFileSync(DEPLOY_ENTRY_SCRIPT));
   chmodSync(entry, 0o700);
-  writeFileSync(join(deployRoot, 'release-mode.sh'), readFileSync(join(dirname(DEPLOY_ENTRY_SCRIPT), 'release-mode.sh')));
+  const releaseMode = join(deployRoot, 'release-mode.sh');
+  writeFileSync(releaseMode, readFileSync(join(dirname(DEPLOY_ENTRY_SCRIPT), 'release-mode.sh')));
+  chmodSync(releaseMode, 0o700);
   for (const name of ['deploy-standalone.sh', 'deploy-managed.sh']) {
     const path = join(deployRoot, name);
     writeFileSync(path, `#!/bin/bash\nprintf '%s\\n' '${name}' > '${calls}'\n`);
@@ -64,10 +67,19 @@ function releaseDispatchFixture(t: { after(callback: () => void): void }): Relea
   chmodSync(ssh, 0o700);
   return {
     calls,
+    deployRoot,
     entry,
     env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ''}` },
     home,
   };
+}
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
 }
 
 function installFakeGuard(home: string, status: string, exitCode = 0, withState = true): void {
@@ -76,7 +88,26 @@ function installFakeGuard(home: string, status: string, exitCode = 0, withState 
   mkdirSync(bin, { recursive: true });
   if (withState) mkdirSync(state, { recursive: true });
   const guard = join(bin, 'streaming-release-guard');
-  writeFileSync(guard, `#!/bin/bash\nprintf '%s\\n' '${status}'\nexit ${exitCode}\n`);
+  writeFileSync(guard, `#!/bin/bash
+set -euo pipefail
+state_root='${state}'
+owner_token='22222222-2222-4222-8222-222222222222'
+case "\${1:-}" in
+  begin-legacy)
+    if [ '${exitCode}' -ne 0 ]; then exit '${exitCode}'; fi
+    if [ '${status}' = managed ]; then printf '%s\\n' managed; exit 0; fi
+    if [ '${status}' != legacy ]; then printf '%s\\n' '${status}'; exit 0; fi
+    mkdir "\${state_root}/state.lock"
+    printf '%s\\n' "\${owner_token}" > "\${state_root}/state.lock/owner"
+    printf 'legacy:%s\\n' "\${owner_token}"
+    ;;
+  finish-legacy)
+    rm -f "\${state_root}/state.lock/owner"
+    rmdir "\${state_root}/state.lock"
+    ;;
+  *) exit 2 ;;
+esac
+`);
   chmodSync(guard, 0o700);
 }
 
@@ -111,6 +142,46 @@ describe('deploy/deploy.sh', () => {
     await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
 
     assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
+  });
+
+  it('holds the absent-install bootstrap lease across standalone mutation', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    const started = join(fixture.home, 'standalone-started');
+    const release = join(fixture.home, 'standalone-release');
+    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), `#!/bin/bash
+set -euo pipefail
+touch '${started}'
+while [ ! -e '${release}' ]; do sleep 0.01; done
+printf '%s\n' deploy-standalone.sh > '${fixture.calls}'
+`);
+    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
+    const child = spawn(fixture.entry, ['fixture-host'], { env: fixture.env, stdio: 'ignore' });
+    t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+    await waitForPath(started);
+
+    await assert.rejects(
+      execFileAsync(join(fixture.deployRoot, 'release-mode.sh'), ['begin-bootstrap-install'], {
+        env: fixture.env,
+      }),
+      /bootstrap lease is active/,
+    );
+    writeFileSync(release, 'release\n');
+    const exitCode = await new Promise<number | null>((resolveClose) => child.once('close', resolveClose));
+    assert.equal(exitCode, 0);
+    assert.equal(existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock')), false);
+  });
+
+  it('preserves the bootstrap lease after an ambiguous standalone failure', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), '#!/bin/bash\nexit 42\n');
+    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
+
+    await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
+
+    assert.equal(
+      existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock', 'owner')),
+      true,
+    );
   });
 
   it('does not require receipt credentials on the standalone path', () => {

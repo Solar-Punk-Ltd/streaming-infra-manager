@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -25,6 +25,7 @@ const TARGETS = 'targets.json';
 const PENDING = 'pending';
 const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
+const LEGACY_OWNER = 'legacy-owner.json';
 const MAX_STATE_BYTES = 256 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -139,6 +140,50 @@ export class ReleaseGuardStore {
     return this.withLock(() => action(new ReleaseTransitionLease(this.root, this)));
   }
 
+  async beginLegacyLease(): Promise<{ mode: 'managed' } | { mode: 'legacy'; ownerToken: string }> {
+    await this.acquireLock();
+    try {
+      if (await this.releaseMode() === 'managed') {
+        await this.releaseEmptyLock();
+        return { mode: 'managed' };
+      }
+      const state = await this.read();
+      const ownerToken = randomUUID();
+      await atomicWrite(join(this.root, LOCK), LEGACY_OWNER, canonicalJson({
+        schemaVersion: 1,
+        installationId: state.installationId,
+        ownerToken,
+      }));
+      return { mode: 'legacy', ownerToken };
+    } catch (error) {
+      await this.releaseEmptyLock().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async finishLegacyLease(ownerToken: string): Promise<void> {
+    requireUuid(ownerToken, 'legacy lease owner token');
+    const state = await this.read();
+    let owner: unknown;
+    try {
+      owner = JSON.parse(await readBounded(join(this.root, LOCK, LEGACY_OWNER)));
+    } catch {
+      throw new Error('legacy deployment lease is invalid');
+    }
+    if (
+      !isRecord(owner) ||
+      !hasExactKeys(owner, ['schemaVersion', 'installationId', 'ownerToken']) ||
+      owner.schemaVersion !== 1 ||
+      owner.installationId !== state.installationId ||
+      owner.ownerToken !== ownerToken
+    ) {
+      throw new Error('legacy deployment lease owner token does not match');
+    }
+    await rm(join(this.root, LOCK, LEGACY_OWNER));
+    await syncDirectory(join(this.root, LOCK));
+    await this.releaseEmptyLock();
+  }
+
   async pendingReceipt(slot: ReleaseSlot): Promise<string | null> {
     const valid = validateSlot(slot);
     const state = await this.read();
@@ -175,21 +220,29 @@ export class ReleaseGuardStore {
   }
 
   private async withLock<T>(action: () => Promise<T>): Promise<T> {
-    const lock = join(this.root, LOCK);
+    await this.acquireLock();
     try {
-      await mkdir(lock, { mode: 0o700 });
+      return await action();
+    } finally {
+      await this.releaseEmptyLock();
+    }
+  }
+
+  private async acquireLock(): Promise<void> {
+    try {
+      await mkdir(join(this.root, LOCK), { mode: 0o700 });
+      await syncDirectory(this.root);
     } catch (error) {
       if (isRecord(error) && error.code === 'EEXIST') {
         throw new Error('another release guard transition is active, or its crash lock requires operator recovery');
       }
       throw error;
     }
-    try {
-      return await action();
-    } finally {
-      await rm(lock, { recursive: true, force: true });
-      await syncDirectory(this.root);
-    }
+  }
+
+  private async releaseEmptyLock(): Promise<void> {
+    await rmdir(join(this.root, LOCK));
+    await syncDirectory(this.root);
   }
 }
 

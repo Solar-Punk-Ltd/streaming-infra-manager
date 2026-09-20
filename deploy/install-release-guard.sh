@@ -26,6 +26,7 @@ bin_root="${HOME}/.local/bin"
 launcher="${bin_root}/streaming-release-guard"
 state_root="${HOME}/.local/state/streaming-release-guard"
 launcher_source="${repo_root}/deploy/release-guard/streaming-release-guard"
+release_mode_source="${repo_root}/deploy/release-mode.sh"
 files=(
     FixedReleaseAdapter.js
     ReleaseGuardCli.js
@@ -36,13 +37,12 @@ files=(
     ReleaseTransition.js
 )
 
-if [ -e "$code_root" ] || [ -L "$code_root" ] || [ -e "$launcher" ] || [ -L "$launcher" ] ||
-    [ -e "$state_root" ] || [ -L "$state_root" ]; then
-    echo "release guard installation already exists or is partial" >&2
-    exit 1
-fi
 if [ ! -f "$launcher_source" ] || [ -L "$launcher_source" ]; then
     echo "release guard launcher source is missing" >&2
+    exit 1
+fi
+if [ ! -f "$release_mode_source" ] || [ -L "$release_mode_source" ]; then
+    echo "release guard bootstrap lease source is missing" >&2
     exit 1
 fi
 for file in "${files[@]}"; do
@@ -52,7 +52,17 @@ for file in "${files[@]}"; do
     fi
 done
 
-mkdir -p -m 700 "$library_root" "$bin_root" "$(dirname "$state_root")"
+lease_result="$("$release_mode_source" begin-bootstrap-install)"
+case "$lease_result" in
+    bootstrap:*) owner_token="${lease_result#bootstrap:}" ;;
+    *)
+        echo "release guard bootstrap lease result is invalid" >&2
+        exit 1
+        ;;
+esac
+
+mkdir -p "$library_root" "$bin_root" "$(dirname "$state_root")"
+chmod 700 "$library_root" "$bin_root" "$(dirname "$state_root")"
 mkdir -m 700 "$code_root"
 for file in "${files[@]}"; do
     install -m 0444 "${source_root}/${file}" "${code_root}/${file}"
@@ -74,4 +84,5 @@ if [ "$("$launcher" status --state-root "$state_root")" != legacy ]; then
     echo "release guard installation did not remain pristine" >&2
     exit 1
 fi
+"$release_mode_source" finish-bootstrap "$owner_token" >/dev/null
 printf '%s\n' 'release guard installed in legacy mode'
