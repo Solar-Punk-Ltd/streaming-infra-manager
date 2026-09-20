@@ -8,6 +8,7 @@ import {
   type PendingReleaseReceipt,
   type ActiveArtifactMetadata,
   type ComposeReleaseTarget,
+  type ManagerReleaseTarget,
   type ReleaseArtifact,
   type ReleaseGuardReceipt,
   type ReleaseGuardAttempt,
@@ -33,7 +34,7 @@ const UPLOADER_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
 export interface ReleaseGuardDeploymentTargets {
-  manager?: ComposeReleaseTarget;
+  manager?: ManagerReleaseTarget;
   admin?: ComposeReleaseTarget;
 }
 
@@ -123,7 +124,9 @@ export class ReleaseGuardStore {
     return hasActivationEvidence(await this.read()) ? 'managed' : 'legacy';
   }
 
-  async deploymentTarget(role: 'manager' | 'admin'): Promise<ComposeReleaseTarget> {
+  async deploymentTarget(role: 'manager'): Promise<ManagerReleaseTarget>;
+  async deploymentTarget(role: 'admin'): Promise<ComposeReleaseTarget>;
+  async deploymentTarget(role: 'manager' | 'admin'): Promise<ManagerReleaseTarget | ComposeReleaseTarget> {
     const state = await this.read();
     const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
     if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
@@ -454,9 +457,12 @@ function validateDeploymentTargets(raw: unknown): {
   for (const role of ['manager', 'admin'] as const) {
     const target = raw.targets[role];
     if (target === undefined) continue;
+    const expectedKeys = role === 'manager'
+      ? ['mode', 'postgresPort', 'postgresVolumeName', 'projectName', 'webPort']
+      : ['postgresVolumeName', 'projectName', 'webPort'];
     if (
       !isRecord(target) ||
-      !hasExactKeys(target, ['projectName', 'postgresVolumeName', 'webPort']) ||
+      !hasExactKeys(target, expectedKeys) ||
       typeof target.projectName !== 'string' ||
       !DEPLOYMENT_NAME.test(target.projectName) ||
       typeof target.postgresVolumeName !== 'string' ||
@@ -467,10 +473,32 @@ function validateDeploymentTargets(raw: unknown): {
     ) {
       throw new Error('release guard deployment targets are invalid');
     }
-    targets[role] = {
+    const common = {
       projectName: target.projectName,
       postgresVolumeName: target.postgresVolumeName,
       webPort: Number(target.webPort),
+    };
+    if (role === 'admin') {
+      targets.admin = common;
+      continue;
+    }
+    if (
+      (target.mode !== 'production' && target.mode !== 'isolated') ||
+      !Number.isSafeInteger(target.postgresPort) ||
+      Number(target.postgresPort) < 1 ||
+      Number(target.postgresPort) > 65_535 ||
+      (target.mode === 'isolated' && (
+        target.postgresPort === 5_432 ||
+        target.webPort === 8_080 ||
+        target.postgresPort === target.webPort
+      ))
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets.manager = {
+      ...common,
+      mode: target.mode,
+      postgresPort: Number(target.postgresPort),
     };
   }
   return { schemaVersion: 1, installationId: raw.installationId, targets };

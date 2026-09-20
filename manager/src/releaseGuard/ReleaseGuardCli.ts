@@ -29,6 +29,8 @@ export async function runReleaseGuardCli(
     const flags = parseFlags(rest, new Set([
       'state-root',
       'manager-project-name',
+      'manager-mode',
+      'manager-postgres-port',
       'manager-postgres-volume-name',
       'manager-web-port',
       'admin-project-name',
@@ -136,16 +138,38 @@ function installationTargets(flags: Map<string, string>): ReleaseGuardDeployment
     const projectName = flags.get(`${role}-project-name`);
     const postgresVolumeName = flags.get(`${role}-postgres-volume-name`);
     const webPortText = flags.get(`${role}-web-port`);
-    const supplied = [projectName, postgresVolumeName, webPortText].filter((value) => value !== undefined).length;
+    const mode = role === 'manager' ? flags.get('manager-mode') : undefined;
+    const postgresPortText = role === 'manager' ? flags.get('manager-postgres-port') : undefined;
+    const values = role === 'manager'
+      ? [mode, projectName, postgresVolumeName, postgresPortText, webPortText]
+      : [projectName, postgresVolumeName, webPortText];
+    const supplied = values.filter((value) => value !== undefined).length;
     if (supplied === 0) continue;
-    if (supplied !== 3) throw new Error(`release guard ${role} target is incomplete`);
+    if (supplied !== values.length) throw new Error(`release guard ${role} target is incomplete`);
     if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(projectName!) || !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(postgresVolumeName!)) {
       throw new Error(`release guard ${role} target is invalid`);
     }
     if (!/^[1-9]\d*$/.test(webPortText!)) throw new Error(`release guard ${role} target is invalid`);
     const webPort = Number(webPortText);
     if (!Number.isSafeInteger(webPort) || webPort > 65_535) throw new Error(`release guard ${role} target is invalid`);
-    targets[role] = { projectName: projectName!, postgresVolumeName: postgresVolumeName!, webPort };
+    if (role === 'admin') {
+      targets.admin = { projectName: projectName!, postgresVolumeName: postgresVolumeName!, webPort };
+      continue;
+    }
+    if ((mode !== 'production' && mode !== 'isolated') || !/^[1-9]\d*$/.test(postgresPortText!)) {
+      throw new Error('release guard manager target is invalid');
+    }
+    const postgresPort = Number(postgresPortText);
+    if (!Number.isSafeInteger(postgresPort) || postgresPort > 65_535) {
+      throw new Error('release guard manager target is invalid');
+    }
+    targets.manager = {
+      mode,
+      projectName: projectName!,
+      postgresVolumeName: postgresVolumeName!,
+      postgresPort,
+      webPort,
+    };
   }
   return targets;
 }
