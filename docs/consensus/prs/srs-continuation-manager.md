@@ -5,9 +5,9 @@ Target: `Solar-Punk-Ltd/streaming-infra-manager`, `main`.
 
 The deployment page shows a capable SRS uploader's observed broadcast state separately from container state. It displays the reconnect deadline, reports stale observations as unavailable, and links to the owner controls in the admin app. Deployment Start, Stop and Restart retain their infrastructure meaning. Continue belongs to the admin app.
 
-The manager binds managed uploader identity to the deployment's persisted instance ID. New internal credentials are routed to their consuming process and excluded from profile files, command arguments, inherited build environments and command output. Legacy admin settings remain intact when the feature is disabled.
+The manager enables managed lifecycle behavior for one explicitly selected SRS deployment and binds its uploader identity to the deployment's persisted instance ID. Unrelated SRS profiles retain their existing behavior. New internal credentials are routed to their consuming process and excluded from profile files, command arguments, inherited build environments and command output. Legacy admin settings remain intact when the feature is disabled.
 
-An independently installed release guard binds supported transitions to exact candidate trees, image IDs and durable minimum capabilities. It preserves the manager's existing upgrade coordinator and exact database volume. Failed or interrupted transitions retain their recovery evidence. Installation and activation are separate owner-coordinated actions.
+An independently installed release guard binds supported transitions to exact candidate trees, image IDs and durable minimum capabilities. It preserves the manager's existing upgrade coordinator and exact database volume. Installation and activation share exclusion with legacy deployment. Delayed duplicate completion cannot release a newer operation's lease. Failed or interrupted transitions retain their recovery evidence. Installation and activation are separate owner-coordinated actions.
 
 Companions: admin lifecycle/Continue and stack reconnect/media/viewer changes. Add PR links and the verified final stack pin before publication. The current draft does not claim that the stack pin or live installation is complete.
 

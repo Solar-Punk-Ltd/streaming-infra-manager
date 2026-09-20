@@ -70,6 +70,18 @@ Capture complete metrics and statistics from every test service before and after
 
 Each stage links to the approved V01 through V22 matrix. Unit checks remain separate from media and browser results. The harness records the exact executed commands, candidate commits, artifacts, pass/fail/skip counts and any case not run. The funded OBS/real-Swarm case V20 remains a separate owner-coordinated acceptance stage.
 
+## Guarded component bootstrap
+
+The assembled fixture must obtain genuine receipts from the installed release guard before enrolling a stream. Starting the application containers directly cannot satisfy this boundary. The raw resource executor owns only the private chain, Bee nodes, browser and media sender. Four guarded activations own the manager, admin, uploader and viewer components. Admin activation also owns its database. Every created container, volume and network remains subject to the same write-ahead identity journal and exact-ID cleanup.
+
+The reviewed source seam is an optional installation-bound `fixtureNetwork: { name, fixtureId }`, separate from the existing component targets. It is allowed only with an isolated manager target and is included in the durable transition identity. Ordinary installations retain their existing invocation shape. Admin, uploader and viewer adapters receive this binding beside their target, inspect the exact labeled internal network, and use a fixed external-network override. They label their resources, remove unwanted published ports and verify actual membership before a receipt becomes eligible. Neither a caller-supplied Compose path nor an arbitrary network command is accepted.
+
+The manager retains a separate internal network with the same fixture ownership labels. This prevents its `api` and `postgres` service aliases from colliding with the admin services. Both networks are private and recorded by exact ID. Only the explicitly selected loopback endpoints may be published.
+
+Bootstrap order is private chain and Bee readiness, guarded admin activation, guarded manager activation, guarded viewer activation and guarded uploader activation. The capable admin starts with enrollment unavailable until all four real receipts and the fresh uploader capability observation are present. The installed guard submits receipts through the fixture admin's loopback endpoint. A lost reply remains an unresolved exact attempt. It is never repaired by fabricating a receipt or adopting objects by name alone.
+
+This seam is under source implementation. No guarded fixture activation has executed yet. Process-only credential routing is a separate incomplete boundary. The existing `op://` references must resolve into the intended consuming process, and Compose must not receive reference strings as credential values or require live values to be written to an environment file. Fixture-only synthetic inputs cannot prove that operator route.
+
 ## Current evidence boundary
 
 Focused uploader, database and browser checks exist. The early real SRS probes ran. The full assembled private-chain media arrangement, cumulative decoding, process-crash media run and V20 have not run. Branch publication and the new late-rung host probe are currently waiting for renewed 1Password signing approval.
