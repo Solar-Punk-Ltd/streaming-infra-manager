@@ -18,6 +18,7 @@ import {
 
 const MARKER = 'installed.json';
 const STATE = 'state.json';
+const ACTIVATION = 'managed-required.json';
 const PENDING = 'pending';
 const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
@@ -49,6 +50,7 @@ export async function installReleaseGuard(root: string, installationId: string =
     await exists(statePath) ||
     await exists(join(root, PENDING)) ||
     await exists(join(root, TRANSITIONS)) ||
+    await exists(join(root, ACTIVATION)) ||
     await exists(join(root, LOCK))
   ) {
     throw new Error('release guard is already installed or partially initialized');
@@ -77,14 +79,20 @@ export class ReleaseGuardStore {
       if (error instanceof MissingGuardFileError) throw new Error('installed guard state is missing');
       throw new Error('installed guard state is unreadable');
     });
+    let state: ReleaseGuardState;
     try {
-      const state = parseState(JSON.parse(raw));
+      state = parseState(JSON.parse(raw));
       const installed = parseMarker(JSON.parse(marker));
       if (installed.installationId !== state.installationId) throw new Error('installation mismatch');
-      return state;
     } catch {
       throw new Error('installed guard state is invalid');
     }
+    await validateActivationSentinel(this.root, state);
+    return state;
+  }
+
+  async releaseMode(): Promise<'legacy' | 'managed'> {
+    return hasActivationEvidence(await this.read()) ? 'managed' : 'legacy';
   }
 
   async withTransition<T>(action: (lease: ReleaseTransitionLease) => Promise<T>): Promise<T> {
@@ -205,6 +213,7 @@ class ReleaseTransitionLease {
       ...core,
       attempt: { phase: 'prepared', receipt, body },
     }));
+    await writeActivationSentinel(this.root, core.installationId);
     return { receipt, body };
   }
 
@@ -344,6 +353,9 @@ function parseState(raw: unknown): ReleaseGuardState {
     const phase = raw.attempt.phase;
     attempt = { phase, receipt, body: raw.attempt.body };
   }
+  if ((Number(raw.generation) === 0) !== (Object.keys(slots).length === 0 && attempt === null)) {
+    throw new Error('release guard state is invalid');
+  }
   return {
     schemaVersion: 1,
     installationId: raw.installationId,
@@ -351,6 +363,42 @@ function parseState(raw: unknown): ReleaseGuardState {
     slots,
     attempt,
   };
+}
+
+function hasActivationEvidence(state: ReleaseGuardState): boolean {
+  return state.generation > 0 || Object.keys(state.slots).length > 0 || state.attempt !== null;
+}
+
+async function validateActivationSentinel(root: string, state: ReleaseGuardState): Promise<void> {
+  const path = join(root, ACTIVATION);
+  let raw: string | null;
+  try {
+    raw = await readBounded(path);
+  } catch (error) {
+    if (error instanceof MissingGuardFileError) raw = null;
+    else throw new Error('release guard activation sentinel is invalid');
+  }
+  if (!hasActivationEvidence(state)) {
+    if (raw !== null) throw new Error('release guard activation state is partial');
+    return;
+  }
+  if (raw === null) throw new Error('release guard activation sentinel is missing');
+  try {
+    const sentinel = parseMarker(JSON.parse(raw));
+    if (sentinel.installationId !== state.installationId) throw new Error('installation mismatch');
+  } catch {
+    throw new Error('release guard activation sentinel is invalid');
+  }
+}
+
+async function writeActivationSentinel(root: string, installationId: string): Promise<void> {
+  const path = join(root, ACTIVATION);
+  if (await exists(path)) {
+    const state = parseState(JSON.parse(await readBounded(join(root, STATE))));
+    await validateActivationSentinel(root, state);
+    return;
+  }
+  await atomicWrite(root, ACTIVATION, canonicalJson({ schemaVersion: 1, installationId }));
 }
 
 function parseMarker(raw: unknown): { schemaVersion: 1; installationId: string } {
