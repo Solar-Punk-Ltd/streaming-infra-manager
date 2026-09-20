@@ -33,9 +33,18 @@ const UPLOADER_ID = 'srs-uploader-a';
 const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
 const WEB_IMAGE_ID = `sha256:${'b'.repeat(64)}`;
 const MANAGER_TARGET = {
+  mode: 'production' as const,
   projectName: 'manager-test',
   postgresVolumeName: 'manager-test-pg',
+  postgresPort: 15_432,
   webPort: 18_080,
+};
+const ISOLATED_MANAGER_TARGET = {
+  mode: 'isolated' as const,
+  projectName: 'manager-isolated',
+  postgresVolumeName: 'manager-isolated-pg',
+  postgresPort: 25_432,
+  webPort: 28_080,
 };
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
@@ -166,6 +175,19 @@ describe('external release guard state', () => {
     await assert.rejects(
       installReleaseGuard(join(root, 'invalid'), INSTALLATION_ID, {
         manager: { ...MANAGER_TARGET, projectName: 'manager/test' },
+      }),
+      /deployment targets are invalid/,
+    );
+    await installReleaseGuard(join(root, 'isolated'), INSTALLATION_ID, { manager: ISOLATED_MANAGER_TARGET });
+    await assert.rejects(
+      installReleaseGuard(join(root, 'live-port'), INSTALLATION_ID, {
+        manager: { ...ISOLATED_MANAGER_TARGET, postgresPort: 5_432 },
+      }),
+      /deployment targets are invalid/,
+    );
+    await assert.rejects(
+      installReleaseGuard(join(root, 'shared-port'), INSTALLATION_ID, {
+        manager: { ...ISOLATED_MANAGER_TARGET, postgresPort: ISOLATED_MANAGER_TARGET.webPort },
       }),
       /deployment targets are invalid/,
     );
@@ -954,6 +976,21 @@ esac
 });
 
 describe('installed release guard command', () => {
+  it('installs a typed isolated manager target through the fixed command', async (t) => {
+    const root = await temporaryRoot(t);
+    await runReleaseGuardCli([
+      'install',
+      '--state-root', root,
+      '--manager-mode', 'isolated',
+      '--manager-project-name', ISOLATED_MANAGER_TARGET.projectName,
+      '--manager-postgres-volume-name', ISOLATED_MANAGER_TARGET.postgresVolumeName,
+      '--manager-postgres-port', String(ISOLATED_MANAGER_TARGET.postgresPort),
+      '--manager-web-port', String(ISOLATED_MANAGER_TARGET.webPort),
+    ], {});
+
+    assert.deepEqual(await new ReleaseGuardStore(root).deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
+  });
+
   it('reports only the durable release mode', async (t) => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);

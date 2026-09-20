@@ -14,6 +14,11 @@ export interface ComposeReleaseTarget {
   webPort: number;
 }
 
+export interface ManagerReleaseTarget extends ComposeReleaseTarget {
+  mode: 'production' | 'isolated';
+  postgresPort: number;
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;
