@@ -30,7 +30,8 @@ const ENGINES_DIR = 'engines';
  * is the manager's alone and no deploy script asks for it. `BEE_DATA_ROOT` and
  * `LOG_LEVEL` each mean one thing here and another in the stack, and the stack
  * reads them from compose rather than from a sample, so nothing else would
- * catch them.
+ * catch them. The two admin tokens are process-routed credentials. A consuming
+ * job must add one back explicitly rather than inherit it into every script.
  */
 const NEVER_INHERITED: readonly string[] = [
   'DATABASE_URL',
@@ -39,6 +40,8 @@ const NEVER_INHERITED: readonly string[] = [
   'POSTGRES_DB',
   'BEE_DATA_ROOT',
   'LOG_LEVEL',
+  'ADMIN_API_TOKEN',
+  'RELEASE_GUARD_ADMIN_TOKEN',
 ];
 
 /**
