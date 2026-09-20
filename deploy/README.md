@@ -64,6 +64,23 @@ installation or activation cannot overtake a standalone deployment. A failed or
 interrupted standalone deployment leaves its lease in place for operator
 recovery instead of guessing whether host mutation completed.
 
+The installed `admin` guard command always binds the managed ingest assignment
+into the transition. Its first bootstrap invocation omits both runtime flags,
+which binds managed ingest as disabled while the capable admin starts. After
+the manager has created the selected profile and returned its persisted
+instance ID, the second invocation supplies both flags:
+
+```sh
+streaming-release-guard admin <fixed release arguments> \
+  --managed-lifecycle-version 1 \
+  --managed-uploader-id <persisted profile instance ID>
+```
+
+Supplying only one flag, another lifecycle version, or a malformed uploader ID
+refuses before the adapter builds or moves a service. Later managed admin
+upgrades must keep supplying the two flags. Receipt and admin bearer tokens
+remain process environment inputs and never enter these arguments.
+
 The standalone path rsyncs the repo, then builds the images on the server and
 runs the upgrade command that brings the project back up. The rsync leaves out
 `node_modules`, `.git`, build caches, `.scratch/` and
