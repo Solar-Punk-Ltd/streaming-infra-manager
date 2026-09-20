@@ -64,15 +64,19 @@ if (command === 'install') {
       '--viewer-profile', 'viewer',
       '--viewer-port-slot', '2',
       '--viewer-services', 'bee-gateway,client',
+      '--fixture-network-name', 'srs-continuation-20260920-a1b2c3d4-network',
+      '--fixture-id', 'srs-continuation-20260920-a1b2c3d4',
     ], { env: { ...process.env, HOME: home } });
 
     assert.match(result.stdout, /installed in legacy mode/);
     const installedArguments = JSON.parse(
       await readFile(join(home, '.local/state/streaming-release-guard/install-arguments.json'), 'utf8'),
     );
-    assert.deepEqual(installedArguments.slice(-2), [
-      '--viewer-services',
-      'bee-gateway,client',
+    assert.deepEqual(installedArguments.slice(-4), [
+      '--fixture-network-name',
+      'srs-continuation-20260920-a1b2c3d4-network',
+      '--fixture-id',
+      'srs-continuation-20260920-a1b2c3d4',
     ]);
     assert.deepEqual(installedArguments.slice(
       installedArguments.indexOf('--uploader-services'),

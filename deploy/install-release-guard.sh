@@ -10,7 +10,7 @@ fi
 for ((index = 1; index <= $#; index += 2)); do
     name="${!index}"
     case "$name" in
-        --manager-mode | --manager-project-name | --manager-postgres-volume-name | --manager-postgres-port | --manager-web-port | --admin-project-name | --admin-postgres-volume-name | --admin-web-port | --uploader-profile | --uploader-port-slot | --uploader-services | --viewer-profile | --viewer-port-slot | --viewer-services) ;;
+        --manager-mode | --manager-project-name | --manager-postgres-volume-name | --manager-postgres-port | --manager-web-port | --admin-project-name | --admin-postgres-volume-name | --admin-web-port | --uploader-profile | --uploader-port-slot | --uploader-services | --viewer-profile | --viewer-port-slot | --viewer-services | --fixture-network-name | --fixture-id) ;;
         *)
             echo "release guard installer target argument is invalid" >&2
             exit 2
