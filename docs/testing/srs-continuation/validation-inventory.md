@@ -19,10 +19,10 @@ This page separates focused implementation checks from assembled media acceptanc
 | V09 | Cumulative checkpoint seeding and prepared-successor admission have focused coverage, including cancelled intermediate runs | Decode A+B+C across fresh uploader processes and compare old snapshot bytes |
 | V10 | Controlled Continue/cancel/claim overlaps and identical report retry bodies have passed | Assembled admin outage and lost-response cases |
 | V11 | Viewer snapshot selection and expected-ladder validation have focused coverage | Production ABR report integration and old-rung playback after later runs |
-| V12 | Sealed-checkpoint recovery avoids a second finalization in focused tests | Correct the SDK reference-recovery error in the implemented durable master intent, then real Bee failure and process-kill checks |
+| V12 | Sealed-checkpoint recovery avoids a second finalization in focused tests. The SDK reference-recovery correction at 7a72f4ce passed inline and wrapped-payload checks using the real SDK with fake HTTP | Real Bee failure and process-kill checks |
 | V13 | Managed legacy-route refusal, direct ingress checks and credential-log sentinel tests exist | Final candidate API suites and actual direct-rung refusal |
 | V14 | Manifest and large-payload readers have existing tests | A cumulative playlist over 4 KiB through both actual viewer gateway read paths |
-| V15 | Frozen checkpoint and ladder validation exist | Actual opening-media fingerprint, verified legacy adoption and unavailable old-chunk tests |
+| V15 | Actual format inspection is wired at 62cede49 with 38 focused checks. Admin legacy-adoption transactions passed five controlled PostgreSQL cases at 1b89e39 | Bounded probe-busy retry, shared canonical fingerprint correction, complete uploader adoption and unavailable old-chunk tests |
 | V16 | Actual mounted watch-page Chrome test passed 3 cases. An isolated one-line fault produced the intended 2 failures | Real playback during grace and continuation, including a refreshed page and ABR selection |
 | V17 | Admin UI and manager lifecycle freshness tests passed focused checks. Manager Chrome regression ran | Final candidate browser suites and assembled two-tab/keyboard checks |
 | V18 | No cumulative media decoding claimed | Decode, identify and seek labeled content across every seam and quality |
