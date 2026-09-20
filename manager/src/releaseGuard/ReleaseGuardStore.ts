@@ -7,6 +7,7 @@ import {
   RELEASE_GUARD_SCHEMA_VERSION,
   type PendingReleaseReceipt,
   type ActiveArtifactMetadata,
+  type ComposeReleaseTarget,
   type ReleaseArtifact,
   type ReleaseGuardReceipt,
   type ReleaseGuardAttempt,
@@ -19,6 +20,7 @@ import {
 const MARKER = 'installed.json';
 const STATE = 'state.json';
 const ACTIVATION = 'managed-required.json';
+const TARGETS = 'targets.json';
 const PENDING = 'pending';
 const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
@@ -28,12 +30,27 @@ const DIGEST = /^[0-9a-f]{64}$/;
 const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
 const SERVICE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const UPLOADER_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
+const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+
+export interface ReleaseGuardDeploymentTargets {
+  manager?: ComposeReleaseTarget;
+  admin?: ComposeReleaseTarget;
+}
 
 class MissingGuardFileError extends Error {}
 
 /** Creates a guard installation once. Existing or partial installations refuse. */
-export async function installReleaseGuard(root: string, installationId: string = randomUUID()): Promise<void> {
+export async function installReleaseGuard(
+  root: string,
+  installationId: string = randomUUID(),
+  targets: ReleaseGuardDeploymentTargets = {},
+): Promise<void> {
   requireUuid(installationId, 'installation id');
+  const targetBody = canonicalJson(validateDeploymentTargets({
+    schemaVersion: 1,
+    installationId,
+    targets,
+  }));
   const existingRoot = await lstat(root).catch((error: unknown) => {
     if (isMissing(error)) return null;
     throw error;
@@ -48,6 +65,7 @@ export async function installReleaseGuard(root: string, installationId: string =
   if (
     await exists(marker) ||
     await exists(statePath) ||
+    await exists(join(root, TARGETS)) ||
     await exists(join(root, PENDING)) ||
     await exists(join(root, TRANSITIONS)) ||
     await exists(join(root, ACTIVATION)) ||
@@ -64,8 +82,13 @@ export async function installReleaseGuard(root: string, installationId: string =
     slots: {},
     attempt: null,
   };
+  await atomicWrite(root, TARGETS, targetBody);
   await atomicWrite(root, STATE, canonicalJson(state));
-  await atomicWrite(root, MARKER, canonicalJson({ schemaVersion: 1, installationId }));
+  await atomicWrite(root, MARKER, canonicalJson({
+    schemaVersion: 1,
+    installationId,
+    targetDigest: sha256(targetBody),
+  }));
 }
 
 /** Durable monotonic release requirements owned by the installed wrapper. */
@@ -82,8 +105,13 @@ export class ReleaseGuardStore {
     let state: ReleaseGuardState;
     try {
       state = parseState(JSON.parse(raw));
-      const installed = parseMarker(JSON.parse(marker));
+      const installed = parseInstallationMarker(JSON.parse(marker));
       if (installed.installationId !== state.installationId) throw new Error('installation mismatch');
+      const targetBody = await readBounded(join(this.root, TARGETS));
+      const targets = validateDeploymentTargets(JSON.parse(targetBody));
+      if (targets.installationId !== state.installationId || sha256(targetBody) !== installed.targetDigest) {
+        throw new Error('target mismatch');
+      }
     } catch {
       throw new Error('installed guard state is invalid');
     }
@@ -93,6 +121,15 @@ export class ReleaseGuardStore {
 
   async releaseMode(): Promise<'legacy' | 'managed'> {
     return hasActivationEvidence(await this.read()) ? 'managed' : 'legacy';
+  }
+
+  async deploymentTarget(role: 'manager' | 'admin'): Promise<ComposeReleaseTarget> {
+    const state = await this.read();
+    const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+    if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
+    const target = targets.targets[role];
+    if (!target) throw new Error(`release guard ${role} target is not installed`);
+    return target;
   }
 
   async withTransition<T>(action: (lease: ReleaseTransitionLease) => Promise<T>): Promise<T> {
@@ -384,7 +421,7 @@ async function validateActivationSentinel(root: string, state: ReleaseGuardState
   }
   if (raw === null) throw new Error('release guard activation sentinel is missing');
   try {
-    const sentinel = parseMarker(JSON.parse(raw));
+    const sentinel = parseActivationSentinel(JSON.parse(raw));
     if (sentinel.installationId !== state.installationId) throw new Error('installation mismatch');
   } catch {
     throw new Error('release guard activation sentinel is invalid');
@@ -401,9 +438,61 @@ async function writeActivationSentinel(root: string, installationId: string): Pr
   await atomicWrite(root, ACTIVATION, canonicalJson({ schemaVersion: 1, installationId }));
 }
 
-function parseMarker(raw: unknown): { schemaVersion: 1; installationId: string } {
-  if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', 'installationId']) || raw.schemaVersion !== 1) {
+function validateDeploymentTargets(raw: unknown): {
+  schemaVersion: 1;
+  installationId: string;
+  targets: ReleaseGuardDeploymentTargets;
+} {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', 'installationId', 'targets']) || raw.schemaVersion !== 1) {
+    throw new Error('release guard deployment targets are invalid');
+  }
+  requireUuid(raw.installationId, 'release guard installation id');
+  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => key !== 'manager' && key !== 'admin')) {
+    throw new Error('release guard deployment targets are invalid');
+  }
+  const targets: ReleaseGuardDeploymentTargets = {};
+  for (const role of ['manager', 'admin'] as const) {
+    const target = raw.targets[role];
+    if (target === undefined) continue;
+    if (
+      !isRecord(target) ||
+      !hasExactKeys(target, ['projectName', 'postgresVolumeName', 'webPort']) ||
+      typeof target.projectName !== 'string' ||
+      !DEPLOYMENT_NAME.test(target.projectName) ||
+      typeof target.postgresVolumeName !== 'string' ||
+      !DEPLOYMENT_NAME.test(target.postgresVolumeName) ||
+      !Number.isSafeInteger(target.webPort) ||
+      Number(target.webPort) < 1 ||
+      Number(target.webPort) > 65_535
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets[role] = {
+      projectName: target.projectName,
+      postgresVolumeName: target.postgresVolumeName,
+      webPort: Number(target.webPort),
+    };
+  }
+  return { schemaVersion: 1, installationId: raw.installationId, targets };
+}
+
+function parseInstallationMarker(raw: unknown): { schemaVersion: 1; installationId: string; targetDigest: string } {
+  if (
+    !isRecord(raw) ||
+    !hasExactKeys(raw, ['schemaVersion', 'installationId', 'targetDigest']) ||
+    raw.schemaVersion !== 1 ||
+    typeof raw.targetDigest !== 'string' ||
+    !DIGEST.test(raw.targetDigest)
+  ) {
     throw new Error('release guard marker is invalid');
+  }
+  requireUuid(raw.installationId, 'release guard installation id');
+  return { schemaVersion: 1, installationId: raw.installationId, targetDigest: raw.targetDigest };
+}
+
+function parseActivationSentinel(raw: unknown): { schemaVersion: 1; installationId: string } {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', 'installationId']) || raw.schemaVersion !== 1) {
+    throw new Error('release guard activation sentinel is invalid');
   }
   requireUuid(raw.installationId, 'release guard installation id');
   return { schemaVersion: 1, installationId: raw.installationId };

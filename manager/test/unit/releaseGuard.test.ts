@@ -31,6 +31,11 @@ const INSTALLATION_ID = '11111111-1111-4111-8111-111111111111';
 const UPLOADER_ID = 'srs-uploader-a';
 const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
 const WEB_IMAGE_ID = `sha256:${'b'.repeat(64)}`;
+const MANAGER_TARGET = {
+  projectName: 'manager-test',
+  postgresVolumeName: 'manager-test-pg',
+  webPort: 18_080,
+};
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
 
@@ -81,6 +86,27 @@ async function verifiedReceipt(
 }
 
 describe('external release guard state', () => {
+  it('binds validated deployment targets to the guard installation', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID, { manager: MANAGER_TARGET });
+    const store = new ReleaseGuardStore(root);
+    assert.deepEqual(await store.deploymentTarget('manager'), MANAGER_TARGET);
+    await assert.rejects(store.deploymentTarget('admin'), /admin target is not installed/);
+
+    const targetPath = join(root, 'targets.json');
+    const targets = JSON.parse(await readFile(targetPath, 'utf8'));
+    targets.targets.manager.webPort = 18_081;
+    await writeFile(targetPath, `${JSON.stringify(targets)}\n`);
+    await assert.rejects(store.read(), /installed guard state is invalid/);
+
+    await assert.rejects(
+      installReleaseGuard(join(root, 'invalid'), INSTALLATION_ID, {
+        manager: { ...MANAGER_TARGET, projectName: 'manager/test' },
+      }),
+      /deployment targets are invalid/,
+    );
+  });
+
   it('distinguishes a pristine legacy installation from durable managed activation', async (t) => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);
@@ -616,7 +642,7 @@ fi
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'manager', id: 'default' },
-      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work')),
+      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
     });
 
     assert.deepEqual(result.receipt.artifact.images, [
@@ -625,10 +651,10 @@ fi
     ]);
     const calls = await readFile(join(fakeBin, 'docker.log'), 'utf8');
     assert.match(calls, /--project-name release-[0-9a-f]{20} .* build api web/);
-    assert.match(calls, /--project-name manager .*manager-image-override\.yml run --rm --no-deps -T api node dist\/cli\.js manager:upgrade/);
+    assert.match(calls, /--project-name manager-test .*manager-image-override\.yml run --rm --no-deps -T api node dist\/cli\.js manager:upgrade/);
     assert.match(calls, /--compose-override .*manager-image-override\.yml/);
     assert.match(calls, /--public-edge/);
-    assert.doesNotMatch(calls, /image tag|--project-name manager .* build/);
+    assert.doesNotMatch(calls, /image tag|--project-name manager-test .* build/);
     const override = await readFile(join(root, 'adapter-work/manager-image-override.yml'), 'utf8');
     const transitionPlan = JSON.parse(await readFile(join(root, 'adapter-work/transition-plan.json'), 'utf8'));
     const guardedCandidate = transitionPlan.candidateRoot as string;
@@ -636,6 +662,7 @@ fi
     assert.match(override, new RegExp(`image: ${IMAGE_ID}`));
     assert.match(override, new RegExp(`image: ${WEB_IMAGE_ID}`));
     assert.equal(override.match(/pull_policy: never/g)?.length, 2);
+    assert.match(override, /WEB_PORT: "18080"/);
     assert.match(override, new RegExp(`source: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`target: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`SHLS_ROOT: ${join(guardedCandidate, 'manager/swarm-hls-stream').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
@@ -686,7 +713,7 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
 
     await assert.rejects(
-      new FixedReleaseAdapter('manager', join(root, 'adapter-work')).verify({
+      new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }).verify({
         candidateRoot: await realpath(candidate),
         treeDigest: 'a'.repeat(64),
         slot: { role: 'manager', id: 'default' },
@@ -746,7 +773,7 @@ fi
         store: new ReleaseGuardStore(stateRoot),
         candidateRoot: candidate,
         slot: { role: 'manager', id: 'default' },
-        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work')),
+        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
       }),
       /release adapter transition failed with exit 42/,
     );

@@ -1,7 +1,11 @@
 import { fileURLToPath } from 'node:url';
 
 import { FixedReleaseAdapter, type FixedAdapterArguments } from './FixedReleaseAdapter.js';
-import { installReleaseGuard, ReleaseGuardStore } from './ReleaseGuardStore.js';
+import {
+  installReleaseGuard,
+  ReleaseGuardStore,
+  type ReleaseGuardDeploymentTargets,
+} from './ReleaseGuardStore.js';
 import { submitPendingReceipt, validateReleaseReceiptDestination } from './ReleaseReceiptSubmitter.js';
 import { digestReleaseCandidate, runReleaseTransition } from './ReleaseTransition.js';
 import type { ReleaseRole, ReleaseSlot } from './ReleaseGuardTypes.js';
@@ -22,8 +26,16 @@ export async function runReleaseGuardCli(
     return digestReleaseCandidate(required(flags, 'candidate-root'));
   }
   if (command === 'install') {
-    const flags = parseFlags(rest, new Set(['state-root']));
-    await installReleaseGuard(required(flags, 'state-root'));
+    const flags = parseFlags(rest, new Set([
+      'state-root',
+      'manager-project-name',
+      'manager-postgres-volume-name',
+      'manager-web-port',
+      'admin-project-name',
+      'admin-postgres-volume-name',
+      'admin-web-port',
+    ]));
+    await installReleaseGuard(required(flags, 'state-root'), undefined, installationTargets(flags));
     return 'release guard installed';
   }
   if (command === 'status') {
@@ -56,9 +68,9 @@ export async function runReleaseGuardCli(
   ]);
   const flags = parseFlags(rest, allowed);
   const slot = releaseSlot(role, flags.get('slot-id'));
-  const adapterArgs = adapterArguments(role, flags);
   const destination = receiptDestination(flags, env);
   const store = new ReleaseGuardStore(required(flags, 'state-root'));
+  const adapterArgs = await adapterArguments(role, flags, store);
   await runReleaseTransition({
     store,
     candidateRoot: required(flags, 'candidate-root'),
@@ -89,10 +101,18 @@ function releaseSlot(roleValue: string, id: string | undefined): ReleaseSlot {
   return { role, id: 'default' };
 }
 
-function adapterArguments(role: ReleaseRole, flags: Map<string, string>): FixedAdapterArguments {
+async function adapterArguments(
+  role: ReleaseRole,
+  flags: Map<string, string>,
+  store: ReleaseGuardStore,
+): Promise<FixedAdapterArguments> {
   const names = ['profile', 'port-slot', 'target', 'services'];
-  if (role !== 'uploader') {
+  if (role === 'manager' || role === 'admin') {
     if (names.some((name) => flags.has(name))) throw new Error(`${role} release does not accept deployment arguments`);
+    return { target: await store.deploymentTarget(role) };
+  }
+  if (role === 'viewer') {
+    if (names.some((name) => flags.has(name))) throw new Error('viewer release does not accept deployment arguments');
     return {};
   }
   const portSlotText = required(flags, 'port-slot');
@@ -108,6 +128,26 @@ function adapterArguments(role: ReleaseRole, flags: Map<string, string>): FixedA
   const target = required(flags, 'target');
   if (target !== 'local') throw new Error('installed uploader adapter target must be local');
   return { profile, portSlot, target, services };
+}
+
+function installationTargets(flags: Map<string, string>): ReleaseGuardDeploymentTargets {
+  const targets: ReleaseGuardDeploymentTargets = {};
+  for (const role of ['manager', 'admin'] as const) {
+    const projectName = flags.get(`${role}-project-name`);
+    const postgresVolumeName = flags.get(`${role}-postgres-volume-name`);
+    const webPortText = flags.get(`${role}-web-port`);
+    const supplied = [projectName, postgresVolumeName, webPortText].filter((value) => value !== undefined).length;
+    if (supplied === 0) continue;
+    if (supplied !== 3) throw new Error(`release guard ${role} target is incomplete`);
+    if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(projectName!) || !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(postgresVolumeName!)) {
+      throw new Error(`release guard ${role} target is invalid`);
+    }
+    if (!/^[1-9]\d*$/.test(webPortText!)) throw new Error(`release guard ${role} target is invalid`);
+    const webPort = Number(webPortText);
+    if (!Number.isSafeInteger(webPort) || webPort > 65_535) throw new Error(`release guard ${role} target is invalid`);
+    targets[role] = { projectName: projectName!, postgresVolumeName: postgresVolumeName!, webPort };
+  }
+  return targets;
 }
 
 function parseFlags(argv: string[], allowed: Set<string>): Map<string, string> {

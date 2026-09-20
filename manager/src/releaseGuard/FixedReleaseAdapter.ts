@@ -9,7 +9,7 @@ import type {
   ReleaseImageSet,
   ReleaseTransitionPlan,
 } from './ReleaseTransition.js';
-import type { ReleaseRole } from './ReleaseGuardTypes.js';
+import type { ComposeReleaseTarget, ReleaseRole } from './ReleaseGuardTypes.js';
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PREFLIGHT_BYTES = 4 * 1024;
@@ -19,7 +19,7 @@ const TERMINATION_GRACE_MS = 250;
 export interface FixedAdapterArguments {
   profile?: string;
   portSlot?: number;
-  target?: string;
+  target?: string | ComposeReleaseTarget;
   services?: string[];
 }
 
