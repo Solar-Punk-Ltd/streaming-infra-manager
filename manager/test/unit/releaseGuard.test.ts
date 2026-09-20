@@ -927,6 +927,8 @@ esac
       'ADMIN_API_URL',
       'ADMIN_API_TOKEN',
       'API_AUTH_TOKEN',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
       'RELEASE_GUARD_ADMIN_TOKEN',
     ];
     const previous = new Map(names.map((name) => [name, process.env[name]]));
@@ -976,6 +978,26 @@ printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER
       candidateRoot: uploader,
       treeDigest: 'b'.repeat(64),
       slot: { role: 'uploader', id: UPLOADER_ID },
+    });
+
+    const manager = join(root, 'manager');
+    await capableCandidate(manager, 'manager');
+    const managerAdapter = join(manager, 'deploy/release-adapters/manager.sh');
+    await mkdir(dirname(managerAdapter), { recursive: true });
+    await writeFile(managerAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${API_AUTH_TOKEN:-}" ]
+for name in POSTGRES_PASSWORD SRS_LIFECYCLE_VERSION SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1}' > "$5"
+`);
+    await chmod(managerAdapter, 0o700);
+    await new FixedReleaseAdapter('manager', join(root, 'manager-work'), { target: MANAGER_TARGET }).preflight({
+      candidateRoot: manager,
+      treeDigest: 'c'.repeat(64),
+      slot: { role: 'manager', id: 'default' },
     });
   });
 

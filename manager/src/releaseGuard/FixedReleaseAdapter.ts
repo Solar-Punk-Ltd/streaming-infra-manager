@@ -286,6 +286,14 @@ function adapterEnvironment(role: ReleaseRole): NodeJS.ProcessEnv {
       'INTERNAL_API_TOKEN',
       'INGEST_SRT_PASSPHRASE',
     );
+  } else if (role === 'manager') {
+    names.push(
+      'POSTGRES_PASSWORD',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+    );
   } else if (role === 'uploader') {
     names.push('ADMIN_API_URL', 'ADMIN_API_TOKEN', 'API_AUTH_TOKEN');
   }
