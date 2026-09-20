@@ -16,6 +16,8 @@ Run states are ready, claimed, live, waiting, closed and vod. Claimed may become
 
 The existing ingest lookup requires `X-Stream-Lifecycle-Version: 1` for managed rows. An old client receives the same not-found refusal as any other disallowed lookup. A configured managed uploader refuses a response without the matching lifecycle contract.
 
+A negotiated lookup retains the existing stream fields and adds `lifecycleVersion: 1` with `mode: legacy` or `mode: managed`. Managed mode also includes `lifecycle: { revision, runNumber, state, permission, uploaderId }`. Explicit negotiated legacy mode omits that lifecycle object and lets an active legacy stream finish under its existing behavior. An absent envelope never means legacy to an enabled uploader. Non-negotiating old clients receive their original payload only for legacy rows. This distinction prevents an old admin response from silently disabling admission protection while preserving mixed-row operation.
+
 ## Internal routes
 
 All routes below retain the existing internal bearer-token authentication. Tokens and encoder keys are never written to logs or public catalogue entries.
@@ -41,6 +43,8 @@ Preparation is polled by the uploader through its existing admin connection. The
 POST `/api/streams/:id/continuations` accepts `requestId` and `expectedRevision`. It returns 202 with an operation and its Location. GET on that operation reconciles an uncertain response. DELETE cancels only before the new run is claimed.
 
 Operation states are pending, ready, failed, cancelled and claimed. There is at most one unresolved operation for the stream. Allocation happens once. Preparing a run does not advertise empty video or replace the completed snapshot. The run becomes open only after its assigned uploader has durably prepared the checkpoint. Owner scoping remains the same as the other stream controls.
+
+A durably verified empty closed run may also be continued with empty history. Empty means no media was accepted. Failed uploads of accepted media never qualify. The closed report retains its private checkpoint UUID and explicit empty outcome without fabricating a completed recording. An empty continuation preserves any earlier completed replay.
 
 ## Completed replay and private checkpoint
 

@@ -29,16 +29,29 @@ Baselines checked locally and remotely: manager 87673c99, stack 2c4867ae, admin 
 ## Progress
 
 - R01 source/client correlation, busy-publisher and disconnect probes passed on SRS 6.0.191 for RTMP and SRT, including source plus a transcoded ABR rung. Wire contract integration remains in progress.
-- R02 pure lifecycle invariants committed at 38e9c8c after the red checkpoint 01ac893. Five focused tests passed. Real Postgres regression is running against an isolated test database through a loopback SSH tunnel. Legacy streams remain unenrolled.
-- R03 waiting/resume regressions dispatched. SRS activation waits for the verified source signal.
-- R06 independent viewer selection regression dispatched. Initial catalogue loading and route changes remain supported.
+- R02 pure lifecycle invariants committed at 38e9c8c after the red checkpoint 01ac893. Five focused tests passed. Real Postgres red proved the missing lifecycle columns while its legacy control passed. Schema and recording invariants landed at c08d452, schema compatibility at 56d3a1c, and nullable-identity review repairs at f5166b6. Claims, reporting routes and Continue operations are next. Legacy streams remain unenrolled.
+- R03 in-memory waiting/resume foundation landed at 93f7121 after red checkpoint 87c26f3e. Seven focused tests passed. The shared audio timestamp parser prerequisite landed at 4b08614 with 17 parser tests passing. Advancing video/audio timestamps landed at f013234 with ten focused tests passing. Durable admission storage landed at d9f3544 with six focused store tests passing. Startup recovery, SRS integration and durable pending media remain in progress. Metadata durability alone does not preserve queued footage.
+- R06 initial playback-selection fix landed at f750fbc4 with five focused tests and a deliberate helper fault detected. Managed catalogue parsing, playback selection and the first mounted-page browser harness landed at 866c5b7. Focused catalogue/selection tests passed 39 cases. Browser setup corrections and immutable replay wiring are still in progress. No browser acceptance result is claimed yet.
 - Remaining R04/R05/R07/R08/R09/R10/R11 are pending those foundations. No claim of feature completion or runtime acceptance.
 
 ## Environment evidence
 
 Read-only SSH succeeded on the owner-selected test host. Docker Engine 29.1.3, host Compose v5.0.0, 64 CPUs, 251 GiB RAM and about 1.9 TiB free. It runs the live manager, viewer, four ABR Bees and one ABR uploader/SRS pair. Etherproxy port 9000 is occupied. None was changed. Test services must use their own names, network, ports and volumes.
 
-Levi relayed that the estate session had committed and cleared coordination. Registered `estate/plans/2026-09-20-srs-reconnect-continuation.md`, added its INDEX row, appended a STATE entry and added the admin Postgres suite mapping. Existing unrelated notes were preserved. `check-plan-registry.mjs` passed. Copied only the suite mapping to the clean verify-jobs checkout. That distribution copy remains uncommitted and unpublished, so remote database coverage is not claimed yet.
+Levi relayed that the estate session had committed and cleared coordination. Registered `estate/plans/2026-09-20-srs-reconnect-continuation.md`, added its INDEX row, appended a STATE entry and added the admin Postgres suite mapping. Existing unrelated notes were preserved. `check-plan-registry.mjs` passed.
+
+Levi separately approved publishing the exact test-runner mapping commit 66e0ea0 to verify-jobs main. It adds the admin Postgres suite and the continuation browser suite on the existing browser image. That commit is published. No runner settings, credentials or workflows changed. The browser mapping names the new feature suite, which must exist in the candidate before its deep run.
+
+Early foundation branches were pushed for verification only. PRs are not opened and no product default branch is merged. These are foundation checks, not full feature acceptance.
+
+| Candidate and remote run | Executed result | Unexecuted or remaining checks |
+| --- | --- | --- |
+| Admin f5166b6, verify-jobs run 35506570335 | Requested and tested commit match. Postgres integration passed 89 tests in 21 suites, zero failures. The ordinary job failed at the baseline root lint script because no workspace package defines lint | Typechecking and unit tests did not start. Automatic review rejected removing the broken command. Levi instead instructed us to configure and fix lint. A real lint setup is now assigned to the admin worker |
+| Stack 4b08614, verify-jobs run 35506583842 | Requested and tested commit match. Workspace build passed. Lint failed on import ordering in the new StreamOrchestrator change | Typechecking and tests did not start. Import ordering is corrected in the later uploader checkpoint and awaits the next remote run |
+
+The full admin database output is retained at `.scratch/admin-db-box.log`. It includes the actual legacy SQL refusal against managed closed rows and an unchanged legacy-stream control. Its successful database result does not turn the overall failed run into a pass.
+
+Later checkpoints: uploader 24a67d9 flushes a newly created admission directory's parent before acknowledgement. Uploader 8d6b5fb integrates durable claim, deadline and closed-state recovery, with 16 focused reconnect/recovery tests passing. Viewer 909e4d3 isolates its browser test from the ordinary unit glob and records fixture process diagnostics. Its module-resolution smoke check is still pending. Remote standard run 35507259841 tests uploader d9f3544 and is in progress.
 
 The probe artifacts are in `.scratch/srs-probe/probe-1` and `probe-3` in this worktree. Probe 2 failed because the harness used a different inside-container RTMP port from its publisher URL. Probe 3 uses the same dual-listener pattern as the stack entrypoint. This was a harness correction, not a product finding. Test containers and networks are removed by the probe. The separately named test database remains until its focused checks finish.
 
