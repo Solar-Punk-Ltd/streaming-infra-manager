@@ -14,10 +14,10 @@ export async function submitPendingReceipt(input: {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
+  validateReleaseReceiptDestination(input.adminUrl, input.token);
   const body = await input.store.pendingReceipt(input.slot);
   if (body === null) throw new Error('release receipt outbox is empty');
   const url = receiptUrl(input.adminUrl, input.slot);
-  if (input.token.length < 32) throw new Error('release receipt bearer is not configured');
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new Error('release receipt timeout is invalid');
@@ -49,7 +49,13 @@ export async function submitPendingReceipt(input: {
   }
 }
 
-function receiptUrl(base: string, slot: ReleaseSlot): string {
+/** Validates the fixed authenticated receipt boundary before a transition may start. */
+export function validateReleaseReceiptDestination(adminUrl: string, token: string): void {
+  adminBaseUrl(adminUrl);
+  if (token.length < 32) throw new Error('release receipt bearer is not configured');
+}
+
+function adminBaseUrl(base: string): URL {
   let url: URL;
   try {
     url = new URL(base);
@@ -65,6 +71,11 @@ function receiptUrl(base: string, slot: ReleaseSlot): string {
   ) {
     throw new Error('release receipt admin URL is invalid');
   }
+  return url;
+}
+
+function receiptUrl(base: string, slot: ReleaseSlot): string {
+  const url = adminBaseUrl(base);
   url.pathname = `${url.pathname.replace(/\/$/, '')}${RECEIPT_PATH}/${encodeURIComponent(slot.role)}/${encodeURIComponent(slot.id)}`;
   return url.toString();
 }

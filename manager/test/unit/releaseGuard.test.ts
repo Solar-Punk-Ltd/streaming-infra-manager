@@ -691,6 +691,40 @@ describe('installed release guard command', () => {
       /uploader slot id is invalid/,
     );
   });
+
+  it('validates receipt credentials before invoking a release adapter', async (t) => {
+    for (const [name, adminUrl, env, expected] of [
+      ['missing-token', 'http://admin', {}, /RELEASE_GUARD_ADMIN_TOKEN/],
+      ['invalid-url', 'ftp://admin', { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }, /admin URL is invalid/],
+    ] as const) {
+      const root = join(await temporaryRoot(t), name);
+      const candidate = join(root, 'candidate');
+      const stateRoot = join(root, 'state');
+      const workRoot = join(root, 'work');
+      const called = join(root, 'adapter-called');
+      await capableCandidate(candidate, 'manager');
+      await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
+      await writeFile(join(candidate, 'deploy/release-adapters/manager.sh'), `#!/bin/bash
+set -euo pipefail
+touch '${called}'
+case "$1" in
+  preflight) printf '%s\\n' '{"schemaVersion":1}' > "$5" ;;
+  build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"api","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+esac
+`);
+      await chmod(join(candidate, 'deploy/release-adapters/manager.sh'), 0o700);
+      await installReleaseGuard(stateRoot, INSTALLATION_ID);
+
+      await assert.rejects(runReleaseGuardCli([
+        'manager',
+        '--state-root', stateRoot,
+        '--candidate-root', candidate,
+        '--work-root', workRoot,
+        '--admin-url', adminUrl,
+      ], env), expected);
+      await assert.rejects(lstat(called), { code: 'ENOENT' });
+    }
+  });
 });
 
 describe('release receipt outbox', () => {

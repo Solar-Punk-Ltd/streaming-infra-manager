@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 
 import { FixedReleaseAdapter, type FixedAdapterArguments } from './FixedReleaseAdapter.js';
 import { installReleaseGuard, ReleaseGuardStore } from './ReleaseGuardStore.js';
-import { submitPendingReceipt } from './ReleaseReceiptSubmitter.js';
+import { submitPendingReceipt, validateReleaseReceiptDestination } from './ReleaseReceiptSubmitter.js';
 import { digestReleaseCandidate, runReleaseTransition } from './ReleaseTransition.js';
 import type { ReleaseRole, ReleaseSlot } from './ReleaseGuardTypes.js';
 
@@ -29,11 +29,11 @@ export async function runReleaseGuardCli(
   if (command === 'retry') {
     const flags = parseFlags(rest, new Set(['state-root', 'role', 'slot-id', 'admin-url']));
     const slot = releaseSlot(required(flags, 'role'), flags.get('slot-id'));
+    const destination = receiptDestination(flags, env);
     await submitPendingReceipt({
       store: new ReleaseGuardStore(required(flags, 'state-root')),
       slot,
-      adminUrl: flags.get('admin-url') ?? requiredEnvironment(env, ADMIN_URL_ENV),
-      token: requiredEnvironment(env, TOKEN_ENV),
+      ...destination,
     });
     return 'release receipt acknowledged';
   }
@@ -53,6 +53,7 @@ export async function runReleaseGuardCli(
   const flags = parseFlags(rest, allowed);
   const slot = releaseSlot(role, flags.get('slot-id'));
   const adapterArgs = adapterArguments(role, flags);
+  const destination = receiptDestination(flags, env);
   const store = new ReleaseGuardStore(required(flags, 'state-root'));
   await runReleaseTransition({
     store,
@@ -67,8 +68,7 @@ export async function runReleaseGuardCli(
   await submitPendingReceipt({
     store,
     slot,
-    adminUrl: flags.get('admin-url') ?? requiredEnvironment(env, ADMIN_URL_ENV),
-    token: requiredEnvironment(env, TOKEN_ENV),
+    ...destination,
   });
   return `${role} release verified and acknowledged`;
 }
@@ -132,6 +132,13 @@ function requiredEnvironment(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) throw new Error(`release guard requires ${name} in its process environment`);
   return value;
+}
+
+function receiptDestination(flags: Map<string, string>, env: NodeJS.ProcessEnv): { adminUrl: string; token: string } {
+  const adminUrl = flags.get('admin-url') ?? requiredEnvironment(env, ADMIN_URL_ENV);
+  const token = requiredEnvironment(env, TOKEN_ENV);
+  validateReleaseReceiptDestination(adminUrl, token);
+  return { adminUrl, token };
 }
 
 async function main(): Promise<void> {
