@@ -96,7 +96,15 @@ The reviewed implementation uses two fixed guard-owned cases. Preparation accept
 
 An uploader-only update uses the existing release transition protocol. Preflight and build cover the full installed target. Before mutation, the adapter verifies every untouched service's running image and effective configuration against that candidate. A mismatch refuses before moving the uploader and identifies the need for a full guarded update. The requested subset is part of the durable transition identity. The wrapper persists its sticky minimum and pending attempt before applying pinned images to only that subset. Full-target verification then makes the normal receipt eligible. A retry cannot change its service set or fabricate a second receipt protocol.
 
-This is source design pending implementation and tests. The unrelated-profile legacy lease retains its unconditional refusal for protected namespaces. The remote SSH credential handoff remains separately held.
+The core and caller are implemented through `a0995710` in the manager worker branch. Stack adapter `50a5a40c` compares the running SRS environment, entrypoint and bound file contents, together with its installed configuration digest. Untouched Bee comparison includes the pinned image override. Focused source tests passed. These are not assembled deployment results. The unrelated-profile legacy lease retains its unconditional refusal for protected namespaces. The remote SSH credential handoff remains separately held.
+
+### Runtime assignment and container access
+
+Every admin transition binds either disabled managed ingest or lifecycle version 1 with the real manager profile instance UUID. Preflight must echo that assignment exactly. The resulting transition digest prevents a retry from changing it. Runtime verification reads the authenticated internal lifecycle endpoint from inside the API container and checks the actual process assignment before acknowledging the release. Tokens remain process inputs and do not enter the plan or evidence.
+
+The fixture first activates the capable admin with managed ingest disabled. It activates the manager and creates a real profile through its authenticated API, holding the uploader back until storage is configured. A second admin activation binds that returned profile UUID. Viewer and uploader activation then complete the four-slot receipt set. No fabricated uploader identity stands in for manager Start.
+
+The installer writes an immutable `container-binding.json` beside its code, containing only schema version 1 and the canonical state root. The manager mounts that installed code read-only at `/opt/streaming-release-guard`, with its exact state directory mounted at the bound host path. The raw stack entry point inside the API must use this binding before considering a HOME-based standalone path. Partial metadata or missing bound state refuses. A different container HOME must never bypass the existing installation. Installer and manager-side mounting are implemented through `88a44c20`. The stack consumer and its actual-entry regression remain in progress.
 
 ## Recovery after a release process dies
 
