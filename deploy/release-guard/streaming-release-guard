@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-code_root="${HOME}/.local/lib/streaming-release-guard/current"
+bin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+installation_root="$(cd "${bin_root}/.." && pwd -P)"
+code_root="${installation_root}/lib/streaming-release-guard/current"
 if [ "$#" -eq 1 ] && [ "$1" = manager-stdin ]; then
     exec node "${code_root}/ReleaseGuardManagerStdin.js"
 fi

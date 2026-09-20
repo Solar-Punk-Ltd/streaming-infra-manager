@@ -3,12 +3,25 @@
 set -euo pipefail
 umask 077
 
-GUARD_BIN="${HOME}/.local/bin/streaming-release-guard"
-GUARD_STATE_ROOT="${HOME}/.local/state/streaming-release-guard"
-BOOTSTRAP_LOCK="${HOME}/.local/state/streaming-release-bootstrap.lock"
-BOOTSTRAP_OWNER="${BOOTSTRAP_LOCK}/owner"
-BOOTSTRAP_RELEASE_CLAIM="${BOOTSTRAP_LOCK}/release.claim"
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+FIXTURE_ID_PATTERN='^srs-continuation-20260920-[a-z0-9]{8,16}$'
+
+configure_paths() {
+    if [ "$#" -eq 0 ]; then
+        installation_root="${HOME}/.local"
+        BOOTSTRAP_LOCK="${HOME}/.local/state/streaming-release-bootstrap.lock"
+    elif [ "$#" -eq 2 ] && [ "$1" = --fixture-id ] && [[ "$2" =~ $FIXTURE_ID_PATTERN ]]; then
+        installation_root="/home/solarpunk/srs-continuation-tests-20260920/${2}/guard"
+        BOOTSTRAP_LOCK="${installation_root}/state/bootstrap.lock"
+    else
+        echo "ERROR: release fixture identity is invalid" >&2
+        exit 2
+    fi
+    GUARD_BIN="${installation_root}/bin/streaming-release-guard"
+    GUARD_STATE_ROOT="${installation_root}/state/streaming-release-guard"
+    BOOTSTRAP_OWNER="${BOOTSTRAP_LOCK}/owner"
+    BOOTSTRAP_RELEASE_CLAIM="${BOOTSTRAP_LOCK}/release.claim"
+}
 
 path_exists() {
     [ -e "$1" ] || [ -L "$1" ]
@@ -132,15 +145,29 @@ begin_release() {
     esac
 }
 
-case "${1:-begin}" in
-    begin) begin_release ;;
+command="${1:-begin}"
+if [ "$#" -gt 0 ]; then shift; fi
+case "$command" in
+    begin)
+        configure_paths "$@"
+        begin_release
+        ;;
     begin-bootstrap-install)
+        configure_paths "$@"
         require_absent_installation
         begin_bootstrap
         ;;
-    finish-bootstrap) finish_bootstrap "${2:-}" ;;
+    finish-bootstrap)
+        owner_token="${1:-}"
+        if [ "$#" -gt 0 ]; then shift; fi
+        configure_paths "$@"
+        finish_bootstrap "$owner_token"
+        ;;
     finish-guard)
-        "$GUARD_BIN" finish-legacy --state-root "$GUARD_STATE_ROOT" --owner-token "${2:-}"
+        owner_token="${1:-}"
+        if [ "$#" -gt 0 ]; then shift; fi
+        configure_paths "$@"
+        "$GUARD_BIN" finish-legacy --state-root "$GUARD_STATE_ROOT" --owner-token "$owner_token"
         ;;
     *)
         echo "ERROR: release mode command is invalid" >&2

@@ -69,20 +69,12 @@ if (command === 'install') {
       '--viewer-profile', 'viewer',
       '--viewer-port-slot', '2',
       '--viewer-services', 'bee-gateway,client',
-      '--fixture-network-name', 'srs-continuation-20260920-a1b2c3d4-network',
-      '--fixture-id', 'srs-continuation-20260920-a1b2c3d4',
     ], { env: { ...process.env, HOME: home } });
 
     assert.match(result.stdout, /installed in legacy mode/);
     const installedArguments = JSON.parse(
       await readFile(join(home, '.local/state/streaming-release-guard/install-arguments.json'), 'utf8'),
     );
-    assert.deepEqual(installedArguments.slice(-4), [
-      '--fixture-network-name',
-      'srs-continuation-20260920-a1b2c3d4-network',
-      '--fixture-id',
-      'srs-continuation-20260920-a1b2c3d4',
-    ]);
     assert.deepEqual(installedArguments.slice(
       installedArguments.indexOf('--uploader-services'),
       installedArguments.indexOf('--uploader-services') + 2,
@@ -102,5 +94,76 @@ if (command === 'install') {
       execFileAsync(join(packet, 'deploy/install-release-guard.sh'), [], { env: { ...process.env, HOME: home } }),
       /already exists or is partial/,
     );
+  });
+
+  it('derives one isolated guard installation from the validated fixture identity', async (t) => {
+    const root = await mkdtemp(join(tmpdir(), 'release-guard-fixture-installer-'));
+    const packet = join(root, 'packet');
+    const home = join(root, 'home');
+    const fixtureBase = join(root, 'fixture-installations');
+    const fixtureId = 'srs-continuation-20260920-a1b2c3d4';
+    const guardRoot = join(fixtureBase, fixtureId, 'guard');
+    t.after(async () => {
+      await chmod(join(guardRoot, 'lib/streaming-release-guard/current'), 0o700).catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    });
+    await mkdir(join(packet, 'deploy/release-guard'), { recursive: true });
+    await mkdir(join(packet, 'manager/dist/releaseGuard'), { recursive: true });
+    for (const relative of [
+      'deploy/install-release-guard.sh',
+      'deploy/release-mode.sh',
+      'deploy/release-guard/streaming-release-guard',
+    ]) {
+      const source = await readFile(join(REPO, relative), 'utf8');
+      await writeFile(
+        join(packet, relative),
+        source.replaceAll('/home/solarpunk/srs-continuation-tests-20260920', fixtureBase),
+      );
+      await chmod(join(packet, relative), 0o700);
+    }
+    await copyFile(
+      join(REPO, 'deploy/release-guard/streaming-release-guard-container'),
+      join(packet, 'deploy/release-guard/streaming-release-guard-container'),
+    );
+    await chmod(join(packet, 'deploy/release-guard/streaming-release-guard-container'), 0o700);
+    for (const output of OUTPUTS) await writeFile(join(packet, 'manager/dist/releaseGuard', output), 'export {};\n');
+    await writeFile(join(packet, 'manager/dist/releaseGuard/ReleaseGuardCli.js'), `
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+const [command, flag, stateRoot] = process.argv.slice(2);
+if (flag !== '--state-root' || !stateRoot) process.exit(2);
+if (command === 'install') {
+  mkdirSync(stateRoot, { recursive: true });
+  writeFileSync(stateRoot + '/installed.json', '{}');
+} else if (command === 'status') {
+  process.stdout.write('legacy\\n');
+} else if (command === 'begin-legacy') {
+  process.stdout.write(existsSync(stateRoot + '/activated') ? 'managed\\n' : 'legacy:22222222-2222-4222-8222-222222222222\\n');
+} else process.exit(2);
+`);
+
+    const args = [
+      '--manager-mode', 'isolated',
+      '--manager-project-name', 'fixture-manager',
+      '--manager-postgres-volume-name', 'fixture-manager-pg',
+      '--manager-postgres-port', '25432',
+      '--manager-web-port', '28080',
+      '--fixture-network-name', `${fixtureId}-network`,
+      '--fixture-id', fixtureId,
+    ];
+    await execFileAsync(join(packet, 'deploy/install-release-guard.sh'), args, {
+      env: { ...process.env, HOME: home },
+    });
+
+    assert.equal((await lstat(join(guardRoot, 'bin/streaming-release-guard'))).isFile(), true);
+    assert.equal((await lstat(join(guardRoot, 'state/streaming-release-guard'))).isDirectory(), true);
+    await assert.rejects(lstat(join(home, '.local/bin/streaming-release-guard')), { code: 'ENOENT' });
+    const launcher = await readFile(join(guardRoot, 'bin/streaming-release-guard'), 'utf8');
+    assert.doesNotMatch(launcher, /HOME/);
+
+    await writeFile(join(guardRoot, 'state/streaming-release-guard/activated'), 'yes\n');
+    const mode = await execFileAsync(join(packet, 'deploy/release-mode.sh'), [
+      'begin', '--fixture-id', fixtureId,
+    ], { env: { ...process.env, HOME: home } });
+    assert.equal(mode.stdout.trim(), 'managed');
   });
 });
