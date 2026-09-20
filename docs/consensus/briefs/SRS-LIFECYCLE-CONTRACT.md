@@ -63,6 +63,22 @@ Assigned-uploader operation responses may include `previousEmptyOutcome: { runNu
 
 Failed or cancelled preparation consumes its allocated run identity. A fresh owner request allocates above every prior identity under the stream lock. The original request ID continues to reconcile its original terminal outcome. Cancelling a prepared run proves that it is still unclaimed under that same lock before recording an empty outcome. A claimed run cannot be cancelled as empty.
 
+## Verified adoption of a legacy replay
+
+The owner starts a separate adoption operation against an exact legacy VOD candidate. The candidate freezes the stream ID, topic, media type, final master index and duration, and every declared final rung and its quality metadata. Rungs are sorted by name and topic. Its digest is SHA-256 over canonical JSON. A current live stream or an incomplete rendition set cannot be adopted.
+
+POST `/api/streams/:id/legacy-adoptions` accepts `requestId` and `expectedCandidateDigest`. The admin captures and compares the candidate under the stream lock, checks current capability and release readiness, and persists a pending operation assigned to its configured uploader. GET `/api/internal/uploaders/:uploaderId/legacy-adoptions` supplies that frozen work. Media reads happen outside database transactions.
+
+The uploader resolves exact topic/index entries, verifies their immutable references and retained media, and checks its durable media, rendition-report and master-write journals. Unknown or unresolved work refuses preparation. POST `/api/internal/streams/:id/legacy-adoptions/:operationId/preparation` binds uploader, revision and candidate digest. A ready result includes the exact internal completed snapshot and the validation proof below. A failed result preserves legacy playback.
+
+Validation version 1 is `{ version: 1, mediaReadable: true, pendingWrites: 0, tracks: [{ topic, formatFingerprint }] }`. The track list is sorted by topic and contains exactly one entry for the single source topic or for each expected ABR rendition topic. Duplicate, extra or missing topics refuse. These flags summarize completed reads and durable-journal checks. They do not replace them.
+
+Each fingerprint is `{ version: 1, container: "mpegts", tracks: [...] }`. Its inner tracks are a canonically sorted multiset, preserving multiplicity. A video track has `kind`, `codec`, nullable `profile`, nullable `level`, `width`, `height`, `pixelFormat`, nullable `chromaLocation` and nullable `bitsPerRawSample`. An audio track has `kind`, `codec`, nullable `profile`, `sampleRate`, `channels` and `channelLayout`. Values are normalized actual ffprobe output. Required unknown fields refuse. PID, language, timestamps and bitrate are excluded. Continuation compares fingerprints for the same topic and separately verifies dimensions against the frozen rung metadata.
+
+The uploader durably seals the exact topic-bound proof and checkpoint before acknowledging readiness. The final admin transaction takes the stream and operation locks in the established order, rechecks readiness and compares the current legacy candidate with the frozen digest. Only an unchanged VOD can become managed run 1 with closed permission and the verified replay. A concurrent legacy write either changes the candidate first and makes adoption refuse, or waits behind enrollment and then refuses a managed mutation. Neither path overwrites retained replay.
+
+An exact retry after response loss returns the committed adoption and same snapshot. A changed proof conflicts. Failed or cancelled preparation leaves the old replay intact and allows a fresh operation. Ordinary Continue applies only after successful adoption. No database lock is retained while Bee or ffprobe work runs.
+
 ## Completed replay and private checkpoint
 
 The internal snapshot has a run number, an opaque checkpoint UUID, an exact master reference and an exact reference for every expected rendition. The UUID names a record in the assigned uploader's durable checkpoint store. It is neither a host path nor a public catalogue value. Loss of that record blocks continuation until it can be restored or safely adopted from verified recording data.
