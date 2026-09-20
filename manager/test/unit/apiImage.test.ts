@@ -44,4 +44,22 @@ describe('the api container', () => {
     assert.match(compose, /\$\{MANAGER_SSH_DIR:-[^}]+\}:\/root\/\.ssh\b/);
     assert.doesNotMatch(compose, /:\/etc\/ssh\/ssh_config/, 'no bind mount onto the system ssh config');
   });
+
+  it('forwards only the operator-managed SRS boundary into the API process', () => {
+    for (const name of [
+      'SRS_LIFECYCLE_VERSION',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+    ]) {
+      assert.match(
+        compose,
+        new RegExp(`^\\s+${name}: \\$\\{${name}:-\\}\\s*$`, 'm'),
+      );
+    }
+    assert.doesNotMatch(
+      compose,
+      /^\s+SRS_UPLOADER_ID:/m,
+      'the uploader identity comes from each persisted deployment instance',
+    );
+  });
 });

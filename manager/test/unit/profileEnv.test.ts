@@ -221,6 +221,73 @@ describe('writeProfileEnv — BEE_URL', () => {
   });
 });
 
+describe('writeProfileEnv — managed SRS lifecycle', () => {
+  const token = 'managed-srs-fixture-token-at-least-32-bytes';
+
+  it('binds version one to the persisted deployment identity and admin boundary', () => {
+    const path = writeProfileEnv(root, 'managed-srs', {
+      engine: 'srs',
+      managedSrs: {
+        lifecycleVersion: 1,
+        uploaderId: '11111111-2222-4333-8444-555555555555',
+        adminApiUrl: 'http://admin.internal',
+        adminApiToken: token,
+      },
+    });
+
+    assert.equal(
+      lineFor(path, 'SRS_LIFECYCLE_VERSION'),
+      'SRS_LIFECYCLE_VERSION=1',
+    );
+    assert.equal(
+      lineFor(path, 'SRS_UPLOADER_ID'),
+      'SRS_UPLOADER_ID=11111111-2222-4333-8444-555555555555',
+    );
+    assert.equal(
+      lineFor(path, 'ADMIN_API_URL'),
+      'ADMIN_API_URL=http://admin.internal',
+    );
+    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), `ADMIN_API_TOKEN=${token}`);
+    assert.equal(modeOf(path), '600');
+  });
+
+  it('clears inherited managed settings when lifecycle support is disabled', () => {
+    writeBaseEnv([
+      'ENGINE=srs',
+      'SRS_LIFECYCLE_VERSION=1',
+      'SRS_UPLOADER_ID=foreign-uploader',
+      'ADMIN_API_URL=http://foreign-admin.internal',
+      `ADMIN_API_TOKEN=${token}`,
+      '',
+    ].join('\n'));
+
+    const path = writeProfileEnv(root, 'legacy-srs', { engine: 'srs' });
+
+    assert.equal(
+      lineFor(path, 'SRS_LIFECYCLE_VERSION'),
+      'SRS_LIFECYCLE_VERSION=',
+    );
+    assert.equal(lineFor(path, 'SRS_UPLOADER_ID'), 'SRS_UPLOADER_ID=');
+    assert.equal(lineFor(path, 'ADMIN_API_URL'), 'ADMIN_API_URL=');
+    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), 'ADMIN_API_TOKEN=');
+  });
+
+  it('refuses an uploader identity outside the existing bounded grammar', () => {
+    assert.throws(
+      () => writeProfileEnv(root, 'bad-managed-srs', {
+        engine: 'srs',
+        managedSrs: {
+          lifecycleVersion: 1,
+          uploaderId: 'uploader/other',
+          adminApiUrl: 'http://admin.internal',
+          adminApiToken: token,
+        },
+      }),
+      /SRS_UPLOADER_ID/,
+    );
+  });
+});
+
 describe('writeProfileEnv — STREAM_KEY', () => {
   // The uploader signs the feed with this key. It used to reach deploy.sh as a
   // `--private-key=` argument, which put it in the manager's own log line and
@@ -638,4 +705,3 @@ describe('the keys a Bee gateway put on the chain reads', () => {
     );
   });
 });
-

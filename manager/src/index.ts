@@ -331,6 +331,7 @@ async function main(): Promise<void> {
     portInventory,
     executionRoots,
     config.beeRpcEndpoint,
+    config.managedSrsLifecycle,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();

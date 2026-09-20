@@ -16,13 +16,16 @@ import {
   portExposureProblem,
   slotCapFor,
   ENGINE_CONFIG_ENV_KEYS,
+  SRS_SERVICE,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
+import type { ManagedSrsLifecycleConfig } from '../utils/config.js';
 import {
   bootstrapStackDefaults,
   deleteProfileEnv,
   parseBaseEnv,
+  type ProfileEnvValues,
   writeProfileEnv,
 } from '../utils/envUtils.js';
 
@@ -393,7 +396,26 @@ export class DeploymentOrchestrator {
      * the stack's public RPC without saying so.
      */
     private readonly managerRpcEndpoint?: string | null,
+    private readonly managedSrsLifecycle?: ManagedSrsLifecycleConfig | null,
   ) {}
+
+  private managedSrsEnv(
+    profile: Profile,
+    version: DeployVersionSnapshot,
+  ): ProfileEnvValues['managedSrs'] {
+    const configured = this.managedSrsLifecycle;
+    const services = defaultServicesFor(profile);
+    if (
+      !configured ||
+      !version.contract?.features.srsLifecycleV1 ||
+      !services.includes(SRS_SERVICE) ||
+      !services.includes(STREAM_UPLOADER_SERVICE)
+    ) return null;
+    return {
+      ...configured,
+      uploaderId: profile.instance_id,
+    };
+  }
 
   /**
    * Whether a deploy of the profile may start now, asked before the claim
@@ -1067,6 +1089,7 @@ export class DeploymentOrchestrator {
         // services: a held-back uploader is deployed on its own, and deploy.sh
         // must still resolve the local Bee address for it.
         localBeeUploader: ownsBeeNode(profile),
+        managedSrs: this.managedSrsEnv(profile, version),
         ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
       });
       logger.info(

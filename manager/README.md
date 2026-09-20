@@ -715,6 +715,16 @@ The first two are bind-mounted into the api container at the same absolute path
 they have on the host, because the docker daemon runs on the host and reads
 every path in a compose file as a host path.
 
+Managed SRS lifecycle reporting is disabled by default. To enable it, set
+`SRS_LIFECYCLE_VERSION=1` and `ADMIN_API_URL` in `manager/.env`. Put an
+`op://` reference for `ADMIN_API_TOKEN` in that file and start the manager
+through `op run --env-file manager/.env -- ...`. The Compose file explicitly
+passes those three values into the API container. The manager writes them only
+for a selected stack whose contract advertises `srsLifecycleV1`, and derives
+`SRS_UPLOADER_ID` from that deployment's persisted `instance_id`. An older or
+incapable stack receives empty managed settings, including when its base env
+contains stale values.
+
 ## Limitations (intentional, v1)
 
 - **Max 100 managed profiles per host.** `--portSlot` is an integer from 1 to

@@ -269,6 +269,13 @@ export interface ProfileEnvValues {
    * `localBeeUploader` is.
    */
   gatewayMode?: NodeMode | null;
+  /** Version-one lifecycle reporting, bound to this deployment's persisted identity. */
+  managedSrs?: {
+    lifecycleVersion: 1;
+    uploaderId: string;
+    adminApiUrl: string;
+    adminApiToken: string;
+  } | null;
 }
 
 /**
@@ -315,6 +322,33 @@ export function writeProfileEnv(
   let contents = baseContents;
 
   contents = upsertEnvLine(contents, 'ENGINE', values.engine);
+
+  const managedSrs = values.managedSrs;
+  if (managedSrs && !/^[A-Za-z0-9_.:-]{1,200}$/.test(managedSrs.uploaderId)) {
+    throw new Error(
+      'refusing to write SRS_UPLOADER_ID outside its bounded identity grammar',
+    );
+  }
+  contents = upsertEnvLine(
+    contents,
+    'SRS_LIFECYCLE_VERSION',
+    managedSrs ? String(managedSrs.lifecycleVersion) : '',
+  );
+  contents = upsertEnvLine(
+    contents,
+    'SRS_UPLOADER_ID',
+    managedSrs?.uploaderId ?? '',
+  );
+  contents = upsertEnvLine(
+    contents,
+    'ADMIN_API_URL',
+    managedSrs?.adminApiUrl ?? '',
+  );
+  contents = upsertEnvLine(
+    contents,
+    'ADMIN_API_TOKEN',
+    managedSrs?.adminApiToken ?? '',
+  );
 
   // Stated explicitly both ways rather than only when false: this file is a
   // fresh copy of the base .env each deploy, and leaving the key absent would
