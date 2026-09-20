@@ -15,6 +15,7 @@ import { isLocalTarget } from './ports/DeployTargets.js';
 const ACTIVE_STATES = new Set<UploaderLifecycleState>(['ready', 'claimed', 'live', 'waiting']);
 const TERMINAL_STATES = new Set<UploaderLifecycleState>(['closed', 'vod']);
 const STALE_AFTER_MS = 30_000;
+const MAX_STREAMS = 100;
 const UNAVAILABLE: UploaderLifecycleReading = { state: 'unavailable' };
 
 /** Reads and narrows the uploader's private lifecycle endpoint for the deployment page. */
@@ -46,7 +47,7 @@ export class UploaderLifecycleService {
 }
 
 export function lifecycleReading(raw: unknown, receivedAt: Date): UploaderLifecycleReading {
-  if (!isRecord(raw) || raw.lifecycleVersion !== 1 || typeof raw.observedAt !== 'string' || !Array.isArray(raw.streams)) return UNAVAILABLE;
+  if (!isRecord(raw) || raw.lifecycleVersion !== 1 || typeof raw.observedAt !== 'string' || !Array.isArray(raw.streams) || raw.streams.length > MAX_STREAMS) return UNAVAILABLE;
   const observedAt = Date.parse(raw.observedAt);
   if (!Number.isFinite(observedAt)) return UNAVAILABLE;
   const streams: UploaderLifecycleStream[] = [];
@@ -59,10 +60,10 @@ export function lifecycleReading(raw: unknown, receivedAt: Date): UploaderLifecy
 }
 
 function parseStream(raw: unknown, observedAt: number, receivedAt: Date): UploaderLifecycleStream | null {
-  if (!isRecord(raw) || typeof raw.adminStreamId !== 'string' || !isUuid(raw.adminStreamId) || !Number.isInteger(raw.runNumber) || raw.runNumber < 1 || typeof raw.state !== 'string' || typeof raw.lastObservedAt !== 'string') return null;
+  if (!isRecord(raw) || typeof raw.adminStreamId !== 'string' || !isUuid(raw.adminStreamId) || !Number.isSafeInteger(raw.runNumber) || raw.runNumber < 1 || typeof raw.state !== 'string' || typeof raw.lastObservedAt !== 'string') return null;
   if (!ACTIVE_STATES.has(raw.state as UploaderLifecycleState) && !TERMINAL_STATES.has(raw.state as UploaderLifecycleState)) return null;
   const lastObservedAt = Date.parse(raw.lastObservedAt);
-  if (!Number.isFinite(lastObservedAt) || observedAt < lastObservedAt || observedAt > receivedAt.getTime()) return null;
+  if (!Number.isFinite(lastObservedAt) || observedAt < lastObservedAt) return null;
   const state = raw.state as UploaderLifecycleState;
   if (ACTIVE_STATES.has(state) && observedAt - lastObservedAt > STALE_AFTER_MS) return null;
   return { adminId: raw.adminStreamId, runNumber: raw.runNumber, state };
