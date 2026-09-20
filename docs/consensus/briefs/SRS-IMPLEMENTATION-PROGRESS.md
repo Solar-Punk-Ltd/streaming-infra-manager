@@ -38,6 +38,14 @@ Checkpoint 2026-09-21 05:11 Asia/Taipei: source review accepted manager role-sco
 
 ## Progress
 
+Checkpoint 2026-09-21 07:11 Asia/Taipei: the reviewed fixture executor components through `f26531313667c79bc2ff7048741b842471cc7d3b` are integrated into the stack feature branch. The private-chain executor at `e03d2a89e46f6035200210129662174da6850242` has the same patch identity as the executor branch's `19b97d4dae4f7a90d989467fa567197071d19a67`. Root integrated that patch at `63957cfe` and ran its focused regression through the laptop lane. All 8 cases passed with no failures or skips. This checks command construction, refusal paths and journal behavior with controlled dependencies. No private chain or Bee container ran.
+
+The integrated runtime binding checks use full container IDs, the actual journaled network ID and selected numeric ports read from the running services. The media process adapter now observes early child rejection immediately while preserving the original rejected promise for its caller. Its deliberately overflowing real Node child first failed the regression, then passed after the fix. Explicit process input and output limits can accommodate the pinned chain state up to 16 MiB. Ordinary default limits remain unchanged.
+
+Two P2 fixture contract mismatches were found during source review of the managed stream bootstrap. They would reliably block a real run, without changing production behavior. The test client used the manager's same-site header value where the admin requires `web2-admin`. It also expected lifecycle fields in the publish response, although the authoritative owner GET supplies them. The recommended repair is confined to the fixture adapters and their regressions, rather than changing either production API. Both corrections are assigned to the executor worker. The reconnect controller at `0392e8df` is separately being tightened so an unrelated failed encoder cannot count as evidence of a closed-ID admission refusal.
+
+The callable fixture entrypoint, final exact-candidate verification and assembled media acceptance remain pending. No default branch was merged and no live service changed. Renewed SSH signing and the source-only deployment credential handoff remain separate pending owner responses.
+
 | Task | Current implementation and evidence | Still required |
 | --- | --- | --- |
 | R01 | SRS 6.0.191 source/client, busy-publisher and disconnect probes passed for RTMP and SRT, including one transcoded rung. Shared lookup, claim, report and continuation contracts are recorded. Actual format inspection is wired at 62cede49. Busy retry and displaced-result checks are repaired through a1e7c79f | Full media integration and final candidate verification |
