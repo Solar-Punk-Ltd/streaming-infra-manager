@@ -45,7 +45,11 @@ import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './ports/portReservations.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
-import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import {
+  isLocalTarget,
+  targetAlias,
+  type DeployTargets,
+} from './ports/DeployTargets.js';
 import {
   type AttemptOutcome,
   type DeployAttempt,
@@ -266,6 +270,8 @@ interface JobConfig {
   paths: StackPaths;
   script: string;
   args: string[];
+  env?: Record<string, string>;
+  redactedValues?: readonly string[];
 
   transitionTo?: ProfileStatus;
 
@@ -412,7 +418,7 @@ export class DeploymentOrchestrator {
       !services.includes(STREAM_UPLOADER_SERVICE)
     ) return null;
     return {
-      ...configured,
+      lifecycleVersion: configured.lifecycleVersion,
       uploaderId: profile.instance_id,
     };
   }
@@ -1053,6 +1059,14 @@ export class DeploymentOrchestrator {
       // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
       const engine = engineForComponents(profile.components);
       const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
+      const managedSrs = this.managedSrsEnv(profile, version);
+      const deployTarget = reservation.host ?? profile.host;
+      if (managedSrs && !isLocalTarget(deployTarget)) {
+        throw new ProfileConfigError(
+          profile.name,
+          'Managed SRS lifecycle for a remote target is not configured. No deployment was started.',
+        );
+      }
       // Read here and nowhere else: neither is a column of the row, so that no
       // page and no event carries them. This is where each becomes a line in a
       // file the containers read.
@@ -1089,7 +1103,7 @@ export class DeploymentOrchestrator {
         // services: a held-back uploader is deployed on its own, and deploy.sh
         // must still resolve the local Bee address for it.
         localBeeUploader: ownsBeeNode(profile),
-        managedSrs: this.managedSrsEnv(profile, version),
+        managedSrs,
         ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
       });
       logger.info(
@@ -1106,6 +1120,15 @@ export class DeploymentOrchestrator {
         paths,
         script: paths.deploy,
         args: this.buildDeployScriptArgs(profile, services, reservation.host),
+        env: managedSrs && this.managedSrsLifecycle
+          ? {
+            ADMIN_API_URL: this.managedSrsLifecycle.adminApiUrl,
+            ADMIN_API_TOKEN: this.managedSrsLifecycle.adminApiToken,
+          }
+          : undefined,
+        redactedValues: managedSrs && this.managedSrsLifecycle
+          ? [this.managedSrsLifecycle.adminApiToken]
+          : undefined,
         redactedEndpoints: [secrets.rpcEndpoint],
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
@@ -1411,7 +1434,11 @@ export class DeploymentOrchestrator {
     cfg.onLaunch?.();
     const handle = this.runner.run(cfg.script, cfg.args, {
       cwd: cfg.paths.root,
-      env: beeDataDirsFor(cfg.profileName, cfg.target),
+      env: {
+        ...beeDataDirsFor(cfg.profileName, cfg.target),
+        ...cfg.env,
+      },
+      redactedValues: cfg.redactedValues,
     });
 
     let stderrTail = '';

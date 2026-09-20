@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -24,7 +24,11 @@ function lineFor(contents: string, key: string): string | undefined {
   return contents.split('\n').find(line => line.startsWith(`${key}=`));
 }
 
-function harness(name: string, kind: 'streamer' | 'viewer' = 'streamer') {
+function harness(
+  name: string,
+  kind: 'streamer' | 'viewer' = 'streamer',
+  host: string | null = null,
+) {
   writeFileSync(
     join(root, '.env'),
     [
@@ -39,6 +43,7 @@ function harness(name: string, kind: 'streamer' | 'viewer' = 'streamer') {
   const profile = makeProfile({
     name,
     kind,
+    host,
     instance_id: INSTANCE_ID,
     stamp_id: 'a'.repeat(64),
   });
@@ -75,10 +80,16 @@ describe('managed SRS lifecycle deploy environment', () => {
     );
     assert.equal(
       lineFor(contents, 'ADMIN_API_URL'),
-      'ADMIN_API_URL=http://admin.internal',
+      'ADMIN_API_URL=http://stale-admin.internal',
     );
-    assert.equal(lineFor(contents, 'ADMIN_API_TOKEN'), `ADMIN_API_TOKEN=${TOKEN}`);
-    assert.doesNotMatch(JSON.stringify(result.runner.runs), new RegExp(TOKEN));
+    assert.equal(
+      lineFor(contents, 'ADMIN_API_TOKEN'),
+      'ADMIN_API_TOKEN=stale-managed-token-at-least-32-bytes',
+    );
+    assert.doesNotMatch(contents, new RegExp(TOKEN));
+    assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_URL, 'http://admin.internal');
+    assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_TOKEN, TOKEN);
+    assert.doesNotMatch(result.runner.runs[0]?.args.join(' ') ?? '', new RegExp(TOKEN));
   });
 
   it('clears stale managed settings for a stack without the capability', async () => {
@@ -92,8 +103,14 @@ describe('managed SRS lifecycle deploy environment', () => {
       'SRS_LIFECYCLE_VERSION=',
     );
     assert.equal(lineFor(contents, 'SRS_UPLOADER_ID'), 'SRS_UPLOADER_ID=');
-    assert.equal(lineFor(contents, 'ADMIN_API_URL'), 'ADMIN_API_URL=');
-    assert.equal(lineFor(contents, 'ADMIN_API_TOKEN'), 'ADMIN_API_TOKEN=');
+    assert.equal(
+      lineFor(contents, 'ADMIN_API_URL'),
+      'ADMIN_API_URL=http://stale-admin.internal',
+    );
+    assert.equal(
+      lineFor(contents, 'ADMIN_API_TOKEN'),
+      'ADMIN_API_TOKEN=stale-managed-token-at-least-32-bytes',
+    );
   });
 
   it('does not give the boundary to a capable stack profile without an SRS uploader', async () => {
@@ -107,7 +124,28 @@ describe('managed SRS lifecycle deploy environment', () => {
 
     assert.equal(lineFor(contents, 'SRS_LIFECYCLE_VERSION'), 'SRS_LIFECYCLE_VERSION=');
     assert.equal(lineFor(contents, 'SRS_UPLOADER_ID'), 'SRS_UPLOADER_ID=');
-    assert.equal(lineFor(contents, 'ADMIN_API_URL'), 'ADMIN_API_URL=');
-    assert.equal(lineFor(contents, 'ADMIN_API_TOKEN'), 'ADMIN_API_TOKEN=');
+    assert.equal(
+      lineFor(contents, 'ADMIN_API_URL'),
+      'ADMIN_API_URL=http://stale-admin.internal',
+    );
+    assert.equal(
+      lineFor(contents, 'ADMIN_API_TOKEN'),
+      'ADMIN_API_TOKEN=stale-managed-token-at-least-32-bytes',
+    );
+  });
+
+  it('refuses a managed remote deploy before generating a file or starting a script', async () => {
+    const result = harness('remote-managed', 'streamer', 'edge');
+    const version = await result.versions.findById(1);
+    assert.ok(version?.contract);
+    version.contract.features.srsLifecycleV1 = true;
+
+    await assert.rejects(
+      result.orchestrator.startDeploy(result.profile, undefined),
+      /managed SRS lifecycle.*remote target.*not configured/i,
+    );
+
+    assert.equal(result.runner.runs.length, 0);
+    assert.equal(existsSync(join(root, '.env.remote-managed')), false);
   });
 });
