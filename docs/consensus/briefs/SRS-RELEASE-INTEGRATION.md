@@ -82,6 +82,20 @@ Remote receipt submission does not assume SSH inherits a local `op run` environm
 
 The isolated validation installation needs its own typed Compose project, database volume, loopback database port and loopback web port. These are bound to the installation and frozen into each transition attempt. A retry cannot silently retarget another project or volume. Arbitrary shell commands and arbitrary Compose file paths are outside that configuration. The source adapter must not substitute live defaults when test identity inputs are missing. The manager target binds `mode`, `projectName`, `postgresVolumeName`, `postgresPort` and `webPort`. An isolated target derives separate data, versions and SSH directories beneath its guard state. The inner upgrade process receives the same candidate, paths, ports and exact database volume. The admin target binds `projectName`, `postgresVolumeName` and `webPort`, with no published API or database port.
 
+## Recovery after a release process dies
+
+A surviving `state.lock` directory is an unresolved transition, not permission to start a second deployment. The guard deliberately does not infer safety from a missing PID. The wrapper may have died while its Docker or Compose work continues. Recovery is an operator action after deployment callers have been paused and the operator has verified that no wrapper, adapter or descendant can still move this installation.
+
+Preserve the installed marker, activation sentinel, targets, state, transition descriptors, pending receipts and exact candidate directory. Do not reinstall the guard, clear the minimum version, delete a pending attempt or restore an older database to make the refusal disappear. A malformed or missing durable record needs recovery of that record, not a fresh installation ID.
+
+After the operator has established exclusive ownership, the only stale lock artifact to remove is the empty `state.lock` directory. Use an empty-directory removal, never recursive removal of the state root. This is deliberately not automated in the deployment path. The killed-child regression proves refusal while the lock remains and resumes only after its test operator removes that exact empty directory.
+
+For a prepared attempt, rerun the same installed component command with the same candidate and installation-bound target. It must obtain the same image IDs and artifact digest. The present implementation rebuilds through the fixed adapter before comparing that artifact, so retained build outputs and image cache matter. A different image ID is a refusal, not a replacement recovery candidate. Preserve or recover the original image rather than clearing the attempt. The receipt is not eligible for submission until service verification is durably recorded.
+
+For a verified attempt with an uncertain admin response, use the installed `retry` command for its exact component slot with the token routed into the process. It resends the identical saved receipt body and does not deploy a service. The admin accepts an exact retry. An installation conflict or changed receipt body requires investigation. It must not be resolved by fabricating a new generation or installation identity.
+
+The eventual live release packet must name the actual host, component slot and candidate for any recovery action. No recovery command has been run on a live installation during this implementation.
+
 ## Required checks
 
 The manager checks cover fresh waiting, closed/finalizing, completed replay, stale status, missing capability and credential-free output. The enrollment checks cover idle versus active legacy rows, unsupported or stale capabilities and failed legacy adoption.
