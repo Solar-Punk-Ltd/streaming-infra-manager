@@ -26,6 +26,7 @@ bin_root="${HOME}/.local/bin"
 launcher="${bin_root}/streaming-release-guard"
 state_root="${HOME}/.local/state/streaming-release-guard"
 launcher_source="${repo_root}/deploy/release-guard/streaming-release-guard"
+container_launcher_source="${repo_root}/deploy/release-guard/streaming-release-guard-container"
 release_mode_source="${repo_root}/deploy/release-mode.sh"
 files=(
     FixedReleaseAdapter.js
@@ -39,6 +40,10 @@ files=(
 
 if [ ! -f "$launcher_source" ] || [ -L "$launcher_source" ]; then
     echo "release guard launcher source is missing" >&2
+    exit 1
+fi
+if [ ! -f "$container_launcher_source" ] || [ -L "$container_launcher_source" ]; then
+    echo "release guard container launcher source is missing" >&2
     exit 1
 fi
 if [ ! -f "$release_mode_source" ] || [ -L "$release_mode_source" ]; then
@@ -67,6 +72,7 @@ mkdir -m 700 "$code_root"
 for file in "${files[@]}"; do
     install -m 0444 "${source_root}/${file}" "${code_root}/${file}"
 done
+install -m 0555 "$container_launcher_source" "${code_root}/streaming-release-guard"
 printf '%s\n' '{"type":"module"}' > "${code_root}/package.json"
 chmod 0444 "${code_root}/package.json"
 install -m 0555 "$launcher_source" "$launcher"

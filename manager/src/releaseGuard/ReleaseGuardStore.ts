@@ -144,6 +144,16 @@ export class ReleaseGuardStore {
     return target;
   }
 
+  /** The immutable targets installed beside this guard, after full state validation. */
+  async deploymentTargets(): Promise<ReleaseGuardDeploymentTargets> {
+    const state = await this.read();
+    const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+    if (targets.installationId !== state.installationId) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    return structuredClone(targets.targets);
+  }
+
   async fixtureNetwork(): Promise<FixtureNetworkBinding | null> {
     const state = await this.read();
     const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));

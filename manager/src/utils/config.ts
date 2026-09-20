@@ -1,5 +1,7 @@
 import 'dotenv/config';
 
+import { isAbsolute, resolve } from 'node:path';
+
 import {
   bzzToPlur,
   DEFAULT_CHEQUEBOOK_FLOOR_BZZ,
@@ -76,6 +78,16 @@ export function streamAdminConsoleUrl(raw: string | undefined): string | null {
   return url.href.replace(/\/$/, '');
 }
 
+/** The installed host state mounted at the same absolute path in the API. */
+export function releaseGuardStateRoot(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  if (!isAbsolute(value) || resolve(value) !== value || value === '/') {
+    throw new Error('RELEASE_GUARD_STATE_ROOT must be a canonical absolute directory');
+  }
+  return value;
+}
+
 const MANAGED_SRS_TOKEN = /^[\x21-\x7e]{32,8192}$/;
 
 export interface ManagedSrsLifecycleConfig {
@@ -150,6 +162,7 @@ export interface AppConfig {
   beeRpcEndpoint: string | null;
   streamAdminConsoleUrl: string | null;
   managedSrsLifecycle: ManagedSrsLifecycleConfig | null;
+  releaseGuardStateRoot: string | null;
 }
 
 export const config: AppConfig = {
@@ -166,4 +179,5 @@ export const config: AppConfig = {
   beeRpcEndpoint: beeRpcEndpoint(process.env.BEE_RPC_ENDPOINT),
   streamAdminConsoleUrl: streamAdminConsoleUrl(process.env.STREAM_ADMIN_CONSOLE_URL),
   managedSrsLifecycle: managedSrsLifecycleConfig(process.env),
+  releaseGuardStateRoot: releaseGuardStateRoot(process.env.RELEASE_GUARD_STATE_ROOT),
 };

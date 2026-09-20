@@ -35,9 +35,14 @@ describe('release guard source installer', () => {
       join(REPO, 'deploy/release-guard/streaming-release-guard'),
       join(packet, 'deploy/release-guard/streaming-release-guard'),
     );
+    await copyFile(
+      join(REPO, 'deploy/release-guard/streaming-release-guard-container'),
+      join(packet, 'deploy/release-guard/streaming-release-guard-container'),
+    );
     await chmod(join(packet, 'deploy/install-release-guard.sh'), 0o700);
     await chmod(join(packet, 'deploy/release-mode.sh'), 0o700);
     await chmod(join(packet, 'deploy/release-guard/streaming-release-guard'), 0o700);
+    await chmod(join(packet, 'deploy/release-guard/streaming-release-guard-container'), 0o700);
     for (const output of OUTPUTS) await writeFile(join(packet, 'manager/dist/releaseGuard', output), 'export {};\n');
     await writeFile(join(packet, 'manager/dist/releaseGuard/ReleaseGuardCli.js'), `
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -87,6 +92,9 @@ if (command === 'install') {
     ]);
     const codeRoot = join(home, '.local/lib/streaming-release-guard/current');
     for (const output of OUTPUTS) assert.equal((await lstat(join(codeRoot, output))).isFile(), true);
+    const containerLauncher = await readFile(join(codeRoot, 'streaming-release-guard'), 'utf8');
+    assert.match(containerLauncher, /\/opt\/streaming-release-guard\/ReleaseGuardCli\.js/);
+    assert.equal((await lstat(join(codeRoot, 'streaming-release-guard'))).mode & 0o777, 0o555);
     const launcher = await readFile(join(home, '.local/bin/streaming-release-guard'), 'utf8');
     assert.match(launcher, /manager-stdin/);
     assert.match(launcher, /ReleaseGuardManagerStdin\.js/);
