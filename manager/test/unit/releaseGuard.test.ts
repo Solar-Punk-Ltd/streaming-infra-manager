@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import type { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -65,7 +66,7 @@ function inheritedModuleLoaderArgs(): string[] {
   return args;
 }
 
-async function waitForLockFixture(child: ChildProcessWithoutNullStreams): Promise<void> {
+async function waitForLockFixture(child: ChildProcessByStdio<null, Readable, Readable>): Promise<void> {
   await new Promise<void>((resolveReady, rejectReady) => {
     let stdout = '';
     let stderr = '';
