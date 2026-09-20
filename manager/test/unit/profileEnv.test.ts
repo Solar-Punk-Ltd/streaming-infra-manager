@@ -224,14 +224,12 @@ describe('writeProfileEnv — BEE_URL', () => {
 describe('writeProfileEnv — managed SRS lifecycle', () => {
   const token = 'managed-srs-fixture-token-at-least-32-bytes';
 
-  it('binds version one to the persisted deployment identity and admin boundary', () => {
+  it('binds version one to the persisted deployment identity without the admin secret', () => {
     const path = writeProfileEnv(root, 'managed-srs', {
       engine: 'srs',
       managedSrs: {
         lifecycleVersion: 1,
         uploaderId: '11111111-2222-4333-8444-555555555555',
-        adminApiUrl: 'http://admin.internal',
-        adminApiToken: token,
       },
     });
 
@@ -245,13 +243,13 @@ describe('writeProfileEnv — managed SRS lifecycle', () => {
     );
     assert.equal(
       lineFor(path, 'ADMIN_API_URL'),
-      'ADMIN_API_URL=http://admin.internal',
+      undefined,
     );
-    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), `ADMIN_API_TOKEN=${token}`);
+    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), undefined);
     assert.equal(modeOf(path), '600');
   });
 
-  it('clears inherited managed settings when lifecycle support is disabled', () => {
+  it('clears lifecycle identity but preserves inherited legacy admin mode', () => {
     writeBaseEnv([
       'ENGINE=srs',
       'SRS_LIFECYCLE_VERSION=1',
@@ -268,8 +266,11 @@ describe('writeProfileEnv — managed SRS lifecycle', () => {
       'SRS_LIFECYCLE_VERSION=',
     );
     assert.equal(lineFor(path, 'SRS_UPLOADER_ID'), 'SRS_UPLOADER_ID=');
-    assert.equal(lineFor(path, 'ADMIN_API_URL'), 'ADMIN_API_URL=');
-    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), 'ADMIN_API_TOKEN=');
+    assert.equal(
+      lineFor(path, 'ADMIN_API_URL'),
+      'ADMIN_API_URL=http://foreign-admin.internal',
+    );
+    assert.equal(lineFor(path, 'ADMIN_API_TOKEN'), `ADMIN_API_TOKEN=${token}`);
   });
 
   it('refuses an uploader identity outside the existing bounded grammar', () => {
@@ -279,8 +280,6 @@ describe('writeProfileEnv — managed SRS lifecycle', () => {
         managedSrs: {
           lifecycleVersion: 1,
           uploaderId: 'uploader/other',
-          adminApiUrl: 'http://admin.internal',
-          adminApiToken: token,
         },
       }),
       /SRS_UPLOADER_ID/,

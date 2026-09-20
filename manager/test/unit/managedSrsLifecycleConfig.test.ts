@@ -9,6 +9,10 @@ describe('managed SRS lifecycle configuration', () => {
   it('stays disabled when no managed setting is present', () => {
     assert.equal(managedSrsLifecycleConfig({}), null);
     assert.equal(managedSrsLifecycleConfig({ SRS_LIFECYCLE_VERSION: '  ' }), null);
+    assert.equal(managedSrsLifecycleConfig({
+      ADMIN_API_URL: 'http://legacy-admin.internal',
+      ADMIN_API_TOKEN: TOKEN,
+    }), null);
   });
 
   it('accepts the exact version-one internal admin boundary', () => {
@@ -28,7 +32,6 @@ describe('managed SRS lifecycle configuration', () => {
 
   it('refuses partial, unsupported, or unsafe settings without echoing a token', () => {
     for (const env of [
-      { ADMIN_API_URL: 'http://admin.internal' },
       {
         SRS_LIFECYCLE_VERSION: '2',
         ADMIN_API_URL: 'http://admin.internal',

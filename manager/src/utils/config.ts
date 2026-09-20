@@ -91,7 +91,7 @@ export function managedSrsLifecycleConfig(
   const version = env.SRS_LIFECYCLE_VERSION?.trim() ?? '';
   const adminApiUrl = env.ADMIN_API_URL?.trim() ?? '';
   const adminApiToken = env.ADMIN_API_TOKEN ?? '';
-  if (!version && !adminApiUrl && !adminApiToken) return null;
+  if (!version) return null;
   if (version !== '1') {
     throw new Error(
       'SRS_LIFECYCLE_VERSION must be 1 when managed SRS lifecycle is configured',
