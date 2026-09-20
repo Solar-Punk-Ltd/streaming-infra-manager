@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -507,11 +507,17 @@ elif [ "$1" = compose ] && [ "\${!#}" = api ]; then
 elif [ "$1" = compose ] && [ "\${!#}" = web ]; then
   printf '%s\\n' manager-web-container
 elif [ "$1" = inspect ]; then
-  case "\${!#}" in
-    manager-api-container) printf '%s\\n' '${IMAGE_ID}' ;;
-    manager-web-container) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
-    *) exit 32 ;;
-  esac
+  if [[ "$*" == *State.Status* ]]; then
+    printf '%s\\n' running
+  elif [[ "$*" == *State.Health.Status* ]]; then
+    printf '%s\\n' healthy
+  else
+    case "\${!#}" in
+      manager-api-container) printf '%s\\n' '${IMAGE_ID}' ;;
+      manager-web-container) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+      *) exit 32 ;;
+    esac
+  fi
 fi
 `);
     await chmod(docker, 0o700);
@@ -544,11 +550,73 @@ fi
     const guardedWork = join(dirname(guardedCandidate), 'adapter-work');
     assert.match(override, new RegExp(`image: ${IMAGE_ID}`));
     assert.match(override, new RegExp(`image: ${WEB_IMAGE_ID}`));
+    assert.equal(override.match(/pull_policy: never/g)?.length, 2);
     assert.match(override, new RegExp(`source: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`target: ${guardedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`SHLS_ROOT: ${join(guardedCandidate, 'manager/swarm-hls-stream').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`source: ${guardedWork.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     assert.match(override, new RegExp(`target: ${guardedWork.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(calls, /inspect --format .*State\.Status.*manager-api-container/);
+    assert.match(calls, /inspect --format .*State\.Status.*manager-web-container/);
+    assert.match(calls, /inspect --format .*State\.Health\.Status.*manager-web-container/);
+  });
+
+  it('refuses a manager whose pinned web container is not healthy', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await mkdir(join(candidate, 'manager'), { recursive: true });
+    await writeFile(join(candidate, 'manager/docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(candidate, 'manager/.env'), 'MANAGER_DOMAIN=\n');
+    await writeFile(join(candidate, '.release-commit'), `${'c'.repeat(40)}\n`);
+    await mkdir(join(candidate, 'deploy/release-adapters'), { recursive: true });
+    await copyFile(
+      join(REPO, 'deploy/release-adapters/manager.sh'),
+      join(candidate, 'deploy/release-adapters/manager.sh'),
+    );
+    await chmod(join(candidate, 'deploy/release-adapters/manager.sh'), 0o700);
+    const fakeBin = join(root, 'bin');
+    await mkdir(fakeBin);
+    const docker = join(fakeBin, 'docker');
+    await writeFile(docker, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$(dirname "$0")/docker.log"
+if [ "$1" = compose ] && [ "\${!#}" = api ]; then
+  printf '%s\\n' manager-api-container
+elif [ "$1" = compose ] && [ "\${!#}" = web ]; then
+  printf '%s\\n' manager-web-container
+elif [[ "$*" == *State.Status* ]]; then
+  printf '%s\\n' running
+elif [[ "$*" == *State.Health.Status* ]]; then
+  printf '%s\\n' unhealthy
+elif [ "$1" = inspect ]; then
+  case "\${!#}" in
+    manager-api-container) printf '%s\\n' '${IMAGE_ID}' ;;
+    manager-web-container) printf '%s\\n' '${WEB_IMAGE_ID}' ;;
+  esac
+fi
+`);
+    await chmod(docker, 0o700);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
+    t.after(() => { process.env.PATH = oldPath; });
+
+    await assert.rejects(
+      new FixedReleaseAdapter('manager', join(root, 'adapter-work')).verify({
+        candidateRoot: await realpath(candidate),
+        treeDigest: 'a'.repeat(64),
+        slot: { role: 'manager', id: 'default' },
+        images: [
+          { service: 'api', imageId: IMAGE_ID },
+          { service: 'web', imageId: WEB_IMAGE_ID },
+        ],
+        activeArtifactPath: null,
+      }),
+      /release adapter verify failed/,
+    );
+    assert.match(
+      await readFile(join(fakeBin, 'docker.log'), 'utf8'),
+      /inspect --format .*State\.Health\.Status.*manager-web-container/,
+    );
   });
 
   it('does not start the new manager outside the coordinator when its migration fails', async (t) => {
