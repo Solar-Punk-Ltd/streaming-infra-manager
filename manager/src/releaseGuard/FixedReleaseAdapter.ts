@@ -302,6 +302,8 @@ function adapterEnvironment(role: ReleaseRole): NodeJS.ProcessEnv {
       'FEED_PRIVATE_KEY',
       'INTERNAL_API_TOKEN',
       'INGEST_SRT_PASSPHRASE',
+      'INGEST_MANAGED_LIFECYCLE_VERSION',
+      'INGEST_MANAGED_UPLOADER_ID',
     );
   } else if (role === 'manager') {
     names.push(
