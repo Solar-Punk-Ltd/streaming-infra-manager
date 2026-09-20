@@ -9,7 +9,14 @@ import type {
   ReleaseImageSet,
   ReleaseTransitionPlan,
 } from './ReleaseTransition.js';
-import type { ComposeReleaseTarget, ManagerReleaseTarget, ReleaseRole, StackReleaseTarget } from './ReleaseGuardTypes.js';
+import type {
+  ComposeReleaseTarget,
+  FixtureNetworkBinding,
+  ManagerReleaseTarget,
+  ReleaseRole,
+  ResolvedFixtureNetworkBinding,
+  StackReleaseTarget,
+} from './ReleaseGuardTypes.js';
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PREFLIGHT_BYTES = 4 * 1024;
@@ -18,10 +25,13 @@ const TERMINATION_GRACE_MS = 250;
 
 export interface FixedAdapterArguments {
   target?: ComposeReleaseTarget | ManagerReleaseTarget | StackReleaseTarget;
+  fixtureNetwork?: FixtureNetworkBinding;
 }
 
 /** Runs only the fixed adapter belonging to the selected component role. */
 export class FixedReleaseAdapter implements ReleaseAdapter {
+  private resolvedFixtureNetwork: ResolvedFixtureNetworkBinding | undefined;
+
   constructor(
     private readonly role: ReleaseRole,
     private readonly workRoot: string,
@@ -32,12 +42,13 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('release adapter timeout is invalid');
   }
 
-  async preflight(plan: ReleaseBuildPlan): Promise<void> {
+  async preflight(plan: ReleaseBuildPlan): Promise<unknown> {
     const output = join(this.workRoot, 'preflight.json');
     await rm(output, { force: true });
     await this.runPhase('preflight', plan, output);
     const raw = await readBoundedJson(output, MAX_PREFLIGHT_BYTES, 'preflight');
-    validateRuntimePreflight(this.role, plan, raw);
+    this.resolvedFixtureNetwork = validateRuntimePreflight(this.role, plan, raw, this.args.fixtureNetwork);
+    return this.resolvedFixtureNetwork ? { fixtureNetwork: this.resolvedFixtureNetwork } : null;
   }
 
   async build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet> {
@@ -89,7 +100,9 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       slot: plan.slot,
       images: 'images' in plan ? plan.images : [],
       activeArtifactPath: 'activeArtifactPath' in plan ? plan.activeArtifactPath : null,
-      arguments: this.args,
+      arguments: this.resolvedFixtureNetwork
+        ? { ...this.args, fixtureNetwork: this.resolvedFixtureNetwork }
+        : this.args,
     });
     const planHandle = await open(planPath, 'wx', 0o600);
     try {
@@ -116,27 +129,39 @@ async function readBoundedJson(path: string, maximumBytes: number, phase: string
   }
 }
 
-function validateRuntimePreflight(role: ReleaseRole, plan: ReleaseBuildPlan, raw: unknown): void {
+function validateRuntimePreflight(
+  role: ReleaseRole,
+  plan: ReleaseBuildPlan,
+  raw: unknown,
+  fixtureNetwork: FixtureNetworkBinding | undefined,
+): ResolvedFixtureNetworkBinding | undefined {
+  const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
+  const expectedKeys = fixtureNetwork ? ['fixtureNetworkId'] : [];
   if (role !== 'uploader') {
-    if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion']) || raw.schemaVersion !== 1) {
+    if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
       throw new Error('release adapter preflight result is invalid');
     }
-    return;
+  } else {
+    const invalid: string[] = [];
+    if (!isRecord(raw) || raw.lifecycleVersion !== 1) invalid.push('SRS_LIFECYCLE_VERSION');
+    if (!isRecord(raw) || raw.uploaderId !== plan.slot.id) invalid.push('SRS_UPLOADER_ID');
+    if (!isRecord(raw) || raw.adminApiConfigured !== true) invalid.push('ADMIN_API_URL');
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, ['schemaVersion', 'lifecycleVersion', 'uploaderId', 'adminApiConfigured', ...expectedKeys]) ||
+      raw.schemaVersion !== 1
+    ) {
+      if (invalid.length === 0) throw new Error('release adapter preflight result is invalid');
+    }
+    if (invalid.length > 0) {
+      throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
+    }
   }
-  const invalid: string[] = [];
-  if (!isRecord(raw) || raw.lifecycleVersion !== 1) invalid.push('SRS_LIFECYCLE_VERSION');
-  if (!isRecord(raw) || raw.uploaderId !== plan.slot.id) invalid.push('SRS_UPLOADER_ID');
-  if (!isRecord(raw) || raw.adminApiConfigured !== true) invalid.push('ADMIN_API_URL');
-  if (
-    !isRecord(raw) ||
-    !hasExactKeys(raw, ['schemaVersion', 'lifecycleVersion', 'uploaderId', 'adminApiConfigured']) ||
-    raw.schemaVersion !== 1
-  ) {
-    if (invalid.length === 0) throw new Error('release adapter preflight result is invalid');
+  if (!fixtureNetwork) return undefined;
+  if (typeof fixtureNetworkId !== 'string' || !/^[0-9a-f]{64}$/.test(fixtureNetworkId)) {
+    throw new Error('release adapter fixture network result is invalid');
   }
-  if (invalid.length > 0) {
-    throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
-  }
+  return { ...fixtureNetwork, networkId: fixtureNetworkId };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

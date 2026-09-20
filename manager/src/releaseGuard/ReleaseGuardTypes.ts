@@ -26,6 +26,15 @@ export interface StackReleaseTarget {
   services: string[];
 }
 
+export interface FixtureNetworkBinding {
+  name: string;
+  fixtureId: string;
+}
+
+export interface ResolvedFixtureNetworkBinding extends FixtureNetworkBinding {
+  networkId: string;
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;
@@ -63,6 +72,7 @@ export interface ReleaseGuardAttempt {
   phase: 'prepared' | 'verified';
   receipt: ReleaseGuardReceipt;
   body: string;
+  transitionDigest: string;
 }
 
 export interface PendingReleaseReceipt {

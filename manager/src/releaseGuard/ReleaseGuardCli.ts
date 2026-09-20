@@ -42,6 +42,8 @@ export async function runReleaseGuardCli(
       'viewer-profile',
       'viewer-port-slot',
       'viewer-services',
+      'fixture-network-name',
+      'fixture-id',
     ]));
     await installReleaseGuard(required(flags, 'state-root'), undefined, installationTargets(flags));
     return 'release guard installed';
@@ -119,7 +121,11 @@ async function adapterArguments(
   role: ReleaseRole,
   store: ReleaseGuardStore,
 ): Promise<FixedAdapterArguments> {
-  return { target: await store.deploymentTarget(role) };
+  const fixtureNetwork = await store.fixtureNetwork();
+  return {
+    target: await store.deploymentTarget(role),
+    ...(fixtureNetwork ? { fixtureNetwork } : {}),
+  };
 }
 
 function installationTargets(flags: Map<string, string>): ReleaseGuardDeploymentTargets {
@@ -177,6 +183,14 @@ function installationTargets(flags: Map<string, string>): ReleaseGuardDeployment
       target: 'local',
       services: servicesText!.split(','),
     };
+  }
+  const fixtureNetworkName = flags.get('fixture-network-name');
+  const fixtureId = flags.get('fixture-id');
+  if ((fixtureNetworkName === undefined) !== (fixtureId === undefined)) {
+    throw new Error('release guard fixture network target is incomplete');
+  }
+  if (fixtureNetworkName && fixtureId) {
+    targets.fixtureNetwork = { name: fixtureNetworkName, fixtureId };
   }
   return targets;
 }

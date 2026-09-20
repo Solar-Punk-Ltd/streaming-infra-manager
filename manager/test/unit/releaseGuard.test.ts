@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { createServer } from 'node:net';
@@ -68,6 +69,13 @@ const VIEWER_TARGET = {
   target: 'local' as const,
   services: ['bee-gateway', 'client'],
 };
+const FIXTURE_NETWORK = {
+  name: 'srs-continuation-20260920-a1b2c3d4-network',
+  fixtureId: 'srs-continuation-20260920-a1b2c3d4',
+};
+const FIXTURE_NETWORK_ID = 'c'.repeat(64);
+const TRANSITION_DIGEST = 'd'.repeat(64);
+const EMPTY_PREFLIGHT_TRANSITION_DIGEST = createHash('sha256').update('null\n').digest('hex');
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
 const FIXTURE_READY_TIMEOUT_MS = 5_000;
@@ -182,7 +190,7 @@ async function verifiedReceipt(
   input: { slot: ReleaseSlot; artifact: ReleaseArtifact },
 ) {
   return store.withTransition(async (lease) => {
-    const pending = await lease.prepare(input);
+    const pending = await lease.prepare({ ...input, transitionDigest: TRANSITION_DIGEST });
     await lease.markVerified(pending.body);
     return pending;
   });
@@ -227,6 +235,18 @@ describe('external release guard state', () => {
       /deployment targets are invalid/,
     );
     await installReleaseGuard(join(root, 'isolated'), INSTALLATION_ID, { manager: ISOLATED_MANAGER_TARGET });
+    const fixtureRoot = join(root, 'fixture-network');
+    await installReleaseGuard(fixtureRoot, INSTALLATION_ID, {
+      manager: ISOLATED_MANAGER_TARGET,
+      fixtureNetwork: FIXTURE_NETWORK,
+    });
+    assert.deepEqual(await new ReleaseGuardStore(fixtureRoot).fixtureNetwork(), FIXTURE_NETWORK);
+    await assert.rejects(
+      installReleaseGuard(join(root, 'fixture-without-isolation'), INSTALLATION_ID, {
+        fixtureNetwork: FIXTURE_NETWORK,
+      }),
+      /deployment targets are invalid/,
+    );
     await assert.rejects(
       installReleaseGuard(join(root, 'live-port'), INSTALLATION_ID, {
         manager: { ...ISOLATED_MANAGER_TARGET, postgresPort: 5_432 },
@@ -334,7 +354,7 @@ describe('external release guard state', () => {
 
     await assert.rejects(
       store.withTransition((lease) => lease.prepare({
-        slot: { role: 'uploader', id: 'srs/uploader' }, artifact,
+        slot: { role: 'uploader', id: 'srs/uploader' }, artifact, transitionDigest: TRANSITION_DIGEST,
       })),
       /uploader slot id is invalid/,
     );
@@ -739,7 +759,17 @@ esac
     const prepared = await store.withTransition((lease) => lease.prepare({
       slot: { role: 'uploader', id: UPLOADER_ID },
       artifact,
+      transitionDigest: EMPTY_PREFLIGHT_TRANSITION_DIGEST,
     }));
+
+    await assert.rejects(
+      store.withTransition((lease) => lease.prepare({
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        artifact,
+        transitionDigest: 'e'.repeat(64),
+      })),
+      /release guard transition or receipt is unresolved/,
+    );
 
     assert.equal(await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }), null);
     await assert.rejects(
@@ -821,7 +851,7 @@ phase="$1"
 candidate="$(cd "$(dirname "$0")/../.." && pwd)"
 echo "$phase" >> "$(dirname "$candidate")/phases"
 case "$phase" in
-  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5" ;;
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true,"fixtureNetworkId":"${FIXTURE_NETWORK_ID}"}' > "$5" ;;
   build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
   transition) ;;
   *) exit 7 ;;
@@ -837,6 +867,7 @@ esac
       slot: { role: 'uploader', id: UPLOADER_ID },
       adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work'), {
         target: UPLOADER_TARGET,
+        fixtureNetwork: FIXTURE_NETWORK,
       }),
     });
 
@@ -845,7 +876,11 @@ esac
     assert.equal(transitionPlan.temporaryProject.startsWith('release-'), true);
     assert.equal(transitionPlan.activeArtifactPath, null);
     assert.deepEqual(transitionPlan.images, [{ service: 'stream-uploader', imageId: IMAGE_ID }]);
-    assert.deepEqual(transitionPlan.arguments, { target: UPLOADER_TARGET });
+    assert.deepEqual(transitionPlan.arguments, {
+      target: UPLOADER_TARGET,
+      fixtureNetwork: { ...FIXTURE_NETWORK, networkId: FIXTURE_NETWORK_ID },
+    });
+    assert.match((await new ReleaseGuardStore(stateRoot).read()).attempt?.transitionDigest ?? '', /^[0-9a-f]{64}$/);
   });
 
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
@@ -1265,12 +1300,15 @@ describe('installed release guard command', () => {
       '--viewer-profile', VIEWER_TARGET.profile,
       '--viewer-port-slot', String(VIEWER_TARGET.portSlot),
       '--viewer-services', VIEWER_TARGET.services.join(','),
+      '--fixture-network-name', FIXTURE_NETWORK.name,
+      '--fixture-id', FIXTURE_NETWORK.fixtureId,
     ], {});
 
     const store = new ReleaseGuardStore(root);
     assert.deepEqual(await store.deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
     assert.deepEqual(await store.deploymentTarget('uploader'), UPLOADER_TARGET);
     assert.deepEqual(await store.deploymentTarget('viewer'), VIEWER_TARGET);
+    assert.deepEqual(await store.fixtureNetwork(), FIXTURE_NETWORK);
   });
 
   it('reports only the durable release mode', async (t) => {

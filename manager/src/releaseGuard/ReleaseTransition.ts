@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { ReleaseGuardStore } from './ReleaseGuardStore.js';
+import { canonicalJson, ReleaseGuardStore } from './ReleaseGuardStore.js';
 import type {
   PendingReleaseReceipt,
   ReleaseArtifact,
@@ -32,7 +32,7 @@ export interface ReleaseTransitionPlan extends ReleaseBuildPlan {
 }
 
 export interface ReleaseAdapter {
-  preflight(plan: ReleaseBuildPlan): Promise<void>;
+  preflight(plan: ReleaseBuildPlan): Promise<unknown>;
   build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet>;
   transition(plan: ReleaseTransitionPlan): Promise<void>;
   verify(plan: ReleaseTransitionPlan): Promise<ReleaseImageSet>;
@@ -51,12 +51,13 @@ export async function runReleaseTransition(input: {
     await requireLifecycleCapability(candidateRoot, input.slot.role);
     const treeDigest = await digestTree(candidateRoot);
     const prepared = { candidateRoot, treeDigest, slot: input.slot };
-    await input.adapter.preflight(prepared);
+    const preflight = await input.adapter.preflight(prepared);
+    const transitionDigest = createHash('sha256').update(canonicalJson(preflight ?? null)).digest('hex');
     const built = validateImageSet(await input.adapter.build(prepared));
     const digestAfterBuild = await digestTree(candidateRoot);
     if (digestAfterBuild !== treeDigest) throw new Error('candidate tree changed during the isolated image build');
     const artifact: ReleaseArtifact = { treeDigest, images: built.images };
-    const pending = await lease.prepare({ slot: input.slot, artifact });
+    const pending = await lease.prepare({ slot: input.slot, artifact, transitionDigest });
     const activeArtifactPath = input.slot.role === 'admin'
       ? await lease.writeActiveArtifact(pending.body)
       : null;

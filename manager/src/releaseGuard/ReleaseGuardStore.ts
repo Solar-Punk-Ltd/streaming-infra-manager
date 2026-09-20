@@ -8,6 +8,7 @@ import {
   type PendingReleaseReceipt,
   type ActiveArtifactMetadata,
   type ComposeReleaseTarget,
+  type FixtureNetworkBinding,
   type ManagerReleaseTarget,
   type ReleaseArtifact,
   type ReleaseGuardReceipt,
@@ -41,6 +42,7 @@ export interface ReleaseGuardDeploymentTargets {
   admin?: ComposeReleaseTarget;
   uploader?: StackReleaseTarget;
   viewer?: StackReleaseTarget;
+  fixtureNetwork?: FixtureNetworkBinding;
 }
 
 class MissingGuardFileError extends Error {}
@@ -140,6 +142,13 @@ export class ReleaseGuardStore {
     const target = targets.targets[role];
     if (!target) throw new Error(`release guard ${role} target is not installed`);
     return target;
+  }
+
+  async fixtureNetwork(): Promise<FixtureNetworkBinding | null> {
+    const state = await this.read();
+    const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+    if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
+    return targets.targets.fixtureNetwork ?? null;
   }
 
   async withTransition<T>(action: (lease: ReleaseTransitionLease) => Promise<T>): Promise<T> {
@@ -300,15 +309,18 @@ class ReleaseTransitionLease {
   async prepare(input: {
     slot: ReleaseSlot;
     artifact: ReleaseArtifact;
+    transitionDigest: string;
   }): Promise<PendingReleaseReceipt> {
     const state = await this.store.read();
     const slot = validateSlot(input.slot);
     const artifact = validateArtifact(input.artifact);
+    if (!DIGEST.test(input.transitionDigest)) throw new Error('release transition digest is invalid');
     if (state.attempt) {
       if (
         state.attempt.phase === 'prepared' &&
         slotKey(state.attempt.receipt.slot) === slotKey(slot) &&
-        canonicalJson(state.attempt.receipt.artifact) === canonicalJson(artifact)
+        canonicalJson(state.attempt.receipt.artifact) === canonicalJson(artifact) &&
+        state.attempt.transitionDigest === input.transitionDigest
       ) {
         return { receipt: state.attempt.receipt, body: state.attempt.body };
       }
@@ -337,7 +349,7 @@ class ReleaseTransitionLease {
     const body = canonicalJson(receipt);
     await atomicWrite(this.root, STATE, canonicalJson({
       ...core,
-      attempt: { phase: 'prepared', receipt, body },
+      attempt: { phase: 'prepared', receipt, body, transitionDigest: input.transitionDigest },
     }));
     await writeActivationSentinel(this.root, core.installationId);
     return { receipt, body };
@@ -453,8 +465,10 @@ function parseState(raw: unknown): ReleaseGuardState {
   }
   let attempt: ReleaseGuardAttempt | null = null;
   if (raw.attempt !== null) {
-    if (!isRecord(raw.attempt) || !hasExactKeys(raw.attempt, ['phase', 'receipt', 'body']) ||
-        (raw.attempt.phase !== 'prepared' && raw.attempt.phase !== 'verified') || typeof raw.attempt.body !== 'string') {
+    if (!isRecord(raw.attempt) || !hasExactKeys(raw.attempt, ['phase', 'receipt', 'body', 'transitionDigest']) ||
+        (raw.attempt.phase !== 'prepared' && raw.attempt.phase !== 'verified') ||
+        typeof raw.attempt.body !== 'string' || typeof raw.attempt.transitionDigest !== 'string' ||
+        !DIGEST.test(raw.attempt.transitionDigest)) {
       throw new Error('release guard state is invalid');
     }
     const receipt = parseReceipt(raw.attempt.receipt);
@@ -477,7 +491,7 @@ function parseState(raw: unknown): ReleaseGuardState {
       throw new Error('release guard state is invalid');
     }
     const phase = raw.attempt.phase;
-    attempt = { phase, receipt, body: raw.attempt.body };
+    attempt = { phase, receipt, body: raw.attempt.body, transitionDigest: raw.attempt.transitionDigest };
   }
   if ((Number(raw.generation) === 0) !== (Object.keys(slots).length === 0 && attempt === null)) {
     throw new Error('release guard state is invalid');
@@ -536,7 +550,7 @@ function validateDeploymentTargets(raw: unknown): {
     throw new Error('release guard deployment targets are invalid');
   }
   requireUuid(raw.installationId, 'release guard installation id');
-  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => !['manager', 'admin', 'uploader', 'viewer'].includes(key))) {
+  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => !['manager', 'admin', 'uploader', 'viewer', 'fixtureNetwork'].includes(key))) {
     throw new Error('release guard deployment targets are invalid');
   }
   const targets: ReleaseGuardDeploymentTargets = {};
@@ -638,6 +652,23 @@ function validateDeploymentTargets(raw: unknown): {
       portSlot: Number(target.portSlot),
       target: 'local',
       services: [...services],
+    };
+  }
+  const fixtureNetwork = raw.targets.fixtureNetwork;
+  if (fixtureNetwork !== undefined) {
+    if (
+      !isRecord(fixtureNetwork) ||
+      !hasExactKeys(fixtureNetwork, ['fixtureId', 'name']) ||
+      typeof fixtureNetwork.fixtureId !== 'string' ||
+      !/^srs-continuation-20260920-[a-z0-9]{8,16}$/.test(fixtureNetwork.fixtureId) ||
+      fixtureNetwork.name !== `${fixtureNetwork.fixtureId}-network` ||
+      targets.manager?.mode !== 'isolated'
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets.fixtureNetwork = {
+      name: fixtureNetwork.name,
+      fixtureId: fixtureNetwork.fixtureId,
     };
   }
   return { schemaVersion: 1, installationId: raw.installationId, targets };
