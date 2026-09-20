@@ -80,6 +80,7 @@ const MANAGED_SRS_TOKEN = /^[\x21-\x7e]{32,8192}$/;
 
 export interface ManagedSrsLifecycleConfig {
   lifecycleVersion: 1;
+  profile: string;
   adminApiUrl: string;
   adminApiToken: string;
 }
@@ -89,6 +90,7 @@ export function managedSrsLifecycleConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): ManagedSrsLifecycleConfig | null {
   const version = env.SRS_LIFECYCLE_VERSION?.trim() ?? '';
+  const profile = env.SRS_MANAGED_UPLOADER_PROFILE?.trim() ?? '';
   const adminApiUrl = env.ADMIN_API_URL?.trim() ?? '';
   const adminApiToken = env.ADMIN_API_TOKEN ?? '';
   if (!version) return null;
@@ -96,6 +98,9 @@ export function managedSrsLifecycleConfig(
     throw new Error(
       'SRS_LIFECYCLE_VERSION must be 1 when managed SRS lifecycle is configured',
     );
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profile)) {
+    throw new Error('SRS_MANAGED_UPLOADER_PROFILE must name one deployment profile');
   }
   if (!adminApiUrl) {
     throw new Error('ADMIN_API_URL is required for managed SRS lifecycle');
@@ -122,6 +127,7 @@ export function managedSrsLifecycleConfig(
   }
   return {
     lifecycleVersion: 1,
+    profile,
     adminApiUrl: url.href.replace(/\/$/, ''),
     adminApiToken,
   };

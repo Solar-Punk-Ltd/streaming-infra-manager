@@ -10,12 +10,13 @@ import { makeProfile } from '../support/profileFixtures.js';
 const root = throwawayRoot('managed-srs-deploy-');
 process.env.SHLS_ROOT = root;
 
-const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
+const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
 const TOKEN = 'managed-srs-fixture-token-at-least-32-bytes';
 const INSTANCE_ID = '11111111-2222-4333-8444-555555555555';
 const managed: ManagedSrsLifecycleConfig = {
   lifecycleVersion: 1,
+  profile: 'managed',
   adminApiUrl: 'http://admin.internal',
   adminApiToken: TOKEN,
 };
@@ -28,6 +29,7 @@ function harness(
   name: string,
   kind: 'streamer' | 'viewer' = 'streamer',
   host: string | null = null,
+  selectedProfile = name,
 ) {
   writeFileSync(
     join(root, '.env'),
@@ -55,7 +57,7 @@ function harness(
     undefined,
     undefined,
     undefined,
-    managed,
+    { ...managed, profile: selectedProfile },
   );
   return { ...result, profile };
 }
@@ -91,6 +93,36 @@ describe('managed SRS lifecycle deploy environment', () => {
     assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_TOKEN, TOKEN);
     assert.doesNotMatch(result.runner.runs[0]?.args.join(' ') ?? '', new RegExp(TOKEN));
     assert.equal(result.runner.runs[0]?.options.withholdOutput, true);
+  });
+
+  it('keeps unrelated capable SRS profiles legacy', async () => {
+    const result = harness('unrelated-srs', 'streamer', null, 'managed');
+    const version = await result.versions.findById(1);
+    assert.ok(version?.contract);
+    version.contract.features.srsLifecycleV1 = true;
+
+    await result.orchestrator.startDeploy(result.profile, undefined);
+    const contents = readFileSync(join(root, '.env.unrelated-srs'), 'utf8');
+
+    assert.equal(lineFor(contents, 'SRS_LIFECYCLE_VERSION'), 'SRS_LIFECYCLE_VERSION=');
+    assert.equal(lineFor(contents, 'SRS_UPLOADER_ID'), 'SRS_UPLOADER_ID=');
+    assert.equal(result.runner.runs[0]?.options.env?.ADMIN_API_TOKEN, undefined);
+  });
+
+  it('keeps the selected profile instance identity across a retry', async () => {
+    const result = harness('managed');
+    const version = await result.versions.findById(1);
+    assert.ok(version?.contract);
+    version.contract.features.srsLifecycleV1 = true;
+
+    await result.orchestrator.startDeploy(result.profile, undefined);
+    result.runner.finish(0);
+    await untilRunning(result.profiles, result.profile.name);
+    await result.orchestrator.startDeploy(result.profiles.rows.get(result.profile.name)!, undefined);
+
+    const contents = readFileSync(join(root, '.env.managed'), 'utf8');
+    assert.equal(lineFor(contents, 'SRS_UPLOADER_ID'), `SRS_UPLOADER_ID=${INSTANCE_ID}`);
+    assert.equal(result.runner.runs.length, 2);
   });
 
   it('clears stale managed settings for a stack without the capability', async () => {

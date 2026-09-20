@@ -413,6 +413,7 @@ export class DeploymentOrchestrator {
     const services = defaultServicesFor(profile);
     if (
       !configured ||
+      profile.name !== configured.profile ||
       !version.contract?.features.srsLifecycleV1 ||
       !services.includes(SRS_SERVICE) ||
       !services.includes(STREAM_UPLOADER_SERVICE)
