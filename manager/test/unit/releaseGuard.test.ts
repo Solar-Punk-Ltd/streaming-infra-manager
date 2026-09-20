@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -136,6 +136,33 @@ describe('external release guard state', () => {
     await installReleaseGuard(root, INSTALLATION_ID);
     await mkdir(join(root, 'state.lock'));
 
+    await assert.rejects(
+      new ReleaseGuardStore(root).withTransition(async () => undefined),
+      /crash lock requires operator recovery/,
+    );
+  });
+
+  it('keeps a real killed transition locked until explicit operator recovery', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const child = spawn(process.execPath, [
+      '--conditions=development',
+      '--import', join(REPO, 'manager/node_modules/tsx/dist/loader.mjs'),
+      join(REPO, 'manager/test/fixtures/releaseGuardHoldLock.ts'),
+      root,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    t.after(() => { if (!child.killed) child.kill('SIGKILL'); });
+    await new Promise<void>((resolveLock, rejectLock) => {
+      child.once('error', rejectLock);
+      child.stdout.once('data', (chunk: Buffer) => {
+        if (chunk.toString('utf8') !== 'locked\n') rejectLock(new Error('lock fixture did not acquire the guard'));
+        else resolveLock();
+      });
+    });
+
+    assert.equal(child.kill('SIGKILL'), true);
+    await new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
     await assert.rejects(
       new ReleaseGuardStore(root).withTransition(async () => undefined),
       /crash lock requires operator recovery/,
