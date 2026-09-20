@@ -716,7 +716,10 @@ they have on the host, because the docker daemon runs on the host and reads
 every path in a compose file as a host path.
 
 Managed SRS lifecycle reporting is disabled by default. To enable it, set
-`SRS_LIFECYCLE_VERSION=1` and `ADMIN_API_URL` in `manager/.env`. Put an
+`SRS_LIFECYCLE_VERSION=1`, `SRS_MANAGED_UPLOADER_PROFILE=<profile>` and
+`ADMIN_API_URL` in `manager/.env`. The profile selector enables lifecycle
+reporting for that one deployment. Other capable SRS profiles keep their
+legacy behavior. Put an
 `op://` reference for `ADMIN_API_TOKEN` in that file and start the manager
 through `op run --env-file manager/.env -- ...`. The Compose file explicitly
 passes those three values into the API container. For a selected stack whose

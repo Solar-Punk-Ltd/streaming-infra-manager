@@ -48,6 +48,7 @@ describe('the api container', () => {
   it('forwards only the operator-managed SRS boundary into the API process', () => {
     for (const name of [
       'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
       'ADMIN_API_URL',
       'ADMIN_API_TOKEN',
     ]) {

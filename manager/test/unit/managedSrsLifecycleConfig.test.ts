@@ -19,11 +19,13 @@ describe('managed SRS lifecycle configuration', () => {
     assert.deepEqual(
       managedSrsLifecycleConfig({
         SRS_LIFECYCLE_VERSION: '1',
+        SRS_MANAGED_UPLOADER_PROFILE: 'primary-srs',
         ADMIN_API_URL: 'http://admin.internal/base/',
         ADMIN_API_TOKEN: TOKEN,
       }),
       {
         lifecycleVersion: 1,
+        profile: 'primary-srs',
         adminApiUrl: 'http://admin.internal/base',
         adminApiToken: TOKEN,
       },
@@ -39,16 +41,19 @@ describe('managed SRS lifecycle configuration', () => {
       },
       {
         SRS_LIFECYCLE_VERSION: '1',
+        SRS_MANAGED_UPLOADER_PROFILE: 'primary-srs',
         ADMIN_API_URL: 'http://user:pass@admin.internal',
         ADMIN_API_TOKEN: TOKEN,
       },
       {
         SRS_LIFECYCLE_VERSION: '1',
+        SRS_MANAGED_UPLOADER_PROFILE: 'primary-srs',
         ADMIN_API_URL: 'http://admin.internal?route=other',
         ADMIN_API_TOKEN: TOKEN,
       },
       {
         SRS_LIFECYCLE_VERSION: '1',
+        SRS_MANAGED_UPLOADER_PROFILE: 'primary-srs',
         ADMIN_API_URL: 'http://admin.internal',
         ADMIN_API_TOKEN: 'short',
       },
@@ -59,6 +64,20 @@ describe('managed SRS lifecycle configuration', () => {
           assert.doesNotMatch(error.message, /fixture-token|user:pass|route=other/);
           return true;
         },
+      );
+    }
+  });
+
+  it('requires one bounded uploader profile when lifecycle management is enabled', () => {
+    for (const profile of [undefined, '', 'profile/other', '-option']) {
+      assert.throws(
+        () => managedSrsLifecycleConfig({
+          SRS_LIFECYCLE_VERSION: '1',
+          SRS_MANAGED_UPLOADER_PROFILE: profile,
+          ADMIN_API_URL: 'http://admin.internal',
+          ADMIN_API_TOKEN: TOKEN,
+        }),
+        /SRS_MANAGED_UPLOADER_PROFILE/,
       );
     }
   });
