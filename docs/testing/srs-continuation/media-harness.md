@@ -14,6 +14,21 @@ Do not execute the upstream start or stop command against the shared daemon. Its
 
 P1. Using the old fixture recipe would certainly fail before testing, and running the replacement's raw cleanup could remove a neighboring fixture. Adapt the narrow orchestration into this task's isolated harness. The cost is fixture setup and pinned-image verification. Accepting the unmodified commands risks other work and invalid evidence.
 
+### Available matching image candidates
+
+Docker Hub's public tag API returned all six `v2.8.2` images on 2026-09-21. They were published on 2026-08-26, outside the fourteen-day freshness flag. The following linux/amd64 manifest digests match the push lines in the successful [official image build 32947067964](https://github.com/ethersphere/bee-factory/actions/runs/32947067964). That build names `--tag v2.8.2` and source commit `4c2c91203b4d10fff33a2ae61ee6b48a00341f1e`. GitHub reports the source commit's signature verified.
+
+| Image under `docker.io/ethersphere/` | linux/amd64 manifest digest |
+| --- | --- |
+| `bee-factory-blockchain` | `sha256:d63e15b7e5e71159a23a09835f89ba46913d4ba3fb8dd31b90ceaca2e9363d08` |
+| `bee-factory-queen` | `sha256:60bf85b9938da1c9309dd8bb9c0b691963d30338fa2c5d7e75d7a012fdaa5ab4` |
+| `bee-factory-worker-1` | `sha256:14711443c3de2bae815b7e545b7c6863d397f5ea3527d7490b80ffdd165c631a` |
+| `bee-factory-worker-2` | `sha256:45ee131a0a53f84ded6c0d57ed74be9dc4b0d8236eb7a9ece9b4a4adb257fd55` |
+| `bee-factory-worker-3` | `sha256:3d67f8f183f6b15d561cc3d1cebf8ee4c008cfa9c1d9d2e6b345e006bb8e8a64` |
+| `bee-factory-worker-4` | `sha256:d773d6e0ef3a22b71d8f22d5e9780e66cff4517d1a420a38e09a404a2b621633` |
+
+This establishes the published source/build association, not an independent image signature, installed-package audit or successful runtime. Those checks and the actual binary version remain pending. No image was pulled for this preparation. The images contain public disposable development identities and chain snapshots. The harness must neither print those identities' private material nor use them on a real network.
+
 ## Required arrangement
 
 The harness belongs to the stack repository and accepts exact stack, admin and manager candidate identifiers. It uses the approved host `157.90.34.105`. The existing task database remains separate until its current focused checks finish.
