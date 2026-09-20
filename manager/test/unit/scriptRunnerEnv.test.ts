@@ -35,6 +35,19 @@ writeFileSync(
 
 const PRINT_ENV = join(root, 'print-env.sh');
 writeFileSync(PRINT_ENV, 'env\n', 'utf8');
+const PRINT_SECRET = join(root, 'print-secret.sh');
+writeFileSync(
+  PRINT_SECRET,
+  [
+    'printf "%s" "$TOKEN_PART_A"',
+    'sleep 0.05',
+    'printf "%s" "$TOKEN_PART_B"',
+    'printf "%s" "$TOKEN_PART_A" >&2',
+    'sleep 0.05',
+    'printf "%s" "$TOKEN_PART_B" >&2',
+  ].join('\n'),
+  'utf8',
+);
 
 const PARENT = {
   DATABASE_URL: 'postgres://manager@localhost/manager',
@@ -125,5 +138,34 @@ describe('the environment a stack script is run with', () => {
     assert.equal(env.has('DATABASE_URL'), false);
     assert.equal(env.has('LOG_LEVEL'), false);
     assert.equal(env.get('API_PORT'), '19999', 'no sample says this is the stack\'s');
+  });
+
+  it('redacts an intentionally routed secret from both child output streams', async () => {
+    const token = 'managed-srs-fixture-token-at-least-32-bytes';
+    const splitAt = 17;
+    const handle = new ScriptRunner().run(PRINT_SECRET, [], {
+      cwd: root,
+      env: {
+        TOKEN_PART_A: token.slice(0, splitAt),
+        TOKEN_PART_B: token.slice(splitAt),
+      },
+      redactedValues: [token],
+    });
+    let stdout = '';
+    let stderr = '';
+    handle.emitter.on('stdout', (chunk: string) => {
+      stdout += chunk;
+    });
+    handle.emitter.on('stderr', (chunk: string) => {
+      stderr += chunk;
+    });
+    await new Promise<void>((resolve, reject) => {
+      handle.emitter.on('done', () => resolve());
+      handle.emitter.on('error', reject);
+    });
+
+    assert.equal(stdout, '<redacted>');
+    assert.equal(stderr, '<redacted>');
+    assert.doesNotMatch(stdout + stderr, new RegExp(token));
   });
 });

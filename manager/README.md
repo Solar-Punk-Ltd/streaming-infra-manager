@@ -719,11 +719,14 @@ Managed SRS lifecycle reporting is disabled by default. To enable it, set
 `SRS_LIFECYCLE_VERSION=1` and `ADMIN_API_URL` in `manager/.env`. Put an
 `op://` reference for `ADMIN_API_TOKEN` in that file and start the manager
 through `op run --env-file manager/.env -- ...`. The Compose file explicitly
-passes those three values into the API container. The manager writes them only
-for a selected stack whose contract advertises `srsLifecycleV1`, and derives
-`SRS_UPLOADER_ID` from that deployment's persisted `instance_id`. An older or
-incapable stack receives empty managed settings, including when its base env
-contains stale values.
+passes those three values into the API container. For a selected stack whose
+contract advertises `srsLifecycleV1`, the manager writes the lifecycle version
+and a persisted deployment `instance_id` into the profile env file. It supplies
+the admin boundary only to the local deploy process. The token never enters the
+generated profile env file, arguments or deploy output. An older or incapable
+stack receives an empty lifecycle version and identity while any existing
+legacy admin-mode settings stay in place. Managed remote deployment remains
+refused until its credential transport is approved and implemented.
 
 ## Limitations (intentional, v1)
 
