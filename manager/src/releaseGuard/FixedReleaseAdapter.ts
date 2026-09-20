@@ -4,13 +4,13 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { canonicalJson } from './ReleaseGuardStore.js';
 import type {
-  AdminReleaseRuntime,
   ReleaseAdapter,
   ReleaseBuildPlan,
   ReleaseImageSet,
   ReleaseTransitionPlan,
 } from './ReleaseTransition.js';
 import type {
+  AdminReleaseRuntime,
   ComposeReleaseTarget,
   FixtureNetworkBinding,
   ManagerReleaseTarget,
