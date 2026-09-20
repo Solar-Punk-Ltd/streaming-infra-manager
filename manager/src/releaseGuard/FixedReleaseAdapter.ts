@@ -1,0 +1,229 @@
+import { spawn } from 'node:child_process';
+import { lstat, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+
+import { canonicalJson } from './ReleaseGuardStore.js';
+import type {
+  ReleaseAdapter,
+  ReleaseBuildPlan,
+  ReleaseImageSet,
+  ReleaseTransitionPlan,
+} from './ReleaseTransition.js';
+import type { ReleaseRole } from './ReleaseGuardTypes.js';
+
+const MAX_RESULT_BYTES = 64 * 1024;
+const MAX_PREFLIGHT_BYTES = 4 * 1024;
+const DEFAULT_PHASE_TIMEOUT_MS = 20 * 60_000;
+const DIAGNOSTIC_BYTES = 4096;
+const TERMINATION_GRACE_MS = 250;
+
+export interface FixedAdapterArguments {
+  profile?: string;
+  portSlot?: number;
+  target?: string;
+  services?: string[];
+}
+
+/** Runs only the fixed adapter belonging to the selected component role. */
+export class FixedReleaseAdapter implements ReleaseAdapter {
+  constructor(
+    private readonly role: ReleaseRole,
+    private readonly workRoot: string,
+    private readonly args: FixedAdapterArguments = {},
+    private readonly timeoutMs = DEFAULT_PHASE_TIMEOUT_MS,
+  ) {
+    if (!isAbsolute(workRoot)) throw new Error('release adapter work root must be absolute');
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('release adapter timeout is invalid');
+  }
+
+  async preflight(plan: ReleaseBuildPlan): Promise<void> {
+    const output = join(this.workRoot, 'preflight.json');
+    await rm(output, { force: true });
+    await this.runPhase('preflight', plan, output);
+    const raw = await readBoundedJson(output, MAX_PREFLIGHT_BYTES, 'preflight');
+    validateRuntimePreflight(this.role, plan, raw);
+  }
+
+  async build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet> {
+    return this.runResultPhase('build', plan);
+  }
+
+  async transition(plan: ReleaseTransitionPlan): Promise<void> {
+    await this.runPhase('transition', plan);
+  }
+
+  async verify(plan: ReleaseTransitionPlan): Promise<ReleaseImageSet> {
+    return this.runResultPhase('verify', plan);
+  }
+
+  private async runResultPhase(
+    phase: 'build' | 'verify',
+    plan: ReleaseBuildPlan | ReleaseTransitionPlan,
+  ): Promise<ReleaseImageSet> {
+    const output = join(this.workRoot, `${phase}.json`);
+    await rm(output, { force: true });
+    await this.runPhase(phase, plan, output);
+    return await readBoundedJson(output, MAX_RESULT_BYTES, phase) as ReleaseImageSet;
+  }
+
+  private async runPhase(
+    phase: 'preflight' | 'build' | 'transition' | 'verify',
+    plan: ReleaseBuildPlan | ReleaseTransitionPlan,
+    output?: string,
+  ): Promise<void> {
+    const candidateRoot = resolve(plan.candidateRoot);
+    const workRoot = resolve(this.workRoot);
+    if (relative(candidateRoot, workRoot) === '' || !relative(candidateRoot, workRoot).startsWith('..')) {
+      throw new Error('release adapter work root must be outside the candidate tree');
+    }
+    await mkdir(workRoot, { recursive: true, mode: 0o700 });
+    const adapter = join(candidateRoot, adapterRelativePath(this.role));
+    const adapterStat = await lstat(adapter).catch(() => null);
+    if (!adapterStat?.isFile() || adapterStat.isSymbolicLink()) {
+      throw new Error(`candidate ${this.role} release adapter is missing`);
+    }
+    const planPath = join(workRoot, `${phase}-plan.json`);
+    await rm(planPath, { force: true });
+    const planBody = canonicalJson({
+      schemaVersion: 1,
+      phase,
+      temporaryProject: `release-${plan.treeDigest.slice(0, 20)}`,
+      candidateRoot,
+      treeDigest: plan.treeDigest,
+      slot: plan.slot,
+      images: 'images' in plan ? plan.images : [],
+      activeArtifactPath: 'activeArtifactPath' in plan ? plan.activeArtifactPath : null,
+      arguments: this.args,
+    });
+    const planHandle = await open(planPath, 'wx', 0o600);
+    try {
+      await planHandle.writeFile(planBody, 'utf8');
+      await planHandle.sync();
+    } finally {
+      await planHandle.close();
+    }
+    const argv = [adapter, phase, '--plan', planPath];
+    if (output) argv.push('--output', output);
+    await runBounded(argv, candidateRoot, this.timeoutMs);
+  }
+}
+
+async function readBoundedJson(path: string, maximumBytes: number, phase: string): Promise<unknown> {
+  const stat = await lstat(path).catch(() => null);
+  if (!stat?.isFile() || stat.isSymbolicLink() || stat.size > maximumBytes) {
+    throw new Error(`release adapter ${phase} result is invalid`);
+  }
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as unknown;
+  } catch {
+    throw new Error(`release adapter ${phase} result is invalid`);
+  }
+}
+
+function validateRuntimePreflight(role: ReleaseRole, plan: ReleaseBuildPlan, raw: unknown): void {
+  if (role !== 'uploader') {
+    if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion']) || raw.schemaVersion !== 1) {
+      throw new Error('release adapter preflight result is invalid');
+    }
+    return;
+  }
+  const invalid: string[] = [];
+  if (!isRecord(raw) || raw.lifecycleVersion !== 1) invalid.push('SRS_LIFECYCLE_VERSION');
+  if (!isRecord(raw) || raw.uploaderId !== plan.slot.id) invalid.push('SRS_UPLOADER_ID');
+  if (!isRecord(raw) || raw.adminApiConfigured !== true) invalid.push('ADMIN_API_URL');
+  if (
+    !isRecord(raw) ||
+    !hasExactKeys(raw, ['schemaVersion', 'lifecycleVersion', 'uploaderId', 'adminApiConfigured']) ||
+    raw.schemaVersion !== 1
+  ) {
+    if (invalid.length === 0) throw new Error('release adapter preflight result is invalid');
+  }
+  if (invalid.length > 0) {
+    throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = keys.slice().sort();
+  return actual.length === expected.length && expected.every((key, index) => actual[index] === key);
+}
+
+export function adapterRelativePath(role: ReleaseRole): string {
+  if (role === 'manager') return 'deploy/release-adapters/manager.sh';
+  if (role === 'admin') return 'web2-admin/backend/release-adapter.sh';
+  if (role === 'viewer') return 'deploy/scripts/viewer-release-adapter.sh';
+  return 'deploy/scripts/release-adapter.sh';
+}
+
+async function runBounded(argv: string[], cwd: string, timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolveRun, rejectRun) => {
+    const child = spawn('/bin/bash', argv, {
+      cwd,
+      env: adapterEnvironment(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    let force: ReturnType<typeof setTimeout> | undefined;
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout = `${stdout}${chunk.toString('utf8')}`.slice(-DIAGNOSTIC_BYTES);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr = `${stderr}${chunk.toString('utf8')}`.slice(-DIAGNOSTIC_BYTES);
+    });
+    const killGroup = (signal: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // The group already ended.
+      }
+    };
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      killGroup('SIGTERM');
+      force = setTimeout(() => killGroup('SIGKILL'), TERMINATION_GRACE_MS);
+    }, timeoutMs);
+    child.once('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (force) clearTimeout(force);
+      rejectRun(new Error('release adapter could not start'));
+    });
+    child.once('close', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (force) clearTimeout(force);
+      const diagnostic = redactedDiagnostic(stderr, stdout);
+      if (timedOut) {
+        rejectRun(new Error(`release adapter timed out${diagnostic}`));
+        return;
+      }
+      if (code === 0 && signal === null) resolveRun();
+      else rejectRun(new Error(`release adapter ${signal ? 'was terminated' : 'failed'}${diagnostic}`));
+    });
+  });
+}
+
+function redactedDiagnostic(stderr: string, stdout: string): string {
+  const text = (stderr.trim() || stdout.trim())
+    .replace(/\bBearer\s+[^\s]+/gi, 'Bearer <redacted>')
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|PASSWORD|PASSPHRASE|SECRET|PRIVATE_KEY)[A-Z0-9_]*)=\S+/gi, '$1=<redacted>')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1<redacted>@');
+  return text === '' ? '' : `: ${text}`;
+}
+
+function adapterEnvironment(): NodeJS.ProcessEnv {
+  const names = ['PATH', 'HOME', 'DOCKER_HOST', 'XDG_RUNTIME_DIR'];
+  return Object.fromEntries(names.flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
+}

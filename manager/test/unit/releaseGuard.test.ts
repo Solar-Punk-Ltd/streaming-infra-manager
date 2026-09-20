@@ -1,0 +1,659 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
+import { describe, it } from 'node:test';
+
+import {
+  ReleaseGuardStore,
+  installReleaseGuard,
+} from '../../src/releaseGuard/ReleaseGuardStore.js';
+import {
+  digestTree,
+  runReleaseTransition,
+  type ReleaseAdapter,
+} from '../../src/releaseGuard/ReleaseTransition.js';
+import { submitPendingReceipt } from '../../src/releaseGuard/ReleaseReceiptSubmitter.js';
+import type {
+  ReleaseArtifact,
+  ReleaseSlot,
+} from '../../src/releaseGuard/ReleaseGuardTypes.js';
+import { FixedReleaseAdapter } from '../../src/releaseGuard/FixedReleaseAdapter.js';
+import { runReleaseGuardCli } from '../../src/releaseGuard/ReleaseGuardCli.js';
+
+const execFileAsync = promisify(execFile);
+const INSTALLATION_ID = '11111111-1111-4111-8111-111111111111';
+const UPLOADER_ID = 'srs-uploader-a';
+const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
+const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
+const REPO = resolve(import.meta.dirname, '../../..');
+
+async function temporaryRoot(t: { after(callback: () => Promise<void>): void }) {
+  const root = await mkdtemp(join(tmpdir(), 'release-guard-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+async function capableCandidate(root: string, role = 'uploader') {
+  const manifest = role === 'admin'
+    ? join(root, 'web2-admin/backend/release-capabilities.json')
+    : join(root, 'deploy', role === 'manager' ? 'release-capabilities.json' : 'capabilities.json');
+  await mkdir(join(manifest, '..'), { recursive: true });
+  await writeFile(
+    manifest,
+    `${JSON.stringify({ schemaVersion: 1, capabilities: { srsLifecycle: 1 } })}\n`,
+  );
+  await writeFile(join(root, `${role}.txt`), 'candidate artifact\n');
+}
+
+function adapter(counters: { build: number; stop: number; start: number }): ReleaseAdapter {
+  return {
+    async preflight() {},
+    async build() {
+      counters.build += 1;
+      return { schemaVersion: 1, images: [{ service: 'stream-uploader', imageId: IMAGE_ID }] };
+    },
+    async transition() {
+      counters.stop += 1;
+      counters.start += 1;
+    },
+    async verify() {
+      return { schemaVersion: 1, images: [{ service: 'stream-uploader', imageId: IMAGE_ID }] };
+    },
+  };
+}
+
+async function verifiedReceipt(
+  store: ReleaseGuardStore,
+  input: { slot: ReleaseSlot; artifact: ReleaseArtifact },
+) {
+  return store.withTransition(async (lease) => {
+    const pending = await lease.prepare(input);
+    await lease.markVerified(pending.body);
+    return pending;
+  });
+}
+
+describe('external release guard state', () => {
+  it('fails closed when installed state disappears or becomes unreadable', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+
+    await rm(join(root, 'state.json'));
+    await assert.rejects(store.read(), /installed guard state is missing/);
+
+    await writeFile(join(root, 'state.json'), '{broken');
+    await assert.rejects(store.read(), /installed guard state is invalid/);
+  });
+
+  it('persists independent monotonic slots and an exact retry body', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    const artifact = {
+      treeDigest: 'b'.repeat(64),
+      images: [{ service: 'stream-uploader', imageId: IMAGE_ID }],
+    };
+
+    const first = await verifiedReceipt(store, {
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      artifact,
+    });
+    const retry = await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID });
+    assert.equal(retry, first.body);
+    assert.equal(first.receipt.generation, 1);
+
+    await store.acknowledge(first.body);
+    assert.equal(await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }), null);
+
+    const viewer = await verifiedReceipt(store, {
+      slot: { role: 'viewer', id: 'default' },
+      artifact: {
+        treeDigest: 'c'.repeat(64),
+        images: [{ service: 'client', imageId: `sha256:${'d'.repeat(64)}` }],
+      },
+    });
+    assert.equal(viewer.receipt.generation, 2);
+    assert.equal((await store.read()).installationId, INSTALLATION_ID);
+
+    await assert.rejects(
+      store.withTransition((lease) => lease.prepare({
+        slot: { role: 'uploader', id: 'srs/uploader' }, artifact,
+      })),
+      /uploader slot id is invalid/,
+    );
+  });
+
+  it('fails closed on a stale crash lock and requires explicit operator recovery', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    await mkdir(join(root, 'state.lock'));
+
+    await assert.rejects(
+      new ReleaseGuardStore(root).withTransition(async () => undefined),
+      /crash lock requires operator recovery/,
+    );
+  });
+});
+
+describe('guarded release transition', () => {
+  it('refuses the actual pre-feature manager candidate before build or service movement', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    const archive = join(root, 'candidate.tar');
+    await mkdir(candidate);
+    const { stdout } = await execFileAsync('git', ['archive', '--format=tar', MANAGER_BASE], {
+      cwd: REPO,
+      encoding: 'buffer',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    await writeFile(archive, stdout);
+    await execFileAsync('tar', ['-xf', archive, '-C', candidate]);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'manager', id: 'default' },
+        adapter: adapter(counters),
+      }),
+      /candidate does not advertise srsLifecycle version 1/,
+    );
+    assert.deepEqual(counters, { build: 0, stop: 0, start: 0 });
+  });
+
+  it('accepts the actual current capable manager candidate and moves its adapter once', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    const archive = join(root, 'candidate.tar');
+    await mkdir(candidate);
+    const { stdout } = await execFileAsync('git', ['archive', '--format=tar', 'HEAD'], {
+      cwd: REPO,
+      encoding: 'buffer',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    await writeFile(archive, stdout);
+    await execFileAsync('tar', ['-xf', archive, '-C', candidate]);
+    await mkdir(join(candidate, 'deploy'), { recursive: true });
+    await copyFile(
+      join(REPO, 'deploy/release-capabilities.json'),
+      join(candidate, 'deploy/release-capabilities.json'),
+    );
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'manager', id: 'default' },
+      adapter: adapter(counters),
+    });
+    assert.deepEqual(counters, { build: 1, stop: 1, start: 1 });
+  });
+
+  it('binds the fsynced minimum, candidate tree, built image, and verified running image', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    const result = await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      adapter: adapter(counters),
+    });
+
+    assert.deepEqual(counters, { build: 1, stop: 1, start: 1 });
+    assert.equal(result.receipt.artifact.images[0]?.imageId, IMAGE_ID);
+    assert.match(result.receipt.artifact.treeDigest, /^[0-9a-f]{64}$/);
+    assert.equal(await readFile(join(stateRoot, 'pending', `${result.receipt.slot.role}-${result.receipt.slot.id}.json`), 'utf8'), result.body);
+  });
+
+  it('refuses capable uploader candidates whose effective managed settings are disabled or mismatched', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const adapterPath = join(candidate, 'deploy/scripts/release-adapter.sh');
+    await mkdir(join(adapterPath, '..'), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+phase="$1"
+case "$phase" in
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":0,"uploaderId":"other-uploader","adminApiConfigured":false}' > "$5" ;;
+  build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+  transition) echo moved >> "$(dirname "$0")/movement" ;;
+esac
+`);
+    await chmod(adapterPath, 0o700);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work')),
+      }),
+      (error: Error) => {
+        assert.match(error.message, /SRS_LIFECYCLE_VERSION/);
+        assert.match(error.message, /SRS_UPLOADER_ID/);
+        assert.match(error.message, /ADMIN_API_URL/);
+        assert.doesNotMatch(error.message, /other-uploader/);
+        return true;
+      },
+    );
+    await assert.rejects(lstat(join(candidate, 'deploy/scripts/movement')), { code: 'ENOENT' });
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).attempt, null);
+  });
+
+  it('proves removing preflight makes the old-candidate safety assertion fail', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await mkdir(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    async function oldCandidateSafety(transition: typeof runReleaseTransition) {
+      counters.build = 0;
+      counters.stop = 0;
+      counters.start = 0;
+      await assert.rejects(
+        transition({
+          store: new ReleaseGuardStore(stateRoot),
+          candidateRoot: candidate,
+          slot: { role: 'manager', id: 'default' },
+          adapter: adapter(counters),
+        }),
+      );
+      assert.deepEqual(counters, { build: 0, stop: 0, start: 0 });
+    }
+
+    await oldCandidateSafety(runReleaseTransition);
+
+    const mutantRoot = join(root, 'mutant');
+    const sourceRoot = resolve(import.meta.dirname, '../../src/releaseGuard');
+    await cp(sourceRoot, mutantRoot, { recursive: true });
+    const mutantPath = join(mutantRoot, 'ReleaseTransition.ts');
+    const source = await readFile(mutantPath, 'utf8');
+    const withoutPreflight = source.replace(
+      '  await requireLifecycleCapability(candidateRoot, input.slot.role);',
+      '  void candidateRoot;',
+    );
+    assert.notEqual(withoutPreflight, source, 'the deliberate fault removed the production preflight call');
+    await writeFile(mutantPath, withoutPreflight);
+    const mutant = await import(`${pathToFileURL(mutantPath).href}?fault=missing-preflight`);
+
+    await assert.rejects(
+      oldCandidateSafety(mutant.runReleaseTransition as typeof runReleaseTransition),
+      /Missing expected rejection|Expected values/,
+    );
+  });
+
+  it('holds the host lease across transition and does not let a competitor overwrite it', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidateA = join(root, 'candidate-a');
+    const candidateB = join(root, 'candidate-b');
+    await capableCandidate(candidateA);
+    await capableCandidate(candidateB);
+    await writeFile(join(candidateB, 'uploader.txt'), 'different candidate\n');
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const countersA = { build: 0, stop: 0, start: 0 };
+    const countersB = { build: 0, stop: 0, start: 0 };
+    let releaseA!: () => void;
+    let enteredA!: () => void;
+    const held = new Promise<void>((resolveHeld) => { releaseA = resolveHeld; });
+    const entered = new Promise<void>((resolveEntered) => { enteredA = resolveEntered; });
+    const adapterA = adapter(countersA);
+    adapterA.transition = async () => {
+      countersA.stop += 1;
+      enteredA();
+      await held;
+      countersA.start += 1;
+    };
+    const store = new ReleaseGuardStore(stateRoot);
+    const first = runReleaseTransition({
+      store,
+      candidateRoot: candidateA,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      adapter: adapterA,
+    });
+    await entered;
+
+    await assert.rejects(
+      runReleaseTransition({
+        store,
+        candidateRoot: candidateB,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        adapter: adapter(countersB),
+      }),
+      /another release guard transition is active/,
+    );
+    assert.deepEqual(countersB, { build: 0, stop: 0, start: 0 });
+
+    releaseA();
+    const firstReceipt = await first;
+    assert.equal(
+      await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }),
+      firstReceipt.body,
+    );
+  });
+
+  it('keeps a prepared crash out of the submit-ready outbox and resumes only the bound artifact', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(stateRoot);
+    const treeDigest = await digestTree(candidate);
+    const artifact = {
+      treeDigest,
+      images: [{ service: 'stream-uploader', imageId: IMAGE_ID }],
+    };
+    const prepared = await store.withTransition((lease) => lease.prepare({
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      artifact,
+    }));
+
+    assert.equal(await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }), null);
+    await assert.rejects(
+      submitPendingReceipt({
+        store,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        adminUrl: 'http://127.0.0.1:1',
+        token: 'test-only-internal-token-at-least-32-characters',
+      }),
+      /release receipt outbox is empty/,
+    );
+
+    const counters = { build: 0, stop: 0, start: 0 };
+    const resumed = await runReleaseTransition({
+      store,
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      adapter: adapter(counters),
+    });
+    assert.equal(resumed.body, prepared.body);
+    assert.deepEqual(counters, { build: 1, stop: 1, start: 1 });
+    assert.equal(await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }), prepared.body);
+  });
+
+  it('writes immutable admin artifact metadata before activation and passes its exact path', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate, 'admin');
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    let activeArtifactPath: string | null = null;
+    const adminImage = `sha256:${'9'.repeat(64)}`;
+    const releaseAdapter: ReleaseAdapter = {
+      async preflight() {},
+      async build() {
+        return { schemaVersion: 1, images: [{ service: 'admin', imageId: adminImage }] };
+      },
+      async transition(plan) {
+        activeArtifactPath = plan.activeArtifactPath;
+        assert.ok(activeArtifactPath, 'admin transition receives its immutable metadata path');
+        const metadata = JSON.parse(await readFile(activeArtifactPath, 'utf8'));
+        assert.deepEqual(metadata, {
+          schemaVersion: 1,
+          installationId: INSTALLATION_ID,
+          generation: 1,
+          slot: { role: 'admin', id: 'default' },
+          artifact: {
+            treeDigest: plan.treeDigest,
+            images: [{ service: 'admin', imageId: adminImage }],
+          },
+        });
+      },
+      async verify() {
+        return { schemaVersion: 1, images: [{ service: 'admin', imageId: adminImage }] };
+      },
+    };
+
+    await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'admin', id: 'default' },
+      adapter: releaseAdapter,
+    });
+
+    assert.ok(activeArtifactPath);
+    assert.equal((await lstat(activeArtifactPath)).mode & 0o777, 0o444);
+  });
+
+  it('uses only the fixed role adapter and its bounded phase files', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const adapterPath = join(candidate, 'deploy/scripts/release-adapter.sh');
+    await mkdir(join(adapterPath, '..'), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+if [ -n "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]; then exit 9; fi
+phase="$1"
+candidate="$(cd "$(dirname "$0")/../.." && pwd)"
+echo "$phase" >> "$(dirname "$candidate")/phases"
+case "$phase" in
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5" ;;
+  build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+  transition) ;;
+  *) exit 7 ;;
+esac
+`);
+    await chmod(adapterPath, 0o700);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+
+    await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work')),
+    });
+
+    assert.equal(await readFile(join(root, 'phases'), 'utf8'), 'preflight\nbuild\ntransition\nverify\n');
+    const transitionPlan = JSON.parse(await readFile(join(root, 'adapter-work/transition-plan.json'), 'utf8'));
+    assert.equal(transitionPlan.temporaryProject.startsWith('release-'), true);
+    assert.equal(transitionPlan.activeArtifactPath, null);
+    assert.deepEqual(transitionPlan.images, [{ service: 'stream-uploader', imageId: IMAGE_ID }]);
+  });
+
+  it('kills the adapter process group on timeout and retains a redacted diagnostic', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const adapterPath = join(candidate, 'deploy/scripts/release-adapter.sh');
+    await mkdir(join(adapterPath, '..'), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+phase="$1"
+candidate="$(cd "$(dirname "$0")/../.." && pwd)"
+case "$phase" in
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5" ;;
+  build) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+  transition)
+    echo 'compose transition refused ADMIN_API_TOKEN=do-not-report-this' >&2
+    (sleep 0.4; echo late > "$(dirname "$candidate")/late-write") &
+    sleep 5
+    ;;
+  verify) exit 8 ;;
+esac
+`);
+    await chmod(adapterPath, 0o700);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(stateRoot);
+
+    await assert.rejects(
+      runReleaseTransition({
+        store,
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work'), {}, 100),
+      }),
+      (error: Error) => {
+        assert.match(error.message, /timed out: compose transition refused ADMIN_API_TOKEN=<redacted>/);
+        assert.doesNotMatch(error.message, /do-not-report-this/);
+        return true;
+      },
+    );
+    assert.equal((await store.read()).attempt?.phase, 'prepared');
+    await delay(600);
+    await assert.rejects(lstat(join(root, 'late-write')), { code: 'ENOENT' });
+  });
+});
+
+describe('installed release guard command', () => {
+  it('offers only fixed component roles and typed uploader arguments', async () => {
+    await assert.rejects(runReleaseGuardCli(['shell', '--command', 'docker stop all']), /command is invalid/);
+    await assert.rejects(
+      runReleaseGuardCli([
+        'manager',
+        '--state-root', '/tmp/state',
+        '--candidate-root', '/tmp/candidate',
+        '--work-root', '/tmp/work',
+        '--admin-url', 'http://admin',
+        '--profile', 'stage',
+      ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
+      /manager release does not accept deployment arguments/,
+    );
+    await assert.rejects(
+      runReleaseGuardCli([
+        'uploader',
+        '--state-root', '/tmp/state',
+        '--candidate-root', '/tmp/candidate',
+        '--work-root', '/tmp/work',
+        '--admin-url', 'http://admin',
+        '--slot-id', 'srs/uploader',
+        '--profile', 'stage',
+        '--port-slot', '1',
+        '--target', 'local',
+        '--services', 'srs,stream-uploader',
+      ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
+      /uploader slot id is invalid/,
+    );
+  });
+});
+
+describe('release receipt outbox', () => {
+  it('retries the exact durable body after response loss without exposing the bearer', async (t) => {
+    const root = await temporaryRoot(t);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(stateRoot);
+    const pending = await verifiedReceipt(store, {
+      slot: { role: 'viewer', id: 'default' },
+      artifact: {
+        treeDigest: 'e'.repeat(64),
+        images: [{ service: 'client', imageId: `sha256:${'f'.repeat(64)}` }],
+      },
+    });
+    const bodies: string[] = [];
+    const authorizations: string[] = [];
+    const targets: string[] = [];
+    let loseFirstResponse = true;
+    const server = http.createServer((request, response) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => { body += chunk; });
+      request.on('end', () => {
+        bodies.push(body);
+        authorizations.push(request.headers.authorization ?? '');
+        targets.push(`${request.method} ${request.url}`);
+        if (loseFirstResponse) {
+          loseFirstResponse = false;
+          request.socket.destroy();
+          return;
+        }
+        response.writeHead(204).end();
+      });
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+    t.after(() => new Promise<void>((resolveClose) => server.close(() => resolveClose())));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const adminUrl = `http://127.0.0.1:${address.port}`;
+    const token = 'test-only-internal-token-at-least-32-characters';
+
+    await assert.rejects(
+      submitPendingReceipt({ store, slot: { role: 'viewer', id: 'default' }, adminUrl, token }),
+      (error: Error) => {
+        assert.doesNotMatch(error.message, /test-only|token/i);
+        return true;
+      },
+    );
+    assert.equal(await store.pendingReceipt({ role: 'viewer', id: 'default' }), pending.body);
+
+    await submitPendingReceipt({ store, slot: { role: 'viewer', id: 'default' }, adminUrl, token });
+    assert.deepEqual(bodies, [pending.body, pending.body]);
+    assert.deepEqual(authorizations, [`Bearer ${token}`, `Bearer ${token}`]);
+    assert.deepEqual(targets, [
+      'PUT /api/internal/release-guard/receipts/viewer/default',
+      'PUT /api/internal/release-guard/receipts/viewer/default',
+    ]);
+    assert.equal(await store.pendingReceipt({ role: 'viewer', id: 'default' }), null);
+  });
+
+  it('refuses redirects and oversized responses while retaining the outbox', async (t) => {
+    const root = await temporaryRoot(t);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(stateRoot);
+    await verifiedReceipt(store, {
+      slot: { role: 'admin', id: 'default' },
+      artifact: {
+        treeDigest: '1'.repeat(64),
+        images: [{ service: 'admin', imageId: `sha256:${'2'.repeat(64)}` }],
+      },
+    });
+    let redirected = false;
+    let mode: 'redirect' | 'oversized' = 'redirect';
+    const server = http.createServer((request, response) => {
+      if (request.url === '/redirected') {
+        redirected = true;
+        response.writeHead(204).end();
+        return;
+      }
+      if (mode === 'redirect') {
+        response.writeHead(302, { location: '/redirected' }).end();
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'text/plain' });
+      response.end('x'.repeat(20_000));
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+    t.after(() => new Promise<void>((resolveClose) => server.close(() => resolveClose())));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const adminUrl = `http://127.0.0.1:${address.port}`;
+    const input = {
+      store,
+      slot: { role: 'admin', id: 'default' } as const,
+      adminUrl,
+      token: 'test-only-internal-token-at-least-32-characters',
+    };
+
+    await assert.rejects(submitPendingReceipt(input), /release receipt submission failed/);
+    assert.equal(redirected, false);
+    mode = 'oversized';
+    await assert.rejects(submitPendingReceipt(input), /release receipt response is oversized/);
+    assert.ok(await store.pendingReceipt(input.slot));
+  });
+});
