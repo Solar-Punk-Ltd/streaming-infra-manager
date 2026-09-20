@@ -8,6 +8,12 @@ export interface ReleaseSlot {
   id: string;
 }
 
+export interface ComposeReleaseTarget {
+  projectName: string;
+  postgresVolumeName: string;
+  webPort: number;
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;

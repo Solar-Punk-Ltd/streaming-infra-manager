@@ -14,7 +14,6 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -231,7 +230,7 @@ publish_candidate
 
   it('gives the upgrade the identity of the manager, of the image and how long to wait for the bundled build', () => {
     const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
-    for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project manager',
+    for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project "$project_name"',
       '--compose-file', '--compose-override', '--mutable-root']) {
       assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
     }
@@ -307,11 +306,12 @@ publish_candidate
     assert.ok(adapter.indexOf('PUBLIC_HOST=') > -1);
   });
 
-  it('looks for the same data volume the upgrade names, so a rename on one side fails here', () => {
-    // The script cannot import TypeScript, so its one literal is read back against the
-    // constant the command uses and the two are changed together.
-    assert.ok(adapter.includes(`postgres_volume="manager_${MANAGER_POSTGRES_VOLUME}"`),
-      `the deploy names the manager_${MANAGER_POSTGRES_VOLUME} volume of the manager project`);
+  it('uses only the installation-bound project, volume, and loopback web port', () => {
+    assert.match(adapter, /project_name="\$\(plan_value target:projectName\)"/);
+    assert.match(adapter, /postgres_volume_name="\$\(plan_value target:postgresVolumeName\)"/);
+    assert.match(adapter, /WEB_PORT="\$\(plan_value target:webPort\)"/);
+    assert.match(adapter, /--project-name "\$project_name"/);
+    assert.match(adapter, /postgres_volume="\$postgres_volume_name"/);
   });
 
   it('never asks compose to print a rendered configuration', () => {

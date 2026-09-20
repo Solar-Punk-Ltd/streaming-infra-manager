@@ -69,6 +69,27 @@ if (key === 'treeDigest') {
   process.stdout.write(plan.treeDigest);
   process.exit(0);
 }
+if (key.startsWith('target:')) {
+  const target = plan.arguments?.target;
+  if (
+    target === null ||
+    typeof target !== 'object' ||
+    Array.isArray(target) ||
+    Object.keys(target).sort().join(',') !== 'postgresVolumeName,projectName,webPort' ||
+    typeof target.projectName !== 'string' ||
+    !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(target.projectName) ||
+    typeof target.postgresVolumeName !== 'string' ||
+    !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(target.postgresVolumeName) ||
+    !Number.isSafeInteger(target.webPort) ||
+    target.webPort < 1 ||
+    target.webPort > 65535
+  ) process.exit(2);
+  const name = key.slice('target:'.length);
+  const value = target[name];
+  if (typeof value !== 'string' && typeof value !== 'number') process.exit(2);
+  process.stdout.write(String(value));
+  process.exit(0);
+}
 if (key.startsWith('image:')) {
   const service = key.slice('image:'.length);
   const image = Array.isArray(plan.images)
@@ -105,6 +126,10 @@ fi
 
 export PUBLIC_HOST
 PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+project_name="$(plan_value target:projectName)"
+postgres_volume_name="$(plan_value target:postgresVolumeName)"
+export WEB_PORT
+WEB_PORT="$(plan_value target:webPort)"
 export BEE_DATA_ROOT="${HOME}/streaming-infra-manager-data"
 export STACK_VERSIONS_ROOT="${HOME}/streaming-infra-manager-versions"
 MANAGER_SSH_DIR="$(sed -n 's/^MANAGER_SSH_DIR=//p' "${manager_root}/.env" 2>/dev/null | tail -n 1 | tr -d '\r"' | tr -d "'")"
@@ -114,7 +139,7 @@ chmod 700 "$MANAGER_SSH_DIR"
 
 compose() {
     docker compose \
-        --project-name manager \
+        --project-name "$project_name" \
         --project-directory "$manager_root" \
         -f "$compose_file" \
         "$@"
@@ -162,6 +187,7 @@ services:
     pull_policy: never
     environment:
       SHLS_ROOT: ${candidate_root}/manager/swarm-hls-stream
+      WEB_PORT: "${WEB_PORT}"
     volumes:
       - type: bind
         source: ${candidate_root}
@@ -189,14 +215,14 @@ EOF
                 sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
                 sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
         )"
-        postgres_volume="manager_manager-pg"
+        postgres_volume="$postgres_volume_name"
         data_volume="$(docker volume ls -q --filter "name=^${postgres_volume}$")"
         api_containers="$(docker ps -aq \
-            --filter 'label=com.docker.compose.project=manager' \
+            --filter "label=com.docker.compose.project=${project_name}" \
             --filter 'label=com.docker.compose.service=api' \
             --filter 'label=com.docker.compose.oneoff=False')"
         postgres_containers="$(docker ps -aq \
-            --filter 'label=com.docker.compose.project=manager' \
+            --filter "label=com.docker.compose.project=${project_name}" \
             --filter 'label=com.docker.compose.service=postgres' \
             --filter 'label=com.docker.compose.oneoff=False')"
         is_first_use=false
@@ -214,7 +240,7 @@ EOF
             --manager-commit "$release_commit" \
             --manager-digest "$tree_digest" \
             --image-id "$api_image" \
-            --project manager \
+            --project "$project_name" \
             --compose-file "$compose_file" \
             --compose-override "$override" \
             --mutable-root "$candidate_root"
