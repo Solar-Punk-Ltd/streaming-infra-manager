@@ -51,9 +51,18 @@ From your local checkout:
 ./deploy/deploy.sh manager-host
 ```
 
-This rsyncs the repo, then builds the images on the server and runs the upgrade
-command that brings the project back up. The rsync leaves out `node_modules`,
-`.git`, build caches, `.scratch/` and `manager/swarm-hls-stream/`.
+The entry script first asks the server for its durable release mode. A server
+that has no guard installation, or a valid installed guard that has never been
+activated, keeps the standalone deployment below. Once managed streaming is
+activated, the script stages an immutable sibling candidate and gives it to the
+installed release guard. A partial or invalid guard installation refuses before
+the rsync or any service change. Guard receipt credentials are required only on
+the activated path.
+
+The standalone path rsyncs the repo, then builds the images on the server and
+runs the upgrade command that brings the project back up. The rsync leaves out
+`node_modules`, `.git`, build caches, `.scratch/` and
+`manager/swarm-hls-stream/`.
 
 `manager/.env` is the one env file that travels with it, and `rsync --delete`
 means your checkout is the only source of truth for that file: an edit made on
@@ -169,7 +178,7 @@ ssh-copy-id -i ~/manager-ssh/deploy_key.pub deploy@203.0.113.7
 ```
 
 One `Host` block per target in `~/manager-ssh/ssh_config`. `IdentityFile` is the
-path *inside the container*, where the directory is mounted at `/root/.ssh`:
+path _inside the container_, where the directory is mounted at `/root/.ssh`:
 
 ```
 Host bee-eu-1

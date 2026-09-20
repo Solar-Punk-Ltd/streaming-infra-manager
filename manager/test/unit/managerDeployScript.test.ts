@@ -17,7 +17,9 @@ import { promisify } from 'node:util';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const DEPLOY_ENTRY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-managed.sh');
+const STANDALONE_DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-standalone.sh');
 const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
 const COMPOSE_FILE = join(here, '..', '..', 'docker-compose.yml');
 
@@ -31,9 +33,105 @@ function rsyncs(): string[] {
   return script.split(/\n(?=rsync )/).filter((block) => block.startsWith('rsync ')).map((block) => block.split('\n\n')[0] ?? block);
 }
 
+interface ReleaseDispatchFixture {
+  calls: string;
+  entry: string;
+  env: NodeJS.ProcessEnv;
+  home: string;
+}
+
+function releaseDispatchFixture(t: { after(callback: () => void): void }): ReleaseDispatchFixture {
+  const root = mkdtempSync(join(tmpdir(), 'manager-release-dispatch-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const deployRoot = join(root, 'repo', 'deploy');
+  const home = join(root, 'home');
+  const bin = join(root, 'bin');
+  const calls = join(root, 'calls');
+  mkdirSync(deployRoot, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  mkdirSync(bin);
+  const entry = join(deployRoot, 'deploy.sh');
+  writeFileSync(entry, readFileSync(DEPLOY_ENTRY_SCRIPT));
+  chmodSync(entry, 0o700);
+  writeFileSync(join(deployRoot, 'release-mode.sh'), readFileSync(join(dirname(DEPLOY_ENTRY_SCRIPT), 'release-mode.sh')));
+  for (const name of ['deploy-standalone.sh', 'deploy-managed.sh']) {
+    const path = join(deployRoot, name);
+    writeFileSync(path, `#!/bin/bash\nprintf '%s\\n' '${name}' > '${calls}'\n`);
+    chmodSync(path, 0o700);
+  }
+  const ssh = join(bin, 'ssh');
+  writeFileSync(ssh, '#!/bin/bash\nshift\nexec "$@"\n');
+  chmodSync(ssh, 0o700);
+  return {
+    calls,
+    entry,
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    home,
+  };
+}
+
+function installFakeGuard(home: string, status: string, exitCode = 0, withState = true): void {
+  const bin = join(home, '.local', 'bin');
+  const state = join(home, '.local', 'state', 'streaming-release-guard');
+  mkdirSync(bin, { recursive: true });
+  if (withState) mkdirSync(state, { recursive: true });
+  const guard = join(bin, 'streaming-release-guard');
+  writeFileSync(guard, `#!/bin/bash\nprintf '%s\\n' '${status}'\nexit ${exitCode}\n`);
+  chmodSync(guard, 0o700);
+}
+
 describe('deploy/deploy.sh', () => {
   it('is a script bash accepts', () => {
+    execFileSync('bash', ['-n', DEPLOY_ENTRY_SCRIPT]);
     execFileSync('bash', ['-n', DEPLOY_SCRIPT]);
+    execFileSync('bash', ['-n', STANDALONE_DEPLOY_SCRIPT]);
+  });
+
+  it('dispatches only a pristine installation to the standalone deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
+  });
+
+  it('dispatches a valid activated installation to the guarded deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    installFakeGuard(fixture.home, 'managed');
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-managed.sh\n');
+  });
+
+  it('keeps a valid installed but unactivated guard on the standalone deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    installFakeGuard(fixture.home, 'legacy');
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
+  });
+
+  it('does not require receipt credentials on the standalone path', () => {
+    const standalone = readFileSync(STANDALONE_DEPLOY_SCRIPT, 'utf8');
+    assert.doesNotMatch(standalone, /RELEASE_GUARD_ADMIN_(?:URL|TOKEN)/);
+    assert.match(script, /RELEASE_GUARD_ADMIN_URL/);
+    assert.match(script, /RELEASE_GUARD_ADMIN_TOKEN/);
+  });
+
+  it('refuses partial, invalid, and unexpected guard state without dispatching', async (t) => {
+    for (const setup of [
+      (home: string) => mkdirSync(join(home, '.local', 'state', 'streaming-release-guard'), { recursive: true }),
+      (home: string) => installFakeGuard(home, 'legacy', 0, false),
+      (home: string) => installFakeGuard(home, 'broken', 1),
+      (home: string) => installFakeGuard(home, 'unexpected'),
+    ]) {
+      const fixture = releaseDispatchFixture(t);
+      setup(fixture.home);
+      await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
+      assert.throws(() => readFileSync(fixture.calls, 'utf8'));
+    }
   });
 
   it('stages a new sibling candidate and never rsyncs over the live manager tree', () => {
