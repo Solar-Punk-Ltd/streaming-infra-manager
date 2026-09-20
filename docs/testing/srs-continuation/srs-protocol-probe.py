@@ -20,7 +20,8 @@ API = 'http://127.0.0.1:28101'
 HOOKS = 'http://127.0.0.1:28100'
 created = []
 senders = []
-ABR = '--abr' in sys.argv
+LATE_RUNG = '--late-rung' in sys.argv
+ABR = '--abr' in sys.argv or LATE_RUNG
 
 
 def run(args, **kwargs):
@@ -79,6 +80,46 @@ def wait_media(stream, after_count=0, timeout=25):
     raise RuntimeError(f'No new on_hls for {stream}')
 
 
+def wait_event(action, stream, after_count=0, timeout=15):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matching = [event for event in request(HOOKS + '/events')
+                    if event.get('body', {}).get('action') == action
+                    and event['body'].get('stream') == stream]
+        if len(matching) > after_count:
+            return matching
+        time.sleep(0.1)
+    raise RuntimeError(f'No {action} for {stream}')
+
+
+def probe_late_rung(protocol):
+    stream = 'late-' + protocol
+    request(HOOKS + '/hold-next-rung')
+    first = start_sender(protocol + '-late-A', protocol, stream)
+    held = wait_event('on_publish', stream + '_small')[0]
+    stop_sender(first)
+    disconnected = wait_event('on_unpublish', stream)[0]
+    replacement = start_sender(protocol + '-late-B', protocol, stream)
+    admitted = wait_event('on_publish', stream, after_count=1)[-1]
+    released = request(HOOKS + '/release-rung')
+    wait_media(stream + '_small')
+    time.sleep(3)
+    stop_sender(replacement)
+    wait_event('on_unpublish', stream, after_count=1)
+    time.sleep(1)
+    events = request(HOOKS + '/events')
+    identity = ('server_id', 'service_id', 'client_id')
+    old_media = [event for event in events
+                 if event.get('body', {}).get('action') == 'on_hls'
+                 and event['body'].get('stream') == stream + '_small'
+                 and all(event['body'].get(key) == held['body'].get(key) for key in identity)]
+    outcome = {'protocol': protocol, 'heldPublish': held,
+               'sourceUnpublish': disconnected, 'replacementPublish': admitted,
+               'release': released, 'oldRungMedia': old_media}
+    print(f'{protocol}: delayed old rung produced {len(old_media)} media callbacks', flush=True)
+    return outcome
+
+
 def main():
     OUT.mkdir(exist_ok=False)
     for kind, name in [('network', PREFIX), ('container', PREFIX + '-hooks'), ('container', PREFIX + '-srs')]:
@@ -95,16 +136,27 @@ def main():
     (ROOT / 'hooks.mjs').write_text("""import http from 'node:http';
 const events = [];
 let denied = false;
+let holdNextRung = false;
+let heldResponse;
 http.createServer((req, res) => {
   if (req.url === '/events') { res.end(JSON.stringify(events)); return; }
   if (req.url === '/deny') { denied = true; res.end('0'); return; }
   if (req.url === '/allow') { denied = false; res.end('0'); return; }
+  if (req.url === '/hold-next-rung') { holdNextRung = true; res.end('0'); return; }
+  if (req.url === '/release-rung') {
+    const released = Boolean(heldResponse);
+    heldResponse?.end('0'); heldResponse = undefined;
+    res.end(JSON.stringify({released, at: Date.now()})); return;
+  }
   let body = '';
   req.on('data', part => { body += part; if (body.length > 65536) req.destroy(); });
   req.on('end', () => {
     const event = { at: Date.now(), body: JSON.parse(body) };
     events.push(event);
     console.log(JSON.stringify(event));
+    if (holdNextRung && event.body.action === 'on_publish' && event.body.stream.endsWith('_small')) {
+      holdNextRung = false; heldResponse = res; return;
+    }
     res.end(denied && event.body.action === 'on_publish' ? '1' : '0');
   });
 }).listen(8080, '0.0.0.0');
@@ -197,6 +249,9 @@ vhost abr {
     snapshot('before')
     outcomes = []
     for protocol in ['rtmp', 'srt']:
+        if LATE_RUNG:
+            outcomes.append(probe_late_rung(protocol))
+            continue
         stream = 'probe-' + protocol
         first = start_sender(protocol + '-A', protocol, stream)
         initial = wait_media(stream)

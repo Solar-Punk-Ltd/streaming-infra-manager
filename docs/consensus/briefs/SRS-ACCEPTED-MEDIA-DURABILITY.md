@@ -14,6 +14,8 @@ For lifecycle version 1, persist the original segment bytes and their stream, ru
 
 Admission and durable acceptance must agree. Recheck the current source and deadline before committing acceptance. A callback that arrived before the deadline but had not been accepted at cutoff cannot silently renew an expired run. Once a segment is durably accepted, closing admission must not discard it.
 
+The extra ABR base/source HLS is observation-only, as specified in the lifecycle contract. Its duplicate footage is not part of the published recording and must not be inserted into the Bee upload queue or counted as accepted recording media. Persist the progress/deadline evidence required by restart recovery before acknowledging an observation. Retain a bounded opening sample until actual-format validation succeeds and its fingerprint is durably bound to that source generation. Later observation-only bytes can be discarded after validation. Every published rung, and the source in single-rendition mode, still uses the full accepted-media boundary above.
+
 ## Upload and recovery boundary
 
 Keep raw accepted bytes until their uploaded reference and placement in recoverable history are durably recorded. A successful upload alone is not that record. An upload failure leaves recoverable work. It cannot produce a verified-empty outcome or a completed VOD.
