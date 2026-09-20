@@ -23,6 +23,7 @@ Current proposal: `docs/consensus/SRS-RECONNECT-CONTINUATION-PLAN-v2.md`. Its re
 | Admin foundation | feat/srs-reconnect-continuation | /private/tmp/srs-continuation-20260920-admin | Sol, continuation_admin |
 | Uploader waiting/resume | feat/srs-reconnect-continuation | /private/tmp/srs-continuation-20260920-stack | Sol, continuation_stack |
 | Viewer selection | feat/srs-continuation-viewer | /private/tmp/srs-continuation-20260920-viewer | Terra, continuation_viewer |
+| Manager lifecycle display | feat/srs-continuation-manager | /private/tmp/srs-continuation-20260920-manager-ui | Terra, continuation_viewer, next bounded slice |
 
 Baselines checked locally and remotely: manager 87673c99, stack 2c4867ae, admin 48848678. Canonical checkouts unchanged.
 
@@ -33,6 +34,8 @@ Baselines checked locally and remotely: manager 87673c99, stack 2c4867ae, admin 
 - R03 in-memory waiting/resume foundation landed at 93f7121 after red checkpoint 87c26f3e. Seven focused tests passed. The shared audio timestamp parser prerequisite landed at 4b08614 with 17 parser tests passing. Advancing video/audio timestamps landed at f013234 with ten focused tests passing. Durable admission storage landed at d9f3544 with six focused store tests passing. Startup recovery, SRS integration and durable pending media remain in progress. Metadata durability alone does not preserve queued footage.
 - R06 initial playback-selection fix landed at f750fbc4 with five focused tests and a deliberate helper fault detected. Managed catalogue parsing, playback selection and the first mounted-page browser harness landed at 866c5b7. Focused catalogue/selection tests passed 39 cases. Browser setup corrections and immutable replay wiring are still in progress. No browser acceptance result is claimed yet.
 - Remaining R04/R05/R07/R08/R09/R10/R11 are pending those foundations. No claim of feature completion or runtime acceptance.
+
+Later R06 checkpoint: 05815c23 fixes catalogue type validation, 0871ddb implements captured master/rung replay and run-aware selection, and 0c6c884 extends the mounted-page browser regression. Focused client tests passed 44 cases. Changed-file lint and the fixture module smoke passed. Actual browser RED/GREEN remains pending access to push and dispatch the checks. The viewer worker has moved to the bounded R07 manager display slice in a separate worktree. R04 accepted-media durability is specified in `SRS-ACCEPTED-MEDIA-DURABILITY.md` for the next uploader slice.
 
 ## Environment evidence
 
@@ -55,6 +58,12 @@ Later checkpoints: uploader 24a67d9 flushes a newly created admission directory'
 
 Viewer 909e4d3 isolates its browser test from the ordinary unit glob and records fixture process diagnostics. Its fixture-module smoke passed after 8284adb moved the fixture into the existing client dependency scope. Remote deep run 35507572850 tested exactly 8284adb and failed at build on a narrowed catalogue-rendition type. Browser checks did not run. That setup failure is not the required behavioral red result.
 
+Levi instructed us to configure and fix the admin's lint command, rather than remove it. Commits c3def14 and e72850a add real typed ESLint checks to all three packages and repair the reported findings. Focused changed-file lint passed. A deliberate unawaited `assert.rejects` failed while ordinary `node:test` declarations passed through a narrow known-safe-call exception. No validation command was removed. Full lint, typechecking and unit checks remain pending the next verification run.
+
+The lint dependency check covered all 45 newly resolved package versions. Every introduced version was registry-signed and older than fourteen days. The installed-tree signature check passed for 501 packages, with 153 attestations. The finalized vulnerability audit contained no introduced package. The malware result for chalk names version 5.6.1, which does not affect the introduced 4.1.2. Several packages, including eslint and @eslint/js, lack provenance attestations despite valid signatures. The admin worker is adding a tracked record naming them. Full local evidence is at `/private/tmp/srs-continuation-lint-evidence/`.
+
+Push attempts for admin e72850a and viewer 05815c23 failed because the 1Password agent did not sign the GitHub key. Read-only test-host inventory failed for the same reason on its own key. Levi has been asked to unlock and approve the prompts. These failures do not change the remote checkpoints or supply new test results. Isolated source work and review continue while access waits.
+
 Remote standard run 35507259841 tested exactly uploader d9f3544. Build and lint passed. Typechecking found a test helper inferred as video-only despite its audio case. Unit tests did not run. The helper annotation is repaired in 477e151 and awaits the next remote checkpoint.
 
 ## Implementation review findings
@@ -63,9 +72,11 @@ Cross-provider review, OpenAI-hosted Astra. These are implementation findings, n
 
 | Finding | Priority, likelihood and affected users | Repair and trade-off | State |
 | --- | --- | --- | --- |
-| Original live viewer cannot join a later run | P1. Normal live-to-ended-to-continuation flow affects viewers because the selection tracks only live/replay kind | Retain the selected run number and offer an explicit switch to a newer run, including when the original selection was live. Preserve playhead until the click. A small selection/browser regression avoids a broken same-page continuation | Assigned |
-| Archived ABR rungs matched by array order | P1. Normal database and master sort orders can differ and send viewers the wrong rendition | Bind each captured master URI to its exact retained topic. Reject missing, duplicate and unknown mappings. A reversed-array regression costs a small parser change and protects quality/decoding | Assigned |
+| Original live viewer cannot join a later run | P1. Normal live-to-ended-to-continuation flow affects viewers because the selection tracks only live/replay kind | Retain the selected run number and offer an explicit switch to a newer run, including when the original selection was live. Preserve playhead until the click. A small selection/browser regression avoids a broken same-page continuation | Repaired in 0871ddb. Focused tests passed. Mounted browser proof pending |
+| Archived ABR rungs matched by array order | P1. Normal database and master sort orders can differ and send viewers the wrong rendition | Bind each captured master URI to its exact retained topic. Reject missing, duplicate and unknown mappings. A reversed-array regression costs a small parser change and protects quality/decoding | Repaired in 0871ddb. Focused reversed-order regression passed |
 | Managed reports inherit legacy conflict-as-success handling | P1. A plausible response-loss or stale-event race can discard an unaccepted final report | Handle managed conflicts separately and reconcile the exact accepted event and snapshot before clearing the durable outbox. Add a conflicting VOD regression. The small protocol addition avoids false completion | Assigned to uploader and admin |
+| Closed report stops retrying during an admin outage | P1. An ordinary outage through cutoff can leave the admin showing an older run state and prevent Continue | Retry the durable report queue independently of the source heartbeat, which ends at closure. A fake-clock outage-and-recovery regression avoids requiring a process restart to report the truth | Assigned to uploader |
+| Resumed source inherits the first source's publication callback | P1. Normal reconnect reuses the uploader but its callback captured source A, so published source B can remain Waiting | Bind successful publication to the media's source generation. A same-uploader A-to-B regression proves Waiting returns to Live and a delayed A publication cannot do so | Assigned to uploader |
 
 The viewer findings are assigned to continuation_viewer and remain open until their focused checks and the browser run prove the repairs. The durable pre-claim journal, report outbox and accepted-media spool are required implementation boundaries, not completed evidence.
 
