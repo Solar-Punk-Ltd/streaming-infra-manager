@@ -25,7 +25,6 @@ import { buildDirFor, managerUpgradeGuardRootFor } from '../../../src/domain/ver
 const PROJECT = 'manager';
 const COMPOSE_FILE = '/home/solarpunk/streaming-infra-manager/manager/docker-compose.yml';
 const COMPOSE_DIRECTORY = '/home/solarpunk/streaming-infra-manager/manager';
-const COMPOSE_OVERRIDE = '/home/solarpunk/.local/state/streaming-release-guard/work/manager-image-override.yml';
 /** A port no default would produce, so a URL built anywhere but from these settings would not match. */
 const HEALTH_URL = 'http://api:19876/health';
 const POSTGRES_VOLUME = `${PROJECT}_${MANAGER_POSTGRES_VOLUME}`;
@@ -161,51 +160,6 @@ describe('the manager upgrade against one Compose project', () => {
       async () => ({ status: statuses.length > 1 ? statuses.shift()! : statuses[0]! }),
     );
   }
-
-  it('uses the immutable image override for every Compose operation', async () => {
-    const upgrade = new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, composeOverride: COMPOSE_OVERRIDE, bundledStackRoot,
-        publicEdge: false, firstUse: false, postgresVolume: MANAGER_POSTGRES_VOLUME,
-        apiHealthUrl: HEALTH_URL, timeouts: TIMEOUTS },
-      database(),
-      runner.run,
-      async () => ({ status: 200 }),
-    );
-    runner.answer('ps -a --format json postgres', { stdout: containers('running', 'healthy') });
-
-    await upgrade.readPublication(request);
-
-    assert.deepEqual(runner.calls[0]?.slice(0, 8), [
-      'docker', 'compose', '-p', PROJECT, '-f', COMPOSE_FILE, '-f', COMPOSE_OVERRIDE,
-    ]);
-  });
-
-  it('checks the exact installation-bound postgres volume name', async () => {
-    const exactVolume = 'manager-isolated-pg';
-    const upgrade = new ComposeUpgradeOperations(
-      { versionsRoot, composeFile: COMPOSE_FILE, composeOverride: COMPOSE_OVERRIDE, bundledStackRoot,
-        publicEdge: false, firstUse: false, postgresVolume: MANAGER_POSTGRES_VOLUME,
-        postgresVolumeName: exactVolume, apiHealthUrl: HEALTH_URL, timeouts: TIMEOUTS },
-      database(),
-      runner.run,
-      async () => ({ status: 200 }),
-    );
-    runner.answer(
-      'ps -a --format json postgres',
-      { stdout: '' },
-      { stdout: containers('running', 'healthy') },
-    );
-    runner.answer(`docker volume ls -q --filter name=^${exactVolume}$`, { stdout: `${exactVolume}\n` });
-    runner.answer('up -d --no-build postgres', {});
-
-    await upgrade.readPublication(request);
-
-    assert.ok(
-      runner.calls.some((call) => call.includes(`name=^${exactVolume}$`)),
-      JSON.stringify(runner.calls),
-    );
-    assert.equal(runner.calls.some((call) => call.includes(`name=^${PROJECT}_${MANAGER_POSTGRES_VOLUME}$`)), false);
-  });
 
   describe('deciding about Postgres before it reads anything', () => {
     it('reads through a Postgres that is already running and healthy, starting nothing', async () => {

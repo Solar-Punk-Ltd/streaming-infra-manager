@@ -22,8 +22,6 @@ const MANAGER_DIGEST = '--manager-digest';
 const IMAGE_ID = '--image-id';
 const PROJECT = '--project';
 const COMPOSE_FILE = '--compose-file';
-const COMPOSE_OVERRIDE = '--compose-override';
-const POSTGRES_VOLUME_NAME = '--postgres-volume-name';
 const MUTABLE_ROOT = '--mutable-root';
 const PUBLIC_EDGE = '--public-edge';
 const FIRST_USE = '--first-use';
@@ -32,7 +30,6 @@ const BUNDLED_TIMEOUT = '--bundled-timeout';
 /** A wait a person would set: never nothing, never longer than a day. */
 const MIN_BUNDLED_TIMEOUT_SECONDS = 1;
 const MAX_BUNDLED_TIMEOUT_SECONDS = 86_400;
-const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
 function bundledTimeoutMs(value: string | undefined): number {
   if (value === undefined) return DEFAULT_BUNDLED_BUILD_MS;
@@ -73,8 +70,7 @@ export const MANAGER_UPGRADE_USAGE = [
   'Usage:',
   `  node dist/cli.js ${MANAGER_UPGRADE} ${MANAGER_COMMIT} <sha> ${MANAGER_DIGEST} <sha256>`,
   `      ${IMAGE_ID} sha256:<sha256> ${PROJECT} <compose project>`,
-  `      ${COMPOSE_FILE} <path> [${COMPOSE_OVERRIDE} <path>] ${MUTABLE_ROOT} <path>`,
-  `      [${POSTGRES_VOLUME_NAME} <volume>]`,
+  `      ${COMPOSE_FILE} <path> ${MUTABLE_ROOT} <path>`,
   `      [${BUNDLED_TIMEOUT} <seconds>] [${PUBLIC_EDGE}] [${FIRST_USE}]`,
   '',
   'Brings the project back up on the image the deploy has just built, holding',
@@ -146,17 +142,10 @@ export async function runManagerUpgradeCommand(
   const versionsRoot = dependencies.versionsRoot ?? config.stackVersionsRoot;
   const { request, settings, environment } = withUsage(MANAGER_UPGRADE_USAGE, () => {
     const flags = parseFlags(argv, {
-      valued: [MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, COMPOSE_OVERRIDE,
-        MUTABLE_ROOT, POSTGRES_VOLUME_NAME, BUNDLED_TIMEOUT],
+      valued: [MANAGER_COMMIT, MANAGER_DIGEST, IMAGE_ID, PROJECT, COMPOSE_FILE, MUTABLE_ROOT, BUNDLED_TIMEOUT],
       switches: [PUBLIC_EDGE, FIRST_USE],
     });
     assertComposeFileInside(flags.required(COMPOSE_FILE), flags.required(MUTABLE_ROOT));
-    const composeOverride = flags.optional(COMPOSE_OVERRIDE);
-    if (composeOverride !== undefined) assertPlainPath(COMPOSE_OVERRIDE, composeOverride);
-    const postgresVolumeName = flags.optional(POSTGRES_VOLUME_NAME);
-    if (postgresVolumeName !== undefined && !DEPLOYMENT_NAME.test(postgresVolumeName)) {
-      throw new Error(`${POSTGRES_VOLUME_NAME} must be a bounded Compose volume name.`);
-    }
     return {
       // Checked before anything is opened, so a mistyped identity costs no connection and no ownership.
       request: captureManagerUpgradeRequest({
@@ -166,12 +155,10 @@ export async function runManagerUpgradeCommand(
       settings: {
         versionsRoot,
         composeFile: flags.required(COMPOSE_FILE),
-        ...(composeOverride === undefined ? {} : { composeOverride }),
         bundledStackRoot: BUNDLED_STACK_ROOT,
         publicEdge: flags.has(PUBLIC_EDGE),
         firstUse: flags.has(FIRST_USE),
         postgresVolume: MANAGER_POSTGRES_VOLUME,
-        ...(postgresVolumeName === undefined ? {} : { postgresVolumeName }),
         apiHealthUrl: apiHealthUrlFor(config.port),
         timeouts: { bundledBuild: bundledTimeoutMs(flags.optional(BUNDLED_TIMEOUT)) },
       } satisfies ComposeUpgradeSettings,

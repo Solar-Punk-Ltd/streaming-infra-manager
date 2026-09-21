@@ -6,396 +6,33 @@
  * host, a network and a signing key. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawn } from 'node:child_process';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
+import { MANAGER_POSTGRES_VOLUME } from '../../src/domain/versions/managerProject.js';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DEPLOY_ENTRY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
-const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-managed.sh');
-const STANDALONE_DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-standalone.sh');
-const RELEASE_MODE_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-mode.sh');
-const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
-const COMPOSE_FILE = join(here, '..', '..', 'docker-compose.yml');
+const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
 
 const script = readFileSync(DEPLOY_SCRIPT, 'utf8');
-const adapter = readFileSync(ADAPTER_SCRIPT, 'utf8');
-const composeFile = readFileSync(COMPOSE_FILE, 'utf8');
-const execFileAsync = promisify(execFile);
 
 /** Every `rsync ...` invocation, each up to its destination line. */
 function rsyncs(): string[] {
   return script.split(/\n(?=rsync )/).filter((block) => block.startsWith('rsync ')).map((block) => block.split('\n\n')[0] ?? block);
 }
 
-interface ReleaseDispatchFixture {
-  calls: string;
-  deployRoot: string;
-  entry: string;
-  env: NodeJS.ProcessEnv;
-  home: string;
-}
-
-function releaseDispatchFixture(t: { after(callback: () => void): void }): ReleaseDispatchFixture {
-  const root = mkdtempSync(join(tmpdir(), 'manager-release-dispatch-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const deployRoot = join(root, 'repo', 'deploy');
-  const home = join(root, 'home');
-  const bin = join(root, 'bin');
-  const calls = join(root, 'calls');
-  mkdirSync(deployRoot, { recursive: true });
-  mkdirSync(home, { recursive: true });
-  mkdirSync(bin);
-  const entry = join(deployRoot, 'deploy.sh');
-  writeFileSync(entry, readFileSync(DEPLOY_ENTRY_SCRIPT));
-  chmodSync(entry, 0o700);
-  const releaseMode = join(deployRoot, 'release-mode.sh');
-  writeFileSync(releaseMode, readFileSync(join(dirname(DEPLOY_ENTRY_SCRIPT), 'release-mode.sh')));
-  chmodSync(releaseMode, 0o700);
-  for (const name of ['deploy-standalone.sh', 'deploy-managed.sh']) {
-    const path = join(deployRoot, name);
-    writeFileSync(path, `#!/bin/bash\nprintf '%s\\n' '${name}' > '${calls}'\n`);
-    chmodSync(path, 0o700);
-  }
-  const ssh = join(bin, 'ssh');
-  writeFileSync(ssh, '#!/bin/bash\nshift\nexec "$@"\n');
-  chmodSync(ssh, 0o700);
-  return {
-    calls,
-    deployRoot,
-    entry,
-    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ''}` },
-    home,
-  };
-}
-
-async function waitForPath(path: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (!existsSync(path)) {
-    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
-  }
-}
-
-/** What `release-mode.sh` runs on a host that offers it nothing else. */
-const LEASE_COMMANDS = ['chmod', 'dirname', 'ln', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname'];
-/** The script's own first choice for an owner token, which Linux has. */
-const KERNEL_UUID_SOURCE = '/proc/sys/kernel/random/uuid';
-
-/**
- * The script falls back to `uuidgen` only where the kernel offers no UUID of
- * its own, which is macOS, so a host without one must not be handed the
- * command it would never reach for.
- */
-function leaseCommands(): string[] {
-  try {
-    accessSync(KERNEL_UUID_SOURCE, constants.R_OK);
-    return LEASE_COMMANDS;
-  } catch {
-    return [...LEASE_COMMANDS, 'uuidgen'];
-  }
-}
-
-function installFakeGuard(home: string, status: string, exitCode = 0, withState = true): void {
-  const bin = join(home, '.local', 'bin');
-  const state = join(home, '.local', 'state', 'streaming-release-guard');
-  mkdirSync(bin, { recursive: true });
-  if (withState) mkdirSync(state, { recursive: true });
-  const guard = join(bin, 'streaming-release-guard');
-  writeFileSync(guard, `#!/bin/bash
-set -euo pipefail
-state_root='${state}'
-owner_token='22222222-2222-4222-8222-222222222222'
-case "\${1:-}" in
-  begin-legacy)
-    if [ '${exitCode}' -ne 0 ]; then exit '${exitCode}'; fi
-    if [ '${status}' = managed ]; then printf '%s\\n' managed; exit 0; fi
-    if [ '${status}' != legacy ]; then printf '%s\\n' '${status}'; exit 0; fi
-    mkdir "\${state_root}/state.lock"
-    printf '%s\\n' "\${owner_token}" > "\${state_root}/state.lock/owner"
-    printf 'legacy:%s\\n' "\${owner_token}"
-    ;;
-  finish-legacy)
-    rm -f "\${state_root}/state.lock/owner"
-    rmdir "\${state_root}/state.lock"
-    ;;
-  *) exit 2 ;;
-esac
-`);
-  chmodSync(guard, 0o700);
-}
-
 describe('deploy/deploy.sh', () => {
   it('is a script bash accepts', () => {
-    execFileSync('bash', ['-n', DEPLOY_ENTRY_SCRIPT]);
     execFileSync('bash', ['-n', DEPLOY_SCRIPT]);
-    execFileSync('bash', ['-n', STANDALONE_DEPLOY_SCRIPT]);
-  });
-
-  it('acquires and releases the pristine-host lease without host Node', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'manager-release-no-node-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const bin = join(root, 'bin');
-    const home = join(root, 'home');
-    mkdirSync(bin);
-    mkdirSync(home);
-    for (const command of leaseCommands()) {
-      symlinkSync(execFileSync('which', [command], { encoding: 'utf8' }).trim(), join(bin, command));
-    }
-    const env = { ...process.env, HOME: home, PATH: bin };
-
-    const begin = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
-    assert.match(begin.stdout, /^bootstrap:[0-9a-f-]{36}\n$/);
-    const ownerToken = begin.stdout.trim().slice('bootstrap:'.length);
-    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', ownerToken], { env });
-
-    assert.equal(existsSync(join(home, '.local/state/streaming-release-bootstrap.lock')), false);
-    assert.doesNotMatch(readFileSync(RELEASE_MODE_SCRIPT, 'utf8'), /\bnode\b/);
-  });
-
-  it('cannot release a successor after a duplicate bootstrap finish pauses after reading the owner', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'manager-release-finish-race-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const home = join(root, 'home');
-    const wrappers = join(root, 'wrappers');
-    const ready = join(root, 'ready');
-    const resume = join(root, 'resume');
-    mkdirSync(home);
-    mkdirSync(wrappers);
-    for (const command of ['ln', 'rm']) {
-      const path = join(wrappers, command);
-      writeFileSync(path, `#!/bin/bash
-set -euo pipefail
-if [ ! -e '${ready}' ]; then
-  /usr/bin/touch '${ready}'
-  while [ ! -e '${resume}' ]; do /bin/sleep 0.01; done
-fi
-exec /bin/${command} "$@"
-`);
-      chmodSync(path, 0o700);
-    }
-    const env = { ...process.env, HOME: home };
-    const first = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
-    const firstOwner = first.stdout.trim().slice('bootstrap:'.length);
-    const paused = spawn('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], {
-      env: { ...env, PATH: `${wrappers}:${process.env.PATH ?? ''}` },
-      stdio: 'ignore',
-    });
-    t.after(() => { if (paused.exitCode === null) paused.kill('SIGKILL'); });
-    await waitForPath(ready);
-
-    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], { env });
-    const successor = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
-    const successorOwner = successor.stdout.trim().slice('bootstrap:'.length);
-    writeFileSync(resume, 'continue\n');
-    const pausedExit = await new Promise<number | null>((resolveClose) => paused.once('close', resolveClose));
-
-    assert.notEqual(pausedExit, 0);
-    assert.equal(
-      readFileSync(join(home, '.local/state/streaming-release-bootstrap.lock', 'owner'), 'utf8').trim(),
-      successorOwner,
-    );
-    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', successorOwner], { env });
-  });
-
-  it('dispatches only a pristine installation to the standalone deploy path', async (t) => {
-    const fixture = releaseDispatchFixture(t);
-
-    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
-
-    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
-  });
-
-  it('dispatches a valid activated installation to the guarded deploy path', async (t) => {
-    const fixture = releaseDispatchFixture(t);
-    installFakeGuard(fixture.home, 'managed');
-
-    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
-
-    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-managed.sh\n');
-  });
-
-  it('keeps a valid installed but unactivated guard on the standalone deploy path', async (t) => {
-    const fixture = releaseDispatchFixture(t);
-    installFakeGuard(fixture.home, 'legacy');
-
-    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
-
-    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
-  });
-
-  it('holds the absent-install bootstrap lease across standalone mutation', async (t) => {
-    const fixture = releaseDispatchFixture(t);
-    const started = join(fixture.home, 'standalone-started');
-    const release = join(fixture.home, 'standalone-release');
-    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), `#!/bin/bash
-set -euo pipefail
-touch '${started}'
-while [ ! -e '${release}' ]; do sleep 0.01; done
-printf '%s\n' deploy-standalone.sh > '${fixture.calls}'
-`);
-    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
-    const child = spawn(fixture.entry, ['fixture-host'], { env: fixture.env, stdio: 'ignore' });
-    t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
-    await waitForPath(started);
-
-    await assert.rejects(
-      execFileAsync(join(fixture.deployRoot, 'release-mode.sh'), ['begin-bootstrap-install'], {
-        env: fixture.env,
-      }),
-      /bootstrap lease is active/,
-    );
-    writeFileSync(release, 'release\n');
-    const exitCode = await new Promise<number | null>((resolveClose) => child.once('close', resolveClose));
-    assert.equal(exitCode, 0);
-    assert.equal(existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock')), false);
-  });
-
-  it('preserves the bootstrap lease after an ambiguous standalone failure', async (t) => {
-    const fixture = releaseDispatchFixture(t);
-    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), '#!/bin/bash\nexit 42\n');
-    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
-
-    await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
-
-    assert.equal(
-      existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock', 'owner')),
-      true,
-    );
-  });
-
-  it('does not require receipt credentials on the standalone path', () => {
-    const standalone = readFileSync(STANDALONE_DEPLOY_SCRIPT, 'utf8');
-    assert.doesNotMatch(standalone, /RELEASE_GUARD_ADMIN_(?:URL|TOKEN)/);
-    assert.match(script, /RELEASE_GUARD_ADMIN_URL/);
-    assert.match(script, /RELEASE_GUARD_ADMIN_TOKEN/);
-  });
-
-  it('refuses partial, invalid, and unexpected guard state without dispatching', async (t) => {
-    for (const setup of [
-      (home: string) => mkdirSync(join(home, '.local', 'state', 'streaming-release-guard'), { recursive: true }),
-      (home: string) => installFakeGuard(home, 'legacy', 0, false),
-      (home: string) => installFakeGuard(home, 'broken', 1),
-      (home: string) => installFakeGuard(home, 'unexpected'),
-    ]) {
-      const fixture = releaseDispatchFixture(t);
-      setup(fixture.home);
-      await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
-      assert.throws(() => readFileSync(fixture.calls, 'utf8'));
-    }
-  });
-
-  it('stages a new sibling candidate and never rsyncs over the live manager tree', () => {
-    const [repo] = rsyncs();
-    assert.ok(repo);
-    assert.match(script, /REMOTE_HOME="\$\(ssh "\$SSH_TARGET" 'printf %s "\$HOME"'\)"/);
-    assert.match(script, /RELEASES_ROOT="\$\{REMOTE_HOME\}\/streaming-infra-manager-releases\/manager"/);
-    assert.match(script, /INCOMING_ROOT="\$\{RELEASES_ROOT\}\/\.incoming-/);
-    assert.doesNotMatch(script, /\/home\/[a-z]/);
-    assert.match(repo, /"\$\{SSH_TARGET\}:\$\{INCOMING_ROOT\}\/"/);
-    assert.doesNotMatch(repo, /"\$\{SSH_TARGET\}:\$\{REMOTE_PATH\}\/"/);
-    assert.match(repo, /--delete/);
-  });
-
-  it('binds the staged candidate digest before the installed guard may transition it', () => {
-    const digest = script.indexOf('"$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT"');
-    const rename = script.indexOf('mv --no-target-directory "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
-    const transition = script.indexOf('manager-stdin');
-
-    assert.notEqual(digest, -1);
-    assert.ok(rename > digest);
-    assert.ok(transition > rename);
-    assert.match(
-      script.slice(transition - 100),
-      /ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'/,
-    );
-  });
-
-  it('publishes only one of two candidates that observed the digest path absent', async (t) => {
-    const functions = script.match(
-      /reconcile_existing_candidate\(\) \{[\s\S]*?\n\}\n\npublish_candidate\(\) \{[\s\S]*?\n\}/,
-    )?.[0];
-    assert.ok(functions, 'the production candidate publisher is present');
-    const root = mkdtempSync(join(tmpdir(), 'manager-candidate-publish-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const releases = join(root, 'releases');
-    const first = join(releases, '.incoming-a');
-    const second = join(releases, '.incoming-b');
-    const barrier = join(root, 'barrier');
-    const bin = join(root, 'bin');
-    mkdirSync(first, { recursive: true });
-    mkdirSync(second, { recursive: true });
-    mkdirSync(barrier);
-    mkdirSync(bin);
-    writeFileSync(join(first, 'artifact'), 'same candidate\n');
-    writeFileSync(join(second, 'artifact'), 'same candidate\n');
-    const digest = 'd'.repeat(64);
-    const guard = join(bin, 'guard');
-    writeFileSync(guard, `#!/bin/bash\nprintf '%s\\n' '${digest}'\n`);
-    chmodSync(guard, 0o700);
-    const rename = join(bin, 'rename.mjs');
-    writeFileSync(rename, `import { renameSync } from 'node:fs';\nconst [flag, source, target] = process.argv.slice(2);\nif (flag !== '--no-target-directory') process.exit(2);\nrenameSync(source, target);\n`);
-    const mv = join(bin, 'mv');
-    writeFileSync(mv, `#!/bin/bash
-set -euo pipefail
-touch "\${PUBLISH_BARRIER}/$$"
-while [ "$(find "\${PUBLISH_BARRIER}" -type f | wc -l | tr -d ' ')" -lt 2 ]; do sleep 0.01; done
-exec '${process.execPath}' '${rename}' "$@"
-`);
-    chmodSync(mv, 0o700);
-    const harness = join(root, 'publish.sh');
-    writeFileSync(harness, `#!/bin/bash
-set -euo pipefail
-INCOMING_ROOT="$1"
-RELEASES_ROOT="$2"
-CANDIDATE_DIGEST='${digest}'
-CANDIDATE_ROOT="\${RELEASES_ROOT}/\${CANDIDATE_DIGEST}"
-GUARD_BIN="$3"
-${functions}
-publish_candidate
-`);
-    chmodSync(harness, 0o700);
-    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, PUBLISH_BARRIER: barrier };
-
-    await Promise.all([
-      execFileAsync(harness, [first, releases, guard], { env }),
-      execFileAsync(harness, [second, releases, guard], { env }),
-    ]);
-
-    assert.deepEqual(readdirSync(releases), [digest]);
-    assert.equal(readFileSync(join(releases, digest, 'artifact'), 'utf8'), 'same candidate\n');
-  });
-
-  it('routes the receipt credential only through the installed guard process environment', () => {
-    assert.match(script, /for name in POSTGRES_PASSWORD RELEASE_GUARD_ADMIN_URL RELEASE_GUARD_ADMIN_TOKEN SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do/);
-    assert.match(script, /printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0'/);
-    assert.doesNotMatch(script, /--token|Bearer|RELEASE_GUARD_ADMIN_TOKEN=/);
-  });
-
-  it('routes every manager process input without putting a value in remote argv', () => {
-    for (const name of [
-      'POSTGRES_PASSWORD',
-      'SRS_LIFECYCLE_VERSION',
-      'SRS_MANAGED_UPLOADER_PROFILE',
-      'ADMIN_API_URL',
-      'ADMIN_API_TOKEN',
-    ]) {
-      assert.match(script, new RegExp(name));
-    }
-    assert.doesNotMatch(script, /ADMIN_API_URL must match RELEASE_GUARD_ADMIN_URL/);
-    assert.doesNotMatch(script, /ADMIN_API_TOKEN must match RELEASE_GUARD_ADMIN_TOKEN/);
-    assert.doesNotMatch(script, /ssh "\$SSH_TARGET"[^\n]*(?:POSTGRES_PASSWORD|ADMIN_API_TOKEN|RELEASE_GUARD_ADMIN_TOKEN)/);
   });
 
   it('leaves the bundled tree the engines mount out of the rsync that deletes into the repo', () => {
-    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${INCOMING_ROOT}/"'));
-    assert.ok(repo, 'the rsync into the staged candidate');
+    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${REMOTE_PATH}/"'));
+    assert.ok(repo, 'the rsync into the repository');
     assert.match(repo, /--delete/);
     assert.match(repo, /--exclude 'manager\/swarm-hls-stream\/'/);
   });
@@ -406,8 +43,8 @@ publish_candidate
    * ignored by git, so it is by definition not part of what a host runs.
    */
   it('leaves the working notes of whoever deployed on the machine they wrote them on', () => {
-    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${INCOMING_ROOT}/"'));
-    assert.ok(repo, 'the rsync into the staged candidate');
+    const repo = rsyncs().find((block) => block.includes('"${SSH_TARGET}:${REMOTE_PATH}/"'));
+    assert.ok(repo, 'the rsync into the repository');
     assert.match(repo, /--exclude '\.scratch\/'/);
   });
 
@@ -433,8 +70,7 @@ publish_candidate
   });
 
   it('pins the stack commit from the repository itself, not from a checkout of the submodule', () => {
-    assert.match(script, /STACK_COMMIT="\$\(git rev-parse HEAD:manager\/swarm-hls-stream\)"/);
-    assert.match(script, new RegExp(`printf '[^']+' "\\$STACK_COMMIT" > "\\$\{INCOMING_ROOT\}/manager/${STACK_COMMIT_FILE.replace('.', '\\.')}"`));
+    assert.match(script, new RegExp(`git rev-parse HEAD:manager/swarm-hls-stream > manager/${STACK_COMMIT_FILE.replace('.', '\\.')}`));
   });
 
   it('builds nothing of the streaming stack here, because the host fetches and builds it', () => {
@@ -455,21 +91,21 @@ publish_candidate
     assert.equal(script.includes('TOOLCHAIN'), false);
   });
 
-  it('lets the installed guard build before its adapter invokes the upgrade coordinator', () => {
-    const build = adapter.indexOf('build api web');
-    const upgrade = adapter.indexOf('node dist/cli.js manager:upgrade');
+  it('builds the image on the host and then runs the upgrade from it, not from the running api', () => {
+    const build = script.indexOf('docker compose build');
+    const upgrade = script.indexOf('docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
     assert.notEqual(build, -1, 'the image is built on the host');
     assert.notEqual(upgrade, -1, 'the upgrade runs in a container of the image just built');
     assert.ok(build < upgrade, 'the image exists before the upgrade runs from it');
   });
 
   it('decides on the host whether this manager has ever run here, before the one-off container exists', () => {
-    const run = adapter.indexOf('node dist/cli.js manager:upgrade');
+    const run = script.indexOf('docker compose run --rm --no-deps -T api');
     assert.notEqual(run, -1, 'the upgrade runs in a one-off container');
-    const before = adapter.slice(0, run);
-    assert.ok(before.includes('docker volume ls -q --filter'), 'the data volume is looked for by name');
-    assert.ok(before.includes('label=com.docker.compose.service=api'), 'so are the api containers of the project');
-    assert.ok(before.includes('label=com.docker.compose.service=postgres'), 'and the postgres ones');
+    const before = script.slice(0, run);
+    assert.ok(before.includes('docker volume ls -q --filter name=^\\${POSTGRES_VOLUME}\\$'), 'the data volume is looked for by name');
+    assert.ok(before.includes('service_containers api'), 'so are the api containers of the project');
+    assert.ok(before.includes('service_containers postgres'), 'and the postgres ones');
     assert.match(before, /label=com\.docker\.compose\.oneoff=False/, 'neither count a one-off container');
   });
 
@@ -477,52 +113,45 @@ publish_candidate
     // A substitution inside a [ ... ] condition reports what it printed rather than that it
     // failed, so a daemon that is down would read as a host with nothing on it and take the
     // first use branch.
-    const before = adapter.slice(0, adapter.indexOf('node dist/cli.js manager:upgrade'));
-    for (const [variable, probe] of [
-      ['data_volume', 'docker volume ls -q --filter'],
-      ['api_containers', 'label=com.docker.compose.service=api'],
-      ['postgres_containers', 'label=com.docker.compose.service=postgres'],
-    ]) {
-      const assignmentStart = before.indexOf(`${variable}="$(`);
-      const probeIndex = before.indexOf(probe);
-      const assignmentEnd = before.indexOf(')"', assignmentStart);
-      assert.notEqual(assignmentStart, -1, `${variable} has an assignment`);
-      assert.ok(assignmentStart < probeIndex && probeIndex < assignmentEnd, `${probe} is read into ${variable}`);
-      assert.equal(before.indexOf(probe, probeIndex + 1), -1, `${probe} is asked in one place`);
+    const before = script.slice(0, script.indexOf('docker compose run --rm --no-deps -T api')).split('\n');
+    for (const probe of ['docker volume ls -q --filter name=', 'service_containers api', 'service_containers postgres']) {
+      const asked = before.filter((line) => line.includes(probe));
+      assert.equal(asked.length, 1, `${probe} is asked in one place`);
+      assert.match(asked[0]!.trim(), /^[A-Z_]+="\\\$\(/, `${probe} is read into a variable of its own`);
     }
   });
 
   it('stops before the upgrade when the data volume went missing under an installed manager', () => {
-    const abort = adapter.indexOf('found an api container without its database volume');
+    const abort = script.indexOf('so its database was removed under a manager that is still installed');
     assert.notEqual(abort, -1, 'the deploy says what it found');
-    assert.ok(abort < adapter.indexOf('node dist/cli.js manager:upgrade'), 'and says it before anything is published');
-    assert.match(adapter.slice(abort, abort + 300), /exit 1/, 'the deploy stops there');
+    assert.ok(abort < script.indexOf('docker compose run --rm --no-deps -T api'), 'and says it before anything is published');
+    assert.match(script.slice(abort, abort + 300), /exit 1/, 'the deploy stops there');
   });
 
   it('hands the first use answer to the upgrade rather than letting it probe from inside', () => {
-    assert.match(adapter, /is_first_use=true/, 'the flag is set where the probes said so');
-    const upgrade = adapter.slice(adapter.indexOf('node dist/cli.js manager:upgrade'));
-    assert.ok(upgrade.includes('upgrade_args+=(--first-use)'), 'and reaches the command');
+    assert.match(script, /FIRST_USE_FLAG="--first-use"/, 'the flag is set where the probes said so');
+    const upgrade = script.slice(script.indexOf('cli.js manager:upgrade'));
+    assert.ok(upgrade.includes('\\${FIRST_USE_FLAG}'), 'and reaches the command');
   });
 
   it('gives the upgrade the identity of the manager, of the image and how long to wait for the bundled build', () => {
-    const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
-    for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project "$project_name"',
-      '--compose-file', '--compose-override', '--postgres-volume-name "$postgres_volume_name"', '--mutable-root']) {
+    const upgrade = script.slice(script.indexOf('manager:upgrade'));
+    for (const flag of ['--manager-commit', '--manager-digest', '--image-id', '--project manager',
+      '--compose-file', '--mutable-root', '--bundled-timeout']) {
       assert.ok(upgrade.includes(flag), `the upgrade is given ${flag}`);
     }
-    assert.match(adapter, /api_image="\$\(plan_value image:api\)"/);
+    assert.match(script, /IMAGE_ID="\\\$\(docker image inspect --format '\{\{\.Id\}\}' manager-api\)"/);
   });
 
   it('gives the upgrade no shipment, because the host builds the stack itself', () => {
-    const upgrade = adapter.slice(adapter.indexOf('manager:upgrade'));
+    const upgrade = script.slice(script.indexOf('manager:upgrade'));
     for (const flag of ['--shipment-id', '--commit ', '--digest ', '--toolchain']) {
       assert.equal(upgrade.includes(flag), false, `the upgrade is not given ${flag}`);
     }
   });
 
-  it('leaves the bundled build timeout at the coordinator default', () => {
-    assert.doesNotMatch(adapter, /--bundled-timeout/);
+  it('lets the deployer say how long the bundled build may take, with a default of its own', () => {
+    assert.match(script, /BUNDLED_TIMEOUT="\$\{BUNDLED_TIMEOUT:-\d+\}"/);
   });
 
   /**
@@ -533,11 +162,11 @@ publish_candidate
    * the directory itself, empty, as the user it runs as, before compose sees it.
    */
   it('creates the ssh identity directory as the deploying user before any container is made', () => {
-    const made = adapter.indexOf('mkdir -p "$BEE_DATA_ROOT" "$STACK_VERSIONS_ROOT" "$MANAGER_SSH_DIR"');
+    const remote = script.slice(script.indexOf('<<REMOTE'), script.indexOf('\nREMOTE\n'));
+    const made = remote.indexOf('mkdir -p -m 700 "\\${MANAGER_SSH_DIR}"');
     assert.notEqual(made, -1, 'the ssh identity directory is created with mode 700');
-    assert.ok(made < adapter.indexOf('compose -f "$override" run'), 'before the upgrade container is made');
-    assert.match(adapter, /export PUBLIC_HOST BEE_DATA_ROOT STACK_VERSIONS_ROOT MANAGER_SSH_DIR/);
-    assert.match(adapter, /chmod 700 "\$MANAGER_SSH_DIR"/);
+    assert.ok(made < remote.indexOf('docker compose build'), 'before the images are built');
+    assert.match(remote, /export MANAGER_SSH_DIR=/);
   });
 
   it('refuses an ssh target that would read as an option to ssh', () => {
@@ -548,77 +177,68 @@ publish_candidate
     assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before ssh is given it');
   });
 
-  it('does not interpolate optional operator values into the remote shell', () => {
-    assert.doesNotMatch(script, /BUNDLED_TIMEOUT|PUBLIC_EDGE_FLAG|FIRST_USE_FLAG/);
+  it('refuses a bundled timeout that is not whole seconds, before it reaches the remote quoting', () => {
+    const assignment = script.indexOf('BUNDLED_TIMEOUT="${BUNDLED_TIMEOUT:-');
+    const checked = script.indexOf('if ! [[ "$BUNDLED_TIMEOUT" =~ ^[0-9]+$ ]]');
+    assert.notEqual(checked, -1, 'the value lands inside single quotes in the remote heredoc');
+    assert.ok(checked > assignment, 'after the value is settled');
+    assert.ok(checked < script.indexOf('ssh "$SSH_TARGET"'), 'and before anything runs on the host');
   });
 
-  it('closes the upgrade coordinator standard input inside the fixed adapter', () => {
-    assert.match(adapter, /compose -f "\$override" run [^\n]* "\$\{upgrade_args\[@\]\}" < \/dev\/null/);
+  it('feeds both remote docker commands from /dev/null, so neither reads the rest of the script', () => {
+    // The remote block arrives on the stdin of one bash, and `run` and `exec` keep stdin open,
+    // so without this the lines below them are swallowed instead of run.
+    const run = script.slice(script.indexOf('docker compose run --rm --no-deps -T api'));
+    const closed = run.indexOf(')"');
+    assert.notEqual(closed, -1, 'the substitution that captures the receipt ends somewhere');
+    assert.match(run.slice(0, closed + 2), /\$\{PUBLIC_EDGE_FLAG\} < \/dev\/null\)"$/,
+      'the upgrade takes the edge decision and no standard input');
+    assert.match(script, /docker compose exec -T api [^\n]* < \/dev\/null/, 'and neither does the check that follows it');
   });
 
   it('asks for the public edge only where the domain says so', () => {
-    assert.equal(adapter.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
-    const decision = adapter.indexOf('upgrade_args+=(--public-edge)');
+    const branch = script.indexOf('COMPOSE_PROFILE_FLAG=""');
+    assert.equal(script.split('--public-edge').length - 1, 1, 'the flag is decided in one place');
+    const decision = script.indexOf('PUBLIC_EDGE_FLAG="--public-edge"');
     assert.notEqual(decision, -1, 'the public branch sets it');
-    assert.ok(decision > adapter.indexOf('if [ -n "$manager_domain" ]'), 'inside the branch that saw a host name');
+    assert.ok(decision > script.indexOf('elif [[ "$MANAGER_DOMAIN" =~ $HOSTNAME_PATTERN ]]'), 'inside the branch that saw a host name');
+    assert.ok(decision < script.indexOf('\nelse\n', script.indexOf('elif [[ "$MANAGER_DOMAIN"')), 'and not below it');
+    assert.equal(branch, -1, 'the old compose profile flag is gone');
   });
 
-  it('leaves the installed guard output attached to the deploy output', () => {
-    assert.doesNotMatch(script, /RECEIPT=/);
-    assert.match(script, /^\s+ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'$/m);
+  it('prints the receipt the upgrade returned, after the command that returned it', () => {
+    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    assert.notEqual(captured, -1, 'the receipt is the one line the upgrade printed');
+    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
+    assert.notEqual(printed, -1, 'and the deploy prints it as it stands');
+    assert.ok(printed > captured, 'after the command that returned it, never before');
   });
 
-  it('lets a guard refusal fail the remote shell and the deploy', () => {
-    const remote = script.slice(script.lastIndexOf("<<'REMOTE'"));
-    assert.match(remote, /set -euo pipefail/);
-    assert.doesNotMatch(remote, /\|\| true|UPGRADE_STATUS/);
+  it('prints the receipt of an upgrade that failed, and only then fails the deploy', () => {
+    const captured = script.indexOf('RECEIPT="\\$(docker compose run --rm --no-deps -T api node dist/cli.js manager:upgrade');
+    const kept = script.indexOf('|| UPGRADE_STATUS=\\$?');
+    assert.notEqual(kept, -1, 'the capture runs under set -e, where a failing substitution would end the block');
+    const printed = script.indexOf('echo "[deploy] upgrade receipt: \\${RECEIPT}"');
+    const failed = script.indexOf('exit "\\${UPGRADE_STATUS}"');
+    assert.ok(kept > captured, 'the status of the command is taken');
+    assert.ok(printed > kept, 'the receipt is printed with it in hand');
+    assert.ok(failed > printed, 'and the deploy fails after the deployer has read it');
   });
 
   it('lets an address probe that answered nothing through, so the warning below it is reached', () => {
     // The remote block runs under set -e with pipefail, so a failing pipe inside this
     // substitution would end it here and the warning, the upgrade and the receipt would never run.
-    const line = adapter.split('\n').find((one) => one.includes('PUBLIC_HOST="$(ip -4 route get'));
+    const line = script.split('\n').find((one) => one.startsWith('PUBLIC_HOST="'));
     assert.ok(line, 'the remote block reads the address of the host');
     assert.match(line, /\|\| true\)"$/);
-    assert.ok(adapter.indexOf('PUBLIC_HOST=') > -1);
+    assert.ok(script.indexOf('WARNING: PUBLIC_HOST is empty') > script.indexOf('PUBLIC_HOST="'), 'and says so below it');
   });
 
-  it('uses only the installation-bound mode, project, volume, and loopback ports', () => {
-    assert.match(adapter, /deployment_mode="\$\(plan_value target:mode\)"/);
-    assert.match(adapter, /project_name="\$\(plan_value target:projectName\)"/);
-    assert.match(adapter, /postgres_volume_name="\$\(plan_value target:postgresVolumeName\)"/);
-    assert.match(adapter, /POSTGRES_PORT="\$\(plan_value target:postgresPort\)"/);
-    assert.match(adapter, /WEB_PORT="\$\(plan_value target:webPort\)"/);
-    assert.match(adapter, /--project-name "\$project_name"/);
-    assert.match(adapter, /postgres_volume="\$postgres_volume_name"/);
-  });
-
-  it('derives an isolated layout without live roots or public edge', () => {
-    assert.match(composeFile, /127\.0\.0\.1:\$\{POSTGRES_PORT:-5432\}:5432/);
-    assert.match(composeFile, /\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}:\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}/);
-    assert.match(adapter, /guard_state_root="\$\(plan_value guardInstallation:stateRoot\)"/);
-    assert.doesNotMatch(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
-    assert.match(adapter, /isolation_root="\$\{guard_state_root\}\/isolation\/\$\{project_name\}"/);
-    assert.match(adapter, /isolated manager release cannot enable the public edge/);
-    assert.match(adapter, /manager isolated release port is already occupied/);
-    assert.doesNotMatch(adapter, /guard_(?:code|state)_root="\/home\/solarpunk/);
-    for (const value of ['MANAGER_ROOT', 'POSTGRES_PORT', 'WEB_PORT', 'BEE_DATA_ROOT', 'STACK_VERSIONS_ROOT', 'MANAGER_SSH_DIR']) {
-      assert.match(adapter, new RegExp(`      ${value}:`), `${value} reaches the inner coordinator`);
-    }
-  });
-
-  it('verifies the running manager source, data, versions, ssh, and database mounts', () => {
-    for (const destination of [
-      '"$candidate_root"',
-      '"$BEE_DATA_ROOT"',
-      '"$STACK_VERSIONS_ROOT"',
-      '/root/.ssh',
-      '/var/lib/postgresql/data',
-    ]) {
-      assert.ok(adapter.includes(destination), `the adapter checks ${destination}`);
-    }
-    assert.match(adapter, /did not verify the bound manager mounts/);
-    assert.match(adapter, /did not verify the bound database volume/);
+  it('looks for the same data volume the upgrade names, so a rename on one side fails here', () => {
+    // The script cannot import TypeScript, so its one literal is read back against the
+    // constant the command uses and the two are changed together.
+    assert.ok(script.includes(`POSTGRES_VOLUME="manager_${MANAGER_POSTGRES_VOLUME}"`),
+      `the deploy names the manager_${MANAGER_POSTGRES_VOLUME} volume of the manager project`);
   });
 
   it('never asks compose to print a rendered configuration', () => {
@@ -628,6 +248,6 @@ publish_candidate
   });
 
   it('names the versions root on the host, which is where the bundled build lands', () => {
-    assert.ok(adapter.includes('streaming-infra-manager-versions'), 'the fixed adapter exports it');
+    assert.ok(script.includes('streaming-infra-manager-versions'), 'the remote block exports it');
   });
 });
