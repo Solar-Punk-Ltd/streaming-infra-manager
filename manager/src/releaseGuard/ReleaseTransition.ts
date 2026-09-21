@@ -288,6 +288,11 @@ async function requireCandidateRoot(value: string): Promise<string> {
   return root;
 }
 
+/**
+ * `srsLifecycle: 1` is a minimum the candidate must meet, not the whole of what it
+ * may advertise: a stack carrying further capabilities beside it is one that does
+ * more, which is how `readStackContract` reads the same manifest.
+ */
 async function requireLifecycleCapability(root: string, role: ReleaseSlot['role']): Promise<void> {
   const relativeManifest = role === 'admin'
     ? 'web2-admin/backend/release-capabilities.json'
@@ -311,7 +316,6 @@ async function requireLifecycleCapability(root: string, role: ReleaseSlot['role'
       !hasExactKeys(raw, ['schemaVersion', 'capabilities']) ||
       raw.schemaVersion !== 1 ||
       !isRecord(raw.capabilities) ||
-      !hasExactKeys(raw.capabilities, ['srsLifecycle']) ||
       raw.capabilities.srsLifecycle !== 1
     ) {
       throw new Error('unsupported');

@@ -953,6 +953,52 @@ describe('guarded release transition', () => {
     assert.equal(await readFile(join(stateRoot, 'pending', `${result.receipt.slot.role}-${result.receipt.slot.id}.json`), 'utf8'), result.body);
   });
 
+  it('accepts a candidate that advertises srsLifecycle beside another capability', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    await writeFile(
+      join(candidate, 'deploy/capabilities.json'),
+      `${JSON.stringify({ schemaVersion: 1, capabilities: { srsLifecycle: 1, viewerLifecycle: 1 } })}\n`,
+    );
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    await runReleaseTransition({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      adapter: adapter(counters),
+    });
+
+    assert.deepEqual(counters, { build: 1, stop: 1, start: 1 });
+  });
+
+  it('still refuses a candidate whose other capabilities surround an unsupported srsLifecycle', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    await writeFile(
+      join(candidate, 'deploy/capabilities.json'),
+      `${JSON.stringify({ schemaVersion: 1, capabilities: { srsLifecycle: 2, viewerLifecycle: 1 } })}\n`,
+    );
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const counters = { build: 0, stop: 0, start: 0 };
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        adapter: adapter(counters),
+      }),
+      /candidate does not advertise srsLifecycle version 1/,
+    );
+    assert.deepEqual(counters, { build: 0, stop: 0, start: 0 });
+  });
+
   it('refuses capable uploader candidates whose effective managed settings are disabled or mismatched', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
