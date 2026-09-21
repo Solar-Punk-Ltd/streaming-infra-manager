@@ -62,7 +62,12 @@ describe('readStackContract on main-v2', () => {
   });
 
   it('reports neither the SRS API nor a chequebook gate', () => {
-    assert.deepEqual(v2.features, { srsApiPort: false, chequebookGate: false, sharedImageTags: true });
+    assert.deepEqual(v2.features, {
+      srsApiPort: false,
+      chequebookGate: false,
+      sharedImageTags: true,
+      srsLifecycleV1: false,
+    });
     assert.equal(v2.chequebookMinBzz, null);
   });
 
@@ -146,7 +151,12 @@ describe('readStackContract on main-v3', () => {
   });
 
   it('reports the SRS API and the chequebook floor of 0.5 BZZ', () => {
-    assert.deepEqual(v3.features, { srsApiPort: true, chequebookGate: true, sharedImageTags: true });
+    assert.deepEqual(v3.features, {
+      srsApiPort: true,
+      chequebookGate: true,
+      sharedImageTags: true,
+      srsLifecycleV1: true,
+    });
     assert.equal(v3.chequebookMinBzz, '0.5');
   });
 
