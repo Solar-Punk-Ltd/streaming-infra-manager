@@ -30,32 +30,34 @@ These are **not** unit tests. They start real containers through the deploy scri
    `WEB_PORT`. Set both target URL variables to that proxy URL when using it.
    Do not use the development API URL for an unpublished container port.
 
-2. A user to sign in as. The manager has no sign-up. The pair is in 1Password as `solarpunk-streaming-infra-manager-itest` in the SolarPunk vault, username `itest`, and the same password is the repository secret `ITEST_PASSWORD` the Docker-backed workflow signs in with (see [Authentication and public access](../../../docs/features/auth-and-public-access.md)). The user itself is per manager, so create it on whichever manager you are testing. In the api container:
+2. A user to sign in as. The manager has no sign-up. The Docker-backed workflow signs in as `itest` with the repository secret `ITEST_PASSWORD` (see [Authentication and public access](../../../docs/features/auth-and-public-access.md)), and a local run can use the same pair or its own. The user itself is per manager, so create it on whichever manager you are testing. In the api container:
 
    ```sh
    # from manager/, for the configured Docker stack
-   op read "op://SolarPunk/solarpunk-streaming-infra-manager-itest/password" | docker compose -p streaming-infra-manager -f ./docker-compose.yml exec -T api node dist/cli.js user:add itest --password-stdin
+   <command that prints the password> | docker compose -p streaming-infra-manager -f ./docker-compose.yml exec -T api node dist/cli.js user:add itest --password-stdin
    ```
 
    Against a manager started with `pnpm dev`, the same CLI runs from `manager/` as `pnpm exec tsx --conditions=development src/cli.ts user:add itest --password-stdin`.
 
-3. The environment, filled by `op run` so the pair is never typed, printed or written to a file:
+3. The environment. Supply the pair through a secret tool that injects it into the process, so it is never typed, printed or written to a file:
 
    | Variable | What it is |
    | --- | --- |
    | `MANAGER_URL` | Development API URL, default `http://localhost:9876`, or the configured Docker web-proxy URL, default `http://127.0.0.1:8080`. |
    | `MANAGER_TEST_TARGET` | The same URL, written again. It says this manager is a test target the suite may create and remove deployments on. The suite refuses to start when it is missing or names a different manager. |
    | `MANAGER_TEST_USERNAME` | The user to sign in as. |
-   | `MANAGER_TEST_PASSWORD` | Its password, as an `op://` reference. |
+   | `MANAGER_TEST_PASSWORD` | Its password, injected at run time and never written into a file. |
    | `MANAGER_TEST_RUN` | Optional, one to eight lowercase letters or digits. Gives every suite file the same run id. Without it each file is a run of its own, which is fine. |
 
-   Copy `env.example` to `env.itest` in this directory, which git ignores. It already names the vault item, so nothing in it needs filling in.
+   Copy `env.example` to `env.itest` in this directory, which git ignores. Its two credentials are empty: fill them with references your secret tool resolves, never with the values.
 
 ## Run
 
+From `manager/`, run `pnpm test:integration` with those variables in its environment. A secret tool that reads an env file points at `test/integration/env.itest` and runs that command for you:
+
 ```sh
 # from manager/
-op run --env-file test/integration/env.itest -- pnpm test:integration
+<your secret tool> --env-file test/integration/env.itest -- pnpm test:integration
 ```
 
 A suite that cannot start fails in its first hook, in words, and creates nothing. Missing declaration, unreachable manager and a refused sign-in are three different messages. No message ever contains the password.
