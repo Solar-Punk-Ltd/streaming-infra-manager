@@ -48,6 +48,12 @@ describe the guard.
 repository, and holds its claim. The manager and admin claims are held by this session. The worker claim on
 `feat/srs-continuation-manager` is released, that line having been merged at `81271ee2`.
 
+**The worker checkouts in the table above are gone**, on the owner's word of 2026-09-21, so read that table as a record of who
+built what rather than as paths that exist. They were removed with `git worktree remove`, which refuses a checkout that holds
+uncommitted work, and every branch was kept, so their commits are still reachable in each clone's object store.
+`/private/tmp` now holds only the three integration checkouts named in the handover below. The lint evidence this file cites
+under `/private/tmp/srs-continuation-lint-evidence` went to the Trash in the same pass and is recoverable from there.
+
 Status: active. Isolated implementation authorized. Shared plan registered after owner-relayed coordination.
 Date: 2026-09-21.
 Coordinator: OpenAI-hosted Astra. Sol implements admin and uploader. Terra implements the first viewer slice.
