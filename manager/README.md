@@ -685,12 +685,11 @@ curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
 ## Environment
 
 Everything comes from `manager/.env`. `manager/.env.sample` documents the keys
-an operator sets by hand. Six more are used that it does not carry:
+an operator sets by hand. Five more are used that it does not carry:
 `SHLS_ROOT` and `BEE_DATA_ROOT`, which `docker-compose.yml` sets for the `api`
 container, `WEB_PORT`, which the compose file interpolates for the `web` port
-binding, `RELEASE_GUARD_STATE_ROOT`, which the release adapter writes into the
-compose file it installs, and the two below that decide whether a chequebook
-transfer can be made at all.
+binding, and the two below that decide whether a chequebook transfer can be
+made at all.
 
 **`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** have no
 default and no fallback. With either missing, saved operations stay readable and
@@ -700,8 +699,7 @@ committed: route the value into the process rather than writing it down.
 
 The keys that decide where the streaming stack lives, the ssh identity the
 manager deploys to other hosts with, the chain endpoint it offers the Bee nodes
-it creates, the address the API binds, where it reads the host's own numbers and
-where the installed release guard keeps its state:
+it creates, the address the API binds and where it reads the host's own numbers:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -712,20 +710,19 @@ where the installed release guard keeps its state:
 | `MANAGER_HOST`        | `0.0.0.0`                                          | The address the API binds. Every interface by default, which is what the `web` container needs to reach the `api` container. Narrow it to `127.0.0.1` when the manager runs on the host and the port should answer nothing but the loopback. |
 | `HOST_PROC`           | `/host/proc`, then `/proc`                         | Where the resource monitor reads the host's CPU, memory, disk I/O and init process network view. `docker-compose.yml` bind-mounts the host's `/proc` there read-only, and the fallback is the current machine's `/proc`, so a manager run outside Docker reports its own box. |
 | `HOST_ROOTFS`         | `/host/rootfs`, then `/`                           | Where the resource monitor reads the host's disk, mounted read-only the same way, with the same fallback. |
-| `RELEASE_GUARD_STATE_ROOT` | none                                          | The directory the installed release guard keeps its state in, on the host and bind-mounted into the `api` container at that same absolute path. `deploy/release-adapters/manager.sh` writes it into the compose file when it installs the guard, so an operator does not set it by hand, and it must be a canonical absolute path or the manager stops at startup. Unset, the manager runs no installed guard and deploys through the stack's own script, except that a profile named by `SRS_MANAGED_UPLOADER_PROFILE` refuses to deploy at all, because managed lifecycle reporting needs the guard. |
 
 The first two are bind-mounted into the api container at the same absolute path
 they have on the host, because the docker daemon runs on the host and reads
 every path in a compose file as a host path.
 
 Managed SRS lifecycle reporting is disabled by default. To enable it, set
-`SRS_LIFECYCLE_VERSION=1`, `SRS_MANAGED_UPLOADER_PROFILE=<profile>` and
-`ADMIN_API_URL` in `manager/.env`. The profile selector enables lifecycle
+`SRS_LIFECYCLE_VERSION=1`, `SRS_MANAGED_UPLOADER_PROFILE=<profile>`,
+`ADMIN_API_URL` and `ADMIN_API_TOKEN` in `manager/.env`, as ordinary values the
+same way as `POSTGRES_PASSWORD`. The profile selector enables lifecycle
 reporting for that one deployment. Other capable SRS profiles keep their
-legacy behavior. Put an
-`op://` reference for `ADMIN_API_TOKEN` in that file and start the manager
-through `op run --env-file manager/.env -- ...`. The Compose file explicitly
-passes those four values into the API container. For a selected stack whose
+legacy behavior. The Compose file explicitly passes those four values into the
+API container. The managed deployment deploys through the stack's own
+`deploy/scripts/deploy.sh`, like every other deployment. For a selected stack whose
 contract advertises `srsLifecycleV1`, the manager writes the lifecycle version
 and a persisted deployment `instance_id` into the profile env file. It supplies
 the admin boundary only to the local deploy process. The token never enters the
