@@ -23,7 +23,6 @@ import { DeploymentGroupRepository } from './domain/DeploymentGroupRepository.js
 import { DeploymentOrchestrator } from './domain/DeploymentOrchestrator.js';
 import { EventBus } from './domain/EventBus.js';
 import { Logger } from './domain/Logger.js';
-import { InstalledReleaseGuardRunner } from './domain/InstalledReleaseGuardRunner.js';
 import { MetricsCollector } from './domain/MetricsCollector.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
@@ -333,9 +332,6 @@ async function main(): Promise<void> {
     executionRoots,
     config.beeRpcEndpoint,
     config.managedSrsLifecycle,
-    config.releaseGuardStateRoot
-      ? new InstalledReleaseGuardRunner(scriptRunner, config.releaseGuardStateRoot)
-      : undefined,
   );
   try {
     const judged = await orchestrator.reconcileAttempts();

@@ -70,7 +70,6 @@ const PARENT = {
   SRT_PASSPHRASE: 'the-manager-s-own',
   MANAGER_PORT: '9876',
   ADMIN_API_TOKEN: 'synthetic-admin-token-at-least-32-bytes',
-  RELEASE_GUARD_ADMIN_TOKEN: 'synthetic-guard-token-at-least-32-bytes',
 };
 
 /** The environment the script actually saw, by key. */
@@ -115,7 +114,6 @@ describe('the environment a stack script is run with', () => {
     assert.equal(env.has('BEE_DATA_ROOT'), false);
     assert.equal(env.has('LOG_LEVEL'), false);
     assert.equal(env.has('ADMIN_API_TOKEN'), false);
-    assert.equal(env.has('RELEASE_GUARD_ADMIN_TOKEN'), false);
   });
 
   it('drops a key the deployment stack declares, and keeps one it does not', async () => {
@@ -156,7 +154,6 @@ describe('the environment a stack script is run with', () => {
     assert.equal(env.has('DATABASE_URL'), false);
     assert.equal(env.has('LOG_LEVEL'), false);
     assert.equal(env.has('ADMIN_API_TOKEN'), false);
-    assert.equal(env.has('RELEASE_GUARD_ADMIN_TOKEN'), false);
     assert.equal(env.get('API_PORT'), '19999', 'no sample says this is the stack\'s');
   });
 

@@ -36,45 +36,26 @@ const { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } = await import('../../src/d
 const { inventoryOwnedTree, ownedTreeDigest } = await import('../../src/domain/versions/ownedTreeInventory.js');
 const { buildDirFor, executionsRootFor } = await import('../../src/domain/versions/stackPaths.js');
 const { InMemoryExecutionRoots } = await import('../support/InMemoryExecutionRoots.js');
-const { installReleaseGuard } = await import('../../src/releaseGuard/ReleaseGuardStore.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 
-const CONTRACT: StackContract = {
-  ...ALLOCATION_CONTRACT,
-  ports: [...ALLOCATION_CONTRACT.ports],
-  features: { ...ALLOCATION_CONTRACT.features, srsLifecycleV1: true },
-};
+const CONTRACT: StackContract = { ...ALLOCATION_CONTRACT, ports: [...ALLOCATION_CONTRACT.ports] };
 const COMMIT_A = 'a'.repeat(40);
 
 /** A complete build on disk, with the sample a deploy bootstraps from. */
 function buildOnDisk(versionsRoot: string, buildId: string): string {
   const dir = buildDirFor(versionsRoot, 'v3', buildId);
   mkdirSync(join(dir, 'deploy', 'scripts'), { recursive: true });
-  mkdirSync(join(dir, 'engines', 'srs'), { recursive: true });
   writeFileSync(join(dir, 'deploy', 'scripts', 'deploy.sh'), '#!/bin/sh\nexit 0\n');
-  writeFileSync(join(dir, 'deploy', 'capabilities.json'), JSON.stringify({
-    schemaVersion: 1,
-    capabilities: { srsLifecycle: 1 },
-  }));
   writeFileSync(join(dir, '.env.sample'), 'ENGINE=srs\n');
-  writeFileSync(join(dir, 'engines', 'srs', '.env.sample'), 'SRS_HTTP_PORT=8080\n');
   writeFileSync(join(dir, BUILD_MANIFEST_FILE), JSON.stringify({ commit: buildId.slice(0, 40), buildId, builtAt: new Date().toISOString(), toolchain: 't' }));
   writeFileSync(join(dir, BUILD_COMPLETE_MARKER), '');
   return dir;
 }
 
-async function setup(options: {
-  copies?: boolean;
-  profile?: Profile;
-  releaseTargets?: Parameters<typeof installReleaseGuard>[2];
-  managed?: {
-    profile: string;
-    adminApiToken: string;
-  };
-} = {}) {
+async function setup(options: { copies?: boolean } = {}) {
   const versionsRoot = mkdtempSync(join(root, 'versions-'));
-  const profiles = [options.profile ?? makeProfile({ name: 'stage', stack_version_id: 2, stamp_id: 'a'.repeat(64), instance_id: randomUUID() })];
+  const profiles = [makeProfile({ name: 'stage', stack_version_id: 2, stamp_id: 'a'.repeat(64), instance_id: randomUUID() })];
   const store = new InMemoryExecutionRoots(executionsRootFor(versionsRoot), name => {
     const found = harness.profiles.rows.get(name);
     return found?.instance_id;
@@ -84,36 +65,14 @@ async function setup(options: {
     listAllContainers: async () => [],
     inspectContainer: async () => null,
   }));
-  const releaseGuardStateRoot = options.releaseTargets
-    ? mkdtempSync(join(root, 'release-state-'))
-    : undefined;
-  if (releaseGuardStateRoot && options.releaseTargets) {
-    await installReleaseGuard(releaseGuardStateRoot, undefined, options.releaseTargets);
-  }
-  const harness = orchestratorHarness(
-    profiles,
-    undefined,
-    versionsRoot,
-    undefined,
-    undefined,
-    options.copies === false ? undefined : service,
-    undefined,
-    options.managed
-      ? {
-        lifecycleVersion: 1,
-        profile: options.managed.profile,
-        adminApiUrl: 'http://admin.internal:9877',
-        adminApiToken: options.managed.adminApiToken,
-      }
-      : undefined,
-    releaseGuardStateRoot,
-  );
+  const harness = orchestratorHarness(profiles, undefined, versionsRoot, undefined, undefined,
+    options.copies === false ? undefined : service);
   const v3 = await harness.versions.insert({ name: 'v3', gitRef: 'main-v3', rootPath: join(versionsRoot, 'v3') });
   buildOnDisk(versionsRoot, COMMIT_A);
   await harness.versions.publish(v3.id, { buildId: COMMIT_A, commitSha: COMMIT_A, contract: CONTRACT });
   const row = () => {
-    const found = harness.profiles.rows.get(profiles[0]!.name);
-    if (!found) throw new Error(`${profiles[0]!.name} is gone`);
+    const found = harness.profiles.rows.get('stage');
+    if (!found) throw new Error('stage is gone');
     return found;
   };
   return { harness, store, service, v3, row, versionsRoot };
@@ -123,7 +82,7 @@ async function deploy(harness: Awaited<ReturnType<typeof setup>>['harness'], row
   const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
   await harness.orchestrator.runReserved(reservation, row());
   harness.runner.finish(harness.runner.runs.length - 1);
-  await untilRunning(harness.profiles, row().name);
+  await untilRunning(harness.profiles, 'stage');
   return harness.runner.runs[harness.runner.runs.length - 1]!;
 }
 
@@ -248,223 +207,5 @@ describe('the other verbs', () => {
     await harness.orchestrator.startStop(row(), undefined);
 
     assert.equal(harness.runner.runs[harness.runner.runs.length - 1]!.options.cwd, buildDirFor(versionsRoot, 'v3', COMMIT_A));
-  });
-});
-
-describe('installed release guard deployments', () => {
-  it('routes the selected full uploader through installed code and stages its engine env', async () => {
-    const token = 'synthetic-token-with-quote-"-and-backslash-\\-safe';
-    const uploaderId = randomUUID();
-    const profile = makeProfile({
-      name: 'stage',
-      stack_version_id: 2,
-      components: ['srs', 'stream-uploader'],
-      stamp_id: 'a'.repeat(64),
-      instance_id: uploaderId,
-    });
-    const { harness, store, row, versionsRoot } = await setup({
-      profile,
-      managed: { profile: 'stage', adminApiToken: token },
-      releaseTargets: {
-        uploader: {
-          profile: 'stage',
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['srs', 'stream-uploader'],
-        },
-      },
-    });
-    const build = buildDirFor(versionsRoot, 'v3', COMMIT_A);
-
-    const run = await deploy(harness, row);
-    const execution = store.records[0]!.root;
-
-    assert.equal(run.script, '/opt/streaming-release-guard/streaming-release-guard');
-    assert.equal(run.args[0], 'uploader');
-    assert.deepEqual(run.args.slice(-2), ['--slot-id', uploaderId]);
-    assert.equal(run.options.withholdOutput, true);
-    assert.equal(run.options.env?.ADMIN_API_TOKEN, token);
-    assert.equal(run.options.env?.RELEASE_GUARD_ADMIN_TOKEN, token);
-    assert.doesNotMatch(JSON.stringify(run.args), /synthetic-token/);
-    assert.equal(
-      await readFile(join(execution, 'engines', 'srs', '.env.stage'), 'utf8'),
-      'SRS_HTTP_PORT=8080\n',
-    );
-    assert.match(await readFile(join(execution, '.env.stage'), 'utf8'), /SRS_LIFECYCLE_VERSION=1/);
-    assert.doesNotMatch(await readFile(join(execution, '.env.stage'), 'utf8'), /synthetic-token/);
-    await assert.rejects(readFile(join(build, 'engines', 'srs', '.env.stage')), /ENOENT/);
-  });
-
-  it('preserves the held-back service set in a guard-owned first-start preparation', async () => {
-    const profile = makeProfile({
-      name: 'prepare-stage',
-      stack_version_id: 2,
-      stamp_id: null,
-      instance_id: randomUUID(),
-    });
-    const { harness, row, store } = await setup({
-      profile,
-      managed: {
-        profile: profile.name,
-        adminApiToken: 'synthetic-preparation-token-at-least-32-bytes',
-      },
-      releaseTargets: {
-        uploader: {
-          profile: profile.name,
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['bee-uploader', 'srs', 'stream-uploader'],
-        },
-      },
-    });
-
-    const run = await deploy(harness, row);
-
-    assert.equal(run.args[0], 'prepare-uploader');
-    assert.deepEqual(run.args.slice(-2), ['--services', 'bee-uploader,srs']);
-    assert.equal(run.options.env?.ADMIN_API_TOKEN, undefined);
-    assert.equal(run.options.env?.RELEASE_GUARD_ADMIN_TOKEN, undefined);
-    assert.match(
-      await readFile(join(store.records[0]!.root, '.env.prepare-stage'), 'utf8'),
-      /SRS_LIFECYCLE_VERSION=\n/,
-    );
-    assert.equal(
-      await readFile(join(store.records[0]!.root, 'engines/srs/.env.prepare-stage'), 'utf8'),
-      'SRS_HTTP_PORT=8080\n',
-    );
-  });
-
-  it('routes a later uploader-only start through a guarded subset update', async () => {
-    const profile = makeProfile({
-      name: 'update-stage',
-      stack_version_id: 2,
-      stamp_id: 'a'.repeat(64),
-      instance_id: randomUUID(),
-    });
-    const { harness, row, store } = await setup({
-      profile,
-      managed: {
-        profile: profile.name,
-        adminApiToken: 'synthetic-update-token-at-least-32-bytes',
-      },
-      releaseTargets: {
-        uploader: {
-          profile: profile.name,
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['bee-uploader', 'srs', 'stream-uploader'],
-        },
-      },
-    });
-
-    await harness.orchestrator.startDeployUploader(row());
-    const run = harness.runner.runs.at(-1)!;
-    harness.runner.finish(harness.runner.runs.length - 1);
-    await untilRunning(harness.profiles, profile.name);
-
-    assert.equal(run.args[0], 'update-uploader');
-    assert.deepEqual(run.args.slice(-2), ['--services', 'stream-uploader']);
-    assert.equal(run.options.env?.ADMIN_API_TOKEN, 'synthetic-update-token-at-least-32-bytes');
-    assert.match(
-      await readFile(join(store.records[0]!.root, '.env.update-stage'), 'utf8'),
-      /SRS_LIFECYCLE_VERSION=1/,
-    );
-  });
-
-  it('routes an installed viewer profile through the viewer guard', async () => {
-    const profile = makeProfile({
-      name: 'viewer-a',
-      stack_version_id: 2,
-      kind: 'viewer',
-      components: ['client'],
-      instance_id: randomUUID(),
-    });
-    const { harness, row } = await setup({
-      profile,
-      managed: {
-        profile: 'some-uploader',
-        adminApiToken: 'synthetic-viewer-token-at-least-32-bytes',
-      },
-      releaseTargets: {
-        viewer: {
-          profile: 'viewer-a',
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['client'],
-        },
-      },
-    });
-
-    const run = await deploy(harness, row);
-
-    assert.equal(run.script, '/opt/streaming-release-guard/streaming-release-guard');
-    assert.equal(run.args[0], 'viewer');
-    assert.equal(run.options.withholdOutput, true);
-    assert.doesNotMatch(JSON.stringify(run.args), /synthetic-viewer-token/);
-  });
-
-  it('refuses a remote installed viewer profile before any script starts', async () => {
-    const profile = makeProfile({
-      name: 'viewer-remote',
-      stack_version_id: 2,
-      kind: 'viewer',
-      components: ['client'],
-      host: 'remote.example',
-      instance_id: randomUUID(),
-    });
-    const { harness, row } = await setup({
-      profile,
-      managed: {
-        profile: 'some-uploader',
-        adminApiToken: 'synthetic-viewer-token-at-least-32-bytes',
-      },
-      releaseTargets: {
-        viewer: {
-          profile: 'viewer-remote',
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['client'],
-        },
-      },
-    });
-
-    const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
-    await assert.rejects(
-      harness.orchestrator.runReserved(reservation, row()),
-      /installed release guard.*local target/i,
-    );
-    assert.equal(harness.runner.runs.length, 0);
-  });
-
-  it('refuses an explicit remote target for a local installed viewer before any script starts', async () => {
-    const profile = makeProfile({
-      name: 'viewer-override',
-      stack_version_id: 2,
-      kind: 'viewer',
-      components: ['client'],
-      instance_id: randomUUID(),
-    });
-    const { harness, row } = await setup({
-      profile,
-      managed: {
-        profile: 'some-uploader',
-        adminApiToken: 'synthetic-viewer-token-at-least-32-bytes',
-      },
-      releaseTargets: {
-        viewer: {
-          profile: 'viewer-override',
-          portSlot: profile.port_slot,
-          target: 'local',
-          services: ['client'],
-        },
-      },
-    });
-
-    const reservation = await harness.orchestrator.reserveDeploy(row(), undefined);
-    await assert.rejects(
-      harness.orchestrator.runReserved({ ...reservation, host: 'remote.example' }, row()),
-      /installed release guard.*local target/i,
-    );
-    assert.equal(harness.runner.runs.length, 0);
   });
 });

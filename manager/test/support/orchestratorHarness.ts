@@ -6,7 +6,6 @@ import {
   UploaderGate,
 } from '../../src/domain/DeploymentOrchestrator.js';
 import { EventBus } from '../../src/domain/EventBus.js';
-import { InstalledReleaseGuardRunner } from '../../src/domain/InstalledReleaseGuardRunner.js';
 import type { ExecutionRoots } from '../../src/domain/versions/ExecutionRootService.js';
 import type { DeployTargets } from '../../src/domain/ports/DeployTargets.js';
 import type { PublishedPortsSnapshot } from '../../src/domain/ports/PublishedPortsProbe.js';
@@ -72,7 +71,6 @@ export function orchestratorHarness(
   /** BEE_RPC_ENDPOINT, which a job's output is redacted against. */
   managerRpcEndpoint?: string | null,
   managedSrsLifecycle?: ManagedSrsLifecycleConfig | null,
-  releaseGuardStateRoot?: string,
 ): OrchestratorHarness {
   const profiles = new InMemoryProfiles(stored);
   const runner = new FakeScriptRunner();
@@ -107,10 +105,7 @@ export function orchestratorHarness(
     }
   }
   runner.onFinish = (run) => {
-    const guardedProject = run.script === '/opt/streaming-release-guard/streaming-release-guard'
-      ? attempts.rows.find((row) => row.state === 'open')?.project
-      : undefined;
-    const project = run.args.find((arg) => arg.startsWith('--profile='))?.slice('--profile='.length) ?? guardedProject;
+    const project = run.args.find((arg) => arg.startsWith('--profile='))?.slice('--profile='.length);
     if (!project || !daemon.autoRecreate) return;
     // Compose gives every service the attempt touched a new container, so
     // the attempt that opened for this run resolves as a real one would.
@@ -138,9 +133,6 @@ export function orchestratorHarness(
     executions,
     managerRpcEndpoint,
     managedSrsLifecycle,
-    releaseGuardStateRoot
-      ? new InstalledReleaseGuardRunner(runner, releaseGuardStateRoot)
-      : undefined,
   );
 
   return { orchestrator, profiles, runner, events, versions, containers, ledger, attempts, daemon, published, operations };
