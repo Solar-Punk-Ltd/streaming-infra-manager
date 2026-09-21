@@ -40,6 +40,8 @@ Checkpoint 2026-09-21 05:11 Asia/Taipei: source review accepted manager role-sco
 
 Status: active. Quota checkpoint requested by Levi. Companion PRs are drafts and must not be merged or deployed yet.
 
+Companion drafts: [stack #242](https://github.com/Solar-Punk-Ltd/swarm-hls-stream/pull/242), [admin #8](https://github.com/Solar-Punk-Ltd/streaming-monorepo/pull/8), [manager #43](https://github.com/Solar-Punk-Ltd/streaming-infra-manager/pull/43). All three integration branches and the separate manager worker branch were pushed successfully. No default branch was merged or live service changed. All three current implementation agents have completed. Worktrees and the unapplied approval-held patch are retained for continuation.
+
 Read this checkpoint, `docs/testing/srs-continuation/validation-inventory.md`, `docs/testing/srs-continuation/media-harness.md` and the release integration brief before continuing. The active plan remains registered at `/Users/kisslevente/Documents/git/estate/plans/2026-09-20-srs-reconnect-continuation.md`. Levi approved feature branches, implementation, pushes and companion PRs. Main/master merges and live deployment remain unapproved.
 
 | Candidate | Worktree | Exact source checkpoint |
