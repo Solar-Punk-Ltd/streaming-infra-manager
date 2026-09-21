@@ -7,7 +7,14 @@ manager to the internet" below.
 
 ## One-time server bootstrap
 
-Server runs as user `solarpunk`, code lives at `/home/solarpunk/streaming-infra-manager`.
+Server runs as user `solarpunk`. Until this installation is activated the code
+lives at `/home/solarpunk/streaming-infra-manager`, which is where the standalone
+deploy rsyncs it. An activated installation never writes there. Each release is
+an immutable directory of its own under
+`~/streaming-infra-manager-releases/manager/<candidate digest>`, staged by
+`deploy/deploy-managed.sh` and started by the installed release guard, and the
+previous one is left alone. "Deploying" below says which of the two a server is
+on and how it says so.
 
 ```sh
 # As solarpunk@server
@@ -64,6 +71,21 @@ installation or activation cannot overtake a standalone deployment. A failed or
 interrupted standalone deployment leaves its lease in place for operator
 recovery instead of guessing whether host mutation completed.
 
+`./deploy/deploy.sh` is the only one of the three scripts to run by hand. On the
+first two modes it runs `deploy/deploy-standalone.sh`, the preserved standalone
+deployment, and reports the mode back to the server afterwards. On the third it
+hands over to `deploy/deploy-managed.sh`, which rsyncs the checkout into a fresh
+sibling directory, has the installed guard digest it, publishes it under that
+digest and then gives the guard the whole transition. Nothing on that route runs
+a compose command of its own, which is the point: the guard decides what runs and
+records what it verified. `deploy-managed.sh` reads `POSTGRES_PASSWORD`,
+`RELEASE_GUARD_ADMIN_URL`, `RELEASE_GUARD_ADMIN_TOKEN`,
+`SRS_MANAGED_UPLOADER_PROFILE`, `ADMIN_API_URL`, `ADMIN_API_TOKEN` and
+`SRS_LIFECYCLE_VERSION=1` from the process that starts it rather than from a
+file, and refuses before the rsync when one of them is missing, so route them in
+from the vault the way `manager/README.md` describes rather than writing them
+down.
+
 The installed `admin` guard command always binds the managed ingest assignment
 into the transition. Its first bootstrap invocation omits both runtime flags,
 which binds managed ingest as disabled while the capable admin starts. After
@@ -115,7 +137,12 @@ a failed version row with the reason, and Update on the bundled card runs it
 again. The API starts either way: a stack that could not be fetched never stops
 the manager coming up.
 
-**Upgrade.** The server builds its images, then runs `manager:upgrade` in a
+**Upgrade.** This paragraph is the standalone path, which
+`deploy/deploy-standalone.sh` runs. The activated path runs the same
+`manager:upgrade` from the guard's own manager adapter, against the verified
+candidate, and reads no `BUNDLED_TIMEOUT`.
+
+The server builds its images, then runs `manager:upgrade` in a
 one-off container of the image it has just built. That command creates
 `~/streaming-infra-manager-versions/.manager-upgrade` and holds it for the whole
 run, so a second deploy started beside this one refuses instead of interleaving
@@ -268,7 +295,7 @@ What to look at before removing it:
 
 ```sh
 cd ~/streaming-infra-manager-versions/.manager-upgrade   # read the phase
-cd ~/streaming-infra-manager/manager
+cd ~/streaming-infra-manager/manager   # standalone path, see Operations for the other
 docker compose ps                 # is the api up, is postgres healthy
 docker compose logs --tail 200 api
 ```
@@ -311,7 +338,7 @@ create a user on the server:
 
 ```sh
 ssh manager-host
-cd ~/streaming-infra-manager/manager
+cd ~/streaming-infra-manager/manager   # standalone path, see Operations for the other
 docker compose exec -it api node dist/cli.js user:add <username>
 ```
 
@@ -531,7 +558,7 @@ first certificate arrive:
 
 ```sh
 ssh manager-host
-cd ~/streaming-infra-manager/manager
+cd ~/streaming-infra-manager/manager   # standalone path, see Operations for the other
 docker compose logs -f edge
 ```
 
@@ -551,7 +578,11 @@ wrong, so leave it there.
 
 ## Operations
 
-All run on the server (`ssh manager-host`, then `cd ~/streaming-infra-manager/manager`):
+Where these run depends on which of the two paths the server is on, which every
+deploy prints.
+
+On a standalone installation, `ssh manager-host`, then
+`cd ~/streaming-infra-manager/manager`:
 
 ```sh
 docker compose ps                 # status
@@ -561,6 +592,26 @@ docker compose restart api        # restart just the manager
 docker compose down               # stop everything (postgres volume kept)
 docker compose down -v            # nuke postgres data too, so be sure
 ```
+
+On an activated installation the project runs out of the verified candidate,
+under `~/streaming-infra-manager-releases/manager/<digest>/manager`, and carries
+the project name the guard installation was given rather than one taken from the
+directory. `docker compose ls` on the server lists the running projects, and
+`-p <project>` then reads that one:
+
+```sh
+docker compose -p <project> ps
+docker compose -p <project> logs -f api
+```
+
+**Reading is all that is done by hand there.** A `restart`, `down`, `up` or
+`stop` aimed at an activated project moves a service the release guard is holding
+a verified receipt for, so the receipt then describes something that is no longer
+running, and the guard has no way to see that it happened. Restarting the
+manager, changing what it runs and putting it back are what a deploy is for, so
+run `./deploy/deploy.sh manager-host` from your checkout instead. `down -v`
+destroys the database volume and belongs to a standalone installation you have
+decided to throw away, never to an activated one.
 
 ## Architecture notes
 
@@ -587,7 +638,9 @@ docker compose down -v            # nuke postgres data too, so be sure
 - **`postgres`** is bound to `127.0.0.1:5432` so a host-side `pnpm dev`
   (during local iteration) can connect, but it's never reachable off-host.
 - The whole repo is bind-mounted into the `api` container at the same
-  absolute path it has on the host (`/home/solarpunk/streaming-infra-manager`).
-  This is so compose files under `manager/swarm-hls-stream/` resolve volume
-  paths consistently when their `docker compose up` is forwarded to the host
-  daemon via the mounted socket.
+  absolute path it has on the host, which `MANAGER_ROOT` names and which
+  defaults to `/home/solarpunk/streaming-infra-manager`. On an activated
+  installation that path is the verified candidate directory instead. This is so
+  compose files under `manager/swarm-hls-stream/` resolve volume paths
+  consistently when their `docker compose up` is forwarded to the host daemon
+  via the mounted socket.
