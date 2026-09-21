@@ -6,8 +6,8 @@
  * host, a network and a signing key. `pnpm test` in manager/.
  */
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -17,7 +17,10 @@ import { promisify } from 'node:util';
 import { STACK_COMMIT_FILE } from '../../src/domain/versions/StackVersionService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const DEPLOY_ENTRY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy.sh');
+const DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-managed.sh');
+const STANDALONE_DEPLOY_SCRIPT = join(here, '..', '..', '..', 'deploy', 'deploy-standalone.sh');
+const RELEASE_MODE_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-mode.sh');
 const ADAPTER_SCRIPT = join(here, '..', '..', '..', 'deploy', 'release-adapters', 'manager.sh');
 const COMPOSE_FILE = join(here, '..', '..', 'docker-compose.yml');
 
@@ -31,16 +34,251 @@ function rsyncs(): string[] {
   return script.split(/\n(?=rsync )/).filter((block) => block.startsWith('rsync ')).map((block) => block.split('\n\n')[0] ?? block);
 }
 
+interface ReleaseDispatchFixture {
+  calls: string;
+  deployRoot: string;
+  entry: string;
+  env: NodeJS.ProcessEnv;
+  home: string;
+}
+
+function releaseDispatchFixture(t: { after(callback: () => void): void }): ReleaseDispatchFixture {
+  const root = mkdtempSync(join(tmpdir(), 'manager-release-dispatch-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const deployRoot = join(root, 'repo', 'deploy');
+  const home = join(root, 'home');
+  const bin = join(root, 'bin');
+  const calls = join(root, 'calls');
+  mkdirSync(deployRoot, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  mkdirSync(bin);
+  const entry = join(deployRoot, 'deploy.sh');
+  writeFileSync(entry, readFileSync(DEPLOY_ENTRY_SCRIPT));
+  chmodSync(entry, 0o700);
+  const releaseMode = join(deployRoot, 'release-mode.sh');
+  writeFileSync(releaseMode, readFileSync(join(dirname(DEPLOY_ENTRY_SCRIPT), 'release-mode.sh')));
+  chmodSync(releaseMode, 0o700);
+  for (const name of ['deploy-standalone.sh', 'deploy-managed.sh']) {
+    const path = join(deployRoot, name);
+    writeFileSync(path, `#!/bin/bash\nprintf '%s\\n' '${name}' > '${calls}'\n`);
+    chmodSync(path, 0o700);
+  }
+  const ssh = join(bin, 'ssh');
+  writeFileSync(ssh, '#!/bin/bash\nshift\nexec "$@"\n');
+  chmodSync(ssh, 0o700);
+  return {
+    calls,
+    deployRoot,
+    entry,
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    home,
+  };
+}
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+}
+
+function installFakeGuard(home: string, status: string, exitCode = 0, withState = true): void {
+  const bin = join(home, '.local', 'bin');
+  const state = join(home, '.local', 'state', 'streaming-release-guard');
+  mkdirSync(bin, { recursive: true });
+  if (withState) mkdirSync(state, { recursive: true });
+  const guard = join(bin, 'streaming-release-guard');
+  writeFileSync(guard, `#!/bin/bash
+set -euo pipefail
+state_root='${state}'
+owner_token='22222222-2222-4222-8222-222222222222'
+case "\${1:-}" in
+  begin-legacy)
+    if [ '${exitCode}' -ne 0 ]; then exit '${exitCode}'; fi
+    if [ '${status}' = managed ]; then printf '%s\\n' managed; exit 0; fi
+    if [ '${status}' != legacy ]; then printf '%s\\n' '${status}'; exit 0; fi
+    mkdir "\${state_root}/state.lock"
+    printf '%s\\n' "\${owner_token}" > "\${state_root}/state.lock/owner"
+    printf 'legacy:%s\\n' "\${owner_token}"
+    ;;
+  finish-legacy)
+    rm -f "\${state_root}/state.lock/owner"
+    rmdir "\${state_root}/state.lock"
+    ;;
+  *) exit 2 ;;
+esac
+`);
+  chmodSync(guard, 0o700);
+}
+
 describe('deploy/deploy.sh', () => {
   it('is a script bash accepts', () => {
+    execFileSync('bash', ['-n', DEPLOY_ENTRY_SCRIPT]);
     execFileSync('bash', ['-n', DEPLOY_SCRIPT]);
+    execFileSync('bash', ['-n', STANDALONE_DEPLOY_SCRIPT]);
+  });
+
+  it('acquires and releases the pristine-host lease without host Node', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'manager-release-no-node-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const bin = join(root, 'bin');
+    const home = join(root, 'home');
+    mkdirSync(bin);
+    mkdirSync(home);
+    for (const command of ['chmod', 'dirname', 'ln', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname', 'uuidgen']) {
+      symlinkSync(execFileSync('which', [command], { encoding: 'utf8' }).trim(), join(bin, command));
+    }
+    const env = { ...process.env, HOME: home, PATH: bin };
+
+    const begin = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    assert.match(begin.stdout, /^bootstrap:[0-9a-f-]{36}\n$/);
+    const ownerToken = begin.stdout.trim().slice('bootstrap:'.length);
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', ownerToken], { env });
+
+    assert.equal(existsSync(join(home, '.local/state/streaming-release-bootstrap.lock')), false);
+    assert.doesNotMatch(readFileSync(RELEASE_MODE_SCRIPT, 'utf8'), /\bnode\b/);
+  });
+
+  it('cannot release a successor after a duplicate bootstrap finish pauses after reading the owner', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'manager-release-finish-race-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const home = join(root, 'home');
+    const wrappers = join(root, 'wrappers');
+    const ready = join(root, 'ready');
+    const resume = join(root, 'resume');
+    mkdirSync(home);
+    mkdirSync(wrappers);
+    for (const command of ['ln', 'rm']) {
+      const path = join(wrappers, command);
+      writeFileSync(path, `#!/bin/bash
+set -euo pipefail
+if [ ! -e '${ready}' ]; then
+  /usr/bin/touch '${ready}'
+  while [ ! -e '${resume}' ]; do /bin/sleep 0.01; done
+fi
+exec /bin/${command} "$@"
+`);
+      chmodSync(path, 0o700);
+    }
+    const env = { ...process.env, HOME: home };
+    const first = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    const firstOwner = first.stdout.trim().slice('bootstrap:'.length);
+    const paused = spawn('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], {
+      env: { ...env, PATH: `${wrappers}:${process.env.PATH ?? ''}` },
+      stdio: 'ignore',
+    });
+    t.after(() => { if (paused.exitCode === null) paused.kill('SIGKILL'); });
+    await waitForPath(ready);
+
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', firstOwner], { env });
+    const successor = await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'begin'], { env });
+    const successorOwner = successor.stdout.trim().slice('bootstrap:'.length);
+    writeFileSync(resume, 'continue\n');
+    const pausedExit = await new Promise<number | null>((resolveClose) => paused.once('close', resolveClose));
+
+    assert.notEqual(pausedExit, 0);
+    assert.equal(
+      readFileSync(join(home, '.local/state/streaming-release-bootstrap.lock', 'owner'), 'utf8').trim(),
+      successorOwner,
+    );
+    await execFileAsync('/bin/bash', [RELEASE_MODE_SCRIPT, 'finish-bootstrap', successorOwner], { env });
+  });
+
+  it('dispatches only a pristine installation to the standalone deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
+  });
+
+  it('dispatches a valid activated installation to the guarded deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    installFakeGuard(fixture.home, 'managed');
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-managed.sh\n');
+  });
+
+  it('keeps a valid installed but unactivated guard on the standalone deploy path', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    installFakeGuard(fixture.home, 'legacy');
+
+    await execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env });
+
+    assert.equal(readFileSync(fixture.calls, 'utf8'), 'deploy-standalone.sh\n');
+  });
+
+  it('holds the absent-install bootstrap lease across standalone mutation', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    const started = join(fixture.home, 'standalone-started');
+    const release = join(fixture.home, 'standalone-release');
+    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), `#!/bin/bash
+set -euo pipefail
+touch '${started}'
+while [ ! -e '${release}' ]; do sleep 0.01; done
+printf '%s\n' deploy-standalone.sh > '${fixture.calls}'
+`);
+    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
+    const child = spawn(fixture.entry, ['fixture-host'], { env: fixture.env, stdio: 'ignore' });
+    t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+    await waitForPath(started);
+
+    await assert.rejects(
+      execFileAsync(join(fixture.deployRoot, 'release-mode.sh'), ['begin-bootstrap-install'], {
+        env: fixture.env,
+      }),
+      /bootstrap lease is active/,
+    );
+    writeFileSync(release, 'release\n');
+    const exitCode = await new Promise<number | null>((resolveClose) => child.once('close', resolveClose));
+    assert.equal(exitCode, 0);
+    assert.equal(existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock')), false);
+  });
+
+  it('preserves the bootstrap lease after an ambiguous standalone failure', async (t) => {
+    const fixture = releaseDispatchFixture(t);
+    writeFileSync(join(fixture.deployRoot, 'deploy-standalone.sh'), '#!/bin/bash\nexit 42\n');
+    chmodSync(join(fixture.deployRoot, 'deploy-standalone.sh'), 0o700);
+
+    await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
+
+    assert.equal(
+      existsSync(join(fixture.home, '.local/state/streaming-release-bootstrap.lock', 'owner')),
+      true,
+    );
+  });
+
+  it('does not require receipt credentials on the standalone path', () => {
+    const standalone = readFileSync(STANDALONE_DEPLOY_SCRIPT, 'utf8');
+    assert.doesNotMatch(standalone, /RELEASE_GUARD_ADMIN_(?:URL|TOKEN)/);
+    assert.match(script, /RELEASE_GUARD_ADMIN_URL/);
+    assert.match(script, /RELEASE_GUARD_ADMIN_TOKEN/);
+  });
+
+  it('refuses partial, invalid, and unexpected guard state without dispatching', async (t) => {
+    for (const setup of [
+      (home: string) => mkdirSync(join(home, '.local', 'state', 'streaming-release-guard'), { recursive: true }),
+      (home: string) => installFakeGuard(home, 'legacy', 0, false),
+      (home: string) => installFakeGuard(home, 'broken', 1),
+      (home: string) => installFakeGuard(home, 'unexpected'),
+    ]) {
+      const fixture = releaseDispatchFixture(t);
+      setup(fixture.home);
+      await assert.rejects(execFileAsync(fixture.entry, ['fixture-host'], { env: fixture.env }));
+      assert.throws(() => readFileSync(fixture.calls, 'utf8'));
+    }
   });
 
   it('stages a new sibling candidate and never rsyncs over the live manager tree', () => {
     const [repo] = rsyncs();
     assert.ok(repo);
-    assert.match(script, /RELEASES_ROOT="\/home\/solarpunk\/streaming-infra-manager-releases\/manager"/);
+    assert.match(script, /REMOTE_HOME="\$\(ssh "\$SSH_TARGET" 'printf %s "\$HOME"'\)"/);
+    assert.match(script, /RELEASES_ROOT="\$\{REMOTE_HOME\}\/streaming-infra-manager-releases\/manager"/);
     assert.match(script, /INCOMING_ROOT="\$\{RELEASES_ROOT\}\/\.incoming-/);
+    assert.doesNotMatch(script, /\/home\/[a-z]/);
     assert.match(repo, /"\$\{SSH_TARGET\}:\$\{INCOMING_ROOT\}\/"/);
     assert.doesNotMatch(repo, /"\$\{SSH_TARGET\}:\$\{REMOTE_PATH\}\/"/);
     assert.match(repo, /--delete/);
@@ -49,13 +287,15 @@ describe('deploy/deploy.sh', () => {
   it('binds the staged candidate digest before the installed guard may transition it', () => {
     const digest = script.indexOf('"$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT"');
     const rename = script.indexOf('mv --no-target-directory "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
-    const transition = script.indexOf('"$GUARD_BIN" manager');
+    const transition = script.indexOf('manager-stdin');
 
     assert.notEqual(digest, -1);
     assert.ok(rename > digest);
     assert.ok(transition > rename);
-    assert.match(script.slice(transition), /--candidate-root "\$CANDIDATE_ROOT"/);
-    assert.match(script.slice(transition), /--state-root "\$GUARD_STATE_ROOT"/);
+    assert.match(
+      script.slice(transition - 100),
+      /ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'/,
+    );
   });
 
   it('publishes only one of two candidates that observed the digest path absent', async (t) => {
@@ -114,8 +354,24 @@ publish_candidate
   });
 
   it('routes the receipt credential only through the installed guard process environment', () => {
-    assert.match(script, /: "\$\{RELEASE_GUARD_ADMIN_TOKEN:\?/);
+    assert.match(script, /for name in POSTGRES_PASSWORD RELEASE_GUARD_ADMIN_URL RELEASE_GUARD_ADMIN_TOKEN SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do/);
+    assert.match(script, /printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0'/);
     assert.doesNotMatch(script, /--token|Bearer|RELEASE_GUARD_ADMIN_TOKEN=/);
+  });
+
+  it('routes every manager process input without putting a value in remote argv', () => {
+    for (const name of [
+      'POSTGRES_PASSWORD',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+    ]) {
+      assert.match(script, new RegExp(name));
+    }
+    assert.doesNotMatch(script, /ADMIN_API_URL must match RELEASE_GUARD_ADMIN_URL/);
+    assert.doesNotMatch(script, /ADMIN_API_TOKEN must match RELEASE_GUARD_ADMIN_TOKEN/);
+    assert.doesNotMatch(script, /ssh "\$SSH_TARGET"[^\n]*(?:POSTGRES_PASSWORD|ADMIN_API_TOKEN|RELEASE_GUARD_ADMIN_TOKEN)/);
   });
 
   it('leaves the bundled tree the engines mount out of the rsync that deletes into the repo', () => {
@@ -290,7 +546,7 @@ publish_candidate
 
   it('leaves the installed guard output attached to the deploy output', () => {
     assert.doesNotMatch(script, /RECEIPT=/);
-    assert.match(script, /^"\$GUARD_BIN" manager \\/m);
+    assert.match(script, /^\s+ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'$/m);
   });
 
   it('lets a guard refusal fail the remote shell and the deploy', () => {
@@ -321,7 +577,8 @@ publish_candidate
   it('derives an isolated layout without live roots or public edge', () => {
     assert.match(composeFile, /127\.0\.0\.1:\$\{POSTGRES_PORT:-5432\}:5432/);
     assert.match(composeFile, /\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}:\$\{MANAGER_ROOT:-\/home\/solarpunk\/streaming-infra-manager\}/);
-    assert.match(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
+    assert.match(adapter, /guard_state_root="\$\(plan_value guardInstallation:stateRoot\)"/);
+    assert.doesNotMatch(adapter, /guard_state_root="\$\{HOME\}\/\.local\/state\/streaming-release-guard"/);
     assert.match(adapter, /isolation_root="\$\{guard_state_root\}\/isolation\/\$\{project_name\}"/);
     assert.match(adapter, /isolated manager release cannot enable the public edge/);
     assert.match(adapter, /manager isolated release port is already occupied/);

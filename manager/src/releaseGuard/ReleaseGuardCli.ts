@@ -1,3 +1,5 @@
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FixedReleaseAdapter, type FixedAdapterArguments } from './FixedReleaseAdapter.js';
@@ -7,8 +9,18 @@ import {
   type ReleaseGuardDeploymentTargets,
 } from './ReleaseGuardStore.js';
 import { submitPendingReceipt, validateReleaseReceiptDestination } from './ReleaseReceiptSubmitter.js';
-import { digestReleaseCandidate, runReleaseTransition } from './ReleaseTransition.js';
-import type { ReleaseRole, ReleaseSlot } from './ReleaseGuardTypes.js';
+import {
+  digestReleaseCandidate,
+  runReleaseTransition,
+  runStackPreparation,
+} from './ReleaseTransition.js';
+import type {
+  AdminReleaseRuntime,
+  GuardInstallationBinding,
+  ReleaseRole,
+  ReleaseSlot,
+  StackReleaseOperation,
+} from './ReleaseGuardTypes.js';
 
 const TOKEN_ENV = 'RELEASE_GUARD_ADMIN_TOKEN';
 const ADMIN_URL_ENV = 'RELEASE_GUARD_ADMIN_URL';
@@ -36,6 +48,14 @@ export async function runReleaseGuardCli(
       'admin-project-name',
       'admin-postgres-volume-name',
       'admin-web-port',
+      'uploader-profile',
+      'uploader-port-slot',
+      'uploader-services',
+      'viewer-profile',
+      'viewer-port-slot',
+      'viewer-services',
+      'fixture-network-name',
+      'fixture-id',
     ]));
     await installReleaseGuard(required(flags, 'state-root'), undefined, installationTargets(flags));
     return 'release guard installed';
@@ -43,6 +63,28 @@ export async function runReleaseGuardCli(
   if (command === 'status') {
     const flags = parseFlags(rest, new Set(['state-root']));
     return new ReleaseGuardStore(required(flags, 'state-root')).releaseMode();
+  }
+  if (command === 'begin-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root']));
+    const lease = await new ReleaseGuardStore(required(flags, 'state-root')).beginLegacyLease();
+    return lease.mode === 'managed' ? 'managed' : `legacy:${lease.ownerToken}`;
+  }
+  if (command === 'begin-stack-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'profile']));
+    const lease = await new ReleaseGuardStore(required(flags, 'state-root'))
+      .beginStackLegacyLease(required(flags, 'profile'));
+    return `legacy:${lease.ownerToken}`;
+  }
+  if (command === 'finish-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'owner-token']));
+    await new ReleaseGuardStore(required(flags, 'state-root')).finishLegacyLease(required(flags, 'owner-token'));
+    return 'legacy deployment lease released';
+  }
+  if (command === 'finish-stack-legacy') {
+    const flags = parseFlags(rest, new Set(['state-root', 'owner-token']));
+    await new ReleaseGuardStore(required(flags, 'state-root'))
+      .finishLegacyLease(required(flags, 'owner-token'));
+    return 'legacy stack deployment lease released';
   }
   if (command === 'retry') {
     const flags = parseFlags(rest, new Set(['state-root', 'role', 'slot-id', 'admin-url']));
@@ -55,6 +97,49 @@ export async function runReleaseGuardCli(
     });
     return 'release receipt acknowledged';
   }
+  if (command === 'prepare-uploader' || command === 'update-uploader') {
+    const isUpdate = command === 'update-uploader';
+    const allowed = new Set([
+      'state-root',
+      'candidate-root',
+      'work-root',
+      'slot-id',
+      'services',
+      ...(isUpdate ? ['admin-url'] : []),
+    ]);
+    const flags = parseFlags(rest, allowed);
+    const slot = releaseSlot('uploader', flags.get('slot-id'));
+    const operation: StackReleaseOperation = {
+      kind: isUpdate ? 'update' : 'prepare',
+      mutatingServices: releaseServices(required(flags, 'services')),
+    };
+    const store = new ReleaseGuardStore(required(flags, 'state-root'));
+    const adapter = new FixedReleaseAdapter(
+      'uploader',
+      required(flags, 'work-root'),
+      await adapterArguments('uploader', store, operation),
+    );
+    if (!isUpdate) {
+      await runStackPreparation({
+        store,
+        candidateRoot: required(flags, 'candidate-root'),
+        slot,
+        mutatingServices: operation.mutatingServices,
+        adapter,
+      });
+      return 'uploader preparation verified';
+    }
+    const destination = receiptDestination(flags, env);
+    await runReleaseTransition({
+      store,
+      candidateRoot: required(flags, 'candidate-root'),
+      slot,
+      operation: operation as Extract<StackReleaseOperation, { kind: 'update' }>,
+      adapter,
+    });
+    await submitPendingReceipt({ store, slot, ...destination });
+    return 'uploader subset release verified and acknowledged';
+  }
   if (!command || !ROLES.has(command as ReleaseRole)) throw new Error('release guard command is invalid');
   const role = command as ReleaseRole;
   const allowed = new Set([
@@ -63,16 +148,18 @@ export async function runReleaseGuardCli(
     'work-root',
     'admin-url',
     'slot-id',
-    'profile',
-    'port-slot',
-    'target',
-    'services',
+    ...(role === 'admin' ? ['managed-lifecycle-version', 'managed-uploader-id'] : []),
   ]);
   const flags = parseFlags(rest, allowed);
   const slot = releaseSlot(role, flags.get('slot-id'));
+  const runtime = role === 'admin' ? adminRuntime(flags) : undefined;
   const destination = receiptDestination(flags, env);
-  const store = new ReleaseGuardStore(required(flags, 'state-root'));
-  const adapterArgs = await adapterArguments(role, flags, store);
+  const stateRoot = required(flags, 'state-root');
+  const store = new ReleaseGuardStore(stateRoot);
+  const guardInstallation = role === 'manager'
+    ? await installedGuardBinding(stateRoot)
+    : undefined;
+  const adapterArgs = await adapterArguments(role, store, undefined, runtime, guardInstallation);
   await runReleaseTransition({
     store,
     candidateRoot: required(flags, 'candidate-root'),
@@ -105,31 +192,89 @@ function releaseSlot(roleValue: string, id: string | undefined): ReleaseSlot {
 
 async function adapterArguments(
   role: ReleaseRole,
-  flags: Map<string, string>,
   store: ReleaseGuardStore,
+  operation?: StackReleaseOperation,
+  runtime?: AdminReleaseRuntime,
+  guardInstallation?: GuardInstallationBinding,
 ): Promise<FixedAdapterArguments> {
-  const names = ['profile', 'port-slot', 'target', 'services'];
-  if (role === 'manager' || role === 'admin') {
-    if (names.some((name) => flags.has(name))) throw new Error(`${role} release does not accept deployment arguments`);
-    return { target: await store.deploymentTarget(role) };
+  const fixtureNetwork = await store.fixtureNetwork();
+  return {
+    target: await store.deploymentTarget(role),
+    ...(fixtureNetwork ? { fixtureNetwork } : {}),
+    ...(operation ? { operation } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(guardInstallation ? { guardInstallation } : {}),
+  };
+}
+
+async function installedGuardBinding(stateRoot: string): Promise<GuardInstallationBinding> {
+  if (!isAbsolute(stateRoot) || normalize(stateRoot) !== stateRoot) {
+    throw new Error('installed guard binding is invalid');
   }
-  if (role === 'viewer') {
-    if (names.some((name) => flags.has(name))) throw new Error('viewer release does not accept deployment arguments');
-    return {};
+  const codeRoot = dirname(fileURLToPath(import.meta.url));
+  const [codeStat, stateStat, canonicalCode, canonicalState] = await Promise.all([
+    lstat(codeRoot),
+    lstat(stateRoot),
+    realpath(codeRoot),
+    realpath(stateRoot),
+  ]).catch(() => {
+    throw new Error('installed guard binding is invalid');
+  });
+  if (
+    !codeStat.isDirectory() || codeStat.isSymbolicLink() || canonicalCode !== codeRoot ||
+    !stateStat.isDirectory() || stateStat.isSymbolicLink() || canonicalState !== stateRoot
+  ) {
+    throw new Error('installed guard binding is invalid');
   }
-  const portSlotText = required(flags, 'port-slot');
-  if (!/^\d+$/.test(portSlotText)) throw new Error('uploader port slot is invalid');
-  const portSlot = Number(portSlotText);
-  if (!Number.isSafeInteger(portSlot) || portSlot < 1 || portSlot > 99) throw new Error('uploader port slot is invalid');
-  const services = required(flags, 'services').split(',');
-  if (services.some((service) => !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(service)) || new Set(services).size !== services.length) {
-    throw new Error('uploader services are invalid');
+  const bindingPath = `${codeRoot}/container-binding.json`;
+  const bindingStat = await lstat(bindingPath).catch(() => null);
+  if (!bindingStat?.isFile() || bindingStat.isSymbolicLink() || bindingStat.size < 1 || bindingStat.size > 4_096) {
+    throw new Error('installed guard binding is invalid');
   }
-  const profile = required(flags, 'profile');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profile)) throw new Error('uploader profile is invalid');
-  const target = required(flags, 'target');
-  if (target !== 'local') throw new Error('installed uploader adapter target must be local');
-  return { profile, portSlot, target, services };
+  let binding: unknown;
+  try {
+    binding = JSON.parse(await readFile(bindingPath, 'utf8'));
+  } catch {
+    throw new Error('installed guard binding is invalid');
+  }
+  if (
+    binding === null ||
+    typeof binding !== 'object' ||
+    Array.isArray(binding) ||
+    Object.keys(binding).sort().join(',') !== 'schemaVersion,stateRoot' ||
+    (binding as { schemaVersion?: unknown }).schemaVersion !== 1 ||
+    (binding as { stateRoot?: unknown }).stateRoot !== stateRoot
+  ) {
+    throw new Error('installed guard binding is invalid');
+  }
+  return { codeRoot, stateRoot };
+}
+
+function adminRuntime(flags: Map<string, string>): AdminReleaseRuntime {
+  const version = flags.get('managed-lifecycle-version');
+  const uploaderId = flags.get('managed-uploader-id');
+  if (version === undefined && uploaderId === undefined) {
+    return { managedLifecycleVersion: null, uploaderId: null };
+  }
+  if (version !== '1' || uploaderId === undefined || !UPLOADER_ID.test(uploaderId)) {
+    throw new Error('admin managed runtime assignment is invalid');
+  }
+  return { managedLifecycleVersion: 1, uploaderId };
+}
+
+function releaseServices(value: string): string[] {
+  const services = value.split(',');
+  const sorted = [...services].sort();
+  if (
+    services.length === 0 ||
+    services.length > 32 ||
+    services.some((service) => !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(service)) ||
+    new Set(services).size !== services.length ||
+    services.some((service, index) => service !== sorted[index])
+  ) {
+    throw new Error('release guard services are invalid');
+  }
+  return services;
 }
 
 function installationTargets(flags: Map<string, string>): ReleaseGuardDeploymentTargets {
@@ -170,6 +315,31 @@ function installationTargets(flags: Map<string, string>): ReleaseGuardDeployment
       postgresPort,
       webPort,
     };
+  }
+  for (const role of ['uploader', 'viewer'] as const) {
+    const profile = flags.get(`${role}-profile`);
+    const portSlotText = flags.get(`${role}-port-slot`);
+    const servicesText = flags.get(`${role}-services`);
+    const values = [profile, portSlotText, servicesText];
+    const supplied = values.filter((value) => value !== undefined).length;
+    if (supplied === 0) continue;
+    if (supplied !== values.length || !/^\d+$/.test(portSlotText!)) {
+      throw new Error(`release guard ${role} target is incomplete`);
+    }
+    targets[role] = {
+      profile: profile!,
+      portSlot: Number(portSlotText),
+      target: 'local',
+      services: servicesText!.split(','),
+    };
+  }
+  const fixtureNetworkName = flags.get('fixture-network-name');
+  const fixtureId = flags.get('fixture-id');
+  if ((fixtureNetworkName === undefined) !== (fixtureId === undefined)) {
+    throw new Error('release guard fixture network target is incomplete');
+  }
+  if (fixtureNetworkName && fixtureId) {
+    targets.fixtureNetwork = { name: fixtureNetworkName, fixtureId };
   }
   return targets;
 }

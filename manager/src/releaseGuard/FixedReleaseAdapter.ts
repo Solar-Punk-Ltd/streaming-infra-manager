@@ -9,7 +9,17 @@ import type {
   ReleaseImageSet,
   ReleaseTransitionPlan,
 } from './ReleaseTransition.js';
-import type { ComposeReleaseTarget, ManagerReleaseTarget, ReleaseRole } from './ReleaseGuardTypes.js';
+import type {
+  AdminReleaseRuntime,
+  ComposeReleaseTarget,
+  FixtureNetworkBinding,
+  GuardInstallationBinding,
+  ManagerReleaseTarget,
+  ReleaseRole,
+  ResolvedFixtureNetworkBinding,
+  StackReleaseTarget,
+  StackReleaseOperation,
+} from './ReleaseGuardTypes.js';
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PREFLIGHT_BYTES = 4 * 1024;
@@ -17,14 +27,24 @@ const DEFAULT_PHASE_TIMEOUT_MS = 20 * 60_000;
 const TERMINATION_GRACE_MS = 250;
 
 export interface FixedAdapterArguments {
-  profile?: string;
-  portSlot?: number;
-  target?: string | ComposeReleaseTarget | ManagerReleaseTarget;
-  services?: string[];
+  target?: ComposeReleaseTarget | ManagerReleaseTarget | StackReleaseTarget;
+  fixtureNetwork?: FixtureNetworkBinding;
+  operation?: StackReleaseOperation;
+  runtime?: AdminReleaseRuntime;
+  guardInstallation?: GuardInstallationBinding;
+}
+
+interface ResolvedAdapterContext {
+  fixtureNetwork?: ResolvedFixtureNetworkBinding;
+  fixtureVolumeNames?: string[];
+  runtime?: AdminReleaseRuntime;
+  guardInstallation?: GuardInstallationBinding;
 }
 
 /** Runs only the fixed adapter belonging to the selected component role. */
 export class FixedReleaseAdapter implements ReleaseAdapter {
+  private resolvedContext: ResolvedAdapterContext | undefined;
+
   constructor(
     private readonly role: ReleaseRole,
     private readonly workRoot: string,
@@ -35,16 +55,30 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('release adapter timeout is invalid');
   }
 
-  async preflight(plan: ReleaseBuildPlan): Promise<void> {
+  async preflight(plan: ReleaseBuildPlan): Promise<unknown> {
     const output = join(this.workRoot, 'preflight.json');
     await rm(output, { force: true });
     await this.runPhase('preflight', plan, output);
     const raw = await readBoundedJson(output, MAX_PREFLIGHT_BYTES, 'preflight');
-    validateRuntimePreflight(this.role, plan, raw);
+    this.resolvedContext = validateRuntimePreflight(
+      this.role,
+      plan,
+      raw,
+      this.args.fixtureNetwork,
+      this.args.target,
+      this.args.operation,
+      this.args.runtime,
+      this.args.guardInstallation,
+    );
+    return this.resolvedContext ?? null;
   }
 
   async build(plan: ReleaseBuildPlan): Promise<ReleaseImageSet> {
     return this.runResultPhase('build', plan);
+  }
+
+  async validate(plan: ReleaseTransitionPlan): Promise<ReleaseImageSet> {
+    return this.runResultPhase('validate', plan);
   }
 
   async transition(plan: ReleaseTransitionPlan): Promise<void> {
@@ -56,7 +90,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
   }
 
   private async runResultPhase(
-    phase: 'build' | 'verify',
+    phase: 'build' | 'validate' | 'verify',
     plan: ReleaseBuildPlan | ReleaseTransitionPlan,
   ): Promise<ReleaseImageSet> {
     const output = join(this.workRoot, `${phase}.json`);
@@ -66,7 +100,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
   }
 
   private async runPhase(
-    phase: 'preflight' | 'build' | 'transition' | 'verify',
+    phase: 'preflight' | 'build' | 'validate' | 'transition' | 'verify',
     plan: ReleaseBuildPlan | ReleaseTransitionPlan,
     output?: string,
   ): Promise<void> {
@@ -92,7 +126,9 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
       slot: plan.slot,
       images: 'images' in plan ? plan.images : [],
       activeArtifactPath: 'activeArtifactPath' in plan ? plan.activeArtifactPath : null,
-      arguments: this.args,
+      arguments: this.resolvedContext
+        ? { ...this.args, ...this.resolvedContext }
+        : this.args,
     });
     const planHandle = await open(planPath, 'wx', 0o600);
     try {
@@ -103,7 +139,7 @@ export class FixedReleaseAdapter implements ReleaseAdapter {
     }
     const argv = [adapter, phase, '--plan', planPath];
     if (output) argv.push('--output', output);
-    await runBounded(argv, candidateRoot, this.timeoutMs, phase);
+    await runBounded(argv, candidateRoot, this.timeoutMs, phase, this.role);
   }
 }
 
@@ -119,27 +155,100 @@ async function readBoundedJson(path: string, maximumBytes: number, phase: string
   }
 }
 
-function validateRuntimePreflight(role: ReleaseRole, plan: ReleaseBuildPlan, raw: unknown): void {
+function validateRuntimePreflight(
+  role: ReleaseRole,
+  plan: ReleaseBuildPlan,
+  raw: unknown,
+  fixtureNetwork: FixtureNetworkBinding | undefined,
+  target: FixedAdapterArguments['target'],
+  operation: StackReleaseOperation | undefined,
+  runtime: AdminReleaseRuntime | undefined,
+  guardInstallation: GuardInstallationBinding | undefined,
+): ResolvedAdapterContext | undefined {
+  const fixtureNetworkId = isRecord(raw) ? raw.fixtureNetworkId : undefined;
+  const expectsFixtureVolumes = role === 'uploader' && fixtureNetwork !== undefined;
+  const expectedKeys = [
+    ...(fixtureNetwork ? ['fixtureNetworkId', ...(expectsFixtureVolumes ? ['fixtureVolumeNames'] : [])] : []),
+    ...(runtime ? ['runtime'] : []),
+    ...(guardInstallation ? ['guardInstallation'] : []),
+  ];
   if (role !== 'uploader') {
-    if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion']) || raw.schemaVersion !== 1) {
+    if (!isRecord(raw) || !hasExactKeys(raw, ['schemaVersion', ...expectedKeys]) || raw.schemaVersion !== 1) {
       throw new Error('release adapter preflight result is invalid');
     }
-    return;
+  } else if (operation?.kind === 'prepare') {
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, ['schemaVersion', 'preparationReady', ...expectedKeys]) ||
+      raw.schemaVersion !== 1 ||
+      raw.preparationReady !== true
+    ) {
+      throw new Error('release adapter preparation preflight result is invalid');
+    }
+  } else {
+    const invalid: string[] = [];
+    if (!isRecord(raw) || raw.lifecycleVersion !== 1) invalid.push('SRS_LIFECYCLE_VERSION');
+    if (!isRecord(raw) || raw.uploaderId !== plan.slot.id) invalid.push('SRS_UPLOADER_ID');
+    if (!isRecord(raw) || raw.adminApiConfigured !== true) invalid.push('ADMIN_API_URL');
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, ['schemaVersion', 'lifecycleVersion', 'uploaderId', 'adminApiConfigured', ...expectedKeys]) ||
+      raw.schemaVersion !== 1
+    ) {
+      if (invalid.length === 0) throw new Error('release adapter preflight result is invalid');
+    }
+    if (invalid.length > 0) {
+      throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
+    }
   }
-  const invalid: string[] = [];
-  if (!isRecord(raw) || raw.lifecycleVersion !== 1) invalid.push('SRS_LIFECYCLE_VERSION');
-  if (!isRecord(raw) || raw.uploaderId !== plan.slot.id) invalid.push('SRS_UPLOADER_ID');
-  if (!isRecord(raw) || raw.adminApiConfigured !== true) invalid.push('ADMIN_API_URL');
-  if (
-    !isRecord(raw) ||
-    !hasExactKeys(raw, ['schemaVersion', 'lifecycleVersion', 'uploaderId', 'adminApiConfigured']) ||
-    raw.schemaVersion !== 1
-  ) {
-    if (invalid.length === 0) throw new Error('release adapter preflight result is invalid');
+  if (runtime) {
+    if (
+      role !== 'admin' ||
+      !isRecord(raw) ||
+      !isRecord(raw.runtime) ||
+      !hasExactKeys(raw.runtime, ['managedLifecycleVersion', 'uploaderId']) ||
+      raw.runtime.managedLifecycleVersion !== runtime.managedLifecycleVersion ||
+      raw.runtime.uploaderId !== runtime.uploaderId
+    ) {
+      throw new Error('release adapter admin runtime assignment is invalid');
+    }
   }
-  if (invalid.length > 0) {
-    throw new Error(`effective uploader configuration is incompatible: ${invalid.join(', ')}`);
+  if (guardInstallation) {
+    if (
+      role !== 'manager' ||
+      !isRecord(raw) ||
+      !isRecord(raw.guardInstallation) ||
+      !hasExactKeys(raw.guardInstallation, ['codeRoot', 'stateRoot']) ||
+      raw.guardInstallation.codeRoot !== guardInstallation.codeRoot ||
+      raw.guardInstallation.stateRoot !== guardInstallation.stateRoot
+    ) {
+      throw new Error('release adapter installed guard binding is invalid');
+    }
   }
+  if (!fixtureNetwork && !runtime && !guardInstallation) return undefined;
+  const resolved: ResolvedAdapterContext = {};
+  if (runtime) resolved.runtime = runtime;
+  if (guardInstallation) resolved.guardInstallation = guardInstallation;
+  if (!fixtureNetwork) return resolved;
+  if (typeof fixtureNetworkId !== 'string' || !/^[0-9a-f]{64}$/.test(fixtureNetworkId)) {
+    throw new Error('release adapter fixture network result is invalid');
+  }
+  resolved.fixtureNetwork = { ...fixtureNetwork, networkId: fixtureNetworkId };
+  if (expectsFixtureVolumes) {
+    if (!target || !('profile' in target)) throw new Error('release adapter fixture volume result is invalid');
+    const expected = [`${target.profile}_srs-media`, `${target.profile}_uploader-state`].sort();
+    if (
+      !isRecord(raw) ||
+      !Array.isArray(raw.fixtureVolumeNames) ||
+      raw.fixtureVolumeNames.some((name) => typeof name !== 'string') ||
+      (raw.fixtureVolumeNames as string[]).length !== expected.length ||
+      !(raw.fixtureVolumeNames as string[]).every((name, index) => name === expected[index])
+    ) {
+      throw new Error('release adapter fixture volume result is invalid');
+    }
+    resolved.fixtureVolumeNames = expected;
+  }
+  return resolved;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -163,12 +272,13 @@ async function runBounded(
   argv: string[],
   cwd: string,
   timeoutMs: number,
-  phase: 'preflight' | 'build' | 'transition' | 'verify',
+  phase: 'preflight' | 'build' | 'validate' | 'transition' | 'verify',
+  role: ReleaseRole,
 ): Promise<void> {
   await new Promise<void>((resolveRun, rejectRun) => {
     const child = spawn('/bin/bash', argv, {
       cwd,
-      env: adapterEnvironment(),
+      env: adapterEnvironment(role),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     });
@@ -220,7 +330,29 @@ async function runBounded(
   });
 }
 
-function adapterEnvironment(): NodeJS.ProcessEnv {
+function adapterEnvironment(role: ReleaseRole): NodeJS.ProcessEnv {
   const names = ['PATH', 'HOME', 'DOCKER_HOST', 'XDG_RUNTIME_DIR'];
+  if (role === 'admin') {
+    names.push(
+      'POSTGRES_PASSWORD',
+      'BEE_URL',
+      'POSTAGE_BATCH_ID',
+      'FEED_PRIVATE_KEY',
+      'INTERNAL_API_TOKEN',
+      'INGEST_SRT_PASSPHRASE',
+      'INGEST_MANAGED_LIFECYCLE_VERSION',
+      'INGEST_MANAGED_UPLOADER_ID',
+    );
+  } else if (role === 'manager') {
+    names.push(
+      'POSTGRES_PASSWORD',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+    );
+  } else if (role === 'uploader') {
+    names.push('ADMIN_API_URL', 'ADMIN_API_TOKEN', 'API_AUTH_TOKEN');
+  }
   return Object.fromEntries(names.flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
 }

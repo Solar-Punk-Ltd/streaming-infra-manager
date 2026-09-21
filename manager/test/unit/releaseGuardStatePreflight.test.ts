@@ -82,6 +82,7 @@ describe('release guard state preflight', () => {
       const pending = await lease.prepare({
         slot: { role: 'manager', id: 'default' },
         artifact,
+        transitionDigest: 'd'.repeat(64),
       });
       await lease.markVerified(pending.body);
     });

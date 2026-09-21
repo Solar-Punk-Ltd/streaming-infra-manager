@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, rename, rm } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -8,6 +8,7 @@ import {
   type PendingReleaseReceipt,
   type ActiveArtifactMetadata,
   type ComposeReleaseTarget,
+  type FixtureNetworkBinding,
   type ManagerReleaseTarget,
   type ReleaseArtifact,
   type ReleaseGuardReceipt,
@@ -16,6 +17,8 @@ import {
   type ReleaseImage,
   type ReleaseSlot,
   type StoredReleaseSlot,
+  type StackReleaseTarget,
+  type StackReleaseOperation,
 } from './ReleaseGuardTypes.js';
 
 const MARKER = 'installed.json';
@@ -25,6 +28,9 @@ const TARGETS = 'targets.json';
 const PENDING = 'pending';
 const TRANSITIONS = 'transitions';
 const LOCK = 'state.lock';
+const LEGACY_OWNER = 'legacy-owner.json';
+const LEGACY_RELEASE_CLAIM = 'legacy-release.claim';
+const STACK_OPERATION = 'stack-operation.json';
 const MAX_STATE_BYTES = 256 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -36,6 +42,9 @@ const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 export interface ReleaseGuardDeploymentTargets {
   manager?: ManagerReleaseTarget;
   admin?: ComposeReleaseTarget;
+  uploader?: StackReleaseTarget;
+  viewer?: StackReleaseTarget;
+  fixtureNetwork?: FixtureNetworkBinding;
 }
 
 class MissingGuardFileError extends Error {}
@@ -70,6 +79,7 @@ export async function installReleaseGuard(
     await exists(join(root, PENDING)) ||
     await exists(join(root, TRANSITIONS)) ||
     await exists(join(root, ACTIVATION)) ||
+    await exists(join(root, STACK_OPERATION)) ||
     await exists(join(root, LOCK))
   ) {
     throw new Error('release guard is already installed or partially initialized');
@@ -126,7 +136,9 @@ export class ReleaseGuardStore {
 
   async deploymentTarget(role: 'manager'): Promise<ManagerReleaseTarget>;
   async deploymentTarget(role: 'admin'): Promise<ComposeReleaseTarget>;
-  async deploymentTarget(role: 'manager' | 'admin'): Promise<ManagerReleaseTarget | ComposeReleaseTarget> {
+  async deploymentTarget(role: 'uploader' | 'viewer'): Promise<StackReleaseTarget>;
+  async deploymentTarget(role: 'manager' | 'admin' | 'uploader' | 'viewer'): Promise<ManagerReleaseTarget | ComposeReleaseTarget | StackReleaseTarget>;
+  async deploymentTarget(role: 'manager' | 'admin' | 'uploader' | 'viewer'): Promise<ManagerReleaseTarget | ComposeReleaseTarget | StackReleaseTarget> {
     const state = await this.read();
     const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
     if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
@@ -135,8 +147,133 @@ export class ReleaseGuardStore {
     return target;
   }
 
+  /** The immutable targets installed beside this guard, after full state validation. */
+  async deploymentTargets(): Promise<ReleaseGuardDeploymentTargets> {
+    const state = await this.read();
+    const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+    if (targets.installationId !== state.installationId) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    return structuredClone(targets.targets);
+  }
+
+  async fixtureNetwork(): Promise<FixtureNetworkBinding | null> {
+    const state = await this.read();
+    const targets = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+    if (targets.installationId !== state.installationId) throw new Error('release guard deployment targets are invalid');
+    return targets.targets.fixtureNetwork ?? null;
+  }
+
   async withTransition<T>(action: (lease: ReleaseTransitionLease) => Promise<T>): Promise<T> {
     return this.withLock(() => action(new ReleaseTransitionLease(this.root, this)));
+  }
+
+  async beginLegacyLease(): Promise<{ mode: 'managed' } | { mode: 'legacy'; ownerToken: string }> {
+    await this.acquireLock();
+    try {
+      if (await exists(join(this.root, STACK_OPERATION))) {
+        throw new Error('a guarded stack preparation is unresolved');
+      }
+      if (await this.releaseMode() === 'managed') {
+        await this.releaseEmptyLock();
+        return { mode: 'managed' };
+      }
+      const state = await this.read();
+      const ownerToken = randomUUID();
+      await atomicWrite(join(this.root, LOCK), LEGACY_OWNER, canonicalJson({
+        schemaVersion: 1,
+        installationId: state.installationId,
+        ownerToken,
+      }));
+      return { mode: 'legacy', ownerToken };
+    } catch (error) {
+      await this.releaseEmptyLock().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async beginStackLegacyLease(profile: string): Promise<{ ownerToken: string }> {
+    if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(profile)) throw new Error('legacy stack profile is invalid');
+    await this.acquireLock();
+    try {
+      if (await exists(join(this.root, STACK_OPERATION))) {
+        throw new Error('a guarded stack preparation is unresolved');
+      }
+      const state = await this.read();
+      const installed = validateDeploymentTargets(JSON.parse(await readBounded(join(this.root, TARGETS))));
+      if (installed.installationId !== state.installationId) {
+        throw new Error('release guard deployment targets are invalid');
+      }
+      const protectedNames = new Set([
+        installed.targets.manager?.projectName,
+        installed.targets.admin?.projectName,
+        installed.targets.uploader?.profile,
+        installed.targets.viewer?.profile,
+      ].filter((name): name is string => name !== undefined));
+      if (protectedNames.has(profile)) {
+        throw new Error('stack profile is protected by the installed release guard');
+      }
+      const ownerToken = randomUUID();
+      await atomicWrite(join(this.root, LOCK), LEGACY_OWNER, canonicalJson({
+        schemaVersion: 1,
+        installationId: state.installationId,
+        ownerToken,
+      }));
+      return { ownerToken };
+    } catch (error) {
+      await this.releaseEmptyLock().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async finishLegacyLease(ownerToken: string): Promise<void> {
+    requireUuid(ownerToken, 'legacy lease owner token');
+    const state = await this.read();
+    const ownerPath = join(this.root, LOCK, LEGACY_OWNER);
+    const claimPath = join(this.root, LOCK, LEGACY_RELEASE_CLAIM);
+    let owner: unknown;
+    try {
+      owner = JSON.parse(await readBounded(ownerPath));
+    } catch {
+      throw new Error('legacy deployment lease is invalid');
+    }
+    if (
+      !isRecord(owner) ||
+      !hasExactKeys(owner, ['schemaVersion', 'installationId', 'ownerToken']) ||
+      owner.schemaVersion !== 1 ||
+      owner.installationId !== state.installationId ||
+      owner.ownerToken !== ownerToken
+    ) {
+      throw new Error('legacy deployment lease owner token does not match');
+    }
+    try {
+      await link(ownerPath, claimPath);
+    } catch {
+      throw new Error('legacy deployment lease is already being released or requires operator recovery');
+    }
+    try {
+      const claimedOwner = JSON.parse(await readBounded(claimPath));
+      const [ownerStat, claimStat] = await Promise.all([lstat(ownerPath), lstat(claimPath)]);
+      if (
+        !isRecord(claimedOwner) ||
+        !hasExactKeys(claimedOwner, ['schemaVersion', 'installationId', 'ownerToken']) ||
+        claimedOwner.schemaVersion !== 1 ||
+        claimedOwner.installationId !== state.installationId ||
+        claimedOwner.ownerToken !== ownerToken ||
+        ownerStat.dev !== claimStat.dev ||
+        ownerStat.ino !== claimStat.ino
+      ) {
+        throw new Error('legacy deployment lease owner token does not match');
+      }
+    } catch (error) {
+      await rm(claimPath).catch(() => undefined);
+      throw error;
+    }
+    await rm(ownerPath);
+    await syncDirectory(join(this.root, LOCK));
+    await rm(claimPath);
+    await syncDirectory(join(this.root, LOCK));
+    await this.releaseEmptyLock();
   }
 
   async pendingReceipt(slot: ReleaseSlot): Promise<string | null> {
@@ -175,21 +312,29 @@ export class ReleaseGuardStore {
   }
 
   private async withLock<T>(action: () => Promise<T>): Promise<T> {
-    const lock = join(this.root, LOCK);
+    await this.acquireLock();
     try {
-      await mkdir(lock, { mode: 0o700 });
+      return await action();
+    } finally {
+      await this.releaseEmptyLock();
+    }
+  }
+
+  private async acquireLock(): Promise<void> {
+    try {
+      await mkdir(join(this.root, LOCK), { mode: 0o700 });
+      await syncDirectory(this.root);
     } catch (error) {
       if (isRecord(error) && error.code === 'EEXIST') {
         throw new Error('another release guard transition is active, or its crash lock requires operator recovery');
       }
       throw error;
     }
-    try {
-      return await action();
-    } finally {
-      await rm(lock, { recursive: true, force: true });
-      await syncDirectory(this.root);
-    }
+  }
+
+  private async releaseEmptyLock(): Promise<void> {
+    await rmdir(join(this.root, LOCK));
+    await syncDirectory(this.root);
   }
 }
 
@@ -202,6 +347,9 @@ class ReleaseTransitionLease {
 
   async assertMayBuild(input: ReleaseSlot): Promise<void> {
     const slot = validateSlot(input);
+    if (await exists(join(this.root, STACK_OPERATION))) {
+      throw new Error('a guarded stack preparation is unresolved');
+    }
     const state = await this.store.read();
     if (
       state.attempt?.phase === 'verified' ||
@@ -211,18 +359,76 @@ class ReleaseTransitionLease {
     }
   }
 
+  async assertMayPrepareStack(): Promise<void> {
+    const state = await this.store.read();
+    if (state.attempt) throw new Error('a release guard transition or receipt is unresolved');
+    if (Object.keys(state.slots).some((key) => key.startsWith('uploader/'))) {
+      throw new Error('a managed uploader release already exists for this installation');
+    }
+  }
+
+  async prepareStackOperation(input: {
+    slot: ReleaseSlot;
+    target: StackReleaseTarget;
+    operation: StackReleaseOperation;
+    artifact: ReleaseArtifact;
+    transitionDigest: string;
+  }): Promise<string> {
+    const state = await this.store.read();
+    if (!DIGEST.test(input.transitionDigest)) throw new Error('release transition digest is invalid');
+    const body = canonicalJson({
+      schemaVersion: 1,
+      installationId: state.installationId,
+      slot: validateSlot(input.slot),
+      target: input.target,
+      operation: input.operation,
+      artifact: validateArtifact(input.artifact),
+      transitionDigest: input.transitionDigest,
+    });
+    const path = join(this.root, STACK_OPERATION);
+    if (await exists(path)) {
+      let existing: string;
+      try {
+        existing = await readBounded(path);
+        JSON.parse(existing);
+      } catch {
+        throw new Error('guarded stack preparation state is invalid');
+      }
+      if (existing !== body) throw new Error('guarded stack preparation does not match the unresolved operation');
+      return existing;
+    }
+    await atomicWrite(this.root, STACK_OPERATION, body);
+    return body;
+  }
+
+  async completeStackOperation(exactBody: string): Promise<void> {
+    const path = join(this.root, STACK_OPERATION);
+    let existing: string;
+    try {
+      existing = await readBounded(path);
+    } catch {
+      throw new Error('guarded stack preparation state is invalid');
+    }
+    if (existing !== exactBody) throw new Error('guarded stack preparation completion does not match');
+    await rm(path);
+    await syncDirectory(this.root);
+  }
+
   async prepare(input: {
     slot: ReleaseSlot;
     artifact: ReleaseArtifact;
+    transitionDigest: string;
   }): Promise<PendingReleaseReceipt> {
     const state = await this.store.read();
     const slot = validateSlot(input.slot);
     const artifact = validateArtifact(input.artifact);
+    if (!DIGEST.test(input.transitionDigest)) throw new Error('release transition digest is invalid');
     if (state.attempt) {
       if (
         state.attempt.phase === 'prepared' &&
         slotKey(state.attempt.receipt.slot) === slotKey(slot) &&
-        canonicalJson(state.attempt.receipt.artifact) === canonicalJson(artifact)
+        canonicalJson(state.attempt.receipt.artifact) === canonicalJson(artifact) &&
+        state.attempt.transitionDigest === input.transitionDigest
       ) {
         return { receipt: state.attempt.receipt, body: state.attempt.body };
       }
@@ -251,7 +457,7 @@ class ReleaseTransitionLease {
     const body = canonicalJson(receipt);
     await atomicWrite(this.root, STATE, canonicalJson({
       ...core,
-      attempt: { phase: 'prepared', receipt, body },
+      attempt: { phase: 'prepared', receipt, body, transitionDigest: input.transitionDigest },
     }));
     await writeActivationSentinel(this.root, core.installationId);
     return { receipt, body };
@@ -367,8 +573,10 @@ function parseState(raw: unknown): ReleaseGuardState {
   }
   let attempt: ReleaseGuardAttempt | null = null;
   if (raw.attempt !== null) {
-    if (!isRecord(raw.attempt) || !hasExactKeys(raw.attempt, ['phase', 'receipt', 'body']) ||
-        (raw.attempt.phase !== 'prepared' && raw.attempt.phase !== 'verified') || typeof raw.attempt.body !== 'string') {
+    if (!isRecord(raw.attempt) || !hasExactKeys(raw.attempt, ['phase', 'receipt', 'body', 'transitionDigest']) ||
+        (raw.attempt.phase !== 'prepared' && raw.attempt.phase !== 'verified') ||
+        typeof raw.attempt.body !== 'string' || typeof raw.attempt.transitionDigest !== 'string' ||
+        !DIGEST.test(raw.attempt.transitionDigest)) {
       throw new Error('release guard state is invalid');
     }
     const receipt = parseReceipt(raw.attempt.receipt);
@@ -391,7 +599,7 @@ function parseState(raw: unknown): ReleaseGuardState {
       throw new Error('release guard state is invalid');
     }
     const phase = raw.attempt.phase;
-    attempt = { phase, receipt, body: raw.attempt.body };
+    attempt = { phase, receipt, body: raw.attempt.body, transitionDigest: raw.attempt.transitionDigest };
   }
   if ((Number(raw.generation) === 0) !== (Object.keys(slots).length === 0 && attempt === null)) {
     throw new Error('release guard state is invalid');
@@ -450,7 +658,7 @@ function validateDeploymentTargets(raw: unknown): {
     throw new Error('release guard deployment targets are invalid');
   }
   requireUuid(raw.installationId, 'release guard installation id');
-  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => key !== 'manager' && key !== 'admin')) {
+  if (!isRecord(raw.targets) || Object.keys(raw.targets).some((key) => !['manager', 'admin', 'uploader', 'viewer', 'fixtureNetwork'].includes(key))) {
     throw new Error('release guard deployment targets are invalid');
   }
   const targets: ReleaseGuardDeploymentTargets = {};
@@ -499,6 +707,76 @@ function validateDeploymentTargets(raw: unknown): {
       ...common,
       mode: target.mode,
       postgresPort: Number(target.postgresPort),
+    };
+  }
+  for (const role of ['uploader', 'viewer'] as const) {
+    const target = raw.targets[role];
+    if (target === undefined) continue;
+    if (
+      !isRecord(target) ||
+      !hasExactKeys(target, ['profile', 'portSlot', 'services', 'target']) ||
+      typeof target.profile !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(target.profile) ||
+      !Number.isSafeInteger(target.portSlot) ||
+      Number(target.portSlot) < 1 ||
+      Number(target.portSlot) > 99 ||
+      target.target !== 'local' ||
+      !Array.isArray(target.services) ||
+      target.services.some((service) => typeof service !== 'string')
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    const services = target.services as string[];
+    const sorted = [...services].sort();
+    if (new Set(services).size !== services.length || services.some((service, index) => service !== sorted[index])) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    if (role === 'uploader') {
+      const allowed = new Set([
+        'bee-gateway',
+        'bee-uploader',
+        'bee-uploader-1080p',
+        'bee-uploader-480p',
+        'bee-uploader-720p',
+        'client',
+        'srs',
+        'stream-uploader',
+      ]);
+      if (
+        services.some((service) => !allowed.has(service)) ||
+        !services.includes('srs') ||
+        !services.includes('stream-uploader')
+      ) {
+        throw new Error('release guard deployment targets are invalid');
+      }
+    } else if (
+      services.join(',') !== 'client' &&
+      services.join(',') !== 'bee-gateway,client'
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets[role] = {
+      profile: target.profile,
+      portSlot: Number(target.portSlot),
+      target: 'local',
+      services: [...services],
+    };
+  }
+  const fixtureNetwork = raw.targets.fixtureNetwork;
+  if (fixtureNetwork !== undefined) {
+    if (
+      !isRecord(fixtureNetwork) ||
+      !hasExactKeys(fixtureNetwork, ['fixtureId', 'name']) ||
+      typeof fixtureNetwork.fixtureId !== 'string' ||
+      !/^srs-continuation-20260920-[a-z0-9]{8,16}$/.test(fixtureNetwork.fixtureId) ||
+      fixtureNetwork.name !== `${fixtureNetwork.fixtureId}-network` ||
+      targets.manager?.mode !== 'isolated'
+    ) {
+      throw new Error('release guard deployment targets are invalid');
+    }
+    targets.fixtureNetwork = {
+      name: fixtureNetwork.name,
+      fixtureId: fixtureNetwork.fixtureId,
     };
   }
   return { schemaVersion: 1, installationId: raw.installationId, targets };

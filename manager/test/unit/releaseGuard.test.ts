@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, copyFile, cp, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { createServer } from 'node:net';
@@ -18,6 +19,7 @@ import {
 import {
   digestTree,
   runReleaseTransition,
+  runStackPreparation,
   type ReleaseAdapter,
 } from '../../src/releaseGuard/ReleaseTransition.js';
 import { submitPendingReceipt } from '../../src/releaseGuard/ReleaseReceiptSubmitter.js';
@@ -40,6 +42,27 @@ const MANAGER_TARGET = {
   postgresPort: 15_432,
   webPort: 18_080,
 };
+
+async function testGuardInstallation(root: string, stateRoot: string) {
+  const codeRoot = join(root, 'installed-guard/lib/streaming-release-guard/current');
+  await mkdir(codeRoot, { recursive: true });
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(
+    join(codeRoot, 'container-binding.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      stateRoot,
+    }),
+  );
+  return { codeRoot, stateRoot };
+}
+
+async function testManagerVerifyWork(root: string) {
+  const workRoot = join(root, 'adapter-work');
+  await mkdir(workRoot, { recursive: true });
+  await writeFile(join(workRoot, 'manager-image-override.yml'), 'services: {}\n');
+  return workRoot;
+}
 const ISOLATED_MANAGER_TARGET = {
   mode: 'isolated' as const,
   projectName: 'manager-isolated',
@@ -47,6 +70,38 @@ const ISOLATED_MANAGER_TARGET = {
   postgresPort: 25_432,
   webPort: 28_080,
 };
+const UPLOADER_TARGET = {
+  profile: 'managed',
+  portSlot: 1,
+  target: 'local' as const,
+  services: [
+    'bee-gateway',
+    'bee-uploader',
+    'bee-uploader-1080p',
+    'bee-uploader-480p',
+    'bee-uploader-720p',
+    'client',
+    'srs',
+    'stream-uploader',
+  ],
+};
+const VIEWER_TARGET = {
+  profile: 'viewer',
+  portSlot: 2,
+  target: 'local' as const,
+  services: ['bee-gateway', 'client'],
+};
+const FIXTURE_NETWORK = {
+  name: 'srs-continuation-20260920-a1b2c3d4-network',
+  fixtureId: 'srs-continuation-20260920-a1b2c3d4',
+};
+const FIXTURE_NETWORK_ID = 'c'.repeat(64);
+const FIXTURE_VOLUME_NAMES = [
+  `${UPLOADER_TARGET.profile}_srs-media`,
+  `${UPLOADER_TARGET.profile}_uploader-state`,
+];
+const TRANSITION_DIGEST = 'd'.repeat(64);
+const EMPTY_PREFLIGHT_TRANSITION_DIGEST = createHash('sha256').update('null\n').digest('hex');
 const MANAGER_BASE = '87673c99ecbf3685fc04773d95877d128b909113';
 const REPO = resolve(import.meta.dirname, '../../..');
 const FIXTURE_READY_TIMEOUT_MS = 5_000;
@@ -114,9 +169,17 @@ async function waitForLockFixture(child: ChildProcessByStdio<null, Readable, Rea
 }
 
 async function temporaryRoot(t: { after(callback: () => Promise<void>): void }) {
-  const root = await mkdtemp(join(tmpdir(), 'release-guard-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'release-guard-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
+}
+
+async function waitForFile(path: string): Promise<void> {
+  const deadline = Date.now() + FIXTURE_READY_TIMEOUT_MS;
+  while (!(await lstat(path).catch(() => null))) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`);
+    await delay(10);
+  }
 }
 
 async function capableCandidate(root: string, role = 'uploader') {
@@ -153,7 +216,7 @@ async function verifiedReceipt(
   input: { slot: ReleaseSlot; artifact: ReleaseArtifact },
 ) {
   return store.withTransition(async (lease) => {
-    const pending = await lease.prepare(input);
+    const pending = await lease.prepare({ ...input, transitionDigest: TRANSITION_DIGEST });
     await lease.markVerified(pending.body);
     return pending;
   });
@@ -162,9 +225,15 @@ async function verifiedReceipt(
 describe('external release guard state', () => {
   it('binds validated deployment targets to the guard installation', async (t) => {
     const root = await temporaryRoot(t);
-    await installReleaseGuard(root, INSTALLATION_ID, { manager: MANAGER_TARGET });
+    await installReleaseGuard(root, INSTALLATION_ID, {
+      manager: MANAGER_TARGET,
+      uploader: UPLOADER_TARGET,
+      viewer: VIEWER_TARGET,
+    });
     const store = new ReleaseGuardStore(root);
     assert.deepEqual(await store.deploymentTarget('manager'), MANAGER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('uploader'), UPLOADER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('viewer'), VIEWER_TARGET);
     await assert.rejects(store.deploymentTarget('admin'), /admin target is not installed/);
 
     const targetPath = join(root, 'targets.json');
@@ -179,7 +248,31 @@ describe('external release guard state', () => {
       }),
       /deployment targets are invalid/,
     );
+    await assert.rejects(
+      installReleaseGuard(join(root, 'invalid-uploader'), INSTALLATION_ID, {
+        uploader: { ...UPLOADER_TARGET, services: ['ome', 'stream-uploader'] },
+      }),
+      /deployment targets are invalid/,
+    );
+    await assert.rejects(
+      installReleaseGuard(join(root, 'invalid-viewer'), INSTALLATION_ID, {
+        viewer: { ...VIEWER_TARGET, profile: 'viewer/path' },
+      }),
+      /deployment targets are invalid/,
+    );
     await installReleaseGuard(join(root, 'isolated'), INSTALLATION_ID, { manager: ISOLATED_MANAGER_TARGET });
+    const fixtureRoot = join(root, 'fixture-network');
+    await installReleaseGuard(fixtureRoot, INSTALLATION_ID, {
+      manager: ISOLATED_MANAGER_TARGET,
+      fixtureNetwork: FIXTURE_NETWORK,
+    });
+    assert.deepEqual(await new ReleaseGuardStore(fixtureRoot).fixtureNetwork(), FIXTURE_NETWORK);
+    await assert.rejects(
+      installReleaseGuard(join(root, 'fixture-without-isolation'), INSTALLATION_ID, {
+        fixtureNetwork: FIXTURE_NETWORK,
+      }),
+      /deployment targets are invalid/,
+    );
     await assert.rejects(
       installReleaseGuard(join(root, 'live-port'), INSTALLATION_ID, {
         manager: { ...ISOLATED_MANAGER_TARGET, postgresPort: 5_432 },
@@ -287,7 +380,7 @@ describe('external release guard state', () => {
 
     await assert.rejects(
       store.withTransition((lease) => lease.prepare({
-        slot: { role: 'uploader', id: 'srs/uploader' }, artifact,
+        slot: { role: 'uploader', id: 'srs/uploader' }, artifact, transitionDigest: TRANSITION_DIGEST,
       })),
       /uploader slot id is invalid/,
     );
@@ -324,9 +417,454 @@ describe('external release guard state', () => {
       /crash lock requires operator recovery/,
     );
   });
+
+  it('holds a legacy deployment lease across the standalone mutation window', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+
+    const lease = await store.beginLegacyLease();
+    assert.equal(lease.mode, 'legacy');
+    if (lease.mode !== 'legacy') throw new Error('expected a legacy lease');
+    assert.match(lease.ownerToken, /^[0-9a-f-]{36}$/);
+    await assert.rejects(
+      store.withTransition(async () => undefined),
+      /crash lock requires operator recovery/,
+    );
+    await assert.rejects(
+      store.finishLegacyLease('22222222-2222-4222-8222-222222222222'),
+      /owner token does not match/,
+    );
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+
+    await store.finishLegacyLease(lease.ownerToken);
+    await store.withTransition(async () => undefined);
+  });
+
+  it('cannot release a successor after a duplicate legacy finish pauses after reading the owner', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    const first = await store.beginLegacyLease();
+    assert.equal(first.mode, 'legacy');
+    if (first.mode !== 'legacy') throw new Error('expected a legacy lease');
+
+    const fixtureRoot = join(root, 'paused-finisher');
+    await mkdir(fixtureRoot);
+    await copyFile(
+      join(REPO, 'manager/src/releaseGuard/ReleaseGuardTypes.ts'),
+      join(fixtureRoot, 'ReleaseGuardTypes.ts'),
+    );
+    const storeSource = await readFile(
+      join(REPO, 'manager/src/releaseGuard/ReleaseGuardStore.ts'),
+      'utf8',
+    );
+    const ownerRead = 'owner = JSON.parse(await readBounded(ownerPath));';
+    assert.match(storeSource, new RegExp(ownerRead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    await writeFile(
+      join(fixtureRoot, 'ReleaseGuardStore.ts'),
+      storeSource.replace(ownerRead, `${ownerRead}
+      await writeFile(process.env.RELEASE_FINISH_READY!, 'ready\\n');
+      while (!(await lstat(process.env.RELEASE_FINISH_CONTINUE!).catch(() => null))) await delay(10);`)
+        .replace(
+          "import { chmod, link, lstat, mkdir, open, rename, rm, rmdir } from 'node:fs/promises';",
+          "import { chmod, link, lstat, mkdir, open, rename, rm, rmdir, writeFile } from 'node:fs/promises';\nimport { setTimeout as delay } from 'node:timers/promises';",
+        ),
+    );
+    await writeFile(
+      join(fixtureRoot, 'finish.ts'),
+      "import { ReleaseGuardStore } from './ReleaseGuardStore.js';\nvoid new ReleaseGuardStore(process.argv[2]!).finishLegacyLease(process.argv[3]!);\n",
+    );
+    const ready = join(fixtureRoot, 'ready');
+    const resume = join(fixtureRoot, 'resume');
+    const paused = spawn(process.execPath, [
+      ...inheritedModuleLoaderArgs(),
+      join(fixtureRoot, 'finish.ts'),
+      root,
+      first.ownerToken,
+    ], {
+      env: { ...process.env, RELEASE_FINISH_READY: ready, RELEASE_FINISH_CONTINUE: resume },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let pausedStderr = '';
+    paused.stderr.on('data', (chunk: Buffer) => {
+      pausedStderr = `${pausedStderr}${chunk.toString('utf8')}`.slice(-FIXTURE_DIAGNOSTIC_BYTES);
+    });
+    t.after(() => { if (paused.exitCode === null) paused.kill('SIGKILL'); });
+    await Promise.race([
+      waitForFile(ready),
+      new Promise<never>((_resolve, reject) => paused.once('close', (code, signal) => {
+        reject(new Error(`paused finisher closed before readiness (exit ${code ?? 'none'}, signal ${signal ?? 'none'}): ${pausedStderr}`));
+      })),
+    ]);
+
+    await store.finishLegacyLease(first.ownerToken);
+    const successor = await store.beginLegacyLease();
+    assert.equal(successor.mode, 'legacy');
+    if (successor.mode !== 'legacy') throw new Error('expected a successor legacy lease');
+    await writeFile(resume, 'continue\n');
+    const pausedExit = await new Promise<number | null>((resolveClose) => paused.once('close', resolveClose));
+
+    assert.notEqual(pausedExit, 0);
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+    await assert.rejects(store.finishLegacyLease(first.ownerToken), /owner token does not match/);
+    await store.finishLegacyLease(successor.ownerToken);
+  });
+
+  it('keeps a killed legacy deployment locked for operator recovery', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const child = spawn(process.execPath, [
+      ...inheritedModuleLoaderArgs(),
+      join(REPO, 'manager/test/fixtures/releaseGuardHoldLegacy.ts'),
+      root,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    t.after(() => { if (!child.killed) child.kill('SIGKILL'); });
+    await waitForLockFixture(child);
+
+    const closed = new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
+    assert.equal(child.kill('SIGKILL'), true);
+    await closed;
+    assert.equal((await lstat(join(root, 'state.lock'))).isDirectory(), true);
+    await assert.rejects(
+      new ReleaseGuardStore(root).beginLegacyLease(),
+      /crash lock requires operator recovery/,
+    );
+  });
+
+  it('refuses a legacy lease after activation wins the ordering', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+    const store = new ReleaseGuardStore(root);
+    await verifiedReceipt(store, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '4'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+
+    assert.deepEqual(await store.beginLegacyLease(), { mode: 'managed' });
+    await assert.rejects(lstat(join(root, 'state.lock')), /ENOENT/);
+  });
+
+  it('leases unrelated stack profiles after activation while protecting every installed target', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID, {
+      manager: MANAGER_TARGET,
+      admin: { projectName: 'admin-test', postgresVolumeName: 'admin-test-pg', webPort: 19_080 },
+      uploader: UPLOADER_TARGET,
+      viewer: VIEWER_TARGET,
+    });
+    const store = new ReleaseGuardStore(root);
+    await verifiedReceipt(store, {
+      slot: { role: 'manager', id: 'default' },
+      artifact: {
+        treeDigest: '4'.repeat(64),
+        images: [{ service: 'api', imageId: IMAGE_ID }],
+      },
+    });
+
+    for (const profile of ['manager-test', 'admin-test', 'managed', 'viewer']) {
+      await assert.rejects(store.beginStackLegacyLease(profile), /protected by the installed release guard/);
+    }
+    const lease = await store.beginStackLegacyLease('unrelated-b');
+    assert.match(lease.ownerToken, /^[0-9a-f-]{36}$/);
+    await assert.rejects(store.withTransition(async () => undefined), /crash lock requires operator recovery/);
+    await store.finishLegacyLease(lease.ownerToken);
+    await assert.rejects(lstat(join(root, 'state.lock')), /ENOENT/);
+  });
 });
 
 describe('guarded release transition', () => {
+  it('records a preparation before moving a protected non-uploader subset and clears it only after verification', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['bee-uploader', 'srs', 'stream-uploader'],
+      },
+    });
+    const images = [
+      { service: 'bee-uploader', imageId: IMAGE_ID },
+      { service: 'srs', imageId: WEB_IMAGE_ID },
+    ];
+    let moved = false;
+    const releaseAdapter: ReleaseAdapter = {
+      async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+      async build() { return { schemaVersion: 1, images }; },
+      async transition() {
+        const journal = JSON.parse(await readFile(join(stateRoot, 'stack-operation.json'), 'utf8'));
+        assert.equal(journal.operation.kind, 'prepare');
+        assert.deepEqual(journal.operation.mutatingServices, ['bee-uploader', 'srs']);
+        const state = await new ReleaseGuardStore(stateRoot).read();
+        assert.equal(state.generation, 0);
+        assert.deepEqual(state.slots, {});
+        moved = true;
+      },
+      async verify() { return { schemaVersion: 1, images }; },
+    };
+
+    await runStackPreparation({
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      mutatingServices: ['srs', 'bee-uploader'],
+      adapter: releaseAdapter,
+    });
+
+    assert.equal(moved, true);
+    await assert.rejects(readFile(join(stateRoot, 'stack-operation.json')), { code: 'ENOENT' });
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).generation, 0);
+  });
+
+  it('keeps a failed preparation unresolved, permits only its exact retry, and blocks release movement', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const differentCandidate = join(root, 'different-candidate');
+    await capableCandidate(differentCandidate);
+    await writeFile(join(differentCandidate, 'different.txt'), 'different candidate\n');
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const images = [{ service: 'srs', imageId: IMAGE_ID }];
+    const failedAdapter: ReleaseAdapter = {
+      async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+      async build() { return { schemaVersion: 1, images }; },
+      async transition() { throw new Error('synthetic movement ambiguity'); },
+      async verify() { return { schemaVersion: 1, images }; },
+    };
+    const input = {
+      store: new ReleaseGuardStore(stateRoot),
+      candidateRoot: candidate,
+      slot: { role: 'uploader' as const, id: UPLOADER_ID },
+      mutatingServices: ['srs'],
+    };
+
+    await assert.rejects(runStackPreparation({ ...input, adapter: failedAdapter }), /movement ambiguity/);
+    assert.equal((await lstat(join(stateRoot, 'stack-operation.json'))).isFile(), true);
+
+    const releaseCounters = { build: 0, stop: 0, start: 0 };
+    await assert.rejects(
+      runReleaseTransition({
+        store: input.store,
+        candidateRoot: candidate,
+        slot: input.slot,
+        adapter: adapter(releaseCounters),
+      }),
+      /stack preparation is unresolved/,
+    );
+    assert.deepEqual(releaseCounters, { build: 0, stop: 0, start: 0 });
+    await assert.rejects(input.store.beginLegacyLease(), /stack preparation is unresolved/);
+    await assert.rejects(input.store.beginStackLegacyLease('unrelated'), /stack preparation is unresolved/);
+    await assert.rejects(
+      runStackPreparation({ ...input, candidateRoot: differentCandidate, adapter: failedAdapter }),
+      /stack preparation does not match/,
+    );
+
+    let retried = 0;
+    await runStackPreparation({
+      ...input,
+      adapter: {
+        async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+        async build() { return { schemaVersion: 1, images }; },
+        async transition() { retried += 1; },
+        async verify() { return { schemaVersion: 1, images }; },
+      },
+    });
+    assert.equal(retried, 1);
+    await assert.rejects(readFile(join(stateRoot, 'stack-operation.json')), { code: 'ENOENT' });
+  });
+
+  it('refuses preparation after any uploader receipt, regardless of the supplied uploader id', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const store = new ReleaseGuardStore(stateRoot);
+    const existing = await verifiedReceipt(store, {
+      slot: { role: 'uploader', id: 'another-uploader' },
+      artifact: {
+        treeDigest: await digestTree(candidate),
+        images: [{ service: 'stream-uploader', imageId: IMAGE_ID }],
+      },
+    });
+    await store.acknowledge(existing.body);
+    let builds = 0;
+
+    await assert.rejects(
+      runStackPreparation({
+        store,
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        mutatingServices: ['srs'],
+        adapter: {
+          async preflight() { return { schemaVersion: 1, preparationReady: true }; },
+          async build() {
+            builds += 1;
+            return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] };
+          },
+          async transition() {},
+          async verify() { return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] }; },
+        },
+      }),
+      /managed uploader release already exists/,
+    );
+    assert.equal(builds, 0);
+  });
+
+  it('validates every untouched uploader service before persisting an update or moving containers', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+    let transitions = 0;
+    const releaseAdapter: ReleaseAdapter = {
+      async preflight() { return null; },
+      async build() { return { schemaVersion: 1, images: built }; },
+      async validate() {
+        return {
+          schemaVersion: 1,
+          images: [{ service: 'srs', imageId: `sha256:${'c'.repeat(64)}` }],
+        };
+      },
+      async transition() { transitions += 1; },
+      async verify() { return { schemaVersion: 1, images: built }; },
+    };
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+        adapter: releaseAdapter,
+      }),
+      /untouched service srs does not match/,
+    );
+
+    assert.equal(transitions, 0);
+    const state = await new ReleaseGuardStore(stateRoot).read();
+    assert.equal(state.generation, 0);
+    assert.equal(state.attempt, null);
+  });
+
+  it('refuses validation output that includes a mutating uploader service', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+
+    await assert.rejects(
+      runReleaseTransition({
+        store: new ReleaseGuardStore(stateRoot),
+        candidateRoot: candidate,
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+        adapter: {
+          async preflight() { return null; },
+          async build() { return { schemaVersion: 1, images: built }; },
+          async validate() { return { schemaVersion: 1, images: built }; },
+          async transition() { assert.fail('transition must not run'); },
+          async verify() { return { schemaVersion: 1, images: built }; },
+        },
+      }),
+      /exact untouched service set/,
+    );
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).attempt, null);
+  });
+
+  it('persists an updater attempt only after untouched services match and verifies the full target', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+    const store = new ReleaseGuardStore(stateRoot);
+    const built = [
+      { service: 'srs', imageId: IMAGE_ID },
+      { service: 'stream-uploader', imageId: WEB_IMAGE_ID },
+    ];
+    let validated = false;
+    let moved = false;
+
+    await runReleaseTransition({
+      store,
+      candidateRoot: candidate,
+      slot: { role: 'uploader', id: UPLOADER_ID },
+      operation: { kind: 'update', mutatingServices: ['stream-uploader'] },
+      adapter: {
+        async preflight() { return null; },
+        async build() { return { schemaVersion: 1, images: built }; },
+        async validate() {
+          validated = true;
+          assert.equal((await store.read()).attempt, null);
+          return { schemaVersion: 1, images: [{ service: 'srs', imageId: IMAGE_ID }] };
+        },
+        async transition() {
+          assert.equal(validated, true);
+          assert.equal((await store.read()).attempt?.phase, 'prepared');
+          moved = true;
+        },
+        async verify() { return { schemaVersion: 1, images: built }; },
+      },
+    });
+
+    assert.equal(moved, true);
+    assert.equal((await store.read()).attempt?.phase, 'verified');
+  });
+
   it('refuses the actual pre-feature manager candidate before build or service movement', async (t) => {
     const root = await temporaryRoot(t);
     const candidate = join(root, 'candidate');
@@ -562,7 +1100,17 @@ esac
     const prepared = await store.withTransition((lease) => lease.prepare({
       slot: { role: 'uploader', id: UPLOADER_ID },
       artifact,
+      transitionDigest: EMPTY_PREFLIGHT_TRANSITION_DIGEST,
     }));
+
+    await assert.rejects(
+      store.withTransition((lease) => lease.prepare({
+        slot: { role: 'uploader', id: UPLOADER_ID },
+        artifact,
+        transitionDigest: 'e'.repeat(64),
+      })),
+      /release guard transition or receipt is unresolved/,
+    );
 
     assert.equal(await store.pendingReceipt({ role: 'uploader', id: UPLOADER_ID }), null);
     await assert.rejects(
@@ -644,7 +1192,7 @@ phase="$1"
 candidate="$(cd "$(dirname "$0")/../.." && pwd)"
 echo "$phase" >> "$(dirname "$candidate")/phases"
 case "$phase" in
-  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5" ;;
+  preflight) printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true,"fixtureNetworkId":"${FIXTURE_NETWORK_ID}","fixtureVolumeNames":["${UPLOADER_TARGET.profile}_srs-media","${UPLOADER_TARGET.profile}_uploader-state"]}' > "$5" ;;
   build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"stream-uploader","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
   transition) ;;
   *) exit 7 ;;
@@ -658,7 +1206,10 @@ esac
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'uploader', id: UPLOADER_ID },
-      adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work')),
+      adapter: new FixedReleaseAdapter('uploader', join(root, 'adapter-work'), {
+        target: UPLOADER_TARGET,
+        fixtureNetwork: FIXTURE_NETWORK,
+      }),
     });
 
     assert.equal(await readFile(join(root, 'phases'), 'utf8'), 'preflight\nbuild\ntransition\nverify\n');
@@ -666,6 +1217,156 @@ esac
     assert.equal(transitionPlan.temporaryProject.startsWith('release-'), true);
     assert.equal(transitionPlan.activeArtifactPath, null);
     assert.deepEqual(transitionPlan.images, [{ service: 'stream-uploader', imageId: IMAGE_ID }]);
+    assert.deepEqual(transitionPlan.arguments, {
+      target: UPLOADER_TARGET,
+      fixtureNetwork: { ...FIXTURE_NETWORK, networkId: FIXTURE_NETWORK_ID },
+      fixtureVolumeNames: FIXTURE_VOLUME_NAMES,
+    });
+    assert.match((await new ReleaseGuardStore(stateRoot).read()).attempt?.transitionDigest ?? '', /^[0-9a-f]{64}$/);
+  });
+
+  it('routes only fixed role environment values into adapter processes', async (t) => {
+    const root = await temporaryRoot(t);
+    const names = [
+      'POSTGRES_PASSWORD',
+      'BEE_URL',
+      'POSTAGE_BATCH_ID',
+      'FEED_PRIVATE_KEY',
+      'INTERNAL_API_TOKEN',
+      'INGEST_SRT_PASSPHRASE',
+      'INGEST_MANAGED_LIFECYCLE_VERSION',
+      'INGEST_MANAGED_UPLOADER_ID',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+      'API_AUTH_TOKEN',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
+      'RELEASE_GUARD_ADMIN_TOKEN',
+    ];
+    const previous = new Map(names.map((name) => [name, process.env[name]]));
+    for (const name of names) process.env[name] = `test-only-${name.toLowerCase()}`;
+    t.after(() => {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    const admin = join(root, 'admin');
+    await capableCandidate(admin, 'admin');
+    const adminAdapter = join(admin, 'web2-admin/backend/release-adapter.sh');
+    await mkdir(dirname(adminAdapter), { recursive: true });
+    await writeFile(adminAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${ADMIN_API_TOKEN:-}" ]
+for name in POSTGRES_PASSWORD BEE_URL POSTAGE_BATCH_ID FEED_PRIVATE_KEY INTERNAL_API_TOKEN INGEST_SRT_PASSPHRASE INGEST_MANAGED_LIFECYCLE_VERSION INGEST_MANAGED_UPLOADER_ID; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1}' > "$5"
+`);
+    await chmod(adminAdapter, 0o700);
+    await new FixedReleaseAdapter('admin', join(root, 'admin-work'), { target: MANAGER_TARGET }).preflight({
+      candidateRoot: admin,
+      treeDigest: 'a'.repeat(64),
+      slot: { role: 'admin', id: 'default' },
+    });
+
+    const uploader = join(root, 'uploader');
+    await capableCandidate(uploader);
+    const uploaderAdapter = join(uploader, 'deploy/scripts/release-adapter.sh');
+    await mkdir(dirname(uploaderAdapter), { recursive: true });
+    await writeFile(uploaderAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${POSTGRES_PASSWORD:-}" ]
+for name in ADMIN_API_URL ADMIN_API_TOKEN API_AUTH_TOKEN; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1,"lifecycleVersion":1,"uploaderId":"${UPLOADER_ID}","adminApiConfigured":true}' > "$5"
+`);
+    await chmod(uploaderAdapter, 0o700);
+    await new FixedReleaseAdapter('uploader', join(root, 'uploader-work'), { target: UPLOADER_TARGET }).preflight({
+      candidateRoot: uploader,
+      treeDigest: 'b'.repeat(64),
+      slot: { role: 'uploader', id: UPLOADER_ID },
+    });
+
+    const manager = join(root, 'manager');
+    await capableCandidate(manager, 'manager');
+    const managerAdapter = join(manager, 'deploy/release-adapters/manager.sh');
+    await mkdir(dirname(managerAdapter), { recursive: true });
+    await writeFile(managerAdapter, `#!/bin/bash
+set -euo pipefail
+[ -z "\${RELEASE_GUARD_ADMIN_TOKEN:-}" ]
+[ -z "\${API_AUTH_TOKEN:-}" ]
+for name in POSTGRES_PASSWORD SRS_LIFECYCLE_VERSION SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do
+  [ -n "\${!name:-}" ]
+done
+printf '%s\\n' '{"schemaVersion":1}' > "$5"
+`);
+    await chmod(managerAdapter, 0o700);
+    await new FixedReleaseAdapter('manager', join(root, 'manager-work'), { target: MANAGER_TARGET }).preflight({
+      candidateRoot: manager,
+      treeDigest: 'c'.repeat(64),
+      slot: { role: 'manager', id: 'default' },
+    });
+  });
+
+  it('refuses an admin preflight that does not echo the guard-bound runtime assignment', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'admin');
+    await capableCandidate(candidate, 'admin');
+    const adapterPath = join(candidate, 'web2-admin/backend/release-adapter.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' '{"schemaVersion":1,"runtime":{"managedLifecycleVersion":1,"uploaderId":"wrong"}}' > "$5"
+`);
+    await chmod(adapterPath, 0o700);
+
+    const adapter = new FixedReleaseAdapter('admin', join(root, 'work'), {
+      target: MANAGER_TARGET,
+      runtime: { managedLifecycleVersion: 1, uploaderId: UPLOADER_ID },
+    });
+    await assert.rejects(
+      adapter.preflight({
+        candidateRoot: candidate,
+        treeDigest: 'a'.repeat(64),
+        slot: { role: 'admin', id: 'default' },
+      }),
+      /admin runtime assignment/,
+    );
+  });
+
+  it('refuses a manager preflight that changes the installed guard binding', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'manager');
+    await capableCandidate(candidate, 'manager');
+    const adapterPath = join(candidate, 'deploy/release-adapters/manager.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' '{"schemaVersion":1,"guardInstallation":{"codeRoot":"/wrong/code","stateRoot":"/wrong/state"}}' > "$5"
+`);
+    await chmod(adapterPath, 0o700);
+    const guardInstallation = {
+      codeRoot: join(root, 'installed/lib/streaming-release-guard/current'),
+      stateRoot: join(root, 'installed/state/streaming-release-guard'),
+    };
+
+    const adapter = new FixedReleaseAdapter('manager', join(root, 'work'), {
+      target: MANAGER_TARGET,
+      guardInstallation,
+    });
+    await assert.rejects(
+      adapter.preflight({
+        candidateRoot: candidate,
+        treeDigest: 'a'.repeat(64),
+        slot: { role: 'manager', id: 'default' },
+      }),
+      /installed guard binding/,
+    );
   });
 
   it('builds and activates manager images by immutable id without replacing live tags', async (t) => {
@@ -728,12 +1429,16 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const stateRoot = join(root, 'state');
     await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const guardInstallation = await testGuardInstallation(root, stateRoot);
 
     const result = await runReleaseTransition({
       store: new ReleaseGuardStore(stateRoot),
       candidateRoot: candidate,
       slot: { role: 'manager', id: 'default' },
-      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
+      adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }),
     });
 
     assert.deepEqual(result.receipt.artifact.images, [
@@ -808,9 +1513,14 @@ fi
     const oldPath = process.env.PATH;
     process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
     t.after(() => { process.env.PATH = oldPath; });
+    const guardInstallation = await testGuardInstallation(root, join(root, 'state'));
+    const workRoot = await testManagerVerifyWork(root);
 
     await assert.rejects(
-      new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }).verify({
+      new FixedReleaseAdapter('manager', workRoot, {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }).verify({
         candidateRoot: await realpath(candidate),
         treeDigest: 'a'.repeat(64),
         slot: { role: 'manager', id: 'default' },
@@ -862,6 +1572,7 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const edgeState = join(edgeRoot, 'state');
     await installReleaseGuard(edgeState, INSTALLATION_ID);
+    const edgeGuard = await testGuardInstallation(edgeRoot, edgeState);
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(edgeState),
@@ -869,6 +1580,7 @@ fi
         slot: { role: 'manager', id: 'default' },
         adapter: new FixedReleaseAdapter('manager', join(edgeRoot, 'adapter-work'), {
           target: ISOLATED_MANAGER_TARGET,
+          guardInstallation: edgeGuard,
         }),
       }),
       /release adapter transition failed/,
@@ -895,6 +1607,7 @@ fi
     };
     const occupiedState = join(occupiedRoot, 'state');
     await installReleaseGuard(occupiedState, INSTALLATION_ID);
+    const occupiedGuard = await testGuardInstallation(occupiedRoot, occupiedState);
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(occupiedState),
@@ -902,6 +1615,7 @@ fi
         slot: { role: 'manager', id: 'default' },
         adapter: new FixedReleaseAdapter('manager', join(occupiedRoot, 'adapter-work'), {
           target: occupiedTarget,
+          guardInstallation: occupiedGuard,
         }),
       }),
       /release adapter transition failed/,
@@ -949,9 +1663,14 @@ fi
     const oldPath = process.env.PATH;
     process.env.PATH = `${fakeBin}:${oldPath ?? ''}`;
     t.after(() => { process.env.PATH = oldPath; });
+    const guardInstallation = await testGuardInstallation(root, join(root, 'state'));
+    const workRoot = await testManagerVerifyWork(root);
 
     await assert.rejects(
-      new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }).verify({
+      new FixedReleaseAdapter('manager', workRoot, {
+        target: MANAGER_TARGET,
+        guardInstallation,
+      }).verify({
         candidateRoot: await realpath(candidate),
         treeDigest: 'a'.repeat(64),
         slot: { role: 'manager', id: 'default' },
@@ -1005,13 +1724,17 @@ fi
     t.after(() => { process.env.PATH = oldPath; });
     const stateRoot = join(root, 'state');
     await installReleaseGuard(stateRoot, INSTALLATION_ID);
+    const guardInstallation = await testGuardInstallation(root, stateRoot);
 
     await assert.rejects(
       runReleaseTransition({
         store: new ReleaseGuardStore(stateRoot),
         candidateRoot: candidate,
         slot: { role: 'manager', id: 'default' },
-        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), { target: MANAGER_TARGET }),
+        adapter: new FixedReleaseAdapter('manager', join(root, 'adapter-work'), {
+          target: MANAGER_TARGET,
+          guardInstallation,
+        }),
       }),
       /release adapter transition failed with exit 42/,
     );
@@ -1069,6 +1792,45 @@ esac
 });
 
 describe('installed release guard command', () => {
+  it('runs a fixed uploader preparation without receipt credentials', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    await capableCandidate(candidate);
+    const adapterPath = join(candidate, 'deploy/scripts/release-adapter.sh');
+    await mkdir(dirname(adapterPath), { recursive: true });
+    await writeFile(adapterPath, `#!/bin/bash
+set -euo pipefail
+phase="$1"
+echo "$phase" >> '${join(root, 'phases')}'
+case "$phase" in
+  preflight) printf '%s\\n' '{"schemaVersion":1,"preparationReady":true}' > "$5" ;;
+  build|verify) printf '%s\\n' '{"schemaVersion":1,"images":[{"service":"srs","imageId":"${IMAGE_ID}"}]}' > "$5" ;;
+  transition) ;;
+esac
+`);
+    await chmod(adapterPath, 0o700);
+    const stateRoot = join(root, 'state');
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+
+    assert.equal(await runReleaseGuardCli([
+      'prepare-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', candidate,
+      '--work-root', join(root, 'work'),
+      '--slot-id', UPLOADER_ID,
+      '--services', 'srs',
+    ], {}), 'uploader preparation verified');
+    assert.equal(await readFile(join(root, 'phases'), 'utf8'), 'preflight\nbuild\ntransition\nverify\n');
+    assert.equal((await new ReleaseGuardStore(stateRoot).read()).generation, 0);
+  });
+
   it('installs a typed isolated manager target through the fixed command', async (t) => {
     const root = await temporaryRoot(t);
     await runReleaseGuardCli([
@@ -1079,15 +1841,76 @@ describe('installed release guard command', () => {
       '--manager-postgres-volume-name', ISOLATED_MANAGER_TARGET.postgresVolumeName,
       '--manager-postgres-port', String(ISOLATED_MANAGER_TARGET.postgresPort),
       '--manager-web-port', String(ISOLATED_MANAGER_TARGET.webPort),
+      '--uploader-profile', UPLOADER_TARGET.profile,
+      '--uploader-port-slot', String(UPLOADER_TARGET.portSlot),
+      '--uploader-services', UPLOADER_TARGET.services.join(','),
+      '--viewer-profile', VIEWER_TARGET.profile,
+      '--viewer-port-slot', String(VIEWER_TARGET.portSlot),
+      '--viewer-services', VIEWER_TARGET.services.join(','),
+      '--fixture-network-name', FIXTURE_NETWORK.name,
+      '--fixture-id', FIXTURE_NETWORK.fixtureId,
     ], {});
 
-    assert.deepEqual(await new ReleaseGuardStore(root).deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
+    const store = new ReleaseGuardStore(root);
+    assert.deepEqual(await store.deploymentTarget('manager'), ISOLATED_MANAGER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('uploader'), UPLOADER_TARGET);
+    assert.deepEqual(await store.deploymentTarget('viewer'), VIEWER_TARGET);
+    assert.deepEqual(await store.fixtureNetwork(), FIXTURE_NETWORK);
   });
 
   it('reports only the durable release mode', async (t) => {
     const root = await temporaryRoot(t);
     await installReleaseGuard(root, INSTALLATION_ID);
     assert.equal(await runReleaseGuardCli(['status', '--state-root', root], {}), 'legacy');
+  });
+
+  it('exposes an owner-bound legacy lease through fixed commands', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID);
+
+    const result = await runReleaseGuardCli(['begin-legacy', '--state-root', root], {});
+    assert.match(result, /^legacy:[0-9a-f-]{36}$/);
+    const ownerToken = result.slice('legacy:'.length);
+    await assert.rejects(
+      runReleaseGuardCli([
+        'finish-legacy',
+        '--state-root', root,
+        '--owner-token', '22222222-2222-4222-8222-222222222222',
+      ], {}),
+      /owner token does not match/,
+    );
+    assert.equal(
+      await runReleaseGuardCli([
+        'finish-legacy',
+        '--state-root', root,
+        '--owner-token', ownerToken,
+      ], {}),
+      'legacy deployment lease released',
+    );
+  });
+
+  it('exposes an owner-bound unrelated stack lease through fixed commands', async (t) => {
+    const root = await temporaryRoot(t);
+    await installReleaseGuard(root, INSTALLATION_ID, { uploader: UPLOADER_TARGET });
+
+    await assert.rejects(
+      runReleaseGuardCli(['begin-stack-legacy', '--state-root', root, '--profile', UPLOADER_TARGET.profile], {}),
+      /protected by the installed release guard/,
+    );
+    const result = await runReleaseGuardCli([
+      'begin-stack-legacy',
+      '--state-root', root,
+      '--profile', 'unrelated-b',
+    ], {});
+    assert.match(result, /^legacy:[0-9a-f-]{36}$/);
+    assert.equal(
+      await runReleaseGuardCli([
+        'finish-stack-legacy',
+        '--state-root', root,
+        '--owner-token', result.slice('legacy:'.length),
+      ], {}),
+      'legacy stack deployment lease released',
+    );
   });
 
   it('digests one staged candidate without changing guard state', async (t) => {
@@ -1101,7 +1924,7 @@ describe('installed release guard command', () => {
     assert.equal(digest, await digestTree(resolve(candidate)));
   });
 
-  it('offers only fixed component roles and typed uploader arguments', async () => {
+  it('offers only fixed component roles and installation-bound stack arguments', async () => {
     await assert.rejects(runReleaseGuardCli(['shell', '--command', 'docker stop all']), /command is invalid/);
     await assert.rejects(
       runReleaseGuardCli([
@@ -1112,7 +1935,7 @@ describe('installed release guard command', () => {
         '--admin-url', 'http://admin',
         '--profile', 'stage',
       ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
-      /manager release does not accept deployment arguments/,
+      /argument --profile is not supported/,
     );
     await assert.rejects(
       runReleaseGuardCli([
@@ -1127,7 +1950,18 @@ describe('installed release guard command', () => {
         '--target', 'local',
         '--services', 'srs,stream-uploader',
       ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
-      /uploader slot id is invalid/,
+      /argument --profile is not supported/,
+    );
+    await assert.rejects(
+      runReleaseGuardCli([
+        'admin',
+        '--state-root', '/tmp/state',
+        '--candidate-root', '/tmp/candidate',
+        '--work-root', '/tmp/work',
+        '--admin-url', 'http://admin',
+        '--managed-lifecycle-version', '1',
+      ], { RELEASE_GUARD_ADMIN_TOKEN: 'x'.repeat(32) }),
+      /managed runtime assignment is invalid/,
     );
   });
 
@@ -1163,6 +1997,39 @@ esac
       ], env), expected);
       await assert.rejects(lstat(called), { code: 'ENOENT' });
     }
+  });
+
+  it('validates subset update receipt credentials before invoking the uploader adapter', async (t) => {
+    const root = await temporaryRoot(t);
+    const candidate = join(root, 'candidate');
+    const stateRoot = join(root, 'state');
+    const called = join(root, 'adapter-called');
+    await capableCandidate(candidate);
+    await mkdir(join(candidate, 'deploy/scripts'), { recursive: true });
+    await writeFile(join(candidate, 'deploy/scripts/release-adapter.sh'), `#!/bin/bash
+set -euo pipefail
+touch '${called}'
+`);
+    await chmod(join(candidate, 'deploy/scripts/release-adapter.sh'), 0o700);
+    await installReleaseGuard(stateRoot, INSTALLATION_ID, {
+      uploader: {
+        profile: 'managed',
+        portSlot: 1,
+        target: 'local',
+        services: ['srs', 'stream-uploader'],
+      },
+    });
+
+    await assert.rejects(runReleaseGuardCli([
+      'update-uploader',
+      '--state-root', stateRoot,
+      '--candidate-root', candidate,
+      '--work-root', join(root, 'work'),
+      '--admin-url', 'http://admin.internal:9877',
+      '--slot-id', UPLOADER_ID,
+      '--services', 'stream-uploader',
+    ], {}), /RELEASE_GUARD_ADMIN_TOKEN/);
+    await assert.rejects(lstat(called), { code: 'ENOENT' });
   });
 });
 

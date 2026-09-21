@@ -19,6 +19,35 @@ export interface ManagerReleaseTarget extends ComposeReleaseTarget {
   postgresPort: number;
 }
 
+export interface StackReleaseTarget {
+  profile: string;
+  portSlot: number;
+  target: 'local';
+  services: string[];
+}
+
+export type StackReleaseOperation =
+  | { kind: 'prepare'; mutatingServices: string[] }
+  | { kind: 'update'; mutatingServices: string[] };
+
+export interface FixtureNetworkBinding {
+  name: string;
+  fixtureId: string;
+}
+
+export interface ResolvedFixtureNetworkBinding extends FixtureNetworkBinding {
+  networkId: string;
+}
+
+export type AdminReleaseRuntime =
+  | { managedLifecycleVersion: null; uploaderId: null }
+  | { managedLifecycleVersion: 1; uploaderId: string };
+
+export interface GuardInstallationBinding {
+  codeRoot: string;
+  stateRoot: string;
+}
+
 export interface ReleaseImage {
   service: string;
   imageId: string;
@@ -56,6 +85,7 @@ export interface ReleaseGuardAttempt {
   phase: 'prepared' | 'verified';
   receipt: ReleaseGuardReceipt;
   body: string;
+  transitionDigest: string;
 }
 
 export interface PendingReleaseReceipt {

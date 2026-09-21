@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, lstat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -94,6 +94,39 @@ export function parseBaseEnv(root: string): Record<string, string> {
 
 export function engineEnvPath(root: string, engine: EngineName): string {
   return join(root, 'engines', engine, '.env');
+}
+
+/** Creates the engine env file a local guarded profile deploy consumes. */
+export async function bootstrapEngineProfileEnv(
+  root: string,
+  engine: EngineName,
+  profile: string,
+): Promise<string> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profile)) {
+    throw new Error('engine profile env name is invalid');
+  }
+  const engineRoot = join(root, 'engines', engine);
+  const engineRootStat = await lstat(engineRoot).catch(() => null);
+  if (!engineRootStat?.isDirectory() || engineRootStat.isSymbolicLink()) {
+    throw new Error(`the ${engine} engine directory is invalid`);
+  }
+  const destination = join(engineRoot, `.env.${profile}`);
+  if (!existsSync(destination)) {
+    const base = engineEnvPath(root, engine);
+    const sample = `${base}.sample`;
+    const source = existsSync(base) ? base : sample;
+    const sourceStat = await lstat(source).catch(() => null);
+    if (!sourceStat?.isFile() || sourceStat.isSymbolicLink()) {
+      throw new Error(`the ${engine} engine env source is missing`);
+    }
+    await copyFile(source, destination);
+  }
+  const destinationStat = await lstat(destination).catch(() => null);
+  if (!destinationStat?.isFile() || destinationStat.isSymbolicLink()) {
+    throw new Error(`the ${engine} engine profile env is invalid`);
+  }
+  chmodSync(destination, ENV_FILE_MODE);
+  return destination;
 }
 
 /**

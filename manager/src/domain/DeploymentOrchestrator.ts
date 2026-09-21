@@ -23,6 +23,7 @@ import { Profile, ProfileStatus } from '../types/index.js';
 import type { ManagedSrsLifecycleConfig } from '../utils/config.js';
 import {
   bootstrapStackDefaults,
+  bootstrapEngineProfileEnv,
   deleteProfileEnv,
   parseBaseEnv,
   type ProfileEnvValues,
@@ -68,8 +69,12 @@ import type { EngineConfigOperationRepository } from './engineConfig/EngineConfi
 import type { PreparedRolloutDeploy, RolloutAdmissionProof } from './engineConfig/rolloutDeployAdmission.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import {
+  InstalledReleaseGuardRunner,
+  type InstalledReleaseRoute,
+} from './InstalledReleaseGuardRunner.js';
 import { ProfileRepository } from './ProfileRepository.js';
-import { describeArgsForLog, type RunHandle, type RunOutcome, ScriptRunner } from './ScriptRunner.js';
+import { describeArgsForLog, type RunHandle, type RunOptions, type RunOutcome, ScriptRunner } from './ScriptRunner.js';
 import {
   defaultServicesFor,
   hasBeePublishers,
@@ -272,6 +277,7 @@ interface JobConfig {
   args: string[];
   env?: Record<string, string>;
   withholdOutput?: boolean;
+  spawn?: (options: RunOptions) => RunHandle;
 
   transitionTo?: ProfileStatus;
 
@@ -403,16 +409,19 @@ export class DeploymentOrchestrator {
      */
     private readonly managerRpcEndpoint?: string | null,
     private readonly managedSrsLifecycle?: ManagedSrsLifecycleConfig | null,
+    private readonly installedReleaseGuard?: InstalledReleaseGuardRunner,
   ) {}
 
   private managedSrsEnv(
     profile: Profile,
     version: DeployVersionSnapshot,
+    releaseGuardIncludesUploader = false,
   ): ProfileEnvValues['managedSrs'] {
     const configured = this.managedSrsLifecycle;
     const services = defaultServicesFor(profile);
     if (
       !configured ||
+      (this.installedReleaseGuard !== undefined && !releaseGuardIncludesUploader) ||
       profile.name !== configured.profile ||
       !version.contract?.features.srsLifecycleV1 ||
       !services.includes(SRS_SERVICE) ||
@@ -1060,8 +1069,23 @@ export class DeploymentOrchestrator {
       // engine=ome), and a non-empty STAMP skips the interactive stamp prompt.
       const engine = engineForComponents(profile.components);
       const engineConfigFile = await this.engineConfigFileFor(profile, engine, version);
-      const managedSrs = this.managedSrsEnv(profile, version);
+      const releaseRoute = await this.releaseRoute(profile, reservation.services, paths.root);
       const deployTarget = reservation.host ?? profile.host;
+      if (
+        releaseRoute &&
+        releaseRoute.kind !== 'stack-script' &&
+        !isLocalTarget(deployTarget)
+      ) {
+        throw new ProfileConfigError(
+          profile.name,
+          'The installed release guard can only deploy its local target. No remote deployment was started.',
+        );
+      }
+      const managedSrs = this.managedSrsEnv(
+        profile,
+        version,
+        releaseRoute?.kind === 'guard' && releaseRoute.includesUploader,
+      );
       if (managedSrs && !isLocalTarget(deployTarget)) {
         throw new ProfileConfigError(
           profile.name,
@@ -1112,22 +1136,34 @@ export class DeploymentOrchestrator {
       );
 
       const services = [...reservation.services];
-        return await this.runJob({
+      if (releaseRoute?.kind === 'guard' && releaseRoute.roles.includes('uploader')) {
+        await bootstrapEngineProfileEnv(paths.root, engine, profile.name);
+      }
+      return await this.runJob({
         profileName: profile.name,
         target: targetAlias(reservation.host ?? profile.host),
         reservedDaemonId: daemonId,
         deployFailure: failure,
         onLaunch,
         paths,
-        script: paths.deploy,
-        args: this.buildDeployScriptArgs(profile, services, reservation.host),
-        env: managedSrs && this.managedSrsLifecycle
+        script: releaseRoute?.kind === 'guard'
+          ? '/opt/streaming-release-guard/streaming-release-guard'
+          : paths.deploy,
+        args: releaseRoute?.kind === 'guard'
+          ? [...releaseRoute.invocations[0]!.args]
+          : this.buildDeployScriptArgs(profile, services, reservation.host),
+        env: releaseRoute?.kind === 'guard'
+          ? releaseRoute.environment
+          : managedSrs && this.managedSrsLifecycle
           ? {
             ADMIN_API_URL: this.managedSrsLifecycle.adminApiUrl,
             ADMIN_API_TOKEN: this.managedSrsLifecycle.adminApiToken,
           }
           : undefined,
-        withholdOutput: Boolean(managedSrs && this.managedSrsLifecycle),
+        withholdOutput: releaseRoute?.kind === 'guard' || Boolean(managedSrs && this.managedSrsLifecycle),
+        spawn: releaseRoute?.kind === 'guard'
+          ? (options) => this.installedReleaseGuard!.run(releaseRoute, options ?? {})
+          : undefined,
         redactedEndpoints: [secrets.rpcEndpoint],
         guard: { kind: this.attemptKindOf(version), services },
         reservedAttempt: reservation.attempt,
@@ -1179,6 +1215,30 @@ export class DeploymentOrchestrator {
       if (execution) await this.retireQuietly(execution);
       throw err;
     }
+  }
+
+  private async releaseRoute(
+    profile: Profile,
+    services: readonly string[],
+    candidateRoot: string,
+  ): Promise<InstalledReleaseRoute | null> {
+    if (!this.installedReleaseGuard) {
+      if (this.managedSrsLifecycle?.profile === profile.name) {
+        throw new ProfileConfigError(
+          profile.name,
+          'Managed SRS lifecycle requires the installed release guard. No deployment was started.',
+        );
+      }
+      return null;
+    }
+    return await this.installedReleaseGuard.route({
+      profile: profile.name,
+      portSlot: profile.port_slot,
+      uploaderId: profile.instance_id,
+      services,
+      candidateRoot,
+      lifecycle: this.managedSrsLifecycle ?? null,
+    });
   }
 
   /**
@@ -1431,14 +1491,17 @@ export class DeploymentOrchestrator {
 
     await cfg.beforeLaunch?.();
     cfg.onLaunch?.();
-    const handle = this.runner.run(cfg.script, cfg.args, {
+    const runOptions = {
       cwd: cfg.paths.root,
       env: {
         ...beeDataDirsFor(cfg.profileName, cfg.target),
         ...cfg.env,
       },
       withholdOutput: cfg.withholdOutput,
-    });
+    };
+    const handle = cfg.spawn
+      ? cfg.spawn(runOptions)
+      : this.runner.run(cfg.script, cfg.args, runOptions);
 
     let stderrTail = '';
     let stdoutTail = '';
