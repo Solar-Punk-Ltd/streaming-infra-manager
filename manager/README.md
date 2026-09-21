@@ -48,11 +48,11 @@ docker compose exec -it api node dist/cli.js user:add levi
 
 It asks for the password twice with nothing echoed, and writes only the hash.
 Without a terminal it refuses, unless `--password-stdin` is given, which reads
-the password from a pipe so a vault can supply it without the value landing in
-a file or an argument:
+the password from a pipe so another program can supply it without the value
+landing in a file or an argument:
 
 ```bash
-op read "op://<vault>/<item>/password" | \
+<command that prints the password> | \
   docker compose exec -T api node dist/cli.js user:add levi --password-stdin
 ```
 

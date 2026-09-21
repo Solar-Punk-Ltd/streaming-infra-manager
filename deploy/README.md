@@ -297,10 +297,10 @@ It asks for the password twice with nothing echoed and writes only the hash.
 Until it has been run, the manager answers 401 to everything but its health
 check, and the sign-in page says so.
 
-To feed the password from a vault instead of typing it:
+To feed the password from another program instead of typing it:
 
 ```sh
-op read "op://<vault>/<item>/password" | \
+<command that prints the password> | \
   docker compose exec -T api node dist/cli.js user:add <username> --password-stdin
 ```
 
