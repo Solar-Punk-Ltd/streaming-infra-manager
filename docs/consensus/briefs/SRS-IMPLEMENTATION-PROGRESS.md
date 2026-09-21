@@ -2,6 +2,52 @@
 
 **2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this record says about the guard is history, not current behaviour.
 
+## Where this stands, 2026-09-21 15:00 Asia/Taipei
+
+Written by the session that took the handover below. Read this section before the handover, because it voids parts of it.
+
+| Repository | Head | PR | Its own checks |
+| --- | --- | --- | --- |
+| streaming-infra-manager | `1d854834` | #43 | GitHub `browser`, `checks` and `database` all pass. The verification box's deep check stays red on one pre-existing browser skip the owner chose to leave |
+| swarm-hls-stream | `9bbd9e58` | #242 | Green throughout: both CI jobs and the box's `deep/all`, run 35569285459, which also ran the mapped browser continuation suite's 3 cases in a real Chromium |
+| streaming-monorepo | `d626093` | #8 | Box `standard/all` green: 130 database, 313 backend, 150 frontend, 8 common, plus lint and typecheck |
+
+**The release guard is gone from all three repositories**, on the owner's ruling. Managed enrollment now needs only a fresh
+uploader capability record in the admin, under 30 seconds old and covering the media type. The manager deploys managed SRS
+profiles through the stack's own `deploy/scripts/deploy.sh`. `ADMIN_API_URL` and `ADMIN_API_TOKEN` are ordinary environment
+settings. The owner also ruled that no vendor or password manager is named anywhere in code or docs, and that no legacy
+compatibility shim stays in the code.
+
+**What the handover below no longer means.** Its next step 1, the source-only credential handoff and its inert patch, is void:
+the installer it served no longer exists. Every step that installs, activates or reconciles a guard receipt is void with it.
+The rest of the handover still stands.
+
+**Two stack defects were found and fixed here**, both predating this session, proved by running the same files against the
+tree as it stood at the handover commit `b4881471`. Every earlier run had stopped in an earlier package, so nothing had ever
+reached either file. `8a73346d` points the e2e parsed-line table at `finalizeResumed(this.streamId, alreadyPublished.index)`,
+which `c6794f32` had changed under it. `9bbd9e58` makes six managed-recovery cases assert that the closure reached the store,
+rather than that the newest record still reads `closed`, because a run whose recording finalizes ends at `vod`. No product
+code changed for either.
+
+**A CodeAnt AI report on this branch was verified and produced no fix.** It scans the whole repository rather than the
+branch's changes, at commit `eec525d6`, so its line numbers are stale here. Zero security findings. Its 10 blockers, the only
+entries it types as bugs, are all in files this branch never changed: `Database.ts:101` cannot escape its own nested
+try/catch, `Database.ts:110` and `:111` are already guarded by `primaryFailed` so they never replace the original error, and
+five `while (!flag) await pause()` loops set their flag inside a callback the analyser cannot follow. Two are real and narrow:
+in `managerUpgradeGuard.ts:58` and `versionRemovalMarker.ts:100` a failed temp-file cleanup would replace the real error with
+its own. They are recorded for the owner rather than changed, because the only lever that makes such a cleanup fail is
+permission bits, which a box job ignores as root, so a fix would land with no check that catches its return.
+
+**What is left before readiness.** The stack's e2e continuation fixture still installs and activates through the removed
+guard, in `e2e/src/continuation/provisioner.ts` and the `activate-guarded-release` and `submit-release-guard-receipts` steps
+of `e2e/src/continuation/topology.ts`, and it reads guard receipts from an admin table and endpoint that no longer exist. The
+manager still pins the stack at `2c4867ae`. The real video acceptance on 157.90.34.105 has not run. The three PR bodies still
+describe the guard.
+
+**Who holds what.** A second session owns swarm-hls-stream from 2026-09-21 15:00, working from a CodeAnt review of that
+repository, and holds its claim. The manager and admin claims are held by this session. The worker claim on
+`feat/srs-continuation-manager` is released, that line having been merged at `81271ee2`.
+
 Status: active. Isolated implementation authorized. Shared plan registered after owner-relayed coordination.
 Date: 2026-09-21.
 Coordinator: OpenAI-hosted Astra. Sol implements admin and uploader. Terra implements the first viewer slice.
