@@ -455,6 +455,7 @@ Recorded by Fable from Levi's message "as recommended on all", given after a pla
 | D08 | No historical-build catalogue now. The previous build stays retained for recovery inside T04a. | Nothing was blocked. |
 | D09 | Both: a commit on main-v3 that removes the two built-service image names and gives clean.sh `--rmi local`, and a bump of the bundled submodule on main-v2. Levi makes and merges both. No automatic restart of running deployments. Until they land, the manager serialises deploys of versions that build shared tags (T05a). | T05b. |
 | D10 | After the search pass finds nothing, an operator may close an unresolved transfer by assertion behind a typed confirmation that names the amount and the duplicate-payment risk. It is recorded as an assertion, never as a verified outcome. | The override path in T09. |
+| D17 | No part of this repository is written for the one host it runs on today. A manager set up on another host works with no code change, so a host address, a VPN range, a host user, a domain or a proxy port never appears as a value, a default, a placeholder or a test fixture. Levi, 2026-09-16: "also these changes should not be tailored for this host only where we deploy...we sohuld be able to setup to other hosts. No host specific stuff please!" | Nothing was blocked. Applied the same night in `5cd5343`, after a scan of the unpushed diff for the host address, the VPN range, the host user, the domain and the proxy port. No check enforces the rule today. |
 
 
 ## How the debate works
