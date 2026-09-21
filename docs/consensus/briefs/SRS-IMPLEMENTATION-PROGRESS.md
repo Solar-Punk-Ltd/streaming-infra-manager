@@ -1,5 +1,7 @@
 # SRS continuation implementation
 
+**2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this record says about the guard is history, not current behaviour.
+
 Status: active. Isolated implementation authorized. Shared plan registered after owner-relayed coordination.
 Date: 2026-09-21.
 Coordinator: OpenAI-hosted Astra. Sol implements admin and uploader. Terra implements the first viewer slice.

@@ -1,5 +1,7 @@
 # Show SRS broadcast state and guard compatible releases
 
+**2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this record says about the guard is history, not current behaviour.
+
 Status: active. Published as draft PR https://github.com/Solar-Punk-Ltd/streaming-infra-manager/pull/43. Not ready to merge.
 Target: `Solar-Punk-Ltd/streaming-infra-manager`, `main`.
 

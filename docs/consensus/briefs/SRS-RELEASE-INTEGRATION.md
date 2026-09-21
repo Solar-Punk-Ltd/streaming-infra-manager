@@ -1,5 +1,7 @@
 # SRS continuation release integration
 
+**2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this record says about the guard is history, not current behaviour.
+
 Status: active implementation brief under the registered SRS continuation plan.
 Date: 2026-09-20.
 Owner: OpenAI-hosted Astra.

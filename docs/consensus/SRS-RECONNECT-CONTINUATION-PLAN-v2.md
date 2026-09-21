@@ -1,5 +1,7 @@
 # SRS reconnect and explicit continuation
 
+**2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this record says about the guard is history, not current behaviour.
+
 Status: proposed. Corrected after Fable's second review. D03 and D04 await Levi. Implementation has not started.
 Date: 2026-09-20.
 Author: OpenAI-hosted Codex, GPT-6 Astra. Cross-provider review, OpenAI-hosted.

@@ -1,5 +1,7 @@
 # SRS continuation validation inventory
 
+**2026-09-21, release guard removed.** The owner ruled the release guard out on 2026-09-21, and branch `feat/srs-reconnect-continuation` removes it from the manager. What this page says about the guard no longer describes the code, and the plain provisioning path that replaces it in the stack's fixture is not designed yet.
+
 Status: active evidence record for R09 of the registered SRS continuation plan.
 Date: 2026-09-21.
 Reviewer: OpenAI-hosted Astra.
