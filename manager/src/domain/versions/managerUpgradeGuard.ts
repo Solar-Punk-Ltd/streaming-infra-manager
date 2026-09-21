@@ -47,15 +47,22 @@ function atomicRecord(path: string, record: unknown): void {
   const temporary = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   const owned = fstatSync(fd, { bigint: true });
+  // A failure to remove the leftover must not replace the failure to write the record. The caller
+  // acts on whether ownership was stored, and a cleanup error answers a different question, so it
+  // is only raised when the record itself succeeded. Database.ts guards its unlock the same way.
+  let recordFailed = false;
   try {
     try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, path);
     syncDirectory(dirname(path));
+  } catch (error) {
+    recordFailed = true;
+    throw error;
   } finally {
     try {
       const current = lstatSync(temporary, { bigint: true });
       if (current.dev === owned.dev && current.ino === owned.ino && current.isFile()) unlinkSync(temporary);
-    } catch (error) { if (!missing(error)) throw error; }
+    } catch (error) { if (!recordFailed && !missing(error)) throw error; }
   }
 }
 

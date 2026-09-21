@@ -81,6 +81,10 @@ export async function persistVersionRemoval(version: { id: number; name: string;
   const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   let owned;
   let renamed = false;
+  // A failure to discard the leftover must not replace the failure to persist the marker. The
+  // caller acts on whether the removal was recorded, and a cleanup error answers a different
+  // question, so it is only raised when the marker itself succeeded.
+  let markerFailed = false;
   try {
     owned = await handle.stat({ bigint: true });
     await handle.writeFile(JSON.stringify(marker));
@@ -91,13 +95,16 @@ export async function persistVersionRemoval(version: { id: number; name: string;
     renamed = true;
     const directory = await open(dirname(anchor), constants.O_RDONLY | constants.O_NOFOLLOW);
     try { await directory.sync(); } finally { await directory.close(); }
+  } catch (error) {
+    markerFailed = true;
+    throw error;
   } finally {
-    await handle.close();
+    try { await handle.close(); } catch (error) { if (!markerFailed) throw error; }
     if (!renamed) {
       try {
         const current = await lstat(temporary, { bigint: true });
         if (owned && current.isFile() && current.dev === owned.dev && current.ino === owned.ino) await unlink(temporary);
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      } catch (error) { if (!markerFailed && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
   }
 }
