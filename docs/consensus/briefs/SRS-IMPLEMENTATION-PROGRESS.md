@@ -36,6 +36,35 @@ Current checkpoint: the admin lifecycle and owner controls are implemented. Its 
 
 Checkpoint 2026-09-21 05:11 Asia/Taipei: source review accepted manager role-scoped adapter environment routing at `5428b521`, stack master retry identity at `104370b`, and admin database password encoding at `e21d0998`. Their focused regressions passed. Manager startup integration now explicitly covers viewer-only targets, fresh per-profile engine files, and the existing no-stamp funding sequence. The latter must preserve the exact reserved service set. It cannot borrow the unrelated-profile legacy lease. The fixed preparation and partial-update design is recorded in the release brief and assigned to the manager worker. The assembled fixture, final verification-box checks and cumulative media decoding remain unexecuted.
 
+## Handover for the next session, 2026-09-21
+
+Status: active. Quota checkpoint requested by Levi. Companion PRs are drafts and must not be merged or deployed yet.
+
+Read this checkpoint, `docs/testing/srs-continuation/validation-inventory.md`, `docs/testing/srs-continuation/media-harness.md` and the release integration brief before continuing. The active plan remains registered at `/Users/kisslevente/Documents/git/estate/plans/2026-09-20-srs-reconnect-continuation.md`. Levi approved feature branches, implementation, pushes and companion PRs. Main/master merges and live deployment remain unapproved.
+
+| Candidate | Worktree | Exact source checkpoint |
+| --- | --- | --- |
+| Stack integration | `/private/tmp/srs-continuation-20260920-stack` | `b488147165652cfe08b3101c6109961e9b513e4e` |
+| Admin integration | `/private/tmp/srs-continuation-20260920-admin` | `cfe583d220945fd199ea77cc6571983a8e43e44e` |
+| Manager integration | `/private/tmp/srs-continuation-20260920-manager` | Product/docs checkpoint `3188206055e6f9d3d881b29857a0912462ca3a69`, followed by this handover |
+| Manager worker, not yet integrated | `/private/tmp/srs-continuation-20260920-manager-ui` | `2c6c8ff1f8c67cb8864ddbe17dfd862ca012acc9`, branch `feat/srs-continuation-manager` |
+
+The other three candidates use `feat/srs-reconnect-continuation`. Keep all unmerged worktrees and their fixtures. The root manager's untracked `docs/consensus/SRS-RECONNECT-CONTINUATION-PLAN.md` predates this checkpoint and was deliberately left untouched. Reviewed proposal v2 is tracked. No cleanup should remove the funded live deployments or the host's disposable database while its continuation purpose remains active. The local port 28104 had no listening process at this checkpoint.
+
+Next steps, in order:
+
+1. Resolve the source-only manager credential-handoff approval. Automatic approval review refused this change as credential transmission. The owner has authorized PR preparation, but has not separately answered that specific pending request. The inert patch is `/private/tmp/srs-continuation-20260920-manager-ui/.scratch/rejected-manager-stdin-route.patch`, SHA-256 `0789eff2397b6718d620b66b5a265df0fc8fa5c0b541b0366b9cbcec991bb763`. Do not apply it without that answer. It implements the missing `ReleaseGuardManagerStdin.js` boundary used by the worker installer. It routes seven bounded input fields with separate host and container API origins/tokens. Seven focused parser/script checks passed in a removed synthetic checkout, but the patch is unapplied in the real worker.
+2. Once approved, finish that worker boundary and integrate its reviewed positive commits into the root manager branch. Compare actual branch ancestry before cherry-picking. Do not merge the isolated negative browser fault branch or rely on abbreviated hashes supplied in messages. Use `git rev-parse`.
+3. Push the exact positive feature candidates and run the full verification-box suites. Latest full checks are not green evidence for these current heads. Use the existing estate `verify.sh` mapping. The owner-approved verify-jobs mapping is already published at `66e0ea0`. No new workflows or runner settings are needed. Root stack focused callback/recovery checks pass 15 cases and its bounded strict compiler check passes, but full build/lint/types/tests are pending.
+4. Read the access map and vault-access skill before SSH. Levi was present to approve prompts at handover. Recheck access by effect. GitHub pushes succeeded in this checkpoint. No new SSH host test was attempted here. If signing expires again, ask once and wait rather than looping.
+5. Execute the isolated private-chain fixture and the V01 to V22 inventory on owner-approved `157.90.34.105`, preserving actual resource identities and complete before/after metrics. The fixture CLI is implemented, but has not run against real Docker or media. Never treat its `completed` result as acceptance. Reconnect currently emits `policyRefusalProven: false` until the actual sanitized SRS callback refusal witness is captured. The media harness document specifies the native witness. Do not print raw SRS logs because they can contain credentials.
+6. Complete cumulative A, A+B and A+B+C audio/video decoding, old replay preservation, seam seeking, all qualities, outages and process recovery. The mounted Chrome fixture substitutes the player and does not prove decoding. The separately coordinated OBS/real-Swarm case remains outstanding. Do not repurpose existing funded deployments as disposable fixtures.
+7. After exact candidate checks, update the manager's stack pin, rerun the relevant manager integration checks, update all PR evidence and links, and hand the drafts to Levi. Do not mark them ready while these gates remain unfinished.
+
+Isolated late-rung probe prepared earlier, still unexecuted after signing expired: `python3 /home/solarpunk/srs-continuation-tests-20260920/probe-4-late-rung/probe.py --late-rung` on the approved test host. It is separate from the assembled media fixture. Host facts read earlier were Docker Engine 29.1.3 and Compose v5.0.0. No actual fixture activation or image provenance completion is claimed.
+
+The next session should retain Astra for review and coordination, with lower-model workers for bounded implementation. Explicit git writes must use `git -C /absolute/worktree` so the branch guard sees the actual feature branch. The root claim session is `01a07410-c1b8-7442-916e-cac02eda3fc2`. Coordinate claim transfer with the normal claim tool, never force-release another session.
+
 ## Progress
 
 Checkpoint 2026-09-21 07:11 Asia/Taipei: the reviewed fixture executor components through `f26531313667c79bc2ff7048741b842471cc7d3b` are integrated into the stack feature branch. The private-chain executor at `e03d2a8980cbfe208b2e57bf8bc050a3588652ef` has the same patch identity as the executor branch's `19b97d4dae4f7a90d989467fa567197071d19a67`. Root integrated that patch at `63957cfe` and ran its focused regression through the laptop lane. All 8 cases passed with no failures or skips. This checks command construction, refusal paths and journal behavior with controlled dependencies. No private chain or Bee container ran.
