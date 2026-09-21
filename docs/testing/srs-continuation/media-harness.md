@@ -91,3 +91,11 @@ This seam is under source implementation. No guarded fixture activation has exec
 ## Current evidence boundary
 
 Focused uploader, database and browser checks exist. The early real SRS probes ran. The full assembled private-chain media arrangement, cumulative decoding, process-crash media run and V20 have not run. Branch publication and the new late-rung host probe are currently waiting for renewed 1Password signing approval.
+
+### Closed-stream refusal witness
+
+Read-only review on 2026-09-21 found a native witness in the previously executed SRS 6.0.191 RTMP and SRT probes. The pinned binary's error trace reports `3008(HttpResponseData)`, the publish callback identity, HTTP status 200 and numeric response 1. Its SRS connection context matches the callback's `client_id`. The trace names `srs_app_rtmp_conn.cpp:1500`, `srs_app_srt_conn.cpp:705`, and `srs_app_http_hooks.cpp:148` and `:630`. This establishes an available observation surface. It is not evidence that the new continuation candidate has refused a closed stream.
+
+The runtime collector must parse a bounded log window for the exact journaled SRS container inside the consuming process. Raw logs must not enter a transcript or retained evidence because hook URLs and request parameters can contain credentials. Emit only the observation time, protocol, server/service/client identifiers, exact topic and stream URL, SRS error code and name, HTTP status and numeric hook response. Require one matching `on_publish` record for the expected topic and matching connection context. Missing, ambiguous or truncated evidence remains inconclusive.
+
+Combine that witness with a failed bounded publisher, the same previously accepted credential routed privately, owner reads before and after showing the same closed run, and exclusive control of the fixture. Stack `d69511f7`, `packages/stream-uploader/src/engines/srs.ts`, returns numeric 1 for closed permission and for several other refusals. Native SRS logs therefore prove callback refusal, not the uploader's precise reason. Do not equate an encoder failure or numeric response alone with proof of the closed-permission branch. The current CLI retains `policyRefusalProven: false` and names the missing runtime witness explicitly.
