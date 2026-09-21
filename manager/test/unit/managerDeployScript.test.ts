@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -83,6 +83,25 @@ async function waitForPath(path: string): Promise<void> {
   }
 }
 
+/** What `release-mode.sh` runs on a host that offers it nothing else. */
+const LEASE_COMMANDS = ['chmod', 'dirname', 'ln', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname'];
+/** The script's own first choice for an owner token, which Linux has. */
+const KERNEL_UUID_SOURCE = '/proc/sys/kernel/random/uuid';
+
+/**
+ * The script falls back to `uuidgen` only where the kernel offers no UUID of
+ * its own, which is macOS, so a host without one must not be handed the
+ * command it would never reach for.
+ */
+function leaseCommands(): string[] {
+  try {
+    accessSync(KERNEL_UUID_SOURCE, constants.R_OK);
+    return LEASE_COMMANDS;
+  } catch {
+    return [...LEASE_COMMANDS, 'uuidgen'];
+  }
+}
+
 function installFakeGuard(home: string, status: string, exitCode = 0, withState = true): void {
   const bin = join(home, '.local', 'bin');
   const state = join(home, '.local', 'state', 'streaming-release-guard');
@@ -126,7 +145,7 @@ describe('deploy/deploy.sh', () => {
     const home = join(root, 'home');
     mkdirSync(bin);
     mkdirSync(home);
-    for (const command of ['chmod', 'dirname', 'ln', 'mkdir', 'mv', 'rm', 'rmdir', 'sync', 'tr', 'uname', 'uuidgen']) {
+    for (const command of leaseCommands()) {
       symlinkSync(execFileSync('which', [command], { encoding: 'utf8' }).trim(), join(bin, command));
     }
     const env = { ...process.env, HOME: home, PATH: bin };
