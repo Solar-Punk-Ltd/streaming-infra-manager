@@ -22,6 +22,16 @@ if ! grep -Eq '^POSTGRES_PASSWORD=.+$' "$ENV_FILE"; then
     echo "ERROR: POSTGRES_PASSWORD is missing or empty in $ENV_FILE." >&2
     exit 1
 fi
+for name in POSTGRES_PASSWORD RELEASE_GUARD_ADMIN_URL RELEASE_GUARD_ADMIN_TOKEN SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do
+    if [ -z "${!name:-}" ]; then
+        echo "ERROR: ${name} is missing from the source process." >&2
+        exit 1
+    fi
+done
+if [ "${SRS_LIFECYCLE_VERSION:-}" != 1 ]; then
+    echo "ERROR: SRS_LIFECYCLE_VERSION must be 1 in the source process." >&2
+    exit 1
+fi
 
 MANAGER_DOMAIN="$(
     sed -n 's/^MANAGER_DOMAIN=//p' "$ENV_FILE" |
@@ -39,7 +49,12 @@ fi
 
 MANAGER_COMMIT="$(git rev-parse HEAD)"
 STACK_COMMIT="$(git rev-parse HEAD:manager/swarm-hls-stream)"
-RELEASES_ROOT="/home/solarpunk/streaming-infra-manager-releases/manager"
+REMOTE_HOME="$(ssh "$SSH_TARGET" 'printf %s "$HOME"')"
+if ! [[ "$REMOTE_HOME" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+    echo "ERROR: the remote account's home is not a plain absolute path." >&2
+    exit 1
+fi
+RELEASES_ROOT="${REMOTE_HOME}/streaming-infra-manager-releases/manager"
 INCOMING_ROOT="${RELEASES_ROOT}/.incoming-${MANAGER_COMMIT}-$$"
 
 echo "==> Preparing isolated manager candidate"
@@ -66,7 +81,7 @@ rsync -avz --delete \
     ./ "${SSH_TARGET}:${INCOMING_ROOT}/"
 
 echo "==> Guarding manager transition"
-ssh "$SSH_TARGET" bash -s -- \
+CANDIDATE_DIGEST="$(ssh "$SSH_TARGET" bash -s -- \
     "$INCOMING_ROOT" "$RELEASES_ROOT" "$MANAGER_COMMIT" "$STACK_COMMIT" <<'REMOTE'
 set -euo pipefail
 INCOMING_ROOT="$1"
@@ -74,15 +89,11 @@ RELEASES_ROOT="$2"
 MANAGER_COMMIT="$3"
 STACK_COMMIT="$4"
 GUARD_BIN="${HOME}/.local/bin/streaming-release-guard"
-GUARD_STATE_ROOT="${HOME}/.local/state/streaming-release-guard"
 
 if [ ! -x "$GUARD_BIN" ]; then
     echo "ERROR: the external release guard is not installed" >&2
     exit 1
 fi
-: "${RELEASE_GUARD_ADMIN_URL:?the guard admin URL is not routed into this process}"
-: "${RELEASE_GUARD_ADMIN_TOKEN:?the guard admin token is not routed into this process}"
-
 printf '%s\n' "$MANAGER_COMMIT" > "${INCOMING_ROOT}/.release-commit"
 printf '%s\n' "$STACK_COMMIT" > "${INCOMING_ROOT}/manager/.stack-commit"
 CANDIDATE_DIGEST="$("$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT")"
@@ -113,14 +124,23 @@ publish_candidate() {
 }
 
 publish_candidate
-
-WORK_ROOT="${GUARD_STATE_ROOT}/work/manager-${CANDIDATE_DIGEST}"
-mkdir -p -m 700 "$WORK_ROOT"
-"$GUARD_BIN" manager \
-    --state-root "$GUARD_STATE_ROOT" \
-    --candidate-root "$CANDIDATE_ROOT" \
-    --work-root "$WORK_ROOT"
+printf '%s\n' "$CANDIDATE_DIGEST"
 REMOTE
+)"
+if ! [[ "$CANDIDATE_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "ERROR: the remote candidate digest is invalid" >&2
+    exit 1
+fi
+
+printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+    "$RELEASE_GUARD_ADMIN_TOKEN" \
+    "$RELEASE_GUARD_ADMIN_URL" \
+    "$CANDIDATE_DIGEST" \
+    "$POSTGRES_PASSWORD" \
+    "$SRS_MANAGED_UPLOADER_PROFILE" \
+    "$ADMIN_API_URL" \
+    "$ADMIN_API_TOKEN" |
+    ssh "$SSH_TARGET" '"$HOME"/.local/bin/streaming-release-guard manager-stdin'
 
 echo "==> Done. Manager release ${MANAGER_COMMIT} was verified by the installed guard."
 if [ -n "$MANAGER_DOMAIN" ]; then

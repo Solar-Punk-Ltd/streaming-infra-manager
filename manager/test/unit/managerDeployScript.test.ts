@@ -275,8 +275,10 @@ printf '%s\n' deploy-standalone.sh > '${fixture.calls}'
   it('stages a new sibling candidate and never rsyncs over the live manager tree', () => {
     const [repo] = rsyncs();
     assert.ok(repo);
-    assert.match(script, /RELEASES_ROOT="\/home\/solarpunk\/streaming-infra-manager-releases\/manager"/);
+    assert.match(script, /REMOTE_HOME="\$\(ssh "\$SSH_TARGET" 'printf %s "\$HOME"'\)"/);
+    assert.match(script, /RELEASES_ROOT="\$\{REMOTE_HOME\}\/streaming-infra-manager-releases\/manager"/);
     assert.match(script, /INCOMING_ROOT="\$\{RELEASES_ROOT\}\/\.incoming-/);
+    assert.doesNotMatch(script, /\/home\/[a-z]/);
     assert.match(repo, /"\$\{SSH_TARGET\}:\$\{INCOMING_ROOT\}\/"/);
     assert.doesNotMatch(repo, /"\$\{SSH_TARGET\}:\$\{REMOTE_PATH\}\/"/);
     assert.match(repo, /--delete/);
@@ -285,13 +287,15 @@ printf '%s\n' deploy-standalone.sh > '${fixture.calls}'
   it('binds the staged candidate digest before the installed guard may transition it', () => {
     const digest = script.indexOf('"$GUARD_BIN" digest --candidate-root "$INCOMING_ROOT"');
     const rename = script.indexOf('mv --no-target-directory "$INCOMING_ROOT" "$CANDIDATE_ROOT"');
-    const transition = script.indexOf('"$GUARD_BIN" manager');
+    const transition = script.indexOf('manager-stdin');
 
     assert.notEqual(digest, -1);
     assert.ok(rename > digest);
     assert.ok(transition > rename);
-    assert.match(script.slice(transition), /--candidate-root "\$CANDIDATE_ROOT"/);
-    assert.match(script.slice(transition), /--state-root "\$GUARD_STATE_ROOT"/);
+    assert.match(
+      script.slice(transition - 100),
+      /ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'/,
+    );
   });
 
   it('publishes only one of two candidates that observed the digest path absent', async (t) => {
@@ -350,8 +354,24 @@ publish_candidate
   });
 
   it('routes the receipt credential only through the installed guard process environment', () => {
-    assert.match(script, /: "\$\{RELEASE_GUARD_ADMIN_TOKEN:\?/);
+    assert.match(script, /for name in POSTGRES_PASSWORD RELEASE_GUARD_ADMIN_URL RELEASE_GUARD_ADMIN_TOKEN SRS_MANAGED_UPLOADER_PROFILE ADMIN_API_URL ADMIN_API_TOKEN; do/);
+    assert.match(script, /printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0'/);
     assert.doesNotMatch(script, /--token|Bearer|RELEASE_GUARD_ADMIN_TOKEN=/);
+  });
+
+  it('routes every manager process input without putting a value in remote argv', () => {
+    for (const name of [
+      'POSTGRES_PASSWORD',
+      'SRS_LIFECYCLE_VERSION',
+      'SRS_MANAGED_UPLOADER_PROFILE',
+      'ADMIN_API_URL',
+      'ADMIN_API_TOKEN',
+    ]) {
+      assert.match(script, new RegExp(name));
+    }
+    assert.doesNotMatch(script, /ADMIN_API_URL must match RELEASE_GUARD_ADMIN_URL/);
+    assert.doesNotMatch(script, /ADMIN_API_TOKEN must match RELEASE_GUARD_ADMIN_TOKEN/);
+    assert.doesNotMatch(script, /ssh "\$SSH_TARGET"[^\n]*(?:POSTGRES_PASSWORD|ADMIN_API_TOKEN|RELEASE_GUARD_ADMIN_TOKEN)/);
   });
 
   it('leaves the bundled tree the engines mount out of the rsync that deletes into the repo', () => {
@@ -526,7 +546,7 @@ publish_candidate
 
   it('leaves the installed guard output attached to the deploy output', () => {
     assert.doesNotMatch(script, /RECEIPT=/);
-    assert.match(script, /^"\$GUARD_BIN" manager \\/m);
+    assert.match(script, /^\s+ssh "\$SSH_TARGET" '"\$HOME"\/\.local\/bin\/streaming-release-guard manager-stdin'$/m);
   });
 
   it('lets a guard refusal fail the remote shell and the deploy', () => {
