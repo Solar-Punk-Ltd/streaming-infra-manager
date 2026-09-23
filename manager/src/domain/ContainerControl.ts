@@ -499,18 +499,22 @@ export class ContainerControl {
     window: LogWindow,
   ): Promise<string[]> {
     const container = await this.find(profile, service);
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    const nowSeconds = Date.now() / 1000;
     // Followed for the reason `logs` gives. `until` then ends the stream once
     // the window has been sent rather than holding it open for lines that
     // have not been written yet, and the bounds end it if a daemon does not.
+    // Both carry milliseconds, which Docker reads as the fraction of a second:
+    // a whole second puts `until` behind the present, and the daemon applies
+    // the tail before it, so a log writing faster than the tail can hold
+    // answered with no line at all.
     const stream = await this.withinLimit(
       container.logs({
         stdout: true,
         stderr: true,
         follow: true,
         timestamps: false,
-        since: nowSeconds - window.sinceSeconds,
-        until: nowSeconds,
+        since: (nowSeconds - window.sinceSeconds).toFixed(3),
+        until: nowSeconds.toFixed(3),
         tail: window.tailLines,
       }),
     );

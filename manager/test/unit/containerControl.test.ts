@@ -578,14 +578,19 @@ describe('ContainerControl.logLinesContaining', () => {
   it('asks the daemon for the window alone, followed and ending at the present', async () => {
     const { control, docker } = controlOver(srsLogging(frame(`${REPORT}\n`)));
 
-    const before = Math.floor(Date.now() / 1000);
+    const before = Date.now() / 1000;
     await control.logLinesContaining('stream1', 'srs', MARKER, WINDOW);
-    const after = Math.floor(Date.now() / 1000);
+    const after = Date.now() / 1000;
 
-    const { since, until, ...asked } = docker.logOptions[0] as { since: number; until: number };
+    const { since, until, ...asked } = docker.logOptions[0] as { since: string; until: string };
     assert.deepEqual(asked, { stdout: true, stderr: true, follow: true, timestamps: false, tail: 20_000 });
-    assert.equal(until - since, 60);
-    assert.ok(until >= before && until <= after, `until ${until} is not the present`);
+    // Milliseconds, as the fraction Docker reads. Whole seconds put `until` up
+    // to a second in the past, which on the local daemon on 2026-09-23 cut the
+    // last three of ten tailed lines, and every line of a log that floods.
+    assert.match(until, /^\d+\.\d{3}$/);
+    assert.match(since, /^\d+\.\d{3}$/);
+    assert.ok(Math.abs(Number(until) - Number(since) - 60) < 0.002, `${since} to ${until} is not a minute`);
+    assert.ok(Number(until) >= before - 0.001 && Number(until) <= after + 0.001, `until ${until} is not the present`);
   });
 
   it('keeps only the lines with the marker in them, from both streams', async () => {
