@@ -25,6 +25,7 @@ export * from './redactEndpoints.js';
 export * from './rpcEndpointSource.js';
 export * from './runningCommit.js';
 export * from './settingValues.js';
+export * from './srtIngestHealth.js';
 export * from './srtPassphrase.js';
 export * from './stackSettings.js';
 export * from './stackVersions.js';
