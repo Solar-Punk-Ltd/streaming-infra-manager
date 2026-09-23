@@ -65,6 +65,26 @@ describe('the bundled swarm-hls-stream contract', () => {
     assert.equal(contract.features.sharedImageTags, false);
     assert.equal(contract.engineDefaults.HLS_FRAGMENT, '0.5');
     assert.equal(contract.engineDefaults.HLS_SEGMENT_DURATION, '2');
+    assert.equal(
+      contract.engineDefaults.SRT_LATENCY,
+      '2000',
+      'the bundled stack waits 2000 ms for a lost SRT packet unless a deployment sets SRT_LATENCY',
+    );
+  });
+
+  it('makes ingest wait the configured SRT latency, because the SRS template fills recvlatency as well as latency', () => {
+    const template = engineTemplateIn(STACK, SRS_SERVICE).text;
+
+    assert.match(
+      template,
+      /^\s*latency\s+SRT_LATENCY_PLACEHOLDER\s*;/m,
+      'the SRS template must fill latency from SRT_LATENCY',
+    );
+    assert.match(
+      template,
+      /^\s*recvlatency\s+SRT_LATENCY_PLACEHOLDER\s*;/m,
+      'SRS defaults recvlatency to 120 ms and applies it after latency, so a template that fills latency alone waits 120 ms on ingest',
+    );
   });
 
   it('writes the bundled deployment secrets while leaving optional admin mode off', () => {
