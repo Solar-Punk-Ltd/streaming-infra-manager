@@ -9,13 +9,18 @@ went missing, how many came on a second try and how many were given up on, and
 what to change when the link is losing picture.
 
 Status, 2026-09-23. Built on `feat/srt-ingest-health`, branched from `main` at
-`87673c99`, and written at `f1c8923a` on that branch, with the stack pinned at
-`v3.1` (`2c4867ae`). Not merged, not deployed, and never run against a live SRS:
-the parser is tested on the lines of 2026-09-22 and the reads against a stand-in
-Docker, so the first look at a live host is the check that the line format and
-the window hold there. The SRT latency setting the remedy points at is added by
-a parallel branch and is not on this one. The card handles both orders of
-merging, see the remedy below.
+`87673c99`, and written at `2cf0b1eb` on that branch, with the stack pinned at
+`v3.1` (`2c4867ae`). Not merged, not deployed, and never run against a live SRS.
+The parser is tested on the lines of 2026-09-22 and the reads against a
+stand-in Docker. The whole read was also run against this laptop's Docker 29.8
+daemon, through a throwaway container printing those two lines in colour codes
+beside the webhook line with a token, the publisher's address and forty drop
+warnings a second: sixteen reports summed, a bad verdict, 252 ms, and no token,
+address or connection id in the answer. That run found the window ending up to
+a second in the past, which `2cfcfc79` fixed. The first look at a live host is
+still the check that SRS 6 writes the line in this shape there. The SRT latency
+setting the remedy points at is added by a parallel branch and is not on this
+one. The card handles both orders of merging, see the remedy below.
 
 ## Why it exists
 
@@ -59,10 +64,13 @@ the only source there is.
   writes a line per dropped packet into the same log, `RCV-DROPPED 1 packet(s).
   Packet seqno %861816580 delayed for 4.5 ms`, about forty a second on
   2026-09-22, so a read that asked for the whole log would grow by megabytes a
-  minute. The daemon applies the window before it sends anything. The local read
-  also stops at 16 MiB, half a second after the last byte, or five seconds in,
-  whichever comes first, and a reply that never starts is ended by the five
-  seconds alone.
+  minute. The daemon applies the window before it sends anything, and both of
+  its ends carry milliseconds, since a whole second put `until` behind the
+  present and cut the newest lines. The local read also stops at 16 MiB, half a
+  second after the last byte, or five seconds in, whichever comes first. Against
+  the local daemon a window with lines in it answered in 30 to 260 ms, and one
+  with no line at all took the five seconds, 5,048 ms, since nothing arrives to
+  end it.
 - **The channel.** A deployment on the manager's own host is read through the
   Docker socket the Logs button reads through,
   `ContainerControl.logLinesContaining`. One on another host is read over the
@@ -171,8 +179,8 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
   and the report text quoted inside another line, anchored so each case fails
   when its guard is removed.
 - `manager/test/unit/containerControl.test.ts`: the local read asks for the
-  window alone, keeps only marked lines from both streams, drops a cut last
-  line, and stops at its byte bound.
+  window alone, with both ends in milliseconds, keeps only marked lines from
+  both streams, drops a cut last line, and stops at its byte bound.
 - `manager/test/unit/remoteLogLines.test.ts`: the remote command, refused for a
   name or marker that could leave its quotes, and run by a real POSIX shell
   against a stand-in `docker` for no container, two containers, an empty window,
