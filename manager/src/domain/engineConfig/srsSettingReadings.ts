@@ -129,6 +129,15 @@ function ingestLatencyIn(scope: Entry, placeholder: string | undefined, source: 
 }
 
 /**
+ * Whether a line of the file carries the placeholder more than once. The
+ * entrypoint's substitution has no g flag, so it fills the first on each line
+ * and hands SRS the rest as the token itself.
+ */
+function repeatsOnALine(source: string, placeholder: string): boolean {
+  return source.split('\n').some(line => line.indexOf(placeholder) !== line.lastIndexOf(placeholder));
+}
+
+/**
  * The SRT latency, anchored wherever the version's template puts the
  * placeholder: `latency` alone on v3.1, both directives since the stack's
  * a1b43f0a. Both sit in `srt_server`.
@@ -136,6 +145,7 @@ function ingestLatencyIn(scope: Entry, placeholder: string | undefined, source: 
 function srtLatencyReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], source: string): EngineSettingReading[] {
   const found = scopesFilledIn(field, [BOTH_WAYS_LATENCY_DIRECTIVE, INGEST_LATENCY_DIRECTIVE], template, file);
   if ('reading' in found) return [found.reading];
+  if (field.placeholder && repeatsOnALine(source, field.placeholder)) return [unknown('unsupported-syntax')];
   return found.scopes.map(scope => ingestLatencyIn(scope, field.placeholder, source));
 }
 

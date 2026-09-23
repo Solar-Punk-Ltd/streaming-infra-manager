@@ -266,10 +266,17 @@ describe('the SRT latency in a config file of the deployment own', () => {
     assert.equal(result.observations.SRT_LATENCY.source, 'deployment');
   });
 
-  it('does not count a recvlatency placeholder that follows another on its line, which the entrypoint leaves unfilled', () => {
-    const result = observeLatency(`${srtServer('latency SRT_LATENCY_PLACEHOLDER; recvlatency SRT_LATENCY_PLACEHOLDER;')}${config()}`);
+  it('refuses a line that carries the placeholder twice, in either order, because the entrypoint fills only the first', () => {
+    for (const line of [
+      'latency SRT_LATENCY_PLACEHOLDER; recvlatency SRT_LATENCY_PLACEHOLDER;',
+      'recvlatency SRT_LATENCY_PLACEHOLDER; latency SRT_LATENCY_PLACEHOLDER;',
+    ]) {
+      const result = observeLatency(`${srtServer(line)}${config()}`);
 
-    assert.equal(reason(result, 'SRT_LATENCY'), 'unsupported-syntax');
+      assert.deepEqual(result.observations.SRT_LATENCY, {
+        status: 'unknown', source: 'unverified', value: null, reason: 'unsupported-syntax', environment: 'unknown',
+      }, line);
+    }
   });
 
   it('refuses to choose between two recvlatency directives', () => {
