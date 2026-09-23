@@ -143,7 +143,7 @@ function srsConf(settings) {
     'srt_server {',
     '    enabled         on;',
     '    listen          10080;',
-    '    latency         200;',
+    `    latency         ${settings.SRT_LATENCY};`,
     '}',
     '',
     'vhost __defaultVhost__ {',

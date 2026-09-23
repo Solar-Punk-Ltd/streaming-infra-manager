@@ -127,6 +127,27 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     placeholder: 'HLS_WINDOW_PLACEHOLDER',
   },
   {
+    key: 'SRT_LATENCY',
+    label: 'SRT latency',
+    unit: 'milliseconds',
+    kind: 'integer',
+    // The owner's decision of 2026-09-23. At the stack's 200 an outside
+    // broadcaster lost 5 to 8.5% of its packets on 2026-09-22, and SRS dropped
+    // nearly every resend as too late.
+    defaultValue: '2000',
+    // The entrypoint refuses only a value that is not a number, so these bounds
+    // are the manager's. Under 20 leaves no time for a resend even across a
+    // local network. 10000 is about what SRS's default receive buffer of 8192
+    // packets holds of an 8 Mbps broadcast in 1316 byte packets, 10.8 seconds
+    // by arithmetic, and a longer wait overflows that buffer rather than
+    // recovering a packet.
+    min: 20,
+    max: 10_000,
+    help: 'How long SRS waits for a lost packet to be resent before giving up on it. A higher value tolerates a worse broadcaster connection and adds the same amount of delay to the stream. 2000 suits broadcasters sending over the open internet.',
+    abrOnly: false,
+    placeholder: 'SRT_LATENCY_PLACEHOLDER',
+  },
+  {
     key: 'ABR_FPS',
     label: 'Frame rate',
     unit: 'frames per second',

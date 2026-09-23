@@ -34,7 +34,9 @@ describe('updateEngineSettings: which containers come back', () => {
    * live on 2026-09-15 on a recording whose timeline ran at half speed.
    *
    * Measured against the compose file rather than assumed: of the twelve engine
-   * settings fields, HLS_FRAGMENT is the only one both containers read.
+   * settings fields, HLS_FRAGMENT is the only one both containers read. It still
+   * is of the thirteen since SRT_LATENCY joined them on 2026-09-23, which the
+   * pinned compose file puts in the engine's block alone.
    */
   it('recreates the uploader too when the segment length changes, because both read it', async () => {
     const { service, deploys } = harnessFor(profileRow());
@@ -44,6 +46,14 @@ describe('updateEngineSettings: which containers come back', () => {
     assert.deepEqual(deploys, [
       { name: 'stream1', services: ['srs', 'stream-uploader'] },
     ]);
+  });
+
+  it('recreates the engine alone for the SRT latency, which only the engine reads', async () => {
+    const { service, deploys } = harnessFor(profileRow());
+
+    await service.updateEngineSettings('stream1', { SRT_LATENCY: '3000' });
+
+    assert.deepEqual(deploys, [{ name: 'stream1', services: ['srs'] }]);
   });
 
   it('recreates the uploader too when the poll interval changes', async () => {

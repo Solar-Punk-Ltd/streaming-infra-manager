@@ -13,6 +13,8 @@ interface Entry {
 /** The field whose config directive is stated in a different unit than the field. */
 const SEGMENT_MAX_KEY = 'HLS_SEGMENT_MAX';
 const HLS_DIRECTIVES: Record<string, string> = { HLS_FRAGMENT: 'hls_fragment', HLS_WINDOW: 'hls_window', [SEGMENT_MAX_KEY]: 'hls_aof_ratio' };
+/** Directives of the `srt_server` block. It sits outside every vhost, the generated ABR vhost included, so that vhost hides none of them. */
+const SRT_SERVER_DIRECTIVES: Record<string, string> = { SRT_LATENCY: 'latency' };
 const ENCODER_DIRECTIVES: Record<string, string> = {
   ABR_FPS: 'vfps', ABR_PRESET: 'vpreset', ABR_PROFILE: 'vprofile', ABR_THREADS: 'vthreads', ABR_ACODEC: 'acodec',
 };
@@ -75,10 +77,10 @@ function hasIncludeFor(entries: readonly Entry[], patterns: readonly (readonly s
   });
 }
 
-function hlsReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], opaqueVhost: boolean, source: string): EngineSettingReading[] {
-  if (opaqueVhost) return [unknown('unsupported-syntax')];
+/** One scalar directive, in every scope of the file where the version's template fills it with the field's placeholder. */
+function placeholderDirectiveReadings(field: EngineSettingField, directive: string, template: readonly Entry[] | null, file: readonly Entry[], source: string): EngineSettingReading[] {
   if (template === null || !field.placeholder) return [unknown('metadata-unavailable')];
-  const required = template.filter(entry => entry.node.name === HLS_DIRECTIVES[field.key]
+  const required = template.filter(entry => entry.node.name === directive
     && entry.node.children === null && entry.node.args.length === 1 && entry.node.args[0] === field.placeholder);
   if (!required.length) return [unknown('metadata-unavailable')];
   if (required.some(entry => !entry.unique)) return [unknown('ambiguous-path')];
@@ -86,7 +88,12 @@ function hlsReadings(field: EngineSettingField, template: readonly Entry[] | nul
   if (hasIncludeFor(file, patterns)) return [unknown('unsupported-syntax')];
   const scopes = file.filter(entry => entry.node.children !== null && patterns.some(pattern => sameNames(scopeNames(entry), pattern)));
   if (!scopes.length) return [{ kind: 'omitted' }];
-  return scopes.map(scope => scalarIn(scope, HLS_DIRECTIVES[field.key]!, field.placeholder, source));
+  return scopes.map(scope => scalarIn(scope, directive, field.placeholder, source));
+}
+
+function hlsReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], opaqueVhost: boolean, source: string): EngineSettingReading[] {
+  if (opaqueVhost) return [unknown('unsupported-syntax')];
+  return placeholderDirectiveReadings(field, HLS_DIRECTIVES[field.key]!, template, file, source);
 }
 
 function bitrateReadings(scopes: readonly Entry[]): EngineSettingReading[] {
@@ -128,6 +135,8 @@ export function srsSettingReadings(
         ? readings.map(reading => reading.kind === 'literal' ? unknown('unsupported-syntax') : reading)
         : readings];
     }
+    const srtDirective = SRT_SERVER_DIRECTIVES[field.key];
+    if (srtDirective) return [field.key, placeholderDirectiveReadings(field, srtDirective, template, file, fileText ?? '')];
     if (field.key === 'ABR_VBV_SECONDS' || opaqueEncoder) return [field.key, [unknown('unsupported-syntax')]];
     if (!encoders.length) return [field.key, [{ kind: 'omitted' }]];
     if (field.key === 'ABR_AUDIO_BITRATE') return [field.key, bitrateReadings(encoders)];

@@ -185,3 +185,58 @@ describe('bounded SRS config observations', () => {
     assert.deepEqual(observe(file, false).effective, { HLS_FRAGMENT: '7', HLS_WINDOW: '30' });
   });
 });
+
+/**
+ * The SRT latency lives in the `srt_server` block, outside every vhost, which
+ * is where the stack's template fills `SRT_LATENCY_PLACEHOLDER`.
+ */
+describe('the SRT latency in a config file of the deployment own', () => {
+  const srtTemplate = `srt_server { enabled on; latency SRT_LATENCY_PLACEHOLDER; tlpktdrop on; }\n${template}`;
+  const srtServer = (latency: string) => `srt_server { enabled on; latency ${latency}; }\n`;
+
+  function observeLatency(file: string, abr = false, selectedTemplate: string | null = srtTemplate) {
+    const fields = engineSettingsFieldsFor('srs', { abr });
+    return assembleEngineSettingObservations({
+      fields, settings: { SRT_LATENCY: '3000' },
+      defaults: effectiveEngineDefaults('srs'),
+      readings: srsSettingReadings(selectedTemplate, file, fields, { abr }),
+    });
+  }
+
+  it('reads the deployment value where the file keeps the placeholder', () => {
+    const result = observeLatency(`${srtServer('SRT_LATENCY_PLACEHOLDER')}${config()}`);
+
+    assert.equal(result.effective.SRT_LATENCY, '3000');
+    assert.equal(result.observations.SRT_LATENCY.source, 'deployment');
+    assert.equal(result.observations.SRT_LATENCY.environment, 'all');
+  });
+
+  it('reads a literal the file writes instead of the placeholder', () => {
+    const result = observeLatency(`${srtServer('500')}${config()}`);
+
+    assert.equal(result.effective.SRT_LATENCY, '500');
+    assert.equal(result.observations.SRT_LATENCY.source, 'config-file');
+    assert.ok(result.notInConfig.includes('SRT_LATENCY'), 'an override cannot change a literal');
+  });
+
+  it('calls a file with no latency directive one that omits the setting', () => {
+    const result = observeLatency(`srt_server { enabled on; }\n${config()}`);
+
+    assert.equal(result.observations.SRT_LATENCY.source, 'omitted');
+    assert.equal(result.effective.SRT_LATENCY, undefined);
+  });
+
+  it('is read the same way on a ladder, where the encoders and the ABR vhost are generated', () => {
+    const file = `${srtServer('SRT_LATENCY_PLACEHOLDER')}${config(engine('low'))}\nABR_VHOST_PLACEHOLDER\n`;
+    const result = observeLatency(file, true);
+
+    assert.equal(result.effective.SRT_LATENCY, '3000');
+    assert.equal(reason(result, 'HLS_FRAGMENT'), 'unsupported-syntax');
+  });
+
+  it('stays unverified without the version template it is read against', () => {
+    const result = observeLatency(`${srtServer('SRT_LATENCY_PLACEHOLDER')}${config()}`, false, null);
+
+    assert.equal(reason(result, 'SRT_LATENCY'), 'metadata-unavailable');
+  });
+});

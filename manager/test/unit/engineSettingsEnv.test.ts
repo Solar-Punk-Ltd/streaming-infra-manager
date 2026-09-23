@@ -75,6 +75,22 @@ describe('writeProfileEnv: engine settings', () => {
     assert.match(envFor('added', { HLS_WINDOW: '45' }), /^HLS_WINDOW=45$/m);
   });
 
+  it('writes the SRT latency a deployment set, which compose hands to SRS', () => {
+    withBaseEnv();
+    const env = envFor('latency', { SRT_LATENCY: '3000' });
+
+    assert.match(env, /^SRT_LATENCY=3000$/m);
+    assert.equal(env.match(/^SRT_LATENCY=/gm)?.length, 1);
+  });
+
+  it('refuses an SRT latency SRS would not be given', () => {
+    withBaseEnv();
+    assert.throws(
+      () => envFor('toolow', { SRT_LATENCY: '5' }),
+      /refusing to write the engine settings.*SRT latency must be at least 20/s,
+    );
+  });
+
   it('writes only the keys the profile engine reads', () => {
     withBaseEnv('ENGINE=ome\n');
     const path = writeProfileEnv(root, 'omeone', {
