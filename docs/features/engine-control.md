@@ -53,9 +53,15 @@ latency off that template. On a template that fills only `latency`, as `v3.1`'s 
 the drawer show SRS's own 120 as **Engine default**, with the sentence that SRS ignores `latency` for
 ingest without `recvlatency`, and the drawer says that changing the setting will not change the
 wait on ingest on this stack version. On a template that fills `recvlatency` they show the stored
-or default value. Every other setting of such a deployment is still read as the environment,
-because the template fills each from it. The offline mock reads its own template, a copy of
-`v3.1`'s, the same way.
+or default value. A template that never takes the setting is read at its own `srt_server` block,
+since `435ee1d`. The stack's `v1` and `v2` (`12632b50`) are such versions: their templates write
+`latency 200` themselves and no `recvlatency`, and their entrypoints never read `SRT_LATENCY`. On
+them the card and the drawer show SRS's own 120 as **Engine default**, with the sentence that this
+stack version does not read the setting and that its template decides the wait on ingest, and a
+`recvlatency` such a template wrote would be shown as the wait instead. The manager still writes
+`SRT_LATENCY=2000` into `.env.<profile>` there, where nothing reads it. Every other setting of such
+a deployment is still read as the environment, because the template fills each from it. The offline
+mock reads its own template, a copy of `v3.1`'s, the same way.
 
 ## What the engines are and how they are configured today
 
