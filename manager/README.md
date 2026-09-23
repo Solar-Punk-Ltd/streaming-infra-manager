@@ -110,12 +110,18 @@ cross-origin page to add.
 | ------ | ---- | ---- | ------ |
 | POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 when no user exists |
 | POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
-| GET | `/auth/session` | | `{ username, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
+| GET | `/auth/session` | | `{ id, username, isAdmin, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
 | POST | `/auth/password` | `{ current, next }` | 204, every other session of yours revoked |
-| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
-| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
-| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
-| POST | `/auth/users/:id/revoke-sessions` | | 204 |
+| GET | `/auth/users` | | `[{ id, username, isAdmin, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password, admin? }` | 201 and the new user's row, 403 `admin_required` unless you are an admin, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 403 `admin_required` unless you are an admin, 404 no such user, 409 for yourself, the last user or the last admin |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 for your own id, and for anyone's if you are an admin, otherwise 403 `admin_required`. 404 no such user |
+
+Adding a user, removing one and signing someone else out need an admin, and
+nothing else does. Who is an admin and how a user becomes one is the paragraph
+"Who can manage users" under
+[Endpoints](../docs/features/auth-and-public-access.md#endpoints) on the auth
+page. Checked against the code at `87673c99` on 2026-09-23.
 
 ## API
 
