@@ -178,6 +178,12 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
   lines of the lengths SRS and libsrt write.
 - **The reading does not say how old its newest report is.** A publisher that
   left fifty seconds ago still shows the minute it was sending.
+- **A remote answer larger than 64 KiB reads as unreadable.** The remote read
+  goes through the same bounded command runner as every other remote read,
+  whose output stops at 64 KiB. That is about 460 report lines, six a minute for
+  each SRT publisher, so it takes more than seventy publishers on one SRS in a
+  single minute. Raised by Copilot on PR 45 and recorded rather than fixed,
+  because widening the bound changes the runner every remote read shares.
 - **The suggested 4000 ms is a fixed number.** It is twice the manager's default
   and well above the 120 ms SRS waits on ingest on `v3.1`, whose template fills
   only `latency`. A deployment an operator has already set above 4000 ms gets a
