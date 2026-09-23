@@ -176,7 +176,9 @@ function verdictText(reading: SrtIngestMeasured): string {
     case SRT_LINK_DEGRADED:
       return 'Some packets arrived too late to use and were dropped, so the picture can break up in places.';
     case SRT_LINK_BAD:
-      return `${SRT_BAD_DROP_PERCENT}% or more of the packets were dropped, so the picture is breaking up.`;
+      return reading.counts.received === 0
+        ? 'SRS gave up on packets and received none, so the picture is breaking up.'
+        : `${SRT_BAD_DROP_PERCENT}% or more of the packets were dropped, so the picture is breaking up.`;
   }
 }
 

@@ -137,6 +137,14 @@ describe('a measured SRT link on the card', () => {
     assert.deepEqual(view.pill, { label: 'Bad', tone: 'err' });
   });
 
+  // With nothing received there is no share to quote, so the verdict cannot
+  // say what percentage was dropped.
+  it('says a bad minute with no packet received was dropped, without quoting a share', () => {
+    const { verdict } = read(measured({ received: 0, lost: 0, retransmitted: 0, dropped: 4 }, 1));
+
+    assert.equal(verdict, 'SRS gave up on packets and received none, so the picture is breaking up.');
+  });
+
   it('explains what each count is, in words', () => {
     assert.deepEqual(
       read(BROKEN_UP).rows.map((row) => row.detail),
