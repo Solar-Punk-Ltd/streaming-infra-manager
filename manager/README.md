@@ -34,9 +34,16 @@ Until that last command has been run once, every route but `/health` and
 
 ## Authentication
 
-Every route needs a session except two: `GET /health`, which Docker's
-healthcheck reads, and `POST /auth/login`. That includes both Server-Sent
-Events streams, `/config`, `/metrics` and `/profiles`.
+Every route needs a session except two: `GET /health`, which answers
+`{"status":"ok"}` and nothing more, and `POST /auth/login`. That includes both
+Server-Sent Events streams, `/config`, `/metrics` and `/profiles`.
+
+No Docker healthcheck reads `/health`, as of 2026-09-23 at `87673c99`: the
+`api` service in `docker-compose.yml` has none and neither Dockerfile declares
+one. Its readers are `manager:upgrade`, which `deploy/deploy.sh` runs and which
+waits for the new api to answer it, the integration suite, whose preflight asks
+it and whose CI job in `.github/workflows/docker-checks.yml` waits for it
+first, and the curl in the quick start above.
 
 ### The first user
 

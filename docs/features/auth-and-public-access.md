@@ -5,6 +5,7 @@ at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which lande
 run on a host: the manager was deployed on 2026-09-11 and a second pass on 2026-09-13 reached it
 over its own public domain with a certificate, rather than through the ssh tunnel. That pass is
 recorded in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
+Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`.
 
 **The host steps at the end of this page are superseded.** They were written before the stack
 stopped travelling with a deploy and before the firewall generator took an inventory export, and
@@ -114,9 +115,13 @@ CREATE INDEX sessions_user_idx ON sessions (user_id);
   of one minute that doubles per further failure up to one hour. Locked answers 429 with
   `Retry-After`. Every failure is logged with username and IP. Successful sign-in resets the
   username key.
-- **What stays open**: `GET /health` (Docker's healthcheck reads it, it returns `{status:'ok'}`
-  and nothing else) and `POST /auth/login`. Everything else, including both Server-Sent Events
-  streams, `/config`, `/metrics` and `/services`, requires a session. `EventSource` sends
+- **What stays open**: `GET /health` (it returns `{status:'ok'}` and nothing else) and
+  `POST /auth/login`. No Docker healthcheck reads `/health`: the `api` service in
+  `manager/docker-compose.yml` has none and neither Dockerfile declares one. `manager:upgrade`
+  waits for the new api to answer it during a deploy, the integration suite asks it in its
+  preflight and its CI job in `.github/workflows/docker-checks.yml` waits for it first, and the
+  quick start in `manager/README.md` curls it. Everything else, including both Server-Sent
+  Events streams, `/config`, `/metrics` and `/services`, requires a session. `EventSource` sends
   cookies on same-origin requests, so the live updates keep working unchanged.
 
 ### Endpoints
