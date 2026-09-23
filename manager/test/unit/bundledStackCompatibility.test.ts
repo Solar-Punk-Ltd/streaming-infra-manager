@@ -1,5 +1,6 @@
 /**
- * The manager contract against the real swarm-hls-stream v3.1 checkout.
+ * The manager contract against the real swarm-hls-stream checkout, whichever
+ * commit the submodule pins.
  *
  * This file deliberately reads the submodule instead of a reduced fixture.
  * A release can change compose, env samples, or an engine entrypoint without
@@ -32,7 +33,7 @@ import { writeProfileEnv } from '../../src/utils/envUtils.js';
 const STACK = fileURLToPath(
   new URL('../../swarm-hls-stream/', import.meta.url),
 );
-const scratch = mkdtempSync(join(tmpdir(), 'bundled-v31-'));
+const scratch = mkdtempSync(join(tmpdir(), 'bundled-stack-'));
 
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -43,7 +44,7 @@ function assignment(text: string, key: string): string | undefined {
     ?.slice(key.length + 1);
 }
 
-describe('the bundled swarm-hls-stream v3.1 contract', () => {
+describe('the bundled swarm-hls-stream contract', () => {
   it('is a complete deployable contract with both engines', () => {
     assert.ok(
       existsSync(join(STACK, 'deploy', 'docker-compose.yml')),
@@ -66,7 +67,7 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
     assert.equal(contract.engineDefaults.HLS_SEGMENT_DURATION, '2');
   });
 
-  it('writes v3.1 deployment secrets while leaving optional admin mode off', () => {
+  it('writes the bundled deployment secrets while leaving optional admin mode off', () => {
     const root = join(scratch, 'env');
     mkdirSync(root);
     cpSync(join(STACK, '.env.sample'), join(root, '.env'));
@@ -75,7 +76,7 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
       contract.requiredSecrets.map((key) => [key, 'a'.repeat(64)]),
     );
 
-    const path = writeProfileEnv(root, 'v31', {
+    const path = writeProfileEnv(root, 'bundled', {
       engine: SRS_SERVICE,
       localBeeUploader: true,
       stackEngineDefaults: contract.engineDefaults,
@@ -90,7 +91,7 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
     assert.equal(
       assignment(written, 'ADMIN_API_URL'),
       '',
-      'v3.1 admin mode stays off unless an operator configures its URL',
+      'admin mode stays off unless an operator configures its URL',
     );
     assert.equal(
       assignment(written, 'ADMIN_API_TOKEN'),
@@ -99,10 +100,10 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
     );
   });
 
-  it('admits both shipped engine templates through their v3.1 entrypoints', async () => {
+  it('admits both shipped engine templates through their bundled entrypoints', async () => {
     const contract = readStackContract(STACK);
     const srsImage = contract.engineImages.srs;
-    assert.ok(srsImage, 'the v3.1 SRS service must declare its parser image');
+    assert.ok(srsImage, 'the bundled SRS service must declare its parser image');
     let srsChecks = 0;
     const runner: CommandRunner = async (_file, args) => {
       srsChecks += 1;
@@ -115,7 +116,7 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
       assert.doesNotMatch(
         readFileSync(source, 'utf8'),
         /[A-Z][A-Z0-9_]*_PLACEHOLDER/,
-        'the v3.1 entrypoint must account for every shipped SRS placeholder',
+        'the bundled entrypoint must account for every shipped SRS placeholder',
       );
       assert.ok(args.includes(srsImage));
       return { code: 0, stdout: '', stderr: '' };
