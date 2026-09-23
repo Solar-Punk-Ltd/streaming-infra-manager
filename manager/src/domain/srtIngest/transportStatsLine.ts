@@ -38,6 +38,23 @@ const REPORT_LINE = new RegExp(
     `pktRecv=${COUNT}, pktRcvLoss=${COUNT}, pktRcvRetrans=${COUNT}, pktRcvDrop=${COUNT}$`,
 );
 
+/** A colour or cursor sequence in POSIX ERE, where `.` stands for the escape byte ERE cannot name. */
+const HOST_ESCAPE = String.raw`(.\[[0-9;]*[A-Za-z])*`;
+const HOST_COUNT = '[0-9]{1,15}';
+
+/**
+ * The same report shape as a POSIX extended regular expression, for a reader
+ * that filters with grep on another host before anything crosses to the
+ * manager. A publisher chooses its SRT stream id and SRS quotes it into hook
+ * lines that carry the webhook token, so that filter has to hold the whole
+ * line to this shape, as the parser does, rather than look for the marker.
+ */
+export const TRANSPORT_STATS_HOST_PATTERN =
+  `^${HOST_ESCAPE}` +
+  String.raw`\[[^]]*\]\[[A-Za-z]+\]\[[0-9]+\]\[[A-Za-z0-9]{1,64}\] <- SRT_CPB Transport Stats # ` +
+  `pktRecv=${HOST_COUNT}, pktRcvLoss=${HOST_COUNT}, pktRcvRetrans=${HOST_COUNT}, pktRcvDrop=${HOST_COUNT}` +
+  `${HOST_ESCAPE}[[:space:]]*$`;
+
 export function parseTransportStatsLine(line: string): TransportStatsReport | null {
   const match = REPORT_LINE.exec(line.replace(ANSI_ESCAPE, '').trimEnd());
   if (!match) return null;

@@ -12,7 +12,7 @@ import { isLocalTarget, targetAlias } from './DeployTargets.js';
 import type { TargetIdentityProbe } from './VerifiedDeployTargets.js';
 import type { PublishedPortsProbe, PublishedPortsSnapshot } from './PublishedPortsProbe.js';
 import { collectPublishedPorts } from './publishedPorts.js';
-import { remoteLogLinesCommand, remoteLogLinesFrom } from './remoteLogLines.js';
+import { type MarkedLines, remoteLogLinesCommand, remoteLogLinesFrom } from './remoteLogLines.js';
 
 /** Captures only the selected non-secret fields, with a bounded runtime and output. */
 export type ReadOnlyCommand = (file: string, args: readonly string[]) => Promise<string>;
@@ -125,20 +125,20 @@ export class TargetDocker implements TargetIdentityProbe, DaemonObserver, Publis
   async logLinesContaining(
     project: string,
     service: string,
-    marker: string,
+    lines: MarkedLines,
     window: LogWindow,
     host: string | null = 'localhost',
   ): Promise<string[]> {
     const alias = targetAlias(host);
     if (isLocalTarget(alias)) {
       if (!this.local.logLinesContaining) throw new Error('Local log reader is not configured');
-      return this.local.logLinesContaining(project, service, marker, window);
+      return this.local.logLinesContaining(project, service, lines.marker, window);
     }
     const output = await this.run('ssh', [
       '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes', alias,
-      remoteLogLinesCommand(project, service, marker, window),
+      remoteLogLinesCommand(project, service, lines, window),
     ]);
-    const answer = remoteLogLinesFrom(output, marker);
+    const answer = remoteLogLinesFrom(output, lines.marker);
     if (answer.container === 'none') throw new ContainerNotRunningError(project, service);
     return answer.lines;
   }

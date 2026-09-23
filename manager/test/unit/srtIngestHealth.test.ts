@@ -32,8 +32,10 @@ import {
   ProfileNotFoundError,
 } from '../../src/domain/errors/index.js';
 import type { LogWindow } from '../../src/domain/logWindow.js';
+import type { MarkedLines } from '../../src/domain/ports/remoteLogLines.js';
 import {
   type MarkedLogLines,
+  SRT_INGEST_LOG_LINES,
   SRT_INGEST_LOG_WINDOW,
   SrtIngestHealthService,
 } from '../../src/domain/srtIngest/SrtIngestHealthService.js';
@@ -63,7 +65,7 @@ const SECRET_BEARING = [
 interface LogRead {
   project: string;
   service: string;
-  marker: string;
+  lines: MarkedLines;
   window: LogWindow;
   host: string | null | undefined;
 }
@@ -74,8 +76,8 @@ function serviceOver(
 ): { service: SrtIngestHealthService; reads: LogRead[] } {
   const reads: LogRead[] = [];
   const logs: MarkedLogLines = {
-    async logLinesContaining(project, service, marker, window, host) {
-      reads.push({ project, service, marker, window, host });
+    async logLinesContaining(project, service, lines, window, host) {
+      reads.push({ project, service, lines, window, host });
       if (answer instanceof Error) throw answer;
       return answer;
     },
@@ -132,7 +134,7 @@ describe('SrtIngestHealthService.read', () => {
       {
         project: 'stage',
         service: SRS_SERVICE,
-        marker: TRANSPORT_STATS_MARKER,
+        lines: SRT_INGEST_LOG_LINES,
         window: { sinceSeconds: 60, tailLines: 20_000 },
         host: 'edge',
       },

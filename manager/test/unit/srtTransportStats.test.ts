@@ -11,11 +11,13 @@
  * may produce anything.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
 import {
   parseTransportStatsLine,
   parseTransportStatsLines,
+  TRANSPORT_STATS_HOST_PATTERN,
   TRANSPORT_STATS_MARKER,
 } from '../../src/domain/srtIngest/transportStatsLine.js';
 
@@ -161,5 +163,42 @@ describe('parseTransportStatsLines', () => {
   it('finds nothing in a log with no report in it', () => {
     assert.deepEqual(parseTransportStatsLines(LOG.filter((line) => !line.includes('Transport'))), []);
     assert.deepEqual(parseTransportStatsLines([]), []);
+  });
+});
+
+describe('the pattern a remote reader filters with, run by grep', () => {
+  /** Lines through the host's own `grep -E`, which is what runs on the remote host. */
+  function keptByGrep(lines: readonly string[]): string[] {
+    const run = spawnSync('grep', ['-E', '-e', TRANSPORT_STATS_HOST_PATTERN], {
+      input: `${lines.join('\n')}\n`,
+      encoding: 'utf8',
+      env: { PATH: '/usr/bin:/bin' },
+    });
+    assert.ok(run.status === 0 || run.status === 1, run.stderr);
+    return run.stdout.split('\n').filter((line) => line !== '');
+  }
+
+  it('keeps exactly the lines the parser reads', () => {
+    const lines = [
+      FIRST,
+      SECOND,
+      `${ESC}[0m${SECOND}`,
+      `${SECOND}${ESC}[0m`,
+      `${ESC}[33m${SECOND}${ESC}[0m`,
+      `${ESC}[0m${ESC}[1;32m${SECOND}${ESC}[0m`,
+      `${FIRST}\r`,
+      FIRST.replace('[INFO]', '[Trace]'),
+      FIRST.slice(0, FIRST.indexOf('pktRcvDrop=') + 'pktRcvDrop='.length),
+      '[2026-09-22 17:33:51.001][INFO][1][9wq2m1xy] -> SRT_PLAY Transport Stats # pktSent=6400, pktSndLoss=0, pktRetrans=0, pktSndDrop=0',
+      `[2026-09-22 17:33:40.123][INFO][1][4ek6chsn] http: on_publish url=http://stream-uploader:3000/engines/srs/streams?token=abc123 ${FIRST.slice(FIRST.indexOf('<-'))}`,
+      `${FIRST}, token=abc123`,
+      `[2026-09-22 17:33:40.123][INFO][1][4ek6chsn] srt: streamid=#!::r=live/${FIRST}`,
+      FIRST.replace('pktRecv=6500', 'pktRecv=12345678901234567'),
+      FIRST.replace('pktRcvDrop=397', 'pktRcvDrop=-1'),
+    ];
+    const read = lines.filter((line) => parseTransportStatsLine(line) !== null);
+
+    assert.equal(read.length, 8, 'the eight lines the parser reads, as its own cases above say');
+    assert.deepEqual(keptByGrep(lines), read);
   });
 });

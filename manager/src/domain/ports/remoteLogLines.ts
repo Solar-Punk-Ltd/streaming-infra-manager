@@ -3,20 +3,33 @@ import { completeLines } from '../dockerStream.js';
 import type { LogWindow } from '../logWindow.js';
 
 /**
- * One service's log lines that carry a marker, read on another host.
+ * One service's log lines of one shape, read on another host.
  *
  * The command runs in the remote user's shell over the ssh path every other
- * read of a remote daemon takes, and filters there, so only the marked lines
- * cross the connection. It frames its answer because a pipeline into grep
- * reports grep's status alone: without the frame, no container, a quiet log
- * and a failed read would all arrive as the same empty answer.
+ * read of a remote daemon takes, and filters there, so only lines matching the
+ * whole-line pattern cross the connection. It frames its answer because a
+ * pipeline into grep reports grep's status alone: without the frame, no
+ * container, a quiet log and a failed read would all arrive as the same empty
+ * answer.
  */
+
+/** The lines a read keeps, told apart on the host and again once they arrive. */
+export interface MarkedLines {
+  /** Text every kept line carries, checked again after the lines arrive. */
+  marker: string;
+  /**
+   * A POSIX extended regular expression each kept line matches from start to
+   * end, run by grep on the remote host. A pattern that only looks for the
+   * marker would let through any line that quotes it.
+   */
+  hostPattern: string;
+}
 
 /** A compose project or service name, the shape the stack gives both. */
 const COMPOSE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
-/** Printable ASCII but the single quote, so a marker cannot leave the quotes it is put in. */
-const QUOTABLE_MARKER = /^[\x20-\x26\x28-\x7e]+$/;
+/** Printable ASCII but the single quote, so a pattern cannot leave the quotes it is put in. */
+const QUOTABLE = /^[\x20-\x26\x28-\x7e]+$/;
 
 const NO_CONTAINER = 'container=none';
 const RUNNING_CONTAINER = 'container=running';
@@ -30,13 +43,13 @@ export type RemoteLogLines =
 export function remoteLogLinesCommand(
   project: string,
   service: string,
-  marker: string,
+  lines: MarkedLines,
   window: LogWindow,
 ): string {
   if (!COMPOSE_NAME.test(project) || !COMPOSE_NAME.test(service)) {
     throw new Error('Invalid Compose project or service');
   }
-  if (!QUOTABLE_MARKER.test(marker)) throw new Error('Invalid log marker');
+  if (!lines.marker || !QUOTABLE.test(lines.hostPattern)) throw new Error('Invalid log line filter');
   if (!isPositiveWhole(window.sinceSeconds) || !isPositiveWhole(window.tailLines)) {
     throw new Error('Invalid log window');
   }
@@ -50,7 +63,7 @@ export function remoteLogLinesCommand(
     `echo '${RUNNING_CONTAINER}'`,
     // The bare `echo` ends a last log line that had no newline of its own, so
     // the status always arrives on a line by itself.
-    `{ docker logs --since ${window.sinceSeconds}s --tail ${window.tailLines} "$id" 2>&1; logs_status=$?; echo; echo "${LOGS_EXIT}$logs_status"; } | grep -F -e '${marker}' -e '${LOGS_EXIT}'`,
+    `{ docker logs --since ${window.sinceSeconds}s --tail ${window.tailLines} "$id" 2>&1; logs_status=$?; echo; echo "${LOGS_EXIT}$logs_status"; } | grep -E -e '${lines.hostPattern}' -e '^${LOGS_EXIT}'`,
   ].join('; ');
 }
 

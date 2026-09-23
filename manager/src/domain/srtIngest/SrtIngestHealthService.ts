@@ -16,7 +16,12 @@ import type { LogWindow } from '../logWindow.js';
 import type { TargetDocker } from '../ports/TargetDocker.js';
 import type { ProfileRepository } from '../ProfileRepository.js';
 import { ingestReadingFrom } from './ingestReading.js';
-import { parseTransportStatsLines, TRANSPORT_STATS_MARKER } from './transportStatsLine.js';
+import type { MarkedLines } from '../ports/remoteLogLines.js';
+import {
+  parseTransportStatsLines,
+  TRANSPORT_STATS_HOST_PATTERN,
+  TRANSPORT_STATS_MARKER,
+} from './transportStatsLine.js';
 
 const logger = Logger.getInstance();
 
@@ -30,6 +35,12 @@ const logger = Logger.getInstance();
  * several minutes of that before it cuts into the window.
  */
 export const SRT_INGEST_LOG_WINDOW: LogWindow = { sinceSeconds: 60, tailLines: 20_000 };
+
+/** SRS's statistics lines, held to their whole shape on a remote host. */
+export const SRT_INGEST_LOG_LINES: MarkedLines = {
+  marker: TRANSPORT_STATS_MARKER,
+  hostPattern: TRANSPORT_STATS_HOST_PATTERN,
+};
 
 /** The part of `TargetDocker` this reads through. */
 export type MarkedLogLines = Pick<TargetDocker, 'logLinesContaining'>;
@@ -61,7 +72,7 @@ export class SrtIngestHealthService {
       lines = await this.logs.logLinesContaining(
         profile.name,
         SRS_SERVICE,
-        TRANSPORT_STATS_MARKER,
+        SRT_INGEST_LOG_LINES,
         SRT_INGEST_LOG_WINDOW,
         profile.host,
       );

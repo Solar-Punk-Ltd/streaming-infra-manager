@@ -4,8 +4,8 @@
  *
  * Unit test, no ssh and no Docker. `pnpm test` in manager/.
  *
- * The filter runs on the remote host, so only the lines carrying the marker
- * cross the connection, and the read must still tell three answers apart that
+ * The filter runs on the remote host, so only lines in the whole shape the
+ * reader asked for cross the connection, and the read must still tell three answers apart that
  * a bare pipeline into grep cannot: no container, a container whose log said
  * nothing, and a log that could not be read. The command is also run here, in
  * a real POSIX shell against a stand-in `docker`, because a string that only
@@ -20,40 +20,59 @@ import { describe, it } from 'node:test';
 import { ContainerNotRunningError } from '../../src/domain/errors/index.js';
 import type { LogWindow } from '../../src/domain/logWindow.js';
 import {
+  type MarkedLines,
   remoteLogLinesCommand,
   remoteLogLinesFrom,
 } from '../../src/domain/ports/remoteLogLines.js';
 import { TargetDocker } from '../../src/domain/ports/TargetDocker.js';
+import { TRANSPORT_STATS_HOST_PATTERN } from '../../src/domain/srtIngest/transportStatsLine.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 
 const MARKER = '<- SRT_CPB Transport Stats # ';
+const LINES: MarkedLines = { marker: MARKER, hostPattern: TRANSPORT_STATS_HOST_PATTERN };
 const WINDOW: LogWindow = { sinceSeconds: 60, tailLines: 20_000 };
 const REPORT =
   '[2026-09-22 17:33:50.386][INFO][1][4ek6chsn] <- SRT_CPB Transport Stats # pktRecv=6500, pktRcvLoss=394, pktRcvRetrans=381, pktRcvDrop=397';
 const WEBHOOK =
   '[2026-09-22 17:33:40.123][INFO][1][4ek6chsn] http: on_publish ok, url=http://stream-uploader:3000/engines/srs/streams?token=abc123';
+/**
+ * A publisher chooses its SRT stream id and SRS quotes it into its hook lines,
+ * beside the webhook token. Here the id carries the report text, and in the
+ * second the id also carries a line break, so a line that begins in the exact
+ * report shape goes on to the token.
+ */
+const QUOTING_WEBHOOK =
+  `[2026-09-22 17:33:41.123][INFO][1][4ek6chsn] http: on_publish ok, stream=x${MARKER}pktRecv=1, pktRcvLoss=0, pktRcvRetrans=0, pktRcvDrop=0, url=http://stream-uploader:3000/engines/srs/streams?token=quoted123`;
+const SPLIT_WEBHOOK =
+  `[2026-09-22 17:33:42.123][INFO][1][4ek6chsn] http: on_publish ok, stream=x\n[2026-09-22 17:33:42.123][INFO][1][4ek6chsn] ${MARKER}pktRecv=1, pktRcvLoss=0, pktRcvRetrans=0, pktRcvDrop=0, url=http://stream-uploader:3000/engines/srs/streams?token=split123`;
+/** SRS starts most of its console lines with a colour reset, as 67 of the 75 lines of 2026-09-22 did. */
+const COLOURED_REPORT = `\u001b[0m${REPORT}`;
 const CONTAINER_ID = 'c'.repeat(64);
 
 describe('remoteLogLinesCommand', () => {
   it('asks for one service of one project, within the window, filtered on the host', () => {
-    const command = remoteLogLinesCommand('stream1', 'srs', MARKER, WINDOW);
+    const command = remoteLogLinesCommand('stream1', 'srs', LINES, WINDOW);
 
     assert.match(command, /--filter 'label=com\.docker\.compose\.project=stream1'/);
     assert.match(command, /--filter 'label=com\.docker\.compose\.service=srs'/);
     assert.match(command, /docker logs --since 60s --tail 20000 "\$id"/);
-    assert.ok(command.includes(`grep -F -e '${MARKER}'`), command);
+    assert.ok(command.includes(`grep -E -e '${TRANSPORT_STATS_HOST_PATTERN}'`), command);
   });
 
-  it('refuses a name or a marker that could leave its quotes', () => {
-    for (const [project, service, marker] of [
-      ['stream1;reboot', 'srs', MARKER],
-      ['$(reboot)', 'srs', MARKER],
-      ['stream1', "srs'", MARKER],
-      ['stream1', 'srs', "it's"],
-      ['stream1', 'srs', ''],
-      ['stream1', 'srs', 'line\nbreak'],
+  it('refuses a name or a pattern that could leave its quotes, and an empty marker', () => {
+    for (const [project, service, lines] of [
+      ['stream1;reboot', 'srs', LINES],
+      ['$(reboot)', 'srs', LINES],
+      ['stream1', "srs'", LINES],
+      ['stream1', 'srs', { ...LINES, hostPattern: "it's" }],
+      ['stream1', 'srs', { ...LINES, hostPattern: '' }],
+      ['stream1', 'srs', { ...LINES, hostPattern: 'line\nbreak' }],
+      ['stream1', 'srs', { ...LINES, marker: '' }],
     ] as const) {
-      assert.throws(() => remoteLogLinesCommand(project, service, marker, WINDOW), `${project} ${service} ${marker}`);
+      assert.throws(
+        () => remoteLogLinesCommand(project, service, lines, WINDOW),
+        `${project} ${service} ${JSON.stringify(lines)}`,
+      );
     }
   });
 
@@ -64,7 +83,7 @@ describe('remoteLogLinesCommand', () => {
       { sinceSeconds: 1.5, tailLines: 10 },
       { sinceSeconds: Number.NaN, tailLines: 10 },
     ]) {
-      assert.throws(() => remoteLogLinesCommand('stream1', 'srs', MARKER, window));
+      assert.throws(() => remoteLogLinesCommand('stream1', 'srs', LINES, window));
     }
   });
 });
@@ -143,7 +162,7 @@ describe('the remote command, run by a POSIX shell', () => {
   function runOnHost(fake: { ids?: string; log?: string; logFormat?: string; psExit?: number; logsExit?: number }) {
     const calls = join(bin, `calls-${Math.random().toString(36).slice(2)}`);
     writeFileSync(calls, '');
-    const result = spawnSync('/bin/sh', ['-c', remoteLogLinesCommand('stream1', 'srs', MARKER, WINDOW)], {
+    const result = spawnSync('/bin/sh', ['-c', remoteLogLinesCommand('stream1', 'srs', LINES, WINDOW)], {
       encoding: 'utf8',
       env: {
         PATH: `${bin}:/usr/bin:/bin`,
@@ -164,6 +183,15 @@ describe('the remote command, run by a POSIX shell', () => {
     assert.equal(run.status, 0, run.stderr);
     assert.deepEqual(remoteLogLinesFrom(run.stdout, MARKER), { container: 'running', lines: [REPORT] });
     assert.ok(!run.stdout.includes('abc123'), 'the webhook line never left the host');
+  });
+
+  it('keeps a hook line on the host even when the stream id quotes the report', () => {
+    const run = runOnHost({ ids: CONTAINER_ID, log: [QUOTING_WEBHOOK, SPLIT_WEBHOOK, COLOURED_REPORT].join('\n') });
+
+    assert.equal(run.status, 0, run.stderr);
+    assert.ok(!run.stdout.includes('quoted123'), 'a hook line quoting the report crossed the connection');
+    assert.ok(!run.stdout.includes('split123'), 'a hook line split to begin like a report crossed the connection');
+    assert.ok(run.stdout.includes(COLOURED_REPORT), 'a real report in colour codes has to cross');
   });
 
   it('asks for the logs of the container it found, within the window', () => {
@@ -233,8 +261,8 @@ describe('TargetDocker.logLinesContaining', () => {
       },
     );
 
-    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', MARKER, WINDOW, null), [REPORT]);
-    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', MARKER, WINDOW, 'localhost'), [REPORT]);
+    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', LINES, WINDOW, null), [REPORT]);
+    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', LINES, WINDOW, 'localhost'), [REPORT]);
     assert.deepEqual(asked, [
       ['stream1', 'srs', MARKER, WINDOW],
       ['stream1', 'srs', MARKER, WINDOW],
@@ -249,20 +277,20 @@ describe('TargetDocker.logLinesContaining', () => {
       return `container=running\n${REPORT}\ndocker-logs-exit=0\n`;
     });
 
-    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', MARKER, WINDOW, 'edge'), [REPORT]);
+    assert.deepEqual(await docker.logLinesContaining('stream1', 'srs', LINES, WINDOW, 'edge'), [REPORT]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.file, 'ssh');
     assert.deepEqual(calls[0]!.args.slice(0, 7), [
       '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes', 'edge',
     ]);
-    assert.equal(calls[0]!.args[7], remoteLogLinesCommand('stream1', 'srs', MARKER, WINDOW));
+    assert.equal(calls[0]!.args[7], remoteLogLinesCommand('stream1', 'srs', LINES, WINDOW));
   });
 
   it('answers a remote deployment with no container the way a local one does', async () => {
     const docker = new TargetDocker({ daemonId: async () => 'local-id' }, async () => 'container=none\n');
 
     await assert.rejects(
-      () => docker.logLinesContaining('stream1', 'srs', MARKER, WINDOW, 'edge'),
+      () => docker.logLinesContaining('stream1', 'srs', LINES, WINDOW, 'edge'),
       ContainerNotRunningError,
     );
   });
@@ -274,7 +302,7 @@ describe('TargetDocker.logLinesContaining', () => {
       return '';
     });
 
-    await assert.rejects(() => docker.logLinesContaining('stream1', 'srs', MARKER, WINDOW, 'edge;reboot'));
+    await assert.rejects(() => docker.logLinesContaining('stream1', 'srs', LINES, WINDOW, 'edge;reboot'));
     assert.deepEqual(commands, []);
   });
 });
