@@ -57,6 +57,7 @@ import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send as sendRaw, sendScriptRun } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
+import { srtIngestRoutes } from './mock-srt-ingest.mjs';
 import {
   defaultVersionId,
   newDeploymentVersionProblem,
@@ -899,6 +900,7 @@ const ROUTES = [
   ...createTargetRoutes(readBody),
   ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
+  ...srtIngestRoutes({ withProfile }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
   ['GET', /^\/metrics$/, (_req, res) => send(res, 200, metricsSnapshot())],
