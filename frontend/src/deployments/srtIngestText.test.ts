@@ -79,7 +79,7 @@ describe('a measured SRT link on the card', () => {
     assert.match(steps[0]!, /Raise the SRT latency of this deployment, to 4000 ms for example\./);
     assert.equal(
       steps[1],
-      "Or add &latency=4000000 to the end of the SRT address in OBS. OBS counts microseconds, so that is 4 seconds. SRT uses the larger of the two sides, so this only helps above this deployment's own SRT latency, 2000 ms by default.",
+      'Or add &latency=4000000 to the end of the SRT address in OBS. OBS counts microseconds, so that is 4 seconds. SRT uses the larger of the two sides, so this only helps when it is above the SRT latency this deployment runs with.',
     );
     assert.equal(steps[2], 'Lower the bitrate OBS broadcasts at.');
     assert.equal(steps[3], 'Use a wired connection instead of WiFi.');
@@ -184,6 +184,17 @@ describe('the SRT latency step of the remedy', () => {
 
     assert.ok(microseconds / 1_000 > 2_000, `OBS is asked for ${microseconds} microseconds`);
     assert.match(obsStep, /so that is 4 seconds\./);
+  });
+
+  // The card cannot see the wait this deployment runs with. The manager writes
+  // 2000 ms, but SRS on stack v3.1 waits its own 120 on ingest whatever is set,
+  // so any number named here is wrong for some deployment.
+  it('names no latency the deployment is said to run with, with or without the setting', () => {
+    for (const offered of [true, false]) {
+      const obsStep = read(BROKEN_UP, offered).remedy!.steps[1]!.text;
+
+      assert.doesNotMatch(obsStep, /\d+ ms/, `setting offered: ${offered}`);
+    }
   });
 
   it('reads whether the setting is offered off the fields the engine card lists', () => {
