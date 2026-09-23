@@ -165,7 +165,8 @@ is numbers and a verdict, never any text of the log, which also carries the
 webhook URL with the uploader's token in it. `healthy` means nothing was
 dropped, `degraded` that something was, and `bad` that the dropped packets
 reached one percent of those received. It never fails for a reading, and nothing
-gates on it.
+gates on it. The card that reads it and the bounds of the read are in
+[docs/features/srt-ingest-health.md](../docs/features/srt-ingest-health.md).
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
