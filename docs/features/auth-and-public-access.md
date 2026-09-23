@@ -5,9 +5,9 @@ at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which lande
 run on a host: the manager was deployed on 2026-09-11 and a second pass on 2026-09-13 reached it
 over its own public domain with a certificate, rather than through the ssh tunnel. That pass is
 recorded in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
-Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`, and the Endpoints
-table, which predated the admin role added in `7346d880` on 2026-09-07 and now has a paragraph
-on it.
+Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`, the Endpoints
+table, and the Access page under "What the operator sees". The last two predated the admin role
+added in `7346d880` on 2026-09-07, which now has a paragraph under Endpoints.
 
 **The host steps at the end of this page are superseded.** They were written before the stack
 stopped travelling with a deploy and before the firewall generator took an inventory export, and
@@ -55,11 +55,20 @@ mean two-factor or single sign-on. Both can be added later without changing the 
 - Signed in, the sidebar footer shows the username and a **Sign out** item. Sessions last twelve
   hours of inactivity and fourteen days at most, then the sign-in page comes back with
   `Your session ended. Sign in again.`
-- A new sidebar page **Access** (`#/access`): the list of users with their last sign-in, an **Add
-  user** form (username, a starting password the adder types twice and hands over in person, the
-  new user is told to change it), a **Remove** per user (refused for yourself and for the last
-  user), **Sign out everywhere** per user, and a **Change my password** form (current, new, new
-  again). Decision D2 says whether this page exists or a single account is enough.
+- A sidebar page **Access** (`#/access`), there for every signed-in user. Decision D2, several
+  users, is why it exists. As built, everyone sees the **Users** table: each user's last sign-in
+  (or `Never`) and open sessions, `manages users` beside each admin and `you` beside themselves,
+  and a **Sign out everywhere** and a **Remove** button on every row. Everyone also gets the
+  **Change my password** form (current, new, new again).
+  - An admin reads `You can add and remove users here.` above the table and gets the **Add user**
+    form below it: a username, a starting password typed twice and handed over in person, and a
+    `Can manage users` box. Their own row's Remove is disabled.
+  - Anyone else reads `Only a user who can manage users adds or removes one.` and gets no Add
+    user form. The buttons are still on every row, disabled: Remove on every row, and Sign out
+    everywhere on every row but their own, each with a tooltip saying why. The API refuses the
+    same actions with 403 `admin_required` if they are sent anyway.
+  - Sign out everywhere is disabled for anyone on a row with no open sessions, and both actions
+    ask for confirmation first.
 - If the API answers 401 in the middle of a session (revoked, expired), the app returns to Sign
   in with the message above and reloads what it needs after.
 
