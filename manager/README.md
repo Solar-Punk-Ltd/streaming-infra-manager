@@ -359,7 +359,10 @@ from 20 to 10000, defaults to the manager's own 2000, which the owner decided
 that day. The bundled `v3.1` falls back to 200, as does every version cut
 before that day which reads the key at all, so an absent `SRT_LATENCY` is
 written into `.env.<name>` as 2000 unless
-the base `.env` sets it, and the drawer calls it "Manager default". It is not
+the base `.env` sets it, and the drawer calls it "Manager default". SRS waits
+that long on ingest only on a stack version whose template fills `recvlatency`
+as well as `latency`, which `v3.1` does not, measured on 2026-09-23 and
+recorded in [engine-control.md](../docs/features/engine-control.md). It is not
 a key of this manager's own environment, so the table under Environment below
 does not list it.
 

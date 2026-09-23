@@ -141,9 +141,9 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     label: 'SRT latency',
     unit: 'milliseconds',
     kind: 'integer',
-    // The owner's decision of 2026-09-23. At the stack's 200 an outside
-    // broadcaster lost 5 to 8.5% of its packets on 2026-09-22, and SRS dropped
-    // nearly every resend as too late.
+    // The owner's decision of 2026-09-23. An outside broadcaster lost 5 to 8.5%
+    // of its packets on 2026-09-22, and SRS dropped nearly every resend as too
+    // late at its own 120, where the stack asked for 200 and SRS ignored it.
     defaultValue: '2000',
     managerOwnsDefault: true,
     // The entrypoint refuses only a value that is not a number, so these bounds

@@ -43,12 +43,18 @@ versions. A reliably parsed literal is labeled "Set in config file". Changing
 an environment override does not change that literal.
 
 Since 2026-09-23 the SRT latency is the one setting whose default does not
-come from the version. It is the manager's own 2000 milliseconds on every
-version that reads it, labeled "Manager default", and the manager writes it
-into the deployment's env file wherever the host sets no value of its own. In
-a file of the deployment's own it is read at the `latency` directive of
-`srt_server`, where the version's template fills `SRT_LATENCY_PLACEHOLDER`,
-and a literal there is labeled "Set in config file" like any other.
+come from the version. The manager writes its own 2000 milliseconds into the
+deployment's env file wherever the host sets no value of its own, labeled
+"Manager default". In a file of the deployment's own it is read at
+`recvlatency` in `srt_server`, the directive that decides SRS's side of the
+wait on ingest, since `f42fba2` on 2026-09-23. A literal there is labeled "Set
+in config file" like any other. A block that sets no `recvlatency` is shown
+as SRS's own 120 milliseconds, labeled "Engine default", with one sentence
+saying why, and changing the override does not change it. SRS ignores
+`latency` for ingest without `recvlatency`, measured on 2026-09-23 as
+[engine-control.md](engine-control.md) records. A file that still carries
+only the `latency` placeholder, as one copied from the `v3.1` template does,
+therefore reads as 120.
 
 Omitted settings are labeled "Not specified". Conflicting values, unsupported
 syntax and other uncertain readings are "Unverified", with a reason. The

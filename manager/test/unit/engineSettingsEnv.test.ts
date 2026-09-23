@@ -171,9 +171,9 @@ describe('writeProfileEnv: engine settings', () => {
  * The one default the manager writes itself.
  *
  * The owner set the SRT latency to 2000 ms on 2026-09-23, and v3.1's entrypoint
- * falls back to 200. Leaving the key out would run every deployment that
- * stores none on 200 while the drawer names 2000. A value somebody set on the
- * box still stands, which is the rule this file opens with.
+ * falls back to 200. Leaving the key out would hand SRS 200 for every
+ * deployment that stores none while the drawer names 2000. A value somebody set
+ * on the box still stands, which is the rule this file opens with.
  */
 describe("writeProfileEnv: the manager's own SRT latency", () => {
   it('writes 2000 when neither the deployment nor the host sets one', () => {

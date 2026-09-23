@@ -484,8 +484,9 @@ describe('the force-close ceiling against the segment length', () => {
 /**
  * How long SRS waits for a lost SRT packet to be resent. On 2026-09-22 an
  * outside broadcaster lost 5 to 8.5% of its packets, nearly every one was
- * resent, and SRS dropped the resends as too late at the stack's 200 ms, so
- * every drop became a hole in a frame. The owner set 2000 on 2026-09-23.
+ * resent, and SRS dropped the resends as too late at its own 120 ms, where the
+ * stack asked for 200, so every drop became a hole in a frame. The owner set
+ * 2000 on 2026-09-23.
  */
 describe('the SRT latency', () => {
   const latency = () => SRS_SETTINGS.find((field) => field.key === 'SRT_LATENCY');

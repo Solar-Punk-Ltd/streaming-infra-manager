@@ -16,8 +16,8 @@ main-v2 is obsolete and kept only to test version selection). `main-v3` already 
 PR 2 (live status) waits only on the manager reading that port. The manager still answers
 `live: null` for it, with the reason "not read yet".
 
-Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d` and
-`6a37c2a`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
+Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d`,
+`6a37c2a` and `f42fba2`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
 broadcaster's recording came out with broken blocks of picture. SRS's own SRT counters showed 5 to
 8.5% of the packets lost and nearly all of them resent, but the resends arrived after the latency
 window, so SRS dropped them and each drop became a hole in a frame. The drawer offers it as **SRT
@@ -30,16 +30,27 @@ manager writes `SRT_LATENCY=2000` into
 `.env.<profile>` for every SRS deployment that stores no value, and the drawer and the card call it
 **Manager default**. It is the only setting written while unset. A value set in the host's base
 `.env` still wins, as it does for every other setting, and the drawer then says it was set on this
-host. A deployment that stores no value moves from 200 to 2000 the next time its env file is
-written, on its next deploy or engine settings save, which adds 1.8 seconds of delay at ingest.
+host. A deployment that stores no value gets `SRT_LATENCY=2000` the next time its env file is
+written, on its next deploy or engine settings save. Whether SRS then waits that long on ingest
+depends on the version's template, which the next paragraph explains.
 
-Caution, read from SRS's source on 2026-09-23 and not yet measured on a running engine. The
-stack's template fills the value into the `latency` directive of `srt_server`. SRS 6 applies that
-first and `recvlatency` after it, and `recvlatency` falls back to 120 when the template does not
-name it, so SRS asks for 120 on the receiving side whatever `latency` says. SRS receives every
-broadcast, so by that reading a changed `SRT_LATENCY` does not change how long SRS waits at ingest
-until the stack's template also fills `recvlatency`. A broadcaster raising the latency on their own
-end does work, because SRT uses the larger of the two ends' values.
+Measured 2026-09-23 on the stack's `fix/srt-ingest-latency` branch, head `a1b43f0a`. SRS 6 applies
+`latency` to both directions and `recvlatency` after it, and falls back to 120 for `recvlatency`
+when the block leaves it out, so `recvlatency` alone decides SRS's side of the wait on ingest. With
+libsrt 1.5.4 over loopback, the options applied in SRS's order, `latency 2000` with `recvlatency`
+unset negotiated 120 ms, `latency 2000` with `recvlatency 2000` gave 2000, and a caller asking for
+3000 got 3000, because SRT uses the larger of the two ends' values. The stack now sets both: since
+`36b6749f` on that branch its template fills `SRT_LATENCY` into `latency` and `recvlatency` alike.
+The recording of 2026-09-22 was therefore made through SRS's own 120 ms, not the 200 the stack
+asked for, as the stack's notes at `a1b43f0a` now say.
+
+The stack this manager pins, `v3.1` at `2c4867a`, still fills `latency` alone, so a deployment on
+the bundled version waits 120 ms on ingest whatever `SRT_LATENCY` says, until the pin moves to a
+stack commit that carries `36b6749f`. For a deployment with a config file of its own the manager says
+so, reading `recvlatency` as [engine-config.md](engine-config.md) describes. For one that runs its
+version's template the card and the drawer still show the value the manager writes, 2000, because
+that path takes every setting to reach the engine through its environment and does not read the
+template. Reading the template there is not built.
 
 ## What the engines are and how they are configured today
 

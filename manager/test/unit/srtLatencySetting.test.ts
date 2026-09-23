@@ -7,8 +7,9 @@
  * SRS waits this long for a lost SRT packet to be resent before it gives up on
  * the packet, and a packet given up on is a hole in a video frame. On
  * 2026-09-22 an outside broadcaster lost 5 to 8.5% of its packets, nearly all
- * were resent, and SRS dropped the resends as too late at the stack's 200 ms.
- * Until 2026-09-23 the manager showed the number and let nobody change it.
+ * were resent, and SRS dropped the resends as too late at its own 120 ms, where
+ * the stack asked for 200. Until 2026-09-23 the manager showed the stack's
+ * number and let nobody change it.
  * Since then it is a setting, and a deployment that stores none gets the
  * owner's 2000 unless the host sets a value of its own.
  */
