@@ -5,7 +5,9 @@ at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which lande
 run on a host: the manager was deployed on 2026-09-11 and a second pass on 2026-09-13 reached it
 over its own public domain with a certificate, rather than through the ssh tunnel. That pass is
 recorded in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
-Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`.
+Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`, and the Endpoints
+table, which predated the admin role added in `7346d880` on 2026-09-07 and now has a paragraph
+on it.
 
 **The host steps at the end of this page are superseded.** They were written before the stack
 stopped travelling with a deploy and before the firewall generator took an inventory export, and
@@ -132,16 +134,34 @@ CREATE INDEX sessions_user_idx ON sessions (user_id);
 |---|---|---|---|
 | POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 `no_users` when none has been created |
 | POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
-| GET | `/auth/session` | | `{ username, expiresAt }` or 401 |
+| GET | `/auth/session` | | `{ id, username, isAdmin, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
 | POST | `/auth/password` | `{ current, next }` | 204, all other sessions of the user revoked |
-| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
-| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
-| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
-| POST | `/auth/users/:id/revoke-sessions` | | 204 |
+| GET | `/auth/users` | | `[{ id, username, isAdmin, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password, admin? }` | 201 and the new user's row, 403 `admin_required` unless you are an admin, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 403 `admin_required` unless you are an admin, 404 no such user, 409 for yourself, the last user or the last admin |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 for your own id, and for anyone's if you are an admin, otherwise 403 `admin_required`. 404 no such user |
 
 Middleware `requireSession` in `manager/src/api/middleware/requireSession.ts` runs before every
 router in `server.ts` except the two open routes, attaches `req.user`, refreshes `last_seen_at`.
 `requireSameSite` runs on every non-GET. The request logger logs the username, never the token.
+
+**Who can manage users.** Since `7346d880` on 2026-09-07 a user may be an admin, `isAdmin` in the
+answers above. Through the API only an admin adds a user, removes one or signs someone else
+out, and anyone else gets 403 `admin_required` there (`requireAdmin`, in the same file as
+`requireSession`, and a check inside the revoke route). Every signed-in user still lists
+the users, changes their own password and signs themselves out everywhere. A user is made an
+admin when added, and no route or command changes that later: `user:add --admin` on the host, or
+`admin: true` on `POST /auth/users` from an admin, which is the Add user form's "Can manage
+users" box. The first user ever added is an admin whatever was asked, so the account created
+with the CLI can add the next, and migration `011_admin_users.sql` made the oldest user an admin
+on a manager that already had users. The last admin cannot be removed.
+
+The role gates those three actions and nothing else. Every other route is open to any signed-in
+user, read from `manager/src/api/server.ts` on 2026-09-23 at `87673c99`: `/config`, `/metrics`,
+`/events`, `/services`, `/chequebook/operations`, `/groups`, `/targets`, `/versions` with
+`/versions/attempts`, and `/profiles` with everything under a deployment. That includes
+deploying and stopping it, buying a stamp, a chequebook deposit or withdrawal, its engine
+settings and config file, restarting its containers and reading its SRT passphrase.
 
 ### First user, with no secret in any file
 
