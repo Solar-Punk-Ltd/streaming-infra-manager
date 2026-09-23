@@ -253,7 +253,7 @@ describe('the words on the card', () => {
     ];
 
     for (const text of views.flatMap(allText)) {
-      assert.ok(!text.includes('—'), `an em dash in: ${text}`);
+      assert.ok(!text.includes('\u2014'), `an em dash in: ${text}`);
       assert.ok(!text.includes(';'), `a semicolon in: ${text}`);
     }
   });
