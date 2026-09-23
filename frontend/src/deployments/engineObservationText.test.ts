@@ -63,6 +63,21 @@ describe('engine observation wording', () => {
     assert.equal(engineOverridePlaceholder(version), 'Stack version controls value');
   });
 
+  it('says on a stack version that never reads the setting that its template decides the wait', () => {
+    const version: EngineSettingObservation = {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-setting',
+    };
+
+    const text = engineObservationText(version, 'milliseconds');
+    assert.equal(text.value, '120 milliseconds');
+    assert.equal(text.source, 'Engine default');
+    assert.match(text.detail, /This stack version does not read this setting\./);
+    assert.match(text.detail, /SRS's own default/);
+    assert.doesNotMatch(text.detail, /[;\u2014]/);
+    assert.equal(engineOverrideHint(version), 'Changing this setting will not change the wait on ingest on this stack version.');
+    assert.equal(engineOverridePlaceholder(version), 'Stack version controls value');
+  });
+
   it('keeps the config file wording where a file of the deployment own decides the value', () => {
     const ignored: EngineSettingObservation = {
       status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',

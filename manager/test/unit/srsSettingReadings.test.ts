@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import {
   assembleEngineSettingObservations, effectiveEngineDefaults, engineSettingsFieldsFor, environmentSettingReadings,
+  type EngineSettings,
 } from '@streaming-infra-manager/common';
 import { srsSettingReadings, srsTemplateReadings } from '../../src/domain/engineConfig/srsSettingReadings.js';
 
@@ -310,6 +311,8 @@ describe('the SRT latency of a deployment that runs its version template', () =>
   const fields = engineSettingsFieldsFor('srs', { abr: false });
   const v31Template = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
   const fixedTemplate = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\nrecvlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
+  /** The `srt_server` block of stack tag v2 at 12632b50, whose entrypoint never reads the setting. */
+  const v2Template = `srt_server {\nenabled on;\nlisten 10080;\nlatency 200;\npassphrase PASSPHRASE_PLACEHOLDER;\npbkeylen 16;\ntlpktdrop on;\ntsbpdmode on;\n}\n${template}`;
 
   it("reports SRS's own 120 for a template that fills only latency, as v3.1's does", () => {
     assert.deepEqual(srsTemplateReadings(v31Template, fields), {
@@ -321,9 +324,35 @@ describe('the SRT latency of a deployment that runs its version template', () =>
     assert.deepEqual(srsTemplateReadings(fixedTemplate, fields), {});
   });
 
-  it('leaves it standing where the template cannot be read, or does not take the setting', () => {
-    for (const unreadable of [null, 'vhost main {', `srt_server { enabled on; }\n${template}`]) {
+  it('leaves it standing where the template cannot be read', () => {
+    for (const unreadable of [null, 'vhost main {']) {
       assert.deepEqual(srsTemplateReadings(unreadable, fields), {}, String(unreadable));
+    }
+  });
+
+  it("reports SRS's own 120 for a template that never takes the setting, as v2's writes latency 200 and no recvlatency", () => {
+    for (const neverTakes of [v2Template, `srt_server { enabled on; }\n${template}`]) {
+      assert.deepEqual(srsTemplateReadings(neverTakes, fields), {
+        SRT_LATENCY: [{ kind: 'built-in', value: '120', reason: 'version-without-setting' }],
+      }, neverTakes);
+    }
+  });
+
+  it('reads the recvlatency such a template writes itself as the wait', () => {
+    const writesItsOwn = v2Template.replace('latency 200;', 'latency 200;\nrecvlatency 800;');
+
+    assert.deepEqual(srsTemplateReadings(writesItsOwn, fields), {
+      SRT_LATENCY: [{ kind: 'built-in', value: '800', reason: 'version-without-setting' }],
+    });
+  });
+
+  it('does not report a recvlatency the setting would refuse as the wait', () => {
+    for (const value of ['5', 'soon']) {
+      const writesItsOwn = v2Template.replace('latency 200;', `latency 200;\nrecvlatency ${value};`);
+
+      assert.deepEqual(srsTemplateReadings(writesItsOwn, fields), {
+        SRT_LATENCY: [{ kind: 'unverified', reason: 'invalid-scalar', environment: 'unknown' }],
+      }, value);
     }
   });
 
@@ -342,5 +371,20 @@ describe('the SRT latency of a deployment that runs its version template', () =>
     });
     assert.equal(result.effective.HLS_WINDOW, '30');
     assert.deepEqual(result.notInConfig, ['SRT_LATENCY']);
+  });
+
+  it("shows neither a stored value nor the manager's 2000 as the wait on a version that never reads the setting", () => {
+    const storedAndUnset: EngineSettings[] = [{ SRT_LATENCY: '3000' }, {}];
+    for (const settings of storedAndUnset) {
+      const result = assembleEngineSettingObservations({
+        fields, settings, defaults: effectiveEngineDefaults('srs'),
+        readings: { ...environmentSettingReadings(fields), ...srsTemplateReadings(v2Template, fields) },
+      });
+
+      assert.deepEqual(result.observations.SRT_LATENCY, {
+        status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-setting',
+      }, JSON.stringify(settings));
+      assert.deepEqual(result.notInConfig, ['SRT_LATENCY']);
+    }
   });
 });

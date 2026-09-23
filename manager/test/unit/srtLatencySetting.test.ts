@@ -225,11 +225,13 @@ describe('GET /profiles/:name/engine for a deployment with a config file of its 
  * A deployment with no config file of its own runs its version's template, so
  * what SRS waits on ingest is read off that template. v3.1's fills only
  * `latency`, which SRS ignores on ingest, and the stack since 36b6749f fills
- * `recvlatency` beside it.
+ * `recvlatency` beside it. v2's takes the setting nowhere: it writes
+ * `latency 200` itself, and its entrypoint never reads `SRT_LATENCY`.
  */
 describe('GET /profiles/:name/engine for a deployment that runs its version template', () => {
   const V31_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n}\n';
   const FIXED_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n    recvlatency SRT_LATENCY_PLACEHOLDER;\n}\n';
+  const V2_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    listen 10080;\n    latency 200;\n    tlpktdrop on;\n}\n';
 
   async function overviewOn(templateText: string, settings: Record<string, string> = {}): Promise<EngineOverview> {
     mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
@@ -271,5 +273,15 @@ describe('GET /profiles/:name/engine for a deployment that runs its version temp
 
     assert.equal(overview.effective.SRT_LATENCY, '2000');
     assert.equal(overview.observations.SRT_LATENCY.source, 'manager');
+  });
+
+  it("shows SRS's own 120 on a version that never reads the setting, not the 2000 the manager writes", async () => {
+    const overview = await overviewOn(V2_SRS_TEMPLATE);
+
+    assert.equal(overview.effective.SRT_LATENCY, '120', 'the 2000 in the env file is read by nothing on this version');
+    assert.deepEqual(overview.observations.SRT_LATENCY, {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-setting',
+    });
+    assert.ok(overview.notInConfig.includes('SRT_LATENCY'));
   });
 });

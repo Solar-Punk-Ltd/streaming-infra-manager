@@ -7,13 +7,16 @@ export type EngineSettingUnknownReason = 'missing-directive' | 'conflicting-valu
   | 'not-applicable' | 'mixed-applicability' | 'codec-unverified';
 
 /**
- * Why a setting sits at the engine's own built-in value: the config the engine
- * runs leaves out the directive it reads for it, so neither a literal nor an
- * override reaches it. The first two name a config file of the deployment's
- * own. `version-without-recvlatency` names the version's template, which is the
- * config a deployment without a file of its own runs.
+ * Why a setting sits at a value no override reaches: the config the engine
+ * runs leaves out the directive it reads for it, so the engine's own built-in
+ * value applies. The first two name a config file of the deployment's own. The
+ * last two name the version's template, which is the config a deployment
+ * without a file of its own runs. `version-without-setting` is a template that
+ * never takes the setting at all, and one that writes the directive itself
+ * holds the value at what it writes.
  */
-export type EngineSettingBuiltInReason = 'latency-without-recvlatency' | 'no-recvlatency' | 'version-without-recvlatency';
+export type EngineSettingBuiltInReason = 'latency-without-recvlatency' | 'no-recvlatency' | 'version-without-recvlatency'
+  | 'version-without-setting';
 
 export type EngineSettingObservation =
   | { status: 'known'; source: 'deployment' | EngineDefaultSource | 'config-file'; value: string; environment: EngineSettingEnvironment }

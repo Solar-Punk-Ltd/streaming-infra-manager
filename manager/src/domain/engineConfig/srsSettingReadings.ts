@@ -1,5 +1,6 @@
-import type {
-  EngineSettingField, EngineSettingReading, EngineSettingReadings, EngineSettingUnknownReason,
+import {
+  engineSettingFieldProblem,
+  type EngineSettingField, type EngineSettingReading, type EngineSettingReadings, type EngineSettingUnknownReason,
 } from '@streaming-infra-manager/common';
 
 import { parseSrsConfig, type SrsDirective } from './srsConfigSyntax.js';
@@ -28,6 +29,7 @@ const SRT_LATENCY_KEY = 'SRT_LATENCY';
 const INGEST_LATENCY_DIRECTIVE = 'recvlatency';
 const BOTH_WAYS_LATENCY_DIRECTIVE = 'latency';
 const SRS_INGEST_LATENCY_DEFAULT_MS = '120';
+const SRT_SERVER_SCOPE = ['srt_server'];
 
 /** The scopes of a file to read a field in, or the one reading that says why there are none. */
 type FieldScopes = { scopes: Entry[] } | { reading: EngineSettingReading };
@@ -190,6 +192,29 @@ export function srsSettingReadings(
   }));
 }
 
+function takesPlaceholder(entries: readonly Entry[], placeholder: string): boolean {
+  return entries.some(entry => entry.node.args.some(arg => arg.includes(placeholder)));
+}
+
+const fixedByVersion = (value: string): EngineSettingReading => ({ kind: 'built-in', value, reason: 'version-without-setting' });
+
+/**
+ * The wait on ingest of a template that never takes the setting: the
+ * `recvlatency` its `srt_server` block writes, or SRS's own 120 where it
+ * writes none. Null for a template that runs no SRT server.
+ */
+function ingestLatencyFixedBy(field: EngineSettingField, template: readonly Entry[]): EngineSettingReading[] | null {
+  const blocks = template.filter(entry => entry.node.children !== null && sameNames(scopeNames(entry), SRT_SERVER_SCOPE));
+  if (!blocks.length) return null;
+  if (hasIncludeFor(template, [SRT_SERVER_SCOPE])) return [unknown('unsupported-syntax')];
+  return blocks.map(block => {
+    const reading = scalarIn(block, INGEST_LATENCY_DIRECTIVE);
+    if (reading.kind === 'omitted') return fixedByVersion(SRS_INGEST_LATENCY_DEFAULT_MS);
+    if (reading.kind !== 'literal') return reading;
+    return engineSettingFieldProblem(field, reading.value) === null ? fixedByVersion(reading.value.trim()) : unknown('invalid-scalar');
+  });
+}
+
 /**
  * The readings a version's own template decides for a deployment with no
  * config file of its own, which runs that template as SRS's config. Merged over
@@ -197,9 +222,12 @@ export function srsSettingReadings(
  * from the environment and for whatever this cannot decide.
  *
  * Only the SRT latency can come out otherwise. A template that fills only
- * `latency`, as v3.1's and every one before the stack's a1b43f0a does, leaves
- * SRS on its own 120 on ingest whatever the setting says. One that fills
- * `recvlatency` hands SRS the setting, which is the environment reading.
+ * `latency`, as v3's and v3.1's do, leaves SRS on its own 120 on ingest
+ * whatever the setting says. One that fills `recvlatency` hands SRS the
+ * setting, which is the environment reading. One that never takes the setting,
+ * as v1's and v2's, which write `latency 200` themselves and whose entrypoints
+ * never read the key, holds the wait at the `recvlatency` it writes, or at
+ * SRS's own 120 where it writes none.
  */
 export function srsTemplateReadings(
   templateText: string | null,
@@ -207,8 +235,12 @@ export function srsTemplateReadings(
 ): EngineSettingReadings {
   const field = fields.find(candidate => candidate.key === SRT_LATENCY_KEY);
   const parsed = parseSrsConfig(templateText);
-  if (!field || parsed === null) return {};
+  if (!field?.placeholder || parsed === null) return {};
   const template = entriesIn(parsed);
+  if (!takesPlaceholder(template, field.placeholder)) {
+    const fixed = ingestLatencyFixedBy(field, template);
+    return fixed ? { [field.key]: fixed } : {};
+  }
   const readings = srtLatencyReadings(field, template, template, templateText ?? '');
   const onlyLatency = readings.length === 1
     && readings[0]?.kind === 'built-in' && readings[0].reason === 'latency-without-recvlatency';

@@ -17,7 +17,10 @@ const BUILT_IN_DETAILS: Record<EngineSettingBuiltInReason, string> = {
   'latency-without-recvlatency': 'SRS ignores latency for ingest without recvlatency. This config sets latency and no recvlatency, so SRS waits its own default instead.',
   'no-recvlatency': 'This config sets no recvlatency, which is what SRS reads for this wait on ingest, so SRS waits its own default.',
   'version-without-recvlatency': "SRS ignores latency for ingest without recvlatency. This stack version's template sets latency and no recvlatency, so SRS waits its own default instead.",
+  'version-without-setting': "This stack version does not read this setting. Its template decides the wait on ingest: the recvlatency it sets, or SRS's own default where it sets none.",
 };
+
+const VERSION_REASONS: readonly EngineSettingBuiltInReason[] = ['version-without-recvlatency', 'version-without-setting'];
 
 /**
  * A value the deployment's stack version decides, because it runs the
@@ -27,7 +30,7 @@ const BUILT_IN_DETAILS: Record<EngineSettingBuiltInReason, string> = {
  */
 function decidedByVersion(observation: EngineSettingObservation | undefined): boolean {
   return observation?.status === 'known' && observation.source === 'built-in'
-    && observation.reason === 'version-without-recvlatency';
+    && VERSION_REASONS.includes(observation.reason);
 }
 
 /**
