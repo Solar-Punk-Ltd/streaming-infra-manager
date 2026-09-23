@@ -78,11 +78,15 @@ the only source there is.
   Docker socket the Logs button reads through,
   `ContainerControl.logLinesContaining`. One on another host is read over the
   ssh path `TargetDocker` already takes for its snapshots and published ports,
-  and there `grep -F` runs on the remote host, so no other line of the log
-  crosses the connection (`manager/src/domain/ports/remoteLogLines.ts`). That
-  command frames its answer, because a pipeline into grep reports grep's status
-  alone and would make no container, a quiet window and a failed read look the
-  same.
+  and there `grep -E` holds each line to the report's whole shape, from start to
+  end with colour codes allowed, on the remote host
+  (`TRANSPORT_STATS_HOST_PATTERN`, `manager/src/domain/ports/remoteLogLines.ts`).
+  So no other line of the log crosses the connection, not even a hook line
+  whose publisher chose a stream id that quotes the report. A filter on the
+  marker text alone let such a line through, token and all, until Copilot's
+  review of PR 45 found it. That command frames its answer, because a pipeline
+  into grep reports grep's status alone and would make no container, a quiet
+  window and a failed read look the same.
 - **The filter.** Only lines carrying `<- SRT_CPB Transport Stats # ` leave the
   reader, a last line the read cut short is dropped, since a count cut after two
   of its digits still parses, and a line is parsed only when it has the report's
@@ -188,15 +192,18 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
   through colour codes, several connections, a line cut in half, the viewer
   side's own statistics, libsrt's drop warnings, a count too long to be exact,
   and the report text quoted inside another line, anchored so each case fails
-  when its guard is removed.
+  when its guard is removed. The same cases also go through a real `grep -E`
+  with the host pattern, which has to keep exactly the lines the parser reads.
 - `manager/test/unit/containerControl.test.ts`: the local read asks for the
   window alone, with both ends in milliseconds, keeps only marked lines from
   both streams, drops a cut last line, and stops at its byte bound.
 - `manager/test/unit/remoteLogLines.test.ts`: the remote command, refused for a
-  name or marker that could leave its quotes, and run by a real POSIX shell
+  name or pattern that could leave its quotes, and run by a real POSIX shell
   against a stand-in `docker` for no container, two containers, an empty window,
-  a log without a final newline and a failed read. Run by hand under dash, the
-  macOS sh and zsh as well.
+  a log without a final newline, a failed read, and hook lines whose stream id
+  quotes the report, with and without a line break, which stay on the host
+  while a report in colour codes crosses. Run by hand under dash, the macOS sh
+  and zsh as well, before the pattern replaced the marker.
 - `manager/test/unit/srtIngestHealth.test.ts`: the service's states, and a log
   holding the webhook token and the publisher's address beside the reports,
   after which neither the reading nor anything logged carries any of it, the
