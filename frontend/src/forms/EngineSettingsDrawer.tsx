@@ -23,7 +23,9 @@ import {
   type EngineOverview,
 } from '../deployments/engineApi';
 import { ENGINE_LABEL } from '../deployments/engineText';
-import { engineDefaultText, engineObservationNote, engineOverrideHint } from '../deployments/engineObservationText';
+import {
+  engineDefaultText, engineObservationNote, engineOverrideHint, engineOverridePlaceholder,
+} from '../deployments/engineObservationText';
 import { useEngineOverview } from '../deployments/useEngineOverview';
 import { engineOf } from '../deployments/shape';
 import { EditDrawerFrame } from './EditDrawerFrame';
@@ -264,8 +266,7 @@ function SettingField({
   const hint = overview
     ? [field.help, observationNote, engineOverrideHint(observation), defaultNote].filter(Boolean).join(' ')
     : `${field.help} No current observation is available. Your draft text is kept.`;
-  const placeholder = !overview ? '' : knownDefault ? fallback
-    : observation?.environment === 'none' ? 'Config controls value' : 'Config use unverified';
+  const placeholder = !overview ? '' : knownDefault ? fallback : engineOverridePlaceholder(observation);
 
   // Shown late, but Save is not gated on it: the drawer's own check runs over
   // every field on every keystroke and is what decides whether Save is live.

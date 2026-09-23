@@ -16,7 +16,19 @@ const SOURCES = {
 const BUILT_IN_DETAILS: Record<EngineSettingBuiltInReason, string> = {
   'latency-without-recvlatency': 'SRS ignores latency for ingest without recvlatency. This config sets latency and no recvlatency, so SRS waits its own default instead.',
   'no-recvlatency': 'This config sets no recvlatency, which is what SRS reads for this wait on ingest, so SRS waits its own default.',
+  'version-without-recvlatency': "SRS ignores latency for ingest without recvlatency. This stack version's template sets latency and no recvlatency, so SRS waits its own default instead.",
 };
+
+/**
+ * A value the deployment's stack version decides, because it runs the
+ * version's template and that template leaves the setting out. No config file
+ * of the deployment's own is involved, so the config file wording would send
+ * an operator looking for a file that is not there.
+ */
+function decidedByVersion(observation: EngineSettingObservation | undefined): boolean {
+  return observation?.status === 'known' && observation.source === 'built-in'
+    && observation.reason === 'version-without-recvlatency';
+}
 
 /**
  * What an empty field falls back to, and where that value comes from.
@@ -72,10 +84,17 @@ export function engineObservationNote(observation: EngineSettingObservation | un
 }
 
 export function engineOverrideHint(observation: EngineSettingObservation | undefined): string {
+  if (decidedByVersion(observation)) return 'Changing this setting will not change the wait on ingest on this stack version.';
   switch (observation?.environment) {
     case 'all': return 'This config reads the override in every relevant section.';
     case 'none': return 'Changing this override will not change this setting in the config file. Edit the config file to change it.';
     case 'partial': return 'Only some relevant sections read this override. Applying it may not change every section.';
     default: return 'Whether this config reads the override is unverified.';
   }
+}
+
+/** What an empty override field shows where no default it falls back to can be named. */
+export function engineOverridePlaceholder(observation: EngineSettingObservation | undefined): string {
+  if (decidedByVersion(observation)) return 'Stack version controls value';
+  return observation?.environment === 'none' ? 'Config controls value' : 'Config use unverified';
 }

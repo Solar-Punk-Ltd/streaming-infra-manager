@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { assembleEngineSettingObservations, effectiveEngineDefaults, engineSettingsFieldsFor } from '@streaming-infra-manager/common';
-import { srsSettingReadings } from '../../src/domain/engineConfig/srsSettingReadings.js';
+import {
+  assembleEngineSettingObservations, effectiveEngineDefaults, engineSettingsFieldsFor, environmentSettingReadings,
+} from '@streaming-infra-manager/common';
+import { srsSettingReadings, srsTemplateReadings } from '../../src/domain/engineConfig/srsSettingReadings.js';
 
 const template = 'vhost __defaultVhost__ { hls { hls_fragment HLS_FRAGMENT_PLACEHOLDER; hls_window HLS_WINDOW_PLACEHOLDER; }\nTRANSCODE_PLACEHOLDER\n}\nABR_VHOST_PLACEHOLDER\n';
 const hls = (fragment = '4', window = '30') => `hls { hls_fragment ${fragment}; hls_window ${window}; }`;
@@ -295,5 +297,50 @@ describe('the SRT latency in a config file of the deployment own', () => {
 
     assert.equal(reason(observeLatency(file, { selectedTemplate: null }), 'SRT_LATENCY'), 'metadata-unavailable');
     assert.equal(reason(observeLatency(file, { selectedTemplate: `srt_server { enabled on; }\n${template}` }), 'SRT_LATENCY'), 'metadata-unavailable');
+  });
+});
+
+/**
+ * A deployment with no config file of its own runs its version's template as
+ * SRS's config, so its wait on ingest is read off that template. Every other
+ * field reads as the environment there, because the template fills each from
+ * it. v3.1's template fills only `latency`, which SRS ignores on ingest.
+ */
+describe('the SRT latency of a deployment that runs its version template', () => {
+  const fields = engineSettingsFieldsFor('srs', { abr: false });
+  const v31Template = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
+  const fixedTemplate = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\nrecvlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
+
+  it("reports SRS's own 120 for a template that fills only latency, as v3.1's does", () => {
+    assert.deepEqual(srsTemplateReadings(v31Template, fields), {
+      SRT_LATENCY: [{ kind: 'built-in', value: '120', reason: 'version-without-recvlatency' }],
+    });
+  });
+
+  it('leaves the environment reading standing for a template that fills recvlatency', () => {
+    assert.deepEqual(srsTemplateReadings(fixedTemplate, fields), {});
+  });
+
+  it('leaves it standing where the template cannot be read, or does not take the setting', () => {
+    for (const unreadable of [null, 'vhost main {', `srt_server { enabled on; }\n${template}`]) {
+      assert.deepEqual(srsTemplateReadings(unreadable, fields), {}, String(unreadable));
+    }
+  });
+
+  it('reads nothing for a field list that carries no SRT latency', () => {
+    assert.deepEqual(srsTemplateReadings(v31Template, engineSettingsFieldsFor('ome', { abr: false })), {});
+  });
+
+  it('makes the stored value one SRS never applies, and leaves the other fields to the environment', () => {
+    const result = assembleEngineSettingObservations({
+      fields, settings: { SRT_LATENCY: '3000', HLS_WINDOW: '30' }, defaults: effectiveEngineDefaults('srs'),
+      readings: { ...environmentSettingReadings(fields), ...srsTemplateReadings(v31Template, fields) },
+    });
+
+    assert.deepEqual(result.observations.SRT_LATENCY, {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-recvlatency',
+    });
+    assert.equal(result.effective.HLS_WINDOW, '30');
+    assert.deepEqual(result.notInConfig, ['SRT_LATENCY']);
   });
 });

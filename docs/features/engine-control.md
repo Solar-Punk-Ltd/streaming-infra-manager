@@ -47,10 +47,15 @@ asked for, as the stack's notes at `a1b43f0a` now say.
 The stack this manager pins, `v3.1` at `2c4867a`, still fills `latency` alone, so a deployment on
 the bundled version waits 120 ms on ingest whatever `SRT_LATENCY` says, until the pin moves to a
 stack commit that carries `36b6749f`. For a deployment with a config file of its own the manager says
-so, reading `recvlatency` as [engine-config.md](engine-config.md) describes. For one that runs its
-version's template the card and the drawer still show the value the manager writes, 2000, because
-that path takes every setting to reach the engine through its environment and does not read the
-template. Reading the template there is not built.
+so, reading `recvlatency` as [engine-config.md](engine-config.md) describes. From later on
+2026-09-23 it says so for a deployment that runs its version's template as well, by reading the SRT
+latency off that template. On a template that fills only `latency`, as `v3.1`'s does, the card and
+the drawer show SRS's own 120 as **Engine default**, with the sentence that SRS ignores `latency` for
+ingest without `recvlatency`, and the drawer says that changing the setting will not change the
+wait on ingest on this stack version. On a template that fills `recvlatency` they show the stored
+or default value. Every other setting of such a deployment is still read as the environment,
+because the template fills each from it. The offline mock reads its own template, a copy of
+`v3.1`'s, the same way.
 
 ## What the engines are and how they are configured today
 

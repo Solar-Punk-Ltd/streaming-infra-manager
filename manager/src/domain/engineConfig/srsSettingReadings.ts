@@ -189,3 +189,29 @@ export function srsSettingReadings(
     return [field.key, directive ? encoders.map(scope => scalarIn(scope, directive)) : [unknown('metadata-unavailable')]];
   }));
 }
+
+/**
+ * The readings a version's own template decides for a deployment with no
+ * config file of its own, which runs that template as SRS's config. Merged over
+ * the environment readings, which stand for every field the template fills
+ * from the environment and for whatever this cannot decide.
+ *
+ * Only the SRT latency can come out otherwise. A template that fills only
+ * `latency`, as v3.1's and every one before the stack's a1b43f0a does, leaves
+ * SRS on its own 120 on ingest whatever the setting says. One that fills
+ * `recvlatency` hands SRS the setting, which is the environment reading.
+ */
+export function srsTemplateReadings(
+  templateText: string | null,
+  fields: readonly EngineSettingField[],
+): EngineSettingReadings {
+  const field = fields.find(candidate => candidate.key === SRT_LATENCY_KEY);
+  const parsed = parseSrsConfig(templateText);
+  if (!field || parsed === null) return {};
+  const template = entriesIn(parsed);
+  const readings = srtLatencyReadings(field, template, template, templateText ?? '');
+  const onlyLatency = readings.length === 1
+    && readings[0]?.kind === 'built-in' && readings[0].reason === 'latency-without-recvlatency';
+  if (!onlyLatency) return {};
+  return { [field.key]: [{ kind: 'built-in', value: SRS_INGEST_LATENCY_DEFAULT_MS, reason: 'version-without-recvlatency' }] };
+}

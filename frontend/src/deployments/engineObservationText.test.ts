@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EngineSettingObservation } from '@streaming-infra-manager/common';
 
-import { engineDefaultText, engineObservationNote, engineObservationText, engineOverrideHint } from './engineObservationText';
+import {
+  engineDefaultText, engineObservationNote, engineObservationText, engineOverrideHint, engineOverridePlaceholder,
+} from './engineObservationText';
 
 const literal: EngineSettingObservation = { status: 'known', source: 'config-file', value: '4', environment: 'none' };
 
@@ -45,6 +47,31 @@ describe('engine observation wording', () => {
     assert.match(engineObservationNote(ignored, 'milliseconds'), /^Configured value: 120 milliseconds\. Engine default\. SRS ignores latency for ingest without recvlatency/);
     assert.equal(engineObservationNote(stored, 'seconds'), 'Configured value: 2 seconds. Deployment override.');
     assert.match(engineObservationNote({ status: 'unknown', source: 'omitted', reason: 'missing-directive', value: null, environment: 'none' }), /^Not specified\. At least one relevant section/);
+  });
+
+  it("says on a stack version that fills only latency that changing the setting will not change ingest there", () => {
+    const version: EngineSettingObservation = {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-recvlatency',
+    };
+
+    const text = engineObservationText(version, 'milliseconds');
+    assert.equal(text.value, '120 milliseconds');
+    assert.equal(text.source, 'Engine default');
+    assert.match(text.detail, /SRS ignores latency for ingest without recvlatency/);
+    assert.match(text.detail, /This stack version's template sets latency and no recvlatency/);
+    assert.equal(engineOverrideHint(version), 'Changing this setting will not change the wait on ingest on this stack version.');
+    assert.equal(engineOverridePlaceholder(version), 'Stack version controls value');
+  });
+
+  it('keeps the config file wording where a file of the deployment own decides the value', () => {
+    const ignored: EngineSettingObservation = {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',
+    };
+
+    assert.match(engineOverrideHint(ignored), /Edit the config file to change it/);
+    assert.equal(engineOverridePlaceholder(ignored), 'Config controls value');
+    assert.equal(engineOverridePlaceholder(literal), 'Config controls value');
+    assert.equal(engineOverridePlaceholder(undefined), 'Config use unverified');
   });
 
   it("names whose default an empty field falls back to, the manager's included", () => {

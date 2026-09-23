@@ -220,3 +220,56 @@ describe('GET /profiles/:name/engine for a deployment with a config file of its 
     assert.equal(overview.observations.SRT_LATENCY.source, 'deployment');
   });
 });
+
+/**
+ * A deployment with no config file of its own runs its version's template, so
+ * what SRS waits on ingest is read off that template. v3.1's fills only
+ * `latency`, which SRS ignores on ingest, and the stack since 36b6749f fills
+ * `recvlatency` beside it.
+ */
+describe('GET /profiles/:name/engine for a deployment that runs its version template', () => {
+  const V31_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n}\n';
+  const FIXED_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n    recvlatency SRT_LATENCY_PLACEHOLDER;\n}\n';
+
+  async function overviewOn(templateText: string, settings: Record<string, string> = {}): Promise<EngineOverview> {
+    mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
+    writeFileSync(join(root, 'engines', 'srs', 'srs.conf.template'), templateText, 'utf8');
+    const harness = profileServiceHarness([
+      profileRow({ has_engine_config: false, engine_settings: settings }),
+    ]);
+    const app = await startEngineTestApp(
+      harness.service,
+      new ContainerControl(new EventBus(), fakeDocker([])),
+    );
+    try {
+      return (await callEngine(app, 'GET', '/profiles/stream1/engine')).body as EngineOverview;
+    } finally {
+      await app.close();
+    }
+  }
+
+  it("shows SRS's own 120 on a version whose template fills only latency, whatever is stored", async () => {
+    const overview = await overviewOn(V31_SRS_TEMPLATE, { SRT_LATENCY: '3000' });
+
+    assert.equal(overview.effective.SRT_LATENCY, '120', 'not the stored 3000, which this version never hands SRS for ingest');
+    assert.deepEqual(overview.observations.SRT_LATENCY, {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-recvlatency',
+    });
+    assert.ok(overview.notInConfig.includes('SRT_LATENCY'));
+    assert.equal(overview.observations.HLS_WINDOW.source, 'stack', 'the other settings still read as the environment');
+  });
+
+  it('shows the stored value on a version whose template fills recvlatency', async () => {
+    const overview = await overviewOn(FIXED_SRS_TEMPLATE, { SRT_LATENCY: '3000' });
+
+    assert.equal(overview.effective.SRT_LATENCY, '3000');
+    assert.equal(overview.observations.SRT_LATENCY.source, 'deployment');
+  });
+
+  it("shows the manager's 2000 there when nothing is stored", async () => {
+    const overview = await overviewOn(FIXED_SRS_TEMPLATE);
+
+    assert.equal(overview.effective.SRT_LATENCY, '2000');
+    assert.equal(overview.observations.SRT_LATENCY.source, 'manager');
+  });
+});

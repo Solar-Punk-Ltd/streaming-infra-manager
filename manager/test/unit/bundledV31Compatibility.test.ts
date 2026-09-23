@@ -19,13 +19,14 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { OME_SERVICE, SRS_SERVICE } from '@streaming-infra-manager/common';
+import { engineSettingsFieldsFor, OME_SERVICE, SRS_SERVICE } from '@streaming-infra-manager/common';
 
 import {
   type CommandRunner,
   EngineConfigChecker,
 } from '../../src/domain/engineConfig/engineConfigCheck.js';
 import { engineTemplateIn } from '../../src/domain/engineConfig/engineConfigTemplates.js';
+import { srsTemplateReadings } from '../../src/domain/engineConfig/srsSettingReadings.js';
 import { readStackContract } from '../../src/domain/versions/stackContract.js';
 import { writeProfileEnv } from '../../src/utils/envUtils.js';
 
@@ -116,6 +117,16 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
       assignment(written, 'SRT_LATENCY'),
       '2000',
       `the manager writes its own SRT latency, where this checkout falls back to ${contract.engineDefaults.SRT_LATENCY ?? 'nothing it names'}`,
+    );
+  });
+
+  it("reads the v3.1 template as SRS waiting its own 120 on ingest, because it fills latency alone", () => {
+    const fields = engineSettingsFieldsFor(SRS_SERVICE, { abr: false });
+
+    assert.deepEqual(
+      srsTemplateReadings(engineTemplateIn(STACK, SRS_SERVICE).text, fields),
+      { SRT_LATENCY: [{ kind: 'built-in', value: '120', reason: 'version-without-recvlatency' }] },
+      'a pinned stack whose template fills recvlatency reads as {} here, and the pages that say the bundled version waits 120 move with it',
     );
   });
 
