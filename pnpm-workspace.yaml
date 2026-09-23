@@ -8,3 +8,5 @@ allowBuilds:
   esbuild: true # build tooling — safest to allow
   protobufjs: false
   ssh2: false
+overrides:
+  qs: 6.16.0 # GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g
