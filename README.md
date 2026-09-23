@@ -26,9 +26,9 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 - `manager/swarm-hls-stream/`: a git submodule pointing at
   [Solar-Punk-Ltd/swarm-hls-stream](https://github.com/Solar-Punk-Ltd/swarm-hls-stream),
-  pinned to release `v3.1` (`2c4867aee359928263155c50d82c13e6b1362f4b`)
-  as of 2026-09-19, with `main` as its tracked branch. This is
-  the upstream application source, with the
+  pinned to the stack's `main` at `8c5c583a9fdd4604a602433112410f5a996952ee`
+  as of 2026-09-23, with `main` as its tracked branch. No release tag names
+  that commit yet. This is the upstream application source, with the
   packages under `packages/` and the engine trees under `engines/`. The commit
   it records is the **bundled** stack version, and that version is the default
   until another is chosen. A deploy does not carry this tree. It writes the
@@ -146,18 +146,31 @@ fetched. Go back to Option A or B.
 
 ## Updating the upstream submodule
 
-The bundled stack is pinned to `v3.1` as of 2026-09-19. That release includes
-PR #241 and the manager integration work previously carried by
-`feat/manager-line`. The upstream default branch is now `main`.
+The bundled stack is pinned to the stack's `main` at `8c5c583a` as of
+2026-09-23. No release tag names that commit yet, so the pin is a commit
+rather than a release. It builds on `v3.1`, pinned from 2026-09-19, which
+brought PR #241 and the manager integration work previously carried by
+`feat/manager-line`. Over `v3.1` it makes SRT ingest wait 2000 ms for a lost
+packet by default, where `v3.1` asked for 200 ms and SRS waited its own
+120 ms, because the template filled `latency` and not `recvlatency`. An SRS
+encoder that drops and returns inside the reap window, 60 s by default, now
+resumes its broadcast instead of starting a new one, while OME still ends it.
+The upstream default branch is `main`.
 
-Prefer an explicit release when upgrading the bundled stack:
+Pin an explicit release or commit when upgrading the bundled stack, a release
+when one carries the change you need and a commit when none does yet. `<ref>`
+below is either one, a tag such as `v3.1` or a full commit id such as
+`8c5c583a9fdd4604a602433112410f5a996952ee`:
 
 ```sh
-git -C manager/swarm-hls-stream fetch origin tag v3.1
-git -C manager/swarm-hls-stream checkout --detach v3.1
+git -C manager/swarm-hls-stream fetch origin --tags
+git -C manager/swarm-hls-stream checkout --detach <ref>
 git add manager/swarm-hls-stream
-git commit -m "chore: pin swarm-hls-stream v3.1"
+git commit -m "chore: pin swarm-hls-stream <ref>"
 ```
+
+The fetch brings every branch and every tag of the stack, so a release tag and
+a commit on any branch both resolve.
 
 To test the latest upstream `main` instead, use the tracked branch:
 
