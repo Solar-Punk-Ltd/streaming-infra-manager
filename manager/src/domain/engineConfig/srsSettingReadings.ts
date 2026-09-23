@@ -208,6 +208,11 @@ function takesPlaceholder(entries: readonly Entry[], placeholder: string): boole
 
 const fixedByVersion = (value: string): EngineSettingReading => ({ kind: 'built-in', value, reason: 'version-without-setting' });
 
+/** A `recvlatency` a template writes itself: the wait it fixes, or unverified where the setting would refuse the value. */
+function writtenIngestLatency(field: EngineSettingField, value: string): EngineSettingReading {
+  return engineSettingFieldProblem(field, value) === null ? fixedByVersion(value.trim()) : unknown('invalid-scalar');
+}
+
 /**
  * The wait on ingest of a template that never takes the setting: the
  * `recvlatency` its `srt_server` block writes, or SRS's own 120 where it
@@ -220,8 +225,7 @@ function ingestLatencyFixedBy(field: EngineSettingField, template: readonly Entr
   return blocks.map(block => {
     const reading = scalarIn(block, INGEST_LATENCY_DIRECTIVE);
     if (reading.kind === 'omitted') return fixedByVersion(SRS_INGEST_LATENCY_DEFAULT_MS);
-    if (reading.kind !== 'literal') return reading;
-    return engineSettingFieldProblem(field, reading.value) === null ? fixedByVersion(reading.value.trim()) : unknown('invalid-scalar');
+    return reading.kind === 'literal' ? writtenIngestLatency(field, reading.value) : reading;
   });
 }
 
@@ -229,15 +233,17 @@ function ingestLatencyFixedBy(field: EngineSettingField, template: readonly Entr
  * The readings a version's own template decides for a deployment with no
  * config file of its own, which runs that template as SRS's config. Merged over
  * the environment readings, which stand for every field the template fills
- * from the environment and for whatever this cannot decide.
+ * from the environment and for a template that cannot be parsed.
  *
  * Only the SRT latency can come out otherwise. A template that fills only
  * `latency`, as v3's and v3.1's do, leaves SRS on its own 120 on ingest
- * whatever the setting says. One that fills `recvlatency` hands SRS the
- * setting, which is the environment reading. One that never takes the setting,
- * as v1's and v2's, which write `latency 200` themselves and whose entrypoints
- * never read the key, holds the wait at the `recvlatency` it writes, or at
- * SRS's own 120 where it writes none.
+ * whatever the setting says, and one that fills `latency` beside a
+ * `recvlatency` it writes itself holds the wait at that value. One that fills
+ * `recvlatency` hands SRS the setting, which is the environment reading. One
+ * that never takes the setting, as v1's and v2's, which write `latency 200`
+ * themselves and whose entrypoints never read the key, holds the wait at the
+ * `recvlatency` it writes, or at SRS's own 120 where it writes none. A scope
+ * the reading cannot decide comes out unverified rather than as the setting.
  */
 export function srsTemplateReadings(
   templateText: string | null,
@@ -252,8 +258,13 @@ export function srsTemplateReadings(
     return fixed ? { [field.key]: fixed } : {};
   }
   const readings = srtLatencyReadings(field, template, template, templateText ?? '');
-  const onlyLatency = readings.length === 1
-    && readings[0]?.kind === 'built-in' && readings[0].reason === 'latency-without-recvlatency';
-  if (!onlyLatency) return {};
-  return { [field.key]: [{ kind: 'built-in', value: SRS_INGEST_LATENCY_DEFAULT_MS, reason: 'version-without-recvlatency' }] };
+  if (readings.every(reading => reading.kind === 'environment')) return {};
+  return {
+    [field.key]: readings.map((reading): EngineSettingReading => {
+      if (reading.kind === 'built-in' && reading.reason === 'latency-without-recvlatency') {
+        return { kind: 'built-in', value: SRS_INGEST_LATENCY_DEFAULT_MS, reason: 'version-without-recvlatency' };
+      }
+      return reading.kind === 'literal' ? writtenIngestLatency(field, reading.value) : reading;
+    }),
+  };
 }

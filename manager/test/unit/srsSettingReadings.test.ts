@@ -363,6 +363,20 @@ describe('the SRT latency of a deployment that runs its version template', () =>
     }
   });
 
+  // SRS 6 applies `recvlatency` after `latency`, so on ingest a recvlatency
+  // written into the template overrides a latency filled from the setting.
+  it('reads the recvlatency a template writes itself beside a latency it fills from the setting', () => {
+    const fillsLatencyOnly = v31Template.replace('latency SRT_LATENCY_PLACEHOLDER;', 'latency SRT_LATENCY_PLACEHOLDER;\nrecvlatency 800;');
+    const refused = v31Template.replace('latency SRT_LATENCY_PLACEHOLDER;', 'latency SRT_LATENCY_PLACEHOLDER;\nrecvlatency soon;');
+
+    assert.deepEqual(srsTemplateReadings(fillsLatencyOnly, fields), {
+      SRT_LATENCY: [{ kind: 'built-in', value: '800', reason: 'version-without-setting' }],
+    });
+    assert.deepEqual(srsTemplateReadings(refused, fields), {
+      SRT_LATENCY: [{ kind: 'unverified', reason: 'invalid-scalar', environment: 'unknown' }],
+    });
+  });
+
   it('reads nothing for a field list that carries no SRT latency', () => {
     assert.deepEqual(srsTemplateReadings(v31Template, engineSettingsFieldsFor('ome', { abr: false })), {});
   });
