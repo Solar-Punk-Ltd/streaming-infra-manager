@@ -1,5 +1,5 @@
 import type {
-  EngineDefaultSource, EngineSettingObservation, EngineSettingUnknownReason,
+  EngineDefaultSource, EngineSettingBuiltInReason, EngineSettingObservation, EngineSettingUnknownReason,
 } from '@streaming-infra-manager/common';
 
 export interface EngineObservationText {
@@ -10,8 +10,13 @@ export interface EngineObservationText {
 
 const SOURCES = {
   deployment: 'Deployment override', host: 'Host default', manager: 'Manager default', stack: 'Stack default',
-  'config-file': 'Set in config file',
+  'config-file': 'Set in config file', 'built-in': 'Engine default',
 } as const;
+
+const BUILT_IN_DETAILS: Record<EngineSettingBuiltInReason, string> = {
+  'latency-without-recvlatency': 'SRS ignores latency for ingest without recvlatency. This config sets latency and no recvlatency, so SRS waits its own default instead.',
+  'no-recvlatency': 'This config sets no recvlatency, which is what SRS reads for this wait on ingest, so SRS waits its own default.',
+};
 
 /**
  * What an empty field falls back to, and where that value comes from.
@@ -46,13 +51,24 @@ const UNKNOWN_DETAILS: Record<EngineSettingUnknownReason, string> = {
 export function engineObservationText(observation: EngineSettingObservation | undefined, unit = ''): EngineObservationText {
   if (!observation) return { value: 'Unverified', source: 'Not observed', detail: 'No current observation is available for this setting.' };
   if (observation.status === 'known') {
-    return { value: `${observation.value}${unit ? ` ${unit}` : ''}`, source: SOURCES[observation.source], detail: '' };
+    return {
+      value: `${observation.value}${unit ? ` ${unit}` : ''}`,
+      source: SOURCES[observation.source],
+      detail: observation.source === 'built-in' ? BUILT_IN_DETAILS[observation.reason] : '',
+    };
   }
   return {
     value: observation.reason === 'not-applicable' ? 'Not applicable' : observation.source === 'omitted' ? 'Not specified' : 'Unverified',
     source: observation.source === 'omitted' ? 'Omitted from config' : 'Not verified',
     detail: UNKNOWN_DETAILS[observation.reason],
   };
+}
+
+/** What the settings drawer says under a field about the value it observed, and why where there is a why. */
+export function engineObservationNote(observation: EngineSettingObservation | undefined, unit = ''): string {
+  const text = engineObservationText(observation, unit);
+  if (observation?.status !== 'known') return `${text.value}. ${text.detail}`;
+  return [`Configured value: ${text.value}.`, `${text.source}.`, text.detail].filter(Boolean).join(' ');
 }
 
 export function engineOverrideHint(observation: EngineSettingObservation | undefined): string {

@@ -3,7 +3,9 @@ import { describe, it } from 'node:test';
 
 import { effectiveEngineDefaults } from './engineDefaults.js';
 import { engineSettingsFieldsFor } from './engineSettings.js';
-import { assembleEngineSettingObservations, environmentSettingReadings, type EngineSettingReadings } from './engineSettingObservation.js';
+import {
+  assembleEngineSettingObservations, environmentSettingReadings, type EngineSettingReading, type EngineSettingReadings,
+} from './engineSettingObservation.js';
 
 const fields = engineSettingsFieldsFor('ome', { abr: false });
 const defaults = effectiveEngineDefaults('ome', { HLS_SEGMENT_DURATION: '6', HLS_SEGMENT_COUNT: '9' });
@@ -77,6 +79,35 @@ describe('engine setting observations', () => {
 
     assert.deepEqual(result.observations.SRT_LATENCY, { status: 'known', source: 'manager', value: '2000', environment: 'all' });
     assert.equal(result.effective.SRT_LATENCY, '2000');
+  });
+
+  describe("a value the engine applies of its own accord, because the config leaves out what it reads", () => {
+    const srsFields = engineSettingsFieldsFor('srs', { abr: false });
+    const withLatency = (...latency: EngineSettingReading[]) => assembleEngineSettingObservations({
+      fields: srsFields,
+      settings: { SRT_LATENCY: '3000' },
+      defaults: effectiveEngineDefaults('srs'),
+      readings: { ...environmentSettingReadings(srsFields), SRT_LATENCY: latency },
+    });
+    const ignored: EngineSettingReading = { kind: 'built-in', value: '120', reason: 'latency-without-recvlatency' };
+
+    it('is known, with its reason, and an override does not reach it', () => {
+      const result = withLatency(ignored);
+
+      assert.deepEqual(result.observations.SRT_LATENCY, {
+        status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',
+      });
+      assert.equal(result.effective.SRT_LATENCY, '120', 'what the engine applies, not the stored 3000');
+      assert.ok(result.notInConfig.includes('SRT_LATENCY'));
+    });
+
+    it('stays unknown beside a reading of another kind, or of another value', () => {
+      const mixed = withLatency(ignored, { kind: 'environment' }).observations.SRT_LATENCY;
+      const conflicting = withLatency(ignored, { ...ignored, value: '200' }).observations.SRT_LATENCY;
+
+      assert.equal(mixed?.status === 'unknown' && mixed.reason, 'mixed-sources');
+      assert.equal(conflicting?.status === 'unknown' && conflicting.reason, 'conflicting-values');
+    });
   });
 
   it('serializes effective as exactly the known observation projection without mutating inputs', () => {

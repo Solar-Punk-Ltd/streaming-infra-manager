@@ -13,7 +13,7 @@
  * owner's 2000 unless the host sets a value of its own.
  */
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
@@ -39,7 +39,7 @@ const { callEngine, startEngineTestApp } = await import('../support/engineTestAp
 const { fakeDocker } = await import('../support/fakeDocker.js');
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 const { makeProfile } = await import('../support/profileFixtures.js');
-const { harnessFor, profileRow } = await import('../support/profileServiceHarness.js');
+const { harnessFor, profileRow, profileServiceHarness } = await import('../support/profileServiceHarness.js');
 
 type EngineTestApp = Awaited<ReturnType<typeof startEngineTestApp>>;
 type Harness = ReturnType<typeof harnessFor>;
@@ -170,5 +170,52 @@ describe('what a deploy hands SRS for the SRT latency', () => {
 
     assert.match(file, /^SRT_LATENCY=3000$/m);
     assert.equal(snapshot?.SRT_LATENCY, '3000');
+  });
+});
+
+/**
+ * A deployment running a config file of its own, read against the stack's
+ * template since a1b43f0a. SRS waits `recvlatency` on ingest and falls back to
+ * 120 without it, whatever `latency` says.
+ */
+describe('GET /profiles/:name/engine for a deployment with a config file of its own', () => {
+  const FIXED_SRS_TEMPLATE = 'srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n    recvlatency SRT_LATENCY_PLACEHOLDER;\n}\n';
+
+  before(() => {
+    mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
+    writeFileSync(join(root, 'engines', 'srs', 'srs.conf.template'), FIXED_SRS_TEMPLATE, 'utf8');
+  });
+
+  async function overviewOf(config: string): Promise<EngineOverview> {
+    const harness = profileServiceHarness([
+      profileRow({ has_engine_config: true, engine_settings: { SRT_LATENCY: '3000' } }),
+    ]);
+    harness.profiles.engineConfigs.set('stream1', config);
+    const app = await startEngineTestApp(
+      harness.service,
+      new ContainerControl(new EventBus(), fakeDocker([])),
+    );
+    try {
+      return (await callEngine(app, 'GET', '/profiles/stream1/engine')).body as EngineOverview;
+    } finally {
+      await app.close();
+    }
+  }
+
+  it("shows SRS's own 120 for a file that sets latency and no recvlatency, and says why", async () => {
+    const overview = await overviewOf('srt_server {\n    enabled on;\n    latency SRT_LATENCY_PLACEHOLDER;\n}\n');
+
+    assert.equal(overview.effective.SRT_LATENCY, '120', 'not the stored 3000, which SRS never applies here');
+    assert.deepEqual(overview.observations.SRT_LATENCY, {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',
+    });
+    assert.ok(overview.notInConfig.includes('SRT_LATENCY'));
+  });
+
+  it('shows the stored value for a file that keeps the recvlatency placeholder', async () => {
+    const overview = await overviewOf(FIXED_SRS_TEMPLATE);
+
+    assert.equal(overview.effective.SRT_LATENCY, '3000');
+    assert.equal(overview.observations.SRT_LATENCY.source, 'deployment');
   });
 });

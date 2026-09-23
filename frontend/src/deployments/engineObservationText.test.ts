@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EngineSettingObservation } from '@streaming-infra-manager/common';
 
-import { engineDefaultText, engineObservationText, engineOverrideHint } from './engineObservationText';
+import { engineDefaultText, engineObservationNote, engineObservationText, engineOverrideHint } from './engineObservationText';
 
 const literal: EngineSettingObservation = { status: 'known', source: 'config-file', value: '4', environment: 'none' };
 
@@ -23,6 +23,28 @@ describe('engine observation wording', () => {
       assert.equal(engineObservationText(observation).source, label);
       assert.equal(engineOverrideHint(observation), 'This config reads the override in every relevant section.');
     }
+  });
+
+  it("names SRS's own value as the engine's, and says in plain words why the config does not set it", () => {
+    const ignored: EngineSettingObservation = { status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency' };
+    const absent: EngineSettingObservation = { ...ignored, reason: 'no-recvlatency' };
+
+    const text = engineObservationText(ignored, 'milliseconds');
+    assert.equal(text.value, '120 milliseconds');
+    assert.equal(text.source, 'Engine default');
+    assert.match(text.detail, /SRS ignores latency for ingest without recvlatency/);
+    assert.match(engineObservationText(absent).detail, /sets no recvlatency/);
+    assert.doesNotMatch(engineObservationText(absent).detail, /ignores latency/);
+    assert.match(engineOverrideHint(ignored), /will not change this setting/);
+  });
+
+  it('puts the reason in the drawer note for a value the engine applies, and nothing extra for the rest', () => {
+    const ignored: EngineSettingObservation = { status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency' };
+    const stored: EngineSettingObservation = { status: 'known', source: 'deployment', value: '2', environment: 'all' };
+
+    assert.match(engineObservationNote(ignored, 'milliseconds'), /^Configured value: 120 milliseconds\. Engine default\. SRS ignores latency for ingest without recvlatency/);
+    assert.equal(engineObservationNote(stored, 'seconds'), 'Configured value: 2 seconds. Deployment override.');
+    assert.match(engineObservationNote({ status: 'unknown', source: 'omitted', reason: 'missing-directive', value: null, environment: 'none' }), /^Not specified\. At least one relevant section/);
   });
 
   it("names whose default an empty field falls back to, the manager's included", () => {

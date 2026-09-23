@@ -23,7 +23,7 @@ import {
   type EngineOverview,
 } from '../deployments/engineApi';
 import { ENGINE_LABEL } from '../deployments/engineText';
-import { engineDefaultText, engineObservationText, engineOverrideHint } from '../deployments/engineObservationText';
+import { engineDefaultText, engineObservationNote, engineOverrideHint } from '../deployments/engineObservationText';
 import { useEngineOverview } from '../deployments/useEngineOverview';
 import { engineOf } from '../deployments/shape';
 import { EditDrawerFrame } from './EditDrawerFrame';
@@ -256,12 +256,11 @@ function SettingField({
   const inputId = `engine-setting-${field.key}`;
   const unit = field.unit ? ` ${field.unit}` : '';
   const observation = overview?.observations[field.key];
-  const text = engineObservationText(observation, field.unit ?? '');
   const fallback = overview?.defaults[field.key];
   const source = overview?.defaultSources[field.key];
   const knownDefault = observation?.environment === 'all' && fallback !== undefined && source !== undefined;
   const defaultNote = knownDefault ? `${engineDefaultText(fallback, source, unit)}. Leave the override empty to use it.` : '';
-  const observationNote = observation?.status === 'known' ? `Configured value: ${text.value}. ${text.source}.` : `${text.value}. ${text.detail}`;
+  const observationNote = engineObservationNote(observation, field.unit ?? '');
   const hint = overview
     ? [field.help, observationNote, engineOverrideHint(observation), defaultNote].filter(Boolean).join(' ')
     : `${field.help} No current observation is available. Your draft text is kept.`;

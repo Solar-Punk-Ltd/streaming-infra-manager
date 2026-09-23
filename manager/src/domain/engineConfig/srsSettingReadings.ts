@@ -13,8 +13,24 @@ interface Entry {
 /** The field whose config directive is stated in a different unit than the field. */
 const SEGMENT_MAX_KEY = 'HLS_SEGMENT_MAX';
 const HLS_DIRECTIVES: Record<string, string> = { HLS_FRAGMENT: 'hls_fragment', HLS_WINDOW: 'hls_window', [SEGMENT_MAX_KEY]: 'hls_aof_ratio' };
-/** Directives of the `srt_server` block. It sits outside every vhost, the generated ABR vhost included, so that vhost hides none of them. */
-const SRT_SERVER_DIRECTIVES: Record<string, string> = { SRT_LATENCY: 'latency' };
+/**
+ * The SRT latency, read as the wait SRS applies to a broadcast it receives.
+ *
+ * SRS 6 applies `latency` to both directions and `recvlatency` after it, and
+ * falls back to 120 for `recvlatency` when the block leaves it out, so
+ * `recvlatency` alone decides the wait on ingest. Read from SRS 6.0's
+ * `set_srt_opt` and `get_srto_recv_latency`, and measured with libsrt 1.5.4
+ * on 2026-09-23: `latency 2000` without `recvlatency` negotiated 120 ms. The
+ * `srt_server` block sits outside every vhost, the generated ABR vhost
+ * included, so that vhost hides neither directive.
+ */
+const SRT_LATENCY_KEY = 'SRT_LATENCY';
+const INGEST_LATENCY_DIRECTIVE = 'recvlatency';
+const BOTH_WAYS_LATENCY_DIRECTIVE = 'latency';
+const SRS_INGEST_LATENCY_DEFAULT_MS = '120';
+
+/** The scopes of a file to read a field in, or the one reading that says why there are none. */
+type FieldScopes = { scopes: Entry[] } | { reading: EngineSettingReading };
 const ENCODER_DIRECTIVES: Record<string, string> = {
   ABR_FPS: 'vfps', ABR_PRESET: 'vpreset', ABR_PROFILE: 'vprofile', ABR_THREADS: 'vthreads', ABR_ACODEC: 'acodec',
 };
@@ -77,18 +93,48 @@ function hasIncludeFor(entries: readonly Entry[], patterns: readonly (readonly s
   });
 }
 
+/** Every scope of the file matching one where the version's template fills the field's placeholder into one of `directives`. */
+function scopesFilledIn(field: EngineSettingField, directives: readonly string[], template: readonly Entry[] | null, file: readonly Entry[]): FieldScopes {
+  if (template === null || !field.placeholder) return { reading: unknown('metadata-unavailable') };
+  const required = template.filter(entry => directives.includes(entry.node.name)
+    && entry.node.children === null && entry.node.args.length === 1 && entry.node.args[0] === field.placeholder);
+  if (!required.length) return { reading: unknown('metadata-unavailable') };
+  if (required.some(entry => !entry.unique)) return { reading: unknown('ambiguous-path') };
+  const patterns = required.map(entry => scopeNames(entry).slice(0, -1));
+  if (hasIncludeFor(file, patterns)) return { reading: unknown('unsupported-syntax') };
+  const scopes = file.filter(entry => entry.node.children !== null && patterns.some(pattern => sameNames(scopeNames(entry), pattern)));
+  if (!scopes.length) return { reading: { kind: 'omitted' } };
+  return { scopes };
+}
+
 /** One scalar directive, in every scope of the file where the version's template fills it with the field's placeholder. */
 function placeholderDirectiveReadings(field: EngineSettingField, directive: string, template: readonly Entry[] | null, file: readonly Entry[], source: string): EngineSettingReading[] {
-  if (template === null || !field.placeholder) return [unknown('metadata-unavailable')];
-  const required = template.filter(entry => entry.node.name === directive
-    && entry.node.children === null && entry.node.args.length === 1 && entry.node.args[0] === field.placeholder);
-  if (!required.length) return [unknown('metadata-unavailable')];
-  if (required.some(entry => !entry.unique)) return [unknown('ambiguous-path')];
-  const patterns = required.map(entry => scopeNames(entry).slice(0, -1));
-  if (hasIncludeFor(file, patterns)) return [unknown('unsupported-syntax')];
-  const scopes = file.filter(entry => entry.node.children !== null && patterns.some(pattern => sameNames(scopeNames(entry), pattern)));
-  if (!scopes.length) return [{ kind: 'omitted' }];
-  return scopes.map(scope => scalarIn(scope, directive, field.placeholder, source));
+  const found = scopesFilledIn(field, [directive], template, file);
+  if ('reading' in found) return [found.reading];
+  return found.scopes.map(scope => scalarIn(scope, directive, field.placeholder, source));
+}
+
+/** The wait on ingest in one `srt_server` block, which is SRS's own 120 where the block sets no `recvlatency`. */
+function ingestLatencyIn(scope: Entry, placeholder: string | undefined, source: string): EngineSettingReading {
+  const reading = scalarIn(scope, INGEST_LATENCY_DIRECTIVE, placeholder, source);
+  if (reading.kind !== 'omitted') return reading;
+  const setsLatency = scope.node.children?.some(node => node.name === BOTH_WAYS_LATENCY_DIRECTIVE) ?? false;
+  return {
+    kind: 'built-in',
+    value: SRS_INGEST_LATENCY_DEFAULT_MS,
+    reason: setsLatency ? 'latency-without-recvlatency' : 'no-recvlatency',
+  };
+}
+
+/**
+ * The SRT latency, anchored wherever the version's template puts the
+ * placeholder: `latency` alone on v3.1, both directives since the stack's
+ * a1b43f0a. Both sit in `srt_server`.
+ */
+function srtLatencyReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], source: string): EngineSettingReading[] {
+  const found = scopesFilledIn(field, [BOTH_WAYS_LATENCY_DIRECTIVE, INGEST_LATENCY_DIRECTIVE], template, file);
+  if ('reading' in found) return [found.reading];
+  return found.scopes.map(scope => ingestLatencyIn(scope, field.placeholder, source));
 }
 
 function hlsReadings(field: EngineSettingField, template: readonly Entry[] | null, file: readonly Entry[], opaqueVhost: boolean, source: string): EngineSettingReading[] {
@@ -135,8 +181,7 @@ export function srsSettingReadings(
         ? readings.map(reading => reading.kind === 'literal' ? unknown('unsupported-syntax') : reading)
         : readings];
     }
-    const srtDirective = SRT_SERVER_DIRECTIVES[field.key];
-    if (srtDirective) return [field.key, placeholderDirectiveReadings(field, srtDirective, template, file, fileText ?? '')];
+    if (field.key === SRT_LATENCY_KEY) return [field.key, srtLatencyReadings(field, template, file, fileText ?? '')];
     if (field.key === 'ABR_VBV_SECONDS' || opaqueEncoder) return [field.key, [unknown('unsupported-syntax')]];
     if (!encoders.length) return [field.key, [{ kind: 'omitted' }]];
     if (field.key === 'ABR_AUDIO_BITRATE') return [field.key, bitrateReadings(encoders)];

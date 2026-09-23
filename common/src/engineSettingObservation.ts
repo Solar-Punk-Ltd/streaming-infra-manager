@@ -6,15 +6,26 @@ export type EngineSettingUnknownReason = 'missing-directive' | 'conflicting-valu
   | 'ambiguous-path' | 'unsupported-syntax' | 'invalid-scalar' | 'metadata-unavailable'
   | 'not-applicable' | 'mixed-applicability' | 'codec-unverified';
 
+/**
+ * Why a setting sits at the engine's own built-in value: the config leaves out
+ * the directive the engine reads for it, so neither a literal nor an override
+ * reaches it.
+ */
+export type EngineSettingBuiltInReason = 'latency-without-recvlatency' | 'no-recvlatency';
+
 export type EngineSettingObservation =
   | { status: 'known'; source: 'deployment' | EngineDefaultSource | 'config-file'; value: string; environment: EngineSettingEnvironment }
+  | { status: 'known'; source: 'built-in'; value: string; environment: EngineSettingEnvironment; reason: EngineSettingBuiltInReason }
   | { status: 'unknown'; source: 'omitted' | 'unverified'; value: null; reason: EngineSettingUnknownReason; environment: EngineSettingEnvironment };
 
 export type EngineSettingObservations = Record<string, EngineSettingObservation>;
 
+type BuiltInReading = { kind: 'built-in'; value: string; reason: EngineSettingBuiltInReason };
+
 export type EngineSettingReading =
   | { kind: 'environment' }
   | { kind: 'literal'; value: string }
+  | BuiltInReading
   | { kind: 'omitted' }
   | { kind: 'unverified'; reason: EngineSettingUnknownReason; environment?: EngineSettingEnvironment };
 
@@ -58,6 +69,13 @@ function observeField(field: EngineSettingField, input: EngineSettingObservation
   const unverified = readings.find(reading => reading.kind === 'unverified');
   if (unverified?.kind === 'unverified') return unknown(unverified.reason);
   if (readings.some(reading => reading.kind === 'omitted')) return unknown('missing-directive', 'omitted');
+  const builtIns: BuiltInReading[] = readings.flatMap(reading => reading.kind === 'built-in' ? [reading] : []);
+  if (builtIns.length) {
+    if (builtIns.length !== readings.length) return unknown('mixed-sources');
+    const first = builtIns[0]!;
+    if (builtIns.some(reading => reading.value !== first.value || reading.reason !== first.reason)) return unknown('conflicting-values');
+    return { status: 'known', source: 'built-in', value: first.value, environment, reason: first.reason };
+  }
   if (readings.some(reading => reading.kind === 'literal') && readings.some(reading => reading.kind === 'environment')) {
     return unknown('mixed-sources');
   }

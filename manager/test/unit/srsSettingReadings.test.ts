@@ -187,56 +187,113 @@ describe('bounded SRS config observations', () => {
 });
 
 /**
- * The SRT latency lives in the `srt_server` block, outside every vhost, which
- * is where the stack's template fills `SRT_LATENCY_PLACEHOLDER`.
+ * The SRT latency in a config file of the deployment's own.
+ *
+ * SRS 6 applies `latency` to both directions and then `recvlatency`, which it
+ * falls back to 120 for when the block leaves it out, so `recvlatency` alone
+ * decides how long SRS waits on ingest. Measured with libsrt 1.5.4 over
+ * loopback on 2026-09-23: `latency 2000` without `recvlatency` negotiated 120 ms,
+ * and with `recvlatency 2000` beside it, 2000.
  */
 describe('the SRT latency in a config file of the deployment own', () => {
-  const srtTemplate = `srt_server { enabled on; latency SRT_LATENCY_PLACEHOLDER; tlpktdrop on; }\n${template}`;
-  const srtServer = (latency: string) => `srt_server { enabled on; latency ${latency}; }\n`;
+  /** The stack's template since a1b43f0a, where both directives take the setting. */
+  const fixedTemplate = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\nrecvlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
+  /** The pinned v3.1 template, where only `latency` does. */
+  const v31Template = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
+  const srtServer = (...lines: string[]) => `srt_server {\nenabled on;\n${lines.join('\n')}\n}\n`;
 
-  function observeLatency(file: string, abr = false, selectedTemplate: string | null = srtTemplate) {
+  function observeLatency(file: string, options: { abr?: boolean; selectedTemplate?: string | null } = {}) {
+    const abr = options.abr ?? false;
     const fields = engineSettingsFieldsFor('srs', { abr });
     return assembleEngineSettingObservations({
       fields, settings: { SRT_LATENCY: '3000' },
       defaults: effectiveEngineDefaults('srs'),
-      readings: srsSettingReadings(selectedTemplate, file, fields, { abr }),
+      readings: srsSettingReadings(options.selectedTemplate === undefined ? fixedTemplate : options.selectedTemplate, file, fields, { abr }),
     });
   }
 
-  it('reads the deployment value where the file keeps the placeholder', () => {
-    const result = observeLatency(`${srtServer('SRT_LATENCY_PLACEHOLDER')}${config()}`);
+  it('reads the deployment value where the file keeps the recvlatency placeholder', () => {
+    const result = observeLatency(`${srtServer('latency SRT_LATENCY_PLACEHOLDER;', 'recvlatency SRT_LATENCY_PLACEHOLDER;')}${config()}`);
 
     assert.equal(result.effective.SRT_LATENCY, '3000');
     assert.equal(result.observations.SRT_LATENCY.source, 'deployment');
     assert.equal(result.observations.SRT_LATENCY.environment, 'all');
   });
 
-  it('reads a literal the file writes instead of the placeholder', () => {
-    const result = observeLatency(`${srtServer('500')}${config()}`);
+  it('reads a recvlatency the file writes as a literal, whatever latency says', () => {
+    const result = observeLatency(`${srtServer('latency 5000;', 'recvlatency 500;')}${config()}`);
 
     assert.equal(result.effective.SRT_LATENCY, '500');
     assert.equal(result.observations.SRT_LATENCY.source, 'config-file');
     assert.ok(result.notInConfig.includes('SRT_LATENCY'), 'an override cannot change a literal');
   });
 
-  it('calls a file with no latency directive one that omits the setting', () => {
-    const result = observeLatency(`srt_server { enabled on; }\n${config()}`);
+  it("reports SRS's own 120 where the file sets latency and no recvlatency, because SRS ignores latency for ingest without it", () => {
+    for (const latency of ['latency SRT_LATENCY_PLACEHOLDER;', 'latency 5000;']) {
+      const result = observeLatency(`${srtServer(latency)}${config()}`);
+
+      assert.deepEqual(result.observations.SRT_LATENCY, {
+        status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',
+      }, latency);
+      assert.equal(result.effective.SRT_LATENCY, '120');
+      assert.ok(result.notInConfig.includes('SRT_LATENCY'), 'the override does not reach the wait on ingest');
+    }
+  });
+
+  it("reports SRS's own 120 where the file sets neither", () => {
+    const result = observeLatency(`${srtServer('tlpktdrop on;')}${config()}`);
+
+    assert.deepEqual(result.observations.SRT_LATENCY, {
+      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'no-recvlatency',
+    });
+  });
+
+  it("reads a copy of the pinned v3.1 template as SRS waiting its own 120, because that template fills only latency", () => {
+    const result = observeLatency(v31Template, { selectedTemplate: v31Template });
+
+    assert.equal(result.effective.SRT_LATENCY, '120');
+    assert.equal(result.observations.SRT_LATENCY.source, 'built-in');
+  });
+
+  it('reads a recvlatency placeholder added against the v3.1 template, whose entrypoint fills every line', () => {
+    const file = `${srtServer('latency SRT_LATENCY_PLACEHOLDER;', 'recvlatency SRT_LATENCY_PLACEHOLDER;')}${config()}`;
+    const result = observeLatency(file, { selectedTemplate: v31Template });
+
+    assert.equal(result.effective.SRT_LATENCY, '3000');
+    assert.equal(result.observations.SRT_LATENCY.source, 'deployment');
+  });
+
+  it('does not count a recvlatency placeholder that follows another on its line, which the entrypoint leaves unfilled', () => {
+    const result = observeLatency(`${srtServer('latency SRT_LATENCY_PLACEHOLDER; recvlatency SRT_LATENCY_PLACEHOLDER;')}${config()}`);
+
+    assert.equal(reason(result, 'SRT_LATENCY'), 'unsupported-syntax');
+  });
+
+  it('refuses to choose between two recvlatency directives', () => {
+    const result = observeLatency(`${srtServer('recvlatency 500;', 'recvlatency 600;')}${config()}`);
+
+    assert.equal(reason(result, 'SRT_LATENCY'), 'ambiguous-path');
+  });
+
+  it('calls a file without an srt_server block one that omits the setting', () => {
+    const result = observeLatency(config());
 
     assert.equal(result.observations.SRT_LATENCY.source, 'omitted');
     assert.equal(result.effective.SRT_LATENCY, undefined);
   });
 
   it('is read the same way on a ladder, where the encoders and the ABR vhost are generated', () => {
-    const file = `${srtServer('SRT_LATENCY_PLACEHOLDER')}${config(engine('low'))}\nABR_VHOST_PLACEHOLDER\n`;
-    const result = observeLatency(file, true);
+    const file = `${srtServer('recvlatency SRT_LATENCY_PLACEHOLDER;')}${config(engine('low'))}\nABR_VHOST_PLACEHOLDER\n`;
+    const result = observeLatency(file, { abr: true });
 
     assert.equal(result.effective.SRT_LATENCY, '3000');
     assert.equal(reason(result, 'HLS_FRAGMENT'), 'unsupported-syntax');
   });
 
-  it('stays unverified without the version template it is read against', () => {
-    const result = observeLatency(`${srtServer('SRT_LATENCY_PLACEHOLDER')}${config()}`, false, null);
+  it('stays unverified without the version template, or with one that does not take the setting', () => {
+    const file = `${srtServer('recvlatency SRT_LATENCY_PLACEHOLDER;')}${config()}`;
 
-    assert.equal(reason(result, 'SRT_LATENCY'), 'metadata-unavailable');
+    assert.equal(reason(observeLatency(file, { selectedTemplate: null }), 'SRT_LATENCY'), 'metadata-unavailable');
+    assert.equal(reason(observeLatency(file, { selectedTemplate: `srt_server { enabled on; }\n${template}` }), 'SRT_LATENCY'), 'metadata-unavailable');
   });
 });
