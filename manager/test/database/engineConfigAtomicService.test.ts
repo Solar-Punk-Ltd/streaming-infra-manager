@@ -7,7 +7,6 @@ import { EngineConfigService } from '../../src/domain/engineConfig/EngineConfigS
 import { EngineConfigChecker } from '../../src/domain/engineConfig/engineConfigCheck.js';
 import { PostgresPortReservationRepository } from '../../src/domain/ports/PostgresPortReservationRepository.js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +21,6 @@ import { captureRolloutRecovery } from '../../src/domain/engineConfig/rolloutRec
 import { ownershipOf } from '../../src/domain/engineConfig/operations.js';
 import { PostgresBuildLedger } from '../../src/domain/versions/PostgresBuildLedger.js';
 import { PostgresStackVersionRepository } from '../../src/domain/versions/PostgresStackVersionRepository.js';
-import { StackVersionService } from '../../src/domain/versions/StackVersionService.js';
 import { BUILD_COMPLETE_MARKER, BUILD_MANIFEST_FILE } from '../../src/domain/versions/buildManifest.js';
 import { deployOwnerOf } from '../../src/domain/versions/buildLedger.js';
 import { buildDirFor } from '../../src/domain/versions/stackPaths.js';

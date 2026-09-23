@@ -9,7 +9,7 @@
  * write it down.
  */
 import assert from 'node:assert/strict';
-import { dirname, join, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
