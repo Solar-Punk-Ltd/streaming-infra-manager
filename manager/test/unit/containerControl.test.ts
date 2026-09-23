@@ -11,6 +11,7 @@
  * is what an older daemon does with a filter key it does not know.
  */
 import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 
 import {
@@ -22,6 +23,7 @@ import {
   type ContainerControlLimits,
   MAX_CONFIG_BYTES,
 } from '../../src/domain/ContainerControl.js';
+import { ContainerNotRunningError } from '../../src/domain/errors/index.js';
 import { EventBus, type ManagerEvent } from '../../src/domain/EventBus.js';
 import { captureExecutionMounts } from '../../src/domain/versions/executionMountCapture.js';
 import {
@@ -550,5 +552,91 @@ describe('ContainerControl.inspect', () => {
     ]);
 
     assert.equal(await control.inspect('stream1', 'srs'), null);
+  });
+});
+
+describe('ContainerControl.logLinesContaining', () => {
+  // A reader that wants a few lines out of a log that may be flooding: SRS's
+  // statistics lines, which sit among libsrt's drop warnings and the webhook
+  // line that carries the uploader's token.
+  const MARKER = '<- SRT_CPB Transport Stats # ';
+  const WINDOW = { sinceSeconds: 60, tailLines: 20_000 };
+  const REPORT =
+    '[2026-09-22 17:33:50.386][INFO][1][4ek6chsn] <- SRT_CPB Transport Stats # pktRecv=6500, pktRcvLoss=394, pktRcvRetrans=381, pktRcvDrop=397';
+  const WEBHOOK =
+    '[2026-09-22 17:33:40.123][INFO][1][4ek6chsn] http: on_publish ok, url=http://stream-uploader:3000/engines/srs/streams?token=abc123';
+  const FLOOD =
+    '[2026-09-22 17:33:50.901][WARN][1][4ek6chsn] RCV-DROPPED 1 packet(s). Packet seqno %861816580 delayed for 4.5 ms';
+
+  function srsLogging(logBytes: Buffer): FakeContainer[] {
+    return [
+      { id: 'other-srs', labels: labels('stream2', 'srs'), logBytes: frame(`${REPORT}\n`) },
+      { id: 'own-srs', labels: labels('stream1', 'srs'), logBytes },
+    ];
+  }
+
+  it('asks the daemon for the window alone, followed and ending at the present', async () => {
+    const { control, docker } = controlOver(srsLogging(frame(`${REPORT}\n`)));
+
+    const before = Math.floor(Date.now() / 1000);
+    await control.logLinesContaining('stream1', 'srs', MARKER, WINDOW);
+    const after = Math.floor(Date.now() / 1000);
+
+    const { since, until, ...asked } = docker.logOptions[0] as { since: number; until: number };
+    assert.deepEqual(asked, { stdout: true, stderr: true, follow: true, timestamps: false, tail: 20_000 });
+    assert.equal(until - since, 60);
+    assert.ok(until >= before && until <= after, `until ${until} is not the present`);
+  });
+
+  it('keeps only the lines with the marker in them, from both streams', async () => {
+    const { control } = controlOver(
+      srsLogging(
+        Buffer.concat([
+          frame(`${WEBHOOK}\n`),
+          frame(`${REPORT}\n`),
+          frame(`${FLOOD}\n`, 2),
+          frame(`${REPORT.replace('6500', '6457')}\n`, 2),
+        ]),
+      ),
+    );
+
+    const lines = await control.logLinesContaining('stream1', 'srs', MARKER, WINDOW);
+
+    assert.deepEqual(lines, [REPORT, REPORT.replace('6500', '6457')]);
+    assert.ok(!lines.join('\n').includes('abc123'));
+  });
+
+  it('drops a last line that has no newline, since it may end mid-number', async () => {
+    const cut = REPORT.slice(0, -1);
+    const { control } = controlOver(srsLogging(frame(`${REPORT}\n${cut}`)));
+
+    assert.deepEqual(await control.logLinesContaining('stream1', 'srs', MARKER, WINDOW), [REPORT]);
+  });
+
+  it('stops at its byte bound and drops the line the bound cut', async () => {
+    // Open, the way a followed log is, so only the byte bound can end the read.
+    const stream = new Readable({ read() {} });
+    stream.push(frame(`${REPORT}\n${REPORT}\n${REPORT}\n${REPORT}\n`));
+    const { control } = controlOver(
+      [{ id: 'own-srs', labels: labels('stream1', 'srs'), logStream: () => stream }],
+      // Two whole lines and part of a third, header included.
+      { filteredLog: { maxBytes: FRAME_HEADER_BYTES + 2 * (REPORT.length + 1) + 40, idleMs: 5_000, totalMs: 5_000 } },
+    );
+
+    const lines = await control.logLinesContaining('stream1', 'srs', MARKER, WINDOW);
+
+    assert.deepEqual(lines, [REPORT, REPORT]);
+    assert.equal(stream.destroyed, true, 'and the stream is closed');
+  });
+
+  it('says so when the deployment runs no container of that service', async () => {
+    const { control } = controlOver([
+      { id: 'other-srs', labels: labels('stream2', 'srs'), logBytes: frame(`${REPORT}\n`) },
+    ]);
+
+    await assert.rejects(
+      () => control.logLinesContaining('stream1', 'srs', MARKER, WINDOW),
+      ContainerNotRunningError,
+    );
   });
 });

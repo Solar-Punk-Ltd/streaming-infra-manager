@@ -23,6 +23,7 @@ import {
   UnknownServiceError,
 } from './errors/index.js';
 import {
+  completeLines,
   demultiplexDockerStream,
   readBounded,
   type StreamBounds,
@@ -30,6 +31,7 @@ import {
 import { EventBus } from './EventBus.js';
 import { LOCAL_PUBLISHED_HOST } from './localHost.js';
 import { Logger } from './Logger.js';
+import type { LogWindow } from './logWindow.js';
 import { collectPublishedPorts } from './ports/publishedPorts.js';
 import type { PublishedPortsSnapshot } from './ports/PublishedPortsProbe.js';
 
@@ -91,15 +93,32 @@ export const DEFAULT_LOG_BOUNDS: StreamBounds = {
   totalMs: 5_000,
 };
 
+/**
+ * What a filtered read is allowed to cost.
+ *
+ * Wider in bytes than a log read, because this one keeps a few lines and drops
+ * the rest, and the log it reads may be flooding: under packet loss libsrt
+ * writes a line per dropped packet into SRS's log. The window the daemon is
+ * asked for already bounds the line count, so this is the backstop for a log
+ * whose lines are long.
+ */
+export const DEFAULT_FILTERED_LOG_BOUNDS: StreamBounds = {
+  maxBytes: 16 * 1024 * 1024,
+  idleMs: 500,
+  totalMs: 5_000,
+};
+
 /** Overridable so a test does not have to wait out the real ones. */
 export interface ContainerControlLimits {
   log: StreamBounds;
+  filteredLog: StreamBounds;
   restartCooldownMs: number;
   dockerTimeoutMs: number;
 }
 
 const DEFAULT_LIMITS: ContainerControlLimits = {
   log: DEFAULT_LOG_BOUNDS,
+  filteredLog: DEFAULT_FILTERED_LOG_BOUNDS,
   restartCooldownMs: RESTART_COOLDOWN_MS,
   dockerTimeoutMs: DOCKER_TIMEOUT_MS,
 };
@@ -464,6 +483,42 @@ export class ContainerControl {
 
     const raw = await readBounded(stream, this.limits.log);
     return lastLines(demultiplexDockerStream(raw), MAX_LOG_LINES);
+  }
+
+  /**
+   * The lines of a service's recent log that contain `marker`, and no others.
+   *
+   * For a reader after a few lines of a log that may be flooding and that
+   * carries secrets beside them, so every other line is dropped here and never
+   * reaches a caller. A line the read cut short is dropped as well.
+   */
+  async logLinesContaining(
+    profile: string,
+    service: string,
+    marker: string,
+    window: LogWindow,
+  ): Promise<string[]> {
+    const container = await this.find(profile, service);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    // Followed for the reason `logs` gives. `until` then ends the stream once
+    // the window has been sent rather than holding it open for lines that
+    // have not been written yet, and the bounds end it if a daemon does not.
+    const stream = await this.withinLimit(
+      container.logs({
+        stdout: true,
+        stderr: true,
+        follow: true,
+        timestamps: false,
+        since: nowSeconds - window.sinceSeconds,
+        until: nowSeconds,
+        tail: window.tailLines,
+      }),
+    );
+
+    const raw = await readBounded(stream, this.limits.filteredLog);
+    return completeLines(demultiplexDockerStream(raw)).filter((line) =>
+      line.includes(marker),
+    );
   }
 
   /**
