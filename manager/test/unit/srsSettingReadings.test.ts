@@ -198,7 +198,7 @@ describe('bounded SRS config observations', () => {
  * loopback on 2026-09-23: `latency 2000` without `recvlatency` negotiated 120 ms,
  * and with `recvlatency 2000` beside it, 2000.
  */
-describe('the SRT latency in a config file of the deployment own', () => {
+describe("the SRT latency in a config file of the deployment's own", () => {
   /** The stack's template since a1b43f0a, where both directives take the setting. */
   const fixedTemplate = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\nrecvlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
   /** The pinned v3.1 template, where only `latency` does. */
