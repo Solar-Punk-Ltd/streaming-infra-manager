@@ -190,5 +190,17 @@ test('the SRT ingest card says how the link is holding up, and how to fix it', {
     assert.equal(ingestReads, before, 'the card asked for a reading it does not show');
   });
 
+  // The manager keeps a deployment's container records after it stops.
+  await t.test('a stopped deployment shows no card and asks nothing, though it keeps its SRS records', async () => {
+    profile = { ...profile, status: 'STOPPED', containers: RUNNING_SRS };
+    const before = ingestReads;
+    await reload();
+    await shows('the stopped deployment page', 'Readiness');
+    // The card's title on a line of its own. The containers card still names the
+    // srs container "media server (SRT ingest)".
+    assert.doesNotMatch(await body(), /^SRT ingest$/m);
+    assert.equal(ingestReads, before, 'the card asked a stopped deployment for a reading');
+  });
+
   t.diagnostic(`screenshots in ${evidence}`);
 });

@@ -125,6 +125,20 @@ export function isRunning(profile: Profile): boolean {
   return profile.status === 'RUNNING';
 }
 
+/**
+ * Whether the page asks this deployment how its SRT link is holding up. Only
+ * SRS prints SRT statistics, and only a running deployment has a link to read.
+ * The container records alone are not enough, because the manager keeps them
+ * after a deployment stops.
+ */
+export function readsSrtIngest(profile: Profile): boolean {
+  return (
+    isRunning(profile) &&
+    engineOf(profile) === SRS_SERVICE &&
+    profile.containers.some((container) => container.service === SRS_SERVICE)
+  );
+}
+
 export function isTransitional(profile: Profile): boolean {
   return TRANSITIONAL_STATUSES.includes(profile.status);
 }

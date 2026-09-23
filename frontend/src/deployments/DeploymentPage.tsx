@@ -6,7 +6,6 @@ import {
   chequebookHealthFromPayload,
   rungFromMemberName,
   sameBatchId,
-  SRS_SERVICE,
   stampHealthFrom,
   STREAM_UPLOADER_SERVICE,
   suggestedRungDepth,
@@ -54,7 +53,7 @@ import { ownsBeeNode, readinessFor } from './readiness';
 import { SrtIngestCard } from './SrtIngestCard';
 import { offersLatencySetting } from './srtIngestText';
 import { StorageCard } from './StorageCard';
-import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
+import { engineOf, isRunning, readsSrtIngest, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
 
 const STORAGE_ANCHOR = 'storage';
@@ -152,10 +151,7 @@ function DeploymentBody({
     (container) => container.service === STREAM_UPLOADER_SERVICE,
   );
   const uploaderHealth = useUploaderHealth(uploaderDeployed ? profile : null);
-  // Only SRS prints SRT statistics, and only a running one has a link to read.
-  const srtIngestShown =
-    engine === SRS_SERVICE &&
-    profile.containers.some((container) => container.service === SRS_SERVICE);
+  const srtIngestShown = readsSrtIngest(profile);
   const srtIngest = useSrtIngestHealth(srtIngestShown ? profile : null);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const version =
