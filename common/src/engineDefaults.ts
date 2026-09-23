@@ -13,6 +13,11 @@
  * entrypoints fall back to and that wins over the field, so the number on the
  * field is what answers only for a version whose contract was not read.
  *
+ * A field whose default the manager owns is the exception. Its number wins over
+ * every version's fallback, the manager writes it into `.env.<profile>` itself,
+ * and it is called the manager's. A value the host's base env sets still wins
+ * over it.
+ *
  * The manager reads the base env and the contract and calls this. The offline
  * mock calls it with its own stand-ins, so the two answer the same shape from
  * one rule.
@@ -25,8 +30,11 @@ import {
   engineSettingsFields,
 } from './engineSettings.js';
 
-/** Whether a default is the stack's own or one this host's base env sets. */
-export type EngineDefaultSource = 'stack' | 'host';
+/**
+ * Whether a default is the stack's own, one this host's base env sets, or the
+ * manager's own for a field whose default the manager owns.
+ */
+export type EngineDefaultSource = 'stack' | 'host' | 'manager';
 
 /** The origin of every default, by setting key. */
 export type EngineDefaultSources = Record<string, EngineDefaultSource>;
@@ -43,6 +51,12 @@ export interface EngineDefaults {
   rejected: readonly string[];
 }
 
+/** What a field falls back to where the host sets nothing the field accepts. */
+interface Fallback {
+  value: string;
+  source: Exclude<EngineDefaultSource, 'host'>;
+}
+
 interface ChosenDefault {
   value: string;
   source: EngineDefaultSource;
@@ -50,17 +64,30 @@ interface ChosenDefault {
   refused: string | null;
 }
 
+function fallbackFor(
+  field: EngineSettingField,
+  stackDefaults: EngineSettings,
+): Fallback {
+  if (field.managerOwnsDefault) {
+    return { value: field.defaultValue, source: 'manager' };
+  }
+  return {
+    value: stackDefaults[field.key]?.trim() || field.defaultValue,
+    source: 'stack',
+  };
+}
+
 function chooseDefault(
   field: EngineSettingField,
   hostValue: string | undefined,
-  stackValue: string,
+  fallback: Fallback,
 ): ChosenDefault {
   const value = hostValue?.trim();
   if (!value) {
-    return { value: stackValue, source: 'stack', refused: null };
+    return { ...fallback, refused: null };
   }
   if (engineSettingFieldProblem(field, value)) {
-    return { value: stackValue, source: 'stack', refused: value };
+    return { ...fallback, refused: value };
   }
   return { value, source: 'host', refused: null };
 }
@@ -79,8 +106,11 @@ export function effectiveEngineDefaults(
   const rejected: string[] = [];
 
   for (const field of engineSettingsFields(engine)) {
-    const stackValue = stackDefaults[field.key]?.trim() || field.defaultValue;
-    const chosen = chooseDefault(field, baseEnv[field.key], stackValue);
+    const chosen = chooseDefault(
+      field,
+      baseEnv[field.key],
+      fallbackFor(field, stackDefaults),
+    );
     values[field.key] = chosen.value;
     sources[field.key] = chosen.source;
     if (chosen.refused !== null) rejected.push(field.key);

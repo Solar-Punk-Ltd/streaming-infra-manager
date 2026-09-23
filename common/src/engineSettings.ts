@@ -14,11 +14,13 @@
  * it: a version's contract names what that version's entrypoints fall back to
  * and wins over the field, so `defaultValue` answers only where no contract
  * was read, such as the offline mock and a version whose checkout could not be
- * parsed. A later stack version reads more keys than this, and fewer of them,
- * which is why the settings are stored as one JSONB column rather than as a
- * column each.
+ * parsed. A field whose default the manager owns is the exception, see
+ * `managerOwnsDefault`. A later stack version reads more keys than this, and
+ * fewer of them, which is why the settings are stored as one JSONB column
+ * rather than as a column each.
  */
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
+import type { EngineDefaults } from './engineDefaults.js';
 import type { EngineName } from './engines.js';
 import {
   ENV_SAFE_VALUE_MESSAGE,
@@ -44,6 +46,14 @@ export interface EngineSettingField {
    * string, as env is.
    */
   defaultValue: string;
+  /**
+   * `defaultValue` applies on every stack version in place of the version's
+   * own fallback, and `engineSettingsEnv` writes it wherever the host sets no
+   * value of its own. For a number the owner decided after the versions in use
+   * were cut: they still fall back to the old one, so a default the manager
+   * only named would describe a container nobody runs.
+   */
+  managerOwnsDefault?: boolean;
   min?: number;
   max?: number;
   choices?: readonly string[];
@@ -135,6 +145,7 @@ export const SRS_SETTINGS: readonly EngineSettingField[] = [
     // broadcaster lost 5 to 8.5% of its packets on 2026-09-22, and SRS dropped
     // nearly every resend as too late.
     defaultValue: '2000',
+    managerOwnsDefault: true,
     // The entrypoint refuses only a value that is not a number, so these bounds
     // are the manager's. Under 20 leaves no time for a resend even across a
     // local network. 10000 is about what SRS's default receive buffer of 8192
@@ -506,6 +517,16 @@ export function engineSettingsProblem(
   return null;
 }
 
+export interface EngineSettingsEnvOptions {
+  abr: boolean;
+  /**
+   * What each unset key falls back to on the host this deployment runs on,
+   * from `effectiveEngineDefaults`. A default whose source is the manager is
+   * written, and nothing else from it. Left out, only stored keys are.
+   */
+  defaults?: EngineDefaults;
+}
+
 /**
  * The lines to write into `.env.<profile>`, for the keys this profile actually
  * carries and still reads.
@@ -516,16 +537,30 @@ export function engineSettingsProblem(
  * does. Writing the defaults instead would silently override a value somebody
  * set on the box by hand. A key that no longer applies is left out for the
  * reason `applicableEngineSettings` gives.
+ *
+ * The one exception is a default the manager owns, written wherever the host
+ * sets no value of its own. Left out, the container would start on the
+ * version's own fallback, a different number from the one the drawer names.
  */
 export function engineSettingsEnv(
   engine: EngineName,
   settings: EngineSettings,
-  options: { abr: boolean } = { abr: false },
+  options: EngineSettingsEnvOptions = { abr: false },
 ): Record<string, string> {
   const pairs: Record<string, string> = {};
   for (const field of engineSettingsFieldsFor(engine, options)) {
-    const value = settings[field.key]?.trim();
+    const value =
+      settings[field.key]?.trim() || managerDefaultOf(field, options.defaults);
     if (value) pairs[field.key] = value;
   }
   return pairs;
+}
+
+function managerDefaultOf(
+  field: EngineSettingField,
+  defaults: EngineDefaults | undefined,
+): string | undefined {
+  return defaults?.sources[field.key] === 'manager'
+    ? defaults.values[field.key]
+    : undefined;
 }

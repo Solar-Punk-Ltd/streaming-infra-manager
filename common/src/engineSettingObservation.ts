@@ -1,4 +1,4 @@
-import type { EngineDefaults } from './engineDefaults.js';
+import type { EngineDefaults, EngineDefaultSource } from './engineDefaults.js';
 import { engineSettingFieldProblem, type EngineSettingField, type EngineSettings } from './engineSettings.js';
 
 export type EngineSettingEnvironment = 'all' | 'none' | 'partial' | 'unknown';
@@ -7,7 +7,7 @@ export type EngineSettingUnknownReason = 'missing-directive' | 'conflicting-valu
   | 'not-applicable' | 'mixed-applicability' | 'codec-unverified';
 
 export type EngineSettingObservation =
-  | { status: 'known'; source: 'deployment' | 'host' | 'stack' | 'config-file'; value: string; environment: EngineSettingEnvironment }
+  | { status: 'known'; source: 'deployment' | EngineDefaultSource | 'config-file'; value: string; environment: EngineSettingEnvironment }
   | { status: 'unknown'; source: 'omitted' | 'unverified'; value: null; reason: EngineSettingUnknownReason; environment: EngineSettingEnvironment };
 
 export type EngineSettingObservations = Record<string, EngineSettingObservation>;

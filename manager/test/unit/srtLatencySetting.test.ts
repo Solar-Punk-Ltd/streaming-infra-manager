@@ -9,9 +9,11 @@
  * 2026-09-22 an outside broadcaster lost 5 to 8.5% of its packets, nearly all
  * were resent, and SRS dropped the resends as too late at the stack's 200 ms.
  * Until 2026-09-23 the manager showed the number and let nobody change it.
+ * Since then it is a setting, and a deployment that stores none gets the
+ * owner's 2000 unless the host sets a value of its own.
  */
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
@@ -26,13 +28,17 @@ import { throwawayRoot } from '../support/throwawayRoot.js';
 // base env through it, so the root is set before anything reaching it loads.
 const root = throwawayRoot('srt-latency-');
 process.env.SHLS_ROOT = root;
-writeFileSync(join(root, '.env'), 'ENGINE=srs\nAPI_PORT=10000\n', 'utf8');
+const BASE_ENV = 'ENGINE=srs\nAPI_PORT=10000\n';
+writeFileSync(join(root, '.env'), BASE_ENV, 'utf8');
 
 const { ContainerControl } = await import('../../src/domain/ContainerControl.js');
 const { EventBus } = await import('../../src/domain/EventBus.js');
 const { SERVICE_ENV_KEYS } = await import('../../src/domain/containerKeysSpec.js');
+const { ALLOCATION_CONTRACT } = await import('../support/allocationContract.js');
 const { callEngine, startEngineTestApp } = await import('../support/engineTestApp.js');
 const { fakeDocker } = await import('../support/fakeDocker.js');
+const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
+const { makeProfile } = await import('../support/profileFixtures.js');
 const { harnessFor, profileRow } = await import('../support/profileServiceHarness.js');
 
 type EngineTestApp = Awaited<ReturnType<typeof startEngineTestApp>>;
@@ -108,5 +114,61 @@ describe('the container snapshot of an SRS deployment', () => {
   it('records the SRT latency against the engine, and not against the uploader', () => {
     assert.ok((SERVICE_ENV_KEYS[SRS_SERVICE] ?? []).includes('SRT_LATENCY'));
     assert.equal((SERVICE_ENV_KEYS[STREAM_UPLOADER_SERVICE] ?? []).includes('SRT_LATENCY'), false);
+  });
+});
+
+/**
+ * A deploy, from the stored row to the file compose reads and the snapshot a
+ * page shows, on a version that falls back to 200 the way v3.1 does.
+ */
+describe('what a deploy hands SRS for the SRT latency', () => {
+  async function deployed(
+    name: string,
+    baseEnv: string,
+    engineSettings: Record<string, string> = {},
+  ): Promise<{ file: string; snapshot: Record<string, string> | undefined }> {
+    writeFileSync(join(root, '.env'), baseEnv, 'utf8');
+    const stored = makeProfile({ name, stamp_id: 'a'.repeat(64), engine_settings: engineSettings });
+    const harness = orchestratorHarness([stored]);
+    await harness.versions.setContract(1, {
+      ...structuredClone(ALLOCATION_CONTRACT),
+      engineDefaults: { SRT_LATENCY: '200' },
+    });
+
+    await harness.orchestrator.startDeploy(stored, [SRS_SERVICE]);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, name);
+
+    return {
+      file: readFileSync(join(root, `.env.${name}`), 'utf8'),
+      snapshot: harness.containers.snapshots.find((entry) => entry.service === SRS_SERVICE)?.env,
+    };
+  }
+
+  after(() => writeFileSync(join(root, '.env'), BASE_ENV, 'utf8'));
+
+  it("hands SRS the manager's 2000 ms, and the snapshot says so", async () => {
+    const { file, snapshot } = await deployed('latency-default', BASE_ENV);
+
+    assert.match(file, /^SRT_LATENCY=2000$/m);
+    assert.equal(snapshot?.SRT_LATENCY, '2000');
+  });
+
+  it('hands SRS the value set on the host instead, and the snapshot agrees', async () => {
+    const { file, snapshot } = await deployed('latency-host', `${BASE_ENV}SRT_LATENCY=500\n`);
+
+    assert.match(file, /^SRT_LATENCY=500$/m);
+    assert.equal(snapshot?.SRT_LATENCY, '500');
+  });
+
+  it('hands SRS what the deployment stored over both', async () => {
+    const { file, snapshot } = await deployed(
+      'latency-stored',
+      `${BASE_ENV}SRT_LATENCY=500\n`,
+      { SRT_LATENCY: '3000' },
+    );
+
+    assert.match(file, /^SRT_LATENCY=3000$/m);
+    assert.equal(snapshot?.SRT_LATENCY, '3000');
   });
 });

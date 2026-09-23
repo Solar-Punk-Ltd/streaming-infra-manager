@@ -74,6 +74,18 @@ describe('GET /profiles/:name/engine on a version with its own defaults', () => 
     assert.equal(overview.defaultSources.HLS_WINDOW, 'stack');
   });
 
+  it("names the manager's own SRT latency rather than the version's 200, and says the manager set it", async () => {
+    // The one setting whose default the owner decided (2026-09-23, 2000 ms)
+    // after the version was cut, so the version's own number is the old one.
+    const res = await callEngine(app, 'GET', '/profiles/stream1/engine');
+    const overview = res.body as EngineOverview;
+
+    assert.equal(overview.defaults.SRT_LATENCY, '2000');
+    assert.equal(overview.defaultSources.SRT_LATENCY, 'manager');
+    assert.equal(overview.effective.SRT_LATENCY, '2000');
+    assert.equal(overview.observations.SRT_LATENCY.source, 'manager');
+  });
+
   it('says the API port is published but not read, rather than not there', async () => {
     const res = await callEngine(app, 'GET', '/profiles/stream1/engine');
     const overview = res.body as EngineOverview;

@@ -9,7 +9,6 @@ import {
 } from '@mui/material';
 
 import {
-  type EngineDefaultSource,
   type EngineSettingField,
   type EngineSettings,
   engineSettingFieldProblem,
@@ -24,7 +23,7 @@ import {
   type EngineOverview,
 } from '../deployments/engineApi';
 import { ENGINE_LABEL } from '../deployments/engineText';
-import { engineObservationText, engineOverrideHint } from '../deployments/engineObservationText';
+import { engineDefaultText, engineObservationText, engineOverrideHint } from '../deployments/engineObservationText';
 import { useEngineOverview } from '../deployments/useEngineOverview';
 import { engineOf } from '../deployments/shape';
 import { EditDrawerFrame } from './EditDrawerFrame';
@@ -234,23 +233,6 @@ export function EngineSettingsDrawer({
   );
 }
 
-/**
- * What an empty field falls back to, and where that value comes from.
- *
- * A host whose base `.env` already sets the key runs that value, because
- * `.env.<profile>` is a copy of it and an unset key is left out. Naming the
- * stack's own number there would describe a container nobody is running.
- */
-function defaultLabel(
-  value: string,
-  source: EngineDefaultSource,
-  unit: string,
-): string {
-  return source === 'host'
-    ? `Default ${value}${unit}, set on this host`
-    : `Stack default ${value}${unit}`;
-}
-
 function SettingField({
   field,
   overview,
@@ -278,7 +260,7 @@ function SettingField({
   const fallback = overview?.defaults[field.key];
   const source = overview?.defaultSources[field.key];
   const knownDefault = observation?.environment === 'all' && fallback !== undefined && source !== undefined;
-  const defaultNote = knownDefault ? `${defaultLabel(fallback, source, unit)}. Leave the override empty to use it.` : '';
+  const defaultNote = knownDefault ? `${engineDefaultText(fallback, source, unit)}. Leave the override empty to use it.` : '';
   const observationNote = observation?.status === 'known' ? `Configured value: ${text.value}. ${text.source}.` : `${text.value}. ${text.detail}`;
   const hint = overview
     ? [field.help, observationNote, engineOverrideHint(observation), defaultNote].filter(Boolean).join(' ')
@@ -313,7 +295,7 @@ function SettingField({
             SelectDisplayProps: { id: inputId },
           }}
         >
-          <MenuItem value="">{knownDefault ? defaultLabel(fallback, source, '') : 'No override'}</MenuItem>
+          <MenuItem value="">{knownDefault ? engineDefaultText(fallback, source, '') : 'No override'}</MenuItem>
           {field.choices.map((choice) => (
             <MenuItem key={choice} value={choice}>
               {choice}

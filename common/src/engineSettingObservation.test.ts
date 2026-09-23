@@ -66,6 +66,19 @@ describe('engine setting observations', () => {
     assert.equal(result.observations.HLS_SEGMENT_COUNT?.status === 'unknown' && result.observations.HLS_SEGMENT_COUNT.reason, 'invalid-scalar');
   });
 
+  it("names an unset SRT latency as the manager's own default, whatever the version falls back to", () => {
+    const srsFields = engineSettingsFieldsFor('srs', { abr: false });
+    const result = assembleEngineSettingObservations({
+      fields: srsFields,
+      settings: {},
+      defaults: effectiveEngineDefaults('srs', {}, { SRT_LATENCY: '200' }),
+      readings: environmentSettingReadings(srsFields),
+    });
+
+    assert.deepEqual(result.observations.SRT_LATENCY, { status: 'known', source: 'manager', value: '2000', environment: 'all' });
+    assert.equal(result.effective.SRT_LATENCY, '2000');
+  });
+
   it('serializes effective as exactly the known observation projection without mutating inputs', () => {
     const input = { fields, settings, defaults, readings: environmentSettingReadings(fields) };
     const before = JSON.stringify(input);

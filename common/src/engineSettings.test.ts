@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
+import { effectiveEngineDefaults } from './engineDefaults.js';
 import { isEnvSafeValue } from './envSafeValue.js';
 import {
   applicableEngineSettings,
@@ -548,6 +549,55 @@ describe('the SRT latency', () => {
       engineSettingsProblem(OME_SERVICE, { SRT_LATENCY: '2000' }, PLAIN) ?? '',
       /SRT_LATENCY is not a setting the ome engine reads/,
     );
+  });
+
+  it('is the one default the manager owns rather than each version', () => {
+    // A default the manager owns is written into every deployment's env file
+    // that stores none, so adding one is a decision and not a detail.
+    const owned = [...SRS_SETTINGS, ...OME_SETTINGS]
+      .filter((field) => field.managerOwnsDefault)
+      .map((field) => field.key);
+
+    assert.deepEqual(owned, ['SRT_LATENCY']);
+  });
+});
+
+describe("engineSettingsEnv and the manager's own SRT latency", () => {
+  /** What an unset field falls back to on a host whose version cuts v3.1's numbers. */
+  const onV31 = (baseEnv: Record<string, string> = {}) => ({
+    abr: false,
+    defaults: effectiveEngineDefaults(SRS_SERVICE, baseEnv, {
+      HLS_FRAGMENT: '0.5',
+      HLS_WINDOW: '15',
+      SRT_LATENCY: '200',
+    }),
+  });
+
+  it('writes 2000 where neither the deployment nor the host sets it', () => {
+    assert.deepEqual(engineSettingsEnv(SRS_SERVICE, {}, onV31()), { SRT_LATENCY: '2000' });
+  });
+
+  it("writes none of the version's own defaults", () => {
+    const env = engineSettingsEnv(SRS_SERVICE, { HLS_WINDOW: '30' }, onV31());
+
+    assert.deepEqual(env, { HLS_WINDOW: '30', SRT_LATENCY: '2000' });
+  });
+
+  it('leaves a value set on the host to the base env, which the file is a copy of', () => {
+    assert.deepEqual(engineSettingsEnv(SRS_SERVICE, {}, onV31({ SRT_LATENCY: '500' })), {});
+  });
+
+  it('writes what the deployment stored over the manager default', () => {
+    assert.deepEqual(
+      engineSettingsEnv(SRS_SERVICE, { SRT_LATENCY: '3000' }, onV31()),
+      { SRT_LATENCY: '3000' },
+    );
+  });
+
+  it('writes nothing of it for OvenMediaEngine', () => {
+    const defaults = effectiveEngineDefaults(OME_SERVICE);
+
+    assert.deepEqual(engineSettingsEnv(OME_SERVICE, {}, { abr: false, defaults }), {});
   });
 });
 

@@ -43,6 +43,21 @@ function assignment(text: string, key: string): string | undefined {
     ?.slice(key.length + 1);
 }
 
+/** A service is a two-space indented name under `services:`, as the contract reader reads them. */
+const COMPOSE_SERVICE = /^ {2}([a-z][a-z0-9-]*):\s*$/;
+
+/** The compose services whose environment interpolates `key` from the env file. */
+function composeServicesReading(compose: string, key: string): string[] {
+  const interpolates = new RegExp(`^\\s+${key}:\\s*\\$\\{${key}(:-[^}]*)?\\}\\s*$`);
+  const readers: string[] = [];
+  let service: string | null = null;
+  for (const line of compose.split('\n')) {
+    service = COMPOSE_SERVICE.exec(line)?.[1] ?? service;
+    if (service !== null && interpolates.test(line) && !readers.includes(service)) readers.push(service);
+  }
+  return readers;
+}
+
 describe('the bundled swarm-hls-stream v3.1 contract', () => {
   it('is a complete deployable contract with both engines', () => {
     assert.ok(
@@ -97,6 +112,18 @@ describe('the bundled swarm-hls-stream v3.1 contract', () => {
       '',
       'the optional admin token remains unset with admin mode off',
     );
+    assert.equal(
+      assignment(written, 'SRT_LATENCY'),
+      '2000',
+      `the manager writes its own SRT latency, where this checkout falls back to ${contract.engineDefaults.SRT_LATENCY ?? 'nothing it names'}`,
+    );
+  });
+
+  it('hands the SRT latency to SRS, and to SRS alone, through compose', () => {
+    const compose = readFileSync(join(STACK, 'deploy', 'docker-compose.yml'), 'utf8');
+    const readers = composeServicesReading(compose, 'SRT_LATENCY');
+
+    assert.deepEqual(readers, [SRS_SERVICE]);
   });
 
   it('admits both shipped engine templates through their v3.1 entrypoints', async () => {

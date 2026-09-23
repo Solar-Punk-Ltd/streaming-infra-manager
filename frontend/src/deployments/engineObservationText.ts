@@ -1,4 +1,6 @@
-import type { EngineSettingObservation, EngineSettingUnknownReason } from '@streaming-infra-manager/common';
+import type {
+  EngineDefaultSource, EngineSettingObservation, EngineSettingUnknownReason,
+} from '@streaming-infra-manager/common';
 
 export interface EngineObservationText {
   value: string;
@@ -7,8 +9,25 @@ export interface EngineObservationText {
 }
 
 const SOURCES = {
-  deployment: 'Deployment override', host: 'Host default', stack: 'Stack default', 'config-file': 'Set in config file',
+  deployment: 'Deployment override', host: 'Host default', manager: 'Manager default', stack: 'Stack default',
+  'config-file': 'Set in config file',
 } as const;
+
+/**
+ * What an empty field falls back to, and where that value comes from.
+ *
+ * A host whose base `.env` already sets the key runs that value, because
+ * `.env.<profile>` is a copy of it and an unset key is left out. Naming the
+ * stack's own number there would describe a container nobody is running. A
+ * default the manager owns is the manager's, whatever the version falls back to.
+ */
+export function engineDefaultText(value: string, source: EngineDefaultSource, unit: string): string {
+  switch (source) {
+    case 'host': return `Default ${value}${unit}, set on this host`;
+    case 'manager': return `Manager default ${value}${unit}`;
+    case 'stack': return `Stack default ${value}${unit}`;
+  }
+}
 
 const UNKNOWN_DETAILS: Record<EngineSettingUnknownReason, string> = {
   'missing-directive': 'At least one relevant section of the config omits this setting. Its engine default has not been observed.',

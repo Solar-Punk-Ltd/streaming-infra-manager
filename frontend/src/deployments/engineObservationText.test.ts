@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EngineSettingObservation } from '@streaming-infra-manager/common';
 
-import { engineObservationText, engineOverrideHint } from './engineObservationText';
+import { engineDefaultText, engineObservationText, engineOverrideHint } from './engineObservationText';
 
 const literal: EngineSettingObservation = { status: 'known', source: 'config-file', value: '4', environment: 'none' };
 
@@ -15,12 +15,20 @@ describe('engine observation wording', () => {
     assert.match(engineOverrideHint(literal), /Edit the config file/);
   });
 
-  it('keeps deployment, host and stack sources distinct', () => {
-    for (const [source, label] of [['deployment', 'Deployment override'], ['host', 'Host default'], ['stack', 'Stack default']] as const) {
+  it('keeps deployment, host, manager and stack sources distinct', () => {
+    for (const [source, label] of [
+      ['deployment', 'Deployment override'], ['host', 'Host default'], ['manager', 'Manager default'], ['stack', 'Stack default'],
+    ] as const) {
       const observation: EngineSettingObservation = { status: 'known', source, value: '2', environment: 'all' };
       assert.equal(engineObservationText(observation).source, label);
       assert.equal(engineOverrideHint(observation), 'This config reads the override in every relevant section.');
     }
+  });
+
+  it("names whose default an empty field falls back to, the manager's included", () => {
+    assert.equal(engineDefaultText('6', 'host', ' seconds'), 'Default 6 seconds, set on this host');
+    assert.equal(engineDefaultText('2000', 'manager', ' milliseconds'), 'Manager default 2000 milliseconds');
+    assert.equal(engineDefaultText('15', 'stack', ' seconds'), 'Stack default 15 seconds');
   });
 
   it('does not present missing and conflicting readings as the same absence', () => {
