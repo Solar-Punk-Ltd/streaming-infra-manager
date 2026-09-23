@@ -42,6 +42,14 @@ a deployment override uses the effective default, which can differ between
 versions. A reliably parsed literal is labeled "Set in config file". Changing
 an environment override does not change that literal.
 
+Since 2026-09-23 the SRT latency is the one setting whose default does not
+come from the version. It is the manager's own 2000 milliseconds on every
+version that reads it, labeled "Manager default", and the manager writes it
+into the deployment's env file wherever the host sets no value of its own. In
+a file of the deployment's own it is read at the `latency` directive of
+`srt_server`, where the version's template fills `SRT_LATENCY_PLACEHOLDER`,
+and a literal there is labeled "Set in config file" like any other.
+
 Omitted settings are labeled "Not specified". Conflicting values, unsupported
 syntax and other uncertain readings are "Unverified", with a reason. The
 manager checks relevant sections together instead of choosing the first

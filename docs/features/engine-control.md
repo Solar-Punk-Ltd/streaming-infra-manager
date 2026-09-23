@@ -7,14 +7,39 @@ PR 1 was built on `feat/engine-control`, went in with pull request #40, and is m
 `main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
 submodule tracked `main-v3` from 2026-09-09 and tracks `feat/manager-line`, the manager's own
 line of the stack, since 2026-09-17, and its pin has moved several times since, which the update
-below explains. `SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is
-not started.
+below explains. `SRT_LATENCY` was left out with the rest of what a later stack reads, until it
+became a setting on 2026-09-23, see the update of that date below. PR 2 is not started.
 
 Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is the default,
 main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
 `SRS_HTTP_API_PORT`, so the D7 backport to `main-v2` described below is no longer needed, and
 PR 2 (live status) waits only on the manager reading that port. The manager still answers
 `live: null` for it, with the reason "not read yet".
+
+Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d` and
+`6a37c2a`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
+broadcaster's recording came out with broken blocks of picture. SRS's own SRT counters showed 5 to
+8.5% of the packets lost and nearly all of them resent, but the resends arrived after the latency
+window, so SRS dropped them and each drop became a hole in a frame. The drawer offers it as **SRT
+latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
+defaults to 2000.
+
+That default is the manager's own and not the stack's. The pinned `v3.1` falls back to 200, as does
+every version cut before the decision that reads the key at all (`main-v2` does not), so the
+manager writes `SRT_LATENCY=2000` into
+`.env.<profile>` for every SRS deployment that stores no value, and the drawer and the card call it
+**Manager default**. It is the only setting written while unset. A value set in the host's base
+`.env` still wins, as it does for every other setting, and the drawer then says it was set on this
+host. A deployment that stores no value moves from 200 to 2000 the next time its env file is
+written, on its next deploy or engine settings save, which adds 1.8 seconds of delay at ingest.
+
+Caution, read from SRS's source on 2026-09-23 and not yet measured on a running engine. The
+stack's template fills the value into the `latency` directive of `srt_server`. SRS 6 applies that
+first and `recvlatency` after it, and `recvlatency` falls back to 120 when the template does not
+name it, so SRS asks for 120 on the receiving side whatever `latency` says. SRS receives every
+broadcast, so by that reading a changed `SRT_LATENCY` does not change how long SRS waits at ingest
+until the stack's template also fills `recvlatency`. A broadcaster raising the latency on their own
+end does work, because SRT uses the larger of the two ends' values.
 
 ## What the engines are and how they are configured today
 
@@ -74,7 +99,9 @@ and Storage:
   needs the SRS API port, which this stack version does not publish.`
 - **Settings** opens a right drawer, the same frame the Edit drawer uses, with only the fields
   the engine has. For SRS: **Segment length** (`HLS_FRAGMENT`, seconds), **Force-close a piece
-  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), and
+  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), **SRT
+  latency** (`SRT_LATENCY`, milliseconds, since 2026-09-23, whose default is the manager's own as
+  the update above says), and
   under **Transcoding (ABR uploaders only)**: frame rate, preset, profile, threads, audio codec,
   audio bitrate, VBV seconds (`ABR_FPS`, `ABR_PRESET`, `ABR_PROFILE`, `ABR_THREADS`, `ABR_ACODEC`,
   `ABR_AUDIO_BITRATE`, `ABR_VBV_SECONDS`). The ladder itself stays fixed, it is the contract with
@@ -118,11 +145,15 @@ stack version, and validation lives in code:
   `engineSettingsProblem
   (engine, settings)` returns the first human readable problem or null, including the GOP rule.
   `engineSettingsEnv(engine, settings)` returns the `KEY=value` pairs to write. Shared, so the
-  drawer and the deploy validate identically.
+  drawer and the deploy validate identically. Since 2026-09-23 it takes the host's defaults as
+  well and adds a default the manager owns, `managerOwnsDefault` on the field, for a key the
+  deployment does not store and the host's base `.env` does not set. `SRT_LATENCY` is the only
+  such field.
 - `writeProfileEnv` writes those pairs (every value goes through the same character check the
   passphrase gets, because it lands inside a `sed` expression in the entrypoint).
 - `buildEffectiveEnv` and `containerKeysSpec` include the keys, so the container snapshot shows
-  what the engine was started with.
+  what the engine was started with. Both call `engineSettingsEnv` with the same defaults since
+  2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries it.
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
   transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
   only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
