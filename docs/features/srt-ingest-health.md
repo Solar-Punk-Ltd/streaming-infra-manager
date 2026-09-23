@@ -20,7 +20,10 @@ address or connection id in the answer. That run found the window ending up to
 a second in the past, which `2cfcfc79` fixed. The first look at a live host is
 still the check that SRS 6 writes the line in this shape there. The SRT latency
 setting the remedy points at is added by a parallel branch and is not on this
-one. The card handles both orders of merging, see the remedy below.
+one. The card handles both orders of merging, see the remedy below. Open as PR
+45, and revised the same day for three points of Copilot's review: the card on a
+stopped deployment, a bad minute with nothing received, and a latency the remedy
+named that some deployments do not run with.
 
 ## Why it exists
 
@@ -105,7 +108,9 @@ since a publisher that dropped out and came back is the same link.
 `percent` is each count as a share of `received`, and `null` when nothing was
 received rather than a division by zero. The verdict is `healthy` when nothing
 was dropped, `degraded` when something was, and `bad` when the dropped packets
-reached one percent of those received (`SRT_BAD_DROP_PERCENT`). Loss that a
+reached one percent of those received (`SRT_BAD_DROP_PERCENT`), or when packets
+were dropped and none arrived. The card then says SRS gave up on packets and
+received none, since it has no share to quote. Loss that a
 retransmission recovered in time is healthy, because it never reached the
 picture. The rule and the shape live in `common/src/srtIngestHealth.ts`, which
 the manager, the page and the offline mock all read.
@@ -113,7 +118,10 @@ the manager, the page and the offline mock all read.
 ## What the operator sees
 
 The **SRT ingest** card sits directly under Readiness on the page of every
-deployment whose media server is SRS, while its `srs` container is reported. It
+deployment whose media server is SRS, while the deployment is running and its
+`srs` container is reported. The manager keeps a stopped deployment's container
+records, so those alone do not bring the card back, and a stopped deployment is
+not asked at all. It
 asks again every ten seconds while the page is open, which is also about how
 often SRS prints a report, and a new ask waits for the last one to answer. A
 failed ask clears the last reading rather than leaving it on screen.
@@ -132,9 +140,11 @@ failed ask clears the last reading rather than leaving it on screen.
   the picture breaks up. Raise the SRT latency of this deployment, to 4000 ms
   for example. Or add `&latency=4000000` to the end of the SRT address in OBS,
   which counts microseconds, so that is 4 seconds, and since SRT uses the larger
-  of the two sides this only helps above the deployment's own latency, 2000 ms by
-  default. Lower the bitrate OBS broadcasts at. Use a wired connection instead
-  of WiFi.
+  of the two sides this only helps when it is above the latency the deployment
+  runs with. The card names no number for that latency, because it cannot see
+  it: the manager writes 2000 ms, and SRS on v3.1 waits its own 120 on ingest
+  whatever is set. Lower the bitrate OBS broadcasts at. Use a wired connection
+  instead of WiFi.
 
 The latency step reads the deployment's engine settings. When they list
 `SRT_LATENCY`, which the parallel settings branch adds, the step carries an
@@ -164,9 +174,10 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
   lines of the lengths SRS and libsrt write.
 - **The reading does not say how old its newest report is.** A publisher that
   left fifty seconds ago still shows the minute it was sending.
-- **The latency step's numbers assume the parallel branch.** It says 2000 ms is
-  the deployment's default, which that branch makes true. On `v3.1` alone the
-  stack's own default is 200 ms, and 4000 ms is a raise either way.
+- **The suggested 4000 ms is a fixed number.** It is twice the manager's default
+  and well above the 120 ms SRS waits on ingest on `v3.1`, whose template fills
+  only `latency`. A deployment an operator has already set above 4000 ms gets a
+  suggestion that changes nothing.
 
 ## Tests
 
@@ -193,10 +204,15 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
 - `manager/test/unit/srtIngestHealthRoute.test.ts`: the route answers the reading
   whole, needs a session, refuses a bad name and answers 404 for a missing one.
 - `frontend/src/deployments/srtIngestText.test.ts`: the card's words in every
-  state, the remedy's steps, and no em dash or semicolon in any of them.
+  state, a bad minute with nothing received, the remedy's steps naming no
+  latency the deployment is said to run with, and no em dash or semicolon in
+  any of them.
+- `frontend/src/deployments/shape.test.ts`: the card is asked for only while an
+  SRS deployment runs, not for a stopped or failed one that keeps its records.
 - `frontend/test/srt-ingest-browser.test.mjs`: the card in a real Chrome, bad
   with its remedy, on a phone, healthy, with no reports, the latency button
-  opening the drawer, and no card and no request without SRS.
+  opening the drawer, no card and no request without SRS, and none for a
+  stopped deployment that still carries its SRS records.
 - `frontend/test/mock-srt-ingest-http.test.mjs`: the offline mock answers the
   route in the manager's shape and keeps the state a reviewer picked.
 
