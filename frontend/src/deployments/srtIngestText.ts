@@ -67,8 +67,15 @@ export interface SrtIngestView {
 /** The engine setting the stack reads SRS's SRT latency from. */
 export const SRT_LATENCY_SETTING_KEY = 'SRT_LATENCY';
 
-/** Two seconds, which absorbs the retransmissions of an ordinary home uplink. */
-const SUGGESTED_LATENCY_MS = 2_000;
+/** What a deployment's SRT latency is when nobody has set it. */
+const DEPLOYMENT_DEFAULT_LATENCY_MS = 2_000;
+
+/**
+ * Twice the default. SRT runs at the larger of the two sides' latencies, so a
+ * value at or under the deployment's own changes nothing on either side.
+ */
+const SUGGESTED_LATENCY_MS = 2 * DEPLOYMENT_DEFAULT_LATENCY_MS;
+
 /** OBS takes the SRT latency in microseconds. */
 const OBS_SUGGESTED_LATENCY = SUGGESTED_LATENCY_MS * 1_000;
 
@@ -193,7 +200,8 @@ function remedyFor(
       {
         text:
           `Or add &latency=${OBS_SUGGESTED_LATENCY} to the end of the SRT address in OBS. OBS counts ` +
-          `microseconds, so that is ${SUGGESTED_LATENCY_MS / 1_000} seconds, and SRT uses the larger of the two sides.`,
+          `microseconds, so that is ${SUGGESTED_LATENCY_MS / 1_000} seconds. SRT uses the larger of the two ` +
+          `sides, so this only helps above this deployment's own SRT latency, ${DEPLOYMENT_DEFAULT_LATENCY_MS} ms by default.`,
       },
       { text: 'Lower the bitrate OBS broadcasts at.' },
       { text: 'Use a wired connection instead of WiFi.' },

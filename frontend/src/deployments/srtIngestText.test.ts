@@ -76,10 +76,10 @@ describe('a measured SRT link on the card', () => {
     );
     const steps = remedy?.steps.map((step) => step.text) ?? [];
     assert.equal(steps.length, 4);
-    assert.match(steps[0]!, /Raise the SRT latency of this deployment, to 2000 ms for example\./);
+    assert.match(steps[0]!, /Raise the SRT latency of this deployment, to 4000 ms for example\./);
     assert.equal(
       steps[1],
-      'Or add &latency=2000000 to the end of the SRT address in OBS. OBS counts microseconds, so that is 2 seconds, and SRT uses the larger of the two sides.',
+      "Or add &latency=4000000 to the end of the SRT address in OBS. OBS counts microseconds, so that is 4 seconds. SRT uses the larger of the two sides, so this only helps above this deployment's own SRT latency, 2000 ms by default.",
     );
     assert.equal(steps[2], 'Lower the bitrate OBS broadcasts at.');
     assert.equal(steps[3], 'Use a wired connection instead of WiFi.');
@@ -155,7 +155,7 @@ describe('the SRT latency step of the remedy', () => {
     const [first] = read(BROKEN_UP, true).remedy!.steps;
 
     assert.equal(first!.action, RAISE_LATENCY_ACTION);
-    assert.equal(first!.text, 'Raise the SRT latency of this deployment, to 2000 ms for example, in its engine settings.');
+    assert.equal(first!.text, 'Raise the SRT latency of this deployment, to 4000 ms for example, in its engine settings.');
   });
 
   it('points at the OBS side when this version does not offer it', () => {
@@ -164,8 +164,18 @@ describe('the SRT latency step of the remedy', () => {
     assert.equal(first!.action, undefined);
     assert.equal(
       first!.text,
-      'Raise the SRT latency of this deployment, to 2000 ms for example. Until this manager offers that setting, the change in OBS below does the same from the broadcaster\'s side.',
+      'Raise the SRT latency of this deployment, to 4000 ms for example. Until this manager offers that setting, the change in OBS below does the same from the broadcaster\'s side.',
     );
+  });
+
+  // The deployment's own default is 2000 ms, and SRT runs at the larger of the
+  // two sides, so an OBS value at or under it would change nothing.
+  it('asks OBS for more latency than the deployment already runs with', () => {
+    const obsStep = read(BROKEN_UP).remedy!.steps[1]!.text;
+    const microseconds = Number(/&latency=(\d+)/.exec(obsStep)?.[1]);
+
+    assert.ok(microseconds / 1_000 > 2_000, `OBS is asked for ${microseconds} microseconds`);
+    assert.match(obsStep, /so that is 4 seconds\./);
   });
 
   it('reads whether the setting is offered off the fields the engine card lists', () => {
