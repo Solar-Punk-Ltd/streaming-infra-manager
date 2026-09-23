@@ -27,6 +27,7 @@ import { MetricsCollector } from './domain/MetricsCollector.js';
 import { ProfileRepository } from './domain/ProfileRepository.js';
 import { ProfileService } from './domain/ProfileService.js';
 import { ScriptRunner } from './domain/ScriptRunner.js';
+import { SrtIngestHealthService } from './domain/srtIngest/SrtIngestHealthService.js';
 import { StampService } from './domain/StampService.js';
 import { UploaderHealthService } from './domain/UploaderHealthService.js';
 import { UploaderStartGate } from './domain/UploaderStartGate.js';
@@ -284,6 +285,12 @@ async function main(): Promise<void> {
   const deployAttempts = new PostgresDeployAttemptRepository(database.pool);
   const portReservations = new PostgresPortReservationRepository(database.pool);
   const targetDocker = new TargetDocker(containerControl);
+  // SRS's own count of the packets its SRT publishers lost and dropped, read
+  // out of the engine's log on whichever host the deployment runs on.
+  const srtIngestHealthService = new SrtIngestHealthService(
+    profileRepository,
+    targetDocker,
+  );
   const deployTargets = new VerifiedDeployTargets(
     new PostgresDeployTargetRepository(database.pool),
     targetDocker,
@@ -397,6 +404,7 @@ async function main(): Promise<void> {
       chequebookService,
       chequebookOperations,
       uploaderHealthService,
+      srtIngestHealthService,
       containerControl,
       engineConfigService,
       stackVersionService,
