@@ -38,8 +38,12 @@ const REPORT_LINE = new RegExp(
     `pktRecv=${COUNT}, pktRcvLoss=${COUNT}, pktRcvRetrans=${COUNT}, pktRcvDrop=${COUNT}$`,
 );
 
-/** A colour or cursor sequence in POSIX ERE, where `.` stands for the escape byte ERE cannot name. */
-const HOST_ESCAPE = String.raw`(.\[[0-9;]*[A-Za-z])*`;
+/**
+ * A colour or cursor sequence in POSIX ERE. ERE has no escape for the escape
+ * byte, so it is written into the pattern literally. A `.` in its place would
+ * let any byte stand in for it.
+ */
+const HOST_ESCAPE = '(\u001b\\[[0-9;]*[A-Za-z])*';
 const HOST_COUNT = '[0-9]{1,15}';
 
 /**

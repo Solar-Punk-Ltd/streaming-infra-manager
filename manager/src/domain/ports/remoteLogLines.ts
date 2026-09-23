@@ -28,8 +28,12 @@ export interface MarkedLines {
 /** A compose project or service name, the shape the stack gives both. */
 const COMPOSE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
-/** Printable ASCII but the single quote, so a pattern cannot leave the quotes it is put in. */
-const QUOTABLE = /^[\x20-\x26\x28-\x7e]+$/;
+/**
+ * Printable ASCII but the single quote, so a pattern cannot leave the quotes it
+ * is put in, and the escape byte a colour code starts with, which a single
+ * quoted shell word carries as it is.
+ */
+const QUOTABLE = /^[\x1b\x20-\x26\x28-\x7e]+$/;
 
 const NO_CONTAINER = 'container=none';
 const RUNNING_CONTAINER = 'container=running';

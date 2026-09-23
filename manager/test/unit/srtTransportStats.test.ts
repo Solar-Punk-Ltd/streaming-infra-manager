@@ -195,6 +195,9 @@ describe('the pattern a remote reader filters with, run by grep', () => {
       `[2026-09-22 17:33:40.123][INFO][1][4ek6chsn] srt: streamid=#!::r=live/${FIRST}`,
       FIRST.replace('pktRecv=6500', 'pktRecv=12345678901234567'),
       FIRST.replace('pktRcvDrop=397', 'pktRcvDrop=-1'),
+      // A colour code's shape behind any byte but the escape byte is not one.
+      `x[0m${SECOND}`,
+      `${SECOND}x[0m`,
     ];
     const read = lines.filter((line) => parseTransportStatsLine(line) !== null);
 

@@ -67,6 +67,7 @@ describe('remoteLogLinesCommand', () => {
       ['stream1', 'srs', { ...LINES, hostPattern: "it's" }],
       ['stream1', 'srs', { ...LINES, hostPattern: '' }],
       ['stream1', 'srs', { ...LINES, hostPattern: 'line\nbreak' }],
+      ['stream1', 'srs', { ...LINES, hostPattern: 'bell\u0007' }],
       ['stream1', 'srs', { ...LINES, marker: '' }],
     ] as const) {
       assert.throws(
