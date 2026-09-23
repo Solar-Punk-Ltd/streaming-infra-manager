@@ -1,16 +1,18 @@
 import { execFile } from 'node:child_process';
 
-import { TargetNotVerifiedError } from '../errors/index.js';
+import { ContainerNotRunningError, TargetNotVerifiedError } from '../errors/index.js';
 import {
   containerIdsByService,
   type DaemonObserver,
   type DaemonSnapshot,
   type ObservedContainer,
 } from '../DeployAttemptRepository.js';
+import type { LogWindow } from '../logWindow.js';
 import { isLocalTarget, targetAlias } from './DeployTargets.js';
 import type { TargetIdentityProbe } from './VerifiedDeployTargets.js';
 import type { PublishedPortsProbe, PublishedPortsSnapshot } from './PublishedPortsProbe.js';
 import { collectPublishedPorts } from './publishedPorts.js';
+import { remoteLogLinesCommand, remoteLogLinesFrom } from './remoteLogLines.js';
 
 /** Captures only the selected non-secret fields, with a bounded runtime and output. */
 export type ReadOnlyCommand = (file: string, args: readonly string[]) => Promise<string>;
@@ -28,6 +30,12 @@ export class TargetDocker implements TargetIdentityProbe, DaemonObserver, Publis
       daemonId(): Promise<string>;
       observeContainers?(project: string): Promise<Map<string, ObservedContainer[]>>;
       publishedPorts?(): Promise<Omit<PublishedPortsSnapshot, 'daemonId'>>;
+      logLinesContaining?(
+        project: string,
+        service: string,
+        marker: string,
+        window: LogWindow,
+      ): Promise<string[]>;
     },
     private readonly run: ReadOnlyCommand = readOnlyCommand,
   ) {}
@@ -103,5 +111,35 @@ export class TargetDocker implements TargetIdentityProbe, DaemonObserver, Publis
       byService.set(service, [...(byService.get(service) ?? []), observed]);
     }
     return { daemonId: first, containers: byService };
+  }
+
+  /**
+   * The lines of a deployment's service log that carry `marker`, from the
+   * daemon the deployment runs on.
+   *
+   * The local daemon is read through its socket and a remote one over ssh,
+   * where the filter runs on the remote host, so no other line of the log
+   * crosses the connection. Both answer a missing container with
+   * `ContainerNotRunningError`.
+   */
+  async logLinesContaining(
+    project: string,
+    service: string,
+    marker: string,
+    window: LogWindow,
+    host: string | null = 'localhost',
+  ): Promise<string[]> {
+    const alias = targetAlias(host);
+    if (isLocalTarget(alias)) {
+      if (!this.local.logLinesContaining) throw new Error('Local log reader is not configured');
+      return this.local.logLinesContaining(project, service, marker, window);
+    }
+    const output = await this.run('ssh', [
+      '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes', alias,
+      remoteLogLinesCommand(project, service, marker, window),
+    ]);
+    const answer = remoteLogLinesFrom(output, marker);
+    if (answer.container === 'none') throw new ContainerNotRunningError(project, service);
+    return answer.lines;
   }
 }
