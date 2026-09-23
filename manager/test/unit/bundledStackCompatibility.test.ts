@@ -68,7 +68,7 @@ describe('the bundled swarm-hls-stream contract', () => {
     assert.equal(
       contract.engineDefaults.SRT_LATENCY,
       '2000',
-      'the bundled stack waits 2000 ms for a lost SRT packet unless a deployment sets SRT_LATENCY',
+      'the bundled stack waits 2000 ms for a lost SRT packet unless SRT_LATENCY is set',
     );
   });
 
