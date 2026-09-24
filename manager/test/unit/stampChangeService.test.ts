@@ -1,5 +1,5 @@
 /**
- * Topping up a batch on a deployment's own Bee node.
+ * Topping up and diluting a batch on a deployment's own Bee node.
  *
  * Unit test, no database and no node: the node is a fake that records what it
  * was asked, so nothing reaches a Bee and no money moves. `pnpm test` in
@@ -9,7 +9,10 @@
  * topup batch" (bee v2.7.0, pkg/api/postage.go), and its batch store holds
  * every batch on the chain rather than this node's own, so the service reads
  * the batch off the node's own list first. A batch the node does not hold is
- * then refused in words before anything is paid for.
+ * then refused in words before anything is paid for. The same read gives a
+ * dilute the batch's depth, and a depth that is not deeper is refused without
+ * asking bee, which refuses only a shallower one and leaves an equal one to the
+ * postage contract to refuse on chain.
  */
 import assert from 'node:assert/strict';
 import { describe, it, type TestContext } from 'node:test';
@@ -20,6 +23,7 @@ import type { BeeClient, BeeStamp } from '../../src/domain/BeeClient.js';
 import {
   BeeHttpError,
   BeeNodeError,
+  DiluteDepthError,
   ProfileNotFoundError,
   StampNotFoundError,
 } from '../../src/domain/errors/index.js';
@@ -53,12 +57,13 @@ const heldBatch: BeeStamp = {
 interface NodeCalls {
   urls: string[];
   topUps: { batchId: string; amount: string }[];
+  dilutes: { batchId: string; depth: number }[];
   stampLists: number;
 }
 
 /**
  * A service whose node holds what `getStamp` answers, and whose top-up answers
- * with a transaction unless `topUp` says otherwise.
+ * with a transaction unless `topUp` says otherwise. A dilute always does.
  */
 function rig(
   t: TestContext,
@@ -74,12 +79,16 @@ function rig(
   t.mock.method(Logger.prototype, 'info', (...args: unknown[]) => {
     infoLines.push(args.map(String).join(' '));
   });
-  const calls: NodeCalls = { urls: [], topUps: [], stampLists: 0 };
+  const calls: NodeCalls = { urls: [], topUps: [], dilutes: [], stampLists: 0 };
   const client = {
     getStamp,
     topUpStamp: async (batchId: string, amount: string) => {
       calls.topUps.push({ batchId, amount });
       return topUp();
+    },
+    diluteStamp: async (batchId: string, depth: number) => {
+      calls.dilutes.push({ batchId, depth });
+      return { batchID: BATCH, txHash: TX };
     },
     listStamps: async () => {
       calls.stampLists += 1;
@@ -165,6 +174,84 @@ describe('topping up a batch on a deployment’s own node', () => {
 
     await assert.rejects(() => service.topUpStamp('elsewhere', BATCH, AMOUNT), ProfileNotFoundError);
     assert.deepEqual(calls.topUps, []);
+  });
+});
+
+describe('diluting a batch on a deployment’s own node', () => {
+  it('sends the deeper depth for the batch to that deployment’s own node, and answers the transaction', async (t) => {
+    const { service, calls } = rig(t);
+
+    const answer = await service.diluteStamp('stage', `0x${BATCH}`, 24);
+
+    assert.deepEqual(answer, { batchID: BATCH, txHash: TX });
+    assert.deepEqual(calls.dilutes, [{ batchId: BATCH, depth: 24 }]);
+    assert.ok(calls.urls.length > 0 && calls.urls.every((url) => url === NODE_URL), JSON.stringify(calls.urls));
+  });
+
+  it('says so in one line that names the batch and both depths', async (t) => {
+    const { service, infoLines } = rig(t);
+
+    await service.diluteStamp('stage', BATCH, 24);
+
+    const lines = infoLines.filter((line) => line.includes('diluted'));
+    assert.equal(lines.length, 1, JSON.stringify(infoLines));
+    assert.ok(lines[0]!.includes(BATCH), lines[0]);
+    assert.match(lines[0]!, /23\D+24/);
+  });
+
+  it('refuses a depth that is not deeper than the batch’s own, without asking bee to dilute', async (t) => {
+    const { service, calls } = rig(t);
+
+    for (const depth of [23, 22]) {
+      await assert.rejects(
+        () => service.diluteStamp('stage', BATCH, depth),
+        (err: unknown) =>
+          err instanceof DiluteDepthError &&
+          err.currentDepth === 23 &&
+          err.requestedDepth === depth &&
+          /deeper than 23/.test(err.reason),
+      );
+    }
+    assert.deepEqual(calls.dilutes, []);
+  });
+
+  it('refuses a batch the node does not hold, before anything is sent', async (t) => {
+    const { service, calls } = rig(t, {
+      getStamp: async () => {
+        throw new BeeHttpError(404, 'bee GET /stamps/... → 404: issuer does not exist');
+      },
+    });
+
+    await assert.rejects(() => service.diluteStamp('stage', BATCH, 24), StampNotFoundError);
+    assert.deepEqual(calls.dilutes, []);
+  });
+
+  it('forgets what it read from the node, so the next read asks the node again', async (t) => {
+    const { service, calls } = rig(t);
+    await service.listStamps('stage');
+
+    await service.diluteStamp('stage', BATCH, 24);
+    await service.listStamps('stage');
+
+    assert.equal(calls.stampLists, 2);
+  });
+});
+
+describe('a depth a batch cannot be diluted to', () => {
+  it('answers 400 with the reason where the page reads it', async (t) => {
+    const router = Router();
+    router.post('/dilute', (_req, _res, next) => next(new DiluteDepthError('stage', BATCH, 23, 23)));
+    const app = await startRouterTestApp(router);
+    t.after(() => app.close());
+
+    const res = await call(app, 'POST', '/dilute', {});
+
+    assert.equal(res.status, 400);
+    const body = res.body as { error: string; errors: string[] };
+    assert.equal(body.error, 'validation_error');
+    assert.equal(body.errors.length, 1);
+    assert.match(body.errors[0]!, /depth 23/);
+    assert.doesNotMatch(body.errors[0]!, /[—;]/);
   });
 });
 

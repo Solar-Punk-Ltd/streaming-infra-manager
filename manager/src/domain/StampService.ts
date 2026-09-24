@@ -25,6 +25,7 @@ import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
+  DiluteDepthError,
   ProfileNotFoundError,
   StampNotFoundError,
   StampNotUsableError,
@@ -215,6 +216,33 @@ export class StampService {
     this.reads.forget(name);
     logger.info(
       `[StampService] ${name}: topped up stamp ${batchIdOf(batchId)} (amount=${amountPerChunkPlur}), transaction ${result.txHash}`,
+    );
+    return result;
+  }
+
+  /**
+   * Dilutes a batch this deployment's own node holds to `depth`, which has to be
+   * deeper than its own. Every step doubles what the batch holds and halves its
+   * life, and it costs the node's wallet only the transaction fee.
+   */
+  async diluteStamp(
+    name: string,
+    batchId: string,
+    depth: number,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const held = await this.heldStamp(profile, batchId);
+    if (depth <= held.depth) {
+      throw new DiluteDepthError(name, batchIdOf(batchId), held.depth, depth);
+    }
+    const result = await this.callOn(profile, (client) =>
+      client.diluteStamp(batchIdOf(batchId), depth),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: diluted stamp ${batchIdOf(batchId)} (depth=${held.depth} to ${depth}), transaction ${result.txHash}`,
     );
     return result;
   }

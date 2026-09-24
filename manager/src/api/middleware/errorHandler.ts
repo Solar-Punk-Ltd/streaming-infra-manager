@@ -27,6 +27,7 @@ import {
   ChequebookFundsError,
   ContainerNotRunningError,
   CrossSiteRequestError,
+  DiluteDepthError,
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
@@ -278,9 +279,9 @@ export function errorHandler(
     });
     return;
   }
-  if (err instanceof ChequebookFundsError) {
-    // Same shape as a schema rejection: the amount asked for is the problem,
-    // and the reason is the only text worth showing.
+  if (err instanceof ChequebookFundsError || err instanceof DiluteDepthError) {
+    // Same shape as a schema rejection: the amount or the depth asked for is
+    // the problem, and the reason is the only text worth showing.
     res.status(400).json({ error: 'validation_error', errors: [err.reason] });
     return;
   }

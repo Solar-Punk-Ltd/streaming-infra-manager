@@ -19,6 +19,7 @@ export { GroupRemovalRefusedError } from './GroupRemovalRefusedError.js';
 export { StampRequiredError } from './StampRequiredError.js';
 export { StampNotUsableError } from './StampNotUsableError.js';
 export { StampNotFoundError } from './StampNotFoundError.js';
+export { DiluteDepthError } from './DiluteDepthError.js';
 export { ChequebookBusyError } from './ChequebookBusyError.js';
 export { ChequebookFundsError } from './ChequebookFundsError.js';
 export { LadderGroupError } from './LadderGroupError.js';
