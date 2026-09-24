@@ -82,6 +82,6 @@ export function needsAttention(
   chequebook?: ChequebookHealth | null,
   uploaderHealth?: UploaderHealthReading,
 ): boolean {
-  const tone = readinessOf(profile, health, chequebook, { uploaderHealth }).tone;
+  const { tone } = readinessOf(profile, health, chequebook, { uploaderHealth });
   return tone === 'warn' || tone === 'err';
 }

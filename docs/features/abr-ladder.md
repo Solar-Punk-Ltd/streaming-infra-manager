@@ -216,7 +216,8 @@ attention" when it reports
 a problem, waits for its node, or does not answer its health route, in the words
 the step uses. The step warns on the wait and on the silence, where it used to
 show them as in progress and as fine. `postage_refused` is spelled out: a rung's
-Bee node refused that rung's batch, full or expired, so that rung's uploads
+Bee node refused that rung's batch, usually because it is full or has expired,
+so that rung's uploads
 fail until the uploader is deployed again with a batch that pays, because the
 uploader reads each rung's batch once, when it starts. The overview read no
 uploader at all until then, and on 2026-09-24 it said "everything is running and
@@ -373,7 +374,7 @@ So anything that claims a rung is ready asks its node. `stampHealthFrom`
 | State | Meaning | Blocks readiness |
 |---|---|---|
 | `none` | No batch recorded on the profile. | yes |
-| `active` | On the node, usable, time left, and either room left or mutable. | no |
+| `active` | On the node, usable, time left, and either room left, mutable, or a fill the node did not report. | no |
 | `pending` | On the node, bought too recently to be usable. | yes |
 | `full` | On the node, usable by bee's own flag, time left, immutable, and its fullest bucket is full. | yes |
 | `expired` | On the node, `batchTTL` is 0. | yes |
@@ -400,23 +401,31 @@ reads as empty. `StampHealth` carries that ratio as `fillRatio` and bee's
 assembly passes both on to each rung as `stampFillRatio` and `stampImmutable`,
 so the pool page, the overview and the rung's own page read the same numbers.
 
-Only an **immutable** batch is `full`. A mutable batch never refuses: when a
+Only an **immutable** batch is `full`. bee never refuses a mutable batch: when a
 bucket is full it takes the upload and overwrites that bucket's oldest chunks,
 so older recordings paid with it lose data while uploads keep working. It stays
 `active`, and the rung's readiness step says it now overwrites rather than
-refusing. A batch whose kind the node did not report is treated as immutable,
-since that is the kind that refuses. `full` is not one of the dead states: a full
-immutable batch can be diluted to buy room. Since 2026-09-25 the rung's Storage
-card offers that, **Dilute**, which keeps the batch id and so the pool string,
-and every warning about a full or nearly full rung offers diluting it or buying
-a new one. The 1080p batch above, 128 of 128 at depth 23, is half full at depth
-24, with half its life. See [postage-stamps.md](postage-stamps.md).
+refusing, and warns, for the reasons below. A batch whose kind the node did not
+report is treated as immutable, since that is the kind that refuses. `full` is
+not one of the dead states: a full immutable batch can be diluted to buy room.
+Since 2026-09-25 the rung's Storage card offers that, **Dilute**, which keeps the
+batch id and so the pool string, and every warning about a full or nearly full
+rung offers diluting it or buying a new one. The 1080p batch above, 128 of 128 at
+depth 23, is half full at depth 24, with half its life. See
+[postage-stamps.md](postage-stamps.md).
 
-An immutable batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`)
-but not yet full stays `active` and warns, the way `isStampExpiringSoon` warns
-about time. That number is the uploader's own default start ceiling,
-`STAMP_MAX_UTILIZATION`: an uploader restarted on such a batch already refuses
-to boot, which is why the warning starts there, while uploads still work.
+A batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`) that
+still takes uploads stays `active` and warns, "Stamp nearly full", the way
+`isStampExpiringSoon` warns about time. That number is the uploader's own
+default start ceiling, `STAMP_MAX_UTILIZATION`: an uploader restarted on an
+immutable batch past it already refuses to boot, which is why the warning starts
+there, while uploads still work. A mutable batch warns there too, full or not,
+for two reasons. Once full it overwrites the oldest recordings' chunks. And the
+uploader of stack v3.3 and earlier, the version this manager bundles on
+2026-09-25, holds a mutable batch to the same ceiling, so a restart on it past
+90% is refused as well. The stack's fix for that, which holds only immutable
+batches to the ceiling, is swarm-hls-stream #253, not yet in a release. The
+wording of both warnings is `nearlyFullConsequence` in `common/src/stampHealth.ts`.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm
@@ -539,7 +548,7 @@ chip on every healthy row would bury the one row that needs attention.
 |---|---|---|
 | Node | not `RUNNING` | none |
 | Address | `loopback`, `ssh-target`, `malformed` | `unreachable` |
-| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, an immutable batch past 90% full |
+| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, a batch past 90% full that still takes uploads |
 
 The right-hand column is the honest half. Every entry there is something we could
 not confirm rather than something we found wrong, and treating "could not check"
@@ -582,9 +591,10 @@ names would have dropped both guards at exactly the wrong moment, letting
   expires, instead of the manual per-rung repair. Expiry is now *visible* rather
   than silent, and since 2026-09-25 a rung can be topped up or diluted from its
   page, but the repair is still one manual change per rung.
-- Liveness on the Deployments tab. `pendingStamp` there is still derived from the
-  column alone, because reporting it honestly would mean probing every profile's
-  node on every list. The Uploaders tab is the one place that asks.
+- Liveness on the Deployments tab: the tab reads every node's batch and
+  chequebook, and since 2026-09-25 every running uploader's health, the same
+  readings as the overview. `pendingStamp` is read on the deployment page alone,
+  for the Deploy uploader button.
 - Reachability *from the uploader* rather than from the manager. The probe can
   only tell you what the manager can reach, which is why an unreachable published
   address warns instead of blocking. A check run from where the uploader actually

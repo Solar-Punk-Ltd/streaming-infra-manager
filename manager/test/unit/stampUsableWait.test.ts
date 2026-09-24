@@ -76,7 +76,10 @@ function rigFor(t: TestContext, recorded: string | null): Rig {
     () => client,
     undefined,
     undefined,
-    () => new Promise<void>((resolve) => setImmediate(resolve)),
+    () =>
+      new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      }),
   );
   return { service, profiles, published, infoLines, settle: () => { settled = true; } };
 }
@@ -91,7 +94,9 @@ async function decided(infoLines: readonly string[], batchId: string): Promise<s
   while (Date.now() < deadline) {
     const line = infoLines.find((entry) => entry.includes(`stamp ${batchId} usable`));
     if (line) return line;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
   }
   throw new Error(`the wait for ${batchId} never logged a decision: ${JSON.stringify(infoLines)}`);
 }

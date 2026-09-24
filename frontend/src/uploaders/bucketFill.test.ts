@@ -26,9 +26,13 @@ describe('how full a batch reads', () => {
     });
   });
 
-  it('does not warn about a mutable batch, which overwrites rather than refusing', () => {
-    assert.equal(bucketFill({ ...hostBatch, immutableFlag: false }).warning, null);
-    assert.equal(bucketFill({ ...hostBatch, utilization: 122, immutableFlag: false }).warning, null);
+  // A mutable batch never refuses, so it is never full here, but past the
+  // ceiling it warns as its readiness step does: once full it overwrites its
+  // oldest chunks, and the uploader of stack v3.3 refuses a restart on it.
+  it('warns about a mutable batch past the ceiling without ever calling it full', () => {
+    assert.equal(bucketFill({ ...hostBatch, immutableFlag: false }).warning, 'nearly-full');
+    assert.equal(bucketFill({ ...hostBatch, utilization: 122, immutableFlag: false }).warning, 'nearly-full');
+    assert.equal(bucketFill({ ...hostBatch, utilization: 64, immutableFlag: false }).warning, null);
   });
 
   it('reads a batch with room as its share, with no warning', () => {

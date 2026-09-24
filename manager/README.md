@@ -175,7 +175,8 @@ shown from the uploader's route. Since 2026-09-25 a wait for the node and an
 already was, because the uploader is uploading nothing or nothing confirmed
 that it is, and the overview lists exactly what the step does not call ok. The
 step spells out `postage_refused`: a Bee node refused the batch it was paid
-with, full or expired, and that node's uploads fail until the uploader is
+with, usually because it is full or has expired, and that node's uploads fail
+until the uploader is
 deployed again with a batch that pays.
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,

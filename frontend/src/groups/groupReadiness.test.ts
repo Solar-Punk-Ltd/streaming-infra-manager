@@ -102,9 +102,9 @@ describe('a pool whose rung holds a full batch', () => {
     ready: false,
     value: null,
     rungs: ready.rungs.map((rung) =>
-      rung.rung === '1080p'
+      (rung.rung === '1080p'
         ? { ...rung, stampState: 'full' as const, stampFillRatio: 1, stampImmutable: true }
-        : rung,
+        : rung),
     ),
     missing: [{ rung: '1080p', reason: 'the postage batch on this rung is full' }],
   };

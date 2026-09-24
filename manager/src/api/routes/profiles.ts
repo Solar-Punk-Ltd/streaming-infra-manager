@@ -79,8 +79,9 @@ export function createProfilesRouter(
   );
 
   // What this deployment's own stream-uploader says about itself, the Bee node
-  // it may still be waiting for included. One deployment at a time and never on
-  // a list, because a list would have to ask every uploader in turn.
+  // it may still be waiting for included. The deployment page reads it every ten
+  // seconds, and since 2026-09-25 the overview and the Deployments page read it
+  // every thirty seconds for each running uploader, one request per deployment.
   router.get(
     '/:name/uploader-health',
     validateParams(profileNameSchema),

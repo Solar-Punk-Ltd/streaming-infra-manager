@@ -329,9 +329,9 @@ describe('assembleBeePublishers — live batch state', () => {
   it('refuses the string when one rung’s immutable batch is full', () => {
     const result = assembleBeePublishers(
       full().map((r) =>
-        r.rung === '1080p'
+        (r.rung === '1080p'
           ? { ...r, stampState: 'full' as const, stampFillRatio: 1, stampImmutable: true }
-          : r,
+          : r),
       ),
     );
     assert.equal(result.ready, false);
@@ -466,22 +466,26 @@ describe('assembleBeePublishers — rung address and status', () => {
   it('warns while an immutable batch is past the uploader’s start ceiling but not yet full', () => {
     const result = assembleBeePublishers(
       full().map((r) =>
-        r.rung === '1080p' ? { ...r, stampFillRatio: 0.95, stampImmutable: true } : r,
+        (r.rung === '1080p' ? { ...r, stampFillRatio: 0.95, stampImmutable: true } : r),
       ),
     );
     assert.equal(result.ready, true);
     assert.ok(result.value);
     assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
     assert.match(result.warnings[0]!.reason, /95% full/);
-    assert.match(result.warnings[0]!.reason, /Dilute it or buy the next one before it does/);
+    assert.match(result.warnings[0]!.reason, /Dilute it or buy the next one before it fills/);
     assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
   });
 
-  it('does not warn about a mutable batch that is nearly full, which overwrites instead', () => {
+  it('warns about a mutable batch past the ceiling in its own words, still offering the string', () => {
     const result = assembleBeePublishers(
       full().map((r) => ({ ...r, stampFillRatio: 0.95, stampImmutable: false })),
     );
-    assert.equal(result.warnings.length, 0);
+    assert.equal(result.ready, true);
+    assert.equal(result.warnings.length, 4);
+    assert.match(result.warnings[0]!.reason, /overwrites its oldest chunks/);
+    assert.match(result.warnings[0]!.reason, /stack v3\.3 and earlier refuses to restart on it/);
+    assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
   });
 
   it('does not warn about a batch with plenty of life left', () => {

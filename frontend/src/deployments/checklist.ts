@@ -8,6 +8,7 @@ import {
   isStampExpiringSoon,
   isStampNearlyFull,
   LIGHT_NODE_MODE,
+  nearlyFullConsequence,
   parseBeePublishers,
   plurToBzz,
   type ReadFailure,
@@ -94,10 +95,11 @@ export interface ChecklistInput {
   /**
    * What the deployment's own stream-uploader says about itself.
    *
-   * `undefined` where the view never asked, which is every list and the
-   * overview, because a row would have to ask each uploader in turn. The step
-   * then reads exactly as it did before D16: the container is running and
-   * nothing beyond that has been verified.
+   * `undefined` where the view never asked, or could not reach the manager for
+   * it. The deployment page reads it every ten seconds, and since 2026-09-25 the
+   * overview and the Deployments page read it every thirty seconds for each
+   * running uploader. The step then reads exactly as it did before D16: the
+   * container is running and nothing beyond that has been verified.
    */
   uploaderHealth?: UploaderHealthReading;
 }
@@ -417,8 +419,8 @@ function stampStep({
         state: 'err',
         detail:
           stampHealth.state === 'expired'
-            ? 'Expired. Uploads fail until a new stamp is bought and set.'
-            : 'This node no longer holds the batch recorded here. Buy a new one and set it.',
+            ? 'Expired. Uploads fail until a new stamp is bought below, which is set here once it is usable.'
+            : 'This node no longer holds the batch recorded here. Buy a new one below, which is set here once it is usable.',
         action: buy('Buy stamp', true),
       };
     case 'pending':
@@ -468,7 +470,7 @@ function stampStep({
         title,
         problem: nearlyFull ? STAMP_NEARLY_FULL : 'Stamp ends soon',
         state: nearlyFull || endsSoon ? 'warn' : 'ok',
-        detail: nearlyFull ? `${detail}. ${NEARLY_FULL_CONSEQUENCE}` : detail,
+        detail: nearlyFull ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable)}` : detail,
         action: nearlyFull ? dilute() : endsSoon ? topUp : undefined,
       };
     }
@@ -477,11 +479,8 @@ function stampStep({
 
 /** The step's problem for an immutable batch whose fullest bucket is full. */
 export const STAMP_FULL = 'Stamp full';
-/** The step's problem for an immutable batch past the uploader's start ceiling. */
+/** The step's problem for a batch past the uploader's start ceiling that still takes uploads. */
 export const STAMP_NEARLY_FULL = 'Stamp nearly full';
-
-const NEARLY_FULL_CONSEQUENCE =
-  'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.';
 
 /**
  * How full the fullest bucket is, in chunks where the page holds the batch
@@ -573,7 +572,7 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
   // The manager asks the node again before it changes containers. A node that
   // says nothing and any chequebook balance are warning states under D15 and
   // D16, so neither can hide the action. A stamp the node already reported as
-  // missing, expired or not usable is the evidence that still blocks it.
+  // missing, expired, full or not usable is the evidence that still blocks it.
   const poolBacked = shapeOf(profile) === 'abr-uploader';
   const prerequisiteReady = poolBacked
     ? !beePublishersProblem(profile.bee_publishers)
@@ -608,10 +607,10 @@ export const UPLOADER_NOT_ANSWERING = 'Uploader not answering';
 /**
  * What each reading makes of a running uploader's step.
  *
- * A wait and an unanswered health route are warnings rather than a wait and a
- * pass since 2026-09-25: the uploader is up and uploading nothing, or nothing
- * confirmed that it uploads, and the overview lists exactly what this step does
- * not call ok. A reading of `not_deployed` beside a container the page lists is
+ * Since 2026-09-25 a wait for the node is a warning rather than busy, and an
+ * unanswered health route a warning rather than ok: the uploader is up and
+ * uploading nothing, or nothing confirmed that it uploads, and the overview
+ * lists exactly what this step does not call ok. A reading of `not_deployed` beside a container the page lists is
  * the two lists racing a deploy, and stays the container's own claim.
  */
 const RUNNING_UPLOADER_STEPS: Record<UploaderHealthState, { state: StepState; problem?: string }> = {
@@ -710,7 +709,10 @@ function reasonsText(reasons: readonly string[], publishesToPool: boolean): stri
   return [named, ...meanings].join(' ');
 }
 
-/** The uploader's reason for bee refusing a paid write on a batch that nothing retries. */
+/**
+ * The reason the uploader latches once bee answers a segment upload with a
+ * status it does not retry, a 402 for a full batch being the usual one.
+ */
 const POSTAGE_REFUSED_REASON = 'postage_refused';
 
 /**
@@ -721,8 +723,8 @@ const POSTAGE_REFUSED_REASON = 'postage_refused';
 function reasonMeaning(reason: string, publishesToPool: boolean): string | null {
   if (reason !== POSTAGE_REFUSED_REASON) return null;
   return publishesToPool
-    ? 'Postage refused means a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail until the uploader is deployed again with a batch that pays.'
-    : 'Postage refused means its Bee node refused its postage batch, which is full or has expired, so its uploads fail until the uploader is deployed again with a batch that pays.';
+    ? 'Postage refused means a rung’s Bee node refused that rung’s postage batch, usually because it is full or has expired, so that rung’s uploads fail until the uploader is deployed again with a batch that pays.'
+    : 'Postage refused means its Bee node refused its postage batch, usually because it is full or has expired, so its uploads fail until the uploader is deployed again with a batch that pays.';
 }
 
 function andList(parts: readonly string[]): string {

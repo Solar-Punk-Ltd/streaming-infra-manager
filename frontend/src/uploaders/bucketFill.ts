@@ -9,7 +9,10 @@ import {
 
 import { NO_VALUE } from '../format';
 
-/** What a fill is worth warning about: a full batch that refuses uploads, or one about to. */
+/**
+ * What a fill is worth warning about: a full immutable batch, which refuses
+ * uploads, or a batch past the uploader's start ceiling that still takes them.
+ */
 export type BucketFillWarning = 'full' | 'nearly-full';
 
 export interface BucketFill {

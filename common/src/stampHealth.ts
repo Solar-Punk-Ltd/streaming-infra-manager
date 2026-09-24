@@ -59,8 +59,9 @@ export type StampState =
   | 'pending'
   /**
    * Recorded, on the node, immutable, and its fullest bucket is full, so the node
-   * refuses the uploads that land there with a 402, and as the batch fills, more
-   * and more of all of them. Diluting it buys room, so it is not beyond saving.
+   * answers 402 to every upload that lands in that bucket, and to a growing share
+   * of all uploads as the other buckets fill. Diluting it buys room, so it is not
+   * beyond saving.
    */
   | 'full'
   /** Recorded, on the node, out of time. */
@@ -88,8 +89,9 @@ const DEAD_STATES: readonly StampState[] = ['expired', 'gone'];
 
 /**
  * The uploader's default start ceiling, the stack's `STAMP_MAX_UTILIZATION`. An
- * uploader restarted on an immutable batch fuller than this refuses to boot,
- * which is why the manager warns from here rather than only once the batch fills.
+ * uploader restarted on an immutable batch fuller than this refuses to boot, and
+ * the uploader of stack v3.3 and earlier refuses a mutable one as well, which is
+ * why the manager warns from here rather than only once the batch fills.
  */
 export const STAMP_FILL_WARNING_RATIO = 0.9;
 
@@ -142,8 +144,8 @@ export function isFullestBucketFull(fillRatio: number | null | undefined): boole
 }
 
 /**
- * Whether a full bucket makes this batch refuse uploads. A batch nobody said the
- * kind of is taken to, since that is the kind that fails.
+ * Whether a full bucket makes this batch refuse uploads. A batch whose kind nobody
+ * reported is taken to refuse, since that is the kind that fails.
  */
 function refusesWhenFull(immutable: boolean | null | undefined): boolean {
   return immutable !== false;
@@ -162,23 +164,31 @@ export function isStampFull(
 }
 
 /**
- * A batch that still takes uploads but will not for long, the way
- * `isStampExpiringSoon` is for time: immutable, or of a kind nobody said, and past
- * the uploader's start ceiling without being full yet.
+ * A batch past the uploader's start ceiling that still takes uploads, the way
+ * `isStampExpiringSoon` is for time.
  *
- * A full batch is not a warning, it is a failure and reported as one, and a
- * mutable batch never refuses, so neither raises this.
+ * An immutable batch, or one of a kind nobody reported, raises it until it is
+ * full, and full is not a warning but a failure, reported as `full`. A mutable
+ * batch raises it full or not: bee never refuses it, but once full it overwrites
+ * the oldest chunks it paid for, and the uploader of stack v3.3 and earlier holds
+ * it to the same start ceiling.
  */
 export function isStampNearlyFull(
   fillRatio: number | null | undefined,
   immutable: boolean | null | undefined,
 ): boolean {
-  return (
-    fillRatio != null &&
-    fillRatio > STAMP_FILL_WARNING_RATIO &&
-    !isFullestBucketFull(fillRatio) &&
-    refusesWhenFull(immutable)
-  );
+  if (fillRatio == null || fillRatio <= STAMP_FILL_WARNING_RATIO) return false;
+  return !refusesWhenFull(immutable) || !isFullestBucketFull(fillRatio);
+}
+
+/**
+ * What a batch past the start ceiling leads to, by its kind, for the warnings
+ * that name it. Shared so the checklist, the pool and the Storage card agree.
+ */
+export function nearlyFullConsequence(immutable: boolean | null | undefined): string {
+  return refusesWhenFull(immutable)
+    ? 'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.'
+    : 'Once it fills its node overwrites its oldest chunks, so the oldest recordings paid with it start losing data, and past 90% the uploader of stack v3.3 and earlier refuses to restart on it.';
 }
 
 /**

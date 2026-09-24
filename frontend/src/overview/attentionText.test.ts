@@ -67,8 +67,10 @@ describe('a row for a batch that fills', () => {
   it('says a nearly full batch is worth diluting or replacing before it fills', () => {
     const row = attentionText(STAMP_NEARLY_FULL, base, null);
 
+    // Said of both kinds, since a mutable batch never refuses, it overwrites.
     assert.match(row.text, /nearly full/);
-    assert.match(row.text, /Dilute it or buy the next one before its node starts refusing uploads/);
+    assert.match(row.text, /Dilute it or buy the next one before it fills/);
+    assert.doesNotMatch(row.text, /refusing uploads/);
     assert.equal(row.action, 'dilute-stamp');
   });
 });
@@ -92,7 +94,7 @@ describe('a row for an uploader, in the words its readiness step uses', () => {
     const row = attentionText(UPLOADER_REPORTS_A_PROBLEM, abrUploader, null, refused);
 
     assert.match(row.text, /The uploader reports postage refused\./);
-    assert.match(row.text, /a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail/);
+    assert.match(row.text, /a rung’s Bee node refused that rung’s postage batch, usually because it is full or has expired, so that rung’s uploads fail/);
     assert.equal(row.action, null);
   });
 
