@@ -198,7 +198,7 @@ named in plain words: "the chequebook gate warned on the 360p rung".
 
 The uploader half of this is in the pinned stack since 7b2312f, which pinned the
 stack commit 55b22bf1 that carries it, and every pin since carries it too, the
-stack's `main` at `8c5c583a` as of 2026-09-23. So a deployment reports those
+stack's release `v3.2` as of 2026-09-24. So a deployment reports those
 fields once the host runs that pin. A deployment still
 on an older build reports none of them, the manager reads that as no waiting
 state reported, and the step says what it always said, which is that the
