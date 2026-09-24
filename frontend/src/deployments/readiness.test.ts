@@ -58,7 +58,7 @@ describe('one readiness blocker', () => {
     ]) {
       const state = input({
         chequebook,
-        stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000 },
+        stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000, fillRatio: null, immutable: null },
         profile: { ...runningProfile, stamp_id: 'batch' },
       });
 
@@ -74,7 +74,7 @@ describe('one readiness blocker', () => {
     for (const stateName of ['stale', 'unreachable'] as const) {
       const state = input({
         profile: { ...runningProfile, stamp_id: 'batch' },
-        stampHealth: { state: 'unknown', ok: false, dead: false, ttl: null },
+        stampHealth: { state: 'unknown', ok: false, dead: false, ttl: null, fillRatio: null, immutable: null },
         chequebook: { state: 'unknown', availablePlur: null, floorPlur: 5_000_000_000_000_000n },
         nodeReadiness: { state: stateName, label: 'Bee did not answer', detail: 'The node could not be read.' },
       });
@@ -92,15 +92,15 @@ describe('one readiness blocker', () => {
       { profile: runningProfile, stampHealth: stampHealthFrom(null, null) },
       {
         profile: { ...runningProfile, stamp_id: 'batch' },
-        stampHealth: { state: 'gone', ok: false, dead: true, ttl: null },
+        stampHealth: { state: 'gone', ok: false, dead: true, ttl: null, fillRatio: null, immutable: null },
       },
       {
         profile: { ...runningProfile, stamp_id: 'batch' },
-        stampHealth: { state: 'expired', ok: false, dead: true, ttl: 0 },
+        stampHealth: { state: 'expired', ok: false, dead: true, ttl: 0, fillRatio: null, immutable: null },
       },
       {
         profile: { ...runningProfile, stamp_id: 'batch' },
-        stampHealth: { state: 'pending', ok: false, dead: false, ttl: null },
+        stampHealth: { state: 'pending', ok: false, dead: false, ttl: null, fillRatio: null, immutable: null },
       },
     ];
 
@@ -117,7 +117,7 @@ describe('one readiness blocker', () => {
   it('does not offer a second uploader action while the deployment is changing', () => {
     const state = input({
       profile: { ...runningProfile, status: 'DEPLOYING', stamp_id: 'batch' },
-      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000 },
+      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500000, fillRatio: null, immutable: null },
       chequebook: { state: 'ok', availablePlur: 10000000000000000n, floorPlur: 5000000000000000n },
       nodeReadiness: { state: 'stale', label: 'Bee observation stale', detail: 'Previous check is stale.' },
     });
@@ -212,14 +212,14 @@ describe('a pool member judged by the readings its page already holds', () => {
   const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
 
   it('calls a funded rung whose batch the manager reports live ready', () => {
-    const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000 };
+    const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000, fillRatio: null, immutable: null };
 
     assert.equal(readinessOf(member, live, paying).label, 'Node prerequisites checked');
     assert.equal(needsAttention(member, live, paying), false);
   });
 
   it('keeps the warning where the manager reports the batch gone', () => {
-    const gone: StampHealth = { state: 'gone', ok: false, dead: true, ttl: null };
+    const gone: StampHealth = { state: 'gone', ok: false, dead: true, ttl: null, fillRatio: null, immutable: null };
 
     assert.equal(readinessOf(member, gone, paying).label, 'Stamp not on node');
     assert.equal(needsAttention(member, gone, paying), true);
@@ -239,7 +239,7 @@ describe('a row that reads the wallet itself', () => {
     containers: [{ service: 'bee-uploader', ports: {}, buildId: null, buildCommit: null }],
     stamp_id: `0x${'a'.repeat(64)}`,
   };
-  const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000 };
+  const live: StampHealth = { state: 'active', ok: true, dead: false, ttl: 500_000, fillRatio: null, immutable: null };
   const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
 
   it('judges as a list does while the wallet reading has not arrived', () => {
@@ -269,7 +269,7 @@ describe('a standalone Bee node a list polled for its batch', () => {
   const paying: ChequebookHealth = { state: 'ok', availablePlur: 10_000_000_000_000_000n, floorPlur: 5_000_000_000_000_000n };
 
   it('warns and counts once the node says the batch has run out', () => {
-    const expired: StampHealth = { state: 'expired', ok: false, dead: true, ttl: 0 };
+    const expired: StampHealth = { state: 'expired', ok: false, dead: true, ttl: 0, fillRatio: null, immutable: null };
 
     assert.equal(readinessOf(standalone, expired, paying).label, 'Stamp expired');
     assert.equal(needsAttention(standalone, expired, paying), true);

@@ -3,12 +3,16 @@ import {
   type ChequebookHealth,
   chequebookStateReason,
   effectiveNodeMode,
+  formatFillPercent,
+  isFullestBucketFull,
   isStampExpiringSoon,
+  isStampNearlyFull,
   LIGHT_NODE_MODE,
   parseBeePublishers,
   plurToBzz,
   type ReadFailure,
   type ReadFailureReason,
+  stampBucketCapacity,
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
   type UploaderHealthReading,
@@ -438,17 +442,73 @@ function stampStep({
           : `A batch is recorded (${batch}) but its node could not be asked whether it still pays.`,
       };
     }
-    case 'active':
+    case 'full':
       return {
         title,
-        problem: 'Stamp ends soon',
-        state: isStampExpiringSoon(stampHealth.ttl) ? 'warn' : 'ok',
-        detail: activeStampDetail(profile, stampHealth, currentStamp),
-        action: isStampExpiringSoon(stampHealth.ttl)
-          ? buy('Buy next stamp')
-          : undefined,
+        problem: STAMP_FULL,
+        state: 'err',
+        detail: fullStampDetail(stampHealth, currentStamp),
+        action: buy('Buy stamp', true),
       };
+    case 'active': {
+      const nearlyFull = isStampNearlyFull(stampHealth.fillRatio, stampHealth.immutable);
+      const endsSoon = isStampExpiringSoon(stampHealth.ttl);
+      const detail = activeStampDetail(profile, stampHealth, currentStamp);
+      return {
+        title,
+        problem: nearlyFull ? STAMP_NEARLY_FULL : 'Stamp ends soon',
+        state: nearlyFull || endsSoon ? 'warn' : 'ok',
+        detail: nearlyFull ? `${detail}. ${NEARLY_FULL_CONSEQUENCE}` : detail,
+        action: nearlyFull || endsSoon ? buy('Buy next stamp') : undefined,
+      };
+    }
   }
+}
+
+/** The step's problem for an immutable batch whose fullest bucket is full. */
+export const STAMP_FULL = 'Stamp full';
+/** The step's problem for an immutable batch past the uploader's start ceiling. */
+export const STAMP_NEARLY_FULL = 'Stamp nearly full';
+
+const NEARLY_FULL_CONSEQUENCE =
+  'Once it fills its node refuses uploads, and an uploader restarted on it refuses to start.';
+
+/**
+ * How full the fullest bucket is, in chunks where the page holds the batch
+ * itself and as a share where it holds only the reading.
+ */
+function fullestBucketText(health: StampHealth, stamp: BeeStamp | null): string | null {
+  const capacity = stamp ? stampBucketCapacity(stamp) : null;
+  if (stamp && capacity !== null) {
+    return `${stamp.utilization} of ${capacity} chunks in its fullest bucket`;
+  }
+  if (health.fillRatio === null) return null;
+  return `its fullest bucket ${formatFillPercent(health.fillRatio)} full`;
+}
+
+function fullStampDetail(health: StampHealth, stamp: BeeStamp | null): string {
+  const amount = fullestBucketText(health, stamp);
+  const howFull = amount ? `, ${amount}` : '';
+  if (health.immutable === null) {
+    return `Full${howFull}, and the node did not say whether it is immutable. An immutable batch this full refuses uploads until a new stamp is bought and set.`;
+  }
+  return `Immutable and full${howFull}. The node refuses uploads until a new stamp is bought and set.`;
+}
+
+/**
+ * The fill and the kind of a batch that still takes uploads, as parts of the
+ * step's detail. A mutable batch that has filled keeps taking them, which is
+ * worth saying because it is spending what earlier uploads stored.
+ */
+function fillParts(health: StampHealth): string[] {
+  const { fillRatio, immutable } = health;
+  if (immutable === false && isFullestBucketFull(fillRatio)) {
+    return ['mutable and full, so it now overwrites its oldest chunks rather than refusing uploads'];
+  }
+  const parts: string[] = [];
+  if (fillRatio !== null) parts.push(`${formatFillPercent(fillRatio)} full`);
+  if (immutable !== null) parts.push(immutable ? 'immutable' : 'mutable');
+  return parts;
 }
 
 /**
@@ -468,7 +528,7 @@ function activeStampDetail(
   health: StampHealth,
   stamp: BeeStamp | null,
 ): string {
-  const parts = [`${formatTtl(health.ttl)} left`];
+  const parts = [`${formatTtl(health.ttl)} left`, ...fillParts(health)];
   if (profile.stamp_id) parts.push(`batch ${shortHex(profile.stamp_id)}`);
   if (stamp) parts.push(`depth ${stamp.depth}`);
   return parts.join(' · ');

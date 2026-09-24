@@ -193,6 +193,21 @@ describe('StampService.stampHealthFor', () => {
     assert.deepEqual(warnings, [], 'a 404 is an answer, not a failure to answer');
   });
 
+  // The tester's 1080p rung on 2026-09-24: usable, two days left, and every
+  // upload refused with a 402 because the immutable batch's fullest bucket held
+  // all 128 chunks it can.
+  it('reports a full immutable batch as full, with how full and of which kind', async () => {
+    const { service } = serviceAnswering(async () =>
+      stamp({ depth: 23, bucketDepth: 16, utilization: 128, immutableFlag: true, batchTTL: 184_320 }),
+    );
+    const health = await service.stampHealthFor(PROFILE, BATCH);
+
+    assert.equal(health.state, 'full');
+    assert.equal(health.fillRatio, 1);
+    assert.equal(health.immutable, true);
+    assert.equal(health.ttl, 184_320);
+  });
+
   it('carries the TTL back, so expiry can be warned about before it happens', () => {
     // Discarded previously, which left no way to say "6h left" — only "expired".
     return (async () => {

@@ -8,6 +8,9 @@ import { shapeOf } from './shape';
 
 export { ownsBeeNode } from '@streaming-infra-manager/common';
 export { isStreamLike } from './shape';
+// Declared in checklist.ts, which says them, because declaring them here would
+// make the two modules import each other.
+export { STAMP_FULL, STAMP_NEARLY_FULL } from './checklist';
 
 export interface Readiness {
   label: string;

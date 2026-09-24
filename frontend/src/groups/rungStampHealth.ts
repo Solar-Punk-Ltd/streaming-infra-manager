@@ -30,11 +30,11 @@ export function rungStampHealth(
 ): StampHealth | undefined {
   if (!rung) return undefined;
   const recorded = recordedStampId?.trim() || null;
-  if (!rung.stampId) return recorded ? undefined : healthOf('none', null);
+  if (!rung.stampId) return recorded ? undefined : healthOf('none');
   if (!recorded || !sameBatchId(rung.stampId, recorded)) return undefined;
   const state = rung.stampState;
   if (!state || state === 'unknown') return undefined;
-  return healthOf(state, rung.stampTtl ?? null);
+  return healthOf(state, rung);
 }
 
 /** The same answer for every member of every pool a page holds a result for. */
@@ -55,8 +55,18 @@ export function poolStampHealths(
   return healths;
 }
 
-function healthOf(state: StampState, ttl: number | null): StampHealth {
-  return { state, ok: state === 'active', dead: isDeadStampState(state), ttl };
+function healthOf(
+  state: StampState,
+  rung: Pick<LadderRungState, 'stampTtl' | 'stampFillRatio' | 'stampImmutable'> = {},
+): StampHealth {
+  return {
+    state,
+    ok: state === 'active',
+    dead: isDeadStampState(state),
+    ttl: rung.stampTtl ?? null,
+    fillRatio: rung.stampFillRatio ?? null,
+    immutable: rung.stampImmutable ?? null,
+  };
 }
 
 /**

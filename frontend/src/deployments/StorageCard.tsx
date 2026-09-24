@@ -10,8 +10,10 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import {
   type ChequebookHealth,
+  formatFillPercent,
   getErrorMessage,
   isStampExpiringSoon,
+  isStampNearlyFull,
   parsePlur,
   type StampHealth,
 } from '@streaming-infra-manager/common';
@@ -84,6 +86,13 @@ export function StorageCard({
       onChanged();
     });
 
+  const nearlyFullAt =
+    stampHealth.state === 'active' &&
+    stampHealth.fillRatio !== null &&
+    isStampNearlyFull(stampHealth.fillRatio, stampHealth.immutable)
+      ? formatFillPercent(stampHealth.fillRatio)
+      : null;
+
   const moveSourcePlur =
     moving === 'withdraw'
       ? parsePlur(bee.chequebook?.availableBalance)
@@ -121,7 +130,23 @@ export function StorageCard({
             with <strong>Use</strong>.
           </Alert>
         )}
-        {!stampHealth.dead && isStampExpiringSoon(stampHealth.ttl) && (
+        {stampHealth.state === 'full' && (
+          <Alert severity="error">
+            The postage batch this deployment pays with is full, and it cannot
+            overwrite what it holds, so this Bee node refuses the uploads it is
+            sent. Uploads cannot be paid for until a new batch is bought below and
+            set with <strong>Use</strong>.
+          </Alert>
+        )}
+        {nearlyFullAt && (
+          <Alert severity="warning">
+            This batch is <strong>{nearlyFullAt} full</strong>.
+            Once it fills this Bee node refuses uploads, and an uploader restarted
+            on it refuses to start. Buy the next one below and set it with{' '}
+            <strong>Use</strong> before it does.
+          </Alert>
+        )}
+        {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
           <Alert severity="warning">
             This batch runs out in <strong>{formatTtl(stampHealth.ttl)}</strong>.
             Buy the next one below and set it with <strong>Use</strong> before it

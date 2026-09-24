@@ -7,7 +7,9 @@ import {
   publishUrlWarning,
 } from './publishUrl.js';
 import {
+  formatFillPercent,
   isStampExpiringSoon,
+  isStampNearlyFull,
   type StampState,
   stampStateReason,
 } from './stampHealth.js';
@@ -219,6 +221,13 @@ export interface LadderRungState {
   /** Seconds left on that batch, when the node said. Drives the expiry warning. */
   stampTtl?: number | null;
   /**
+   * How full that batch's fullest bucket is, from `fullestBucketFillRatio`, when
+   * the node said enough to work it out. Drives the nearly full warning.
+   */
+  stampFillRatio?: number | null;
+  /** Whether that batch is immutable, when the node said. */
+  stampImmutable?: boolean | null;
+  /**
    * What `url` above is worth. Composed arithmetically, so it always parses as a
    * URL. `'unknown'` (or absent) means nothing has checked it.
    */
@@ -342,6 +351,12 @@ function softReasons(rung: LadderRungState): string[] {
   if (isStampExpiringSoon(rung.stampTtl)) {
     reasons.push(
       `this rung’s batch runs out in ${formatShortTtl(rung.stampTtl!)} — top it up or buy the next one before it does`,
+    );
+  }
+
+  if (isStampNearlyFull(rung.stampFillRatio, rung.stampImmutable)) {
+    reasons.push(
+      `this rung’s batch is ${formatFillPercent(rung.stampFillRatio!)} full. Once it fills its node refuses uploads, and an uploader restarted on it refuses to start. Buy the next one before it does`,
     );
   }
 

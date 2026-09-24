@@ -185,6 +185,7 @@ function stampText(
       : 'active';
   }
   if (rungState && isDeadStampState(rungState.stampState)) return 'expired';
+  if (rungState?.stampState === 'full') return 'full';
   if (rungState?.stampState === 'pending') return 'settling';
   return hasStampId(profile) ? 'set' : 'none';
 }

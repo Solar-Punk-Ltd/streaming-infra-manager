@@ -6,6 +6,8 @@ Corrected 2026-09-17 against the code at `0c0354c`: "The address", the D16 parag
 handed a public address no Bee node listens on. Corrected 2026-09-23 against the code at
 `87673c99`: the Implementation tables no longer say how many tests each file holds. Five of the
 seven counts had drifted from their suites, and each row's description says what its tests cover.
+Extended 2026-09-25 on `fix/full-stamps-and-sick-uploaders`, off `0f058763`: "The batch" reads how
+full a batch is, and a full immutable batch blocks its rung.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader`. Since T15 that uploader is
@@ -246,7 +248,7 @@ stdin-less runner.
 |---|---|
 | `src/abrLadder.ts` (new) | The whole ladder domain: `DEFAULT_ABR_LADDER` (rungs, geometry, kbps), `ladderMemberName` / `rungFromMemberName` / `ladderMemberNames`, `rungOrder`, `suggestedRungDepth`, `assembleBeePublishers`, `beePublishersValue`, `parseBeePublishers` / `beePublishersProblem`, `abrLadderEnvValue`, `LADDER_GROUP_NAME_MAX`. |
 | `src/abrLadder.test.ts` (new) | Tests over naming, round-tripping, group recognition, depth scaling and assembly, including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
-| `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId`, the one place that decides what a recorded batch is worth. See [Rung validity](#rung-validity). |
+| `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId`, the one place that decides what a recorded batch is worth. Since 2026-09-25 also `fullestBucketFillRatio` / `stampBucketCapacity` / `isFullestBucketFull` / `isStampNearlyFull` / `formatFillPercent`, how full a batch is. See [Rung validity](#rung-validity). |
 | `src/publishUrl.ts` (new) | `classifyPublishUrl` / `isInvalidUrlState` / `publishUrlReason` / `publishUrlWarning`, what a rung's published address is worth, structurally, before anything is probed. |
 | `src/publishUrl.test.ts` (new) | Tests for loopback in every spelling, ssh user info, non-http schemes, and that a bare internal hostname is *not* refused. |
 | `src/stampHealth.test.ts` (new) | Tests over the classification and the expiry window, including that an unreachable node classifies as `unknown` and never as `expired`, and that a negative `batchTTL` is not expiry. |
@@ -347,11 +349,47 @@ So anything that claims a rung is ready asks its node. `stampHealthFrom`
 | State | Meaning | Blocks readiness |
 |---|---|---|
 | `none` | No batch recorded on the profile. | yes |
-| `active` | On the node, usable, time left. | no |
+| `active` | On the node, usable, time left, and either room left or mutable. | no |
 | `pending` | On the node, bought too recently to be usable. | yes |
+| `full` | On the node, usable by bee's own flag, time left, immutable, and its fullest bucket is full. | yes |
 | `expired` | On the node, `batchTTL` is 0. | yes |
 | `gone` | Recorded, but the node does not have it, expired and dropped, or never bought there. | yes |
 | `unknown` | The node was not asked, or could not answer. | **no** |
+
+**How full a batch is, since 2026-09-25.** A batch stops paying when it runs out
+of time or when it fills, and the classification read only the first. On
+2026-09-24 the 1080p rung of
+the tester's pool held an immutable batch of depth 23 with 16 bucket bits,
+which is 128 chunks a bucket, and its fullest bucket held all 128. bee still
+reported it `usable` with two days left, refused every upload that landed in
+that bucket with a 402, and the uploader went unhealthy with
+`postage_refused`, while the rung's page showed a green "Postage stamp set,
+2d 3h left" and the pool string was offered as ready.
+
+bee's `utilization` is the chunk count of the batch's **fullest bucket**, not of
+the whole batch, so the number that decides refusals is
+`fullestBucketFillRatio`: `utilization / 2^(depth - bucketDepth)`, where `1` is
+full. It answers null when any of the three fields is missing, is not a whole
+non-negative number, or when `depth` is below `bucketDepth`, and a null never
+reads as empty. `StampHealth` carries that ratio as `fillRatio` and bee's
+`immutableFlag` as `immutable`, null where the node did not say, and the pool
+assembly passes both on to each rung as `stampFillRatio` and `stampImmutable`,
+so the pool page, the overview and the rung's own page read the same numbers.
+
+Only an **immutable** batch is `full`. A mutable batch never refuses: when a
+bucket is full it takes the upload and overwrites that bucket's oldest chunks,
+so older recordings paid with it lose data while uploads keep working. It stays
+`active`, and the rung's readiness step says it now overwrites rather than
+refusing. A batch whose kind the node did not report is treated as immutable,
+since that is the kind that refuses. `full` is not one of the dead states: a full
+immutable batch can be diluted to buy room. The manager does not offer that yet,
+so today the page's remedy is buying and setting a new batch.
+
+An immutable batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`)
+but not yet full stays `active` and warns, the way `isStampExpiringSoon` warns
+about time. That number is the uploader's own default start ceiling,
+`STAMP_MAX_UTILIZATION`: an uploader restarted on such a batch refuses to boot,
+so the warning arrives while a restart still works.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm
@@ -474,7 +512,7 @@ chip on every healthy row would bury the one row that needs attention.
 |---|---|---|
 | Node | not `RUNNING` | none |
 | Address | `loopback`, `ssh-target`, `malformed` | `unreachable` |
-| Batch | `none`, `pending`, `expired`, `gone` | `unknown`, expiring within 48h |
+| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, an immutable batch past 90% full |
 
 The right-hand column is the honest half. Every entry there is something we could
 not confirm rather than something we found wrong, and treating "could not check"
