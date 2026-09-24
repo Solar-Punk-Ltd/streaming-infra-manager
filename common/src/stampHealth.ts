@@ -59,8 +59,9 @@ export type StampState =
   | 'pending'
   /**
    * Recorded, on the node, immutable, and its fullest bucket is full, so the node
-   * refuses the uploads that land there with a 402, and as the batch fills, more
-   * and more of all of them. Diluting it buys room, so it is not beyond saving.
+   * answers 402 to every upload that lands in that bucket, and to a growing share
+   * of all uploads as the other buckets fill. Diluting it buys room, so it is not
+   * beyond saving.
    */
   | 'full'
   /** Recorded, on the node, out of time. */
@@ -142,8 +143,8 @@ export function isFullestBucketFull(fillRatio: number | null | undefined): boole
 }
 
 /**
- * Whether a full bucket makes this batch refuse uploads. A batch nobody said the
- * kind of is taken to, since that is the kind that fails.
+ * Whether a full bucket makes this batch refuse uploads. A batch whose kind nobody
+ * reported is taken to refuse, since that is the kind that fails.
  */
 function refusesWhenFull(immutable: boolean | null | undefined): boolean {
   return immutable !== false;
