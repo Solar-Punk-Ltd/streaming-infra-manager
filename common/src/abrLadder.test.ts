@@ -329,9 +329,9 @@ describe('assembleBeePublishers — live batch state', () => {
   it('refuses the string when one rung’s immutable batch is full', () => {
     const result = assembleBeePublishers(
       full().map((r) =>
-        r.rung === '1080p'
+        (r.rung === '1080p'
           ? { ...r, stampState: 'full' as const, stampFillRatio: 1, stampImmutable: true }
-          : r,
+          : r),
       ),
     );
     assert.equal(result.ready, false);
@@ -465,7 +465,7 @@ describe('assembleBeePublishers — rung address and status', () => {
   it('warns while an immutable batch is past the uploader’s start ceiling but not yet full', () => {
     const result = assembleBeePublishers(
       full().map((r) =>
-        r.rung === '1080p' ? { ...r, stampFillRatio: 0.95, stampImmutable: true } : r,
+        (r.rung === '1080p' ? { ...r, stampFillRatio: 0.95, stampImmutable: true } : r),
       ),
     );
     assert.equal(result.ready, true);
