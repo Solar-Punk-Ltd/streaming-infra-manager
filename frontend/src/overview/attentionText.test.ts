@@ -78,7 +78,7 @@ describe('a row for an uploader, in the words its readiness step uses', () => {
     const row = attentionText(UPLOADER_REPORTS_A_PROBLEM, abrUploader, null, refused);
 
     assert.match(row.text, /The uploader reports postage refused\./);
-    assert.match(row.text, /a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail/);
+    assert.match(row.text, /a rung’s Bee node refused that rung’s postage batch, usually because it is full or has expired, so that rung’s uploads fail/);
     assert.equal(row.action, null);
   });
 

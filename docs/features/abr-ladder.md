@@ -211,7 +211,8 @@ attention" when it reports
 a problem, waits for its node, or does not answer its health route, in the words
 the step uses. The step warns on the wait and on the silence, where it used to
 show them as in progress and as fine. `postage_refused` is spelled out: a rung's
-Bee node refused that rung's batch, full or expired, so that rung's uploads
+Bee node refused that rung's batch, usually because it is full or has expired,
+so that rung's uploads
 fail until the uploader is deployed again with a batch that pays, because the
 uploader reads each rung's batch once, when it starts. The overview read no
 uploader at all until then, and on 2026-09-24 it said "everything is running and
@@ -368,7 +369,7 @@ So anything that claims a rung is ready asks its node. `stampHealthFrom`
 | State | Meaning | Blocks readiness |
 |---|---|---|
 | `none` | No batch recorded on the profile. | yes |
-| `active` | On the node, usable, time left, and either room left or mutable. | no |
+| `active` | On the node, usable, time left, and either room left, mutable, or a fill the node did not report. | no |
 | `pending` | On the node, bought too recently to be usable. | yes |
 | `full` | On the node, usable by bee's own flag, time left, immutable, and its fullest bucket is full. | yes |
 | `expired` | On the node, `batchTTL` is 0. | yes |
@@ -573,9 +574,10 @@ names would have dropped both guards at exactly the wrong moment, letting
 - An automatic stamp-manager layer: top up or re-buy a rung's batch before it
   expires, instead of the manual per-rung buy. Expiry is now *visible* rather
   than silent, but the repair is still four manual buys.
-- Liveness on the Deployments tab. `pendingStamp` there is still derived from the
-  column alone, because reporting it honestly would mean probing every profile's
-  node on every list. The Uploaders tab is the one place that asks.
+- Liveness on the Deployments tab: the tab reads every node's batch and
+  chequebook, and since 2026-09-25 every running uploader's health, the same
+  readings as the overview. `pendingStamp` is read on the deployment page alone,
+  for the Deploy uploader button.
 - Reachability *from the uploader* rather than from the manager. The probe can
   only tell you what the manager can reach, which is why an unreachable published
   address warns instead of blocking. A check run from where the uploader actually

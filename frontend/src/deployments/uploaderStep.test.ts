@@ -170,7 +170,7 @@ describe('the uploader step once the uploader has been asked', () => {
   it('says what postage refused means for a deployment with its own node', () => {
     const step = uploaderStep({ state: 'unhealthy', reasons: ['postage_refused'] });
 
-    assert.match(step?.detail ?? '', /its Bee node refused its postage batch, which is full or has expired, so its uploads fail/);
+    assert.match(step?.detail ?? '', /its Bee node refused its postage batch, usually because it is full or has expired, so its uploads fail/);
     assert.match(step?.detail ?? '', /until the uploader is deployed again with a batch that pays/);
     assert.doesNotMatch(step?.detail ?? '', /[—;]/);
   });
@@ -245,7 +245,7 @@ describe('a pool-backed ABR uploader reports its own health', () => {
 
     assert.equal(step?.state, 'err');
     assert.match(step?.detail ?? '', /postage refused/);
-    assert.match(step?.detail ?? '', /a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail/);
+    assert.match(step?.detail ?? '', /a rung’s Bee node refused that rung’s postage batch, usually because it is full or has expired, so that rung’s uploads fail/);
   });
 
   it('shows a healthy pool-backed uploader', () => {
