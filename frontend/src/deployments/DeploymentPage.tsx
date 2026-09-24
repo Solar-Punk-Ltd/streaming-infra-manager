@@ -205,6 +205,8 @@ function DeploymentBody({
         }
         return;
       case 'buy-stamp':
+      case 'dilute-stamp':
+      case 'top-up-stamp':
       case 'fill-chequebook':
         document
           .getElementById(STORAGE_ANCHOR)
