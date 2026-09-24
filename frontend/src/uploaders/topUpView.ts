@@ -63,7 +63,7 @@ export function topUpView({ stamp, amount, currentPrice, walletBzz }: TopUpInput
 
 /** What the Storage card says once bee has answered a top-up. */
 export function topUpSentNotice(stamp: BeeStamp, sent: BeeStampTransaction): string {
-  return `Bee sent the top-up of batch ${shortHex(stamp.batchID)} in transaction ${shortHex(sent.txHash)}. The new life shows here once the transaction is mined and the node has read it, usually within a minute.`;
+  return `Bee sent the top-up of batch ${shortHex(stamp.batchID)} in transaction ${shortHex(sent.txHash)}, which is mined. The new life shows here once the node has read it back from the chain, usually within a minute.`;
 }
 
 function amountHint(typed: string, amountValid: boolean, currentPrice: string | null): string {

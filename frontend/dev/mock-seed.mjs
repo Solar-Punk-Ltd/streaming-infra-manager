@@ -26,9 +26,9 @@ export const GB = 1024 ** 3;
 export const LOW_CHEQUEBOOK_RUNG = '480p';
 
 /**
- * The rung seeded with a full immutable batch that still has days left, the
- * 1080p rung of the tester's pool on 2026-09-24, so the full state, its alert
- * and the Dilute remedy are visible at startup.
+ * The rung seeded with a full immutable batch that still has days left, in
+ * the shape of the tester's 1080p rung on 2026-09-24, so the full state, its
+ * alert and the Dilute remedy are visible at startup.
  */
 export const FULL_BATCH_RUNG = '720p';
 const FULL_BATCH_TTL = 2 * DAY + 3 * 3_600;

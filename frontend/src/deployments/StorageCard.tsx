@@ -53,7 +53,8 @@ interface StampChange {
 
 /**
  * The deployment's own Bee node: what it holds, what it can still pay peers
- * with, which batches it has, and how to buy the next one.
+ * with, which batches it has, and how to buy the next one, top one up or
+ * dilute one.
  *
  * It takes the node data rather than fetching it, because the readiness
  * checklist above is derived from the same answer and the two must not disagree

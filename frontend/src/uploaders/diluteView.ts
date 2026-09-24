@@ -89,7 +89,7 @@ export function diluteSentNotice(
   depth: number,
   sent: BeeStampTransaction,
 ): string {
-  return `Bee sent the dilution of batch ${shortHex(stamp.batchID)} to depth ${depth} in transaction ${shortHex(sent.txHash)}. The new depth and life show here once the transaction is mined and the node has read it, usually within a minute.`;
+  return `Bee sent the dilution of batch ${shortHex(stamp.batchID)} to depth ${depth} in transaction ${shortHex(sent.txHash)}, which is mined. The new depth and life show here once the node has read it back from the chain, usually within a minute.`;
 }
 
 function holdsText(chunks: number, bucketChunks: number | null): string {

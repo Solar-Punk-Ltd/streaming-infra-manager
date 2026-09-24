@@ -106,7 +106,7 @@ describe('what the card says once bee has answered a top-up', () => {
 
     assert.equal(
       notice,
-      'Bee sent the top-up of batch 1a2b3c4d…2b3c4d in transaction 0xababab…ababab. The new life shows here once the transaction is mined and the node has read it, usually within a minute.',
+      'Bee sent the top-up of batch 1a2b3c4d…2b3c4d in transaction 0xababab…ababab, which is mined. The new life shows here once the node has read it back from the chain, usually within a minute.',
     );
     assert.doesNotMatch(notice, /[—;]/);
   });

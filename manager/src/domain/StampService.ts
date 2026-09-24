@@ -414,7 +414,8 @@ export class StampService {
    * the caller is about to pay on it, and refused where the node does not hold
    * it.
    *
-   * Read off the node's own list because bee does not refuse a change to a
+   * Asks the node for that one batch, `GET /stamps/{id}`, which answers only
+   * for a batch this node owns, because bee does not refuse a change to a
    * batch it does not hold in words: its batch store holds every batch on the
    * chain, a top-up of any of them can be paid for, and one it knows nothing
    * about is a bare 500, "cannot topup batch" (bee v2.7.0, pkg/api/postage.go).

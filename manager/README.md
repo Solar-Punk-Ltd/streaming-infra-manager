@@ -328,11 +328,12 @@ What a batch is, and what each change to one costs and does, is in
 is PLUR per chunk, a positive whole number as a string, and `depth` a whole
 number from 17 to 40. A body that breaks those is refused with 400.
 
-A top-up or a dilute reads the batch off the node's own list first. One the
-node does not hold is refused with `404 stamp_not_found`, and a dilute to a
-depth that is not deeper than the batch's own with 400, both before bee is
-asked. Both answer once bee has the transaction mined, and the node shows the
-new life or depth once it has read it back from the chain, usually within a
+A top-up or a dilute asks the node for that one batch first, `GET /stamps/{id}`,
+and one the node does not hold is refused with `404 stamp_not_found`, and a
+dilute to a depth that is not deeper than the batch's own with 400, both
+before bee is asked. Both answer once bee has the transaction mined, and the
+node shows the new life or depth once it has read it back from the chain,
+usually within a
 minute. A node still starting answers `503 bee_node_not_ready`, and any other
 failed call to it `502 bee_node_unreachable` with bee's own words.
 

@@ -225,7 +225,7 @@ test('a batch is topped up and diluted from its deployment’s Storage card', as
   await click(inDialog(`Top up for ${cost} BZZ`), 'the enabled top-up confirm');
   await waitFor(dialogOpen, (open) => open === false, 'the top-up dialog to close once bee answered');
   await waitFor(storageText, (text) => text.includes('Bee sent the top-up of batch'), 'the card to say the top-up was sent');
-  assert.match(await storageText(), /The new life shows here once the transaction is mined/);
+  assert.match(await storageText(), /The new life shows here once the node has read it back from the chain/);
   assert.deepEqual(await writes(), [
     { path: `/profiles/${RUNG}/stamp/topup`, body: { batch_id: batch.batchID, amount: oneDay } },
   ]);

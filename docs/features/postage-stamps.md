@@ -14,7 +14,10 @@ against a real Bee node or with real money: every test uses fakes or the
 offline mock, and the operator presses these buttons himself. What Bee and the
 postage contract do is read from their source, bee at `v2.7.0` (checkout of
 2026-01-29) and storage-incentives' `PostageStamp.sol` (checkout of
-2026-01-15), and each such statement below says so.
+2026-01-15), and each such statement below says so. The page was re-read at
+the merge of `fix/full-stamps-and-sick-uploaders`, which made a mutable batch
+past 90% warn too. The nodes the bundled stack v3.3 deploys run
+`ethersphere/bee:2.8.2`, which was not re-read.
 
 ## What a batch is
 
@@ -46,23 +49,32 @@ common).
   pool string, the way an expired one does.
 - A **mutable** batch never refuses. It takes the upload and overwrites the
   oldest chunk in that bucket, so what earlier uploads stored is lost while new
-  uploads keep working. It stays `active`, and the readiness step says it now
-  overwrites.
+  uploads keep working. It stays `active`, and past 90% the readiness step
+  warns **Stamp nearly full**, full or not, with what filling costs it: its
+  node overwrites its oldest chunks and the oldest recordings paid with it
+  lose data.
 - A batch whose kind the node did not report is read as immutable, since that
   is the kind that refuses.
 
-An immutable batch past **90%** full warns as **Stamp nearly full**, because 90%
+A batch past **90%** full warns as **Stamp nearly full**, because 90%
 is the uploader's own default start ceiling, `STAMP_MAX_UTILIZATION`: an
 uploader restarted on such a batch refuses to start while uploads still work.
+An immutable batch warns until it is full, when it fails as `full` instead. A
+mutable batch warns full or not, in its own words: once full its node
+overwrites its oldest chunks, and the uploader of stack v3.3 and earlier
+refuses to restart on it past 90% as well (`isStampNearlyFull`,
+`nearlyFullConsequence`).
 
 ## Life and price
 
-A batch holds a balance for every chunk, the **amount** in the stamps table, in
-PLUR per chunk (1 BZZ is 10^16 PLUR). Every Gnosis block, five seconds, the
-chain takes the current price from that balance for every chunk. So a batch's
-life, its TTL, is its balance over the price, times five seconds. When the
-balance runs out the batch has expired: its uploads fail, nothing revives it,
-and the node drops it some time later.
+A batch holds a balance for every chunk, in PLUR (1 BZZ is 10^16 PLUR). Every
+Gnosis block, five seconds, the chain takes the current price from that
+balance for every chunk. The **amount** in the stamps table is not that
+balance: it is what has been paid a chunk, bee's `amount`, which never falls
+as the batch spends, so the life left is the TTL column and not the amount
+over the price. So a batch's life, its TTL, is its balance over the price,
+times five seconds. When the balance runs out the batch has expired: its
+uploads fail, nothing revives it, and the node drops it some time later.
 
 - The price moves, so every life shown before paying is at **today's price**,
   from the node's `/chainstate`. A batch lives longer if the price falls and
@@ -176,10 +188,10 @@ The node then reads the change back from the chain, which its listener does a
 few blocks behind the tip, four in bee's source (`pkg/postage/listener`). Until
 it has, the node's list still shows the old life and depth. So the dialog
 closes, the page reads the node's batches again at once, and the card says, in
-a notice the operator closes, which transaction carries the change and that the
-new life, or the new depth and life, shows once the transaction is mined and
-the node has read it, usually within a minute. The card reads the node again
-every ten seconds, and **Refresh** reads it at once.
+a notice the operator closes, which transaction carries the change, that it is
+mined, and that the new life, or the new depth and life, shows once the node
+has read it back from the chain, usually within a minute. The card reads the
+node again every ten seconds, and **Refresh** reads it at once.
 
 Neither change touches the deployment's record or its pool string, because the
 batch keeps its id. A diluted batch takes uploads again once its node has the
@@ -194,11 +206,12 @@ fell behind back into its master playlist once eight segments in a row land.
 - A body that breaks the rules: a batch id that is not 32 bytes of hex, with or
   without `0x`, an amount that is not a positive whole number of PLUR, or a
   depth outside 17 to 40. Answered 400.
-- A batch the deployment's node does not hold. The manager reads the batch off
-  the node's own list first and answers 404 `stamp_not_found`. Bee itself
-  answers a change to a batch it does not know with a bare 500, and its batch
-  store holds every batch on the chain, so without that read a stranger's batch
-  could be paid for (bee `pkg/api/postage.go`).
+- A batch the deployment's node does not hold. A top-up or a dilute asks the
+  node for that one batch first, `GET /stamps/{id}`, and one the node does not
+  hold is refused with `404 stamp_not_found`. Bee itself answers a change to a
+  batch it does not know with a bare 500, and its batch store holds every
+  batch on the chain, so without that read a stranger's batch could be paid
+  for (bee `pkg/api/postage.go`).
 - A dilute to a depth that is not deeper than the batch's own. Answered 400 with
   the batch's depth in the sentence. Bee refuses only a shallower depth and
   leaves an equal one to the contract, which refuses it on chain.
@@ -244,3 +257,8 @@ whole list of stamp routes is in [manager/README.md](../../manager/README.md#pos
 - A refusal from Bee reaches the page as `bee_node_unreachable` with Bee's words
   in its message, the code every failed call to a node gets, which reads as
   though the node did not answer.
+- A batch the node holds but has not made usable yet is answered by Bee's
+  `GET /stamps/{id}` with 400 "batch not usable", which the manager passes on
+  as `502 bee_node_unreachable`, so a top-up or dilute of a pending batch
+  through the API reads as a node that did not answer. The page never offers
+  either on such a batch.

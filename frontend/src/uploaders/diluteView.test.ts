@@ -85,7 +85,7 @@ describe('what the card says once bee has answered a dilute', () => {
 
     assert.equal(
       notice,
-      'Bee sent the dilution of batch 1a2b3c4d…2b3c4d to depth 24 in transaction 0xcdcdcd…cdcdcd. The new depth and life show here once the transaction is mined and the node has read it, usually within a minute.',
+      'Bee sent the dilution of batch 1a2b3c4d…2b3c4d to depth 24 in transaction 0xcdcdcd…cdcdcd, which is mined. The new depth and life show here once the node has read it back from the chain, usually within a minute.',
     );
     assert.doesNotMatch(notice, /[—;]/);
   });
