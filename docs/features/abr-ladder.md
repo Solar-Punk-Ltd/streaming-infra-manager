@@ -3,7 +3,9 @@
 Status, 2026-09-16: built and merged to `main-v2`, page checked against the code at ecaea40.
 Corrected 2026-09-17 against the code at `0c0354c`: "The address", the D16 paragraphs under
 "The ABR Uploader", and the "Manager" table. The first real pool on the live host had been
-handed a public address no Bee node listens on.
+handed a public address no Bee node listens on. Corrected 2026-09-23 against the code at
+`87673c99`: the Implementation tables no longer say how many tests each file holds. Five of the
+seven counts had drifted from their suites, and each row's description says what its tests cover.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader`. Since T15 that uploader is
@@ -243,11 +245,11 @@ stdin-less runner.
 | File | Change |
 |---|---|
 | `src/abrLadder.ts` (new) | The whole ladder domain: `DEFAULT_ABR_LADDER` (rungs, geometry, kbps), `ladderMemberName` / `rungFromMemberName` / `ladderMemberNames`, `rungOrder`, `suggestedRungDepth`, `assembleBeePublishers`, `beePublishersValue`, `parseBeePublishers` / `beePublishersProblem`, `abrLadderEnvValue`, `LADDER_GROUP_NAME_MAX`. |
-| `src/abrLadder.test.ts` (new) | 55 tests over naming, round-tripping, group recognition, depth scaling and assembly, including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
+| `src/abrLadder.test.ts` (new) | Tests over naming, round-tripping, group recognition, depth scaling and assembly, including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
 | `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId`, the one place that decides what a recorded batch is worth. See [Rung validity](#rung-validity). |
 | `src/publishUrl.ts` (new) | `classifyPublishUrl` / `isInvalidUrlState` / `publishUrlReason` / `publishUrlWarning`, what a rung's published address is worth, structurally, before anything is probed. |
-| `src/publishUrl.test.ts` (new) | 9 tests: loopback in every spelling, ssh user info, non-http schemes, and that a bare internal hostname is *not* refused. |
-| `src/stampHealth.test.ts` (new) | 18 tests over the classification and the expiry window, including that an unreachable node classifies as `unknown` and never as `expired`, and that a negative `batchTTL` is not expiry. |
+| `src/publishUrl.test.ts` (new) | Tests for loopback in every spelling, ssh user info, non-http schemes, and that a bare internal hostname is *not* refused. |
+| `src/stampHealth.test.ts` (new) | Tests over the classification and the expiry window, including that an unreachable node classifies as `unknown` and never as `expired`, and that a negative `batchTTL` is not expiry. |
 | `src/stampGating.ts` | `isBeeNodeOnly` and `managesOwnStamp`. A rung has no `stream-uploader`, so the old gate said it needed no stamp, which would have left it invisible on the Uploaders tab with no way to fund it. |
 
 ### Manager
@@ -262,10 +264,10 @@ stdin-less runner.
 | `src/domain/errors/LadderGroupError.ts` (new) | 409 `ladder_group_invalid_operation`. |
 | `src/api/routes/groups.ts` | `GET /groups/:id/bee-publishers`. |
 | `test/unit/ladderSchema.test.ts` (new) | Pins the cross-field name rule, which uses yup's `this.parent` and would fail silently if the schema shape changed. |
-| `test/unit/beePublishersReadiness.test.ts` (new) | 18 tests: the endpoint asks every rung, probes the exact address it publishes, refuses the value on a dead batch / stopped node / unusable address, and stays ready, with the value, for anything it merely could not confirm. |
-| `test/unit/stampHealthFor.test.ts` (new) | 10 tests over the bee-answer mapping, above all that a timeout is `unknown` and not `expired`, and that the TTL survives. |
-| `test/unit/beeApiUrl.test.ts` (new) | 7 tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an unresolvable alias still composing to the address it names. |
-| `test/unit/deployHost.test.ts` (new) | 12 tests on target resolution with `ssh -G` injected: an alias resolved, an unknown name echoed back and kept, ssh failing without throwing, literals and dotted names never reaching the exec, a non-name refused at the exec boundary, and the TTL cache. |
+| `test/unit/beePublishersReadiness.test.ts` (new) | Tests that the endpoint asks every rung, probes the exact address it publishes, refuses the value on a dead batch / stopped node / unusable address, and stays ready, with the value, for anything it merely could not confirm. |
+| `test/unit/stampHealthFor.test.ts` (new) | Tests over the bee-answer mapping, above all that a timeout is `unknown` and not `expired`, and that the TTL survives. |
+| `test/unit/beeApiUrl.test.ts` (new) | Tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an unresolvable alias still composing to the address it names. |
+| `test/unit/deployHost.test.ts` (new) | Tests on target resolution with `ssh -G` injected: an alias resolved, an unknown name echoed back and kept, ssh failing without throwing, literals and dotted names never reaching the exec, a non-name refused at the exec boundary, and the TTL cache. |
 
 `beePublishersForGroup` asks each rung's node whether its recorded batch is still
 alive, all four in parallel on a 3s timeout. It first did not. Every field came
