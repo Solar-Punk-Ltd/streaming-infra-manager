@@ -190,6 +190,17 @@ test('a batch is topped up and diluted from its deployment’s Storage card', as
   assert.equal(batch.immutableFlag, true);
   assert.match(await storageText(), /is full, and it cannot overwrite what it holds/);
   assert.match(await storageText(), new RegExp(`${batch.utilization} of ${batch.utilization}`), 'the Used column names the chunks in the fullest bucket');
+  // A laptop's card is narrower than the table's readings, and a control past
+  // its right edge is one the operator has to find by scrolling the table.
+  const offTheCard = await evaluate(`(() => {
+    const table = document.querySelector('#storage table').parentElement.getBoundingClientRect();
+    return ['Top up', 'Dilute'].filter((text) => {
+      const button = [...document.querySelectorAll('#storage button')].find((b) => b.textContent.trim() === text);
+      const box = button?.getBoundingClientRect();
+      return !box || box.width === 0 || box.right > table.right;
+    });
+  })()`);
+  assert.deepEqual(offTheCard, [], 'the row’s actions are in view without scrolling the table');
   await screenshot('full-batch');
   assert.equal(await evaluate(RECORD_STAMP_WRITES), true);
 
