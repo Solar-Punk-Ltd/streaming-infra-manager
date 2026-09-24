@@ -199,9 +199,9 @@ describe('bounded SRS config observations', () => {
  * and with `recvlatency 2000` beside it, 2000.
  */
 describe("the SRT latency in a config file of the deployment's own", () => {
-  /** The stack's template since a1b43f0a, where both directives take the setting. */
+  /** The stack's template since a1b43f0a, the bundled one since 8c5c583a, where both directives take the setting. */
   const fixedTemplate = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\nrecvlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
-  /** The pinned v3.1 template, where only `latency` does. */
+  /** The v3.1 template, where only `latency` does. */
   const v31Template = `srt_server {\nenabled on;\nlatency SRT_LATENCY_PLACEHOLDER;\ntlpktdrop on;\n}\n${template}`;
   const srtServer = (...lines: string[]) => `srt_server {\nenabled on;\n${lines.join('\n')}\n}\n`;
 
@@ -251,7 +251,7 @@ describe("the SRT latency in a config file of the deployment's own", () => {
     });
   });
 
-  it("reads a copy of the pinned v3.1 template as SRS waiting its own 120, because that template fills only latency", () => {
+  it("reads a copy of the v3.1 template as SRS waiting its own 120, because that template fills only latency", () => {
     const result = observeLatency(v31Template, { selectedTemplate: v31Template });
 
     assert.equal(result.effective.SRT_LATENCY, '120');
