@@ -23,11 +23,17 @@ import {
 import { shapeOf } from '../deployments/shape';
 import type { Profile } from '../types';
 
-/** The button a row offers beside Open, which every row has. */
+/**
+ * The button a row offers beside Open, which every row has. The three about a
+ * batch all open the deployment's storage, where buying, topping up and
+ * diluting live, and differ in which of them they name.
+ */
 export type AttentionAction =
   | 'retry'
   | 'start-uploader'
   | 'buy-stamp'
+  | 'dilute-stamp'
+  | 'top-up-stamp'
   | 'fill-chequebook'
   | 'edit';
 
@@ -85,13 +91,13 @@ export function attentionText(
       };
     case STAMP_FULL:
       return {
-        text: 'Its stamp is full, so its node refuses uploads. Buy a new one and set it.',
-        action: 'buy-stamp',
+        text: 'Its stamp is full, so its node refuses uploads. Dilute it or buy a new one.',
+        action: 'dilute-stamp',
       };
     case STAMP_NEARLY_FULL:
       return {
-        text: 'Its stamp is nearly full. Buy the next one before its node starts refusing uploads.',
-        action: 'buy-stamp',
+        text: 'Its stamp is nearly full. Dilute it or buy the next one before its node starts refusing uploads.',
+        action: 'dilute-stamp',
       };
     case UPLOADER_NOT_STARTED:
       return {
@@ -100,8 +106,8 @@ export function attentionText(
       };
     case STAMP_ENDS_SOON:
       return {
-        text: 'Buy the next stamp before this one runs out.',
-        action: 'buy-stamp',
+        text: 'Top it up or buy the next stamp before this one runs out.',
+        action: 'top-up-stamp',
       };
     case CHEQUEBOOK_EMPTY:
     case CHEQUEBOOK_LOW:

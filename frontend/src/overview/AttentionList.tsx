@@ -132,6 +132,16 @@ function ProfileAlertRow({
         Buy stamp
       </Button>
     ),
+    'dilute-stamp': (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Dilute or buy
+      </Button>
+    ),
+    'top-up-stamp': (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Top up or buy
+      </Button>
+    ),
     'fill-chequebook': (
       <Button size="small" variant="contained" onClick={openStorage}>
         Fill chequebook
