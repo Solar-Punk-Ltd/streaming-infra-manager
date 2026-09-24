@@ -31,6 +31,7 @@ import { NodeFunding } from '../uploaders/NodeFunding';
 import { StampTable } from '../uploaders/StampTable';
 import { buyStamp, setStamp, type BuyStampInput } from '../uploaders/stampApi';
 import type { BeeUtils } from '../uploaders/useBeeUtils';
+import { newBatchReach } from './newBatchReach';
 
 /**
  * The deployment's own Bee node: what it holds, what it can still pay peers
@@ -46,6 +47,7 @@ export function StorageCard({
   stampHealth,
   chequebookHealth,
   defaultDepth,
+  rung,
   onChanged,
 }: {
   profile: Profile;
@@ -54,6 +56,8 @@ export function StorageCard({
   chequebookHealth: ChequebookHealth | null;
   /** An ABR rung starts the buy form at the depth its bitrate wants. */
   defaultDepth?: number;
+  /** The ABR rung this node publishes, when it is a pool member. */
+  rung?: string | null;
   onChanged: () => void;
 }) {
   const { chequebookFloorBzz } = useDeployments();
@@ -85,6 +89,8 @@ export function StorageCard({
       await setStamp(profile.name, batchID);
       onChanged();
     });
+
+  const reach = newBatchReach(profile, rung);
 
   const nearlyFullAt =
     stampHealth.state === 'active' &&
@@ -156,7 +162,9 @@ export function StorageCard({
         {bee.waitingBatch && (
           <Alert severity="info" icon={<CircularProgress size={18} />}>
             Waiting for batch <code>{shortHex(bee.waitingBatch)}</code> to become
-            usable. This takes a few minutes, and it is set here automatically.
+            usable. This takes a few minutes, and it is then set here
+            automatically, unless another batch is set with <strong>Use</strong>{' '}
+            first.{reach ? ` ${reach}` : ''}
           </Alert>
         )}
 
@@ -190,6 +198,7 @@ export function StorageCard({
           onBuy={handleBuy}
           currentPrice={bee.chainState?.currentPrice ?? null}
           defaultDepth={defaultDepth}
+          newBatchReach={reach}
         />
       </Stack>
 

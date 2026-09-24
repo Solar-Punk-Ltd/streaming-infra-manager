@@ -8,7 +8,7 @@ handed a public address no Bee node listens on. Corrected 2026-09-23 against the
 seven counts had drifted from their suites, and each row's description says what its tests cover.
 Extended 2026-09-25 on `fix/full-stamps-and-sick-uploaders`, off `0f058763`: "The batch" reads how
 full a batch is, and a full immutable batch blocks its rung. "The ABR Uploader" says the overview
-reads each uploader's own health.
+reads each uploader's own health, and that a batch bought on a rung is set on it once usable.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader`. Since T15 that uploader is
@@ -175,7 +175,13 @@ The string goes stale two ways, and since nothing links the two managers,
 nothing invalidates a copy that has gone wrong:
 
 - **A rung buys a *new* batch** (topping up keeps the id). Re-paste after a
-  re-buy, until a stamp manager keeps batches from expiring.
+  re-buy, until a stamp manager keeps batches from expiring. Since 2026-09-25 a
+  batch bought on the rung's own page is set on the rung once bee calls it
+  usable, even while the rung records another, because it was bought there for
+  that rung. Only a batch set on the rung with **Use** while it settled is kept
+  instead. The pool string then names the new batch, and the uploader goes on
+  paying with the old one until the new string is pasted into its **Node pool
+  string** under Edit, which redeploys it.
 - **A rung is removed and re-created**, which changes its *address*, not just
   its batch. Ports come from the profile's port slot, and a freed slot is
   reused by the next profile created on that machine, so `720p@…:10035` can
@@ -299,7 +305,7 @@ request or block the value.
 | `src/groups/PoolRungRow.tsx` | One rung's row, driven by the node's own answer about its batch. A status chip appears when the node is not running, and a dead or nearly spent batch raises an alert rather than a silent row. |
 | `src/groups/GroupPage.tsx`, `GroupMembersCard.tsx` | The pool's own page: the string card above, then its rungs, each expandable to the funding and batch controls. A damaged ladder still appears, selected by `group.kind`. |
 | `src/groups/groupReadiness.ts`, `useBeePublishers.ts` | What the page asks the manager and how it counts the header chip, from the *verified* state the manager reports rather than from the profile rows. |
-| `src/uploaders/BuyStampForm.tsx` | Optional `defaultDepth`, so a rung's form starts at *its* suggested depth rather than a flat 17. |
+| `src/uploaders/BuyStampForm.tsx` | Optional `defaultDepth`, so a rung's form starts at *its* suggested depth rather than a flat 17. Since 2026-09-25 its caption says what a newly set batch reaches, from `src/deployments/newBatchReach.ts`: on a rung, the pool string and not the uploader until it is pasted again. |
 | `src/uploaders/NodeFunding.tsx`, `StampTable.tsx` | A rung's wallet, address and batch list. The Usable column has an `expired` state, which previously read `pending`, that is, as something that would come good on its own, and an empty table names the orphaned id instead of saying "No stamps on this node yet." |
 | `src/forms/wizard/` | **Deployment type** is a step of the wizard, and `PoolPrerequisites.tsx` and `PoolSettings.tsx` are the pool's own screens. `poolDraft.ts`, `poolIdentity.ts` and `poolMembership.ts` hold its draft, so a pool created mid-wizard is not lost by a step back. |
 | `src/PublisherRungs.tsx` | Renders the rungs a pasted `BEE_PUBLISHERS` resolves to, because a line of four URLs and four 64-character batch ids is not something anyone proof-reads. |

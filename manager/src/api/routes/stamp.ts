@@ -17,8 +17,10 @@ import { validateBody, validateParams } from '../middleware/validate.js';
  * A read answers from a shared window over the bee HTTP API rather than a call
  * of its own: concurrent callers join the call in flight and its answer stands
  * for the length of `NODE_READ_WINDOW_MS`. See `NodeReadCache`. Buy creates a
- * batch. Set persists a stamp id on the profile and starts no redeploy, because
- * the "deploy uploader" action is what brings the uploader up.
+ * batch and sets it on the profile once bee calls it usable, unless another was
+ * set there meanwhile, see `StampService.buyStamp`. Set persists a stamp id on
+ * the profile and starts no redeploy, because the "deploy uploader" action is
+ * what brings the uploader up, and neither does the set that follows a buy.
  */
 export function createStampRouter(stampService: StampService): Router {
   const router = Router();

@@ -289,6 +289,16 @@ uploader, and a derived `pendingStamp` field carries the difference rather than
 a new status. Once a batch exists,
 `POST /profiles/:name/deploy-uploader` deploys that one service.
 
+A batch bought with `POST /profiles/:name/stamp/buy` is set on that profile
+once its node calls it usable, which the manager polls for every three seconds
+for up to fifteen minutes. Since 2026-09-25 that holds whatever the profile
+recorded before, because a batch bought on a deployment is bought for it and a
+recorded batch is usually why: it is full or running out. The one exception is
+a batch set with `POST /profiles/:name/stamp/set` while the bought one settled,
+which is kept, and the log says so. Setting a stamp redeploys nothing, so an
+uploader already running goes on paying with the batch its env file named when
+it was deployed, until the deployment is deployed again.
+
 The test is the component set, never the kind: a `custom` deployment that
 includes `stream-uploader` behaves exactly like a `streamer`. A pool-backed
 `abr-uploader` is the exception in the other direction. Its postage is the
