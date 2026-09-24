@@ -1,5 +1,6 @@
 /**
- * What diluting a batch leaves it with, worked out before anybody pays for it.
+ * What diluting or topping up a batch leaves it with, worked out before anybody
+ * pays for either.
  *
  * The host's numbers are the 1080p rung of the tester's pool on 2026-09-24: an
  * immutable batch of depth 23 over 16 bucket bits, which is 128 chunks a
@@ -9,8 +10,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { dilutionPreview, type StampReading } from './stampChanges.js';
-import { MAX_STAMP_DEPTH } from './stampCost.js';
+import { dilutionPreview, type StampReading, topUpPreview } from './stampChanges.js';
+import { MAX_STAMP_DEPTH, minimumStampAmountPlur, stampCostPlur } from './stampCost.js';
 import { fullestBucketFillRatio } from './stampHealth.js';
 
 const HOUR = 3_600;
@@ -86,5 +87,57 @@ describe('diluting a batch', () => {
     assert.equal(after?.chunks, 2 ** 24);
     assert.equal(after?.bucketChunks, null);
     assert.equal(after?.fillRatio, null);
+  });
+});
+
+/** The price on the host on 2026-09-13, when a day of life cost 1,571,927,040 PLUR a chunk. */
+const HOST_PRICE = '90968';
+const ONE_DAY_AT_HOST_PRICE = '1571927040';
+
+describe('topping up a batch', () => {
+  it('adds the life the amount buys at today’s price to the life left', () => {
+    const after = topUpPreview(hostBatch(), ONE_DAY_AT_HOST_PRICE, HOST_PRICE);
+
+    assert.equal(minimumStampAmountPlur(HOST_PRICE), ONE_DAY_AT_HOST_PRICE, 'that amount is a day');
+    assert.equal(after.addedTtl, DAY);
+    assert.equal(after.ttl, HOST_TTL + DAY);
+  });
+
+  it('costs the amount for every chunk the batch holds, which is stampCostPlur', () => {
+    const after = topUpPreview(hostBatch(), ONE_DAY_AT_HOST_PRICE, HOST_PRICE);
+
+    assert.equal(after.costPlur, (1_571_927_040n * 2n ** 23n).toString());
+    assert.equal(after.costPlur, stampCostPlur(ONE_DAY_AT_HOST_PRICE, 23));
+  });
+
+  it('still names the cost where the price is not known, and no life', () => {
+    const after = topUpPreview(hostBatch(), ONE_DAY_AT_HOST_PRICE, null);
+
+    assert.equal(after.addedTtl, null);
+    assert.equal(after.ttl, null);
+    assert.equal(after.costPlur, stampCostPlur(ONE_DAY_AT_HOST_PRICE, 23));
+  });
+
+  it('says what the amount adds but no total where the node did not say the life left', () => {
+    const after = topUpPreview(hostBatch({ batchTTL: -1 }), ONE_DAY_AT_HOST_PRICE, HOST_PRICE);
+
+    assert.equal(after.addedTtl, DAY);
+    assert.equal(after.ttl, null);
+  });
+
+  it('says nothing for an amount that is not a positive whole number of PLUR', () => {
+    for (const amount of ['', '0', '1.5', '-5', 'a day']) {
+      assert.deepEqual(
+        topUpPreview(hostBatch(), amount, HOST_PRICE),
+        { addedTtl: null, ttl: null, costPlur: null },
+        amount,
+      );
+    }
+  });
+
+  it('names no cost where the node did not report the depth', () => {
+    const { depth: _unsaid, ...unsized } = hostBatch();
+
+    assert.equal(topUpPreview(unsized, ONE_DAY_AT_HOST_PRICE, HOST_PRICE).costPlur, null);
   });
 });

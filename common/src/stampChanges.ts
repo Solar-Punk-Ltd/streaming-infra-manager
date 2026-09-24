@@ -2,12 +2,17 @@
  * What the changes Bee makes to a batch it already holds would leave that batch
  * with, worked out before anybody pays for one.
  *
- * Diluting raises a batch's depth. Every step doubles the chunks the batch holds
- * and the chunks each of its buckets holds, and halves the life it has left,
- * because the same balance now pays for twice the chunks. It keeps the batch id,
- * so nothing that names the batch has to change with it.
+ * Topping up adds balance for every chunk a batch holds, which buys life and
+ * changes nothing else. Diluting raises a batch's depth. Every step doubles the
+ * chunks the batch holds and the chunks each of its buckets holds, and halves
+ * the life it has left, because the same balance now pays for twice the chunks.
+ * Both keep the batch id, so nothing that names the batch has to change with it.
  */
-import { MAX_STAMP_DEPTH } from './stampCost.js';
+import {
+  MAX_STAMP_DEPTH,
+  stampCostPlur,
+  stampTtlSeconds,
+} from './stampCost.js';
 import {
   fullestBucketFillRatio,
   stampBucketCapacity,
@@ -29,6 +34,15 @@ export interface DilutionPreview {
   fillRatio: number | null;
   /** Seconds left after, or null where the node did not say how many it has now. */
   ttl: number | null;
+}
+
+export interface TopUpPreview {
+  /** Seconds the amount adds at today's price, or null where the price is not known. */
+  addedTtl: number | null;
+  /** Seconds left after, or null where the life added or the life left is not known. */
+  ttl: number | null;
+  /** What it takes from the node's wallet, in PLUR: the amount for every chunk the batch holds. */
+  costPlur: string | null;
 }
 
 function isWholeNumber(value: unknown): value is number {
@@ -59,5 +73,24 @@ export function dilutionPreview(
     bucketChunks: stampBucketCapacity(after),
     fillRatio: fullestBucketFillRatio(after),
     ttl: isKnownTtl(stamp.batchTTL) ? Math.floor(stamp.batchTTL / 2 ** steps) : null,
+  };
+}
+
+/**
+ * What topping a batch up by `amountPerChunkPlur` adds and costs at
+ * `pricePerBlockPlur`, today's price. Every part is null where what it is worked
+ * out from is missing or is not a positive whole number of PLUR.
+ */
+export function topUpPreview(
+  stamp: StampReading,
+  amountPerChunkPlur: string,
+  pricePerBlockPlur: string | null | undefined,
+): TopUpPreview {
+  const addedTtl = stampTtlSeconds(amountPerChunkPlur, pricePerBlockPlur);
+  const ttlLeft = stamp.batchTTL;
+  return {
+    addedTtl,
+    ttl: addedTtl !== null && isKnownTtl(ttlLeft) ? ttlLeft + addedTtl : null,
+    costPlur: stampCostPlur(amountPerChunkPlur, stamp.depth),
   };
 }
