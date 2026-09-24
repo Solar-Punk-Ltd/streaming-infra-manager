@@ -333,7 +333,7 @@ describe('beePublishersForGroup — live batch state', () => {
 /** The tester's 1080p batch on 2026-09-24: 128 chunks a bucket, the fullest holding all 128. */
 const FULL_IMMUTABLE: BatchFill = { depth: 23, bucketDepth: 16, utilization: 128, immutableFlag: true };
 
-describe('beePublishersForGroup — how full each batch is', () => {
+describe('beePublishersForGroup, how full each batch is', () => {
   it('refuses the value while a rung’s immutable batch is full, as its node does', async () => {
     const { service } = serviceFor({ fills: { [`${GROUP.name}-1080p`]: FULL_IMMUTABLE } });
     const result = await service.beePublishersForGroup(GROUP.id);
