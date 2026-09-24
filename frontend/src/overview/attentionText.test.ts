@@ -63,13 +63,13 @@ describe('a row for a batch that fills', () => {
     assert.equal(row.action, 'buy-stamp');
   });
 
-  it('says a nearly full batch is worth replacing before it fills', () => {
+  it('says a batch past the ceiling is worth replacing, true of a full mutable one too', () => {
     const row = attentionText(STAMP_NEARLY_FULL, base, null);
 
-    // Said of both kinds, since a mutable batch never refuses, it overwrites.
-    assert.match(row.text, /nearly full/);
-    assert.match(row.text, /before it fills/);
-    assert.doesNotMatch(row.text, /refusing uploads/);
+    // Said of both kinds and of a mutable batch already full, which still warns
+    // here rather than failing, so nothing in it may promise the batch has room.
+    assert.match(row.text, /past 90% full/);
+    assert.doesNotMatch(row.text, /before it fills|refusing uploads/);
     assert.equal(row.action, 'buy-stamp');
   });
 });

@@ -462,7 +462,9 @@ function stampStep({
         title,
         problem: nearlyFull ? STAMP_NEARLY_FULL : 'Stamp ends soon',
         state: nearlyFull || endsSoon ? 'warn' : 'ok',
-        detail: nearlyFull ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable)}` : detail,
+        detail: nearlyFull
+          ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable, stampHealth.fillRatio)}`
+          : detail,
         action: nearlyFull || endsSoon ? buy('Buy next stamp') : undefined,
       };
     }

@@ -180,9 +180,15 @@ export function isStampNearlyFull(
  * What a batch past the start ceiling leads to, by its kind, for the warnings
  * that name it. Shared so the checklist, the pool and the Storage card agree.
  */
-export function nearlyFullConsequence(immutable: boolean | null | undefined): string {
-  return refusesWhenFull(immutable)
-    ? 'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.'
+export function nearlyFullConsequence(
+  immutable: boolean | null | undefined,
+  fillRatio?: number | null,
+): string {
+  if (refusesWhenFull(immutable)) {
+    return 'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.';
+  }
+  return isFullestBucketFull(fillRatio)
+    ? 'Its node now overwrites its oldest chunks, so the oldest recordings paid with it are losing data, and the uploader of stack v3.3 and earlier refuses to restart on it.'
     : 'Once it fills its node overwrites its oldest chunks, so the oldest recordings paid with it start losing data, and past 90% the uploader of stack v3.3 and earlier refuses to restart on it.';
 }
 

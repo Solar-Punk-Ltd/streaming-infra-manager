@@ -148,8 +148,8 @@ export function StorageCard({
         {nearlyFullAt && (
           <Alert severity="warning">
             This batch is <strong>{nearlyFullAt} full</strong>.{' '}
-            {nearlyFullConsequence(stampHealth.immutable)} Buy the next one below
-            before it fills.
+            {nearlyFullConsequence(stampHealth.immutable, stampHealth.fillRatio)}{' '}
+            Buy the next one below.
           </Alert>
         )}
         {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
