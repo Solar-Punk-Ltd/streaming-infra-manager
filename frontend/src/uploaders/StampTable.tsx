@@ -15,7 +15,16 @@ import { isStampExpired, sameBatchId } from '@streaming-infra-manager/common';
 
 import { CopyButton } from '../CopyButton';
 import { formatTtl, shortHex } from '../format';
+import { bucketFill, type BucketFillWarning } from './bucketFill';
 import type { BeeStamp } from './stampApi';
+
+const FILL_COLOUR: Record<BucketFillWarning, string> = {
+  full: 'error.main',
+  'nearly-full': 'warning.main',
+};
+
+/** Every column the table has, which an empty table's one row spans. */
+const COLUMN_COUNT = 8;
 
 export function StampTable({
   stamps,
@@ -45,6 +54,7 @@ export function StampTable({
               <TableCell align="right">Amount</TableCell>
               <TableCell>Usable</TableCell>
               <TableCell>Type</TableCell>
+              <TableCell>Used</TableCell>
               <TableCell>TTL</TableCell>
               <TableCell />
             </TableRow>
@@ -52,7 +62,7 @@ export function StampTable({
           <TableBody>
             {stamps === null || stamps.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={COLUMN_COUNT}>
                   <EmptyState
                     stamps={stamps}
                     loading={loading}
@@ -65,6 +75,7 @@ export function StampTable({
                 const isCurrent =
                   currentStampId != null && sameBatchId(currentStampId, s.batchID);
                 const expired = isStampExpired(s);
+                const fill = bucketFill(s);
                 return (
                   <TableRow key={s.batchID}>
                     <TableCell sx={{ fontFamily: 'monospace' }}>
@@ -103,6 +114,25 @@ export function StampTable({
                         color={s.immutableFlag ? 'default' : 'info'}
                         label={s.immutableFlag ? 'immutable' : 'mutable'}
                       />
+                    </TableCell>
+                    <TableCell
+                      title={
+                        fill.chunks
+                          ? `${fill.chunks} chunks in its fullest bucket`
+                          : undefined
+                      }
+                    >
+                      <Typography
+                        variant="body2"
+                        color={fill.warning ? FILL_COLOUR[fill.warning] : undefined}
+                      >
+                        {fill.percent}
+                      </Typography>
+                      {fill.chunks && (
+                        <Typography variant="caption" color="text.secondary">
+                          {fill.chunks}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>{formatTtl(s.batchTTL)}</TableCell>
                     <TableCell align="right">
