@@ -189,6 +189,7 @@ test('a batch is topped up and diluted from its deployment’s Storage card', as
   const batch = await readBatch();
   assert.equal(batch.immutableFlag, true);
   assert.match(await storageText(), /is full, and it cannot overwrite what it holds/);
+  assert.match(await storageText(), /Dilute it below to give it room, which keeps the batch, or buy a new one/);
   assert.match(await storageText(), new RegExp(`${batch.utilization} of ${batch.utilization}`), 'the Used column names the chunks in the fullest bucket');
   // A laptop's card is narrower than the table's readings, and a control past
   // its right edge is one the operator has to find by scrolling the table.
@@ -252,5 +253,11 @@ test('a batch is topped up and diluted from its deployment’s Storage card', as
     'the table to show the diluted batch and the full alert to go',
   );
   assert.match(await storageText(), new RegExp(`50%\\s*${batch.utilization} of ${batch.utilization * 2}`));
+  // Half its life is under two days, so the card now warns it runs out, and
+  // offers the top-up that buys that life back.
+  assert.match(
+    await storageText(),
+    new RegExp(`runs out in ${formatTtl(diluted.batchTTL)}\\. Top it up below, or buy the next one, before it does`),
+  );
   await screenshot('after');
 });

@@ -186,22 +186,23 @@ export function StorageCard({
           <Alert severity="error">
             The postage batch this deployment pays with is full, and it cannot
             overwrite what it holds, so this Bee node refuses the uploads it is
-            sent. Uploads cannot be paid for until a new batch is bought below,
-            which is set here once it is usable.
+            sent. Dilute it below to give it room, which keeps the batch, or buy
+            a new one, which is set here once it is usable.
           </Alert>
         )}
         {nearlyFullAt && (
           <Alert severity="warning">
             This batch is <strong>{nearlyFullAt} full</strong>. Past 90% an
             uploader restarted on it refuses to start, and once it fills this Bee
-            node refuses uploads. Buy the next one below before it does.
+            node refuses uploads. Dilute it below, or buy the next one, before it
+            does.
           </Alert>
         )}
         {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
           <Alert severity="warning">
             This batch runs out in <strong>{formatTtl(stampHealth.ttl)}</strong>.
-            Buy the next one below before it does. Once a batch is spent its
-            uploads fail and it cannot be revived.
+            Top it up below, or buy the next one, before it does. Once a batch is
+            spent its uploads fail and it cannot be revived.
           </Alert>
         )}
         {bee.waitingBatch && (
