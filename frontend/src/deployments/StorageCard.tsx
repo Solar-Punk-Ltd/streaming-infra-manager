@@ -29,9 +29,12 @@ import {
 } from '../uploaders/MoveBzzDialog';
 import { NodeFunding } from '../uploaders/NodeFunding';
 import { StampTable } from '../uploaders/StampTable';
+import { DiluteStampDialog } from '../uploaders/DiluteStampDialog';
+import { diluteSentNotice } from '../uploaders/diluteView';
 import {
   type BeeStamp,
   buyStamp,
+  diluteStamp,
   setStamp,
   topUpStamp,
   type BuyStampInput,
@@ -43,7 +46,7 @@ import { newBatchReach } from './newBatchReach';
 
 /** A change to a batch the node holds, while its dialog is open. */
 interface StampChange {
-  kind: 'top-up';
+  kind: 'top-up' | 'dilute';
   stamp: BeeStamp;
 }
 
@@ -117,6 +120,14 @@ export function StorageCard({
       const sent = await topUpStamp(profile.name, { batch_id: stamp.batchID, amount });
       setChange(null);
       setSentNotice(topUpSentNotice(stamp, sent));
+      await bee.reload();
+    });
+
+  const handleDilute = (stamp: BeeStamp, depth: number) =>
+    run(async () => {
+      const sent = await diluteStamp(profile.name, { batch_id: stamp.batchID, depth });
+      setChange(null);
+      setSentNotice(diluteSentNotice(stamp, depth, sent));
       await bee.reload();
     });
 
@@ -224,6 +235,7 @@ export function StorageCard({
           busy={busy}
           onUse={handleUse}
           onTopUp={(stamp) => openChange('top-up', stamp)}
+          onDilute={(stamp) => openChange('dilute', stamp)}
         />
 
         <Divider />
@@ -256,6 +268,16 @@ export function StorageCard({
           busy={busy}
           error={actionError}
           onConfirm={(amount) => void handleTopUp(change.stamp, amount)}
+          onClose={() => setChange(null)}
+        />
+      )}
+      {change?.kind === 'dilute' && (
+        <DiluteStampDialog
+          key={change.stamp.batchID}
+          stamp={change.stamp}
+          busy={busy}
+          error={actionError}
+          onConfirm={(depth) => void handleDilute(change.stamp, depth)}
           onClose={() => setChange(null)}
         />
       )}

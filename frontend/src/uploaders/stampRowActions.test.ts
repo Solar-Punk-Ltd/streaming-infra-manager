@@ -76,3 +76,23 @@ describe('Top up on a stamps table row', () => {
     assert.equal(stampRowActions(roomyBatch, true).topUp.enabled, false);
   });
 });
+
+describe('Dilute on a stamps table row', () => {
+  it('is offered on a live batch, and on a full one above all, since room is what it buys', () => {
+    assert.deepEqual(stampRowActions(fullBatch, false).dilute, { enabled: true, note: null });
+    assert.deepEqual(stampRowActions(roomyBatch, false).dilute, { enabled: true, note: null });
+  });
+
+  it('is unavailable on a batch already at the deepest depth this manager offers, and says so', () => {
+    assert.deepEqual(stampRowActions({ ...roomyBatch, depth: 40 }, false).dilute, {
+      enabled: false,
+      note: 'already at depth 40',
+    });
+  });
+
+  it('stays off for an expired batch, one not usable yet, and while another change is in flight', () => {
+    assert.equal(stampRowActions({ ...fullBatch, batchTTL: 0 }, false).dilute.enabled, false);
+    assert.equal(stampRowActions({ ...fullBatch, usable: false }, false).dilute.enabled, false);
+    assert.equal(stampRowActions(fullBatch, true).dilute.enabled, false);
+  });
+});

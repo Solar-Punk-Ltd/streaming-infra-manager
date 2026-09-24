@@ -1,4 +1,4 @@
-import { isStampExpired } from '@streaming-infra-manager/common';
+import { isStampExpired, MAX_STAMP_DEPTH } from '@streaming-infra-manager/common';
 
 import { bucketFill } from './bucketFill';
 import type { BeeStamp } from './stampApi';
@@ -15,6 +15,8 @@ export interface StampRowActions {
   use: RowAction;
   /** Buy this batch more life. */
   topUp: RowAction;
+  /** Buy this batch more room, for half its life every step. */
+  dilute: RowAction;
 }
 
 /**
@@ -31,11 +33,16 @@ const FULL_BATCH_NOTE = 'full, dilute it first';
 export function stampRowActions(stamp: BeeStamp, busy: boolean): StampRowActions {
   const live = stamp.usable && !isStampExpired(stamp);
   const full = bucketFill(stamp).warning === 'full';
+  const deepest = stamp.depth >= MAX_STAMP_DEPTH;
   return {
     use: {
       enabled: !busy && live && !full,
       note: full ? FULL_BATCH_NOTE : null,
     },
     topUp: { enabled: !busy && live, note: null },
+    dilute: {
+      enabled: !busy && live && !deepest,
+      note: deepest ? `already at depth ${MAX_STAMP_DEPTH}` : null,
+    },
   };
 }

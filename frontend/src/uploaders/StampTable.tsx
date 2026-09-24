@@ -34,6 +34,7 @@ export function StampTable({
   busy,
   onUse,
   onTopUp,
+  onDilute,
 }: {
   /** The node's batches, or null for "not asked yet / no answer". */
   stamps: BeeStamp[] | null;
@@ -42,6 +43,7 @@ export function StampTable({
   busy: boolean;
   onUse: (batchID: string) => void;
   onTopUp: (stamp: BeeStamp) => void;
+  onDilute: (stamp: BeeStamp) => void;
 }) {
   return (
     <Box>
@@ -175,6 +177,20 @@ export function StampTable({
                         >
                           Top up
                         </Button>
+                        <Stack alignItems="flex-end">
+                          <Button
+                            size="small"
+                            disabled={!actions.dilute.enabled}
+                            onClick={() => onDilute(s)}
+                          >
+                            Dilute
+                          </Button>
+                          {actions.dilute.note && (
+                            <Typography variant="caption" color="text.secondary">
+                              {actions.dilute.note}
+                            </Typography>
+                          )}
+                        </Stack>
                       </Stack>
                     </TableCell>
                   </TableRow>
