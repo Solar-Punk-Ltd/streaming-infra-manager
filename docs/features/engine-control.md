@@ -25,8 +25,8 @@ window, so SRS dropped them and each drop became a hole in a frame. The drawer o
 latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
 defaults to 2000.
 
-That default is the manager's own and not the stack's. `v3.1`, which the manager pinned on
-2026-09-23, falls back to 200, as does every version cut before the decision that reads the key at
+That default is the manager's own and not the stack's. `v3.1`, which the manager pinned from
+2026-09-19 to 2026-09-24, falls back to 200, as does every version cut before the decision that reads the key at
 all (`main-v2` does not). The stack's `main` has fallen back to 2000 itself since its PR #244, and
 the manager has pinned it at `8c5c583a` since 2026-09-24. On every version the manager writes
 `SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value, and the
@@ -46,7 +46,7 @@ unset negotiated 120 ms, `latency 2000` with `recvlatency 2000` gave 2000, and a
 The recording of 2026-09-22 was therefore made through SRS's own 120 ms, not the 200 the stack
 asked for, as the stack's notes at `a1b43f0a` now say.
 
-On 2026-09-23 the manager pinned `v3.1` at `2c4867a`, which fills `latency` alone, so a deployment
+Until 2026-09-24 the manager pinned `v3.1` at `2c4867a`, which fills `latency` alone, so a deployment
 on the bundled version then waited 120 ms on ingest whatever `SRT_LATENCY` said. Since 2026-09-24 it
 pins the stack's `main` at `8c5c583a`, which carries `36b6749f`, so the bundled version waits the
 setting on ingest. A deployment runs from a copy of the build it was last deployed from, so one on
