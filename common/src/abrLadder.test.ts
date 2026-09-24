@@ -473,7 +473,7 @@ describe('assembleBeePublishers — rung address and status', () => {
     assert.ok(result.value);
     assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
     assert.match(result.warnings[0]!.reason, /95% full/);
-    assert.match(result.warnings[0]!.reason, /Dilute it or buy the next one before it fills/);
+    assert.match(result.warnings[0]!.reason, /Dilute it or buy the next one$/);
     assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
   });
 

@@ -96,7 +96,7 @@ export function attentionText(
       };
     case STAMP_NEARLY_FULL:
       return {
-        text: 'Its stamp is nearly full. Dilute it or buy the next one before it fills.',
+        text: 'Its stamp is past 90% full. Dilute it or buy the next one.',
         action: 'dilute-stamp',
       };
     case UPLOADER_NOT_STARTED:

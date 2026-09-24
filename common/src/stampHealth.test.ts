@@ -298,6 +298,15 @@ describe('nearlyFullConsequence', () => {
     assert.match(nearlyFullConsequence(false), /stack v3\.3 and earlier refuses to restart on it/);
   });
 
+  // The tester's 720p batch reaches this within a few broadcast hours of 2026-09-24.
+  it('says a full mutable batch is overwriting now, not once it fills', () => {
+    const full = nearlyFullConsequence(false, 1);
+
+    assert.match(full, /now overwrites its oldest chunks/);
+    assert.match(full, /stack v3\.3 and earlier refuses to restart on it/);
+    assert.doesNotMatch(full, /once it fills/i);
+  });
+
   it('reads a batch of unreported kind as one that refuses', () => {
     assert.equal(nearlyFullConsequence(null), nearlyFullConsequence(true));
   });
