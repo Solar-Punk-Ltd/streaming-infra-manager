@@ -70,7 +70,9 @@ async function settled(batchID, landed) {
   while (Date.now() < deadline) {
     const batch = (await batches()).find((entry) => entry.batchID === batchID);
     if (batch && landed(batch)) return batch;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100);
+    });
   }
   throw new Error(`the change to ${batchID} never reached the node's list`);
 }
@@ -79,8 +81,10 @@ before(async () => {
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
   await once(socket, 'listening');
-  const port = socket.address().port;
-  await new Promise((resolve) => socket.close(resolve));
+  const { port } = socket.address();
+  await new Promise((resolve) => {
+    socket.close(resolve);
+  });
   base = `http://127.0.0.1:${port}`;
   child = spawn(
     process.execPath,
@@ -110,7 +114,7 @@ before(async () => {
   });
   const login = await request('/auth/login', 'POST', { username: DEV_USERNAME, password: DEV_PASSWORD });
   assert.equal(login.status, 204);
-  cookie = login.cookie.split(';')[0];
+  [cookie] = login.cookie.split(';');
 });
 
 after(async () => {
@@ -185,7 +189,9 @@ describe('the offline mock changing a batch its node holds', { concurrency: fals
 
     const deadline = Date.now() + SETTLE_BUDGET_MS;
     while ((await fullRung()) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
     }
     assert.equal(await fullRung(), null, 'a diluted rung is half full and publishable again');
   });

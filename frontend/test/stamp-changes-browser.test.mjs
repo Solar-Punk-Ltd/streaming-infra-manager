@@ -55,9 +55,13 @@ const frontend = fileURLToPath(new URL('../', import.meta.url));
 
 async function freePort() {
   const server = createNetServer();
-  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  await new Promise((done) => {
+    server.listen(0, '127.0.0.1', done);
+  });
   const { port } = server.address();
-  await new Promise((done) => server.close(done));
+  await new Promise((done) => {
+    server.close(done);
+  });
   return port;
 }
 
@@ -169,7 +173,9 @@ test('a batch is topped up and diluted from its deployment’s Storage card', as
     waitFor(
       async () => {
         await click(inStorage('Refresh'), 'the Storage card’s Refresh');
-        await new Promise((done) => setTimeout(done, 500));
+        await new Promise((done) => {
+          setTimeout(done, 500);
+        });
         return landed(await storageText());
       },
       Boolean,
