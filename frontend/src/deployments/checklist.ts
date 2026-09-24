@@ -16,8 +16,10 @@ import {
   type StampHealth,
   STREAM_UPLOADER_SERVICE,
   type UploaderHealthReading,
+  type UploaderHealthState,
   type UploaderStartGateWarning,
   ownsBeeNode,
+  usesNodePool,
 } from '@streaming-infra-manager/common';
 
 import { canDeployUploader } from '../data';
@@ -557,7 +559,7 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
     (c) => c.service === STREAM_UPLOADER_SERVICE,
   );
   if (deployed && uploaderHealth?.state !== 'not_deployed') {
-    return runningUploaderStep(uploaderHealth);
+    return runningUploaderStep(uploaderHealth, profile);
   }
 
   // The manager asks the node again before it changes containers. A node that
@@ -589,6 +591,30 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
   };
 }
 
+/** The uploader step's problems, which the overview names as well. */
+export const UPLOADER_WAITING_FOR_NODE = 'Uploader waiting for its node';
+export const UPLOADER_WARNED = 'Uploader started with a warning';
+export const UPLOADER_REPORTS_A_PROBLEM = 'Uploader reports a problem';
+export const UPLOADER_NOT_ANSWERING = 'Uploader not answering';
+
+/**
+ * What each reading makes of a running uploader's step.
+ *
+ * A wait and an unanswered health route are warnings rather than a wait and a
+ * pass since 2026-09-25: the uploader is up and uploading nothing, or nothing
+ * confirmed that it uploads, and the overview lists exactly what this step does
+ * not call ok. A reading of `not_deployed` beside a container the page lists is
+ * the two lists racing a deploy, and stays the container's own claim.
+ */
+const RUNNING_UPLOADER_STEPS: Record<UploaderHealthState, { state: StepState; problem?: string }> = {
+  waiting_for_node: { state: 'warn', problem: UPLOADER_WAITING_FOR_NODE },
+  warned: { state: 'warn', problem: UPLOADER_WARNED },
+  unhealthy: { state: 'err', problem: UPLOADER_REPORTS_A_PROBLEM },
+  unreachable: { state: 'warn', problem: UPLOADER_NOT_ANSWERING },
+  ok: { state: 'ok' },
+  not_deployed: { state: 'ok' },
+};
+
 /**
  * The uploader's own account of itself, for a view that asked.
  *
@@ -599,41 +625,40 @@ function uploaderStep(input: ChecklistInput): ChecklistStep {
  */
 function runningUploaderStep(
   health: UploaderHealthReading | undefined,
+  profile: Profile,
 ): ChecklistStep {
   const title = UPLOADER_TITLE;
   if (!health) return { title, state: 'ok', detail: UPLOADER_UNVERIFIED };
 
+  const { state, problem } = RUNNING_UPLOADER_STEPS[health.state];
+  return {
+    title,
+    state,
+    ...(problem ? { problem } : {}),
+    detail: uploaderHealthDetail(health, profile),
+  };
+}
+
+/**
+ * What an uploader's own reading says, in the words its readiness step uses, so
+ * a list that names the reading says the same thing as the deployment's page.
+ */
+export function uploaderHealthDetail(
+  health: UploaderHealthReading,
+  profile: Profile,
+): string {
   switch (health.state) {
     case 'waiting_for_node':
-      return {
-        title,
-        problem: 'Uploader waiting for its node',
-        state: 'busy',
-        detail: waitingDetail(health),
-      };
+      return waitingDetail(health);
     case 'warned':
-      return {
-        title,
-        problem: 'Uploader started with a warning',
-        state: 'warn',
-        detail: `${warningsText(health.startGateWarnings ?? [])} The uploader started anyway, and its own logs name the node.`,
-      };
+      return `${warningsText(health.startGateWarnings ?? [])} The uploader started anyway, and its own logs name the node.`;
     case 'unhealthy':
-      return {
-        title,
-        problem: 'Uploader reports a problem',
-        state: 'err',
-        detail: `${reasonsText(health.reasons)} Its own logs have the rest.`,
-      };
+      return `${reasonsText(health.reasons, usesNodePool(profile))} Its own logs have the rest.`;
     case 'ok':
-      return { title, state: 'ok', detail: 'The uploader reports healthy.' };
+      return 'The uploader reports healthy.';
     case 'unreachable':
     case 'not_deployed':
-      return {
-        title,
-        state: 'ok',
-        detail: `${UPLOADER_UNVERIFIED} Its health route did not answer.`,
-      };
+      return `${UPLOADER_UNVERIFIED} Its health route did not answer.`;
   }
 }
 
@@ -664,11 +689,32 @@ function warningsText(warnings: readonly UploaderStartGateWarning[]): string {
 /**
  * The uploader's reason codes as words. Written out rather than translated
  * through a table, so a reason a newer stack reports still reaches the page
- * instead of being dropped by a lookup that has never heard of it.
+ * instead of being dropped by a lookup that has never heard of it. A reason
+ * whose code does not say what an operator is looking at gets its meaning after.
  */
-function reasonsText(reasons: readonly string[]): string {
+function reasonsText(reasons: readonly string[], publishesToPool: boolean): string {
   if (reasons.length === 0) return 'The uploader reports a problem it did not name.';
-  return `The uploader reports ${andList(reasons.map((reason) => reason.replace(/_/g, ' ')))}.`;
+  const named = `The uploader reports ${andList(reasons.map((reason) => reason.replace(/_/g, ' ')))}.`;
+  const meanings = reasons.flatMap((reason) => {
+    const meaning = reasonMeaning(reason, publishesToPool);
+    return meaning ? [meaning] : [];
+  });
+  return [named, ...meanings].join(' ');
+}
+
+/** The uploader's reason for bee refusing a paid write on a batch that nothing retries. */
+const POSTAGE_REFUSED_REASON = 'postage_refused';
+
+/**
+ * The uploader reads the batch each node spends once, when it starts, and keeps
+ * this reason for the life of the process, so only a deploy carrying a batch
+ * that pays clears either the failures or the reason.
+ */
+function reasonMeaning(reason: string, publishesToPool: boolean): string | null {
+  if (reason !== POSTAGE_REFUSED_REASON) return null;
+  return publishesToPool
+    ? 'Postage refused means a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail until the uploader is deployed again with a batch that pays.'
+    : 'Postage refused means its Bee node refused its postage batch, which is full or has expired, so its uploads fail until the uploader is deployed again with a batch that pays.';
 }
 
 function andList(parts: readonly string[]): string {

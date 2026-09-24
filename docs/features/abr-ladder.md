@@ -7,7 +7,8 @@ handed a public address no Bee node listens on. Corrected 2026-09-23 against the
 `87673c99`: the Implementation tables no longer say how many tests each file holds. Five of the
 seven counts had drifted from their suites, and each row's description says what its tests cover.
 Extended 2026-09-25 on `fix/full-stamps-and-sick-uploaders`, off `0f058763`: "The batch" reads how
-full a batch is, and a full immutable batch blocks its rung.
+full a batch is, and a full immutable batch blocks its rung. "The ABR Uploader" says the overview
+reads each uploader's own health.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader`. Since T15 that uploader is
@@ -197,6 +198,17 @@ every ten seconds and the **Uploader running** step says which node is being
 waited for, how many attempts it has made and since when, and clears when the
 node answers. A startup gate that warned instead of refusing shows there too,
 named in plain words: "the chequebook gate warned on the 360p rung".
+
+**Since 2026-09-25 the overview reads it too**, every thirty seconds for each
+running uploader, and lists an uploader under "Needs attention" when it reports
+a problem, waits for its node, or does not answer its health route, in the words
+the step uses. The step warns on the wait and on the silence, where it used to
+show them as in progress and as fine. `postage_refused` is spelled out: a rung's
+Bee node refused that rung's batch, full or expired, so that rung's uploads
+fail until the uploader is deployed again with a batch that pays, because the
+uploader reads each rung's batch once, when it starts. The overview read no
+uploader at all until then, and on 2026-09-24 it said "everything is running and
+ready" while the tester's ABR uploader reported exactly that.
 
 The uploader half of this is in the pinned stack since 7b2312f, which pinned the
 stack commit 55b22bf1 that carries it, and every pin since carries it too, the

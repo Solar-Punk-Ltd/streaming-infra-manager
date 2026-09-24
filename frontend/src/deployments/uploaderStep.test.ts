@@ -70,7 +70,9 @@ describe('the uploader step once the uploader has been asked', () => {
     assert.doesNotMatch(step?.detail ?? '', /health route/);
   });
 
-  it('shows a uploader waiting for its node as busy, naming node, attempts and since when', () => {
+  // A warning rather than busy since 2026-09-25, so the overview lists it: the
+  // uploader is up and uploading nothing, and the lists read this same step.
+  it('warns about an uploader waiting for its node, naming node, attempts and since when', () => {
     const step = uploaderStep({
       state: 'waiting_for_node',
       reasons: ['node_unavailable'],
@@ -78,7 +80,7 @@ describe('the uploader step once the uploader has been asked', () => {
       node: { url: 'http://172.17.0.1:10015', attempts: 4, lastError: 'timeout of 20000ms exceeded' },
     });
 
-    assert.equal(step?.state, 'busy');
+    assert.equal(step?.state, 'warn');
     assert.equal(step?.problem, 'Uploader waiting for its node');
     assert.match(step?.detail ?? '', /http:\/\/172\.17\.0\.1:10015/);
     assert.match(step?.detail ?? '', /4 attempts/);
@@ -154,12 +156,23 @@ describe('the uploader step once the uploader has been asked', () => {
     assert.equal(step?.detail, 'The uploader reports healthy.');
   });
 
-  it('adds one sentence when the health route did not answer, and nothing else', () => {
+  // A warning rather than ok since 2026-09-25: a reading nobody could confirm
+  // is not evidence, and the overview lists what this step does not call ok.
+  it('warns when the health route did not answer, and says only that', () => {
     const step = uploaderStep({ state: 'unreachable', reasons: [] });
 
-    assert.equal(step?.state, 'ok');
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Uploader not answering');
     assert.match(step?.detail ?? '', /container is reported running/);
     assert.match(step?.detail ?? '', /Its health route did not answer\./);
+  });
+
+  it('says what postage refused means for a deployment with its own node', () => {
+    const step = uploaderStep({ state: 'unhealthy', reasons: ['postage_refused'] });
+
+    assert.match(step?.detail ?? '', /its Bee node refused its postage batch, which is full or has expired, so its uploads fail/);
+    assert.match(step?.detail ?? '', /until the uploader is deployed again with a batch that pays/);
+    assert.doesNotMatch(step?.detail ?? '', /[—;]/);
   });
 
   it('falls back to the not-started step when no uploader is deployed', () => {
@@ -212,7 +225,7 @@ describe('a pool-backed ABR uploader reports its own health', () => {
       node: { url: 'http://10.0.0.1:10015', attempts: 2 },
     });
 
-    assert.equal(step?.state, 'busy');
+    assert.equal(step?.state, 'warn');
     assert.equal(step?.problem, 'Uploader waiting for its node');
   });
 
@@ -227,11 +240,12 @@ describe('a pool-backed ABR uploader reports its own health', () => {
     assert.match(step?.detail ?? '', /360p rung/);
   });
 
-  it('shows an unhealthy pool-backed uploader', () => {
+  it('shows an unhealthy pool-backed uploader, and what postage refused means for a pool', () => {
     const step = abrUploaderStep({ state: 'unhealthy', reasons: ['postage_refused'] });
 
     assert.equal(step?.state, 'err');
     assert.match(step?.detail ?? '', /postage refused/);
+    assert.match(step?.detail ?? '', /a rung’s Bee node refused that rung’s postage batch, which is full or has expired, so that rung’s uploads fail/);
   });
 
   it('shows a healthy pool-backed uploader', () => {

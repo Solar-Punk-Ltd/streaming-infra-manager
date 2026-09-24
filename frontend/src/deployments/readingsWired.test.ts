@@ -64,6 +64,15 @@ describe('the readings a view hands to a readiness verdict', () => {
     assert.deepEqual(missing, []);
   });
 
+  // On 2026-09-24 the overview read "everything is running and ready" while an
+  // ABR uploader reported postage_refused, because it never asked any uploader.
+  it('has the overview ask every running uploader what it reports about itself', () => {
+    const source = readFileSync(path.join(SOURCE_ROOT, 'overview/OverviewPage.tsx'), 'utf8');
+
+    assert.ok(source.includes('useUploaderHealths('), 'overview/OverviewPage.tsx takes no useUploaderHealths(');
+    assert.match(source, /needsAttention\([\s\S]{0,200}?uploaderHealths\.get\(profile\.name\)/);
+  });
+
   it('read the source it means to, so finding nothing means something', () => {
     const files = scanned();
 

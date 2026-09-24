@@ -62,7 +62,7 @@ export function PoolRungRow({
     profile,
     rungStampHealth(rungState, profile.stamp_id),
     chequebook,
-    bee.loading ? undefined : bee.wallet,
+    { wallet: bee.loading ? undefined : bee.wallet },
   );
   const bzz = bee.wallet?.bzzBalance;
   // Only a balance the node actually reported counts as empty. Before the

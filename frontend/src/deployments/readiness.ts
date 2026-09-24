@@ -1,4 +1,9 @@
-import { type ChequebookHealth, stampHealthFrom, type StampHealth } from '@streaming-infra-manager/common';
+import {
+  type ChequebookHealth,
+  stampHealthFrom,
+  type StampHealth,
+  type UploaderHealthReading,
+} from '@streaming-infra-manager/common';
 
 import type { Tone } from '../components/tone';
 import type { Profile } from '../types';
@@ -10,7 +15,14 @@ export { ownsBeeNode } from '@streaming-infra-manager/common';
 export { isStreamLike } from './shape';
 // Declared in checklist.ts, which says them, because declaring them here would
 // make the two modules import each other.
-export { STAMP_FULL, STAMP_NEARLY_FULL } from './checklist';
+export {
+  STAMP_FULL,
+  STAMP_NEARLY_FULL,
+  UPLOADER_NOT_ANSWERING,
+  UPLOADER_REPORTS_A_PROBLEM,
+  UPLOADER_WAITING_FOR_NODE,
+  UPLOADER_WARNED,
+} from './checklist';
 
 export interface Readiness {
   label: string;
@@ -46,16 +58,30 @@ export function readinessOf(
   profile: Profile,
   health?: StampHealth,
   chequebook?: ChequebookHealth | null,
-  wallet?: BeeWallet | null,
+  { wallet, uploaderHealth }: OtherReadings = {},
 ): Readiness {
   return readinessFor({
     profile, stampHealth: health ?? stampHealthFrom(profile.stamp_id, null),
     chequebook: chequebook ?? null, wallet, nodeAddress: null,
     currentStamp: null, publishUrl: null, clientUrl: null, streamers: [],
+    ...(uploaderHealth ? { uploaderHealth } : {}),
   });
 }
 
-export function needsAttention(profile: Profile, health?: StampHealth, chequebook?: ChequebookHealth | null): boolean {
-  const tone = readinessOf(profile, health, chequebook).tone;
+/** The readings some views take beside a batch and a chequebook, each absent where the view did not. */
+export interface OtherReadings {
+  /** Undefined while the view has not read it, null where the node was asked and said nothing. */
+  wallet?: BeeWallet | null;
+  /** What the deployment's uploader said about itself, undefined where nobody asked it. */
+  uploaderHealth?: UploaderHealthReading;
+}
+
+export function needsAttention(
+  profile: Profile,
+  health?: StampHealth,
+  chequebook?: ChequebookHealth | null,
+  uploaderHealth?: UploaderHealthReading,
+): boolean {
+  const tone = readinessOf(profile, health, chequebook, { uploaderHealth }).tone;
   return tone === 'warn' || tone === 'err';
 }
