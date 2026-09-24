@@ -87,6 +87,9 @@ run any of it on a laptop: [docs/ci.md](docs/ci.md).
     per quality rung, and the pool string an uploader publishes to.
   - [chequebook.md](docs/features/chequebook.md): funding a node's chequebook
     and recovering a transfer.
+  - [postage-stamps.md](docs/features/postage-stamps.md): what a postage batch
+    is, and buying, using, topping up and diluting one on a deployment's
+    Storage card.
   - [auth-and-public-access.md](docs/features/auth-and-public-access.md): the
     login gate, the HTTPS edge, the API binds and the host firewall.
   - [next-features-2026-09.md](docs/features/next-features-2026-09.md): the
