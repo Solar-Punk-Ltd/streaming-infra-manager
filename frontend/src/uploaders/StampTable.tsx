@@ -17,6 +17,7 @@ import { CopyButton } from '../CopyButton';
 import { formatTtl, shortHex } from '../format';
 import { bucketFill, type BucketFillWarning } from './bucketFill';
 import type { BeeStamp } from './stampApi';
+import { stampRowActions } from './stampRowActions';
 
 const FILL_COLOUR: Record<BucketFillWarning, string> = {
   full: 'error.main',
@@ -76,6 +77,7 @@ export function StampTable({
                   currentStampId != null && sameBatchId(currentStampId, s.batchID);
                 const expired = isStampExpired(s);
                 const fill = bucketFill(s);
+                const actions = stampRowActions(s, busy);
                 return (
                   <TableRow key={s.batchID}>
                     <TableCell sx={{ fontFamily: 'monospace' }}>
@@ -143,13 +145,20 @@ export function StampTable({
                           color={expired ? 'error' : 'default'}
                         />
                       ) : (
-                        <Button
-                          size="small"
-                          disabled={busy || !s.usable || expired}
-                          onClick={() => onUse(s.batchID)}
-                        >
-                          Use
-                        </Button>
+                        <Stack alignItems="flex-end">
+                          <Button
+                            size="small"
+                            disabled={!actions.use.enabled}
+                            onClick={() => onUse(s.batchID)}
+                          >
+                            Use
+                          </Button>
+                          {actions.use.note && (
+                            <Typography variant="caption" color="error.main">
+                              {actions.use.note}
+                            </Typography>
+                          )}
+                        </Stack>
                       )}
                     </TableCell>
                   </TableRow>
