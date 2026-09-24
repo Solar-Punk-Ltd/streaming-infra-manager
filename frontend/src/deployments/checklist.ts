@@ -8,6 +8,7 @@ import {
   isStampExpiringSoon,
   isStampNearlyFull,
   LIGHT_NODE_MODE,
+  nearlyFullConsequence,
   parseBeePublishers,
   plurToBzz,
   type ReadFailure,
@@ -461,7 +462,7 @@ function stampStep({
         title,
         problem: nearlyFull ? STAMP_NEARLY_FULL : 'Stamp ends soon',
         state: nearlyFull || endsSoon ? 'warn' : 'ok',
-        detail: nearlyFull ? `${detail}. ${NEARLY_FULL_CONSEQUENCE}` : detail,
+        detail: nearlyFull ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable)}` : detail,
         action: nearlyFull || endsSoon ? buy('Buy next stamp') : undefined,
       };
     }
@@ -470,11 +471,8 @@ function stampStep({
 
 /** The step's problem for an immutable batch whose fullest bucket is full. */
 export const STAMP_FULL = 'Stamp full';
-/** The step's problem for an immutable batch past the uploader's start ceiling. */
+/** The step's problem for a batch past the uploader's start ceiling that still takes uploads. */
 export const STAMP_NEARLY_FULL = 'Stamp nearly full';
-
-const NEARLY_FULL_CONSEQUENCE =
-  'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.';
 
 /**
  * How full the fullest bucket is, in chunks where the page holds the batch

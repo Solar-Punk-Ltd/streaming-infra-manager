@@ -396,20 +396,27 @@ reads as empty. `StampHealth` carries that ratio as `fillRatio` and bee's
 assembly passes both on to each rung as `stampFillRatio` and `stampImmutable`,
 so the pool page, the overview and the rung's own page read the same numbers.
 
-Only an **immutable** batch is `full`. A mutable batch never refuses: when a
+Only an **immutable** batch is `full`. bee never refuses a mutable batch: when a
 bucket is full it takes the upload and overwrites that bucket's oldest chunks,
 so older recordings paid with it lose data while uploads keep working. It stays
 `active`, and the rung's readiness step says it now overwrites rather than
-refusing. A batch whose kind the node did not report is treated as immutable,
-since that is the kind that refuses. `full` is not one of the dead states: a full
+refusing, and warns, for the reasons below. A batch whose kind the node did not
+report is treated as immutable, since that is the kind that refuses. `full` is not one of the dead states: a full
 immutable batch can be diluted to buy room. The manager does not offer that yet,
 so today the page's remedy is buying and setting a new batch.
 
-An immutable batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`)
-but not yet full stays `active` and warns, the way `isStampExpiringSoon` warns
-about time. That number is the uploader's own default start ceiling,
-`STAMP_MAX_UTILIZATION`: an uploader restarted on such a batch already refuses
-to boot, which is why the warning starts there, while uploads still work.
+A batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`) that
+still takes uploads stays `active` and warns, "Stamp nearly full", the way
+`isStampExpiringSoon` warns about time. That number is the uploader's own
+default start ceiling, `STAMP_MAX_UTILIZATION`: an uploader restarted on an
+immutable batch past it already refuses to boot, which is why the warning starts
+there, while uploads still work. A mutable batch warns there too, full or not,
+for two reasons. Once full it overwrites the oldest recordings' chunks. And the
+uploader of stack v3.3 and earlier, the version this manager bundles on
+2026-09-25, holds a mutable batch to the same ceiling, so a restart on it past
+90% is refused as well. The stack's fix for that, which holds only immutable
+batches to the ceiling, is swarm-hls-stream #253, not yet in a release. The
+wording of both warnings is `nearlyFullConsequence` in `common/src/stampHealth.ts`.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm
@@ -532,7 +539,7 @@ chip on every healthy row would bury the one row that needs attention.
 |---|---|---|
 | Node | not `RUNNING` | none |
 | Address | `loopback`, `ssh-target`, `malformed` | `unreachable` |
-| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, an immutable batch past 90% full |
+| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, a batch past 90% full that still takes uploads |
 
 The right-hand column is the honest half. Every entry there is something we could
 not confirm rather than something we found wrong, and treating "could not check"

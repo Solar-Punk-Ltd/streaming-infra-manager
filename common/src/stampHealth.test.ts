@@ -9,6 +9,7 @@ import {
   isStampExpired,
   isStampExpiringSoon,
   isStampNearlyFull,
+  nearlyFullConsequence,
   STAMP_EXPIRY_WARNING_SECONDS,
   STAMP_FILL_WARNING_RATIO,
   sameBatchId,
@@ -246,8 +247,13 @@ describe('isStampNearlyFull', () => {
     assert.equal(isStampNearlyFull(0.5, true), false);
   });
 
-  it('does not warn about a mutable batch, which overwrites rather than refusing', () => {
-    assert.equal(isStampNearlyFull(past, false), false);
+  // bee never refuses a mutable batch, but once it fills it overwrites the
+  // oldest chunks it paid for, and the uploader of stack v3.3 and earlier holds
+  // it to the same start ceiling, so a restart on it past 90% is refused.
+  it('warns about a mutable batch past the ceiling too, full or not', () => {
+    assert.equal(isStampNearlyFull(past, false), true);
+    assert.equal(isStampNearlyFull(1, false), true);
+    assert.equal(isStampNearlyFull(STAMP_FILL_WARNING_RATIO, false), false);
   });
 
   it('warns about a batch whose immutability nobody reported', () => {
@@ -263,6 +269,26 @@ describe('isStampNearlyFull', () => {
   it('does not warn on a fill nobody could work out', () => {
     assert.equal(isStampNearlyFull(null, true), false);
     assert.equal(isStampNearlyFull(undefined, true), false);
+  });
+});
+
+describe('nearlyFullConsequence', () => {
+  it('says an immutable batch refuses a restart past 90% and uploads once full', () => {
+    assert.match(nearlyFullConsequence(true), /Past 90% an uploader restarted on it refuses to start/);
+    assert.match(nearlyFullConsequence(true), /once it fills its node refuses uploads/);
+  });
+
+  it('says a mutable batch overwrites once full, and which stacks refuse a restart on it', () => {
+    assert.match(nearlyFullConsequence(false), /overwrites its oldest chunks/);
+    assert.match(nearlyFullConsequence(false), /stack v3\.3 and earlier refuses to restart on it/);
+  });
+
+  it('reads a batch of unreported kind as one that refuses', () => {
+    assert.equal(nearlyFullConsequence(null), nearlyFullConsequence(true));
+  });
+
+  it('carries no em-dash or semicolon, being operator copy', () => {
+    for (const kind of [true, false]) assert.doesNotMatch(nearlyFullConsequence(kind), /[—;]/);
   });
 });
 

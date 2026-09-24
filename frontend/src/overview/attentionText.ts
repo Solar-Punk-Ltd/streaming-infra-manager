@@ -90,7 +90,7 @@ export function attentionText(
       };
     case STAMP_NEARLY_FULL:
       return {
-        text: 'Its stamp is nearly full. Buy the next one before its node starts refusing uploads.',
+        text: 'Its stamp is nearly full. Buy the next one before it fills.',
         action: 'buy-stamp',
       };
     case UPLOADER_NOT_STARTED:

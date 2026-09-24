@@ -89,8 +89,9 @@ const DEAD_STATES: readonly StampState[] = ['expired', 'gone'];
 
 /**
  * The uploader's default start ceiling, the stack's `STAMP_MAX_UTILIZATION`. An
- * uploader restarted on an immutable batch fuller than this refuses to boot,
- * which is why the manager warns from here rather than only once the batch fills.
+ * uploader restarted on an immutable batch fuller than this refuses to boot, and
+ * the uploader of stack v3.3 and earlier refuses a mutable one as well, which is
+ * why the manager warns from here rather than only once the batch fills.
  */
 export const STAMP_FILL_WARNING_RATIO = 0.9;
 
@@ -158,23 +159,31 @@ function isFullAndRefusing(
 }
 
 /**
- * A batch that still takes uploads but will not for long, the way
- * `isStampExpiringSoon` is for time: immutable, or of a kind nobody said, and past
- * the uploader's start ceiling without being full yet.
+ * A batch past the uploader's start ceiling that still takes uploads, the way
+ * `isStampExpiringSoon` is for time.
  *
- * A full batch is not a warning, it is a failure and reported as one, and a
- * mutable batch never refuses, so neither raises this.
+ * An immutable batch, or one of a kind nobody reported, raises it until it is
+ * full, and full is not a warning but a failure, reported as `full`. A mutable
+ * batch raises it full or not: bee never refuses it, but once full it overwrites
+ * the oldest chunks it paid for, and the uploader of stack v3.3 and earlier holds
+ * it to the same start ceiling.
  */
 export function isStampNearlyFull(
   fillRatio: number | null | undefined,
   immutable: boolean | null | undefined,
 ): boolean {
-  return (
-    fillRatio != null &&
-    fillRatio > STAMP_FILL_WARNING_RATIO &&
-    !isFullestBucketFull(fillRatio) &&
-    refusesWhenFull(immutable)
-  );
+  if (fillRatio == null || fillRatio <= STAMP_FILL_WARNING_RATIO) return false;
+  return !refusesWhenFull(immutable) || !isFullestBucketFull(fillRatio);
+}
+
+/**
+ * What a batch past the start ceiling leads to, by its kind, for the warnings
+ * that name it. Shared so the checklist, the pool and the Storage card agree.
+ */
+export function nearlyFullConsequence(immutable: boolean | null | undefined): string {
+  return refusesWhenFull(immutable)
+    ? 'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.'
+    : 'Once it fills its node overwrites its oldest chunks, so the oldest recordings paid with it start losing data, and past 90% the uploader of stack v3.3 and earlier refuses to restart on it.';
 }
 
 /**

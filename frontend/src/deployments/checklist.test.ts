@@ -350,12 +350,25 @@ describe('the stamp step reads how full the batch is', () => {
     assert.match(step?.detail ?? '', /immutable/);
   });
 
-  it('keeps a full mutable batch working, and says it now overwrites its oldest chunks', () => {
+  // bee takes uploads on a full mutable batch, but it spends what earlier
+  // uploads stored, and the uploader of stack v3.3 and earlier refuses to
+  // restart on any batch past 90%, so it warns rather than passing.
+  it('warns about a full mutable batch, which takes uploads but overwrites its oldest chunks', () => {
     const step = stampStepFor(hostBatch({ immutableFlag: false }));
 
-    assert.equal(step?.state, 'ok');
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Stamp nearly full');
     assert.match(step?.detail ?? '', /mutable/);
     assert.match(step?.detail ?? '', /overwrites its oldest chunks rather than refusing uploads/);
+  });
+
+  it('warns about a mutable batch past the ceiling, naming the stacks that refuse a restart on it', () => {
+    const step = stampStepFor(hostBatch({ utilization: 122, immutableFlag: false }));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Stamp nearly full');
+    assert.match(step?.detail ?? '', /oldest recordings paid with it start losing data/);
+    assert.match(step?.detail ?? '', /stack v3\.3 and earlier refuses to restart on it/);
   });
 
   it('says nothing about fill where the node did not report it', () => {

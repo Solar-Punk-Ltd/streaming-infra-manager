@@ -14,6 +14,7 @@ import {
   getErrorMessage,
   isStampExpiringSoon,
   isStampNearlyFull,
+  nearlyFullConsequence,
   parsePlur,
   type StampHealth,
 } from '@streaming-infra-manager/common';
@@ -146,9 +147,9 @@ export function StorageCard({
         )}
         {nearlyFullAt && (
           <Alert severity="warning">
-            This batch is <strong>{nearlyFullAt} full</strong>. Past 90% an
-            uploader restarted on it refuses to start, and once it fills this Bee
-            node refuses uploads. Buy the next one below before it does.
+            This batch is <strong>{nearlyFullAt} full</strong>.{' '}
+            {nearlyFullConsequence(stampHealth.immutable)} Buy the next one below
+            before it fills.
           </Alert>
         )}
         {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
