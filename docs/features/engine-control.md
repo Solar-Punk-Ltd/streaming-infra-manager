@@ -7,14 +7,70 @@ PR 1 was built on `feat/engine-control`, went in with pull request #40, and is m
 `main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
 submodule tracked `main-v3` from 2026-09-09, then `feat/manager-line`, the manager's own line of
 the stack, from 2026-09-17, and has tracked `main` since 2026-09-19, when that line reached the
-stack's `main` as PR #241. Its pin has moved several times since, which the update below explains. `SRT_LATENCY` is left out with the rest of what a later stack reads. PR 2 is
-not started.
+stack's `main` as PR #241. Its pin has moved several times since, which the update below explains.
+`SRT_LATENCY` was left out with the rest of what a later stack reads, until it became a setting on
+2026-09-23, see the update of that date below. PR 2 is not started.
 
 Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is the default,
 main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
 `SRS_HTTP_API_PORT`, so the D7 backport to `main-v2` described below is no longer needed, and
 PR 2 (live status) waits only on the manager reading that port. The manager still answers
 `live: null` for it, with the reason "not read yet".
+
+Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d`,
+`6a37c2a` and `f42fba2`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
+broadcaster's recording came out with broken blocks of picture. SRS's own SRT counters showed 5 to
+8.5% of the packets lost and nearly all of them resent, but the resends arrived after the latency
+window, so SRS dropped them and each drop became a hole in a frame. The drawer offers it as **SRT
+latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
+defaults to 2000.
+
+That default is the manager's own and not the stack's. `v3.1`, which the manager pinned from
+2026-09-19 to 2026-09-24, falls back to 200, as does every version cut before the decision that reads the key at
+all (`main-v2` does not). The stack's `main` has fallen back to 2000 itself since its PR #244, and
+the manager has pinned it at `8c5c583a` since 2026-09-24. On every version the manager writes
+`SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value, and the
+drawer and the card call it **Manager default**. It is the only setting written while unset. A
+value set in the host's base `.env` still wins, as it does for every other setting, and the drawer
+then says it was set on this host. A deployment that stores no value gets `SRT_LATENCY=2000` the
+next time its env file is written, on its next deploy or engine settings save. Whether SRS then
+waits that long on ingest depends on the version's template, which the next paragraph explains.
+
+Measured 2026-09-23 on the stack's `fix/srt-ingest-latency` branch, head `a1b43f0a`. SRS 6 applies
+`latency` to both directions and `recvlatency` after it, and falls back to 120 for `recvlatency`
+when the block leaves it out, so `recvlatency` alone decides SRS's side of the wait on ingest. With
+libsrt 1.5.4 over loopback, the options applied in SRS's order, `latency 2000` with `recvlatency`
+unset negotiated 120 ms, `latency 2000` with `recvlatency 2000` gave 2000, and a caller asking for
+3000 got 3000, because SRT uses the larger of the two ends' values. The stack now sets both: since
+`36b6749f` on that branch its template fills `SRT_LATENCY` into `latency` and `recvlatency` alike.
+The recording of 2026-09-22 was therefore made through SRS's own 120 ms, not the 200 the stack
+asked for, as the stack's notes at `a1b43f0a` now say.
+
+Until 2026-09-24 the manager pinned `v3.1` at `2c4867a`, which fills `latency` alone, so a deployment
+on the bundled version then waited 120 ms on ingest whatever `SRT_LATENCY` said. Since 2026-09-24 it
+pins the stack's `main` at `8c5c583a`, which carries `36b6749f`, so the bundled version waits the
+setting on ingest. A deployment runs from a copy of the build it was last deployed from, so one on
+the bundled version moves onto that template on its next deploy or engine settings save. The drawer
+reads the template of the version's current build rather than that copy, so it shows the setting
+from the moment the host has built `8c5c583a`. `v3.1` and the stack's tags before it keep waiting
+SRS's own 120. For a deployment with a config file of its own the manager reads `recvlatency` as
+[engine-config.md](engine-config.md) describes. From later on 2026-09-23 it reads the SRT latency
+off the version's template for a deployment that runs that template as well. On a template that
+fills `recvlatency`, as the bundled one does, the card and the drawer show the stored value, or the
+default with its source, which is **Manager default** unless the host sets one. On a template that
+fills only `latency`, as `v3`'s and `v3.1`'s do, they show SRS's own 120 as **Engine default**, with
+the sentence that SRS ignores `latency` for ingest without `recvlatency`, and the drawer says that
+changing the setting will not change the wait on ingest on this stack version. A template that
+never takes the setting is read at its own `srt_server` block, since `435ee1d`. The stack's `v1`
+and `v2` (`12632b50`) are such versions: their templates write `latency 200` themselves and no
+`recvlatency`, and their entrypoints never read `SRT_LATENCY`. On them the card and the drawer show
+SRS's own 120 as **Engine default**, with the sentence that this stack version does not read the
+setting and that its template decides the wait on ingest, and a `recvlatency` such a template wrote
+would be shown as the wait instead. The manager still writes `SRT_LATENCY=2000` into
+`.env.<profile>` there, where nothing reads it. Every other setting of such a deployment is still
+read as the environment, because the template fills each from it. The offline mock reads its own
+template, a copy of `v3.1`'s, the same way, so it shows `v3.1`'s 120 rather than the bundled
+stack's wait.
 
 ## What the engines are and how they are configured today
 
@@ -74,7 +130,9 @@ and Storage:
   needs the SRS API port, which this stack version does not publish.`
 - **Settings** opens a right drawer, the same frame the Edit drawer uses, with only the fields
   the engine has. For SRS: **Segment length** (`HLS_FRAGMENT`, seconds), **Force-close a piece
-  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), and
+  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), **SRT
+  latency** (`SRT_LATENCY`, milliseconds, since 2026-09-23, whose default is the manager's own as
+  the update above says), and
   under **Transcoding (ABR uploaders only)**: frame rate, preset, profile, threads, audio codec,
   audio bitrate, VBV seconds (`ABR_FPS`, `ABR_PRESET`, `ABR_PROFILE`, `ABR_THREADS`, `ABR_ACODEC`,
   `ABR_AUDIO_BITRATE`, `ABR_VBV_SECONDS`). The ladder itself stays fixed, it is the contract with
@@ -118,11 +176,15 @@ stack version, and validation lives in code:
   `engineSettingsProblem
   (engine, settings)` returns the first human readable problem or null, including the GOP rule.
   `engineSettingsEnv(engine, settings)` returns the `KEY=value` pairs to write. Shared, so the
-  drawer and the deploy validate identically.
+  drawer and the deploy validate identically. Since 2026-09-23 it takes the host's defaults as
+  well and adds a default the manager owns, `managerOwnsDefault` on the field, for a key the
+  deployment does not store and the host's base `.env` does not set. `SRT_LATENCY` is the only
+  such field.
 - `writeProfileEnv` writes those pairs (every value goes through the same character check the
   passphrase gets, because it lands inside a `sed` expression in the entrypoint).
 - `buildEffectiveEnv` and `containerKeysSpec` include the keys, so the container snapshot shows
-  what the engine was started with.
+  what the engine was started with. Both call `engineSettingsEnv` with the same defaults since
+  2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries it.
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
   transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
   only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry

@@ -13,13 +13,16 @@ function profileFor(has_engine_config) {
   };
 }
 
-function overview(has_engine_config) {
-  const profile = profileFor(has_engine_config);
+function overviewOf(profile) {
   let body;
   const routes = engineRoutes({ withProfile: handler => handler, deploy() {}, publish() {}, readBody() {} });
-  const get = routes.find(([method, pattern]) => method === 'GET' && pattern.test('/profiles/synthetic-ome/engine'));
+  const get = routes.find(([method, pattern]) => method === 'GET' && pattern.test(`/profiles/${profile.name}/engine`));
   get[2]({}, { writeHead: status => assert.equal(status, 200), end: payload => { body = JSON.parse(payload); } }, profile);
   return body;
+}
+
+function overview(has_engine_config) {
+  return overviewOf(profileFor(has_engine_config));
 }
 
 it('the mock emits the mandatory observation map and exact known projection', () => {
@@ -40,4 +43,18 @@ it('the mock identifies its current profile and config inputs with the shared id
   for (const hasConfig of [false, true]) {
     assert.deepEqual(overview(hasConfig).identity, engineOverviewIdentity(profileFor(hasConfig)));
   }
+});
+
+it("the mock reads an SRS deployment's wait on ingest off its v3.1 template, as the manager does", () => {
+  // The mock's template is v3.1's, which fills only `latency`, and SRS ignores
+  // that on ingest without `recvlatency`, so the stored 3000 never applies.
+  const result = overviewOf({
+    ...profileFor(false), name: 'synthetic-srs', kind: 'streamer', components: null,
+    engine_settings: { SRT_LATENCY: '3000' },
+  });
+
+  assert.deepEqual(result.observations.SRT_LATENCY, {
+    status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'version-without-recvlatency',
+  });
+  assert.equal(result.effective.SRT_LATENCY, '120');
 });

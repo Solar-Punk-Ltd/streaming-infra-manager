@@ -31,7 +31,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { omeSettingReadings } from '../../manager/src/domain/engineConfig/omeSettingReadings.ts';
-import { srsSettingReadings } from '../../manager/src/domain/engineConfig/srsSettingReadings.ts';
+import { srsSettingReadings, srsTemplateReadings } from '../../manager/src/domain/engineConfig/srsSettingReadings.ts';
 import { engineSettingsSchema } from '../../manager/src/schemas/engine.ts';
 import { engineConfigSource } from './mock-engine-config.mjs';
 import { send, sendText } from './mock-http.mjs';
@@ -143,7 +143,7 @@ function srsConf(settings) {
     'srt_server {',
     '    enabled         on;',
     '    listen          10080;',
-    '    latency         200;',
+    `    latency         ${settings.SRT_LATENCY};`,
     '}',
     '',
     'vhost __defaultVhost__ {',
@@ -193,11 +193,15 @@ export function engineRoutes({ readBody, withProfile, findProfile, deploy, publi
         const defaults = hostDefaults(engine, profile);
         const fields = engineSettingsFieldsFor(engine, { abr });
         const { template, config } = engineConfigSource(profile.name, engine);
+        // Without a file of its own a deployment runs the version's template,
+        // which decides the SRT latency SRS waits on ingest, as on the manager.
         const readings = profile.has_engine_config
           ? engine === OME_SERVICE
             ? omeSettingReadings(template, config, fields)
             : srsSettingReadings(template, config, fields, { abr })
-          : environmentSettingReadings(fields);
+          : engine === SRS_SERVICE
+            ? { ...environmentSettingReadings(fields), ...srsTemplateReadings(template, fields) }
+            : environmentSettingReadings(fields);
         send(res, 200, {
           identity: engineOverviewIdentity(profile),
           engine,

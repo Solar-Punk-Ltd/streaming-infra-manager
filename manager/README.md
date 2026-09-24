@@ -348,7 +348,7 @@ things an operator does to it by hand.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
-| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
+| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
@@ -365,6 +365,21 @@ number of frames live in `common/src/engineSettings.ts`, which the manager, the
 UI and the offline mock all read. One JSONB column rather than one per setting
 because the set differs per engine and per stack version, and
 `migrations/009_engine_settings.sql` says so at length.
+
+One key is the exception since 2026-09-23. `SRT_LATENCY`, how long SRS waits
+for a lost SRT packet to be resent before giving up on it, whole milliseconds
+from 20 to 10000, defaults to the manager's own 2000, which the owner decided
+that day. `v3.1` falls back to 200, as does every version cut before that day
+which reads the key at all, and the bundled stack, `main` at `8c5c583a`, falls
+back to 2000 itself. On every version an absent `SRT_LATENCY` is written into
+`.env.<name>` as 2000 unless the base `.env` sets it, and the drawer calls it
+"Manager default". SRS waits that long on ingest only on a stack version whose
+template fills `recvlatency` as well as `latency`, as the bundled stack's does.
+`v3.1` fills `latency` alone, so on it the drawer shows SRS's own 120 as
+"Engine default" instead, measured on 2026-09-23 and recorded in
+[engine-control.md](../docs/features/engine-control.md). It is not a key of
+this manager's own environment, so the table under Environment below does not
+list it.
 
 Saving settings redeploys the engine service alone, so the profile goes
 `DEPLOYING` and back while the uploader and the Bee node stay up. A restart is

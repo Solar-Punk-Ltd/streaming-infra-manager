@@ -42,6 +42,27 @@ a deployment override uses the effective default, which can differ between
 versions. A reliably parsed literal is labeled "Set in config file". Changing
 an environment override does not change that literal.
 
+Since 2026-09-23 the SRT latency is the one setting whose default does not
+come from the version. The manager writes its own 2000 milliseconds into the
+deployment's env file wherever the host sets no value of its own, labeled
+"Manager default". In a file of the deployment's own it is read at
+`recvlatency` in `srt_server`, the directive that decides SRS's side of the
+wait on ingest, since `f42fba2` on 2026-09-23. A literal there is labeled "Set
+in config file" like any other. A block that sets no `recvlatency` is shown
+as SRS's own 120 milliseconds, labeled "Engine default", with one sentence
+saying why, and changing the override does not change it. SRS ignores
+`latency` for ingest without `recvlatency`, measured on 2026-09-23 as
+[engine-control.md](engine-control.md) records. A file that still carries
+only the `latency` placeholder, as one copied from the `v3.1` template does,
+therefore reads as 120. One started from the bundled template at `8c5c583a`,
+pinned since 2026-09-24, carries both placeholders and reads as the setting,
+while a file stored before then keeps the lines it was copied with. The
+entrypoint fills only the first placeholder on each line, so since `d6951fa` a
+file with a line that carries the SRT latency placeholder twice, such as
+`recvlatency SRT_LATENCY_PLACEHOLDER; latency SRT_LATENCY_PLACEHOLDER;`, is
+shown as "Unverified" in either order. The second one reaches SRS as the token
+itself. Keep each placeholder on a line of its own.
+
 Omitted settings are labeled "Not specified". Conflicting values, unsupported
 syntax and other uncertain readings are "Unverified", with a reason. The
 manager checks relevant sections together instead of choosing the first

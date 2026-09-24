@@ -10,6 +10,9 @@
  * would corrupt the `sed` in `engines/srs/entrypoint.sh` must be refused here,
  * because this is the last gate before it leaves the manager and the container
  * crash-loops under `restart: unless-stopped` if it gets through.
+ *
+ * Since 2026-09-23 the SRT latency is the one key written while unset, and only
+ * where the box sets none of its own. The last block says why.
  */
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -75,6 +78,22 @@ describe('writeProfileEnv: engine settings', () => {
     assert.match(envFor('added', { HLS_WINDOW: '45' }), /^HLS_WINDOW=45$/m);
   });
 
+  it('writes the SRT latency a deployment set, which compose hands to SRS', () => {
+    withBaseEnv();
+    const env = envFor('latency', { SRT_LATENCY: '3000' });
+
+    assert.match(env, /^SRT_LATENCY=3000$/m);
+    assert.equal(env.match(/^SRT_LATENCY=/gm)?.length, 1);
+  });
+
+  it('refuses an SRT latency SRS would not be given', () => {
+    withBaseEnv();
+    assert.throws(
+      () => envFor('toolow', { SRT_LATENCY: '5' }),
+      /refusing to write the engine settings.*SRT latency must be at least 20/s,
+    );
+  });
+
   it('writes only the keys the profile engine reads', () => {
     withBaseEnv('ENGINE=ome\n');
     const path = writeProfileEnv(root, 'omeone', {
@@ -118,6 +137,16 @@ describe('writeProfileEnv: engine settings', () => {
     assert.match(env, /^HLS_FRAGMENT=2$/m, 'the rest still applies');
   });
 
+  it('gives an OvenMediaEngine deployment no SRT latency line', () => {
+    withBaseEnv('ENGINE=ome\n');
+    const env = readFileSync(
+      writeProfileEnv(root, 'omeplain', { engine: 'ome', engineSettings: {} }),
+      'utf8',
+    );
+
+    assert.doesNotMatch(env, /^SRT_LATENCY=/m);
+  });
+
   it('refuses a keyframe pair the engine would refuse to start on', () => {
     withBaseEnv();
     const publishers = ['1080p', '720p', '480p', '360p']
@@ -135,5 +164,55 @@ describe('writeProfileEnv: engine settings', () => {
         }),
       /37\.5 frames, which is not a whole number/,
     );
+  });
+});
+
+/**
+ * The one default the manager writes itself.
+ *
+ * The owner set the SRT latency to 2000 ms on 2026-09-23, and v3.1's entrypoint
+ * falls back to 200. Leaving the key out would hand SRS 200 for every
+ * deployment that stores none while the drawer names 2000. A value somebody set
+ * on the box still stands, which is the rule this file opens with.
+ */
+describe("writeProfileEnv: the manager's own SRT latency", () => {
+  it('writes 2000 when neither the deployment nor the host sets one', () => {
+    withBaseEnv();
+    assert.match(envFor('plain', {}), /^SRT_LATENCY=2000$/m);
+  });
+
+  it("writes it over a version whose own fallback is v3.1's 200", () => {
+    withBaseEnv();
+    const env = readFileSync(
+      writeProfileEnv(root, 'onv31', {
+        engine: 'srs',
+        engineSettings: {},
+        stackEngineDefaults: { SRT_LATENCY: '200' },
+      }),
+      'utf8',
+    );
+
+    assert.match(env, /^SRT_LATENCY=2000$/m);
+  });
+
+  it('leaves a value set on the host standing, on one line', () => {
+    withBaseEnv(`${BASE_ENV}SRT_LATENCY=500\n`);
+    const env = envFor('hostset', {});
+
+    assert.match(env, /^SRT_LATENCY=500$/m);
+    assert.equal(env.match(/^SRT_LATENCY=/gm)?.length, 1);
+  });
+
+  it('replaces a value on the host that the field refuses, which the drawer does not show', () => {
+    withBaseEnv(`${BASE_ENV}SRT_LATENCY=5\n`);
+    const env = envFor('hostbad', {});
+
+    assert.match(env, /^SRT_LATENCY=2000$/m);
+    assert.equal(env.match(/^SRT_LATENCY=/gm)?.length, 1);
+  });
+
+  it('writes what the deployment stored instead', () => {
+    withBaseEnv(`${BASE_ENV}SRT_LATENCY=500\n`);
+    assert.match(envFor('stored', { SRT_LATENCY: '3000' }), /^SRT_LATENCY=3000$/m);
   });
 });

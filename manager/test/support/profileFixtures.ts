@@ -504,6 +504,7 @@ export class FakeContainers {
     profileName: string;
     service: string;
     ports: Record<string, number>;
+    env: Record<string, string>;
   }[] = [];
 
   asRepository(): ContainerRepository {
@@ -515,6 +516,7 @@ export class FakeContainers {
       profileName,
       service: snapshot.service,
       ports: snapshot.ports,
+      env: snapshot.env,
     });
   }
 

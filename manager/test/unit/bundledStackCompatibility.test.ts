@@ -20,13 +20,14 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { OME_SERVICE, SRS_SERVICE } from '@streaming-infra-manager/common';
+import { engineSettingsFieldsFor, OME_SERVICE, SRS_SERVICE } from '@streaming-infra-manager/common';
 
 import {
   type CommandRunner,
   EngineConfigChecker,
 } from '../../src/domain/engineConfig/engineConfigCheck.js';
 import { engineTemplateIn } from '../../src/domain/engineConfig/engineConfigTemplates.js';
+import { srsTemplateReadings } from '../../src/domain/engineConfig/srsSettingReadings.js';
 import { readStackContract } from '../../src/domain/versions/stackContract.js';
 import { writeProfileEnv } from '../../src/utils/envUtils.js';
 
@@ -42,6 +43,21 @@ function assignment(text: string, key: string): string | undefined {
     .split('\n')
     .find((line) => line.startsWith(`${key}=`))
     ?.slice(key.length + 1);
+}
+
+/** A service is a two-space indented name under `services:`, as the contract reader reads them. */
+const COMPOSE_SERVICE = /^ {2}([a-z][a-z0-9-]*):\s*$/;
+
+/** The compose services whose environment interpolates `key` from the env file. */
+function composeServicesReading(compose: string, key: string): string[] {
+  const interpolates = new RegExp(`^\\s+${key}:\\s*\\$\\{${key}(:-[^}]*)?\\}\\s*$`);
+  const readers: string[] = [];
+  let service: string | null = null;
+  for (const line of compose.split('\n')) {
+    service = COMPOSE_SERVICE.exec(line)?.[1] ?? service;
+    if (service !== null && interpolates.test(line) && !readers.includes(service)) readers.push(service);
+  }
+  return readers;
 }
 
 describe('the bundled swarm-hls-stream contract', () => {
@@ -118,6 +134,38 @@ describe('the bundled swarm-hls-stream contract', () => {
       '',
       'the optional admin token remains unset with admin mode off',
     );
+    assert.equal(
+      assignment(written, 'SRT_LATENCY'),
+      '2000',
+      `the manager writes its own SRT latency, where this checkout falls back to ${contract.engineDefaults.SRT_LATENCY ?? 'nothing it names'}`,
+    );
+  });
+
+  it("reads the bundled template as SRS waiting the SRT latency setting on ingest, so the drawer shows the setting and not SRS's own 120", () => {
+    const fields = engineSettingsFieldsFor(SRS_SERVICE, { abr: false });
+    const template = engineTemplateIn(STACK, SRS_SERVICE).text;
+    const latencyAlone = template
+      .split('\n')
+      .filter((line) => !/^\s*recvlatency\s/.test(line))
+      .join('\n');
+
+    assert.deepEqual(
+      srsTemplateReadings(template, fields),
+      {},
+      "a pinned stack whose template fills latency alone reads as SRS's own 120 here, and the pages that say the bundled stack waits the setting on ingest move with it",
+    );
+    assert.deepEqual(
+      srsTemplateReadings(latencyAlone, fields),
+      { SRT_LATENCY: [{ kind: 'built-in', value: '120', reason: 'version-without-recvlatency' }] },
+      "the same template without its recvlatency line reads as SRS's own 120, as v3.1's does, so the empty answer above comes from that line and not from a template the reader could not parse",
+    );
+  });
+
+  it('hands the SRT latency to SRS, and to SRS alone, through compose', () => {
+    const compose = readFileSync(join(STACK, 'deploy', 'docker-compose.yml'), 'utf8');
+    const readers = composeServicesReading(compose, 'SRT_LATENCY');
+
+    assert.deepEqual(readers, [SRS_SERVICE]);
   });
 
   it('admits both shipped engine templates through their bundled entrypoints', async () => {
