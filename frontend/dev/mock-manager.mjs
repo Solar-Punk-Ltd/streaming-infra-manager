@@ -57,6 +57,7 @@ import { createTargetRoutes } from './mock-targets.mjs';
 import { closeRollout, engineConfigRoutes, forgetEngineConfig } from './mock-engine-config.mjs';
 import { readBody, send as sendRaw, sendScriptRun } from './mock-http.mjs';
 import { metricsClients, metricsSnapshot } from './mock-metrics.mjs';
+import { MOCK_CURRENT_PRICE, stampChangeRoutes } from './mock-stamps.mjs';
 import {
   defaultVersionId,
   newDeploymentVersionProblem,
@@ -767,7 +768,7 @@ const ROUTES = [
         chainTip: 39_100_000,
         block: 39_099_980,
         totalAmount: '92000000000',
-        currentPrice: '24000',
+        currentPrice: MOCK_CURRENT_PRICE,
       }),
   ],
   [
@@ -787,6 +788,7 @@ const ROUTES = [
       });
     }),
   ],
+  ...stampChangeRoutes({ readBody, withProfile }),
   [
     'POST',
     /^\/profiles\/([^/]+)\/stamp\/set$/,
