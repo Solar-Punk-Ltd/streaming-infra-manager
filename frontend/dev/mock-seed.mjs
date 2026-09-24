@@ -11,6 +11,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
   DEFAULT_RPC_ENDPOINT_SOURCE,
   PLUR_PER_BZZ,
+  stampBucketCapacity,
 } from '@streaming-infra-manager/common';
 
 import { commitOfVersion } from './mock-versions.mjs';
@@ -256,14 +257,18 @@ export function makeChequebook({
   return { address: address(), total, available, totalSent, totalReceived };
 }
 
+/** The bucket bits bee gives every batch. */
+const BUCKET_DEPTH = 16;
+
 export function makeStamp({ depth, ttl, usable = true, amount = '48000000' }) {
   return {
     batchID: batchId(),
-    utilization: randomInt(0, 40),
+    // The chunks in the fullest bucket, which never holds more than a bucket does.
+    utilization: randomInt(0, stampBucketCapacity({ depth, bucketDepth: BUCKET_DEPTH })),
     usable,
     depth,
     amount,
-    bucketDepth: 16,
+    bucketDepth: BUCKET_DEPTH,
     blockNumber: 39_000_000 + randomInt(0, 100_000),
     immutableFlag: false,
     exists: true,
