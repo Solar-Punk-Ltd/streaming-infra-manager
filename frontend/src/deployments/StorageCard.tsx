@@ -132,16 +132,16 @@ export function StorageCard({
             {stampHealth.state === 'expired'
               ? 'The postage batch this deployment pays with has expired. '
               : 'This Bee node does not hold the batch recorded for it, usually because the batch expired and was dropped. '}
-            Uploads cannot be paid for until a new batch is bought below and set
-            with <strong>Use</strong>.
+            Uploads cannot be paid for until a new batch is bought below, which is
+            set here once it is usable.
           </Alert>
         )}
         {stampHealth.state === 'full' && (
           <Alert severity="error">
             The postage batch this deployment pays with is full, and it cannot
             overwrite what it holds, so this Bee node refuses the uploads it is
-            sent. Uploads cannot be paid for until a new batch is bought below and
-            set with <strong>Use</strong>.
+            sent. Uploads cannot be paid for until a new batch is bought below,
+            which is set here once it is usable.
           </Alert>
         )}
         {nearlyFullAt && (
@@ -154,8 +154,8 @@ export function StorageCard({
         {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
           <Alert severity="warning">
             This batch runs out in <strong>{formatTtl(stampHealth.ttl)}</strong>.
-            Buy the next one below and set it with <strong>Use</strong> before it
-            does. Once a batch is spent its uploads fail and it cannot be revived.
+            Buy the next one below before it does. Once a batch is spent its
+            uploads fail and it cannot be revived.
           </Alert>
         )}
         {bee.waitingBatch && (

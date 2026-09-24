@@ -419,7 +419,7 @@ function stampStep({
         problem: 'Stamp settling',
         state: 'busy',
         detail:
-          'Bought, waiting for the network to confirm it. It is set automatically.',
+          'Bought and set here, waiting for the network to confirm it before it pays.',
       };
     case 'unknown': {
       const failure = stampHealth.failure;

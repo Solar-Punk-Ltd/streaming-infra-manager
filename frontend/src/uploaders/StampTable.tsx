@@ -166,7 +166,8 @@ function EmptyState({
     return (
       <Typography variant="body2" color="error.main">
         This node holds no batches, yet {shortHex(currentStampId)} is still
-        recorded on the profile. Buy a new one below and set it with Use.
+        recorded on the profile. Buy a new one below, and it is set here once
+        it is usable.
       </Typography>
     );
   }
