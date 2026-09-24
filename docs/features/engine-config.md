@@ -54,12 +54,14 @@ saying why, and changing the override does not change it. SRS ignores
 `latency` for ingest without `recvlatency`, measured on 2026-09-23 as
 [engine-control.md](engine-control.md) records. A file that still carries
 only the `latency` placeholder, as one copied from the `v3.1` template does,
-therefore reads as 120. The entrypoint fills only the first placeholder on
-each line, so since `d6951fa` a file with a line that carries the SRT latency
-placeholder twice, such as `recvlatency SRT_LATENCY_PLACEHOLDER; latency
-SRT_LATENCY_PLACEHOLDER;`, is shown as "Unverified" in either order. The
-second one reaches SRS as the token itself. Keep each placeholder on a line
-of its own.
+therefore reads as 120. One started from the bundled template at `8c5c583a`,
+pinned since 2026-09-24, carries both placeholders and reads as the setting,
+while a file stored before then keeps the lines it was copied with. The
+entrypoint fills only the first placeholder on each line, so since `d6951fa` a
+file with a line that carries the SRT latency placeholder twice, such as
+`recvlatency SRT_LATENCY_PLACEHOLDER; latency SRT_LATENCY_PLACEHOLDER;`, is
+shown as "Unverified" in either order. The second one reaches SRS as the token
+itself. Keep each placeholder on a line of its own.
 
 Omitted settings are labeled "Not specified". Conflicting values, unsupported
 syntax and other uncertain readings are "Unverified", with a reason. The
