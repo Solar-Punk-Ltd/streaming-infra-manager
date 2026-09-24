@@ -171,6 +171,25 @@ describe('the offline mock changing a batch its node holds', { concurrency: fals
     assert.match(res.body.errors[0], new RegExp(`already at depth ${batch.depth}`));
   });
 
+  it('names the pool’s full rung in its words, until the rung is diluted', async () => {
+    const { groups } = (await request('/groups')).body;
+    const pool = groups.find((group) => group.kind === 'abr-node-pool');
+    const fullRung = async () =>
+      (await request(`/groups/${pool.id}/bee-publishers`)).body.missing.find((entry) => entry.rung === '720p') ?? null;
+    const before = await fullRung();
+    assert.match(before?.reason ?? '', /full, so its node refuses uploads/);
+
+    const [batch] = (await request('/profiles/abr-pool-1-720p/stamp/stamps')).body.stamps;
+    const res = await request('/profiles/abr-pool-1-720p/stamp/dilute', 'POST', { batch_id: batch.batchID, depth: batch.depth + 1 });
+    assert.equal(res.status, 202);
+
+    const deadline = Date.now() + SETTLE_BUDGET_MS;
+    while ((await fullRung()) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(await fullRung(), null, 'a diluted rung is half full and publishable again');
+  });
+
   it('refuses a body the manager’s schemas refuse', async () => {
     const [batch] = await batches();
     for (const [route, body] of [

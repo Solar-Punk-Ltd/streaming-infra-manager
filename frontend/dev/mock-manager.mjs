@@ -34,6 +34,8 @@ import {
   nodeModeProblem,
   plurToBzz,
   rpcEndpointChoiceProblem,
+  stampHealthFrom,
+  stampStateReason,
 } from '@streaming-infra-manager/common';
 
 import {
@@ -338,23 +340,9 @@ const chequebookJournal = createMockChequebookJournal({
 
 // ------------------------------------------------------- bee-publishers
 
-function stampStateOf(profile) {
-  if (!profile.stamp_id) return 'none';
-  const stamp = node(profile.name).stamps.find(
-    (entry) => entry.batchID === profile.stamp_id.replace(/^0x/, ''),
-  );
-  if (!stamp || stamp.exists === false) return 'gone';
-  if (stamp.batchTTL === 0) return 'expired';
-  if (!stamp.usable) return 'pending';
-  return 'active';
-}
-
-function stampTtlOf(profile) {
-  if (!profile.stamp_id) return null;
-  const stamp = node(profile.name).stamps.find(
-    (entry) => entry.batchID === profile.stamp_id.replace(/^0x/, ''),
-  );
-  return stamp ? stamp.batchTTL : null;
+/** What the recorded batch is worth, classified the way the manager's pool assembly classifies it. */
+function stampHealthOf(profile) {
+  return stampHealthFrom(profile.stamp_id, node(profile.name).stamps);
 }
 
 const STAMP_REASONS = {
@@ -362,6 +350,7 @@ const STAMP_REASONS = {
   expired: 'the postage batch on this rung has expired, buy a new one',
   gone: 'this rung no longer holds the batch recorded for it, buy a new one',
   pending: 'the postage batch on this rung is not usable yet',
+  full: stampStateReason('full'),
 };
 
 function beePublishersFor(group) {
@@ -379,7 +368,8 @@ function beePublishersFor(group) {
     }
 
     const url = `http://${PUBLIC_HOST}:${PORT_BASES.BEE_UPLOADER_API_PORT + profile.port_slot * 10}`;
-    const stampState = stampStateOf(profile);
+    const health = stampHealthOf(profile);
+    const stampState = health.state;
     rungs.push({
       rung: rung.name,
       name: profile.name,
@@ -387,7 +377,9 @@ function beePublishersFor(group) {
       url,
       stampId: profile.stamp_id,
       stampState,
-      stampTtl: stampTtlOf(profile),
+      stampTtl: health.ttl,
+      stampFillRatio: health.fillRatio,
+      stampImmutable: health.immutable,
       urlState: 'ok',
     });
 
