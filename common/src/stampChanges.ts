@@ -19,6 +19,18 @@ import {
   type StampFill,
 } from './stampHealth.js';
 
+/**
+ * What Bee answers a top-up or a dilute with: the batch, whose id the change
+ * keeps, and the transaction that changed it.
+ *
+ * Shared because it crosses the whole stack unchanged, from bee to the manager
+ * to the browser.
+ */
+export interface BeeStampTransaction {
+  batchID: string;
+  txHash: string;
+}
+
 /** A batch as its node reports it, the fields a change is worked out from. */
 export interface StampReading extends StampFill {
   /** Seconds left. `0` is spent, and a negative value means bee could not work it out. */
