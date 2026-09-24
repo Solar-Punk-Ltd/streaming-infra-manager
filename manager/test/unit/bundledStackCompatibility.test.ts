@@ -141,13 +141,23 @@ describe('the bundled swarm-hls-stream contract', () => {
     );
   });
 
-  it("reads the v3.1 template as SRS waiting its own 120 on ingest, because it fills latency alone", () => {
+  it("reads the bundled template as SRS waiting the SRT latency setting on ingest, so the drawer shows the setting and not SRS's own 120", () => {
     const fields = engineSettingsFieldsFor(SRS_SERVICE, { abr: false });
+    const template = engineTemplateIn(STACK, SRS_SERVICE).text;
+    const latencyAlone = template
+      .split('\n')
+      .filter((line) => !/^\s*recvlatency\s/.test(line))
+      .join('\n');
 
     assert.deepEqual(
-      srsTemplateReadings(engineTemplateIn(STACK, SRS_SERVICE).text, fields),
+      srsTemplateReadings(template, fields),
+      {},
+      "a pinned stack whose template fills latency alone reads as SRS's own 120 here, and the pages that say the bundled stack waits the setting on ingest move with it",
+    );
+    assert.deepEqual(
+      srsTemplateReadings(latencyAlone, fields),
       { SRT_LATENCY: [{ kind: 'built-in', value: '120', reason: 'version-without-recvlatency' }] },
-      'a pinned stack whose template fills recvlatency reads as {} here, and the pages that say the bundled version waits 120 move with it',
+      "the same template without its recvlatency line reads as SRS's own 120, as v3.1's does, so the empty answer above comes from that line and not from a template the reader could not parse",
     );
   });
 
