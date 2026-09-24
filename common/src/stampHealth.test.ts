@@ -8,6 +8,7 @@ import {
   isFullestBucketFull,
   isStampExpired,
   isStampExpiringSoon,
+  isStampFull,
   isStampNearlyFull,
   STAMP_EXPIRY_WARNING_SECONDS,
   STAMP_FILL_WARNING_RATIO,
@@ -229,6 +230,20 @@ describe('stampBucketCapacity', () => {
     assert.equal(stampBucketCapacity({ depth: 16, bucketDepth: 16 }), 1);
     assert.equal(stampBucketCapacity({ depth: 15, bucketDepth: 16 }), null);
     assert.equal(stampBucketCapacity({ bucketDepth: 16 }), null);
+  });
+});
+
+describe('isStampFull', () => {
+  it('is true for a full batch that refuses, immutable or of a kind nobody said', () => {
+    assert.equal(isStampFull(1, true), true);
+    assert.equal(isStampFull(1, null), true);
+    assert.equal(isStampFull(1, undefined), true);
+  });
+
+  it('is false for a mutable batch, which overwrites, and for one with room left', () => {
+    assert.equal(isStampFull(1, false), false);
+    assert.equal(isStampFull(127 / 128, true), false);
+    assert.equal(isStampFull(null, true), false);
   });
 });
 

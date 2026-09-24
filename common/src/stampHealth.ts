@@ -149,9 +149,14 @@ function refusesWhenFull(immutable: boolean | null | undefined): boolean {
   return immutable !== false;
 }
 
-function isFullAndRefusing(
-  fillRatio: number | null,
-  immutable: boolean | null,
+/**
+ * A batch whose node refuses the uploads that land in its fullest bucket:
+ * immutable, or of a kind nobody said, and full. The failure `isStampNearlyFull`
+ * warns about before it happens.
+ */
+export function isStampFull(
+  fillRatio: number | null | undefined,
+  immutable: boolean | null | undefined,
 ): boolean {
   return isFullestBucketFull(fillRatio) && refusesWhenFull(immutable);
 }
@@ -253,7 +258,7 @@ export function stampHealthFrom(
   if (!found.usable) return health('pending', reading);
   // bee goes on calling a full immutable batch usable, with time left, while it
   // refuses every upload that lands in the full bucket.
-  if (isFullAndRefusing(reading.fillRatio, reading.immutable)) {
+  if (isStampFull(reading.fillRatio, reading.immutable)) {
     return health('full', reading);
   }
   return health('active', reading);
