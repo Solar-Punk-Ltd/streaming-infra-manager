@@ -28,7 +28,7 @@ defaults to 2000.
 That default is the manager's own and not the stack's. `v3.1`, which the manager pinned from
 2026-09-19 to 2026-09-24, falls back to 200, as does every version cut before the decision that reads the key at
 all (`main-v2` does not). The stack's `main` has fallen back to 2000 itself since its PR #244, which
-its release `v3.2` carries, and the manager has pinned it since 2026-09-24. On every version the manager writes
+its releases `v3.2` and `v3.3` carry, and the manager has pinned it since 2026-09-24. On every version the manager writes
 `SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value, and the
 drawer and the card call it **Manager default**. It is the only setting written while unset. A
 value set in the host's base `.env` still wins, as it does for every other setting, and the drawer
@@ -48,11 +48,11 @@ asked for, as the stack's notes at `a1b43f0a` now say.
 
 Until 2026-09-24 the manager pinned `v3.1` at `2c4867a`, which fills `latency` alone, so a deployment
 on the bundled version then waited 120 ms on ingest whatever `SRT_LATENCY` said. Since 2026-09-24 the
-pin, now the stack's release `v3.2`, carries `36b6749f`, so the bundled version waits the
+pin, now the stack's release `v3.3`, carries `36b6749f`, so the bundled version waits the
 setting on ingest. A deployment runs from a copy of the build it was last deployed from, so one on
 the bundled version moves onto that template on its next deploy or engine settings save. The drawer
 reads the template of the version's current build rather than that copy, so it shows the setting
-from the moment the host has built `v3.2`. `v3.1` and the stack's tags before it keep waiting
+from the moment the host has built `v3.3`. `v3.1` and the stack's tags before it keep waiting
 SRS's own 120. For a deployment with a config file of its own the manager reads `recvlatency` as
 [engine-config.md](engine-config.md) describes. From later on 2026-09-23 it reads the SRT latency
 off the version's template for a deployment that runs that template as well. On a template that
