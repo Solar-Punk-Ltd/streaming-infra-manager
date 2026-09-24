@@ -411,8 +411,8 @@ function stampStep({
         state: 'err',
         detail:
           stampHealth.state === 'expired'
-            ? 'Expired. Uploads fail until a new stamp is bought and set.'
-            : 'This node no longer holds the batch recorded here. Buy a new one and set it.',
+            ? 'Expired. Uploads fail until a new stamp is bought below, which is set here once it is usable.'
+            : 'This node no longer holds the batch recorded here. Buy a new one below, which is set here once it is usable.',
         action: buy('Buy stamp', true),
       };
     case 'pending':
@@ -491,9 +491,9 @@ function fullStampDetail(health: StampHealth, stamp: BeeStamp | null): string {
   const amount = fullestBucketText(health, stamp);
   const howFull = amount ? `, ${amount}` : '';
   if (health.immutable === null) {
-    return `Full${howFull}, and the node did not say whether it is immutable. An immutable batch this full refuses uploads until a new stamp is bought and set.`;
+    return `Full${howFull}, and the node did not say whether it is immutable. An immutable batch this full refuses uploads until a new stamp is bought below, which is set here once it is usable.`;
   }
-  return `Immutable and full${howFull}. The node refuses uploads until a new stamp is bought and set.`;
+  return `Immutable and full${howFull}. The node refuses uploads until a new stamp is bought below, which is set here once it is usable.`;
 }
 
 /**

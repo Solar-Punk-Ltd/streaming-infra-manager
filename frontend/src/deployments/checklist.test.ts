@@ -315,7 +315,7 @@ describe('the stamp step reads how full the batch is', () => {
     assert.equal(step?.problem, 'Stamp full');
     assert.equal(step?.state, 'err');
     assert.match(step?.detail ?? '', /128 of 128 chunks in its fullest bucket/);
-    assert.match(step?.detail ?? '', /refuses uploads until a new stamp is bought and set/);
+    assert.match(step?.detail ?? '', /refuses uploads until a new stamp is bought below, which is set here once it is usable/);
     assert.equal(step?.action?.kind, 'buy-stamp');
     assert.equal(step?.action?.primary, true);
   });

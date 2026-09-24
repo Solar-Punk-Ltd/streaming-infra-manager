@@ -59,7 +59,7 @@ describe('a row for a batch that fills', () => {
   it('says a full batch makes its node refuse uploads, and offers to buy one', () => {
     const row = attentionText(STAMP_FULL, base, null);
 
-    assert.equal(row.text, 'Its stamp is full, so its node refuses uploads. Buy a new one and set it.');
+    assert.equal(row.text, 'Its stamp is full, so its node refuses uploads. Buy a new one, which is set once it is usable.');
     assert.equal(row.action, 'buy-stamp');
   });
 

@@ -401,9 +401,10 @@ bucket is full it takes the upload and overwrites that bucket's oldest chunks,
 so older recordings paid with it lose data while uploads keep working. It stays
 `active`, and the rung's readiness step says it now overwrites rather than
 refusing, and warns, for the reasons below. A batch whose kind the node did not
-report is treated as immutable, since that is the kind that refuses. `full` is not one of the dead states: a full
-immutable batch can be diluted to buy room. The manager does not offer that yet,
-so today the page's remedy is buying and setting a new batch.
+report is treated as immutable, since that is the kind that refuses. `full` is
+not one of the dead states: a full immutable batch can be diluted to buy room.
+The manager does not offer that yet, so today the page's remedy is buying a new
+batch on the rung's page, which is set on it once usable.
 
 A batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`) that
 still takes uploads stays `active` and warns, "Stamp nearly full", the way

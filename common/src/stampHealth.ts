@@ -308,7 +308,7 @@ export function stampStateReason(state: StampState): string | null {
     case 'pending':
       return 'the postage batch on this rung is not usable yet — bee is still settling it';
     case 'full':
-      return 'the postage batch on this rung is full, so its node refuses uploads. Buy a new one and set it';
+      return 'the postage batch on this rung is full, so its node refuses uploads. Buy a new one on the rung’s page';
     case 'active':
     case 'unknown':
       return null;

@@ -75,7 +75,7 @@ export function attentionText(
         text:
           shapeOf(profile) === 'bee-node'
             ? 'No stamp yet, so its pool cannot publish to this rung.'
-            : 'Running, but it cannot upload until a stamp is bought and set.',
+            : 'Running, but it cannot upload until a stamp is bought.',
         action: 'buy-stamp',
       };
     case STAMP_EXPIRED:
@@ -85,7 +85,7 @@ export function attentionText(
       };
     case STAMP_FULL:
       return {
-        text: 'Its stamp is full, so its node refuses uploads. Buy a new one and set it.',
+        text: 'Its stamp is full, so its node refuses uploads. Buy a new one, which is set once it is usable.',
         action: 'buy-stamp',
       };
     case STAMP_NEARLY_FULL:

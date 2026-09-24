@@ -56,7 +56,7 @@ function PoolMemberChecks({ profile, rungState, asking, refresh }: { profile: Pr
       <Stack spacing={1}>
         {steps.map(step => <Stack key={step.title}>
           <Typography variant="body2" fontWeight={600}>{step.title}: {step.problem && step.state !== 'ok' ? step.problem : step.state === 'ok' ? 'Checked' : 'Not checked'}</Typography>
-          <Typography variant="body2" color="text.secondary">{step.problem === 'Needs a stamp' ? 'A stamp is prepaid Swarm storage. Fund the node, then buy and set its stamp from the node’s deployment page.' : step.detail}</Typography>
+          <Typography variant="body2" color="text.secondary">{step.problem === 'Needs a stamp' ? 'A stamp is prepaid Swarm storage. Fund the node, then buy its stamp from the node’s deployment page, where it is set once usable.' : step.detail}</Typography>
         </Stack>)}
       </Stack>
     </AccordionDetails>
