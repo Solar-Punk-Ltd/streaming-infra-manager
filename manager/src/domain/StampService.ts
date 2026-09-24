@@ -2,6 +2,7 @@
 import {
   classifyPublishUrl,
   type BeeNodeObservation,
+  type BeeStampTransaction,
   getErrorMessage,
   type PublishUrlState,
   sameBatchId,
@@ -25,6 +26,7 @@ import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
   ProfileNotFoundError,
+  StampNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
@@ -193,6 +195,30 @@ export class StampService {
     return result;
   }
 
+  /**
+   * Tops up a batch this deployment's own node holds, `amountPerChunkPlur` for
+   * every chunk of it, paid from that node's wallet. That buys the batch life
+   * and changes nothing else, so it stays set wherever it was set.
+   */
+  async topUpStamp(
+    name: string,
+    batchId: string,
+    amountPerChunkPlur: string,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    await this.heldStamp(profile, batchId);
+    const result = await this.callOn(profile, (client) =>
+      client.topUpStamp(batchIdOf(batchId), amountPerChunkPlur),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: topped up stamp ${batchIdOf(batchId)} (amount=${amountPerChunkPlur}), transaction ${result.txHash}`,
+    );
+    return result;
+  }
+
   async setStamp(name: string, stampId: string): Promise<ProfileWithContainers> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
@@ -353,6 +379,30 @@ export class StampService {
   /** One batch on one profile, however the caller spelled the id. */
   private stampKey(name: string, stampId: string): string {
     return nodeReadKey(name, `stamp/${batchIdOf(stampId)}`);
+  }
+
+  /**
+   * A batch as this deployment's own node reports it now, asked fresh because
+   * the caller is about to pay on it, and refused where the node does not hold
+   * it.
+   *
+   * Read off the node's own list because bee does not refuse a change to a
+   * batch it does not hold in words: its batch store holds every batch on the
+   * chain, a top-up of any of them can be paid for, and one it knows nothing
+   * about is a bare 500, "cannot topup batch" (bee v2.7.0, pkg/api/postage.go).
+   */
+  private async heldStamp(profile: Profile, batchId: string): Promise<BeeStamp> {
+    const client = this.clientFactory(beeApiUrlFor(profile));
+    try {
+      return await this.reads.readFresh(this.stampKey(profile.name, batchId), () =>
+        client.getStamp(batchIdOf(batchId)),
+      );
+    } catch (err) {
+      if (err instanceof BeeHttpError && err.status === 404) {
+        throw new StampNotFoundError(profile.name, batchIdOf(batchId));
+      }
+      throw beeCallFailed(profile.name, err);
+    }
   }
 
   private shared<T>(

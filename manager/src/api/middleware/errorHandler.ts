@@ -56,6 +56,7 @@ import {
   StackVersionChangedError,
   StackVersionInUseError,
   StackVersionNotFoundError,
+  StampNotFoundError,
   StampNotUsableError,
   StampRequiredError,
   UnknownServiceError,
@@ -264,6 +265,14 @@ export function errorHandler(
   if (err instanceof StampNotUsableError) {
     res.status(409).json({
       error: 'stamp_not_usable',
+      name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
+  if (err instanceof StampNotFoundError) {
+    res.status(404).json({
+      error: 'stamp_not_found',
       name: err.profileName,
       message: err.message,
     });
