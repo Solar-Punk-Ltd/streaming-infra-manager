@@ -31,6 +31,18 @@ export interface BeeStampTransaction {
   txHash: string;
 }
 
+/** What the page sends the manager to top up a batch: PLUR per chunk, as a whole number. */
+export interface TopUpStampRequest {
+  batch_id: string;
+  amount: string;
+}
+
+/** What the page sends the manager to dilute a batch: the depth to raise it to. */
+export interface DiluteStampRequest {
+  batch_id: string;
+  depth: number;
+}
+
 /** A batch as its node reports it, the fields a change is worked out from. */
 export interface StampReading extends StampFill {
   /** Seconds left. `0` is spent, and a negative value means bee could not work it out. */

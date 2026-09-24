@@ -1,5 +1,10 @@
-import { MAX_STAMP_DEPTH, MIN_STAMP_DEPTH } from '@streaming-infra-manager/common';
-import { boolean, number, object, string, InferType } from 'yup';
+import {
+  type DiluteStampRequest,
+  MAX_STAMP_DEPTH,
+  MIN_STAMP_DEPTH,
+  type TopUpStampRequest,
+} from '@streaming-infra-manager/common';
+import { boolean, number, object, string, InferType, type ObjectSchema } from 'yup';
 
 const STAMP_ID_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 const POSITIVE_INTEGER_RE = /^[1-9][0-9]*$/;
@@ -35,12 +40,13 @@ export const setStampSchema = object({
   stamp_id: batchIdField('stamp_id'),
 }).noUnknown(true);
 
-export const topUpStampSchema = object({
+/** Typed by the body the page sends, so the two cannot drift apart unnoticed. */
+export const topUpStampSchema: ObjectSchema<TopUpStampRequest> = object({
   batch_id: batchIdField('batch_id'),
   amount: amountField(),
 }).noUnknown(true);
 
-export const diluteStampSchema = object({
+export const diluteStampSchema: ObjectSchema<DiluteStampRequest> = object({
   batch_id: batchIdField('batch_id'),
   depth: depthField(),
 }).noUnknown(true);

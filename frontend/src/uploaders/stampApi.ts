@@ -1,4 +1,9 @@
-import type { BeeNodeObservation } from '@streaming-infra-manager/common';
+import type {
+  BeeNodeObservation,
+  BeeStampTransaction,
+  DiluteStampRequest,
+  TopUpStampRequest,
+} from '@streaming-infra-manager/common';
 import type { Profile } from '../types';
 import { getJson, sendJson } from '../http';
 
@@ -77,6 +82,30 @@ export function buyStamp(
     'POST',
     `/profiles/${encodeURIComponent(name)}/stamp/buy`,
     input,
+  );
+}
+
+/** Tops up a batch the deployment's own node holds, paid from that node's wallet. */
+export function topUpStamp(
+  name: string,
+  request: TopUpStampRequest,
+): Promise<BeeStampTransaction> {
+  return sendJson<BeeStampTransaction>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/stamp/topup`,
+    request,
+  );
+}
+
+/** Dilutes a batch the deployment's own node holds to a deeper depth. */
+export function diluteStamp(
+  name: string,
+  request: DiluteStampRequest,
+): Promise<BeeStampTransaction> {
+  return sendJson<BeeStampTransaction>(
+    'POST',
+    `/profiles/${encodeURIComponent(name)}/stamp/dilute`,
+    request,
   );
 }
 
