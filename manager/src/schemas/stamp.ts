@@ -35,5 +35,17 @@ export const setStampSchema = object({
   stamp_id: batchIdField('stamp_id'),
 }).noUnknown(true);
 
+export const topUpStampSchema = object({
+  batch_id: batchIdField('batch_id'),
+  amount: amountField(),
+}).noUnknown(true);
+
+export const diluteStampSchema = object({
+  batch_id: batchIdField('batch_id'),
+  depth: depthField(),
+}).noUnknown(true);
+
 export type BuyStampBody = InferType<typeof buyStampSchema>;
 export type SetStampBody = InferType<typeof setStampSchema>;
+export type TopUpStampBody = InferType<typeof topUpStampSchema>;
+export type DiluteStampBody = InferType<typeof diluteStampSchema>;
