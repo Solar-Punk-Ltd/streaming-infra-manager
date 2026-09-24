@@ -356,7 +356,7 @@ function softReasons(rung: LadderRungState): string[] {
 
   if (isStampNearlyFull(rung.stampFillRatio, rung.stampImmutable)) {
     reasons.push(
-      `this rung’s batch is ${formatFillPercent(rung.stampFillRatio!)} full. Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads. Buy the next one before it does`,
+      `this rung’s batch is ${formatFillPercent(rung.stampFillRatio!)} full. Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads. Dilute it or buy the next one before it does`,
     );
   }
 

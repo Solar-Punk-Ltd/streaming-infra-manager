@@ -313,6 +313,7 @@ describe('stampStateReason', () => {
 
     assert.match(reason, /full/);
     assert.match(reason, /refuses uploads/);
+    assert.match(reason, /Dilute it or buy a new one/, 'diluting is the remedy that keeps the batch');
     assert.doesNotMatch(reason, /[—;]/);
   });
 });
