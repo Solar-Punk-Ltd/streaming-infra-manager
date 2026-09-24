@@ -34,9 +34,16 @@ Until that last command has been run once, every route but `/health` and
 
 ## Authentication
 
-Every route needs a session except two: `GET /health`, which Docker's
-healthcheck reads, and `POST /auth/login`. That includes both Server-Sent
-Events streams, `/config`, `/metrics` and `/profiles`.
+Every route needs a session except two: `GET /health`, which answers
+`{"status":"ok"}` and nothing more, and `POST /auth/login`. That includes both
+Server-Sent Events streams, `/config`, `/metrics` and `/profiles`.
+
+No Docker healthcheck reads `/health`, as of 2026-09-23 at `87673c99`: the
+`api` service in `docker-compose.yml` has none and neither Dockerfile declares
+one. Its readers are `manager:upgrade`, which `deploy/deploy.sh` runs and which
+waits for the new api to answer it, the integration suite, whose preflight asks
+it and whose CI job in `.github/workflows/docker-checks.yml` waits for it
+first, and the curl in the quick start above.
 
 ### The first user
 
@@ -103,12 +110,18 @@ cross-origin page to add.
 | ------ | ---- | ---- | ------ |
 | POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 when no user exists |
 | POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
-| GET | `/auth/session` | | `{ username, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
+| GET | `/auth/session` | | `{ id, username, isAdmin, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
 | POST | `/auth/password` | `{ current, next }` | 204, every other session of yours revoked |
-| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
-| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
-| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
-| POST | `/auth/users/:id/revoke-sessions` | | 204 |
+| GET | `/auth/users` | | `[{ id, username, isAdmin, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password, admin? }` | 201 and the new user's row, 403 `admin_required` unless you are an admin, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 403 `admin_required` unless you are an admin, 404 no such user, 409 for yourself, the last user or the last admin |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 for your own id, and for anyone's if you are an admin, otherwise 403 `admin_required`. 404 no such user |
+
+Adding a user, removing one and signing someone else out need an admin, and
+nothing else does. Who is an admin and how a user becomes one is the paragraph
+"Who can manage users" under
+[Endpoints](../docs/features/auth-and-public-access.md#endpoints) on the auth
+page. Checked against the code at `87673c99` on 2026-09-23.
 
 ## API
 
@@ -373,7 +386,7 @@ below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
-stack, `v3.1` as of 2026-09-19, publishes SRS's HTTP API port per
+stack, `main` at `8c5c583a` as of 2026-09-23, publishes SRS's HTTP API port per
 deployment as `SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
 `main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
 API needs a `<Managers>` block the template does not carry on either.
@@ -394,8 +407,8 @@ setting the drawer marks as not read (`notInConfig`).
 
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
-`deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-the bundled `v3.1`. A
+`deploy/docker-compose.srs-conf.yml` or the OME counterpart. The bundled
+stack, `main` at `8c5c583a`, ships both. A
 version without the hook, such as the stack's `main-v2`, renders its template
 and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
@@ -456,12 +469,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on the bundled `v3.1`, 999 on the older `main-v2`, and the
+(99 on the bundled `main` at `8c5c583a`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
-`v3.1`, are generated the first
+`main` at `8c5c583a`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.

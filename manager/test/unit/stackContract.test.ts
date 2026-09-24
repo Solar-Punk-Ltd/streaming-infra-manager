@@ -6,10 +6,13 @@
  * The fixtures under test/fixtures/stack are cut from the two real branches, so
  * these assertions are the two contracts the manager actually has to tell
  * apart: nine ports and slots to 999 and no secrets on the pinned `main-v2`,
- * sixteen ports across two bands and slots to 99 and two secrets and a
+ * sixteen ports across two bands and slots to 99 and three secrets and a
  * chequebook floor on `main-v3`. Every number here was read off the branch on
- * 2026-09-05, and a fixture that stops matching upstream is the point: the
- * contract changed and the reader has to be looked at again.
+ * 2026-09-05 except the third secret, `OME_ADMISSION_SECRET`, which the reader
+ * has asked for since db9660b3 on 2026-09-16, out of the OME sample the v3
+ * fixture took from `main-v3` at be440d6. A fixture that stops matching
+ * upstream is the point: the contract changed and the reader has to be looked
+ * at again.
  */
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
