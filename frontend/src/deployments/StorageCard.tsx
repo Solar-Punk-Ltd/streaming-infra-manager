@@ -146,10 +146,9 @@ export function StorageCard({
         )}
         {nearlyFullAt && (
           <Alert severity="warning">
-            This batch is <strong>{nearlyFullAt} full</strong>.
-            Once it fills this Bee node refuses uploads, and an uploader restarted
-            on it refuses to start. Buy the next one below and set it with{' '}
-            <strong>Use</strong> before it does.
+            This batch is <strong>{nearlyFullAt} full</strong>. Past 90% an
+            uploader restarted on it refuses to start, and once it fills this Bee
+            node refuses uploads. Buy the next one below before it does.
           </Alert>
         )}
         {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (

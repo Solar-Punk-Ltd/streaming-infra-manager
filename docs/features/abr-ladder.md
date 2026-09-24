@@ -406,8 +406,8 @@ so today the page's remedy is buying and setting a new batch.
 An immutable batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`)
 but not yet full stays `active` and warns, the way `isStampExpiringSoon` warns
 about time. That number is the uploader's own default start ceiling,
-`STAMP_MAX_UTILIZATION`: an uploader restarted on such a batch refuses to boot,
-so the warning arrives while a restart still works.
+`STAMP_MAX_UTILIZATION`: an uploader restarted on such a batch already refuses
+to boot, which is why the warning starts there, while uploads still work.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm

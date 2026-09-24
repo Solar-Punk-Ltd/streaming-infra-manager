@@ -473,7 +473,7 @@ export const STAMP_FULL = 'Stamp full';
 export const STAMP_NEARLY_FULL = 'Stamp nearly full';
 
 const NEARLY_FULL_CONSEQUENCE =
-  'Once it fills its node refuses uploads, and an uploader restarted on it refuses to start.';
+  'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.';
 
 /**
  * How full the fullest bucket is, in chunks where the page holds the batch
