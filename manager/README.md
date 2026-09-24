@@ -151,9 +151,10 @@ carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
 and its rules are the ones the route enforces.
 
 `GET /profiles/:name/uploader-health` is read by the deployment page every ten
-seconds and, since 2026-09-25, by the overview every thirty seconds for each
-running deployment with an uploader container, so its "Needs attention" list and
-its Streams table say what an uploader reports about itself. Until then a list
+seconds and, since 2026-09-25, by the overview and the Deployments page every
+thirty seconds for each running deployment with an uploader container, so their
+"Needs attention" lists, the overview's Streams table and the Deployments rows
+say what an uploader reports about itself. Until then a list
 never asked, and on 2026-09-24 the overview read "everything is running and
 ready" while the tester's ABR uploader reported `postage_refused`. Decision
 D16 of 2026-09-17 lets an uploader start on a Bee node that is not answering, so

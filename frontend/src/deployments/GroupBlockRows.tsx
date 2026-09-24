@@ -26,6 +26,7 @@ import type { DeploymentGroup, Profile } from '../types';
 import type { StampHealths } from '../uploaders/useStampHealths';
 import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
 import { DeploymentRow } from './DeploymentRow';
+import type { UploaderHealths } from './useUploaderHealths';
 import { isRunning, isTransitional } from './shape';
 
 function groupSubLabel(
@@ -46,6 +47,7 @@ export function GroupBlockRows({
   poolResult,
   chequebooks,
   stampHealths,
+  uploaderHealths,
   memberNoun,
 }: {
   group: DeploymentGroup;
@@ -61,6 +63,8 @@ export function GroupBlockRows({
    * where there is one, else its own poll of the node.
    */
   stampHealths: StampHealths;
+  /** What each member's uploader said about itself, where the page asked. */
+  uploaderHealths: UploaderHealths;
   memberNoun: string;
 }) {
   const actions = useActions();
@@ -141,6 +145,7 @@ export function GroupBlockRows({
             rung={rungFromMemberName(group.name, profile.name)}
             chequebook={chequebooks.get(profile.name) ?? null}
             stampHealth={stampHealths.get(profile.name)}
+            uploaderHealth={uploaderHealths.get(profile.name)}
             indented
           />
         ))}

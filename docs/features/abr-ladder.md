@@ -205,8 +205,9 @@ waited for, how many attempts it has made and since when, and clears when the
 node answers. A startup gate that warned instead of refusing shows there too,
 named in plain words: "the chequebook gate warned on the 360p rung".
 
-**Since 2026-09-25 the overview reads it too**, every thirty seconds for each
-running uploader, and lists an uploader under "Needs attention" when it reports
+**Since 2026-09-25 the overview and the Deployments page read it too**, every
+thirty seconds for each running uploader, and both list an uploader under "Needs
+attention" when it reports
 a problem, waits for its node, or does not answer its health route, in the words
 the step uses. The step warns on the wait and on the silence, where it used to
 show them as in progress and as fine. `postage_refused` is spelled out: a rung's
