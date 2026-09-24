@@ -471,10 +471,21 @@ function stampStep({
         problem: nearlyFull ? STAMP_NEARLY_FULL : 'Stamp ends soon',
         state: nearlyFull || endsSoon ? 'warn' : 'ok',
         detail: nearlyFull ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable)}` : detail,
-        action: nearlyFull ? dilute() : endsSoon ? topUp : undefined,
+        action: activeStampAction(nearlyFull, endsSoon, dilute(), topUp),
       };
     }
   }
+}
+
+/** What a working batch's step offers: room first, since a batch that fills refuses sooner. */
+function activeStampAction(
+  nearlyFull: boolean,
+  endsSoon: boolean,
+  dilute: StepAction,
+  topUp: StepAction,
+): StepAction | undefined {
+  if (nearlyFull) return dilute;
+  return endsSoon ? topUp : undefined;
 }
 
 /** The step's problem for an immutable batch whose fullest bucket is full. */

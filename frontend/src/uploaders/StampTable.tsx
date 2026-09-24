@@ -101,6 +101,15 @@ export function StampTable({
 }
 
 /** One batch: its readings, and under them what can be done with it. */
+/** The Usable column's chip: spent, paying, or bought and not yet confirmed. */
+function usabilityChip(
+  stamp: BeeStamp,
+  expired: boolean,
+): { color: 'error' | 'success' | 'warning'; label: string } {
+  if (expired) return { color: 'error', label: 'expired' };
+  return stamp.usable ? { color: 'success', label: 'usable' } : { color: 'warning', label: 'pending' };
+}
+
 function BatchRows({
   stamp,
   isCurrent,
@@ -114,6 +123,7 @@ function BatchRows({
   busy: boolean;
 } & BatchHandlers) {
   const expired = isStampExpired(stamp);
+  const usability = usabilityChip(stamp, expired);
   const fill = bucketFill(stamp);
   const actions = stampRowActions(stamp, busy);
 
@@ -134,8 +144,8 @@ function BatchRows({
           <Chip
             size="small"
             variant="outlined"
-            color={expired ? 'error' : stamp.usable ? 'success' : 'warning'}
-            label={expired ? 'expired' : stamp.usable ? 'usable' : 'pending'}
+            color={usability.color}
+            label={usability.label}
           />
         </TableCell>
         <TableCell>
