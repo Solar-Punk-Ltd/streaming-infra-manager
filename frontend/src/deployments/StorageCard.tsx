@@ -29,9 +29,23 @@ import {
 } from '../uploaders/MoveBzzDialog';
 import { NodeFunding } from '../uploaders/NodeFunding';
 import { StampTable } from '../uploaders/StampTable';
-import { buyStamp, setStamp, type BuyStampInput } from '../uploaders/stampApi';
+import {
+  type BeeStamp,
+  buyStamp,
+  setStamp,
+  topUpStamp,
+  type BuyStampInput,
+} from '../uploaders/stampApi';
+import { TopUpStampDialog } from '../uploaders/TopUpStampDialog';
+import { topUpSentNotice } from '../uploaders/topUpView';
 import type { BeeUtils } from '../uploaders/useBeeUtils';
 import { newBatchReach } from './newBatchReach';
+
+/** A change to a batch the node holds, while its dialog is open. */
+interface StampChange {
+  kind: 'top-up';
+  stamp: BeeStamp;
+}
 
 /**
  * The deployment's own Bee node: what it holds, what it can still pay peers
@@ -64,6 +78,9 @@ export function StorageCard({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [moving, setMoving] = useState<MoveDirection | null>(null);
+  const [change, setChange] = useState<StampChange | null>(null);
+  /** What bee answered the last change with, until the operator closes it. */
+  const [sentNotice, setSentNotice] = useState<string | null>(null);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -88,6 +105,19 @@ export function StorageCard({
     run(async () => {
       await setStamp(profile.name, batchID);
       onChanged();
+    });
+
+  const openChange = (kind: StampChange['kind'], stamp: BeeStamp) => {
+    setActionError(null);
+    setChange({ kind, stamp });
+  };
+
+  const handleTopUp = (stamp: BeeStamp, amount: string) =>
+    run(async () => {
+      const sent = await topUpStamp(profile.name, { batch_id: stamp.batchID, amount });
+      setChange(null);
+      setSentNotice(topUpSentNotice(stamp, sent));
+      await bee.reload();
     });
 
   const reach = newBatchReach(profile, rung);
@@ -125,6 +155,11 @@ export function StorageCard({
         {actionError && (
           <Alert severity="error" onClose={() => setActionError(null)}>
             {actionError}
+          </Alert>
+        )}
+        {sentNotice && (
+          <Alert severity="info" onClose={() => setSentNotice(null)}>
+            {sentNotice}
           </Alert>
         )}
         {stampHealth.dead && (
@@ -188,6 +223,7 @@ export function StorageCard({
           currentStampId={profile.stamp_id}
           busy={busy}
           onUse={handleUse}
+          onTopUp={(stamp) => openChange('top-up', stamp)}
         />
 
         <Divider />
@@ -210,6 +246,19 @@ export function StorageCard({
         profileInstanceId={profile.instance_id}
         onClose={() => setMoving(null)}
       />
+
+      {change?.kind === 'top-up' && (
+        <TopUpStampDialog
+          key={change.stamp.batchID}
+          stamp={change.stamp}
+          currentPrice={bee.chainState?.currentPrice ?? null}
+          walletBzz={bee.wallet?.bzzBalance ?? null}
+          busy={busy}
+          error={actionError}
+          onConfirm={(amount) => void handleTopUp(change.stamp, amount)}
+          onClose={() => setChange(null)}
+        />
+      )}
     </SectionCard>
   );
 }

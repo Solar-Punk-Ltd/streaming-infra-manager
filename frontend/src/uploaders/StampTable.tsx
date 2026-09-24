@@ -33,6 +33,7 @@ export function StampTable({
   currentStampId,
   busy,
   onUse,
+  onTopUp,
 }: {
   /** The node's batches, or null for "not asked yet / no answer". */
   stamps: BeeStamp[] | null;
@@ -40,6 +41,7 @@ export function StampTable({
   currentStampId: string | null | undefined;
   busy: boolean;
   onUse: (batchID: string) => void;
+  onTopUp: (stamp: BeeStamp) => void;
 }) {
   return (
     <Box>
@@ -138,28 +140,42 @@ export function StampTable({
                     </TableCell>
                     <TableCell>{formatTtl(s.batchTTL)}</TableCell>
                     <TableCell align="right">
-                      {isCurrent ? (
-                        <Chip
-                          size="small"
-                          label={expired ? 'in use, expired' : 'in use'}
-                          color={expired ? 'error' : 'default'}
-                        />
-                      ) : (
-                        <Stack alignItems="flex-end">
-                          <Button
+                      <Stack
+                        direction="row"
+                        spacing={0.5}
+                        justifyContent="flex-end"
+                        alignItems="flex-start"
+                      >
+                        {isCurrent ? (
+                          <Chip
                             size="small"
-                            disabled={!actions.use.enabled}
-                            onClick={() => onUse(s.batchID)}
-                          >
-                            Use
-                          </Button>
-                          {actions.use.note && (
-                            <Typography variant="caption" color="error.main">
-                              {actions.use.note}
-                            </Typography>
-                          )}
-                        </Stack>
-                      )}
+                            label={expired ? 'in use, expired' : 'in use'}
+                            color={expired ? 'error' : 'default'}
+                          />
+                        ) : (
+                          <Stack alignItems="flex-end">
+                            <Button
+                              size="small"
+                              disabled={!actions.use.enabled}
+                              onClick={() => onUse(s.batchID)}
+                            >
+                              Use
+                            </Button>
+                            {actions.use.note && (
+                              <Typography variant="caption" color="error.main">
+                                {actions.use.note}
+                              </Typography>
+                            )}
+                          </Stack>
+                        )}
+                        <Button
+                          size="small"
+                          disabled={!actions.topUp.enabled}
+                          onClick={() => onTopUp(s)}
+                        >
+                          Top up
+                        </Button>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 );

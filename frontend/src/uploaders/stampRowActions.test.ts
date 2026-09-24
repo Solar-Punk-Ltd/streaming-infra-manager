@@ -63,3 +63,16 @@ describe('Use on a stamps table row', () => {
     assert.doesNotMatch(stampRowActions(fullBatch, false).use.note ?? '', /[—;]/);
   });
 });
+
+describe('Top up on a stamps table row', () => {
+  it('is offered on a live batch, a full one included, since time is what it buys', () => {
+    assert.deepEqual(stampRowActions(roomyBatch, false).topUp, { enabled: true, note: null });
+    assert.deepEqual(stampRowActions(fullBatch, false).topUp, { enabled: true, note: null });
+  });
+
+  it('stays off for an expired batch, one not usable yet, and while another change is in flight', () => {
+    assert.equal(stampRowActions({ ...roomyBatch, batchTTL: 0 }, false).topUp.enabled, false);
+    assert.equal(stampRowActions({ ...roomyBatch, usable: false }, false).topUp.enabled, false);
+    assert.equal(stampRowActions(roomyBatch, true).topUp.enabled, false);
+  });
+});

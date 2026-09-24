@@ -13,6 +13,8 @@ export interface RowAction {
 export interface StampRowActions {
   /** Set this batch on the deployment. */
   use: RowAction;
+  /** Buy this batch more life. */
+  topUp: RowAction;
 }
 
 /**
@@ -34,5 +36,6 @@ export function stampRowActions(stamp: BeeStamp, busy: boolean): StampRowActions
       enabled: !busy && live && !full,
       note: full ? FULL_BATCH_NOTE : null,
     },
+    topUp: { enabled: !busy && live, note: null },
   };
 }
