@@ -1,6 +1,9 @@
 export const BLOCK_TIME_SECONDS = 5n;
 
-/** The deepest batch this manager buys or dilutes to, the ceiling its buy form has always had. */
+/**
+ * The deepest batch this manager buys or dilutes to, the ceiling its buy form
+ * has always had. The floor is `MIN_STAMP_DEPTH`, in abrLadder.ts.
+ */
 export const MAX_STAMP_DEPTH = 40;
 
 const MAX_SAFE_INTEGER_BIG = BigInt(Number.MAX_SAFE_INTEGER);
