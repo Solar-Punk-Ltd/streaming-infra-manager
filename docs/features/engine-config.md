@@ -54,8 +54,8 @@ saying why, and changing the override does not change it. SRS ignores
 `latency` for ingest without `recvlatency`, measured on 2026-09-23 as
 [engine-control.md](engine-control.md) records. A file that still carries
 only the `latency` placeholder, as one copied from the `v3.1` template does,
-therefore reads as 120. One started from the bundled template at `8c5c583a`,
-pinned since 2026-09-24, carries both placeholders and reads as the setting,
+therefore reads as 120. One started from the bundled template since the pin
+moved on 2026-09-24 carries both placeholders and reads as the setting,
 while a file stored before then keeps the lines it was copied with. The
 entrypoint fills only the first placeholder on each line, so since `d6951fa` a
 file with a line that carries the SRT latency placeholder twice, such as
