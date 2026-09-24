@@ -25,15 +25,16 @@ window, so SRS dropped them and each drop became a hole in a frame. The drawer o
 latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
 defaults to 2000.
 
-That default is the manager's own and not the stack's. The pinned `v3.1` falls back to 200, as does
-every version cut before the decision that reads the key at all (`main-v2` does not), so the
-manager writes `SRT_LATENCY=2000` into
-`.env.<profile>` for every SRS deployment that stores no value, and the drawer and the card call it
-**Manager default**. It is the only setting written while unset. A value set in the host's base
-`.env` still wins, as it does for every other setting, and the drawer then says it was set on this
-host. A deployment that stores no value gets `SRT_LATENCY=2000` the next time its env file is
-written, on its next deploy or engine settings save. Whether SRS then waits that long on ingest
-depends on the version's template, which the next paragraph explains.
+That default is the manager's own and not the stack's. `v3.1`, which the manager pinned on
+2026-09-23, falls back to 200, as does every version cut before the decision that reads the key at
+all (`main-v2` does not). The stack's `main` has fallen back to 2000 itself since its PR #244, and
+the manager has pinned it at `8c5c583a` since 2026-09-24. On every version the manager writes
+`SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value, and the
+drawer and the card call it **Manager default**. It is the only setting written while unset. A
+value set in the host's base `.env` still wins, as it does for every other setting, and the drawer
+then says it was set on this host. A deployment that stores no value gets `SRT_LATENCY=2000` the
+next time its env file is written, on its next deploy or engine settings save. Whether SRS then
+waits that long on ingest depends on the version's template, which the next paragraph explains.
 
 Measured 2026-09-23 on the stack's `fix/srt-ingest-latency` branch, head `a1b43f0a`. SRS 6 applies
 `latency` to both directions and `recvlatency` after it, and falls back to 120 for `recvlatency`
@@ -45,24 +46,31 @@ unset negotiated 120 ms, `latency 2000` with `recvlatency 2000` gave 2000, and a
 The recording of 2026-09-22 was therefore made through SRS's own 120 ms, not the 200 the stack
 asked for, as the stack's notes at `a1b43f0a` now say.
 
-The stack this manager pins, `v3.1` at `2c4867a`, still fills `latency` alone, so a deployment on
-the bundled version waits 120 ms on ingest whatever `SRT_LATENCY` says, until the pin moves to a
-stack commit that carries `36b6749f`. For a deployment with a config file of its own the manager says
-so, reading `recvlatency` as [engine-config.md](engine-config.md) describes. From later on
-2026-09-23 it says so for a deployment that runs its version's template as well, by reading the SRT
-latency off that template. On a template that fills only `latency`, as `v3.1`'s does, the card and
-the drawer show SRS's own 120 as **Engine default**, with the sentence that SRS ignores `latency` for
-ingest without `recvlatency`, and the drawer says that changing the setting will not change the
-wait on ingest on this stack version. On a template that fills `recvlatency` they show the stored
-or default value. A template that never takes the setting is read at its own `srt_server` block,
-since `435ee1d`. The stack's `v1` and `v2` (`12632b50`) are such versions: their templates write
-`latency 200` themselves and no `recvlatency`, and their entrypoints never read `SRT_LATENCY`. On
-them the card and the drawer show SRS's own 120 as **Engine default**, with the sentence that this
-stack version does not read the setting and that its template decides the wait on ingest, and a
-`recvlatency` such a template wrote would be shown as the wait instead. The manager still writes
-`SRT_LATENCY=2000` into `.env.<profile>` there, where nothing reads it. Every other setting of such
-a deployment is still read as the environment, because the template fills each from it. The offline
-mock reads its own template, a copy of `v3.1`'s, the same way.
+On 2026-09-23 the manager pinned `v3.1` at `2c4867a`, which fills `latency` alone, so a deployment
+on the bundled version then waited 120 ms on ingest whatever `SRT_LATENCY` said. Since 2026-09-24 it
+pins the stack's `main` at `8c5c583a`, which carries `36b6749f`, so the bundled version waits the
+setting on ingest. A deployment runs from a copy of the build it was last deployed from, so one on
+the bundled version moves onto that template on its next deploy or engine settings save. The drawer
+reads the template of the version's current build rather than that copy, so it shows the setting
+from the moment the host has built `8c5c583a`. `v3.1` and the stack's tags before it keep waiting
+SRS's own 120. For a deployment with a config file of its own the manager reads `recvlatency` as
+[engine-config.md](engine-config.md) describes. From later on 2026-09-23 it reads the SRT latency
+off the version's template for a deployment that runs that template as well. On a template that
+fills `recvlatency`, as the bundled one does, the card and the drawer show the stored value, or the
+default with its source, which is **Manager default** unless the host sets one. On a template that
+fills only `latency`, as `v3`'s and `v3.1`'s do, they show SRS's own 120 as **Engine default**, with
+the sentence that SRS ignores `latency` for ingest without `recvlatency`, and the drawer says that
+changing the setting will not change the wait on ingest on this stack version. A template that
+never takes the setting is read at its own `srt_server` block, since `435ee1d`. The stack's `v1`
+and `v2` (`12632b50`) are such versions: their templates write `latency 200` themselves and no
+`recvlatency`, and their entrypoints never read `SRT_LATENCY`. On them the card and the drawer show
+SRS's own 120 as **Engine default**, with the sentence that this stack version does not read the
+setting and that its template decides the wait on ingest, and a `recvlatency` such a template wrote
+would be shown as the wait instead. The manager still writes `SRT_LATENCY=2000` into
+`.env.<profile>` there, where nothing reads it. Every other setting of such a deployment is still
+read as the environment, because the template fills each from it. The offline mock reads its own
+template, a copy of `v3.1`'s, the same way, so it shows `v3.1`'s 120 rather than the bundled
+stack's wait.
 
 ## What the engines are and how they are configured today
 
