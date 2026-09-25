@@ -16,7 +16,7 @@ postage contract do is read from their source, bee at `v2.7.0` (checkout of
 2026-01-29) and storage-incentives' `PostageStamp.sol` (checkout of
 2026-01-15), and each such statement below says so. The page was re-read at
 the merge of `fix/full-stamps-and-sick-uploaders`, which made a mutable batch
-past 90% warn too. The nodes the bundled stack v3.3 deploys run
+past 90% warn too. The nodes the bundled stack v3.4 deploys run
 `ethersphere/bee:2.8.2`, which was not re-read.
 
 ## What a batch is
@@ -62,7 +62,8 @@ uploader restarted on such a batch refuses to start while uploads still work.
 An immutable batch warns until it is full, when it fails as `full` instead. A
 mutable batch warns full or not, in its own words: once full its node
 overwrites its oldest chunks, and the uploader of stack v3.3 and earlier
-refuses to restart on it past 90% as well (`isStampNearlyFull`,
+refuses to restart on it past 90% as well, where the bundled v3.4 holds only an
+immutable batch to that ceiling (`isStampNearlyFull`,
 `nearlyFullConsequence`).
 
 ## Life and price
@@ -199,7 +200,7 @@ batch keeps its id. A diluted batch takes uploads again once its node has the
 new depth. An uploader that has already reported `postage_refused` goes on
 reporting it until it is deployed again, because the stack's uploader keeps
 that reason for the life of its process (the stack's
-`packages/stream-uploader/README.md` at `v3.3`), and a ladder takes a rung that
+`packages/stream-uploader/README.md` at `v3.4`), and a ladder takes a rung that
 fell behind back into its master playlist once eight segments in a row land.
 
 ## What the manager refuses before Bee is asked

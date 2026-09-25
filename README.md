@@ -26,8 +26,8 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 - `manager/swarm-hls-stream/`: a git submodule pointing at
   [Solar-Punk-Ltd/swarm-hls-stream](https://github.com/Solar-Punk-Ltd/swarm-hls-stream),
-  pinned to the stack's release `v3.3`, commit
-  `87675c8647db0daa2902a4a2378c119961265bf9`, as of 2026-09-24, with `main` as
+  pinned to the stack's release `v3.4`, commit
+  `dc0c55e10651367d939b2b0c2c4ff6302fc65899`, as of 2026-09-25, with `main` as
   its tracked branch. This is the upstream application source, with the
   packages under `packages/` and the engine trees under `engines/`. The commit
   it records is the **bundled** stack version, and that version is the default
@@ -152,8 +152,8 @@ fetched. Go back to Option A or B.
 
 ## Updating the upstream submodule
 
-The bundled stack is pinned to the stack's release `v3.3`, commit `87675c86`,
-as of 2026-09-24. It builds on `v3.1`, pinned from 2026-09-19, which
+The bundled stack is pinned to the stack's release `v3.4`, commit `dc0c55e1`,
+as of 2026-09-25. It builds on `v3.1`, pinned from 2026-09-19, which
 brought PR #241 and the manager integration work previously carried by
 `feat/manager-line`. Over `v3.1` it makes SRT ingest wait 2000 ms for a lost
 packet by default, where `v3.1` asked for 200 ms and SRS waited its own
@@ -166,11 +166,21 @@ batch filled, is listed as a recording of the rungs that did finish, instead of
 staying live for good and hiding every broadcast after it. A rung whose uploads
 are refused stays out of the master playlist until it uploads cleanly again.
 And the viewer's stream cards show their picture behind its `/bee` proxy.
+`v3.4` adds the fixes from that tester's stage and from a live test of it on
+2026-09-24 and 2026-09-25. The uploader starts on a full mutable postage
+batch, whose node overwrites its oldest chunks rather than refusing an upload,
+and holds only an immutable batch to its start ceiling. A long recording's card
+shows its picture. The viewer's page tells browsers to check for a new copy on
+every load, so a redeploy reaches every browser. A viewer who saw a broadcast end follows it when it comes back,
+and a watch page opened before a scheduled stream starts picks it up when it
+does. An ordinary end of a broadcast no longer logs that the engine may have
+died. And the ingest refuses a publish nobody authenticated unless the stack's
+own transcoder sent it from the same host.
 The upstream default branch is `main`.
 
 Pin an explicit release or commit when upgrading the bundled stack, a release
 when one carries the change you need and a commit when none does yet. `<ref>`
-below is either one, a tag such as `v3.3` or a full commit id such as
+below is either one, a tag such as `v3.4` or a full commit id such as
 `8c5c583a9fdd4604a602433112410f5a996952ee`:
 
 ```sh
