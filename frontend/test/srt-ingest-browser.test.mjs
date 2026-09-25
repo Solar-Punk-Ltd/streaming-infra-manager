@@ -62,14 +62,17 @@ const RECOVERED = measuredSrtIngest({
 });
 const NO_REPORTS = { state: 'no_reports', windowSeconds: 60 };
 
-/** The field the settings branch of 2026-09-23 adds, as the card finds it among the engine's fields. */
-const SRT_LATENCY_FIELD = {
-  key: 'SRT_LATENCY', label: 'SRT latency', unit: 'ms', kind: 'integer', defaultValue: '2000',
-  min: 20, max: 60_000, help: 'How long SRS waits for a packet SRT is asking for again.', abrOnly: false,
-};
+/** The engine setting the card's latency step opens the drawer at. */
+const SRT_LATENCY_KEY = 'SRT_LATENCY';
 
+/**
+ * SRS's engine overview as the manager answers it. Every SRS deployment has
+ * offered `SRT_LATENCY` since PR 44, so `offersLatency` false takes it out,
+ * which is how the card still meets a manager that does not offer it.
+ */
 function overviewOf(profile, offersLatency) {
-  const fields = [...engineSettingsFieldsFor('srs', { abr: false }), ...(offersLatency ? [SRT_LATENCY_FIELD] : [])];
+  const fields = engineSettingsFieldsFor('srs', { abr: false })
+    .filter((field) => offersLatency || field.key !== SRT_LATENCY_KEY);
   const defaults = effectiveEngineDefaults('srs', {}, {});
   return {
     identity: engineOverviewIdentity(profile), engine: 'srs', abr: false, fields,
