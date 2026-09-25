@@ -72,6 +72,11 @@ read as the environment, because the template fills each from it. The offline mo
 template, a copy of `v3.1`'s, the same way, so it shows `v3.1`'s 120 rather than the bundled
 stack's wait.
 
+Update 2026-09-23, on `feat/srt-ingest-health`: the SRT link's own packet counts, lost,
+retransmitted and dropped over the last minute, are read out of the SRS container's log and
+shown on a card of their own, because SRS's HTTP API does not expose them. That is not the live
+status of PR 2, which is still not built. See [srt-ingest-health.md](srt-ingest-health.md).
+
 ## What the engines are and how they are configured today
 
 A stream deployment runs a media server that takes the SRT feed from OBS and cuts it into HLS

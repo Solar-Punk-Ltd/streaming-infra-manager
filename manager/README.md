@@ -140,6 +140,7 @@ All command endpoints stream output as Server-Sent Events
 | PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
 | GET    | `/profiles/:name/srt-passphrase` | none | `{ srt_passphrase }`, `no-store`. The deployment's own SRT passphrase, which the row no longer carries. Every read is logged with the signed-in user's name. |
 | GET    | `/profiles/:name/uploader-health` | none | `{ state, reasons, waitingSince?, node?, startGateWarnings? }`. What this deployment's own `stream-uploader` says about itself, read off its API port. `state` is one of `ok`, `waiting_for_node`, `warned`, `unhealthy`, `unreachable` or `not_deployed`. |
+| GET    | `/profiles/:name/srt-ingest` | none | `{ state, windowSeconds, reports?, connections?, counts?, percent?, verdict? }`. SRS's own count of the SRT link's packets over the last minute, read out of the engine's log. `state` is one of `measured`, `no_reports`, `not_running`, `unreadable` or `not_srs`, and `verdict` is `healthy`, `degraded` or `bad`. |
 
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
@@ -178,6 +179,19 @@ step spells out `postage_refused`: a Bee node refused the batch it was paid
 with, usually because it is full or has expired, and that node's uploads fail
 until the uploader is
 deployed again with a batch that pays.
+
+`GET /profiles/:name/srt-ingest` is read by the deployment page alone, for the
+same reason. SRS prints the packet counts of each SRT publisher into its log
+about every ten seconds and exposes them nowhere else, so the route reads the
+last minute of the `srs` container's log, and of that at most the last 20,000
+lines, through the Docker socket for a local deployment and over the deploy
+target's ssh for a remote one, and keeps the statistics lines alone. The answer
+is numbers and a verdict, never any text of the log, which also carries the
+webhook URL with the uploader's token in it. `healthy` means nothing was
+dropped, `degraded` that something was, and `bad` that the dropped packets
+reached one percent of those received. It never fails for a reading, and nothing
+gates on it. The card that reads it and the bounds of the read are in
+[docs/features/srt-ingest-health.md](../docs/features/srt-ingest-health.md).
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
