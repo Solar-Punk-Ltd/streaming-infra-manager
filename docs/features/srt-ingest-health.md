@@ -8,9 +8,10 @@ deployment's page says, for the last minute, how many packets arrived, how many
 went missing, how many came on a second try and how many were given up on, and
 what to change when the link is losing picture.
 
-Status, 2026-09-23. Built on `feat/srt-ingest-health`, branched from `main` at
-`87673c99`, and written at `2cf0b1eb` on that branch, with the stack pinned at
-`v3.1` (`2c4867ae`). Not merged, not deployed, and never run against a live SRS.
+Status, 2026-09-25. Merged to `main` through PR 45. It was built on
+`feat/srt-ingest-health`, branched from `main` at `87673c99` on 2026-09-23 and
+written at `2cf0b1eb` on that branch, with the stack pinned at `v3.1`
+(`2c4867ae`). Not deployed, and never run against a live SRS.
 The parser is tested on the lines of 2026-09-22 and the reads against a
 stand-in Docker. The whole read was also run against this laptop's Docker 29.8
 daemon, through a throwaway container printing those two lines in colour codes
@@ -19,11 +20,10 @@ warnings a second: sixteen reports summed, a bad verdict, 252 ms, and no token,
 address or connection id in the answer. That run found the window ending up to
 a second in the past, which `2cfcfc79` fixed. The first look at a live host is
 still the check that SRS 6 writes the line in this shape there. The SRT latency
-setting the remedy points at is added by a parallel branch and is not on this
-one. The card handles both orders of merging, see the remedy below. Open as PR
-45, and revised the same day for three points of Copilot's review: the card on a
-stopped deployment, a bad minute with nothing received, and a latency the remedy
-named that some deployments do not run with.
+setting the remedy points at came with PR 44, which reached `main` on
+2026-09-24, before this one. PR 45 was revised on 2026-09-23 for three points of
+Copilot's review: the card on a stopped deployment, a bad minute with nothing
+received, and a latency the remedy named that some deployments do not run with.
 
 ## Why it exists
 
@@ -151,10 +151,9 @@ failed ask clears the last reading rather than leaving it on screen.
   instead of WiFi.
 
 The latency step reads the deployment's engine settings. When they list
-`SRT_LATENCY`, which the parallel settings branch adds, the step carries an
-**Engine settings** button that opens the drawer. Until then it says that the
-change in OBS does the same from the broadcaster's side. So the card is right in
-either order of merging, and the button appears on its own once the field does.
+`SRT_LATENCY`, as an SRS deployment's do since PR 44, the step carries an
+**Engine settings** button that opens the drawer. When they do not, it says that
+the change in OBS does the same from the broadcaster's side.
 
 ## What it does not do
 
