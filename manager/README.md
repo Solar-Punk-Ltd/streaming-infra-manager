@@ -329,11 +329,12 @@ is PLUR per chunk, a positive whole number as a string, and `depth` a whole
 number from 17 to 40. A body that breaks those is refused with 400.
 
 A top-up or a dilute asks the node for that one batch first, `GET /stamps/{id}`,
-and one the node does not hold is refused with `404 stamp_not_found`, and a
-dilute to a depth that is not deeper than the batch's own with 400, both
-before bee is asked. Both answer once bee has the transaction mined, and the
-node shows the new life or depth once it has read it back from the chain,
-usually within a
+and one the node does not hold is refused with `404 stamp_not_found`. A
+dilute to a depth that is not deeper than the batch's own, or one that would
+leave the batch under a day of life, which the postage contract refuses, is
+refused with 400. All three are refused before bee is asked. A top-up and a
+dilute answer once bee has the transaction mined, and the node shows the new
+life or depth once it has read it back from the chain, usually within a
 minute. A node still starting answers `503 bee_node_not_ready`, and any other
 failed call to it `502 bee_node_unreachable` with bee's own words.
 

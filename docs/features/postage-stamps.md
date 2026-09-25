@@ -169,9 +169,10 @@ The dialog names the batch the same way and takes one input, the new depth,
 from one step deeper to 40, starting one step deeper. Before the operator
 confirms it shows what the batch holds after, in chunks and in each bucket, how
 full it is after, its life after, and that it costs no BZZ. Where the life after
-would be under a day it warns, says the postage contract refuses a dilution
-that leaves less than a day, and suggests topping up first. It does not block
-the confirm, which names the depth, "Dilute to depth 24".
+would be under a day it refuses that depth: it says the postage contract
+refuses a dilution that leaves less than a day and to top the batch up first,
+and the confirm stays off. Otherwise the confirm names the depth, "Dilute to
+depth 24".
 
 Diluting leaves less life, so a batch diluted with little time left warns as
 ending soon, and a top-up buys that life back.
@@ -215,6 +216,12 @@ fell behind back into its master playlist once eight segments in a row land.
 - A dilute to a depth that is not deeper than the batch's own. Answered 400 with
   the batch's depth in the sentence. Bee refuses only a shallower depth and
   leaves an equal one to the contract, which refuses it on chain.
+- A dilute that would leave the batch under a day of life, which the contract
+  refuses on chain. Answered 400 with the life it would leave in the sentence
+  and the advice to top it up first. The life is the one the node reports for
+  the batch, halved for every step, the figure the dialog shows. Where the node
+  does not say how long the batch has left, the dilute is sent and the contract
+  decides.
 
 A refusal from Bee itself, "out of funds" for one, reaches the page in Bee's
 own words, the way a refused buy does.
@@ -230,11 +237,11 @@ whole list of stamp routes is in [manager/README.md](../../manager/README.md#pos
 
 | File | What it does |
 |---|---|
-| `common/src/stampChanges.ts` | `dilutionPreview` and `topUpPreview`, what a change leaves a batch with, and `BeeStampTransaction`, `TopUpStampRequest` and `DiluteStampRequest`, the shapes that cross the stack. |
+| `common/src/stampChanges.ts` | `dilutionPreview` and `topUpPreview`, what a change leaves a batch with, including whether a dilution leaves it under a day, and `BeeStampTransaction`, `TopUpStampRequest` and `DiluteStampRequest`, the shapes that cross the stack. |
 | `common/src/stampHealth.ts`, `stampCost.ts` | How full a batch is and what state it is in, and what life and cost an amount buys. |
 | `manager/src/domain/BeeClient.ts` | `topUpStamp` and `diluteStamp`, the two `PATCH` requests, on the on-chain budget buying uses. |
 | `manager/src/domain/StampService.ts` | `topUpStamp` and `diluteStamp` for a deployment's own node: read the batch first, refuse, send, forget the node's cached reads, log one line. |
-| `manager/src/domain/errors/StampNotFoundError.ts`, `DiluteDepthError.ts` | The two refusals, answered 404 and 400. |
+| `manager/src/domain/errors/StampNotFoundError.ts`, `DiluteDepthError.ts`, `DiluteLifeError.ts` | The three refusals, answered 404, 400 and 400. |
 | `manager/src/api/routes/stamp.ts`, `manager/src/schemas/stamp.ts` | The two routes and their bodies. |
 | `frontend/src/uploaders/StampTable.tsx`, `stampRowActions.ts`, `bucketFill.ts` | The table's Used column and each batch's actions, with Use unavailable on a full immutable batch. |
 | `frontend/src/uploaders/TopUpStampDialog.tsx`, `topUpView.ts`, `DiluteStampDialog.tsx`, `diluteView.ts`, `BatchSummary.tsx` | The two dialogs and what they show before the operator confirms. |
@@ -244,11 +251,10 @@ whole list of stamp routes is in [manager/README.md](../../manager/README.md#pos
 
 ## Limits
 
-- The dilute dialog warns and does not block a dilution that leaves under a
-  day, as it was asked to, although the contract refuses one. Bee may then
-  answer with an error the operator reads in Bee's words. Whether that
-  refusal costs a transaction fee depends on Bee's gas estimate, which was not
-  measured.
+- The dialog and the manager refuse a dilution under a day by the life the node
+  reports at today's price. If the price falls before the next block, the
+  contract could have accepted a dilution right at the boundary that they
+  refused. Topping the batch up first is the way past it either way.
 - Nothing warns about a top-up that leaves a batch under a day, which the
   contract refuses as well. It can only happen on a batch with less than a day
   left, where the dialog's hint already says what a day costs.
