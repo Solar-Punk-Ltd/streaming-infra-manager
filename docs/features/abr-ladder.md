@@ -225,7 +225,7 @@ ready" while the tester's ABR uploader reported exactly that.
 
 The uploader half of this is in the pinned stack since 7b2312f, which pinned the
 stack commit 55b22bf1 that carries it, and every pin since carries it too, the
-stack's release `v3.3` as of 2026-09-24. So a deployment reports those
+stack's release `v3.4` as of 2026-09-25. So a deployment reports those
 fields once the host runs that pin. A deployment still
 on an older build reports none of them, the manager reads that as no waiting
 state reported, and the step says what it always said, which is that the
@@ -421,11 +421,13 @@ default start ceiling, `STAMP_MAX_UTILIZATION`: an uploader restarted on an
 immutable batch past it already refuses to boot, which is why the warning starts
 there, while uploads still work. A mutable batch warns there too, full or not,
 for two reasons. Once full it overwrites the oldest recordings' chunks. And the
-uploader of stack v3.3 and earlier, the version this manager bundles on
-2026-09-25, holds a mutable batch to the same ceiling, so a restart on it past
-90% is refused as well. The stack's fix for that, which holds only immutable
-batches to the ceiling, is swarm-hls-stream #253, not yet in a release. The
-wording of both warnings is `nearlyFullConsequence` in `common/src/stampHealth.ts`.
+uploader of stack v3.3 and earlier holds a mutable batch to the same ceiling, so
+a restart on it past 90% is refused as well. The stack's fix for that, which
+holds only immutable batches to the ceiling, is swarm-hls-stream #253, released
+in `v3.4`, the version this manager bundles since 2026-09-25. A deployment runs
+the build it was last deployed from, so one still on a `v3.3` build refuses such
+a restart until it is deployed again on `v3.4`. The wording of both warnings is
+`nearlyFullConsequence` in `common/src/stampHealth.ts`.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm
