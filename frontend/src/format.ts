@@ -91,8 +91,12 @@ export function formatSharePercent(
   ) {
     return NO_VALUE;
   }
-  const pct = (used / total) * 100;
-  if (!Number.isFinite(pct)) return NO_VALUE;
+  return formatScaledPercent((used / total) * 100);
+}
+
+/** A percentage with its decimals scaled to its magnitude, by the rule `formatSharePercent` applies. */
+export function formatScaledPercent(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return NO_VALUE;
   const digits = pct >= 10 ? 0 : pct >= 1 ? 1 : 2;
   return `${pct.toFixed(digits)}%`;
 }

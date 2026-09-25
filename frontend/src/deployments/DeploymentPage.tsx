@@ -38,6 +38,7 @@ import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
 import { EngineCard } from './EngineCard';
 import { usePublishUrl } from './usePublishUrl';
+import { useSrtIngestHealth } from './useSrtIngestHealth';
 import { useUploaderHealth } from './useUploaderHealth';
 import { useEngineOverview } from './useEngineOverview';
 import { HeldAttemptCard } from './HeldAttemptCard';
@@ -49,8 +50,10 @@ import { PublishCard } from './PublishCard';
 import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
 import { ownsBeeNode, readinessFor } from './readiness';
+import { SrtIngestCard } from './SrtIngestCard';
+import { offersLatencySetting } from './srtIngestText';
 import { StorageCard } from './StorageCard';
-import { engineOf, isRunning, shapeOf, streamersOf } from './shape';
+import { engineOf, isRunning, readsSrtIngest, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
 
 const STORAGE_ANCHOR = 'storage';
@@ -148,6 +151,8 @@ function DeploymentBody({
     (container) => container.service === STREAM_UPLOADER_SERVICE,
   );
   const uploaderHealth = useUploaderHealth(uploaderDeployed ? profile : null);
+  const srtIngestShown = readsSrtIngest(profile);
+  const srtIngest = useSrtIngestHealth(srtIngestShown ? profile : null);
   const group = groups.find((entry) => entry.id === profile.group_id) ?? null;
   const version =
     versions?.find((entry) => entry.id === profile.stack_version_id) ?? null;
@@ -256,6 +261,14 @@ function DeploymentBody({
           )}
 
           <ReadinessCard steps={steps} summary={summary} onAction={runStepAction} />
+
+          {srtIngestShown && (
+            <SrtIngestCard
+              profile={profile}
+              load={srtIngest}
+              latencySettingOffered={offersLatencySetting(engineLoad.overview?.fields)}
+            />
+          )}
 
           {publishUrl && (
             <PublishCard

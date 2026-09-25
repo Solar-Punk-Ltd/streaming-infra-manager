@@ -124,3 +124,17 @@ export function readBounded(
 function destroyStream(stream: NodeJS.ReadableStream): void {
   (stream as Partial<Readable>).destroy?.();
 }
+
+/**
+ * The lines of `text` that ended in a newline.
+ *
+ * A read that stopped at one of its bounds can stop in the middle of a line,
+ * and the piece it kept looks like a line of its own: a count cut after two of
+ * its three digits is still a count. So the last piece is dropped, which for a
+ * text that did end on a newline is only the empty string after it.
+ */
+export function completeLines(text: string): string[] {
+  const lines = text.split('\n');
+  lines.pop();
+  return lines;
+}
