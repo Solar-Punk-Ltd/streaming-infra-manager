@@ -3,7 +3,11 @@
 
 FROM node:22-alpine AS build
 WORKDIR /repo
-RUN npm install -g pnpm@9
+# The pnpm the root package.json names in packageManager, as manager/Dockerfile
+# takes it. A pnpm of another major reads the lockfile's settings from another
+# place: pnpm 9 never sees the overrides in pnpm-workspace.yaml and refuses the
+# frozen install.
+RUN corepack enable
 
 # Workspace manifests first so the install layer caches when sources change.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
