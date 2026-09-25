@@ -41,6 +41,7 @@ import {
   type StampGatedProfile,
   type StampHealth,
   stampHealthFrom,
+  SRS_SERVICE,
   STANDARD_GROUP_KIND,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -98,9 +99,9 @@ import {
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
-import { engineTemplateIn } from './engineConfig/engineConfigTemplates.js';
+import { engineTemplateTextIn } from './engineConfig/engineConfigTemplates.js';
 import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
-import { srsSettingReadings } from './engineConfig/srsSettingReadings.js';
+import { srsSettingReadings, srsTemplateReadings } from './engineConfig/srsSettingReadings.js';
 import {
   localPublisherHost,
   type LocalPublisherHostReader,
@@ -828,18 +829,15 @@ export class ProfileService {
     const contract = version.contract;
     const defaults = this.engineDefaultsAt(root, engine, contract);
     const fields = engineSettingsFieldsFor(engine, { abr });
+    const template = engineTemplateTextIn(root, engine);
     let readings = environmentSettingReadings(fields);
     if (profile.has_engine_config) {
-      let template: string | null = null;
-      try {
-        template = engineTemplateIn(root, engine).text;
-      } catch {
-        // A template that cannot be read is passed on as null on purpose: both
-        // readings functions take null and report it per field, rather than
-        // this failing the whole overview.
-      }
       readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
         : srsSettingReadings(template, engineConfig, fields, { abr });
+    } else if (engine === SRS_SERVICE) {
+      // Without a file of its own the deployment runs its version's template,
+      // which decides the SRT latency SRS waits on ingest.
+      readings = { ...readings, ...srsTemplateReadings(template, fields) };
     }
     const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
@@ -1242,6 +1240,8 @@ export class ProfileService {
         stampId: profile.stamp_id,
         stampState: stamps[index]!.state,
         stampTtl: stamps[index]!.ttl,
+        stampFillRatio: stamps[index]!.fillRatio,
+        stampImmutable: stamps[index]!.immutable,
         urlState: urlStates[index],
       })),
     );

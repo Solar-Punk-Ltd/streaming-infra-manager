@@ -5,6 +5,9 @@ at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which lande
 run on a host: the manager was deployed on 2026-09-11 and a second pass on 2026-09-13 reached it
 over its own public domain with a certificate, rather than through the ssh tunnel. That pass is
 recorded in [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
+Corrected 2026-09-23 against the code at `87673c99`: what reads `GET /health`, the Endpoints
+table, and the Access page under "What the operator sees". The last two predated the admin role
+added in `7346d880` on 2026-09-07, which now has a paragraph under Endpoints.
 
 **The host steps at the end of this page are superseded.** They were written before the stack
 stopped travelling with a deploy and before the firewall generator took an inventory export, and
@@ -52,11 +55,20 @@ mean two-factor or single sign-on. Both can be added later without changing the 
 - Signed in, the sidebar footer shows the username and a **Sign out** item. Sessions last twelve
   hours of inactivity and fourteen days at most, then the sign-in page comes back with
   `Your session ended. Sign in again.`
-- A new sidebar page **Access** (`#/access`): the list of users with their last sign-in, an **Add
-  user** form (username, a starting password the adder types twice and hands over in person, the
-  new user is told to change it), a **Remove** per user (refused for yourself and for the last
-  user), **Sign out everywhere** per user, and a **Change my password** form (current, new, new
-  again). Decision D2 says whether this page exists or a single account is enough.
+- A sidebar page **Access** (`#/access`), there for every signed-in user. Decision D2, several
+  users, is why it exists. As built, everyone sees the **Users** table: each user's last sign-in
+  (or `Never`) and open sessions, `manages users` beside each admin and `you` beside themselves,
+  and a **Sign out everywhere** and a **Remove** button on every row. Everyone also gets the
+  **Change my password** form (current, new, new again).
+  - An admin reads `You can add and remove users here.` above the table and gets the **Add user**
+    form below it: a username, a starting password typed twice and handed over in person, and a
+    `Can manage users` box. Their own row's Remove is disabled.
+  - Anyone else reads `Only a user who can manage users adds or removes one.` and gets no Add
+    user form. The buttons are still on every row, disabled: Remove on every row, and Sign out
+    everywhere on every row but their own, each with a tooltip saying why. The API refuses the
+    same actions with 403 `admin_required` if they are sent anyway.
+  - Sign out everywhere is disabled for anyone on a row with no open sessions, and both actions
+    ask for confirmation first.
 - If the API answers 401 in the middle of a session (revoked, expired), the app returns to Sign
   in with the message above and reloads what it needs after.
 
@@ -114,9 +126,13 @@ CREATE INDEX sessions_user_idx ON sessions (user_id);
   of one minute that doubles per further failure up to one hour. Locked answers 429 with
   `Retry-After`. Every failure is logged with username and IP. Successful sign-in resets the
   username key.
-- **What stays open**: `GET /health` (Docker's healthcheck reads it, it returns `{status:'ok'}`
-  and nothing else) and `POST /auth/login`. Everything else, including both Server-Sent Events
-  streams, `/config`, `/metrics` and `/services`, requires a session. `EventSource` sends
+- **What stays open**: `GET /health` (it returns `{status:'ok'}` and nothing else) and
+  `POST /auth/login`. No Docker healthcheck reads `/health`: the `api` service in
+  `manager/docker-compose.yml` has none and neither Dockerfile declares one. `manager:upgrade`
+  waits for the new api to answer it during a deploy, the integration suite asks it in its
+  preflight and its CI job in `.github/workflows/docker-checks.yml` waits for it first, and the
+  quick start in `manager/README.md` curls it. Everything else, including both Server-Sent
+  Events streams, `/config`, `/metrics` and `/services`, requires a session. `EventSource` sends
   cookies on same-origin requests, so the live updates keep working unchanged.
 
 ### Endpoints
@@ -127,16 +143,34 @@ CREATE INDEX sessions_user_idx ON sessions (user_id);
 |---|---|---|---|
 | POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 `no_users` when none has been created |
 | POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
-| GET | `/auth/session` | | `{ username, expiresAt }` or 401 |
+| GET | `/auth/session` | | `{ id, username, isAdmin, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
 | POST | `/auth/password` | `{ current, next }` | 204, all other sessions of the user revoked |
-| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
-| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
-| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
-| POST | `/auth/users/:id/revoke-sessions` | | 204 |
+| GET | `/auth/users` | | `[{ id, username, isAdmin, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password, admin? }` | 201 and the new user's row, 403 `admin_required` unless you are an admin, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 403 `admin_required` unless you are an admin, 404 no such user, 409 for yourself, the last user or the last admin |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 for your own id, and for anyone's if you are an admin, otherwise 403 `admin_required`. 404 no such user |
 
 Middleware `requireSession` in `manager/src/api/middleware/requireSession.ts` runs before every
 router in `server.ts` except the two open routes, attaches `req.user`, refreshes `last_seen_at`.
 `requireSameSite` runs on every non-GET. The request logger logs the username, never the token.
+
+**Who can manage users.** Since `7346d880` on 2026-09-07 a user may be an admin, `isAdmin` in the
+answers above. Through the API only an admin adds a user, removes one or signs someone else
+out, and anyone else gets 403 `admin_required` there (`requireAdmin`, in the same file as
+`requireSession`, and a check inside the revoke route). Every signed-in user still lists
+the users, changes their own password and signs themselves out everywhere. A user is made an
+admin when added, and no route or command changes that later: `user:add --admin` on the host, or
+`admin: true` on `POST /auth/users` from an admin, which is the Add user form's "Can manage
+users" box. The first user ever added is an admin whatever was asked, so the account created
+with the CLI can add the next, and migration `011_admin_users.sql` made the oldest user an admin
+on a manager that already had users. The last admin cannot be removed.
+
+The role gates those three actions and nothing else. Every other route is open to any signed-in
+user, read from `manager/src/api/server.ts` on 2026-09-23 at `87673c99`: `/config`, `/metrics`,
+`/events`, `/services`, `/chequebook/operations`, `/groups`, `/targets`, `/versions` with
+`/versions/attempts`, and `/profiles` with everything under a deployment. That includes
+deploying and stopping it, buying a stamp, a chequebook deposit or withdrawal, its engine
+settings and config file, restarting its containers and reading its SRT passphrase.
 
 ### First user, with no secret in any file
 

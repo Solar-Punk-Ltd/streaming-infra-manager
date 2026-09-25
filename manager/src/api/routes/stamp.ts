@@ -4,9 +4,13 @@ import { StampService } from '../../domain/StampService.js';
 import { profileNameSchema } from '../../schemas/profile.js';
 import {
   BuyStampBody,
+  DiluteStampBody,
   SetStampBody,
+  TopUpStampBody,
   buyStampSchema,
+  diluteStampSchema,
   setStampSchema,
+  topUpStampSchema,
 } from '../../schemas/stamp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
@@ -17,8 +21,12 @@ import { validateBody, validateParams } from '../middleware/validate.js';
  * A read answers from a shared window over the bee HTTP API rather than a call
  * of its own: concurrent callers join the call in flight and its answer stands
  * for the length of `NODE_READ_WINDOW_MS`. See `NodeReadCache`. Buy creates a
- * batch. Set persists a stamp id on the profile and starts no redeploy, because
- * the "deploy uploader" action is what brings the uploader up.
+ * batch and sets it on the profile once bee calls it usable, unless another was
+ * set there meanwhile, see `StampService.buyStamp`. Set persists a stamp id on
+ * the profile and starts no redeploy, because the "deploy uploader" action is
+ * what brings the uploader up, and neither does the set that follows a buy.
+ * Top-up and dilute change a batch the node already holds and keep its id, so
+ * they touch no profile at all.
  */
 export function createStampRouter(stampService: StampService): Router {
   const router = Router();
@@ -81,6 +89,36 @@ export function createStampRouter(stampService: StampService): Router {
         label: body.label ?? undefined,
         immutable: body.immutable ?? undefined,
       });
+      res.status(202).json(result);
+    }),
+  );
+
+  router.post(
+    '/profiles/:name/stamp/topup',
+    validateParams(profileNameSchema),
+    validateBody(topUpStampSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as TopUpStampBody;
+      const result = await stampService.topUpStamp(
+        req.params.name as string,
+        body.batch_id,
+        body.amount,
+      );
+      res.status(202).json(result);
+    }),
+  );
+
+  router.post(
+    '/profiles/:name/stamp/dilute',
+    validateParams(profileNameSchema),
+    validateBody(diluteStampSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const body = req.body as DiluteStampBody;
+      const result = await stampService.diluteStamp(
+        req.params.name as string,
+        body.batch_id,
+        body.depth,
+      );
       res.status(202).json(result);
     }),
   );

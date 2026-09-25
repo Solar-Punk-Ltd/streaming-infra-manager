@@ -45,7 +45,7 @@ describe('with no users yet', () => {
   });
   after(() => app.close());
 
-  it('still answers the health check, which Docker reads', async () => {
+  it('still answers /health with status ok, without a session', async () => {
     const res = await call(app, 'GET', '/health');
 
     assert.equal(res.status, 200);

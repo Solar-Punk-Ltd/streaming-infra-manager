@@ -59,8 +59,18 @@ function shortProblem(rung: LadderRungState | undefined): string {
   if (isInvalidUrlState(rung.urlState)) return 'address cannot be reached';
   if (!rung.stampId) return 'no stamp yet';
   if (isDeadStampState(rung.stampState)) return 'stamp expired';
+  if (rung.stampState === 'full') return 'stamp full';
   if (rung.stampState === 'pending') return 'stamp still settling';
   return 'not ready';
+}
+
+/** A batch its node still takes uploads on, as far as anything read it. */
+function stampStillPays(rung: LadderRungState): boolean {
+  return (
+    Boolean(rung.stampId) &&
+    !isDeadStampState(rung.stampState) &&
+    rung.stampState !== 'full'
+  );
 }
 
 function stampedRungCount(
@@ -68,9 +78,7 @@ function stampedRungCount(
   members: Profile[],
 ): number {
   if (!result) return members.filter(hasStampId).length;
-  return result.rungs.filter(
-    (rung) => rung.stampId && !isDeadStampState(rung.stampState),
-  ).length;
+  return result.rungs.filter(stampStillPays).length;
 }
 
 /**

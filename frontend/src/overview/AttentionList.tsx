@@ -4,8 +4,8 @@ import { Box, Button, Stack, Typography } from '@mui/material';
 import {
   type BeePublishersResult,
   type ChequebookHealth,
-  chequebookStateReason,
   type StampHealth,
+  type UploaderHealthReading,
 } from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
@@ -18,19 +18,11 @@ import { StatusDot } from '../components/StatusDot';
 import type { Tone } from '../components/tone';
 import { poolProblems } from '../groups/groupReadiness';
 import type { StampHealths } from '../uploaders/useStampHealths';
-import {
-  CHEQUEBOOK_EMPTY,
-  CHEQUEBOOK_LOW,
-  NEEDS_A_STAMP,
-  POOL_STRING_INVALID,
-  readinessOf,
-  STAMP_ENDS_SOON,
-  STAMP_EXPIRED,
-  UPLOADER_NOT_STARTED,
-} from '../deployments/readiness';
-import { shapeOf } from '../deployments/shape';
+import { readinessOf } from '../deployments/readiness';
+import type { UploaderHealths } from '../deployments/useUploaderHealths';
 import type { DeploymentGroup, Profile } from '../types';
 import type { ChequebookHealths } from '../uploaders/useChequebookHealths';
+import { type AttentionAction, attentionText } from './attentionText';
 
 export interface PoolAlert {
   group: DeploymentGroup;
@@ -43,6 +35,7 @@ export function AttentionList({
   pools,
   chequebooks,
   stampHealths,
+  uploaderHealths,
 }: {
   profiles: Profile[];
   pools: PoolAlert[];
@@ -53,6 +46,8 @@ export function AttentionList({
    * where there is one, else its own poll of the node.
    */
   stampHealths: StampHealths;
+  /** What each running uploader said about itself, where the manager could ask it. */
+  uploaderHealths: UploaderHealths;
 }) {
   const total = profiles.length + pools.length;
 
@@ -75,6 +70,7 @@ export function AttentionList({
               profile={profile}
               chequebook={chequebooks.get(profile.name) ?? null}
               stampHealth={stampHealths.get(profile.name)}
+              uploaderHealth={uploaderHealths.get(profile.name)}
             />
           ))}
           {pools.map(({ group, result }) => (
@@ -100,23 +96,19 @@ function ProfileAlertRow({
   profile,
   chequebook,
   stampHealth,
+  uploaderHealth,
 }: {
   profile: Profile;
   chequebook: ChequebookHealth | null;
   stampHealth?: StampHealth;
+  uploaderHealth?: UploaderHealthReading;
 }) {
   const actions = useActions();
   const { openEditDeployment } = useEditors();
-  const readiness = readinessOf(profile, stampHealth, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook, { uploaderHealth });
 
   const openStorage = () => navigate(routes.deploymentStorage(profile.name));
-  const buyStamp = (
-    <Button size="small" variant="contained" onClick={openStorage}>
-      Buy stamp
-    </Button>
-  );
-
-  const { text, action } = describe(readiness.label, profile, chequebook, {
+  const buttons: Record<AttentionAction, ReactNode> = {
     retry: (
       <Button
         size="small"
@@ -126,7 +118,7 @@ function ProfileAlertRow({
         Retry
       </Button>
     ),
-    startUploader: (
+    'start-uploader': (
       <Button
         size="small"
         variant="contained"
@@ -135,8 +127,22 @@ function ProfileAlertRow({
         Start uploader
       </Button>
     ),
-    buyStamp,
-    fillChequebook: (
+    'buy-stamp': (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Buy stamp
+      </Button>
+    ),
+    'dilute-stamp': (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Dilute or buy
+      </Button>
+    ),
+    'top-up-stamp': (
+      <Button size="small" variant="contained" onClick={openStorage}>
+        Top up or buy
+      </Button>
+    ),
+    'fill-chequebook': (
       <Button size="small" variant="contained" onClick={openStorage}>
         Fill chequebook
       </Button>
@@ -146,77 +152,19 @@ function ProfileAlertRow({
         Edit
       </Button>
     ),
-  });
+  };
+
+  const { text, action } = attentionText(readiness.label, profile, chequebook, uploaderHealth);
 
   return (
     <AlertRow
       tone={readiness.tone}
       name={profile.name}
       text={text}
-      action={action}
+      action={action ? buttons[action] : null}
       onOpen={() => navigate(routes.deployment(profile.name))}
     />
   );
-}
-
-interface AlertButtons {
-  retry: ReactNode;
-  startUploader: ReactNode;
-  buyStamp: ReactNode;
-  fillChequebook: ReactNode;
-  edit: ReactNode;
-}
-
-function describe(
-  label: string,
-  profile: Profile,
-  chequebook: ChequebookHealth | null,
-  buttons: AlertButtons,
-): { text: string; action: ReactNode } {
-  if (profile.status === 'ERROR') {
-    return {
-      text: `Deploy failed. ${profile.last_error ?? 'No error was recorded.'}`,
-      action: buttons.retry,
-    };
-  }
-  switch (label) {
-    case NEEDS_A_STAMP:
-      return {
-        text:
-          shapeOf(profile) === 'bee-node'
-            ? 'No stamp yet, so its pool cannot publish to this rung.'
-            : 'Running, but it cannot upload until a stamp is bought and set.',
-        action: buttons.buyStamp,
-      };
-    case STAMP_EXPIRED:
-      return {
-        text: 'The stamp ran out. Buy a new one to upload again.',
-        action: buttons.buyStamp,
-      };
-    case UPLOADER_NOT_STARTED:
-      return {
-        text: 'Stamp is set. Start the uploader to finish the stack.',
-        action: buttons.startUploader,
-      };
-    case STAMP_ENDS_SOON:
-      return {
-        text: 'Buy the next stamp before this one runs out.',
-        action: buttons.buyStamp,
-      };
-    case CHEQUEBOOK_EMPTY:
-    case CHEQUEBOOK_LOW:
-      return {
-        text: chequebook ? (chequebookStateReason(chequebook) ?? label) : label,
-        action: buttons.fillChequebook,
-      };
-    case POOL_STRING_INVALID:
-      return {
-        text: 'Its node pool string cannot be read, so the uploader will not start.',
-        action: buttons.edit,
-      };
-    default:
-      return { text: label, action: null };
-  }
 }
 
 function AlertRow({

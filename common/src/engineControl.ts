@@ -78,7 +78,9 @@ export interface EngineSettingsOverview {
   settings: EngineSettings;
   /**
    * What an unset key falls back to on the host this deployment runs on, which
-   * is the stack's own value unless the host's base `.env` sets it.
+   * is the stack's own value unless the host's base `.env` sets it. A field
+   * whose default the manager owns has the manager's number in place of the
+   * stack's.
    */
   defaults: EngineSettings;
   defaultSources: EngineDefaultSources;

@@ -11,6 +11,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
   DEFAULT_RPC_ENDPOINT_SOURCE,
   PLUR_PER_BZZ,
+  stampBucketCapacity,
 } from '@streaming-infra-manager/common';
 
 import { commitOfVersion } from './mock-versions.mjs';
@@ -23,6 +24,14 @@ export const GB = 1024 ** 3;
 
 /** The rung seeded below the floor, so the low state is visible at startup. */
 export const LOW_CHEQUEBOOK_RUNG = '480p';
+
+/**
+ * The rung seeded with a full immutable batch that still has days left, in
+ * the shape of the tester's 1080p rung on 2026-09-24, so the full state, its
+ * alert and the Dilute remedy are visible at startup.
+ */
+export const FULL_BATCH_RUNG = '720p';
+const FULL_BATCH_TTL = 2 * DAY + 3 * 3_600;
 
 export const RUNGS = [
   { name: '360p', kbps: 700, depth: 17 },
@@ -256,16 +265,29 @@ export function makeChequebook({
   return { address: address(), total, available, totalSent, totalReceived };
 }
 
-export function makeStamp({ depth, ttl, usable = true, amount = '48000000' }) {
+/** The bucket bits bee gives every batch. */
+const BUCKET_DEPTH = 16;
+
+/** @param full whether the fullest bucket holds all a bucket can, which an immutable batch then refuses past. */
+export function makeStamp({
+  depth,
+  ttl,
+  usable = true,
+  amount = '48000000',
+  immutable = false,
+  full = false,
+}) {
+  const bucketCapacity = stampBucketCapacity({ depth, bucketDepth: BUCKET_DEPTH });
   return {
     batchID: batchId(),
-    utilization: randomInt(0, 40),
+    // The chunks in the fullest bucket, which never holds more than a bucket does.
+    utilization: full ? bucketCapacity : randomInt(0, bucketCapacity),
     usable,
     depth,
     amount,
-    bucketDepth: 16,
+    bucketDepth: BUCKET_DEPTH,
     blockNumber: 39_000_000 + randomInt(0, 100_000),
-    immutableFlag: false,
+    immutableFlag: immutable,
     exists: true,
     batchTTL: ttl,
   };
@@ -440,10 +462,10 @@ export function seed() {
       memberNode.bzz = '0';
     } else {
       memberNode.bzz = String(BigInt(42 - index * 9) * 10n ** 15n);
-      const stamp = makeStamp({
-        depth: rung.depth,
-        ttl: (60 - index * 15) * DAY,
-      });
+      const stamp =
+        rung.name === FULL_BATCH_RUNG
+          ? makeStamp({ depth: rung.depth, ttl: FULL_BATCH_TTL, immutable: true, full: true })
+          : makeStamp({ depth: rung.depth, ttl: (60 - index * 15) * DAY });
       memberNode.stamps = [stamp];
       member.stamp_id = stamp.batchID;
     }

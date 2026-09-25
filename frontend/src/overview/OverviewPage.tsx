@@ -14,6 +14,7 @@ import {
   type ChequebookHealth,
   isLadderKind,
   type StampHealth,
+  type UploaderHealthReading,
 } from '@streaming-infra-manager/common';
 
 import { navigate, routes } from '../app/router';
@@ -33,6 +34,7 @@ import type { Profile } from '../types';
 import { useChequebookHealths } from '../uploaders/useChequebookHealths';
 import { useStampHealths } from '../uploaders/useStampHealths';
 import { usePublishUrl } from '../deployments/usePublishUrl';
+import { useUploaderHealths } from '../deployments/useUploaderHealths';
 import { useMetrics } from '../useMetrics';
 import { ActivityCard } from './ActivityCard';
 import { AttentionList, type PoolAlert } from './AttentionList';
@@ -49,6 +51,7 @@ export function OverviewPage() {
     poolStampHealths(poolResults, profiles),
     nodeStamps,
   );
+  const uploaderHealths = useUploaderHealths(profiles);
 
   if (!profiles) {
     return (
@@ -63,6 +66,7 @@ export function OverviewPage() {
       profile,
       stampHealths.get(profile.name),
       chequebooks.get(profile.name),
+      uploaderHealths.get(profile.name),
     ),
   );
   const poolAlerts: PoolAlert[] = groups
@@ -121,6 +125,7 @@ export function OverviewPage() {
         pools={poolAlerts}
         chequebooks={chequebooks}
         stampHealths={stampHealths}
+        uploaderHealths={uploaderHealths}
       />
 
       <Box
@@ -146,6 +151,7 @@ export function OverviewPage() {
                     profile={profile}
                     chequebook={chequebooks.get(profile.name) ?? null}
                     stampHealth={stampHealths.get(profile.name)}
+                    uploaderHealth={uploaderHealths.get(profile.name)}
                   />
                 ))}
               </TableBody>
@@ -163,6 +169,7 @@ function StreamRow({
   profile,
   chequebook,
   stampHealth,
+  uploaderHealth,
 }: {
   profile: Profile;
   /** What this page's own poll of the node said, so the pill matches the alert. */
@@ -172,9 +179,11 @@ function StreamRow({
    * is one, else the page's own poll of the node.
    */
   stampHealth?: StampHealth;
+  /** What its uploader said about itself, the same reading its row under Needs attention names. */
+  uploaderHealth?: UploaderHealthReading;
 }) {
   const publish = usePublishUrl(profile);
-  const readiness = readinessOf(profile, stampHealth, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook, { uploaderHealth });
   // The passphrase is asked for by the copy rather than by the row, so the
   // overview renders without asking for any deployment's.
   const copyable = publish.url !== null && readiness.tone === 'ok';

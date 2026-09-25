@@ -19,6 +19,7 @@ import {
   DEFAULT_ABR_RUNGS,
   type PublishUrlState,
   stampHealthFrom,
+  type StampLike,
   type StampState,
 } from '@streaming-infra-manager/common';
 
@@ -103,7 +104,7 @@ function member(rung: string, index: number): Profile {
  * Built through `stampHealthFrom` rather than by hand so the tests exercise the
  * same classification the manager does.
  */
-function healthOf(state: StampState, ttl = 30 * 24 * 3_600) {
+function healthOf(state: StampState, ttl = 30 * 24 * 3_600, fill: BatchFill = {}) {
   const id = 'a'.repeat(64);
   switch (state) {
     case 'none':
@@ -116,12 +117,16 @@ function healthOf(state: StampState, ttl = 30 * 24 * 3_600) {
       return stampHealthFrom(id, [
         {
           batchID: id,
-          usable: state === 'active',
+          usable: state !== 'pending' && state !== 'expired',
           batchTTL: state === 'expired' ? 0 : ttl,
+          ...fill,
         },
       ]);
   }
 }
+
+/** What bee says about how full a batch is, which a test adds to a live one. */
+type BatchFill = Pick<StampLike, 'utilization' | 'depth' | 'bucketDepth' | 'immutableFlag'>;
 
 interface Scripted {
   /** Per member name. Defaults to a healthy, long-lived batch. */
@@ -130,6 +135,8 @@ interface Scripted {
   urls?: Record<string, PublishUrlState>;
   /** Per member name, seconds. Only meaningful for a live batch. */
   ttls?: Record<string, number>;
+  /** Per member name. Only meaningful for a batch the node answered about. */
+  fills?: Record<string, BatchFill>;
   members?: Profile[];
   /** What a container on this host reaches a locally deployed node on. */
   localHost?: string;
@@ -154,6 +161,7 @@ function serviceFor(scripted: Scripted = {}): ScriptedService {
     return healthOf(
       scripted.stamps?.[profile.name] ?? 'active',
       scripted.ttls?.[profile.name],
+      scripted.fills?.[profile.name],
     );
   };
 
@@ -319,6 +327,51 @@ describe('beePublishersForGroup — live batch state', () => {
         .find((m) => m.rung === '1080p')
         ?.reason.includes('no member'),
     );
+  });
+});
+
+/** The tester's 1080p batch on 2026-09-24: 128 chunks a bucket, the fullest holding all 128. */
+const FULL_IMMUTABLE: BatchFill = { depth: 23, bucketDepth: 16, utilization: 128, immutableFlag: true };
+
+describe('beePublishersForGroup, how full each batch is', () => {
+  it('refuses the value while a rung’s immutable batch is full, as its node does', async () => {
+    const { service } = serviceFor({ fills: { [`${GROUP.name}-1080p`]: FULL_IMMUTABLE } });
+    const result = await service.beePublishersForGroup(GROUP.id);
+
+    assert.equal(result.ready, false);
+    assert.equal(result.value, null);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['1080p']);
+    assert.equal(result.rungs.find((r) => r.rung === '1080p')?.stampState, 'full');
+  });
+
+  it('carries each rung’s fill and immutability, so the pages can show them', async () => {
+    const { service } = serviceFor({
+      fills: {
+        [`${GROUP.name}-1080p`]: FULL_IMMUTABLE,
+        [`${GROUP.name}-720p`]: { ...FULL_IMMUTABLE, utilization: 32, immutableFlag: false },
+      },
+    });
+    const result = await service.beePublishersForGroup(GROUP.id);
+    const rung = (name: string) => result.rungs.find((r) => r.rung === name);
+
+    assert.equal(rung('1080p')?.stampFillRatio, 1);
+    assert.equal(rung('1080p')?.stampImmutable, true);
+    assert.equal(rung('720p')?.stampFillRatio, 0.25);
+    assert.equal(rung('720p')?.stampImmutable, false);
+    assert.equal(rung('360p')?.stampFillRatio, null);
+    assert.equal(rung('360p')?.stampImmutable, null);
+  });
+
+  it('warns about a nearly full immutable rung and still hands the value over', async () => {
+    const { service } = serviceFor({
+      fills: { [`${GROUP.name}-1080p`]: { ...FULL_IMMUTABLE, utilization: 122 } },
+    });
+    const result = await service.beePublishersForGroup(GROUP.id);
+
+    assert.equal(result.ready, true);
+    assert.ok(result.value);
+    assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
+    assert.match(result.warnings[0]!.reason, /95% full/);
   });
 });
 
