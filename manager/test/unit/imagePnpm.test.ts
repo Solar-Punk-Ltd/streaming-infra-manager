@@ -6,7 +6,8 @@
  * another place. The web image installed pnpm 9 of its own, which never reads the
  * overrides in pnpm-workspace.yaml, so once those existed its frozen install
  * refused the lockfile and the deploy of v2.2 on 2026-09-25 stopped at the build.
- * Neither check workflow builds these two images, so this file is what notices.
+ * The checks workflow's images job builds both images since then. This file names
+ * that one cause in the unit suite, where it fails in seconds rather than minutes.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

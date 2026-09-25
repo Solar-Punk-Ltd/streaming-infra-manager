@@ -1,6 +1,7 @@
-# The checks main requires before a merge, D06. Three jobs: the build and
-# unit suites, the 34 SQL suites against nine disposable databases, and the
-# browser suites against a real headless Chrome.
+# The checks main requires before a merge, D06. Four jobs: the build and
+# unit suites, the 34 SQL suites against nine disposable databases, the
+# browser suites against a real headless Chrome, and a build of the two images
+# a deploy builds on the host.
 # Counts drift as suites are added. Re-measure rather than trusting them. What they prove and what they
 # do not: docs/ci.md.
 name: checks
@@ -200,3 +201,25 @@ jobs:
         # fixtures already put them. Nothing is uploaded: an upload action
         # would need the repository's four provenance checks first.
         run: pnpm --filter @streaming-infra-manager/frontend-prototype test:browser
+
+  images:
+    # The web and api images, built the way a deploy builds them on the host:
+    # from the repository root, with the Dockerfiles manager/docker-compose.yml
+    # names, and without the stack submodule, which the deploy's rsync leaves
+    # out too. The other jobs run the code from pnpm install on the runner, so
+    # until this job an image that could not build passed every check and
+    # failed at the deploy, as the web image of v2.2 did on 2026-09-25. Built
+    # and thrown away, never pushed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The daemon the images are built with
+        run: docker version --format 'server {{.Server.Version}}'
+
+      - name: The web image, frontend/Dockerfile
+        run: docker build --file frontend/Dockerfile --tag manager-web:checks .
+
+      - name: The api image, manager/Dockerfile
+        run: docker build --file manager/Dockerfile --tag manager-api:checks .

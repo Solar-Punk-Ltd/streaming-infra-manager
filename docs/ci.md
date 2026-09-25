@@ -5,13 +5,13 @@ funds. **A green check says nothing about a host, a Bee node or funds.**
 
 ## checks, on every pull request and push to main
 
-Three jobs, all on `ubuntu-latest`. Decision D06 of 2026-09-07: turning the
+Four jobs, all on `ubuntu-latest`, the fourth, `images`, since 2026-09-25. Decision D06 of 2026-09-07: turning the
 requirement on is a repository setting Levi makes after the workflow has run
 once, and he keeps a bypass. Main-branch pushes still require Levi's explicit instruction.
 
 The 2026-09-19 release transition keeps both `main` and `main-v2` in the workflow
 triggers so the candidate is checked before consolidation and the final `main`
-continues to run all three jobs. Levi explicitly authorized this consolidation.
+continues to run every job. Levi explicitly authorized this consolidation.
 
 **Where this stands, 2026-09-16, on `main-v2`.** This page was written at
 `6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed.
@@ -285,6 +285,27 @@ would have failed on this job's first run. Nothing is uploaded. An upload
 action would be a new action, and a new action needs the repository's four
 provenance checks recorded here first.
 
+### images
+
+Build `frontend/Dockerfile` and `manager/Dockerfile` from the repository root,
+which is how `manager/docker-compose.yml` builds them on the host, and throw
+both images away. The checkout leaves the stack submodule out, as the deploy's
+rsync does, so the build context matches the host's. Nothing is pushed.
+
+It proves that both images build from the committed tree: the pnpm the image
+installs with, the frozen lockfile against the workspace's settings, and each
+package's own build inside the image. It does not run either image, does not
+build the stack a deployment runs, and says nothing about the host's Docker.
+
+Why it exists: every other job runs the code from `pnpm install` on the
+runner, and so does the Docker-backed workflow's integration job, so until
+2026-09-25 nothing built these two images before a deploy did. That day `v2.2`
+passed every check and its deploy to 157.90.34.105 stopped at the web image,
+`ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`: `frontend/Dockerfile` installed pnpm 9,
+which never reads the overrides #46 put in `pnpm-workspace.yaml`. #53 fixed the
+Dockerfile, and `manager/test/unit/imagePnpm.test.ts` names that one cause in
+the unit suite. This job catches the rest.
+
 ### What a push costs
 
 Measured on this laptop on 2026-09-10 (12 cores, arm64), and the browser row
@@ -302,7 +323,7 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | SQL suites, one file at a time. 526 cases across 34 files, measured 2026-09-16 against a disposable Postgres | 235 s |
 | browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 37 now (2026-09-25) | 360 s |
 
-The three jobs run in parallel in wall-clock time but GitHub bills each one
+The jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on
 a private repository has two virtual cores against this laptop's twelve, and
 the work that dominates is serialized, so take the numbers above at roughly
@@ -525,7 +546,7 @@ round: a change to any file under `.github` can alter what a green pull request
 means.
 
 There is still no workflow lint and no secret scanner, so beyond that review the
-person reading a diff is the whole control. A pull request could empty the three
+person reading a diff is the whole control. A pull request could empty the
 required jobs while keeping their names, and every check would go green.
 
 **One thing is still open and it is Levi's**, because it is a repository
@@ -587,6 +608,13 @@ which is the point of it:
 export CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 export T09_TEST_PG_PORT=55432
 pnpm --filter @streaming-infra-manager/frontend-prototype test:browser
+```
+
+The two images, the way the `images` job and a deploy build them:
+
+```sh
+docker build --file frontend/Dockerfile --tag manager-web:checks .
+docker build --file manager/Dockerfile --tag manager-api:checks .
 ```
 
 The native transport suites, which need nothing at all:
