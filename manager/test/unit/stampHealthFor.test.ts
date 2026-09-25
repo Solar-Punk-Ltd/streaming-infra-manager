@@ -10,7 +10,7 @@
  * would trade one wrong claim for another.
  */
 import assert from 'node:assert/strict';
-import { describe, it, type TestContext } from 'node:test';
+import { describe, it } from 'node:test';
 
 import { BeeClient } from '../../src/domain/BeeClient.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';

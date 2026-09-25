@@ -69,7 +69,6 @@ import {
   buildDirFor,
   buildsRootFor,
   configRootFor,
-  deployRootProblem,
   deploysBuildOf,
   repoRootFor,
   settingsTreeOf,
