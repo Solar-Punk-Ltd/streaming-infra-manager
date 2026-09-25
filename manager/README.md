@@ -423,7 +423,7 @@ One key is the exception since 2026-09-23. `SRT_LATENCY`, how long SRS waits
 for a lost SRT packet to be resent before giving up on it, whole milliseconds
 from 20 to 10000, defaults to the manager's own 2000, which the owner decided
 that day. `v3.1` falls back to 200, as does every version cut before that day
-which reads the key at all, and the bundled stack, `v3.3`, falls
+which reads the key at all, and the bundled stack, `v3.4`, falls
 back to 2000 itself. On every version an absent `SRT_LATENCY` is written into
 `.env.<name>` as 2000 unless the base `.env` sets it, and the drawer calls it
 "Manager default". SRS waits that long on ingest only on a stack version whose
@@ -440,7 +440,7 @@ below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
-stack, `v3.3` as of 2026-09-24, publishes SRS's HTTP API port per
+stack, `v3.4` as of 2026-09-25, publishes SRS's HTTP API port per
 deployment as `SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
 `main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
 API needs a `<Managers>` block the template does not carry on either.
@@ -462,7 +462,7 @@ setting the drawer marks as not read (`notInConfig`).
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
 `deploy/docker-compose.srs-conf.yml` or the OME counterpart. The bundled
-stack, `v3.3`, ships both. A
+stack, `v3.4`, ships both. A
 version without the hook, such as the stack's `main-v2`, renders its template
 and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
@@ -523,12 +523,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on the bundled `v3.3`, 999 on the older `main-v2`, and the
+(99 on the bundled `v3.4`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
-`v3.3`, are generated the first
+`v3.4`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.
