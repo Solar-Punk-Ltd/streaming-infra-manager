@@ -3,6 +3,7 @@ import {
   classifyPublishUrl,
   type BeeNodeObservation,
   type BeeStampTransaction,
+  dilutionPreview,
   getErrorMessage,
   type PublishUrlState,
   sameBatchId,
@@ -26,6 +27,7 @@ import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
   DiluteDepthError,
+  DiluteLifeError,
   ProfileNotFoundError,
   StampNotFoundError,
   StampNotUsableError,
@@ -222,8 +224,9 @@ export class StampService {
 
   /**
    * Dilutes a batch this deployment's own node holds to `depth`, which has to be
-   * deeper than its own. Every step doubles what the batch holds and halves its
-   * life, and it costs the node's wallet only the transaction fee.
+   * deeper than its own and leave the batch at least a day of life, the least
+   * the postage contract accepts. Every step doubles what the batch holds and
+   * halves its life, and it costs the node's wallet only the transaction fee.
    */
   async diluteStamp(
     name: string,
@@ -236,6 +239,10 @@ export class StampService {
     const held = await this.heldStamp(profile, batchId);
     if (depth <= held.depth) {
       throw new DiluteDepthError(name, batchIdOf(batchId), held.depth, depth);
+    }
+    const after = dilutionPreview(held, depth);
+    if (after?.underMinimumValidity && after.ttl !== null) {
+      throw new DiluteLifeError(name, batchIdOf(batchId), depth, after.ttl);
     }
     const result = await this.callOn(profile, (client) =>
       client.diluteStamp(batchIdOf(batchId), depth),

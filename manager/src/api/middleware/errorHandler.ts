@@ -28,6 +28,7 @@ import {
   ContainerNotRunningError,
   CrossSiteRequestError,
   DiluteDepthError,
+  DiluteLifeError,
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
@@ -279,7 +280,11 @@ export function errorHandler(
     });
     return;
   }
-  if (err instanceof ChequebookFundsError || err instanceof DiluteDepthError) {
+  if (
+    err instanceof ChequebookFundsError ||
+    err instanceof DiluteDepthError ||
+    err instanceof DiluteLifeError
+  ) {
     // Same shape as a schema rejection: the amount or the depth asked for is
     // the problem, and the reason is the only text worth showing.
     res.status(400).json({ error: 'validation_error', errors: [err.reason] });

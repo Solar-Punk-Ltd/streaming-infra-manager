@@ -24,6 +24,7 @@ import {
   BeeHttpError,
   BeeNodeError,
   DiluteDepthError,
+  DiluteLifeError,
   ProfileNotFoundError,
   StampNotFoundError,
 } from '../../src/domain/errors/index.js';
@@ -215,6 +216,37 @@ describe('diluting a batch on a deployment’s own node', () => {
     assert.deepEqual(calls.dilutes, []);
   });
 
+  it('refuses a depth that would leave the batch under a day, which the postage contract refuses, without asking bee to dilute', async (t) => {
+    const { service, calls } = rig(t);
+
+    await assert.rejects(
+      () => service.diluteStamp('stage', BATCH, 25),
+      (err: unknown) =>
+        err instanceof DiluteLifeError &&
+        err.requestedDepth === 25 &&
+        err.ttlAfterSeconds === 43_200 &&
+        err.reason ===
+          `Diluting batch ${BATCH} to depth 25 would leave it with 12h 0m of life, under a day, and the postage contract refuses a dilution that leaves less than a day. Top it up first.`,
+    );
+    assert.deepEqual(calls.dilutes, []);
+  });
+
+  it('sends a depth that leaves a day exactly, which the contract accepts', async (t) => {
+    const { service, calls } = rig(t);
+
+    await service.diluteStamp('stage', BATCH, 24);
+
+    assert.deepEqual(calls.dilutes, [{ batchId: BATCH, depth: 24 }], 'two days halved is one');
+  });
+
+  it('leaves it to the contract where the node did not say the life left', async (t) => {
+    const { service, calls } = rig(t, { getStamp: async () => ({ ...heldBatch, batchTTL: -1 }) });
+
+    await service.diluteStamp('stage', BATCH, 25);
+
+    assert.deepEqual(calls.dilutes, [{ batchId: BATCH, depth: 25 }]);
+  });
+
   it('refuses a batch the node does not hold, before anything is sent', async (t) => {
     const { service, calls } = rig(t, {
       getStamp: async () => {
@@ -251,6 +283,24 @@ describe('a depth a batch cannot be diluted to', () => {
     assert.equal(body.error, 'validation_error');
     assert.equal(body.errors.length, 1);
     assert.match(body.errors[0]!, /depth 23/);
+    assert.doesNotMatch(body.errors[0]!, /[—;]/);
+  });
+});
+
+describe('a dilution that would leave a batch under a day', () => {
+  it('answers 400 with the reason where the page reads it', async (t) => {
+    const router = Router();
+    router.post('/dilute', (_req, _res, next) => next(new DiluteLifeError('stage', BATCH, 25, 45_900)));
+    const app = await startRouterTestApp(router);
+    t.after(() => app.close());
+
+    const res = await call(app, 'POST', '/dilute', {});
+
+    assert.equal(res.status, 400);
+    const body = res.body as { error: string; errors: string[] };
+    assert.equal(body.error, 'validation_error');
+    assert.equal(body.errors.length, 1);
+    assert.match(body.errors[0]!, /12h 45m of life, under a day/);
     assert.doesNotMatch(body.errors[0]!, /[—;]/);
   });
 });
