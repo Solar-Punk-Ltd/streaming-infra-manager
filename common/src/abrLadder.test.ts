@@ -338,6 +338,7 @@ describe('assembleBeePublishers — live batch state', () => {
     assert.equal(result.value, null);
     assert.deepEqual(result.missing.map((m) => m.rung), ['1080p']);
     assert.match(result.missing[0]!.reason, /full/);
+    assert.match(result.missing[0]!.reason, /Dilute it or buy a new one/);
     assert.equal(result.warnings.length, 0);
   });
 
@@ -472,6 +473,7 @@ describe('assembleBeePublishers — rung address and status', () => {
     assert.ok(result.value);
     assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
     assert.match(result.warnings[0]!.reason, /95% full/);
+    assert.match(result.warnings[0]!.reason, /Dilute it or buy the next one$/);
     assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
   });
 

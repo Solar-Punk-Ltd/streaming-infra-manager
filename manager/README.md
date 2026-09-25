@@ -307,6 +307,37 @@ includes `stream-uploader` behaves exactly like a `streamer`. A pool-backed
 pool's, one batch per rung, so `BEE_PUBLISHERS` satisfies the guard and nothing
 is held back.
 
+### Postage stamps (per profile, its own bee node)
+
+What a batch is, and what each change to one costs and does, is in
+[docs/features/postage-stamps.md](../docs/features/postage-stamps.md).
+
+| Method | Path                                 | Body                                    | Notes |
+| ------ | ------------------------------------ | --------------------------------------- | ----- |
+| GET    | `/profiles/:name/stamp/readiness`    |                                         | What the node's `/health` and `/readiness` say, with its chain progress. |
+| GET    | `/profiles/:name/stamp/address`      |                                         | The node's addresses, from bee's `/addresses`. |
+| GET    | `/profiles/:name/stamp/wallet`       |                                         | The node's wallet, BZZ and xDAI, from bee's `/wallet`. |
+| GET    | `/profiles/:name/stamp/chainstate`   |                                         | Bee's `/chainstate`, whose `currentPrice` is today's price a chunk a block. |
+| GET    | `/profiles/:name/stamp/stamps`       |                                         | `{ stamps }`, the node's batches from bee's `/stamps`. |
+| POST   | `/profiles/:name/stamp/buy`          | `{ amount, depth, label?, immutable? }` | Buys a batch. `202` with `{ batchID }`, and it is set on the profile once usable, as above. |
+| POST   | `/profiles/:name/stamp/set`          | `{ stamp_id }`                          | Records a batch on the profile and redeploys nothing. `200` with the profile. |
+| POST   | `/profiles/:name/stamp/topup`        | `{ batch_id, amount }`                  | Adds `amount` PLUR a chunk to a batch the node holds, paid from its wallet. `202` with `{ batchID, txHash }`. |
+| POST   | `/profiles/:name/stamp/dilute`       | `{ batch_id, depth }`                   | Raises a batch the node holds to a deeper `depth`. `202` with `{ batchID, txHash }`. |
+
+`batch_id` and `stamp_id` are 32 bytes of hex, with or without `0x`. `amount`
+is PLUR per chunk, a positive whole number as a string, and `depth` a whole
+number from 17 to 40. A body that breaks those is refused with 400.
+
+A top-up or a dilute asks the node for that one batch first, `GET /stamps/{id}`,
+and one the node does not hold is refused with `404 stamp_not_found`. A
+dilute to a depth that is not deeper than the batch's own, or one that would
+leave the batch under a day of life, which the postage contract refuses, is
+refused with 400. All three are refused before bee is asked. A top-up and a
+dilute answer once bee has the transaction mined, and the node shows the new
+life or depth once it has read it back from the chain, usually within a
+minute. A node still starting answers `503 bee_node_not_ready`, and any other
+failed call to it `502 bee_node_unreachable` with bee's own words.
+
 ### Chequebook (per profile, its own bee node)
 
 A bee node pays the peers that forward its uploads with cheques drawn on a

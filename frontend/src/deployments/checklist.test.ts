@@ -315,8 +315,9 @@ describe('the stamp step reads how full the batch is', () => {
     assert.equal(step?.problem, 'Stamp full');
     assert.equal(step?.state, 'err');
     assert.match(step?.detail ?? '', /128 of 128 chunks in its fullest bucket/);
-    assert.match(step?.detail ?? '', /refuses uploads until a new stamp is bought below, which is set here once it is usable/);
-    assert.equal(step?.action?.kind, 'buy-stamp');
+    assert.match(step?.detail ?? '', /refuses uploads until it is diluted or a new stamp is bought/);
+    assert.equal(step?.action?.kind, 'dilute-stamp');
+    assert.equal(step?.action?.label, 'Dilute or buy');
     assert.equal(step?.action?.primary, true);
   });
 
@@ -339,7 +340,17 @@ describe('the stamp step reads how full the batch is', () => {
     assert.equal(step?.problem, 'Stamp nearly full');
     assert.equal(step?.state, 'warn');
     assert.match(step?.detail ?? '', /95% full/);
-    assert.equal(step?.action?.label, 'Buy next stamp');
+    assert.equal(step?.action?.label, 'Dilute or buy');
+    assert.equal(step?.action?.kind, 'dilute-stamp');
+  });
+
+  it('offers a top-up for a batch with room that runs out within two days', () => {
+    const step = stampStepFor(hostBatch({ utilization: 64, batchTTL: 10 * 3_600 }));
+
+    assert.equal(step?.problem, 'Stamp ends soon');
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.action?.label, 'Top up or buy');
+    assert.equal(step?.action?.kind, 'top-up-stamp');
   });
 
   it('says how full a working batch is and that it is immutable', () => {

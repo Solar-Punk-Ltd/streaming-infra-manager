@@ -357,7 +357,7 @@ function softReasons(rung: LadderRungState): string[] {
 
   if (isStampNearlyFull(rung.stampFillRatio, rung.stampImmutable)) {
     reasons.push(
-      `this rung’s batch is ${formatFillPercent(rung.stampFillRatio!)} full. ${nearlyFullConsequence(rung.stampImmutable, rung.stampFillRatio)} Buy the next one`,
+      `this rung’s batch is ${formatFillPercent(rung.stampFillRatio!)} full. ${nearlyFullConsequence(rung.stampImmutable, rung.stampFillRatio)} Dilute it or buy the next one`,
     );
   }
 

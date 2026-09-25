@@ -8,6 +8,7 @@ import {
   isFullestBucketFull,
   isStampExpired,
   isStampExpiringSoon,
+  isStampFull,
   isStampNearlyFull,
   nearlyFullConsequence,
   STAMP_EXPIRY_WARNING_SECONDS,
@@ -233,6 +234,20 @@ describe('stampBucketCapacity', () => {
   });
 });
 
+describe('isStampFull', () => {
+  it('is true for a full batch that refuses, immutable or of a kind nobody said', () => {
+    assert.equal(isStampFull(1, true), true);
+    assert.equal(isStampFull(1, null), true);
+    assert.equal(isStampFull(1, undefined), true);
+  });
+
+  it('is false for a mutable batch, which overwrites, and for one with room left', () => {
+    assert.equal(isStampFull(1, false), false);
+    assert.equal(isStampFull(127 / 128, true), false);
+    assert.equal(isStampFull(null, true), false);
+  });
+});
+
 describe('isStampNearlyFull', () => {
   const past = 0.95;
 
@@ -333,6 +348,7 @@ describe('stampStateReason', () => {
 
     assert.match(reason, /full/);
     assert.match(reason, /refuses uploads/);
+    assert.match(reason, /Dilute it or buy a new one/, 'diluting is the remedy that keeps the batch');
     assert.doesNotMatch(reason, /[—;]/);
   });
 });

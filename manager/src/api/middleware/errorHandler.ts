@@ -27,6 +27,8 @@ import {
   ChequebookFundsError,
   ContainerNotRunningError,
   CrossSiteRequestError,
+  DiluteDepthError,
+  DiluteLifeError,
   DockerUnavailableError,
   DefaultVersionError,
   ProfileBusyError,
@@ -56,6 +58,7 @@ import {
   StackVersionChangedError,
   StackVersionInUseError,
   StackVersionNotFoundError,
+  StampNotFoundError,
   StampNotUsableError,
   StampRequiredError,
   UnknownServiceError,
@@ -269,9 +272,21 @@ export function errorHandler(
     });
     return;
   }
-  if (err instanceof ChequebookFundsError) {
-    // Same shape as a schema rejection: the amount asked for is the problem,
-    // and the reason is the only text worth showing.
+  if (err instanceof StampNotFoundError) {
+    res.status(404).json({
+      error: 'stamp_not_found',
+      name: err.profileName,
+      message: err.message,
+    });
+    return;
+  }
+  if (
+    err instanceof ChequebookFundsError ||
+    err instanceof DiluteDepthError ||
+    err instanceof DiluteLifeError
+  ) {
+    // Same shape as a schema rejection: the amount or the depth asked for is
+    // the problem, and the reason is the only text worth showing.
     res.status(400).json({ error: 'validation_error', errors: [err.reason] });
     return;
   }

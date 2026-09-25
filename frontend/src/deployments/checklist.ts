@@ -45,6 +45,8 @@ export type StepActionKind =
   | 'start'
   | 'copy-address'
   | 'buy-stamp'
+  | 'dilute-stamp'
+  | 'top-up-stamp'
   | 'fill-chequebook'
   | 'deploy-uploader'
   | 'edit'
@@ -392,6 +394,12 @@ function stampStep({
     kind: 'buy-stamp',
     primary,
   });
+  const dilute = (primary = false): StepAction => ({
+    label: 'Dilute or buy',
+    kind: 'dilute-stamp',
+    primary,
+  });
+  const topUp: StepAction = { label: 'Top up or buy', kind: 'top-up-stamp' };
 
   switch (stampHealth.state) {
     case 'none':
@@ -452,7 +460,7 @@ function stampStep({
         problem: STAMP_FULL,
         state: 'err',
         detail: fullStampDetail(stampHealth, currentStamp),
-        action: buy('Buy stamp', true),
+        action: dilute(true),
       };
     case 'active': {
       const nearlyFull = isStampNearlyFull(stampHealth.fillRatio, stampHealth.immutable);
@@ -465,10 +473,21 @@ function stampStep({
         detail: nearlyFull
           ? `${detail}. ${nearlyFullConsequence(stampHealth.immutable, stampHealth.fillRatio)}`
           : detail,
-        action: nearlyFull || endsSoon ? buy('Buy next stamp') : undefined,
+        action: activeStampAction(nearlyFull, endsSoon, dilute(), topUp),
       };
     }
   }
+}
+
+/** What a working batch's step offers: room first, since a batch that fills refuses sooner. */
+function activeStampAction(
+  nearlyFull: boolean,
+  endsSoon: boolean,
+  dilute: StepAction,
+  topUp: StepAction,
+): StepAction | undefined {
+  if (nearlyFull) return dilute;
+  return endsSoon ? topUp : undefined;
 }
 
 /** The step's problem for an immutable batch whose fullest bucket is full. */
@@ -493,9 +512,9 @@ function fullStampDetail(health: StampHealth, stamp: BeeStamp | null): string {
   const amount = fullestBucketText(health, stamp);
   const howFull = amount ? `, ${amount}` : '';
   if (health.immutable === null) {
-    return `Full${howFull}, and the node did not say whether it is immutable. An immutable batch this full refuses uploads until a new stamp is bought below, which is set here once it is usable.`;
+    return `Full${howFull}, and the node did not say whether it is immutable. An immutable batch this full refuses uploads until it is diluted or a new stamp is bought.`;
   }
-  return `Immutable and full${howFull}. The node refuses uploads until a new stamp is bought below, which is set here once it is usable.`;
+  return `Immutable and full${howFull}. The node refuses uploads until it is diluted or a new stamp is bought.`;
 }
 
 /**

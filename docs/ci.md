@@ -300,7 +300,7 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
 | SQL suites, one file at a time. 526 cases across 34 files, measured 2026-09-16 against a disposable Postgres | 235 s |
-| browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 32 now | 360 s |
+| browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 37 now (2026-09-25) | 360 s |
 
 The three jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on

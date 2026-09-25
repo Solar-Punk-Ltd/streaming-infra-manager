@@ -17,6 +17,7 @@ import {
 import {
   CHEQUEBOOK_EMPTY,
   NEEDS_A_STAMP,
+  STAMP_ENDS_SOON,
   STAMP_EXPIRED,
   STAMP_FULL,
   STAMP_NEARLY_FULL,
@@ -56,21 +57,35 @@ const abrUploader: Profile = {
 };
 
 describe('a row for a batch that fills', () => {
-  it('says a full batch makes its node refuse uploads, and offers to buy one', () => {
+  it('says a full batch makes its node refuse uploads, and offers to dilute it or buy one', () => {
     const row = attentionText(STAMP_FULL, base, null);
 
-    assert.equal(row.text, 'Its stamp is full, so its node refuses uploads. Buy a new one, which is set once it is usable.');
-    assert.equal(row.action, 'buy-stamp');
+    assert.equal(row.text, 'Its stamp is full, so its node refuses uploads. Dilute it or buy a new one.');
+    assert.equal(row.action, 'dilute-stamp');
   });
 
-  it('says a batch past the ceiling is worth replacing, true of a full mutable one too', () => {
+  it('says a batch past the ceiling is worth diluting or replacing, true of a full mutable one too', () => {
     const row = attentionText(STAMP_NEARLY_FULL, base, null);
 
     // Said of both kinds and of a mutable batch already full, which still warns
     // here rather than failing, so nothing in it may promise the batch has room.
     assert.match(row.text, /past 90% full/);
+    assert.match(row.text, /Dilute it or buy the next one/);
     assert.doesNotMatch(row.text, /before it fills|refusing uploads/);
-    assert.equal(row.action, 'buy-stamp');
+    assert.equal(row.action, 'dilute-stamp');
+  });
+});
+
+describe('a row for a batch that runs out', () => {
+  it('offers to top it up or buy the next one before it does', () => {
+    const row = attentionText(STAMP_ENDS_SOON, base, null);
+
+    assert.equal(row.text, 'Top it up or buy the next stamp before this one runs out.');
+    assert.equal(row.action, 'top-up-stamp');
+  });
+
+  it('keeps offering a new batch for one that has run out, which nothing else revives', () => {
+    assert.equal(attentionText(STAMP_EXPIRED, base, null).action, 'buy-stamp');
   });
 });
 

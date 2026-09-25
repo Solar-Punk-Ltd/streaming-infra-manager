@@ -2,6 +2,8 @@
 import {
   classifyPublishUrl,
   type BeeNodeObservation,
+  type BeeStampTransaction,
+  dilutionPreview,
   getErrorMessage,
   type PublishUrlState,
   sameBatchId,
@@ -24,7 +26,10 @@ import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
+  DiluteDepthError,
+  DiluteLifeError,
   ProfileNotFoundError,
+  StampNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
@@ -193,6 +198,62 @@ export class StampService {
     return result;
   }
 
+  /**
+   * Tops up a batch this deployment's own node holds, `amountPerChunkPlur` for
+   * every chunk of it, paid from that node's wallet. That buys the batch life
+   * and changes nothing else, so it stays set wherever it was set.
+   */
+  async topUpStamp(
+    name: string,
+    batchId: string,
+    amountPerChunkPlur: string,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    await this.heldStamp(profile, batchId);
+    const result = await this.callOn(profile, (client) =>
+      client.topUpStamp(batchIdOf(batchId), amountPerChunkPlur),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: topped up stamp ${batchIdOf(batchId)} (amount=${amountPerChunkPlur}), transaction ${result.txHash}`,
+    );
+    return result;
+  }
+
+  /**
+   * Dilutes a batch this deployment's own node holds to `depth`, which has to be
+   * deeper than its own and leave the batch at least a day of life, the least
+   * the postage contract accepts. Every step doubles what the batch holds and
+   * halves its life, and it costs the node's wallet only the transaction fee.
+   */
+  async diluteStamp(
+    name: string,
+    batchId: string,
+    depth: number,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const held = await this.heldStamp(profile, batchId);
+    if (depth <= held.depth) {
+      throw new DiluteDepthError(name, batchIdOf(batchId), held.depth, depth);
+    }
+    const after = dilutionPreview(held, depth);
+    if (after?.underMinimumValidity && after.ttl !== null) {
+      throw new DiluteLifeError(name, batchIdOf(batchId), depth, after.ttl);
+    }
+    const result = await this.callOn(profile, (client) =>
+      client.diluteStamp(batchIdOf(batchId), depth),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: diluted stamp ${batchIdOf(batchId)} (depth=${held.depth} to ${depth}), transaction ${result.txHash}`,
+    );
+    return result;
+  }
+
   async setStamp(name: string, stampId: string): Promise<ProfileWithContainers> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
@@ -353,6 +414,31 @@ export class StampService {
   /** One batch on one profile, however the caller spelled the id. */
   private stampKey(name: string, stampId: string): string {
     return nodeReadKey(name, `stamp/${batchIdOf(stampId)}`);
+  }
+
+  /**
+   * A batch as this deployment's own node reports it now, asked fresh because
+   * the caller is about to pay on it, and refused where the node does not hold
+   * it.
+   *
+   * Asks the node for that one batch, `GET /stamps/{id}`, which answers only
+   * for a batch this node owns, because bee does not refuse a change to a
+   * batch it does not hold in words: its batch store holds every batch on the
+   * chain, a top-up of any of them can be paid for, and one it knows nothing
+   * about is a bare 500, "cannot topup batch" (bee v2.7.0, pkg/api/postage.go).
+   */
+  private async heldStamp(profile: Profile, batchId: string): Promise<BeeStamp> {
+    const client = this.clientFactory(beeApiUrlFor(profile));
+    try {
+      return await this.reads.readFresh(this.stampKey(profile.name, batchId), () =>
+        client.getStamp(batchIdOf(batchId)),
+      );
+    } catch (err) {
+      if (err instanceof BeeHttpError && err.status === 404) {
+        throw new StampNotFoundError(profile.name, batchIdOf(batchId));
+      }
+      throw beeCallFailed(profile.name, err);
+    }
   }
 
   private shared<T>(
