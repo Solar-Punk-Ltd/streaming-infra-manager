@@ -80,6 +80,22 @@ describe('diluting a batch', () => {
     assert.equal(dilutionPreview(hostBatch({ batchTTL: 0 }), 24)?.ttl, 0);
   });
 
+  it('says when the life after is under the day the postage contract refuses a dilution below', () => {
+    assert.equal(dilutionPreview(hostBatch(), 24)?.underMinimumValidity, false, 'a day and an hour and a half');
+    assert.equal(dilutionPreview(hostBatch(), 25)?.underMinimumValidity, true, 'twelve hours and three quarters');
+    assert.equal(dilutionPreview(hostBatch({ batchTTL: 0 }), 24)?.underMinimumValidity, true, 'spent');
+  });
+
+  it('takes a day exactly, which the contract accepts, and refuses a second less', () => {
+    assert.equal(dilutionPreview(hostBatch({ batchTTL: 2 * DAY }), 24)?.underMinimumValidity, false);
+    assert.equal(dilutionPreview(hostBatch({ batchTTL: 2 * DAY - 2 }), 24)?.underMinimumValidity, true);
+  });
+
+  it('leaves it to the contract where the node did not say the life left', () => {
+    assert.equal(dilutionPreview(hostBatch({ batchTTL: -1 }), 24)?.underMinimumValidity, false);
+    assert.equal(dilutionPreview(hostBatch({ batchTTL: undefined }), 24)?.underMinimumValidity, false);
+  });
+
   it('says nothing about buckets where the node did not report its bucket depth', () => {
     const { bucketDepth: _unsaid, ...unbucketed } = hostBatch();
     const after = dilutionPreview(unbucketed, 24);

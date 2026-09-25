@@ -10,6 +10,7 @@
  */
 import {
   MAX_STAMP_DEPTH,
+  MINIMUM_STAMP_VALIDITY_SECONDS,
   stampCostPlur,
   stampTtlSeconds,
 } from './stampCost.js';
@@ -58,6 +59,15 @@ export interface DilutionPreview {
   fillRatio: number | null;
   /** Seconds left after, or null where the node did not say how many it has now. */
   ttl: number | null;
+  /**
+   * Whether the life after is under `MINIMUM_STAMP_VALIDITY_SECONDS`, a day,
+   * which the postage contract refuses a dilution for: `increaseDepth` reverts
+   * when the balance left for each chunk would pay for fewer than
+   * `minimumValidityBlocks` at today's price (storage-incentives,
+   * PostageStamp.sol). False where the life after is not known, which leaves
+   * the answer to the contract.
+   */
+  underMinimumValidity: boolean;
 }
 
 export interface TopUpPreview {
@@ -92,11 +102,13 @@ export function dilutionPreview(
 
   const after: StampFill = { ...stamp, depth: newDepth };
   const steps = newDepth - depth;
+  const ttl = isKnownTtl(stamp.batchTTL) ? Math.floor(stamp.batchTTL / 2 ** steps) : null;
   return {
     chunks: 2 ** newDepth,
     bucketChunks: stampBucketCapacity(after),
     fillRatio: fullestBucketFillRatio(after),
-    ttl: isKnownTtl(stamp.batchTTL) ? Math.floor(stamp.batchTTL / 2 ** steps) : null,
+    ttl,
+    underMinimumValidity: ttl !== null && ttl < Number(MINIMUM_STAMP_VALIDITY_SECONDS),
   };
 }
 
