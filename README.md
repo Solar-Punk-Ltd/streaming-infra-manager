@@ -60,9 +60,10 @@ See [docs/features/abr-ladder.md](docs/features/abr-ladder.md).
 
 ## Checks
 
-The `checks` workflow declares three jobs on every pull request and push to
+The `checks` workflow declares four jobs on every pull request and push to
 `main` (and `main-v2` during the release transition): the build and the unit suites, the SQL suites against nine
-disposable databases, and the browser suites against a real headless Chrome. A
+disposable databases, the browser suites against a real headless Chrome, and a
+build of the web and api images the way a deploy builds them on the host. A
 second workflow, started by hand, runs the container-backed regressions and the
 signed-in integration suite. Checked on GitHub on 2026-09-16: nobody has ever
 dispatched that second workflow by hand. It has run five times on its own, on
