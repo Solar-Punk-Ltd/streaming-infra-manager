@@ -175,6 +175,19 @@ describe('the offline mock changing a batch its node holds', { concurrency: fals
     assert.match(res.body.errors[0], new RegExp(`already at depth ${batch.depth}`));
   });
 
+  it('refuses a depth that would leave the batch under a day, in the manager’s words', async () => {
+    const [batch] = await batches();
+    const stepsUnderADay = Math.floor(Math.log2(batch.batchTTL / DAY)) + 1;
+
+    const res = await request(`/profiles/${NODE}/stamp/dilute`, 'POST', { batch_id: batch.batchID, depth: batch.depth + stepsUnderADay });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, 'validation_error');
+    assert.match(res.body.errors[0], /of life, under a day, and the postage contract refuses a dilution that leaves less than a day/);
+    const [unchanged] = await batches();
+    assert.equal(unchanged.depth, batch.depth);
+  });
+
   it('names the pool’s full rung in its words, until the rung is diluted', async () => {
     const { groups } = (await request('/groups')).body;
     const pool = groups.find((group) => group.kind === 'abr-node-pool');

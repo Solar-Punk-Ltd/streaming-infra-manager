@@ -11,6 +11,7 @@
 import { dilutionPreview, topUpPreview } from '@streaming-infra-manager/common';
 
 import { DiluteDepthError } from '../../manager/src/domain/errors/DiluteDepthError.ts';
+import { DiluteLifeError } from '../../manager/src/domain/errors/DiluteLifeError.ts';
 import { StampNotFoundError } from '../../manager/src/domain/errors/StampNotFoundError.ts';
 import {
   diluteStampSchema,
@@ -87,6 +88,11 @@ export function stampChangeRoutes({ readBody, withProfile }) {
         if (!stamp) return refuseNotHeld(res, profile, body.batch_id);
         if (body.depth <= stamp.depth) {
           const refusal = new DiluteDepthError(profile.name, stamp.batchID, stamp.depth, body.depth);
+          return send(res, 400, { error: 'validation_error', errors: [refusal.reason] });
+        }
+        const after = dilutionPreview(stamp, body.depth);
+        if (after?.underMinimumValidity) {
+          const refusal = new DiluteLifeError(profile.name, stamp.batchID, body.depth, after.ttl);
           return send(res, 400, { error: 'validation_error', errors: [refusal.reason] });
         }
         send(res, 202, sentTransaction(stamp));
