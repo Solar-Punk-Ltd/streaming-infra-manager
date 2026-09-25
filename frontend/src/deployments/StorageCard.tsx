@@ -10,8 +10,11 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import {
   type ChequebookHealth,
+  formatFillPercent,
   getErrorMessage,
   isStampExpiringSoon,
+  isStampNearlyFull,
+  nearlyFullConsequence,
   parsePlur,
   type StampHealth,
 } from '@streaming-infra-manager/common';
@@ -29,6 +32,7 @@ import { NodeFunding } from '../uploaders/NodeFunding';
 import { StampTable } from '../uploaders/StampTable';
 import { buyStamp, setStamp, type BuyStampInput } from '../uploaders/stampApi';
 import type { BeeUtils } from '../uploaders/useBeeUtils';
+import { newBatchReach } from './newBatchReach';
 
 /**
  * The deployment's own Bee node: what it holds, what it can still pay peers
@@ -44,6 +48,7 @@ export function StorageCard({
   stampHealth,
   chequebookHealth,
   defaultDepth,
+  rung,
   onChanged,
 }: {
   profile: Profile;
@@ -52,6 +57,8 @@ export function StorageCard({
   chequebookHealth: ChequebookHealth | null;
   /** An ABR rung starts the buy form at the depth its bitrate wants. */
   defaultDepth?: number;
+  /** The ABR rung this node publishes, when it is a pool member. */
+  rung?: string | null;
   onChanged: () => void;
 }) {
   const { chequebookFloorBzz } = useDeployments();
@@ -83,6 +90,15 @@ export function StorageCard({
       await setStamp(profile.name, batchID);
       onChanged();
     });
+
+  const reach = newBatchReach(profile, rung);
+
+  const nearlyFullAt =
+    stampHealth.state === 'active' &&
+    stampHealth.fillRatio !== null &&
+    isStampNearlyFull(stampHealth.fillRatio, stampHealth.immutable)
+      ? formatFillPercent(stampHealth.fillRatio)
+      : null;
 
   const moveSourcePlur =
     moving === 'withdraw'
@@ -117,21 +133,38 @@ export function StorageCard({
             {stampHealth.state === 'expired'
               ? 'The postage batch this deployment pays with has expired. '
               : 'This Bee node does not hold the batch recorded for it, usually because the batch expired and was dropped. '}
-            Uploads cannot be paid for until a new batch is bought below and set
-            with <strong>Use</strong>.
+            Uploads cannot be paid for until a new batch is bought below, which is
+            set here once it is usable.
           </Alert>
         )}
-        {!stampHealth.dead && isStampExpiringSoon(stampHealth.ttl) && (
+        {stampHealth.state === 'full' && (
+          <Alert severity="error">
+            The postage batch this deployment pays with is full, and it cannot
+            overwrite what it holds, so this Bee node refuses the uploads it is
+            sent. Uploads cannot be paid for until a new batch is bought below,
+            which is set here once it is usable.
+          </Alert>
+        )}
+        {nearlyFullAt && (
+          <Alert severity="warning">
+            This batch is <strong>{nearlyFullAt} full</strong>.{' '}
+            {nearlyFullConsequence(stampHealth.immutable, stampHealth.fillRatio)}{' '}
+            Buy the next one below.
+          </Alert>
+        )}
+        {!stampHealth.dead && stampHealth.state !== 'full' && isStampExpiringSoon(stampHealth.ttl) && (
           <Alert severity="warning">
             This batch runs out in <strong>{formatTtl(stampHealth.ttl)}</strong>.
-            Buy the next one below and set it with <strong>Use</strong> before it
-            does. Once a batch is spent its uploads fail and it cannot be revived.
+            Buy the next one below before it does. Once a batch is spent its
+            uploads fail and it cannot be revived.
           </Alert>
         )}
         {bee.waitingBatch && (
           <Alert severity="info" icon={<CircularProgress size={18} />}>
             Waiting for batch <code>{shortHex(bee.waitingBatch)}</code> to become
-            usable. This takes a few minutes, and it is set here automatically.
+            usable. This takes a few minutes, and it is then set here
+            automatically, unless another batch is set with <strong>Use</strong>{' '}
+            first.{reach ? ` ${reach}` : ''}
           </Alert>
         )}
 
@@ -165,6 +198,7 @@ export function StorageCard({
           onBuy={handleBuy}
           currentPrice={bee.chainState?.currentPrice ?? null}
           defaultDepth={defaultDepth}
+          newBatchReach={reach}
         />
       </Stack>
 

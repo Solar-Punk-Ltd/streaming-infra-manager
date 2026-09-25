@@ -1241,6 +1241,8 @@ export class ProfileService {
         stampId: profile.stamp_id,
         stampState: stamps[index]!.state,
         stampTtl: stamps[index]!.ttl,
+        stampFillRatio: stamps[index]!.fillRatio,
+        stampImmutable: stamps[index]!.immutable,
         urlState: urlStates[index],
       })),
     );

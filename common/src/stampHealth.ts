@@ -16,8 +16,23 @@
 
 import type { ReadFailure } from './nodeReading.js';
 
+/**
+ * What bee's `/stamps` entry says about how full a batch is.
+ *
+ * Every field is optional because callers hand over whatever they were given,
+ * and a missing one means nobody said, never zero.
+ */
+export interface StampFill {
+  /** Chunks in the batch's fullest bucket, not in the whole batch. */
+  utilization?: number;
+  /** The batch holds `2^depth` chunks. */
+  depth?: number;
+  /** The batch's chunks are spread over `2^bucketDepth` buckets. */
+  bucketDepth?: number;
+}
+
 /** The fields of bee's `/stamps` entry that decide whether a batch can still pay. */
-export interface StampLike {
+export interface StampLike extends StampFill {
   batchID: string;
   usable: boolean;
   /**
@@ -26,6 +41,11 @@ export interface StampLike {
    */
   batchTTL: number;
   exists?: boolean;
+  /**
+   * An immutable batch refuses the uploads that land in a full bucket. A mutable
+   * one takes them and overwrites that bucket's oldest chunks instead.
+   */
+  immutableFlag?: boolean;
 }
 
 export type StampState =
@@ -37,6 +57,13 @@ export type StampState =
   | 'active'
   /** Recorded, on the node, bought too recently to be usable yet. */
   | 'pending'
+  /**
+   * Recorded, on the node, immutable, and its fullest bucket is full, so the node
+   * answers 402 to every upload that lands in that bucket, and to a growing share
+   * of all uploads as the other buckets fill. Diluting it buys room, so it is not
+   * beyond saving.
+   */
+  | 'full'
   /** Recorded, on the node, out of time. */
   | 'expired'
   /** Recorded, but the node no longer knows this batch, expired and dropped. */
@@ -50,11 +77,120 @@ export interface StampHealth {
   dead: boolean;
   /** Seconds left, when the node said. */
   ttl: number | null;
+  /** How full the fullest bucket is, see `fullestBucketFillRatio`. Null when the node did not say enough. */
+  fillRatio: number | null;
+  /** Whether the batch is immutable, null when the node did not say. */
+  immutable: boolean | null;
   /** Why the node was not asked successfully, where it was asked and failed. */
   failure?: ReadFailure;
 }
 
 const DEAD_STATES: readonly StampState[] = ['expired', 'gone'];
+
+/**
+ * The uploader's default start ceiling, the stack's `STAMP_MAX_UTILIZATION`. An
+ * uploader restarted on an immutable batch fuller than this refuses to boot, and
+ * the uploader of stack v3.3 and earlier refuses a mutable one as well, which is
+ * why the manager warns from here rather than only once the batch fills.
+ */
+export const STAMP_FILL_WARNING_RATIO = 0.9;
+
+/** A fill that has reached its bucket's capacity. */
+const FULL_RATIO = 1;
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * How many chunks one bucket of a batch holds, `2^(depth - bucketDepth)`, or null
+ * when the two depths are missing, are not whole non-negative numbers, or describe
+ * a batch shallower than its own buckets.
+ */
+export function stampBucketCapacity(stamp: StampFill): number | null {
+  const { depth, bucketDepth } = stamp;
+  if (!isCount(depth) || !isCount(bucketDepth) || depth < bucketDepth) return null;
+  return 2 ** (depth - bucketDepth);
+}
+
+/**
+ * How full a batch's fullest bucket is, as a share of what one bucket holds.
+ *
+ * That is the number that decides refusals, not the batch's overall fill: bee
+ * spreads chunks over buckets by address, an immutable batch refuses a chunk
+ * whose own bucket is full, and bee's `utilization` counts the fullest bucket
+ * alone. `1` is full.
+ *
+ * Null whenever any of the three fields is missing or not a whole non-negative
+ * number, or the depths contradict each other. Absence is never read as empty.
+ */
+export function fullestBucketFillRatio(stamp: StampFill): number | null {
+  const capacity = stampBucketCapacity(stamp);
+  if (capacity === null || !isCount(stamp.utilization)) return null;
+  return stamp.utilization / capacity;
+}
+
+/**
+ * A fill as a whole percentage, rounded down, so a batch one chunk short of full
+ * never reads as 100%.
+ */
+export function formatFillPercent(fillRatio: number): string {
+  return `${Math.floor(fillRatio * 100)}%`;
+}
+
+/** Whether a fill from `fullestBucketFillRatio` has reached its bucket's capacity. */
+export function isFullestBucketFull(fillRatio: number | null | undefined): boolean {
+  return fillRatio != null && fillRatio >= FULL_RATIO;
+}
+
+/**
+ * Whether a full bucket makes this batch refuse uploads. A batch whose kind nobody
+ * reported is taken to refuse, since that is the kind that fails.
+ */
+function refusesWhenFull(immutable: boolean | null | undefined): boolean {
+  return immutable !== false;
+}
+
+function isFullAndRefusing(
+  fillRatio: number | null,
+  immutable: boolean | null,
+): boolean {
+  return isFullestBucketFull(fillRatio) && refusesWhenFull(immutable);
+}
+
+/**
+ * A batch past the uploader's start ceiling that still takes uploads, the way
+ * `isStampExpiringSoon` is for time.
+ *
+ * An immutable batch, or one of a kind nobody reported, raises it until it is
+ * full, and full is not a warning but a failure, reported as `full`. A mutable
+ * batch raises it full or not: bee never refuses it, but once full it overwrites
+ * the oldest chunks it paid for, and the uploader of stack v3.3 and earlier holds
+ * it to the same start ceiling.
+ */
+export function isStampNearlyFull(
+  fillRatio: number | null | undefined,
+  immutable: boolean | null | undefined,
+): boolean {
+  if (fillRatio == null || fillRatio <= STAMP_FILL_WARNING_RATIO) return false;
+  return !refusesWhenFull(immutable) || !isFullestBucketFull(fillRatio);
+}
+
+/**
+ * What a batch past the start ceiling leads to, by its kind, for the warnings
+ * that name it. Shared so the checklist, the pool and the Storage card agree.
+ */
+export function nearlyFullConsequence(
+  immutable: boolean | null | undefined,
+  fillRatio?: number | null,
+): string {
+  if (refusesWhenFull(immutable)) {
+    return 'Past 90% an uploader restarted on it refuses to start, and once it fills its node refuses uploads.';
+  }
+  return isFullestBucketFull(fillRatio)
+    ? 'Its node now overwrites its oldest chunks, so the oldest recordings paid with it are losing data, and the uploader of stack v3.3 and earlier refuses to restart on it.'
+    : 'Once it fills its node overwrites its oldest chunks, so the oldest recordings paid with it start losing data, and past 90% the uploader of stack v3.3 and earlier refuses to restart on it.';
+}
 
 /**
  * How much life left in a batch is worth warning about.
@@ -116,28 +252,48 @@ export function stampHealthFrom(
   stamps: readonly StampLike[] | null,
   failure?: ReadFailure,
 ): StampHealth {
-  if (!stampId || !stampId.trim()) return health('none', null);
-  if (stamps === null) return health('unknown', null, failure);
+  if (!stampId || !stampId.trim()) return health('none');
+  if (stamps === null) return health('unknown', undefined, failure);
 
   const found = stamps.find((stamp) => sameBatchId(stamp.batchID, stampId));
   // A node that disowns the batch is telling us the same thing as one that has
   // dropped it from the list: it is not there any more.
-  if (!found || found.exists === false) return health('gone', null);
-  if (isStampExpired(found)) return health('expired', found.batchTTL);
-  if (!found.usable) return health('pending', found.batchTTL);
-  return health('active', found.batchTTL);
+  if (!found || found.exists === false) return health('gone');
+
+  const reading: NodeReading = {
+    ttl: found.batchTTL,
+    fillRatio: fullestBucketFillRatio(found),
+    immutable: found.immutableFlag ?? null,
+  };
+  if (isStampExpired(found)) return health('expired', reading);
+  if (!found.usable) return health('pending', reading);
+  // bee goes on calling a full immutable batch usable, with time left, while it
+  // refuses every upload that lands in the full bucket.
+  if (isFullAndRefusing(reading.fillRatio, reading.immutable)) {
+    return health('full', reading);
+  }
+  return health('active', reading);
+}
+
+/** What the node said about the batch it holds. Nothing, where it was not asked or holds none. */
+interface NodeReading {
+  ttl: number;
+  fillRatio: number | null;
+  immutable: boolean | null;
 }
 
 function health(
   state: StampState,
-  ttl: number | null,
+  reading?: NodeReading,
   failure?: ReadFailure,
 ): StampHealth {
   return {
     state,
     ok: state === 'active',
     dead: DEAD_STATES.includes(state),
-    ttl,
+    ttl: reading?.ttl ?? null,
+    fillRatio: reading?.fillRatio ?? null,
+    immutable: reading?.immutable ?? null,
     ...(failure ? { failure } : {}),
   };
 }
@@ -157,6 +313,8 @@ export function stampStateReason(state: StampState): string | null {
       return 'this rung’s bee node no longer holds the batch recorded for it — buy a new one';
     case 'pending':
       return 'the postage batch on this rung is not usable yet — bee is still settling it';
+    case 'full':
+      return 'the postage batch on this rung is full, so its node refuses uploads. Buy a new one on the rung’s page';
     case 'active':
     case 'unknown':
       return null;

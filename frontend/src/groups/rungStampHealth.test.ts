@@ -44,6 +44,8 @@ describe('the stamp reading a pool result already carries', () => {
       ok: true,
       dead: false,
       ttl: 500_000,
+      fillRatio: null,
+      immutable: null,
     });
   });
 
@@ -53,6 +55,27 @@ describe('the stamp reading a pool result already carries', () => {
       assert.equal(health?.dead, true, state);
       assert.equal(health?.ok, false, state);
     }
+  });
+
+  it('keeps a batch the manager reports full, with how full and of which kind', () => {
+    const health = rungStampHealth(
+      rung({ stampState: 'full', stampTtl: 184_320, stampFillRatio: 1, stampImmutable: true }),
+      BATCH,
+    );
+
+    assert.equal(health?.state, 'full');
+    assert.equal(health?.ok, false);
+    // A full batch can still be diluted, so it is not beyond saving.
+    assert.equal(health?.dead, false);
+    assert.equal(health?.fillRatio, 1);
+    assert.equal(health?.immutable, true);
+  });
+
+  it('reads a fill the manager did not report as unknown, never as empty', () => {
+    const health = rungStampHealth(rung({ stampState: 'active', stampTtl: 9 }), BATCH);
+
+    assert.equal(health?.fillRatio, null);
+    assert.equal(health?.immutable, null);
   });
 
   it('calls a batch still settling neither usable nor dead', () => {
@@ -103,8 +126,8 @@ describe('the stamp reading a pool result already carries', () => {
 });
 
 describe('two sources of the same reading', () => {
-  const live = { state: 'active' as const, ok: true, dead: false, ttl: 9 };
-  const expired = { state: 'expired' as const, ok: false, dead: true, ttl: 0 };
+  const live = { state: 'active' as const, ok: true, dead: false, ttl: 9, fillRatio: null, immutable: null };
+  const expired = { state: 'expired' as const, ok: false, dead: true, ttl: 0, fillRatio: null, immutable: null };
 
   it('keeps what the manager read of a rung over what a page polled', () => {
     const merged = mergedStampHealths(

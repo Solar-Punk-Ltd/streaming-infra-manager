@@ -7,7 +7,11 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { ChequebookHealth, StampHealth } from '@streaming-infra-manager/common';
+import type {
+  ChequebookHealth,
+  StampHealth,
+  UploaderHealthReading,
+} from '@streaming-infra-manager/common';
 
 import { useEditors } from '../app/EditorsContext';
 import { navigate, routes } from '../app/router';
@@ -36,6 +40,7 @@ export function DeploymentRow({
   rung,
   chequebook = null,
   stampHealth,
+  uploaderHealth,
   indented = false,
 }: {
   profile: Profile;
@@ -54,6 +59,8 @@ export function DeploymentRow({
    * rather than a batch that is not paying.
    */
   stampHealth?: StampHealth;
+  /** What its uploader said about itself, the reading the list's filter judged it by. */
+  uploaderHealth?: UploaderHealthReading;
   indented?: boolean;
 }) {
   const serverHost = useServerHost();
@@ -61,7 +68,7 @@ export function DeploymentRow({
   const { openWizard, openEditDeployment } = useEditors();
   const publish = usePublishUrl(profile);
 
-  const readiness = readinessOf(profile, stampHealth, chequebook);
+  const readiness = readinessOf(profile, stampHealth, chequebook, { uploaderHealth });
   const shape = shapeOf(profile);
   const watchUrl = clientUrl(profile, serverHost);
   // The passphrase is asked for by the copy rather than by the row, so a page

@@ -150,8 +150,13 @@ to `POST /groups`, where it makes the group an ABR node pool, and a create body
 carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
 and its rules are the ones the route enforces.
 
-`GET /profiles/:name/uploader-health` is read by the deployment page and by
-nothing else, because a list would have to ask every uploader in turn. Decision
+`GET /profiles/:name/uploader-health` is read by the deployment page every ten
+seconds and, since 2026-09-25, by the overview and the Deployments page every
+thirty seconds for each running deployment with an uploader container, so their
+"Needs attention" lists, the overview's Streams table and the Deployments rows
+say what an uploader reports about itself. Until then a list
+never asked, and on 2026-09-24 the overview read "everything is running and
+ready" while the tester's ABR uploader reported `postage_refused`. Decision
 D16 of 2026-09-17 lets an uploader start on a Bee node that is not answering, so
 a running container stopped meaning a working one: the uploader waits for that
 node and reports the wait on its own `/health`, which this route reads on the
@@ -165,7 +170,14 @@ The deployment checklist renders that health step for a single-node stream and
 for a pool-backed `abr-uploader`. An ABR uploader puts its pool configuration
 first and needs no single-node stamp or funding check of its own. Once the pool
 string is usable, the same waiting, warned, unhealthy and healthy readings are
-shown from the uploader's route.
+shown from the uploader's route. Since 2026-09-25 a wait for the node and an
+`unreachable` reading are warnings on that step, as a start gate that warned
+already was, because the uploader is uploading nothing or nothing confirmed
+that it is, and the overview lists exactly what the step does not call ok. The
+step spells out `postage_refused`: a Bee node refused the batch it was paid
+with, usually because it is full or has expired, and that node's uploads fail
+until the uploader is
+deployed again with a batch that pays.
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
@@ -278,6 +290,16 @@ as a whole. The profile still reads `RUNNING`, because it is, minus the
 uploader, and a derived `pendingStamp` field carries the difference rather than
 a new status. Once a batch exists,
 `POST /profiles/:name/deploy-uploader` deploys that one service.
+
+A batch bought with `POST /profiles/:name/stamp/buy` is set on that profile
+once its node calls it usable, which the manager polls for every three seconds
+for up to fifteen minutes. Since 2026-09-25 that holds whatever the profile
+recorded before, because a batch bought on a deployment is bought for it and a
+recorded batch is usually why: it is full or running out. The one exception is
+a batch set with `POST /profiles/:name/stamp/set` while the bought one settled,
+which is kept, and the log says so. Setting a stamp redeploys nothing, so an
+uploader already running goes on paying with the batch its env file named when
+it was deployed, until the deployment is deployed again.
 
 The test is the component set, never the kind: a `custom` deployment that
 includes `stream-uploader` behaves exactly like a `streamer`. A pool-backed

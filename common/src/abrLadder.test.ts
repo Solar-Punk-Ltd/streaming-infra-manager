@@ -324,6 +324,23 @@ describe('assembleBeePublishers — live batch state', () => {
     assert.deepEqual(result.missing.map((m) => m.rung), ['360p', '720p', '1080p']);
   });
 
+  // The tester's pool on 2026-09-24: the 1080p rung's immutable batch was full,
+  // its node refused every upload with a 402, and the pool still read ready.
+  it('refuses the string when one rung’s immutable batch is full', () => {
+    const result = assembleBeePublishers(
+      full().map((r) =>
+        (r.rung === '1080p'
+          ? { ...r, stampState: 'full' as const, stampFillRatio: 1, stampImmutable: true }
+          : r),
+      ),
+    );
+    assert.equal(result.ready, false);
+    assert.equal(result.value, null);
+    assert.deepEqual(result.missing.map((m) => m.rung), ['1080p']);
+    assert.match(result.missing[0]!.reason, /full/);
+    assert.equal(result.warnings.length, 0);
+  });
+
   it('carries the live state through on the rungs it reports', () => {
     const result = assembleBeePublishers(
       full().map((r) => (r.rung === '720p' ? { ...r, stampState: 'gone' as const } : r)),
@@ -443,6 +460,30 @@ describe('assembleBeePublishers — rung address and status', () => {
     assert.equal(result.ready, true);
     assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
     assert.ok(result.warnings[0]!.reason.includes('6h'));
+  });
+
+  it('warns while an immutable batch is past the uploader’s start ceiling but not yet full', () => {
+    const result = assembleBeePublishers(
+      full().map((r) =>
+        (r.rung === '1080p' ? { ...r, stampFillRatio: 0.95, stampImmutable: true } : r),
+      ),
+    );
+    assert.equal(result.ready, true);
+    assert.ok(result.value);
+    assert.deepEqual(result.warnings.map((w) => w.rung), ['1080p']);
+    assert.match(result.warnings[0]!.reason, /95% full/);
+    assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
+  });
+
+  it('warns about a mutable batch past the ceiling in its own words, still offering the string', () => {
+    const result = assembleBeePublishers(
+      full().map((r) => ({ ...r, stampFillRatio: 0.95, stampImmutable: false })),
+    );
+    assert.equal(result.ready, true);
+    assert.equal(result.warnings.length, 4);
+    assert.match(result.warnings[0]!.reason, /overwrites its oldest chunks/);
+    assert.match(result.warnings[0]!.reason, /stack v3\.3 and earlier refuses to restart on it/);
+    assert.doesNotMatch(result.warnings[0]!.reason, /[—;]/);
   });
 
   it('does not warn about a batch with plenty of life left', () => {

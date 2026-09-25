@@ -93,3 +93,31 @@ describe('the pill on a pool the manager calls ready', () => {
     assert.deepEqual(poolProblems(ready, readings), []);
   });
 });
+
+describe('a pool whose rung holds a full batch', () => {
+  // The tester's pool on 2026-09-24: the 1080p rung's immutable batch was full,
+  // so its node refused every upload, and the manager now withholds the string.
+  const fullRung: BeePublishersResult = {
+    ...ready,
+    ready: false,
+    value: null,
+    rungs: ready.rungs.map((rung) =>
+      (rung.rung === '1080p'
+        ? { ...rung, stampState: 'full' as const, stampFillRatio: 1, stampImmutable: true }
+        : rung),
+    ),
+    missing: [{ rung: '1080p', reason: 'the postage batch on this rung is full' }],
+  };
+  const readings = healths(members.map((profile) => [profile.name, paying]));
+
+  it('names the full batch in three words', () => {
+    assert.deepEqual(poolProblems(fullRung, readings), ['1080p: stamp full']);
+  });
+
+  it('does not count the full rung as stamped', () => {
+    assert.deepEqual(groupReadinessOf(pool, members, fullRung, readings), {
+      label: '3/4 rungs stamped',
+      tone: 'warn',
+    });
+  });
+});

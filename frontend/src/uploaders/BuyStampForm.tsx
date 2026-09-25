@@ -27,6 +27,7 @@ export function BuyStampForm({
   onBuy,
   currentPrice,
   defaultDepth,
+  newBatchReach,
 }: {
   busy: boolean;
   onBuy: (input: BuyStampInput) => Promise<void>;
@@ -37,6 +38,8 @@ export function BuyStampForm({
    * hours apart, the failure a node per rung exists to contain.
    */
   defaultDepth?: number;
+  /** What a batch set on this deployment reaches, and when, where that is not at once. */
+  newBatchReach?: string | null;
 }) {
   const [amount, setAmount] = useState('');
   const [depth, setDepth] = useState(
@@ -160,8 +163,9 @@ export function BuyStampForm({
       </Stack>
       <Typography variant="caption" color="text.secondary">
         A new batch takes a few minutes to become usable and is then set on
-        this deployment automatically. The readiness checklist above says what
-        comes next. Need funds?{' '}
+        this deployment automatically, unless another batch is set here with
+        Use first. {newBatchReach ? `${newBatchReach} ` : ''}The readiness
+        checklist above says what comes next. Need funds?{' '}
         <Link
           href="https://docs.ethswarm.org/docs/bee/installation/fund-your-node"
           target="_blank"

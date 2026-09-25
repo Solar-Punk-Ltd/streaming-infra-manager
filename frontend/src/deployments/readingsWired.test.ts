@@ -64,6 +64,25 @@ describe('the readings a view hands to a readiness verdict', () => {
     assert.deepEqual(missing, []);
   });
 
+  // On 2026-09-24 the overview read "everything is running and ready" while an
+  // ABR uploader reported postage_refused, because it never asked any uploader.
+  // The Deployments page has its own "Needs attention" filter, and it has to
+  // agree with the overview's list about the same deployment.
+  it('has both lists ask every running uploader what it reports about itself', () => {
+    for (const page of ['overview/OverviewPage.tsx', 'deployments/DeploymentsPage.tsx']) {
+      const source = readFileSync(path.join(SOURCE_ROOT, page), 'utf8');
+
+      assert.ok(source.includes('useUploaderHealths('), `${page} takes no useUploaderHealths(`);
+      assert.match(source, /needsAttention\([\s\S]{0,200}?uploaderHealths\.get\(profile\.name\)/, page);
+    }
+  });
+
+  it('hands every deployment row the reading its list judged it by', () => {
+    const row = readFileSync(path.join(SOURCE_ROOT, 'deployments/DeploymentRow.tsx'), 'utf8');
+
+    assert.match(row, /readinessOf\([^)]*\{\s*uploaderHealth\s*\}/);
+  });
+
   it('read the source it means to, so finding nothing means something', () => {
     const files = scanned();
 

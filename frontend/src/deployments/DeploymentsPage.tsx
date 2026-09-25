@@ -28,6 +28,7 @@ import { DeploymentRow } from './DeploymentRow';
 import { GroupBlockRows } from './GroupBlockRows';
 import { needsAttention } from './readiness';
 import { SHAPE_LABEL, shapeOf } from './shape';
+import { useUploaderHealths } from './useUploaderHealths';
 
 type FilterKey = 'all' | 'streams' | 'viewers' | 'abr' | 'groups' | 'attention';
 
@@ -65,6 +66,7 @@ export function DeploymentsPage({ search }: { search: string }) {
     poolStampHealths(poolResults, profiles),
     nodeStamps,
   );
+  const uploaderHealths = useUploaderHealths(profiles);
 
   if (!profiles) {
     return (
@@ -80,6 +82,7 @@ export function DeploymentsPage({ search }: { search: string }) {
       profile,
       stampHealths.get(profile.name),
       chequebooks.get(profile.name),
+      uploaderHealths.get(profile.name),
     );
   const matches = (profile: Profile): boolean => {
     const hitsQuery =
@@ -184,6 +187,7 @@ export function DeploymentsPage({ search }: { search: string }) {
                     }
                     chequebooks={chequebooks}
                     stampHealths={stampHealths}
+                    uploaderHealths={uploaderHealths}
                     memberNoun={memberNoun(members)}
                   />
                 ))}
@@ -193,6 +197,7 @@ export function DeploymentsPage({ search }: { search: string }) {
                     profile={profile}
                     chequebook={chequebooks.get(profile.name) ?? null}
                     stampHealth={stampHealths.get(profile.name)}
+                    uploaderHealth={uploaderHealths.get(profile.name)}
                   />
                 ))}
               </>

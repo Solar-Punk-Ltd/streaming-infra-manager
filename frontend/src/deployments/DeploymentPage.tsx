@@ -289,6 +289,7 @@ function DeploymentBody({
               stampHealth={stampHealth}
               chequebookHealth={chequebookHealth}
               defaultDepth={rung ? suggestedRungDepth(rung) : undefined}
+              rung={rung}
               onChanged={reload}
             />
           )}
