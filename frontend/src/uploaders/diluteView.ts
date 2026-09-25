@@ -8,14 +8,6 @@ import {
 import { formatTtl, NO_VALUE, shortHex } from '../format';
 import type { BeeStamp } from './stampApi';
 
-/**
- * Less life than this after a dilution is refused on chain: the postage
- * contract will not leave a batch with less than `minimumValidityBlocks`,
- * 17,280 blocks of five seconds (storage-incentives, PostageStamp.sol,
- * increaseDepth).
- */
-const MINIMUM_LIFE_AFTER_SECONDS = 24 * 60 * 60;
-
 /** What a dilution costs the node's wallet, whatever the depth. */
 export const DILUTE_COSTS = 'No BZZ, only the transaction fee in xDAI.';
 
@@ -35,7 +27,10 @@ export interface DiluteView {
   /** How full the fullest bucket is after. */
   fullAfter: string;
   lifeAfter: string;
-  /** A warning where the life after is under a day, which does not block. */
+  /**
+   * Why a depth that would leave the batch under a day is refused. The postage
+   * contract refuses that dilution on chain, so the dialog never sends it.
+   */
   shortLife: string | null;
   confirmLabel: string;
   canConfirm: boolean;
@@ -77,9 +72,9 @@ export function diluteView({ stamp, depth }: DiluteInput): DiluteView {
         ? NO_VALUE
         : `${formatFillPercent(preview.fillRatio)}, ${stamp.utilization} of ${preview.bucketChunks} chunks in its fullest bucket`,
     lifeAfter: formatTtl(preview.ttl),
-    shortLife: shortLifeWarning(preview.ttl),
+    shortLife: preview.underMinimumValidity ? shortLifeRefusal(preview.ttl) : null,
     confirmLabel: `Dilute to depth ${newDepth}`,
-    canConfirm: true,
+    canConfirm: !preview.underMinimumValidity,
   };
 }
 
@@ -99,7 +94,6 @@ function holdsText(chunks: number, bucketChunks: number | null): string {
     : `${whole}, ${bucketChunks.toLocaleString('en-GB')} in each bucket`;
 }
 
-function shortLifeWarning(ttl: number | null): string | null {
-  if (ttl === null || ttl >= MINIMUM_LIFE_AFTER_SECONDS) return null;
+function shortLifeRefusal(ttl: number | null): string {
   return `That leaves ${formatTtl(ttl)}, under a day, and the postage contract refuses a dilution that leaves less than a day. Top it up first.`;
 }

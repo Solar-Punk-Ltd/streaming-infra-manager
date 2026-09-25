@@ -71,7 +71,7 @@ export function DiluteStampDialog({
               { key: 'Costs', value: DILUTE_COSTS },
             ]}
           />
-          {view.shortLife && <Alert severity="warning">{view.shortLife}</Alert>}
+          {view.shortLife && <Alert severity="error">{view.shortLife}</Alert>}
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="caption" color="text.secondary">
             The node sends the transaction itself, and the batch keeps its id,

@@ -43,7 +43,7 @@ describe('the dilute dialog, before the operator confirms', () => {
     assert.equal(oneStep.canConfirm, true);
   });
 
-  it('warns when the life after would be under a day and suggests a top-up first, without blocking', () => {
+  it('refuses a depth that would leave under a day, which the postage contract refuses, and says to top it up first', () => {
     const twoSteps = view('25');
 
     assert.equal(twoSteps.lifeAfter, '12h 45m');
@@ -51,7 +51,16 @@ describe('the dilute dialog, before the operator confirms', () => {
       twoSteps.shortLife,
       'That leaves 12h 45m, under a day, and the postage contract refuses a dilution that leaves less than a day. Top it up first.',
     );
-    assert.equal(twoSteps.canConfirm, true);
+    assert.equal(twoSteps.canConfirm, false);
+    assert.equal(twoSteps.depthValid, true, 'the depth itself is one this batch can go to');
+  });
+
+  it('refuses even the first step on a batch with under two days left', () => {
+    const shortBatch = diluteView({ stamp: { ...hostBatch, batchTTL: 36 * 3_600 }, depth: '24' });
+
+    assert.equal(shortBatch.lifeAfter, '18h 0m');
+    assert.notEqual(shortBatch.shortLife, null);
+    assert.equal(shortBatch.canConfirm, false);
   });
 
   it('offers only a whole depth from one step deeper to 40', () => {
