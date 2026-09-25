@@ -29,6 +29,7 @@ export * from './srtIngestHealth.js';
 export * from './srtPassphrase.js';
 export * from './stackSettings.js';
 export * from './stackVersions.js';
+export * from './stampChanges.js';
 export * from './stampCost.js';
 export * from './stampGating.js';
 export * from './stampHealth.js';

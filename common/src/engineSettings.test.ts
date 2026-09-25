@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
+import { effectiveEngineDefaults } from './engineDefaults.js';
 import { isEnvSafeValue } from './envSafeValue.js';
 import {
   applicableEngineSettings,
@@ -68,7 +69,7 @@ describe('the field lists', () => {
 
   it('keeps the ABR fields out of a deployment that does not encode a ladder', () => {
     const plain = engineSettingsFieldsFor(SRS_SERVICE, PLAIN).map((f) => f.key);
-    assert.deepEqual(plain, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW']);
+    assert.deepEqual(plain, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY']);
     assert.equal(
       engineSettingsFieldsFor(SRS_SERVICE, ABR).length,
       engineSettingsFields(SRS_SERVICE).length,
@@ -477,6 +478,127 @@ describe('the force-close ceiling against the segment length', () => {
       ),
       null,
     );
+  });
+});
+
+/**
+ * How long SRS waits for a lost SRT packet to be resent. On 2026-09-22 an
+ * outside broadcaster lost 5 to 8.5% of its packets, nearly every one was
+ * resent, and SRS dropped the resends as too late at its own 120 ms, where the
+ * stack asked for 200, so every drop became a hole in a frame. The owner set
+ * 2000 on 2026-09-23.
+ */
+describe('the SRT latency', () => {
+  const latency = () => SRS_SETTINGS.find((field) => field.key === 'SRT_LATENCY');
+
+  it('is an SRS setting in whole milliseconds, 2000 by default', () => {
+    const field = latency();
+
+    assert.ok(field, 'the drawer offers nothing for the SRT latency');
+    assert.equal(field.kind, 'integer');
+    assert.equal(field.unit, 'milliseconds');
+    assert.equal(field.defaultValue, '2000');
+    assert.equal(field.abrOnly, false);
+    assert.equal(field.placeholder, 'SRT_LATENCY_PLACEHOLDER');
+  });
+
+  it('says in plain words what it waits for and what raising it costs', () => {
+    const help = latency()?.help ?? '';
+
+    assert.match(help, /lost packet/);
+    assert.match(help, /delay/);
+    assert.match(help, /2000/);
+  });
+
+  it('accepts every whole number from 20 to 10000', () => {
+    for (const value of ['20', '2000', '10000']) {
+      assert.equal(
+        engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: value }, PLAIN),
+        null,
+        `${value} ms should be accepted`,
+      );
+    }
+  });
+
+  it('refuses a value under 20 or over 10000, and says the bound', () => {
+    assert.match(
+      engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: '19' }, PLAIN) ?? '',
+      /SRT latency must be at least 20\. Got 19\./,
+    );
+    assert.match(
+      engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: '10001' }, PLAIN) ?? '',
+      /SRT latency must be at most 10000\. Got 10001\./,
+    );
+  });
+
+  it('refuses a fraction, because SRS reads the directive as a whole number', () => {
+    assert.match(
+      engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: '2000.5' }, PLAIN) ?? '',
+      /SRT latency must be a whole number\. Got "2000\.5"\./,
+    );
+  });
+
+  it('reaches SRS when a deployment sets it', () => {
+    assert.deepEqual(
+      engineSettingsEnv(SRS_SERVICE, { SRT_LATENCY: '3000' }, PLAIN),
+      { SRT_LATENCY: '3000' },
+    );
+  });
+
+  it('is not a setting OvenMediaEngine reads', () => {
+    assert.match(
+      engineSettingsProblem(OME_SERVICE, { SRT_LATENCY: '2000' }, PLAIN) ?? '',
+      /SRT_LATENCY is not a setting the ome engine reads/,
+    );
+  });
+
+  it('is the one default the manager owns rather than each version', () => {
+    // A default the manager owns is written into every deployment's env file
+    // that stores none, so adding one is a decision and not a detail.
+    const owned = [...SRS_SETTINGS, ...OME_SETTINGS]
+      .filter((field) => field.managerOwnsDefault)
+      .map((field) => field.key);
+
+    assert.deepEqual(owned, ['SRT_LATENCY']);
+  });
+});
+
+describe("engineSettingsEnv and the manager's own SRT latency", () => {
+  /** What an unset field falls back to on a host whose version cuts v3.1's numbers. */
+  const onV31 = (baseEnv: Record<string, string> = {}) => ({
+    abr: false,
+    defaults: effectiveEngineDefaults(SRS_SERVICE, baseEnv, {
+      HLS_FRAGMENT: '0.5',
+      HLS_WINDOW: '15',
+      SRT_LATENCY: '200',
+    }),
+  });
+
+  it('writes 2000 where neither the deployment nor the host sets it', () => {
+    assert.deepEqual(engineSettingsEnv(SRS_SERVICE, {}, onV31()), { SRT_LATENCY: '2000' });
+  });
+
+  it("writes none of the version's own defaults", () => {
+    const env = engineSettingsEnv(SRS_SERVICE, { HLS_WINDOW: '30' }, onV31());
+
+    assert.deepEqual(env, { HLS_WINDOW: '30', SRT_LATENCY: '2000' });
+  });
+
+  it('leaves a value set on the host to the base env, which the file is a copy of', () => {
+    assert.deepEqual(engineSettingsEnv(SRS_SERVICE, {}, onV31({ SRT_LATENCY: '500' })), {});
+  });
+
+  it('writes what the deployment stored over the manager default', () => {
+    assert.deepEqual(
+      engineSettingsEnv(SRS_SERVICE, { SRT_LATENCY: '3000' }, onV31()),
+      { SRT_LATENCY: '3000' },
+    );
+  });
+
+  it('writes nothing of it for OvenMediaEngine', () => {
+    const defaults = effectiveEngineDefaults(OME_SERVICE);
+
+    assert.deepEqual(engineSettingsEnv(OME_SERVICE, {}, { abr: false, defaults }), {});
   });
 });
 

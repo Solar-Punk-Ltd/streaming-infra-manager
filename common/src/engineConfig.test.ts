@@ -47,9 +47,10 @@ describe('unknownPlaceholders', () => {
 
 describe('settingsNotInConfig', () => {
   it('names the SRS settings whose token the file dropped', () => {
-    // The fixture carries the fragment token and nothing else, so the window and
-    // the force-close ceiling are both settings this file has stopped reading.
-    assert.deepEqual(settingsNotInConfig(SRS_SERVICE, SRS_FILE), ['HLS_SEGMENT_MAX', 'HLS_WINDOW']);
+    // The fixture carries the fragment token and nothing else, so the window, the
+    // force-close ceiling and the SRT latency are all settings this file has
+    // stopped reading. Its srt_server block keeps the passphrase and no latency.
+    assert.deepEqual(settingsNotInConfig(SRS_SERVICE, SRS_FILE), ['HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY']);
   });
 
   it('names every ABR setting when the transcode line is gone', () => {

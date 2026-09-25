@@ -478,6 +478,11 @@ export class InMemoryProfiles {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
 
+  /** Unconditional, as the real UPDATE is: whoever writes last is what the row records. */
+  async updateStampId(name: string, stampId: string): Promise<Profile | null> {
+    return this.write(name, { stamp_id: stampId });
+  }
+
   async setLastFullDeployCommit(name: string, commit: string): Promise<void> {
     this.write(name, { last_full_deploy_commit: commit });
   }
@@ -504,6 +509,7 @@ export class FakeContainers {
     profileName: string;
     service: string;
     ports: Record<string, number>;
+    env: Record<string, string>;
   }[] = [];
 
   asRepository(): ContainerRepository {
@@ -515,6 +521,7 @@ export class FakeContainers {
       profileName,
       service: snapshot.service,
       ports: snapshot.ports,
+      env: snapshot.env,
     });
   }
 

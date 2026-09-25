@@ -3,7 +3,15 @@
 Status, 2026-09-16: built and merged to `main-v2`, page checked against the code at ecaea40.
 Corrected 2026-09-17 against the code at `0c0354c`: "The address", the D16 paragraphs under
 "The ABR Uploader", and the "Manager" table. The first real pool on the live host had been
-handed a public address no Bee node listens on.
+handed a public address no Bee node listens on. Corrected 2026-09-23 against the code at
+`87673c99`: the Implementation tables no longer say how many tests each file holds. Five of the
+seven counts had drifted from their suites, and each row's description says what its tests cover.
+Extended 2026-09-25 on `fix/full-stamps-and-sick-uploaders`, off `0f058763`: "The batch" reads how
+full a batch is, and a full immutable batch blocks its rung. "The ABR Uploader" says the overview
+reads each uploader's own health, and that a batch bought on a rung is set on it once usable.
+Extended again 2026-09-25 on `feat/stamp-top-up-and-dilute`, off `5c76e2b5`: a rung's batch can be
+topped up and diluted from the rung's own page, neither needs the string pasted again, and a full
+rung is told to dilute its batch or buy a new one. [postage-stamps.md](postage-stamps.md) has both.
 
 A deployment **group** whose members are one `bee-uploader` per ABR quality rung,
 used as the publish targets for a `stream-uploader`. Since T15 that uploader is
@@ -169,8 +177,16 @@ drift. SRS only, and the ladder is not implemented for OME.
 The string goes stale two ways, and since nothing links the two managers,
 nothing invalidates a copy that has gone wrong:
 
-- **A rung buys a *new* batch** (topping up keeps the id). Re-paste after a
-  re-buy, until a stamp manager keeps batches from expiring.
+- **A rung buys a *new* batch** (topping up and diluting keep the id, so
+  neither needs a re-paste, and since 2026-09-25 both are on the rung's own
+  Storage card). Re-paste after a re-buy, until a stamp manager keeps batches
+  from expiring. Since 2026-09-25 a
+  batch bought on the rung's own page is set on the rung once bee calls it
+  usable, even while the rung records another, because it was bought there for
+  that rung. Only a batch set on the rung with **Use** while it settled is kept
+  instead. The pool string then names the new batch, and the uploader goes on
+  paying with the old one until the new string is pasted into its **Node pool
+  string** under Edit, which redeploys it.
 - **A rung is removed and re-created**, which changes its *address*, not just
   its batch. Ports come from the profile's port slot, and a freed slot is
   reused by the next profile created on that machine, so `720p@…:10035` can
@@ -194,10 +210,23 @@ waited for, how many attempts it has made and since when, and clears when the
 node answers. A startup gate that warned instead of refusing shows there too,
 named in plain words: "the chequebook gate warned on the 360p rung".
 
+**Since 2026-09-25 the overview and the Deployments page read it too**, every
+thirty seconds for each running uploader, and both list an uploader under "Needs
+attention" when it reports
+a problem, waits for its node, or does not answer its health route, in the words
+the step uses. The step warns on the wait and on the silence, where it used to
+show them as in progress and as fine. `postage_refused` is spelled out: a rung's
+Bee node refused that rung's batch, usually because it is full or has expired,
+so that rung's uploads
+fail until the uploader is deployed again with a batch that pays, because the
+uploader reads each rung's batch once, when it starts. The overview read no
+uploader at all until then, and on 2026-09-24 it said "everything is running and
+ready" while the tester's ABR uploader reported exactly that.
+
 The uploader half of this is in the pinned stack since 7b2312f, which pinned the
-stack commit 55b22bf1 that carries it, and the pin has moved on since onto the
-manager's line of the stack, `feat/manager-line`, which carries it too. So a
-deployment reports those fields once the host runs that pin. A deployment still
+stack commit 55b22bf1 that carries it, and every pin since carries it too, the
+stack's release `v3.3` as of 2026-09-24. So a deployment reports those
+fields once the host runs that pin. A deployment still
 on an older build reports none of them, the manager reads that as no waiting
 state reported, and the step says what it always said, which is that the
 container is running and nothing beyond that has been verified.
@@ -243,11 +272,11 @@ stdin-less runner.
 | File | Change |
 |---|---|
 | `src/abrLadder.ts` (new) | The whole ladder domain: `DEFAULT_ABR_LADDER` (rungs, geometry, kbps), `ladderMemberName` / `rungFromMemberName` / `ladderMemberNames`, `rungOrder`, `suggestedRungDepth`, `assembleBeePublishers`, `beePublishersValue`, `parseBeePublishers` / `beePublishersProblem`, `abrLadderEnvValue`, `LADDER_GROUP_NAME_MAX`. |
-| `src/abrLadder.test.ts` (new) | 55 tests over naming, round-tripping, group recognition, depth scaling and assembly, including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
-| `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId`, the one place that decides what a recorded batch is worth. See [Rung validity](#rung-validity). |
+| `src/abrLadder.test.ts` (new) | Tests over naming, round-tripping, group recognition, depth scaling and assembly, including that the name cap is exactly where member names stop fitting, and that a ladder of expired batches yields no value. |
+| `src/stampHealth.ts` (new) | `stampHealthFrom` / `isStampExpired` / `isStampExpiringSoon` / `isDeadStampState` / `stampStateReason` / `sameBatchId`, the one place that decides what a recorded batch is worth. Since 2026-09-25 also `fullestBucketFillRatio` / `stampBucketCapacity` / `isFullestBucketFull` / `isStampNearlyFull` / `formatFillPercent`, how full a batch is. See [Rung validity](#rung-validity). |
 | `src/publishUrl.ts` (new) | `classifyPublishUrl` / `isInvalidUrlState` / `publishUrlReason` / `publishUrlWarning`, what a rung's published address is worth, structurally, before anything is probed. |
-| `src/publishUrl.test.ts` (new) | 9 tests: loopback in every spelling, ssh user info, non-http schemes, and that a bare internal hostname is *not* refused. |
-| `src/stampHealth.test.ts` (new) | 18 tests over the classification and the expiry window, including that an unreachable node classifies as `unknown` and never as `expired`, and that a negative `batchTTL` is not expiry. |
+| `src/publishUrl.test.ts` (new) | Tests for loopback in every spelling, ssh user info, non-http schemes, and that a bare internal hostname is *not* refused. |
+| `src/stampHealth.test.ts` (new) | Tests over the classification and the expiry window, including that an unreachable node classifies as `unknown` and never as `expired`, and that a negative `batchTTL` is not expiry. |
 | `src/stampGating.ts` | `isBeeNodeOnly` and `managesOwnStamp`. A rung has no `stream-uploader`, so the old gate said it needed no stamp, which would have left it invisible on the Uploaders tab with no way to fund it. |
 
 ### Manager
@@ -262,10 +291,10 @@ stdin-less runner.
 | `src/domain/errors/LadderGroupError.ts` (new) | 409 `ladder_group_invalid_operation`. |
 | `src/api/routes/groups.ts` | `GET /groups/:id/bee-publishers`. |
 | `test/unit/ladderSchema.test.ts` (new) | Pins the cross-field name rule, which uses yup's `this.parent` and would fail silently if the schema shape changed. |
-| `test/unit/beePublishersReadiness.test.ts` (new) | 18 tests: the endpoint asks every rung, probes the exact address it publishes, refuses the value on a dead batch / stopped node / unusable address, and stays ready, with the value, for anything it merely could not confirm. |
-| `test/unit/stampHealthFor.test.ts` (new) | 10 tests over the bee-answer mapping, above all that a timeout is `unknown` and not `expired`, and that the TTL survives. |
-| `test/unit/beeApiUrl.test.ts` (new) | 7 tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an unresolvable alias still composing to the address it names. |
-| `test/unit/deployHost.test.ts` (new) | 12 tests on target resolution with `ssh -G` injected: an alias resolved, an unknown name echoed back and kept, ssh failing without throwing, literals and dotted names never reaching the exec, a non-name refused at the exec boundary, and the TTL cache. |
+| `test/unit/beePublishersReadiness.test.ts` (new) | Tests that the endpoint asks every rung, probes the exact address it publishes, refuses the value on a dead batch / stopped node / unusable address, and stays ready, with the value, for anything it merely could not confirm. |
+| `test/unit/stampHealthFor.test.ts` (new) | Tests over the bee-answer mapping, above all that a timeout is `unknown` and not `expired`, and that the TTL survives. |
+| `test/unit/beeApiUrl.test.ts` (new) | Tests on URL composition: the port band, ssh user info stripped from both URLs, no stray `@` left for the entry format, and an unresolvable alias still composing to the address it names. |
+| `test/unit/deployHost.test.ts` (new) | Tests on target resolution with `ssh -G` injected: an alias resolved, an unknown name echoed back and kept, ssh failing without throwing, literals and dotted names never reaching the exec, a non-name refused at the exec boundary, and the TTL cache. |
 
 `beePublishersForGroup` asks each rung's node whether its recorded batch is still
 alive, all four in parallel on a 3s timeout. It first did not. Every field came
@@ -283,8 +312,8 @@ request or block the value.
 | `src/groups/PoolRungRow.tsx` | One rung's row, driven by the node's own answer about its batch. A status chip appears when the node is not running, and a dead or nearly spent batch raises an alert rather than a silent row. |
 | `src/groups/GroupPage.tsx`, `GroupMembersCard.tsx` | The pool's own page: the string card above, then its rungs, each expandable to the funding and batch controls. A damaged ladder still appears, selected by `group.kind`. |
 | `src/groups/groupReadiness.ts`, `useBeePublishers.ts` | What the page asks the manager and how it counts the header chip, from the *verified* state the manager reports rather than from the profile rows. |
-| `src/uploaders/BuyStampForm.tsx` | Optional `defaultDepth`, so a rung's form starts at *its* suggested depth rather than a flat 17. |
-| `src/uploaders/NodeFunding.tsx`, `StampTable.tsx` | A rung's wallet, address and batch list. The Usable column has an `expired` state, which previously read `pending`, that is, as something that would come good on its own, and an empty table names the orphaned id instead of saying "No stamps on this node yet." |
+| `src/uploaders/BuyStampForm.tsx` | Optional `defaultDepth`, so a rung's form starts at *its* suggested depth rather than a flat 17. Since 2026-09-25 its caption says what a newly set batch reaches, from `src/deployments/newBatchReach.ts`: on a rung, the pool string and not the uploader until it is pasted again. |
+| `src/uploaders/NodeFunding.tsx`, `StampTable.tsx` | A rung's wallet, address and batch list. The Usable column has an `expired` state, which previously read `pending`, that is, as something that would come good on its own, and an empty table names the orphaned id instead of saying "No stamps on this node yet." Since 2026-09-25 a Used column says how full each batch's fullest bucket is, and under each batch are Use, Top up and Dilute, with Use unavailable on a full immutable batch. |
 | `src/forms/wizard/` | **Deployment type** is a step of the wizard, and `PoolPrerequisites.tsx` and `PoolSettings.tsx` are the pool's own screens. `poolDraft.ts`, `poolIdentity.ts` and `poolMembership.ts` hold its draft, so a pool created mid-wizard is not lost by a step back. |
 | `src/PublisherRungs.tsx` | Renders the rungs a pasted `BEE_PUBLISHERS` resolves to, because a line of four URLs and four 64-character batch ids is not something anyone proof-reads. |
 | `src/deployments/PoolTargetCard.tsx` | On an ABR uploader's own page, where its four rungs land. |
@@ -345,11 +374,58 @@ So anything that claims a rung is ready asks its node. `stampHealthFrom`
 | State | Meaning | Blocks readiness |
 |---|---|---|
 | `none` | No batch recorded on the profile. | yes |
-| `active` | On the node, usable, time left. | no |
+| `active` | On the node, usable, time left, and either room left, mutable, or a fill the node did not report. | no |
 | `pending` | On the node, bought too recently to be usable. | yes |
+| `full` | On the node, usable by bee's own flag, time left, immutable, and its fullest bucket is full. | yes |
 | `expired` | On the node, `batchTTL` is 0. | yes |
 | `gone` | Recorded, but the node does not have it, expired and dropped, or never bought there. | yes |
 | `unknown` | The node was not asked, or could not answer. | **no** |
+
+**How full a batch is, since 2026-09-25.** A batch stops paying when it runs out
+of time or when it fills, and the classification read only the first. On
+2026-09-24 the 1080p rung of
+the tester's pool held an immutable batch of depth 23 with 16 bucket bits,
+which is 128 chunks a bucket, and its fullest bucket held all 128. bee still
+reported it `usable` with two days left, refused every upload that landed in
+that bucket with a 402, and the uploader went unhealthy with
+`postage_refused`, while the rung's page showed a green "Postage stamp set,
+2d 3h left" and the pool string was offered as ready.
+
+bee's `utilization` is the chunk count of the batch's **fullest bucket**, not of
+the whole batch, so the number that decides refusals is
+`fullestBucketFillRatio`: `utilization / 2^(depth - bucketDepth)`, where `1` is
+full. It answers null when any of the three fields is missing, is not a whole
+non-negative number, or when `depth` is below `bucketDepth`, and a null never
+reads as empty. `StampHealth` carries that ratio as `fillRatio` and bee's
+`immutableFlag` as `immutable`, null where the node did not say, and the pool
+assembly passes both on to each rung as `stampFillRatio` and `stampImmutable`,
+so the pool page, the overview and the rung's own page read the same numbers.
+
+Only an **immutable** batch is `full`. bee never refuses a mutable batch: when a
+bucket is full it takes the upload and overwrites that bucket's oldest chunks,
+so older recordings paid with it lose data while uploads keep working. It stays
+`active`, and the rung's readiness step says it now overwrites rather than
+refusing, and warns, for the reasons below. A batch whose kind the node did not
+report is treated as immutable, since that is the kind that refuses. `full` is
+not one of the dead states: a full immutable batch can be diluted to buy room.
+Since 2026-09-25 the rung's Storage card offers that, **Dilute**, which keeps the
+batch id and so the pool string, and every warning about a full or nearly full
+rung offers diluting it or buying a new one. The 1080p batch above, 128 of 128 at
+depth 23, is half full at depth 24, with half its life. See
+[postage-stamps.md](postage-stamps.md).
+
+A batch past **90%** of its fullest bucket (`STAMP_FILL_WARNING_RATIO`) that
+still takes uploads stays `active` and warns, "Stamp nearly full", the way
+`isStampExpiringSoon` warns about time. That number is the uploader's own
+default start ceiling, `STAMP_MAX_UTILIZATION`: an uploader restarted on an
+immutable batch past it already refuses to boot, which is why the warning starts
+there, while uploads still work. A mutable batch warns there too, full or not,
+for two reasons. Once full it overwrites the oldest recordings' chunks. And the
+uploader of stack v3.3 and earlier, the version this manager bundles on
+2026-09-25, holds a mutable batch to the same ceiling, so a restart on it past
+90% is refused as well. The stack's fix for that, which holds only immutable
+batches to the ceiling, is swarm-hls-stream #253, not yet in a release. The
+wording of both warnings is `nearlyFullConsequence` in `common/src/stampHealth.ts`.
 
 `unknown` is the state that keeps the fix honest in both directions. A node being
 unreachable is not evidence that its batch is dead, so it must not raise an alarm
@@ -472,7 +548,7 @@ chip on every healthy row would bury the one row that needs attention.
 |---|---|---|
 | Node | not `RUNNING` | none |
 | Address | `loopback`, `ssh-target`, `malformed` | `unreachable` |
-| Batch | `none`, `pending`, `expired`, `gone` | `unknown`, expiring within 48h |
+| Batch | `none`, `pending`, `full`, `expired`, `gone` | `unknown`, expiring within 48h, a batch past 90% full that still takes uploads |
 
 The right-hand column is the honest half. Every entry there is something we could
 not confirm rather than something we found wrong, and treating "could not check"
@@ -512,11 +588,13 @@ names would have dropped both guards at exactly the wrong moment, letting
 ## Future work
 
 - An automatic stamp-manager layer: top up or re-buy a rung's batch before it
-  expires, instead of the manual per-rung buy. Expiry is now *visible* rather
-  than silent, but the repair is still four manual buys.
-- Liveness on the Deployments tab. `pendingStamp` there is still derived from the
-  column alone, because reporting it honestly would mean probing every profile's
-  node on every list. The Uploaders tab is the one place that asks.
+  expires, instead of the manual per-rung repair. Expiry is now *visible* rather
+  than silent, and since 2026-09-25 a rung can be topped up or diluted from its
+  page, but the repair is still one manual change per rung.
+- Liveness on the Deployments tab: the tab reads every node's batch and
+  chequebook, and since 2026-09-25 every running uploader's health, the same
+  readings as the overview. `pendingStamp` is read on the deployment page alone,
+  for the Deploy uploader button.
 - Reachability *from the uploader* rather than from the manager. The probe can
   only tell you what the manager can reach, which is why an unreachable published
   address warns instead of blocking. A check run from where the uploader actually

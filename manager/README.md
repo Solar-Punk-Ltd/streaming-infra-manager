@@ -34,9 +34,16 @@ Until that last command has been run once, every route but `/health` and
 
 ## Authentication
 
-Every route needs a session except two: `GET /health`, which Docker's
-healthcheck reads, and `POST /auth/login`. That includes both Server-Sent
-Events streams, `/config`, `/metrics` and `/profiles`.
+Every route needs a session except two: `GET /health`, which answers
+`{"status":"ok"}` and nothing more, and `POST /auth/login`. That includes both
+Server-Sent Events streams, `/config`, `/metrics` and `/profiles`.
+
+No Docker healthcheck reads `/health`, as of 2026-09-23 at `87673c99`: the
+`api` service in `docker-compose.yml` has none and neither Dockerfile declares
+one. Its readers are `manager:upgrade`, which `deploy/deploy.sh` runs and which
+waits for the new api to answer it, the integration suite, whose preflight asks
+it and whose CI job in `.github/workflows/docker-checks.yml` waits for it
+first, and the curl in the quick start above.
 
 ### The first user
 
@@ -103,12 +110,18 @@ cross-origin page to add.
 | ------ | ---- | ---- | ------ |
 | POST | `/auth/login` | `{ username, password }` | 204 and the cookie, 401 wrong pair, 429 locked, 409 when no user exists |
 | POST | `/auth/logout` | | 204, cookie cleared, session row deleted |
-| GET | `/auth/session` | | `{ username, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
+| GET | `/auth/session` | | `{ id, username, isAdmin, expiresAt }`, or 401 with `not_signed_in` or `no_users` |
 | POST | `/auth/password` | `{ current, next }` | 204, every other session of yours revoked |
-| GET | `/auth/users` | | `[{ id, username, createdAt, lastLoginAt, sessions }]` |
-| POST | `/auth/users` | `{ username, password }` | 201, 409 taken |
-| DELETE | `/auth/users/:id` | | 204, 409 for yourself or the last user |
-| POST | `/auth/users/:id/revoke-sessions` | | 204 |
+| GET | `/auth/users` | | `[{ id, username, isAdmin, createdAt, lastLoginAt, sessions }]` |
+| POST | `/auth/users` | `{ username, password, admin? }` | 201 and the new user's row, 403 `admin_required` unless you are an admin, 409 taken |
+| DELETE | `/auth/users/:id` | | 204, 403 `admin_required` unless you are an admin, 404 no such user, 409 for yourself, the last user or the last admin |
+| POST | `/auth/users/:id/revoke-sessions` | | 204 for your own id, and for anyone's if you are an admin, otherwise 403 `admin_required`. 404 no such user |
+
+Adding a user, removing one and signing someone else out need an admin, and
+nothing else does. Who is an admin and how a user becomes one is the paragraph
+"Who can manage users" under
+[Endpoints](../docs/features/auth-and-public-access.md#endpoints) on the auth
+page. Checked against the code at `87673c99` on 2026-09-23.
 
 ## API
 
@@ -138,8 +151,13 @@ to `POST /groups`, where it makes the group an ABR node pool, and a create body
 carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
 and its rules are the ones the route enforces.
 
-`GET /profiles/:name/uploader-health` is read by the deployment page and by
-nothing else, because a list would have to ask every uploader in turn. Decision
+`GET /profiles/:name/uploader-health` is read by the deployment page every ten
+seconds and, since 2026-09-25, by the overview and the Deployments page every
+thirty seconds for each running deployment with an uploader container, so their
+"Needs attention" lists, the overview's Streams table and the Deployments rows
+say what an uploader reports about itself. Until then a list
+never asked, and on 2026-09-24 the overview read "everything is running and
+ready" while the tester's ABR uploader reported `postage_refused`. Decision
 D16 of 2026-09-17 lets an uploader start on a Bee node that is not answering, so
 a running container stopped meaning a working one: the uploader waits for that
 node and reports the wait on its own `/health`, which this route reads on the
@@ -153,7 +171,14 @@ The deployment checklist renders that health step for a single-node stream and
 for a pool-backed `abr-uploader`. An ABR uploader puts its pool configuration
 first and needs no single-node stamp or funding check of its own. Once the pool
 string is usable, the same waiting, warned, unhealthy and healthy readings are
-shown from the uploader's route.
+shown from the uploader's route. Since 2026-09-25 a wait for the node and an
+`unreachable` reading are warnings on that step, as a start gate that warned
+already was, because the uploader is uploading nothing or nothing confirmed
+that it is, and the overview lists exactly what the step does not call ok. The
+step spells out `postage_refused`: a Bee node refused the batch it was paid
+with, usually because it is full or has expired, and that node's uploads fail
+until the uploader is
+deployed again with a batch that pays.
 
 `GET /profiles/:name/srt-ingest` is read by the deployment page alone, for the
 same reason. SRS prints the packet counts of each SRT publisher into its log
@@ -280,11 +305,52 @@ uploader, and a derived `pendingStamp` field carries the difference rather than
 a new status. Once a batch exists,
 `POST /profiles/:name/deploy-uploader` deploys that one service.
 
+A batch bought with `POST /profiles/:name/stamp/buy` is set on that profile
+once its node calls it usable, which the manager polls for every three seconds
+for up to fifteen minutes. Since 2026-09-25 that holds whatever the profile
+recorded before, because a batch bought on a deployment is bought for it and a
+recorded batch is usually why: it is full or running out. The one exception is
+a batch set with `POST /profiles/:name/stamp/set` while the bought one settled,
+which is kept, and the log says so. Setting a stamp redeploys nothing, so an
+uploader already running goes on paying with the batch its env file named when
+it was deployed, until the deployment is deployed again.
+
 The test is the component set, never the kind: a `custom` deployment that
 includes `stream-uploader` behaves exactly like a `streamer`. A pool-backed
 `abr-uploader` is the exception in the other direction. Its postage is the
 pool's, one batch per rung, so `BEE_PUBLISHERS` satisfies the guard and nothing
 is held back.
+
+### Postage stamps (per profile, its own bee node)
+
+What a batch is, and what each change to one costs and does, is in
+[docs/features/postage-stamps.md](../docs/features/postage-stamps.md).
+
+| Method | Path                                 | Body                                    | Notes |
+| ------ | ------------------------------------ | --------------------------------------- | ----- |
+| GET    | `/profiles/:name/stamp/readiness`    |                                         | What the node's `/health` and `/readiness` say, with its chain progress. |
+| GET    | `/profiles/:name/stamp/address`      |                                         | The node's addresses, from bee's `/addresses`. |
+| GET    | `/profiles/:name/stamp/wallet`       |                                         | The node's wallet, BZZ and xDAI, from bee's `/wallet`. |
+| GET    | `/profiles/:name/stamp/chainstate`   |                                         | Bee's `/chainstate`, whose `currentPrice` is today's price a chunk a block. |
+| GET    | `/profiles/:name/stamp/stamps`       |                                         | `{ stamps }`, the node's batches from bee's `/stamps`. |
+| POST   | `/profiles/:name/stamp/buy`          | `{ amount, depth, label?, immutable? }` | Buys a batch. `202` with `{ batchID }`, and it is set on the profile once usable, as above. |
+| POST   | `/profiles/:name/stamp/set`          | `{ stamp_id }`                          | Records a batch on the profile and redeploys nothing. `200` with the profile. |
+| POST   | `/profiles/:name/stamp/topup`        | `{ batch_id, amount }`                  | Adds `amount` PLUR a chunk to a batch the node holds, paid from its wallet. `202` with `{ batchID, txHash }`. |
+| POST   | `/profiles/:name/stamp/dilute`       | `{ batch_id, depth }`                   | Raises a batch the node holds to a deeper `depth`. `202` with `{ batchID, txHash }`. |
+
+`batch_id` and `stamp_id` are 32 bytes of hex, with or without `0x`. `amount`
+is PLUR per chunk, a positive whole number as a string, and `depth` a whole
+number from 17 to 40. A body that breaks those is refused with 400.
+
+A top-up or a dilute asks the node for that one batch first, `GET /stamps/{id}`,
+and one the node does not hold is refused with `404 stamp_not_found`. A
+dilute to a depth that is not deeper than the batch's own, or one that would
+leave the batch under a day of life, which the postage contract refuses, is
+refused with 400. All three are refused before bee is asked. A top-up and a
+dilute answer once bee has the transaction mined, and the node shows the new
+life or depth once it has read it back from the chain, usually within a
+minute. A node still starting answers `503 bee_node_not_ready`, and any other
+failed call to it `502 bee_node_unreachable` with bee's own words.
 
 ### Chequebook (per profile, its own bee node)
 
@@ -349,7 +415,7 @@ things an operator does to it by hand.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
-| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
+| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
@@ -367,13 +433,28 @@ UI and the offline mock all read. One JSONB column rather than one per setting
 because the set differs per engine and per stack version, and
 `migrations/009_engine_settings.sql` says so at length.
 
+One key is the exception since 2026-09-23. `SRT_LATENCY`, how long SRS waits
+for a lost SRT packet to be resent before giving up on it, whole milliseconds
+from 20 to 10000, defaults to the manager's own 2000, which the owner decided
+that day. `v3.1` falls back to 200, as does every version cut before that day
+which reads the key at all, and the bundled stack, `v3.3`, falls
+back to 2000 itself. On every version an absent `SRT_LATENCY` is written into
+`.env.<name>` as 2000 unless the base `.env` sets it, and the drawer calls it
+"Manager default". SRS waits that long on ingest only on a stack version whose
+template fills `recvlatency` as well as `latency`, as the bundled stack's does.
+`v3.1` fills `latency` alone, so on it the drawer shows SRS's own 120 as
+"Engine default" instead, measured on 2026-09-23 and recorded in
+[engine-control.md](../docs/features/engine-control.md). It is not a key of
+this manager's own environment, so the table under Environment below does not
+list it.
+
 Saving settings redeploys the engine service alone, so the profile goes
 `DEPLOYING` and back while the uploader and the Bee node stay up. A restart is
 below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
-stack, `v3.1` as of 2026-09-19, publishes SRS's HTTP API port per
+stack, `v3.3` as of 2026-09-24, publishes SRS's HTTP API port per
 deployment as `SRS_HTTP_API_PORT`, and the manager does not read it yet. On the older
 `main-v2` the compose file publishes no such port at all, and OvenMediaEngine's
 API needs a `<Managers>` block the template does not carry on either.
@@ -394,8 +475,8 @@ setting the drawer marks as not read (`notInConfig`).
 
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
-`deploy/docker-compose.srs-conf.yml` or the OME counterpart. That is
-the bundled `v3.1`. A
+`deploy/docker-compose.srs-conf.yml` or the OME counterpart. The bundled
+stack, `v3.3`, ships both. A
 version without the hook, such as the stack's `main-v2`, renders its template
 and the editor says so. At deploy the orchestrator writes the file to
 `<data root>/<name>/engine/srs.conf` (or `Server.xml`) and names it as
@@ -456,12 +537,12 @@ reading a checkout's scripts proves its shape and not its behaviour.
 
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
-(99 on the bundled `v3.1`, 999 on the older `main-v2`, and the
+(99 on the bundled `v3.3`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
 drawer names, whether the engine can run on a config file of its own, and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
-`v3.1`, are generated the first
+`v3.3`, are generated the first
 time the deployment is deployed, 64 hex characters each, kept in
 `profiles.stack_secrets`, written into `.env.<name>` at every deploy and never
 answered by the API.

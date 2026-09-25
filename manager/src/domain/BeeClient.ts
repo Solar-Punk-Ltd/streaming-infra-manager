@@ -1,4 +1,5 @@
 import type {
+  BeeStampTransaction,
   BeeTransaction,
   BeeNodeObservation,
   ChequebookBalance,
@@ -9,10 +10,12 @@ import { BeeHttpError } from './errors/BeeHttpError.js';
 
 /** What every caller that does not name its own budget gets. */
 export const DEFAULT_TIMEOUT_MS = 10_000;
-// Buying a stamp, filling a chequebook and emptying one all submit a
-// transaction to Gnosis Chain, and bee holds the request until it has one to
-// answer with.
-const ON_CHAIN_TIMEOUT_MS = 180_000;
+/**
+ * Buying, topping up and diluting a batch, and filling a chequebook and
+ * emptying one, all submit a transaction to Gnosis Chain, and bee holds the
+ * request until it has one to answer with.
+ */
+export const ON_CHAIN_TIMEOUT_MS = 180_000;
 
 export interface BeeAddresses {
   ethereum: string;
@@ -117,6 +120,37 @@ export class BeeClient {
       'POST',
       `/stamps/${encodeURIComponent(input.amount)}/${input.depth}${query}`,
       headers,
+      ON_CHAIN_TIMEOUT_MS,
+    );
+  }
+
+  /**
+   * Adds `amountPerChunkPlur` to the balance of every chunk of a batch this node
+   * holds, paid from the node's wallet. That buys the batch life and changes
+   * nothing else.
+   */
+  async topUpStamp(
+    batchId: string,
+    amountPerChunkPlur: string,
+  ): Promise<BeeStampTransaction> {
+    return this.request<BeeStampTransaction>(
+      'PATCH',
+      `/stamps/topup/${encodeURIComponent(batchId)}/${encodeURIComponent(amountPerChunkPlur)}`,
+      {},
+      ON_CHAIN_TIMEOUT_MS,
+    );
+  }
+
+  /**
+   * Raises a batch this node holds to `depth`, which has to be deeper than its
+   * own. Every step doubles what the batch holds and halves its life, and costs
+   * only the transaction fee.
+   */
+  async diluteStamp(batchId: string, depth: number): Promise<BeeStampTransaction> {
+    return this.request<BeeStampTransaction>(
+      'PATCH',
+      `/stamps/dilute/${encodeURIComponent(batchId)}/${depth}`,
+      {},
       ON_CHAIN_TIMEOUT_MS,
     );
   }

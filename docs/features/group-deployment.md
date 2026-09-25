@@ -1,7 +1,9 @@
 # Group Deployment
 
 Status, 2026-09-16: built and merged to `main-v2`. The page opens with the prototype scope it was
-written for, and the paragraph after it records what has been built since.
+written for, and the paragraph after it records what has been built since. Corrected 2026-09-23
+against the code at `87673c99`: "Shared fields", which left out five fields every member is
+given and the port slot each member takes for itself.
 
 Provision N deployments at once from a single form, grouped under a user-named umbrella, sharing all configuration parameters.
 
@@ -64,9 +66,16 @@ All form fields filled in group mode are applied verbatim to every member:
 - `kind`, `components`, `host`, `notes`
 - `feed_owner`, `feed_topic` (when `client` is selected)
 - `private_key`, `stamp_id` (when `stream-uploader` is selected), and `public_key` is derived
+- `srt_passphrase`, so every member takes the same SRT passphrase
+- `node_mode`, `rpc_endpoint_source` and `rpc_endpoint`, one chain answer for the whole group. A
+  source the body leaves out is worked out once, for every member
+- `stack_version_id`, the default version when the body names none, so every member runs one
+  version
 - `engine_settings`, so every member cuts the same segments
 
-Members differ only in `name` and `group_id`.
+Members differ in `name` and in their port slot, which each takes for itself as it is inserted:
+the lowest free slot, with the ports that slot reserves (`insertMemberWithFreeSlot` in
+`manager/src/domain/DeploymentGroupRepository.ts`). All of them carry the group's `group_id`.
 
 A group's members start with the engine settings the create body carries, and the wizard
 pre-fills a two-second segment length wherever the deployment runs SRS, so the whole group

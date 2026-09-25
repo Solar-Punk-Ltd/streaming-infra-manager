@@ -49,3 +49,17 @@ export function engineTemplateIn(root: string, engine: EngineName): EngineTempla
     placeholders: placeholdersFilledBy(entrypoint),
   };
 }
+
+/**
+ * The template's text, or null where the checkout has none.
+ *
+ * For the readers of a deployment's settings, which take null and report it
+ * per field, rather than a missing template failing the whole overview.
+ */
+export function engineTemplateTextIn(root: string, engine: EngineName): string | null {
+  try {
+    return engineTemplateIn(root, engine).text;
+  } catch {
+    return null;
+  }
+}

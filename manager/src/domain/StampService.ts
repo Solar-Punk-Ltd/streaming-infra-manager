@@ -2,8 +2,11 @@
 import {
   classifyPublishUrl,
   type BeeNodeObservation,
+  type BeeStampTransaction,
+  dilutionPreview,
   getErrorMessage,
   type PublishUrlState,
+  sameBatchId,
   type StampHealth,
   stampHealthFrom,
 } from '@streaming-infra-manager/common';
@@ -23,7 +26,10 @@ import { beeCallFailed } from './beeFailure.js';
 import { ContainerRepository } from './ContainerRepository.js';
 import {
   BeeHttpError,
+  DiluteDepthError,
+  DiluteLifeError,
   ProfileNotFoundError,
+  StampNotFoundError,
   StampNotUsableError,
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
@@ -58,11 +64,22 @@ const PROBE_TIMEOUT_MS = 3_000;
 /** Keyed on the address itself, since a probe of it belongs to no one profile. */
 const PUBLISH_URL_PROBE_KEY = (url: string): string => `publish-url:${url}`;
 
-const sleep = (ms: number): Promise<void> =>
+/** Waits between polls of a bought batch. A test passes one that does not wait out the interval. */
+export type PollPause = (ms: number) => Promise<void>;
+
+const sleep: PollPause = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Bee's own spelling of a batch id, which is what a stamp path and a key want. */
 const batchIdOf = (stampId: string): string => stampId.replace(/^0x/, '');
+
+/** Whether two readings of `profiles.stamp_id` name the same batch, or both name none. */
+function sameRecordedStamp(a: string | null, b: string | null): boolean {
+  const recordedA = a?.trim() || null;
+  const recordedB = b?.trim() || null;
+  if (recordedA === null || recordedB === null) return recordedA === recordedB;
+  return sameBatchId(recordedA, recordedB);
+}
 
 export type BeeClientFactory = (
   baseUrl: string,
@@ -131,6 +148,7 @@ export class StampService {
       new BeeClient(url, timeoutMs),
     private readonly reads: NodeReadCache = new NodeReadCache(),
     private readonly readLog: NodeReadLog = new NodeReadLog(),
+    private readonly pause: PollPause = sleep,
   ) {}
 
   async getNodeObservation(name: string): Promise<BeeNodeObservation> {
@@ -155,16 +173,84 @@ export class StampService {
     return this.shared(name, 'chainstate', (client) => client.getChainState());
   }
 
+  /**
+   * Buys a batch on the deployment's own node and, once bee calls it usable,
+   * sets it on that deployment, whatever it recorded before.
+   *
+   * The operator bought it on this deployment's page for this deployment, which
+   * is the whole reason to buy one while a batch is recorded: that batch is full
+   * or running out. The one choice that outranks the purchase is a later one: a
+   * batch set with Use while this one settled is kept.
+   */
   async buyStamp(
     name: string,
     input: BuyStampInput,
   ): Promise<{ batchID: string }> {
-    const result = await this.call(name, (client) => client.buyStamp(input));
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const result = await this.callOn(profile, (client) => client.buyStamp(input));
     this.reads.forget(name);
     logger.info(
       `[StampService] ${name}: bought stamp ${result.batchID} (amount=${input.amount}, depth=${input.depth})`,
     );
-    this.awaitUsableAndSet(name, result.batchID);
+    this.awaitUsableAndSet(name, result.batchID, profile.stamp_id);
+    return result;
+  }
+
+  /**
+   * Tops up a batch this deployment's own node holds, `amountPerChunkPlur` for
+   * every chunk of it, paid from that node's wallet. That buys the batch life
+   * and changes nothing else, so it stays set wherever it was set.
+   */
+  async topUpStamp(
+    name: string,
+    batchId: string,
+    amountPerChunkPlur: string,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    await this.heldStamp(profile, batchId);
+    const result = await this.callOn(profile, (client) =>
+      client.topUpStamp(batchIdOf(batchId), amountPerChunkPlur),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: topped up stamp ${batchIdOf(batchId)} (amount=${amountPerChunkPlur}), transaction ${result.txHash}`,
+    );
+    return result;
+  }
+
+  /**
+   * Dilutes a batch this deployment's own node holds to `depth`, which has to be
+   * deeper than its own and leave the batch at least a day of life, the least
+   * the postage contract accepts. Every step doubles what the batch holds and
+   * halves its life, and it costs the node's wallet only the transaction fee.
+   */
+  async diluteStamp(
+    name: string,
+    batchId: string,
+    depth: number,
+  ): Promise<BeeStampTransaction> {
+    const profile = await this.profiles.findByName(name);
+    if (!profile) throw new ProfileNotFoundError(name);
+
+    const held = await this.heldStamp(profile, batchId);
+    if (depth <= held.depth) {
+      throw new DiluteDepthError(name, batchIdOf(batchId), held.depth, depth);
+    }
+    const after = dilutionPreview(held, depth);
+    if (after?.underMinimumValidity && after.ttl !== null) {
+      throw new DiluteLifeError(name, batchIdOf(batchId), depth, after.ttl);
+    }
+    const result = await this.callOn(profile, (client) =>
+      client.diluteStamp(batchIdOf(batchId), depth),
+    );
+    this.reads.forget(name);
+    logger.info(
+      `[StampService] ${name}: diluted stamp ${batchIdOf(batchId)} (depth=${held.depth} to ${depth}), transaction ${result.txHash}`,
+    );
     return result;
   }
 
@@ -330,6 +416,31 @@ export class StampService {
     return nodeReadKey(name, `stamp/${batchIdOf(stampId)}`);
   }
 
+  /**
+   * A batch as this deployment's own node reports it now, asked fresh because
+   * the caller is about to pay on it, and refused where the node does not hold
+   * it.
+   *
+   * Asks the node for that one batch, `GET /stamps/{id}`, which answers only
+   * for a batch this node owns, because bee does not refuse a change to a
+   * batch it does not hold in words: its batch store holds every batch on the
+   * chain, a top-up of any of them can be paid for, and one it knows nothing
+   * about is a bare 500, "cannot topup batch" (bee v2.7.0, pkg/api/postage.go).
+   */
+  private async heldStamp(profile: Profile, batchId: string): Promise<BeeStamp> {
+    const client = this.clientFactory(beeApiUrlFor(profile));
+    try {
+      return await this.reads.readFresh(this.stampKey(profile.name, batchId), () =>
+        client.getStamp(batchIdOf(batchId)),
+      );
+    } catch (err) {
+      if (err instanceof BeeHttpError && err.status === 404) {
+        throw new StampNotFoundError(profile.name, batchIdOf(batchId));
+      }
+      throw beeCallFailed(profile.name, err);
+    }
+  }
+
   private shared<T>(
     name: string,
     route: string,
@@ -344,20 +455,30 @@ export class StampService {
   ): Promise<T> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
+    return this.callOn(profile, fn);
+  }
 
+  private async callOn<T>(
+    profile: Profile,
+    fn: (client: BeeClient) => Promise<T>,
+  ): Promise<T> {
     const client = this.clientFactory(beeApiUrlFor(profile));
     try {
       return await fn(client);
     } catch (err) {
-      throw beeCallFailed(name, err);
+      throw beeCallFailed(profile.name, err);
     }
   }
 
-  private awaitUsableAndSet(name: string, batchID: string): void {
+  private awaitUsableAndSet(
+    name: string,
+    batchID: string,
+    recordedAtBuy: string | null | undefined,
+  ): void {
     const key = `${name}:${batchID}`;
     if (this.pendingUsableWaits.has(key)) return;
     this.pendingUsableWaits.add(key);
-    void this.runUsableWait(name, batchID)
+    void this.runUsableWait(name, batchID, recordedAtBuy ?? null)
       .catch((err) =>
         logger.error(
           `[StampService] ${name}: usable-wait for ${batchID} failed: ${getErrorMessage(err)}`,
@@ -366,14 +487,18 @@ export class StampService {
       .finally(() => this.pendingUsableWaits.delete(key));
   }
 
-  private async runUsableWait(name: string, batchID: string): Promise<void> {
+  private async runUsableWait(
+    name: string,
+    batchID: string,
+    recordedAtBuy: string | null,
+  ): Promise<void> {
     const profile = await this.profiles.findByName(name);
     if (!profile) return;
     const client = this.clientFactory(beeApiUrlFor(profile));
 
     const start = Date.now();
     while (Date.now() - start < USABLE_WAIT_MS) {
-      await sleep(USABLE_POLL_MS);
+      await this.pause(USABLE_POLL_MS);
       let usable = false;
       try {
         const stamp = await client.getStamp(batchID);
@@ -385,9 +510,14 @@ export class StampService {
 
       const current = await this.profiles.findByName(name);
       if (!current) return;
-      if (current.stamp_id) {
+      const recordedNow = current.stamp_id ?? null;
+      if (recordedNow && sameBatchId(recordedNow, batchID)) {
+        logger.info(`[StampService] ${name}: stamp ${batchID} usable and already set`);
+        return;
+      }
+      if (!sameRecordedStamp(recordedNow, recordedAtBuy)) {
         logger.info(
-          `[StampService] ${name}: stamp ${batchID} usable; profile already has a stamp, not overriding`,
+          `[StampService] ${name}: stamp ${batchID} usable but not set, because the stamp set on this deployment changed from ${recordedAtBuy ?? 'none'} to ${recordedNow ?? 'none'} while it settled, and that later choice stands`,
         );
         return;
       }

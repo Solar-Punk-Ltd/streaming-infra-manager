@@ -232,7 +232,8 @@ export interface ProfileEnvValues {
   /**
    * Engine settings this profile overrides, by env key. An absent key is left
    * out of the file for the same reason an absent passphrase is: the base .env
-   * still decides it.
+   * still decides it. A key whose default the manager owns is the exception,
+   * written at the manager's number unless the base .env sets it.
    */
   engineSettings?: EngineSettings | null;
 
@@ -490,14 +491,16 @@ export function writeProfileEnv(
   // Against the defaults this host actually falls back to, not the stack's own:
   // an unset key is left out of the file below and whatever the base .env says
   // stands, so checking a pair against the stack values refuses a deployment
-  // that would start and passes one that would not.
+  // that would start and passes one that would not. A default the manager owns
+  // is the one unset key written below, which the same answer says.
+  const defaults = effectiveEngineDefaults(
+    values.engine,
+    parseEnvText(baseContents),
+    values.stackEngineDefaults ?? {},
+  );
   const settingsProblem = engineSettingsProblem(values.engine, engineSettings, {
     abr,
-    defaults: effectiveEngineDefaults(
-      values.engine,
-      parseEnvText(baseContents),
-      values.stackEngineDefaults ?? {},
-    ).values,
+    defaults: defaults.values,
   });
   if (settingsProblem) {
     throw new Error(
@@ -505,7 +508,7 @@ export function writeProfileEnv(
     );
   }
   for (const [key, value] of Object.entries(
-    engineSettingsEnv(values.engine, engineSettings, { abr }),
+    engineSettingsEnv(values.engine, engineSettings, { abr, defaults }),
   )) {
     contents = upsertEnvLine(contents, key, value);
   }

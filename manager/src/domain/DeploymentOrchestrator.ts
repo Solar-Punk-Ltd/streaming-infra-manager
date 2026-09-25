@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
   abrLadderEnvValue,
+  effectiveEngineDefaults,
   engineForComponents,
   type EngineName,
   engineSettingsEnv,
@@ -1637,7 +1638,8 @@ export class DeploymentOrchestrator {
     version: DeployVersionSnapshot | null,
     secrets: DeploySecrets,
   ): Record<string, string> {
-    const env = parseBaseEnv(paths.root);
+    const baseEnv = parseBaseEnv(paths.root);
+    const env = { ...baseEnv };
 
     Object.assign(env, beeDataDirsFor(profile.name, targetAlias(profile.host)));
 
@@ -1692,12 +1694,13 @@ export class DeploymentOrchestrator {
     if (secrets.srtPassphrase) {
       env.SRT_PASSPHRASE = secrets.srtPassphrase;
     }
+    const engine = engineForComponents(profile.components);
     Object.assign(
       env,
-      engineSettingsEnv(
-        engineForComponents(profile.components),
-        profile.engine_settings,
-      ),
+      engineSettingsEnv(engine, profile.engine_settings, {
+        abr: false,
+        defaults: effectiveEngineDefaults(engine, baseEnv, version?.contract?.engineDefaults ?? {}),
+      }),
     );
 
     return env;

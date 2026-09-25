@@ -100,7 +100,7 @@ export function startApiServer(
   const requireSession = createRequireSession(deps.authService);
 
   // Everything above this line is open, everything below it needs a session.
-  // Docker's healthcheck reads /health, and /auth is where signing in happens.
+  // /health needs no session: manager:upgrade and the integration suite wait on it.
   app.use('/health', createHealthRouter(deps.database));
   app.use('/auth', createAuthRouter(deps.authService, requireSession));
   app.use(requireSession);

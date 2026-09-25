@@ -24,6 +24,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../types';
+import type { BeeStamp } from '../uploaders/stampApi';
 import { buildChecklist, type ChecklistInput } from './checklist';
 
 const BATCH = `0x${'a'.repeat(64)}`;
@@ -263,16 +264,135 @@ describe('the stamp where the view never asked the node', () => {
   it('takes a batch that another reading settled at face value', () => {
     const live = stepNamed('Postage stamp set', {
       ...listInput(payingChequebook),
-      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000 },
+      stampHealth: { state: 'active', ok: true, dead: false, ttl: 500_000, fillRatio: null, immutable: null },
     });
     assert.equal(live?.state, 'ok');
 
     const gone = stepNamed('Postage stamp set', {
       ...listInput(payingChequebook),
-      stampHealth: { state: 'gone', ok: false, dead: true, ttl: null },
+      stampHealth: { state: 'gone', ok: false, dead: true, ttl: null, fillRatio: null, immutable: null },
     });
     assert.equal(gone?.state, 'err');
     assert.equal(gone?.problem, 'Stamp not on node');
+  });
+});
+
+/**
+ * How full a batch is, which bee reports beside its time left and which the
+ * step read nothing of until 2026-09-24. That day the 1080p rung of the tester's
+ * pool read "Postage stamp set, 2d 3h left" while its node refused every upload
+ * with a 402, because the immutable batch's fullest bucket held 128 of its 128
+ * chunks.
+ */
+describe('the stamp step reads how full the batch is', () => {
+  const HOST_TTL = 2 * 86_400 + 3 * 3_600 + 12 * 60;
+  const hostBatch = (over: Partial<BeeStamp> = {}): BeeStamp => ({
+    batchID: BATCH.slice(2),
+    utilization: 128,
+    usable: true,
+    depth: 23,
+    amount: '1000000000',
+    bucketDepth: 16,
+    blockNumber: 1,
+    immutableFlag: true,
+    exists: true,
+    batchTTL: HOST_TTL,
+    ...over,
+  });
+  const stampStepFor = (batch: BeeStamp) =>
+    stepNamed(
+      'Postage stamp set',
+      input({
+        chequebook: payingChequebook,
+        stampHealth: stampHealthFrom(BATCH, [batch]),
+        currentStamp: batch,
+      }),
+    );
+
+  it('calls the host’s full immutable batch full, not set', () => {
+    const step = stampStepFor(hostBatch());
+
+    assert.equal(step?.problem, 'Stamp full');
+    assert.equal(step?.state, 'err');
+    assert.match(step?.detail ?? '', /128 of 128 chunks in its fullest bucket/);
+    assert.match(step?.detail ?? '', /refuses uploads until it is diluted or a new stamp is bought/);
+    assert.equal(step?.action?.kind, 'dilute-stamp');
+    assert.equal(step?.action?.label, 'Dilute or buy');
+    assert.equal(step?.action?.primary, true);
+  });
+
+  it('makes a full batch the headline, ahead of an uploader that could start', () => {
+    const steps = buildChecklist(
+      input({
+        chequebook: payingChequebook,
+        stampHealth: stampHealthFrom(BATCH, [hostBatch()]),
+        currentStamp: hostBatch(),
+      }),
+    );
+
+    assert.equal(steps.find((step) => step.state !== 'ok')?.problem, 'Stamp full');
+    assert.equal(steps.some((step) => step.action?.kind === 'deploy-uploader'), false);
+  });
+
+  it('warns about an immutable batch past the uploader’s start ceiling, before it fills', () => {
+    const step = stampStepFor(hostBatch({ utilization: 122 }));
+
+    assert.equal(step?.problem, 'Stamp nearly full');
+    assert.equal(step?.state, 'warn');
+    assert.match(step?.detail ?? '', /95% full/);
+    assert.equal(step?.action?.label, 'Dilute or buy');
+    assert.equal(step?.action?.kind, 'dilute-stamp');
+  });
+
+  it('offers a top-up for a batch with room that runs out within two days', () => {
+    const step = stampStepFor(hostBatch({ utilization: 64, batchTTL: 10 * 3_600 }));
+
+    assert.equal(step?.problem, 'Stamp ends soon');
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.action?.label, 'Top up or buy');
+    assert.equal(step?.action?.kind, 'top-up-stamp');
+  });
+
+  it('says how full a working batch is and that it is immutable', () => {
+    const step = stampStepFor(hostBatch({ utilization: 64 }));
+
+    assert.equal(step?.state, 'ok');
+    assert.match(step?.detail ?? '', /50% full/);
+    assert.match(step?.detail ?? '', /immutable/);
+  });
+
+  // bee takes uploads on a full mutable batch, but it spends what earlier
+  // uploads stored, and the uploader of stack v3.3 and earlier refuses to
+  // restart on any batch past 90%, so it warns rather than passing.
+  it('warns about a full mutable batch, which takes uploads but overwrites its oldest chunks', () => {
+    const step = stampStepFor(hostBatch({ immutableFlag: false }));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Stamp nearly full');
+    assert.match(step?.detail ?? '', /mutable/);
+    assert.match(step?.detail ?? '', /overwrites its oldest chunks rather than refusing uploads/);
+  });
+
+  it('warns about a mutable batch past the ceiling, naming the stacks that refuse a restart on it', () => {
+    const step = stampStepFor(hostBatch({ utilization: 122, immutableFlag: false }));
+
+    assert.equal(step?.state, 'warn');
+    assert.equal(step?.problem, 'Stamp nearly full');
+    assert.match(step?.detail ?? '', /oldest recordings paid with it start losing data/);
+    assert.match(step?.detail ?? '', /stack v3\.3 and earlier refuses to restart on it/);
+  });
+
+  it('says nothing about fill where the node did not report it', () => {
+    const step = stepNamed(
+      'Postage stamp set',
+      input({
+        chequebook: payingChequebook,
+        stampHealth: stampHealthFrom(BATCH, [{ batchID: BATCH, usable: true, batchTTL: HOST_TTL }]),
+      }),
+    );
+
+    assert.equal(step?.state, 'ok');
+    assert.doesNotMatch(step?.detail ?? '', /full|mutable/);
   });
 });
 

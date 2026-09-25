@@ -78,6 +78,41 @@ describe('effectiveEngineDefaults', () => {
     assert.equal(sources.HLS_FRAGMENT, 'host');
   });
 
+  it("takes the manager's own SRT latency over a version's fallback, and says the manager set it", () => {
+    // v3.1's entrypoint falls back to 200. The owner decided 2000 on
+    // 2026-09-23, and a version pinned before that does not know it.
+    const { values, sources } = effectiveEngineDefaults(
+      SRS_SERVICE,
+      {},
+      { SRT_LATENCY: '200', HLS_FRAGMENT: '0.5' },
+    );
+
+    assert.equal(values.SRT_LATENCY, '2000');
+    assert.equal(sources.SRT_LATENCY, 'manager');
+    assert.equal(sources.HLS_FRAGMENT, 'stack', 'the other keys still follow the version');
+  });
+
+  it('still lets a value set on the host win over the manager default', () => {
+    const { values, sources } = effectiveEngineDefaults(
+      SRS_SERVICE,
+      { SRT_LATENCY: '500' },
+      { SRT_LATENCY: '200' },
+    );
+
+    assert.equal(values.SRT_LATENCY, '500');
+    assert.equal(sources.SRT_LATENCY, 'host');
+  });
+
+  it('keeps the manager default when the host sets an SRT latency the field refuses', () => {
+    const { values, sources, rejected } = effectiveEngineDefaults(SRS_SERVICE, {
+      SRT_LATENCY: '5',
+    });
+
+    assert.equal(values.SRT_LATENCY, '2000');
+    assert.equal(sources.SRT_LATENCY, 'manager');
+    assert.deepEqual(rejected, ['SRT_LATENCY']);
+  });
+
   it('answers only the keys the engine reads', () => {
     const { values } = effectiveEngineDefaults(OME_SERVICE, {
       API_PORT: '10000',
