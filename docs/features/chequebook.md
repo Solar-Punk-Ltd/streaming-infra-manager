@@ -164,8 +164,10 @@ search cannot authorize an assertion. Operations that might still broadcast
 late remain relevant even after an operator assertion.
 
 A supplied transaction hash is a request to verify that transaction against
-the saved identity. It is not a force-settlement control. Historical checks
-and history remain available after a deployment is deleted.
+the saved identity. It is not a force-settlement control. History remains
+available after a deployment is deleted, and so do checks while the chain can
+still be read for it, as the end of "Where a transfer reaches the node and the
+chain" below says.
 
 D10 permits a separate operator assertion only after a complete current
 no-match result. The operator types the exact server-provided acknowledgement
@@ -264,8 +266,10 @@ History and exact replay do not require current transport configuration.
 Pending Bee reads require the saved deployment instance and matching node
 identity. Missing pending observations remain unavailable, while receipt and
 manual chain recovery can still use the frozen operation after profile deletion
-when `CHEQUEBOOK_RPC_ENDPOINTS` names its chain. Without that, a deleted
-deployment's transfer has no node to read the endpoint from.
+when `CHEQUEBOOK_RPC_ENDPOINTS` names its chain, or through the endpoint the
+manager remembered for that node before the deletion, while that endpoint
+answers and until the manager restarts. Past that, a deleted deployment's
+transfer has no node to read the endpoint from.
 
 ## Evidence and remaining acceptance
 
