@@ -9,8 +9,9 @@
  * what its first deploy writes. They answer to the rules a save of the
  * deployment's settings page answers to, against the list its version gives a
  * deployment of that shape: a key the version does not declare, a key one of
- * the deployment's own controls decides, and a value the stack would read
- * differently are all refused, the key named and the value never repeated.
+ * the deployment's own controls decides, a value the stack would read
+ * differently and a value outside what the stack takes for its key are all
+ * refused, each key named and no secret repeated.
  */
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
