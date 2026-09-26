@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { BeeTransaction, ChequebookAdmissionResult, ChequebookOperation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookJournalError } from '../errors/ChequebookJournalError.js';
 import { ChequebookPreparationError } from '../errors/ChequebookPreparationError.js';
+import { ChequebookPreflightRefusedError } from '../errors/ChequebookPreflightRefusedError.js';
 import type { ChequebookOperationRepository, SubmissionOutcome } from './ChequebookOperationRepository.js';
 import { isTransactionHash, normalizeTransferContext, normalizeTransferIntent, sameTransferIntent } from './operationIdentity.js';
 
@@ -54,8 +55,9 @@ export class ChequebookSubmission {
 
     try {
       await prepared.preflight(operation);
-    } catch {
-      return this.finish(operation, { state: 'rejected', transactionHash: null, failureReason: 'preflight_failed' });
+    } catch (error) {
+      const failureReason = error instanceof ChequebookPreflightRefusedError ? error.reason : 'preflight_failed';
+      return this.finish(operation, { state: 'rejected', transactionHash: null, failureReason });
     }
 
     const dispatch = await this.journal(() => this.operations.claimDispatch(operation.id));

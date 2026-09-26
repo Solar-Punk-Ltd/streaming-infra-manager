@@ -1,6 +1,7 @@
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
 import { parsePlur, type ChequebookOperation, type ChequebookRefusalCause, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookPreparationError } from '../errors/ChequebookPreparationError.js';
+import { ChequebookPreflightRefusedError } from '../errors/ChequebookPreflightRefusedError.js';
 import type { ChequebookChainRegistry } from './ChequebookChainRegistry.js';
 import type { PreparedChequebookTransfer } from './ChequebookSubmission.js';
 import { normalizeTransferContext, normalizeTransferIntent, sameTransferIntent } from './operationIdentity.js';
@@ -127,14 +128,16 @@ class TransferPreparation {
                 const fresh = await readBeeTransferIdentity(pinnedSession, preflight.signal, preflight.deadline);
                 if (!sameIdentity(context, fresh)) throw new ChequebookPreparationError();
                 const gas = parsePlur(fresh.wallet.nativeTokenBalance);
-                if (gas === null || gas < 1n) throw new ChequebookPreparationError();
+                if (gas === null) throw new ChequebookPreparationError('bee_unreadable');
+                if (gas < 1n) throw new ChequebookPreflightRefusedError('preflight_no_gas');
                 const amount = BigInt(intent.amountPlur);
                 const available = intent.direction === 'deposit' ? parsePlur(fresh.wallet.bzzBalance) :
                   parsePlur((await checked(() => pinnedSession.getChequebookBalance(), preflight.signal, preflight.deadline)).availableBalance);
-                if (available === null || available < amount) throw new ChequebookPreparationError();
+                if (available === null) throw new ChequebookPreparationError('bee_unreadable');
+                if (available < amount) throw new ChequebookPreflightRefusedError('preflight_insufficient_balance');
                 pinnedSession.assertUsable();
               });
-            } catch { dispose(); throw new ChequebookPreparationError(); }
+            } catch (error) { dispose(); throw error instanceof ChequebookPreflightRefusedError ? error : new ChequebookPreparationError(); }
           },
           send: async operation => {
             if (disposed) throw new ChequebookPreparationError();

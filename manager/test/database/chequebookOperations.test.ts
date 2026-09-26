@@ -88,6 +88,17 @@ describe('chequebook operations in isolated PostgreSQL schemas', { skip: !Number
     return repository.assertNoSubmission(checked, assertion);
   }
 
+  it('records why a preflight refused a transfer, no gas or too little balance, and keeps it on the row', async () => {
+    for (const failureReason of ['preflight_no_gas', 'preflight_insufficient_balance'] as const) {
+      const admitted = (await repository.admit(operationCandidate({ nodeAddress: `0x${failureReason === 'preflight_no_gas' ? 'a1' : 'a2'}${'00'.repeat(19)}` }))).operation;
+      const refused = await repository.recordSubmission(admitted.id, { state: 'rejected', transactionHash: null, failureReason });
+      assert.equal(refused.state, 'rejected');
+      assert.equal(refused.failureReason, failureReason);
+      assert.equal((await repository.findById(admitted.id))?.failureReason, failureReason);
+    }
+    await assert.rejects(pool.query("UPDATE chequebook_operations SET failure_reason = 'preflight_ran_out_of_luck'"), /check constraint/i);
+  });
+
   it('pages retained history without losing rows within one millisecond', async () => {
     const first = (await repository.admit(operationCandidate({ profileName: 'removed-profile' }))).operation;
     await repository.recordSubmission(first.id, { state: 'rejected', transactionHash: null, failureReason: 'preflight_failed' });

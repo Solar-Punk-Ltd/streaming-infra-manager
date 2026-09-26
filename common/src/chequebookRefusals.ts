@@ -1,3 +1,5 @@
+import type { TransferDirection } from './chequebook.js';
+
 /**
  * Why the manager refused to prepare a chequebook transfer. The manager sets
  * one where it decides to refuse, and answers it with the 503. Nothing in
@@ -92,4 +94,24 @@ function bridgeSentence(check: BeeBridgeCheck | null): string {
 export function chequebookRefusalSentence(refusal: ChequebookRefusal): string {
   const sentence = refusal.cause === 'bridge_not_qualified' ? bridgeSentence(refusal.check) : CAUSE_SENTENCES[refusal.cause];
   return `${sentence} ${NOTHING_SENT}`;
+}
+
+/** Why the manager's last check before sending refused a transfer it had already recorded. */
+export const CHEQUEBOOK_PREFLIGHT_REFUSALS = ['preflight_failed', 'preflight_no_gas', 'preflight_insufficient_balance'] as const;
+export type ChequebookPreflightRefusal = (typeof CHEQUEBOOK_PREFLIGHT_REFUSALS)[number];
+
+export function isChequebookPreflightRefusal(value: unknown): value is ChequebookPreflightRefusal {
+  return (CHEQUEBOOK_PREFLIGHT_REFUSALS as readonly unknown[]).includes(value);
+}
+
+export function chequebookPreflightSentence(reason: ChequebookPreflightRefusal, direction: TransferDirection): string {
+  if (reason === 'preflight_no_gas') {
+    return 'The node\'s wallet has no xDAI to pay gas with, so the manager refused this transfer before sending it. Send xDAI to the node\'s wallet, then start a new transfer.';
+  }
+  if (reason === 'preflight_insufficient_balance') {
+    return direction === 'deposit'
+      ? 'The node\'s wallet holds less BZZ than this transfer asks for, so the manager refused it before sending it. Lower the amount or add BZZ to the wallet, then start a new transfer.'
+      : 'The chequebook has less available BZZ than this withdrawal asks for, so the manager refused it before sending it. Lower the amount, then start a new transfer.';
+  }
+  return 'The manager\'s last check refused this transfer before it was sent. Start a new transfer once the node and the deployment are settled.';
 }

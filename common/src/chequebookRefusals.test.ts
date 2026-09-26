@@ -12,9 +12,12 @@ import { describe, it } from 'node:test';
 import {
   BEE_BRIDGE_BINARIES,
   BEE_BRIDGE_CHECKS,
+  CHEQUEBOOK_PREFLIGHT_REFUSALS,
   CHEQUEBOOK_REFUSAL_CAUSES,
+  chequebookPreflightSentence,
   chequebookRefusal,
   chequebookRefusalSentence,
+  isChequebookPreflightRefusal,
   isChequebookRefusal,
 } from './chequebookRefusals.js';
 
@@ -82,6 +85,27 @@ describe('chequebook refusal causes', () => {
       { cause: 'Connection refused by 10.0.0.1', check: null }, { cause: 'docker_unreachable', check: 'bash' },
       { cause: 'bridge_not_qualified', check: '/usr/bin/whoami' }, { cause: 'wrong_chain', check: null, detail: 'x' }]) {
       assert.equal(isChequebookRefusal(value), false, JSON.stringify(value));
+    }
+  });
+});
+
+describe('chequebook preflight refusals', () => {
+  it('keeps the existing reason and adds one for no gas and one for too little balance', () => {
+    assert.deepEqual([...CHEQUEBOOK_PREFLIGHT_REFUSALS], ['preflight_failed', 'preflight_no_gas', 'preflight_insufficient_balance']);
+    for (const reason of CHEQUEBOOK_PREFLIGHT_REFUSALS) assert.equal(isChequebookPreflightRefusal(reason), true);
+    for (const value of ['response_unavailable', 'hash_conflict', null, 'preflight_no_gas ']) assert.equal(isChequebookPreflightRefusal(value), false);
+  });
+
+  it('says which balance was short for each direction, in plain sentences', () => {
+    assert.match(chequebookPreflightSentence('preflight_no_gas', 'deposit'), /xDAI/);
+    assert.match(chequebookPreflightSentence('preflight_insufficient_balance', 'deposit'), /wallet/);
+    assert.match(chequebookPreflightSentence('preflight_insufficient_balance', 'withdraw'), /chequebook/);
+    for (const reason of CHEQUEBOOK_PREFLIGHT_REFUSALS) {
+      for (const direction of ['deposit', 'withdraw'] as const) {
+        const sentence = chequebookPreflightSentence(reason, direction);
+        assertPlain(sentence);
+        assert.match(sentence, /before (it was )?sent|before sending/, reason);
+      }
     }
   });
 });

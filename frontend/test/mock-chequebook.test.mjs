@@ -96,13 +96,22 @@ test('mock preflight refusal is recorded without a dispatch and a later explicit
   const input = h.input();
   const refused = await (await h.request(depositPath, input)).json();
   assert.equal(refused.operation.state, 'rejected');
-  assert.equal(refused.operation.failureReason, 'preflight_failed');
+  assert.equal(refused.operation.failureReason, 'preflight_no_gas');
   assert.equal(refused.operation.dispatchStartedAt, null);
   assert.equal(h.dispatched.length, 0);
   h.node.xdai = '1';
   assert.equal((await (await h.request(depositPath, input)).json()).operation.state, 'rejected');
   assert.equal((await (await h.request(depositPath, h.input())).json()).operation.state, 'submitted');
   assert.equal(h.dispatched.length, 1);
+});
+
+test('mock preflight names too little balance as its own reason, as the manager does', async t => {
+  const h = await fixture(t);
+  h.node.bzz = '1';
+  const refused = await (await h.request(depositPath, h.input())).json();
+  assert.equal(refused.operation.state, 'rejected');
+  assert.equal(refused.operation.failureReason, 'preflight_insufficient_balance');
+  assert.equal(h.dispatched.length, 0);
 });
 
 test('mock lost Bee response stays unknown and exact replay never dispatches again', async t => {

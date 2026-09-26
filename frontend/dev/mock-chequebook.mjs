@@ -89,7 +89,7 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     const available = BigInt(direction === 'deposit' ? node.bzz : node.chequebook.available);
     if (BigInt(node.xdai) <= 0n || BigInt(input.amount) > available) {
       operation.state = 'rejected';
-      operation.failureReason = 'preflight_failed';
+      operation.failureReason = BigInt(node.xdai) <= 0n ? 'preflight_no_gas' : 'preflight_insufficient_balance';
       changed(operation);
     } else {
       operation.dispatchStartedAt = now;
