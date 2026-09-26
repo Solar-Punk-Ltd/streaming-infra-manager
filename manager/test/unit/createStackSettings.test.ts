@@ -54,6 +54,7 @@ async function appFor(harness: Harness) {
   return {
     create: (body: unknown) => call(profiles, 'POST', '/profiles', body),
     createGroup: (body: unknown) => call(groups, 'POST', '/groups', body),
+    addMembers: (groupId: number, count: number) => call(groups, 'POST', `/groups/${groupId}/members`, { count }),
     close: async () => {
       await profiles.close();
       await groups.close();
@@ -251,6 +252,35 @@ describe('POST /groups with stack settings', () => {
       assert.match(refused, /STAMP is set by the deployment's postage stamp, not here\./);
       assert.equal(harness.groups.groups.length, 0);
       assert.equal(harness.profiles.rows.size, 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('POST /groups/:id/members', () => {
+  it('gives a member appended to a group the stack settings of the siblings it joins', async () => {
+    const harness = profileServiceHarness();
+    const app = await appFor(harness);
+    try {
+      const created = await app.createGroup({
+        group_name: 'fleet',
+        size: 1,
+        kind: 'streamer',
+        stack_settings: [{ key: 'LOG_LEVEL', value: 'debug' }, { key: 'ADMIN_API_TOKEN', value: TOKEN }],
+      });
+      const { group } = created.body as { group: { id: number } };
+
+      const appended = await app.addMembers(group.id, 1);
+
+      assert.equal(appended.status, 202, JSON.stringify(appended.body));
+      assert.deepEqual(await harness.profiles.stackSettingsOf('fleet-profile-2'), {
+        plain: { LOG_LEVEL: 'debug' },
+        secretKeys: ['ADMIN_API_TOKEN'],
+        revision: 0,
+      });
+      assert.deepEqual(await harness.profiles.stackSettingsForDeploy('fleet-profile-2'), { LOG_LEVEL: 'debug', ADMIN_API_TOKEN: TOKEN });
+      assert.doesNotMatch(JSON.stringify(appended.body), new RegExp(TOKEN));
     } finally {
       await app.close();
     }

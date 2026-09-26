@@ -107,8 +107,8 @@ import {
   localPublisherHost,
   type LocalPublisherHostReader,
 } from './localHost.js';
-import { NO_STACK_SETTINGS, ProfileRepository } from './ProfileRepository.js';
-import { initialStackSettingsFor } from './settings/newDeploymentSettings.js';
+import { ProfileRepository } from './ProfileRepository.js';
+import { initialStackSettingsFor, initialStackSettingsOf } from './settings/newDeploymentSettings.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
@@ -1527,9 +1527,11 @@ export class ProfileService {
       rpc_endpoint_source: canonical.rpc_endpoint_source,
       rpc_endpoint: rpcEndpoint.rpcEndpoint,
       stack_version_id: canonical.stack_version_id,
-      // So an appended member cuts the same segments as the siblings it joins.
+      // So an appended member cuts the same segments as the siblings it joins,
+      // and runs with the same stack settings, the secret ones included, which
+      // the member rows do not carry either.
       engine_settings: canonical.engine_settings,
-      stack_settings: NO_STACK_SETTINGS,
+      stack_settings: initialStackSettingsOf(await this.repo.stackSettingsForDeploy(canonical.name)),
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,

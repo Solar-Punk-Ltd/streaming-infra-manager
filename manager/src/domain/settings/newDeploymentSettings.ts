@@ -68,9 +68,14 @@ export function initialStackSettingsFor(
   const { entries } = newDeploymentSettingsCatalogFor(version, shape);
   const problems = settingEditProblems(settings, entries);
   if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
+  return initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
+}
+
+/** Values by key, split the way the two columns hold them: a secret apart from the rest. */
+export function initialStackSettingsOf(values: Readonly<Record<string, string>>): InitialStackSettings {
   const plain: Record<string, string> = {};
   const secret: Record<string, string> = {};
-  for (const { key, value } of settings) {
+  for (const [key, value] of Object.entries(values)) {
     if (isSecretSettingKey(key)) secret[key] = value;
     else plain[key] = value;
   }
