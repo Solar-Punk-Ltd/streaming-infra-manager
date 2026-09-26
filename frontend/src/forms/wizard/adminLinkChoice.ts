@@ -17,8 +17,7 @@ import { chosenKey, needsStreamKey, type WizardContext, type WizardState } from 
 
 /**
  * The new-deployment wizard's Web2 admin group: whether the deployment's
- * stream uploader reports to the web2 admin, where, and with which token
- * (Levi, 2026-09-25, plan item D).
+ * stream uploader reports to the web2 admin, where, and with which token.
  *
  * It starts from the manager's own link, set on the Manager settings page,
  * and keeps the operator's choice once they touch it. The manager's stored
