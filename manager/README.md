@@ -659,8 +659,9 @@ and, on the manager's own host, the data directories. A stored value for one of
 those is left out of the file and named in the log. A generated secret is the
 exception: a value stored for it replaces the generated one, which stays kept
 for when the value is reset. The API that lists, saves and applies them is
-under "A deployment's own settings" above. The page that edits them is the next
-part of the same work.
+under "A deployment's own settings" above, and the deployment page edits them
+in its Stack settings card (2026-09-26, `feat/deployment-settings-page`), which
+`docs/features/deployment-settings.md` describes.
 
 Every successful deploy records, per container it started, what that container
 got: the keys its compose block reads and the keys the version declares that
