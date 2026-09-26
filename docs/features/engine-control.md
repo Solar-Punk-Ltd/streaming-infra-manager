@@ -206,9 +206,11 @@ stack version, and validation lives in code:
   such field.
 - `writeProfileEnv` writes those pairs (every value goes through the same character check the
   passphrase gets, because it lands inside a `sed` expression in the entrypoint).
-- `buildEffectiveEnv` and `containerKeysSpec` include the keys, so the container snapshot shows
-  what the engine was started with. Both call `engineSettingsEnv` with the same defaults since
-  2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries it.
+- `effectiveEnvOf` reads the keys back from the env file the deploy wrote, and `containerKeysSpec`
+  records them against each container, so the container snapshot shows what the engine was
+  started with. The file's engine lines come from `engineSettingsEnv` with the host's defaults
+  since 2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries
+  it.
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
   transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
   only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
