@@ -36,8 +36,8 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
  *
  * The description says what was wanted and nothing says what arrived instead,
  * which is the difference between a page that never loaded and a page that
- * loaded and said something else. In a busy Linux container seven files ended
- * on waits that could not tell those apart, and all seven pass on a laptop, so
+ * loaded and said something else. In a container run seven files ended on
+ * waits that could not tell those apart, and all seven pass on a laptop, so
  * the missing half is exactly the half that decides whose fault it is.
  */
 function lastReading(value, readAnything) {
@@ -418,9 +418,9 @@ async function passwdFile() {
  * Who should run the browser, and whether the sandbox has to be given up.
  *
  * Chrome refuses to run as root unless the sandbox is disabled, which is why
- * every browser suite refused inside a container whose jobs run as root.
- * Passing `--no-sandbox` unconditionally is the usual answer and the worse
- * one: it drops the sandbox on a laptop that never needed it.
+ * every browser suite refused inside a container running as root. Passing
+ * `--no-sandbox` unconditionally is the usual answer and the worse one: it
+ * drops the sandbox on a laptop that never needed it.
  *
  * ⛔ Keeping the sandbox in that container is not on offer, and this is a
  * reading rather than an assumption. Running as the image's `pwuser` cleared
@@ -450,11 +450,11 @@ export function browserIdentity(currentUid, passwd) {
  * The flags a browser is started with, which depend on where it is running.
  *
  * `--disable-dev-shm-usage` travels with `--no-sandbox` because both follow
- * from the same fact, that we are root and therefore in the box's container. A
+ * from the same fact, that we are root inside a container. A
  * container gets 64 MiB of /dev/shm by default, which is not enough for
  * Chrome's renderers, and a renderer that cannot allocate there dies leaving a
  * blank page and no error in the page itself. That is what seven browser files
- * looked like on the box once their waits could say what they saw: an empty
+ * looked like in that container once their waits could say what they saw: an empty
  * document for the whole budget, after a first load that had worked.
  *
  * A laptop keeps both, because its /dev/shm is the machine's own.
@@ -520,7 +520,7 @@ export async function launchChrome(t, origin) {
   // Chrome explains a refusal on its own standard error, at once and in one
   // line, and then exits. Discarding that stream leaves a run with nothing but
   // the absence of a port file fifteen seconds later, which is how sixteen
-  // suites run as root in a container each reported the same timeout and no
+  // suites in a container run each reported the same timeout and no
   // reason among them.
   let said = '';
   const collect = (chunk) => { said += chunk; };
