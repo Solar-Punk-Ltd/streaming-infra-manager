@@ -938,9 +938,9 @@ directories. A stored value for one of those is left out of the file and named
 in the log. A generated secret is the exception: a value stored for it replaces
 the generated one, which stays kept for when the value is reset. The API that
 lists, saves and applies them is under "A deployment's own settings" above, the
-deployment page edits them in its Stack settings card (2026-09-26,
-`feat/deployment-settings-page`), and the new-deployment wizard sets them
-before the deployment exists (2026-09-26, `feat/deployment-settings-wizard`),
+deployment page edits them in its Stack settings card (2026-09-26, #57), and
+the new-deployment wizard sets them before the deployment exists (2026-09-26,
+#58),
 which `docs/features/deployment-settings.md` describes.
 
 Every successful deploy records, per container it started, what that container
@@ -1044,7 +1044,7 @@ Notes:
   from `/host/proc/1/net/dev`, the host init process's network view. Adding the
   mounts requires a redeploy.
 
-Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
+Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 <server>`
 exposes the web port, which is the way to the API under compose too, because the
 api container publishes no port of its own. The port below is the `pnpm dev`
 one, so read `8080` for `9876` when the manager runs under compose):
