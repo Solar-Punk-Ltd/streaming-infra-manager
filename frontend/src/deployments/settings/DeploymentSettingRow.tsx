@@ -61,7 +61,7 @@ const CAPTION_WRAP = { overflowWrap: 'anywhere' } as const;
  * it, and either the field that changes it or the reason it is changed
  * elsewhere. One of the deployment's own engine settings is named by its
  * label with the key beside it, and says what the engine's field list says
- * about it, as the Engine card's drawer did.
+ * about it.
  */
 export function DeploymentSettingRow({
   entry,
