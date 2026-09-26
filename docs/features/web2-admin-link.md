@@ -8,7 +8,7 @@ day that it has to work out of the box on any host a clone of this repository
 deploys to, documented for whoever clones it. This page is the design. The
 operator's guide, with the routes and what each Test connection outcome means,
 is the section [Linking uploaders to the web2
-admin](../manager/README.md#linking-uploaders-to-the-web2-admin) of
+admin](../../manager/README.md#linking-uploaders-to-the-web2-admin) of
 `manager/README.md`.
 
 ## The two keys, and the rule they answer to together
