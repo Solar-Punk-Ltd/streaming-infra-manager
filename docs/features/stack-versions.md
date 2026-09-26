@@ -10,7 +10,7 @@ New standalone deployments and groups choose a version in the wizard. The defaul
 
 A version list arriving late must leave a usable selector visible. A later default change does not overwrite an explicit choice or discard the draft. If the selected version disappears, the operator chooses again.
 
-Decision D6 from the engine-configuration discussion on 2026-09-07 applies: version selection is for new deployments. Moving an existing deployment or group to another version is outside this agreed set. There is no promised Move version control or move-version API.
+Version selection is for new deployments, as agreed in the engine-configuration discussion on 2026-09-07. Moving an existing deployment or group to another version is outside this agreed set. There is no promised Move version control or move-version API.
 
 Updating a version does not automatically restart its existing deployments. The published build and the build currently running are separate facts.
 
