@@ -18,7 +18,7 @@ Levi explicitly overrode the reviewer-only restriction for the agreed local work
 
 Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies are drafts under `docs/consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
 
-Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access Claude memory, estate, beeClients, secrets or the shared development services on ports 5186 and 3035.
+Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access secrets or the maintainers' shared development services.
 
 ## Roadmap, all 25 rows
 
@@ -936,8 +936,7 @@ fourteen Chrome suites is a named wait through four shared helpers, and two
 more races surfaced under throttle and are fixed. Qualified on this laptop:
 three consecutive green full runs at four times throttle (208 tests, 27 files,
 544, 473 and 424 seconds), one at six times, and an unthrottled run in 360
-seconds. Recorded as a P2 follow-up under the estate's review-priority rule of
-2026-09-11: a failing suite exits late because five suites close their Vite
+seconds. Recorded as a P2 follow-up on 2026-09-11: a failing suite exits late because five suites close their Vite
 before their Chrome, which costs ten runner minutes only when a suite fails.
 
 **Ruled, 2026-09-11, the three open questions on the checks.** Levi kept all
@@ -983,7 +982,7 @@ run. And a click that times out now says whether the last read saw no element
 or a disabled one, which is the difference between looking at the page and
 looking at the control, and was the whole of the diagnosis.
 
-Recorded as a P3 limit under the review-priority rule, with its reproduction:
+Recorded as a P3 limit, with its reproduction:
 `initialWizardState` reads every context-derived default once, at open, so a
 wizard opened before the profiles, groups or host configuration arrive starts
 with no feed stream picked, no pool picked, and a generated passphrase rather
@@ -1036,7 +1035,7 @@ Levi asked for an end to end pass over everything the manager offers, through a 
 
 *A redeploy that recreates no container leaves a blocked attempt.* An attempt resolves only when every service it touched shows a container id that did not exist before it started. `docker compose up -d --build` recreates a container only when its image or its config changed, so a retry that changes nothing, or a redeploy after an edit the containers do not see, ends blocked and refuses the next deploy until a person types its job id. Reproduced twice: a redeploy after a notes-only edit, and a plain Retry. The guard's premise, that Compose creates every container after every build, holds for a service built from source and not for one on a fixed image, which is what a stream's SRS and Bee node both are. Levi ruled for the second reading: a deploy that finished cleanly and left a container where it was accounts for that service, because Compose reports nothing to do only once its build is over and a container nothing rebuilt cannot carry another project's image. A script that failed, and a boot judging what a gone manager left, still need a new container.
 
-**One thing recorded and left.** The Versions page counts a version's deployments from a list it fetches once, so a version that gains or loses a deployment while the page is open keeps the old number until Refresh is pressed. The count is informational and the server refuses a removal on its own reading, so nothing turns on it. P3 under the review-priority rule.
+**One thing recorded and left.** The Versions page counts a version's deployments from a list it fetches once, so a version that gains or loses a deployment while the page is open keeps the old number until Refresh is pressed. The count is informational and the server refuses a removal on its own reading, so nothing turns on it. Recorded as P3.
 
 **What a laptop cannot reach, and so is not covered here.** The private execution copies, because the bundled version on a developer machine is a legacy tree and legacy versions get no copy by design. The version settings editor, which appears once a version has been built on the host. Everything past the port bind in a deploy, and every path that reads a funded Bee node: balances, the chequebook, buying a stamp, and the uploader that waits for one.
 
