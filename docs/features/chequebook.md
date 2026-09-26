@@ -5,18 +5,19 @@ from the node's wallet into its chequebook. A withdrawal moves it back. The
 manager presents these transfers as recorded operations whose outcome must be
 checked from transaction evidence. A balance change cannot confirm a transfer.
 
-Status, 2026-09-16. Everything on this page is merged to `main-v2`. It was
+Status, 2026-09-16. Everything on this page is on `main`. It was
 written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40,
-which landed, and `main-v2` has moved a long way past it since. It carries the
+which landed, and `main` has moved a long way past it since. It carries the
 journal, receipt recovery, the durable browser workflow, history, the account
 and instance guards, the owned transport factory and the automatic receipt
 polling. New submission preparation captures T06's SQL target proof and uses one
 qualified Docker and Bee connection. Local Unix and supervised SSH adapters are
-implemented, and acquisition refuses a transport with no matching qualified
-record. The branch has been deployed twice, on 2026-09-11 and 2026-09-13, and
-what those passes found is in
+implemented, and acquisition uses a transport only with a matching qualified
+record, from the seed catalog or from the manager's own check of the image.
+The live host was first deployed on 2026-09-11, and what that pass and the
+later ones found is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). A
-postage batch was bought with real money on the second. No chequebook transfer
+postage batch was bought with real money on 2026-09-13. No chequebook transfer
 has been made with real money. Corrected twice on 2026-09-17: the paragraph on
 new uploader starts, first against the code at `0c0354c` for decision D16, then
 in `50363c5` for the further ruling that the chequebook check never refuses a
