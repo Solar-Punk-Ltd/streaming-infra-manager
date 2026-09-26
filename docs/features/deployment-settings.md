@@ -111,7 +111,8 @@ write, so it can say which settings the running containers are behind on:
 - **differs:** it got another one.
 - **unknown:** no record can tell, which is the case until a deployment's first deploy after this
   feature.
-- **not-running:** the deployment is stopped.
+- **not-running:** the deployment is stopped, or is deploying, stopping or being removed, so no
+  container is compared.
 
 Apply redeploys only the containers that are behind. When a changed key reaches the deploy scripts
 alone, it redeploys everything. A stopped deployment's Start uses the stored values anyway, so Apply

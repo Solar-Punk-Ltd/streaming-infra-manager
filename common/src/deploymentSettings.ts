@@ -78,7 +78,7 @@ export type SettingRunningState =
   | 'differs'
   /** No container that reads it has a record that can tell, which a deploy before this feature leaves. */
   | 'unknown'
-  /** The deployment is stopped, so nothing runs with any value. */
+  /** The deployment is stopped, or is deploying, stopping or being removed, so no container is compared. */
   | 'not-running';
 
 export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean';
