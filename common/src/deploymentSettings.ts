@@ -6,8 +6,11 @@
  * by a control of their own instead, and the page shows those with their value
  * and points at that control. The page also says how many settings the
  * running containers are behind on, and offers to apply them, which Levi
- * okayed the same day.
+ * okayed the same day. The engine settings are in the same list, one list of
+ * settings per deployment (Levi, 2026-09-26), though they are stored apart.
  */
+import type { EngineDefaultSource } from './engineDefaults.js';
+import type { EngineName } from './engines.js';
 
 /**
  * Why the operator does not set a key here. Mostly the control that decides
@@ -96,15 +99,24 @@ export interface DeploymentSettingEntry {
   section: string;
   /** The sample's comment block above the key. */
   description: string;
-  /** Whether the version's samples declare the key. A key they do not is listed only because the deployment still stores it. */
+  /**
+   * Whether the version's samples declare the key, or for an engine setting
+   * the deployment reads, whether its engine does. A key neither declares is
+   * listed only because the deployment still stores it.
+   */
   declared: boolean;
   /** Masked by the page, and never answered in clear. */
   secret: boolean;
   /** What the version's sample assigns, a commented-out example included, or null. */
   sampleValue: string | null;
-  /** Whether the version's build sets the key. */
+  /** Whether the version's build sets the key, which an engine setting the deployment reads always has a default for. */
   versionSet: boolean;
-  /** What the version's build sets, or null when it sets nothing or the key is a secret. */
+  /**
+   * What the version's build sets, or null when it sets nothing or the key is
+   * a secret. For an engine setting the deployment reads, what an unset key
+   * falls back to on the deployment's host, which `engineSetting` says the
+   * origin of.
+   */
   versionValue: string | null;
   /** Whether this deployment stores a value of its own for the key. */
   stored: boolean;
@@ -128,6 +140,24 @@ export interface DeploymentSettingEntry {
    */
   services: string[] | null;
   running: SettingRunningState;
+  /**
+   * For an engine setting the deployment reads, what the page shows beside its
+   * field, and null for every other key. The field itself, its label, unit,
+   * help, kind, bounds and choices, is common's, found by the key.
+   */
+  engineSetting: EngineSettingFacts | null;
+}
+
+/** What a deployment's list knows of one of its own engine settings beyond the field list in common. */
+export interface EngineSettingFacts {
+  /** Where the default a reset goes back to comes from: the stack's own, the host's base env, or the manager's own. */
+  defaultSource: EngineDefaultSource;
+  /**
+   * The config the engine runs no longer reads the key: the deployment's own
+   * config file dropped it, or the version's template never takes it. A value
+   * stored for it does nothing until the config reads it again.
+   */
+  notInConfig: boolean;
 }
 
 /** What the running containers are behind on. */
@@ -148,11 +178,19 @@ export interface DeploymentSettingsCatalog {
   revision: number;
   /** The build of the version the next deploy uses, whose files the values and descriptions come from. */
   buildId: string | null;
-  /** In the sample's order, root sample first, then the engine's, then stored keys the version no longer declares. */
+  /**
+   * In the sample's order, root sample first, then the engine's, then the
+   * engine settings the deployment reads that neither declares, then stored
+   * keys the version no longer declares.
+   */
   entries: DeploymentSettingEntry[];
   drift: DeploymentSettingsDrift;
   /** Whether containers run: Apply means nothing to a stopped deployment, whose Start uses the values anyway. */
   running: boolean;
+  /** The media server the deployment runs, whose settings the list lets the operator set, or null for one that runs none. */
+  engine: EngineName | null;
+  /** Whether the deployment encodes the ABR ladder, so the rung settings are its own. */
+  abr: boolean;
 }
 
 /**

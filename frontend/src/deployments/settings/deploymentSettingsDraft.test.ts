@@ -49,6 +49,7 @@ function entry(overrides: Partial<DeploymentSettingEntry> & { key: string }): De
     field: null,
     services: ['stream-uploader'],
     running: 'same',
+    engineSetting: null,
     ...overrides,
   };
 }
@@ -112,6 +113,8 @@ const CATALOG: DeploymentSettingsCatalog = {
   ],
   drift: { keys: [], services: [], fullRedeploy: false },
   running: true,
+  engine: 'srs',
+  abr: false,
 };
 
 describe('valueBeforeEdit', () => {

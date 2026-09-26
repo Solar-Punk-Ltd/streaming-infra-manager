@@ -32,6 +32,7 @@ function entry(overrides) {
     field: null,
     services: ['stream-uploader'],
     running: 'same',
+    engineSetting: null,
     ...overrides,
   };
 }
@@ -151,6 +152,8 @@ export function runningCatalog() {
     entries: entries(),
     drift: { keys: ['LOG_LEVEL'], services: ['stream-uploader'], fullRedeploy: false },
     running: true,
+    engine: 'srs',
+    abr: false,
   };
 }
 

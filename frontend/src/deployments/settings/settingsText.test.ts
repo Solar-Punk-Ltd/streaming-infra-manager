@@ -70,12 +70,13 @@ function entry(overrides: Partial<DeploymentSettingEntry> & { key: string }): De
     field: null,
     services: null,
     running: 'same',
+    engineSetting: null,
     ...overrides,
   };
 }
 
 function catalogWith(drift: DeploymentSettingsCatalog['drift'], running: boolean): DeploymentSettingsCatalog {
-  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running };
+  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running, engine: 'srs', abr: false };
 }
 
 describe('wordList', () => {

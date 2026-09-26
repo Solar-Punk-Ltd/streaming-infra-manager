@@ -33,6 +33,7 @@ function entry(over: Partial<DeploymentSettingEntry> & { key: string }): Deploym
     field: null,
     services: null,
     running: 'unknown',
+    engineSetting: null,
     ...over,
   };
 }

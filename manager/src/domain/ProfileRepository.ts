@@ -73,11 +73,22 @@ export interface StoredStackSettings {
   revision: number;
 }
 
-/** One save's change to a deployment's own settings, already split by whether each key is a secret. */
+/**
+ * One save's change to a deployment's own settings, already split by where
+ * each key is kept: a secret apart from the rest, and an engine setting in the
+ * engine settings, never in either stack column.
+ */
 export interface StackSettingsChange {
   plain: Record<string, string>;
   secret: Record<string, string>;
   /** Keys that go back to what the version sets, taken out of whichever column holds them. */
+  remove: string[];
+  engine: EngineSettingsChange;
+}
+
+/** One save's change to the engine settings: values to store, and keys that go back to their default. */
+export interface EngineSettingsChange {
+  set: EngineSettings;
   remove: string[];
 }
 
@@ -557,10 +568,11 @@ export class ProfileRepository {
   }
 
   /**
-   * One save of the deployment's settings: sets and removes keys in both
-   * columns and moves the revision, only while the row is the instance the
-   * page read and still at the revision it read. Answers the new revision, or
-   * null when either had moved and nothing was stored.
+   * One save of the deployment's settings: sets and removes keys in both stack
+   * columns and in the engine settings, and moves the revision, in one
+   * statement and only while the row is the instance the page read and still
+   * at the revision it read. So a save lands whole or not at all. Answers the
+   * new revision, or null when either had moved and nothing was stored.
    */
   async updateStackSettings(
     name: string,
@@ -571,11 +583,15 @@ export class ProfileRepository {
       `UPDATE profiles
           SET stack_settings = (stack_settings - $4::text[]) || $5::jsonb,
               stack_settings_secret = (stack_settings_secret - $4::text[]) || $6::jsonb,
+              engine_settings = (engine_settings - $7::text[]) || $8::jsonb,
               settings_revision = settings_revision + 1,
               updated_at = NOW()
         WHERE name = $1 AND instance_id = $2 AND settings_revision = $3
         RETURNING settings_revision`,
-      [name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain), JSON.stringify(change.secret)],
+      [
+        name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain),
+        JSON.stringify(change.secret), change.engine.remove, JSON.stringify(change.engine.set),
+      ],
     );
     return result.rows[0]?.settings_revision ?? null;
   }

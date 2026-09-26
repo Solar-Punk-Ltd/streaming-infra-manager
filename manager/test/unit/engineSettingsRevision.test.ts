@@ -41,7 +41,8 @@ const { call, startRouterTestApp } = await import('../support/routerTestApp.js')
 /** A save names the instance as a UUID, which the fixture's own default is not. */
 const INSTANCE_ID = '6f1c2b1e-3a4d-4c5e-9f60-7a8b9c0d1e2f';
 
-const LOG_LEVEL_SAVE = { plain: { LOG_LEVEL: 'warn' }, secret: {}, remove: [] };
+/** A page save of a stack value and an engine value, as the settings page makes one. */
+const PAGE_SAVE = { plain: { LOG_LEVEL: 'warn' }, secret: {}, remove: [], engine: { set: { HLS_WINDOW: '25' }, remove: [] } };
 
 describe('the engine settings route and the settings revision', () => {
   it('moves the revision a settings page names', async () => {
@@ -58,12 +59,12 @@ describe('the engine settings route and the settings revision', () => {
     const instanceId = profiles.rows.get('stream1')!.instance_id;
     // The gate runs between the route's read and its write, which is where a page save can land.
     orchestrator.gate = async () => {
-      await profiles.updateStackSettings('stream1', LOG_LEVEL_SAVE, { instanceId, expectedRevision: 0 });
+      await profiles.updateStackSettings('stream1', PAGE_SAVE, { instanceId, expectedRevision: 0 });
     };
 
     await assert.rejects(harness.service.updateEngineSettings('stream1', { HLS_WINDOW: '30' }), EngineSettingsChangedError);
 
-    assert.deepEqual(profiles.rows.get('stream1')!.engine_settings, { HLS_WINDOW: '12' });
+    assert.deepEqual(profiles.rows.get('stream1')!.engine_settings, { HLS_WINDOW: '25' });
     assert.deepEqual(profiles.stackSettings.get('stream1'), { LOG_LEVEL: 'warn' });
     assert.equal(profiles.settingsRevisions.get('stream1'), 1);
     assert.deepEqual(orchestrator.deploys, []);

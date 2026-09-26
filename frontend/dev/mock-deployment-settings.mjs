@@ -25,6 +25,7 @@
 import {
   defaultServicesFor,
   engineOfServices,
+  hasBeePublishers,
   isSecretSettingKey,
   stackSettingFieldOf,
 } from '@streaming-infra-manager/common';
@@ -250,6 +251,7 @@ function entryOf(sample, profile, store, running) {
       field: stackSettingFieldOf(key),
       services: sample.services,
       running: !running ? 'not-running' : differing === 'unknown' ? 'unknown' : differing.length > 0 ? 'differs' : 'same',
+      engineSetting: null,
     },
     differing: differing === 'unknown' ? [] : differing,
   };
@@ -287,6 +289,7 @@ function newDeploymentCatalogOf(version, shape) {
       field: stackSettingFieldOf(key),
       services: sample.services,
       running: 'not-running',
+      engineSetting: null,
     };
   });
   return { versionId: version.id, buildId: version.buildId ?? null, entries };
@@ -308,6 +311,8 @@ function catalogOf(profile) {
       fullRedeploy: behind.some(({ entry }) => entry.services === null),
     },
     running,
+    engine: engineOfServices(defaultServicesFor(profile)),
+    abr: hasBeePublishers(profile),
   };
 }
 

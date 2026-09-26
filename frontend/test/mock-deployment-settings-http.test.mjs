@@ -160,6 +160,7 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
       field: { kind: 'choice', choices: ['debug', 'log', 'info', 'warn', 'error', 'silent'] },
       services: ['stream-uploader'],
       running: 'same',
+      engineSetting: null,
     });
     assert.equal(entryOf(catalog, 'API_AUTH_TOKEN').source, 'generated');
     assert.equal(entryOf(catalog, 'HLS_FRAGMENT').owner, 'engine-settings');

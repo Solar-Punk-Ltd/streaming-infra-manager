@@ -26,7 +26,8 @@ const connection = {
 };
 
 const SECRET = 'synthetic-admin-token';
-const NOTHING = { plain: {}, secret: {}, remove: [] };
+const NO_ENGINE_CHANGE = { set: {}, remove: [] };
+const NOTHING = { plain: {}, secret: {}, remove: [], engine: NO_ENGINE_CHANGE };
 
 describe('saving a deployment settings, in isolated PostgreSQL', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535,
@@ -70,7 +71,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
   it('stores plain and secret values apart, and answers the page the secret names alone', async () => {
     const revision = await profiles.updateStackSettings(
       'stage',
-      { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [] },
+      { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [], engine: NO_ENGINE_CHANGE },
       { instanceId, expectedRevision: 0 },
     );
 
@@ -82,7 +83,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
   });
 
   it('takes a reset key out of whichever column holds it', async () => {
-    await profiles.updateStackSettings('stage', { plain: { LOG_LEVEL: 'info' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [] }, { instanceId, expectedRevision: 0 });
+    await profiles.updateStackSettings('stage', { ...NOTHING, plain: { LOG_LEVEL: 'info' }, secret: { ADMIN_API_TOKEN: SECRET } }, { instanceId, expectedRevision: 0 });
 
     const revision = await profiles.updateStackSettings('stage', { ...NOTHING, remove: ['LOG_LEVEL', 'ADMIN_API_TOKEN'] }, { instanceId, expectedRevision: 1 });
 
@@ -117,6 +118,42 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
 
     assert.deepEqual([first, second].filter((revision) => revision !== null), [1]);
     assert.equal((await profiles.stackSettingsOf('stage'))?.revision, 1);
+  });
+
+  const columns = async () => (await pool.query(
+    "SELECT stack_settings, stack_settings_secret, engine_settings, settings_revision FROM profiles WHERE name = 'stage'",
+  )).rows[0];
+
+  it('writes the stack columns, the engine settings and the revision in one statement', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_WINDOW":"20","SRT_LATENCY":"3000"}' WHERE name = 'stage'`);
+
+    const revision = await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, plain: { LOG_LEVEL: 'warn' }, engine: { set: { HLS_FRAGMENT: '1' }, remove: ['SRT_LATENCY'] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    assert.equal(revision, 1);
+    assert.deepEqual(await columns(), {
+      stack_settings: { LOG_LEVEL: 'warn' },
+      stack_settings_secret: {},
+      engine_settings: { HLS_WINDOW: '20', HLS_FRAGMENT: '1' },
+      settings_revision: 1,
+    });
+  });
+
+  it('writes neither the stack columns nor the engine settings for a save against an older revision', async () => {
+    await profiles.updateStackSettings('stage', { ...NOTHING, plain: { LOG_LEVEL: 'info' } }, { instanceId, expectedRevision: 0 });
+    const before = await columns();
+
+    const late = await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, plain: { LOG_LEVEL: 'warn' }, engine: { set: { HLS_WINDOW: '30' }, remove: [] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    assert.equal(late, null);
+    assert.deepEqual(await columns(), before);
   });
 
   it('answers the engine settings beside the stack settings, under the one revision', async () => {

@@ -81,9 +81,10 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     assert.equal((await state()).settings_revision, 1);
   });
 
+  /** A page save of an engine value and a stack value, as the settings page makes one. */
   const pageSave = (expectedRevision: number) => profiles.updateStackSettings(
     'observed',
-    { plain: { LOG_LEVEL: 'warn' }, secret: {}, remove: [] },
+    { plain: { LOG_LEVEL: 'warn' }, secret: {}, remove: [], engine: { set: { HLS_WINDOW: '20' }, remove: [] } },
     { instanceId: claim.profile.instance_id, expectedRevision },
   );
 
@@ -92,7 +93,7 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     const before = await state();
     assert.equal(await write(), null);
     assert.deepEqual(await state(), before);
-    assert.deepEqual(before.engine_settings, { HLS_FRAGMENT: '7' });
+    assert.deepEqual(before.engine_settings, { HLS_FRAGMENT: '7', HLS_WINDOW: '20' });
   });
 
   it('leaves a page save made against the revision before it to be refused', async () => {
@@ -103,14 +104,17 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     assert.deepEqual(before.engine_settings, { HLS_FRAGMENT: '2' });
   });
 
-  it('lets exactly one of a page save and a scripted save at the same revision through', async () => {
+  it('lets exactly one of a page save and a scripted save at the same revision through, and loses nothing unseen', async () => {
     const [page, scripted] = await Promise.all([pageSave(0), write()]);
     const row = await state();
 
     assert.equal([page, scripted].filter((landed) => landed !== null).length, 1);
     assert.equal(row.settings_revision, 1);
     if (page !== null) {
-      assert.deepEqual({ stack: row.stack_settings, engine: row.engine_settings }, { stack: { LOG_LEVEL: 'warn' }, engine: { HLS_FRAGMENT: '7' } });
+      assert.deepEqual(
+        { stack: row.stack_settings, engine: row.engine_settings },
+        { stack: { LOG_LEVEL: 'warn' }, engine: { HLS_FRAGMENT: '7', HLS_WINDOW: '20' } },
+      );
     } else {
       assert.deepEqual({ stack: row.stack_settings, engine: row.engine_settings }, { stack: {}, engine: { HLS_FRAGMENT: '2' } });
     }

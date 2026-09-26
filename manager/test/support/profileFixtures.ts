@@ -528,6 +528,9 @@ export class InMemoryProfiles {
     const next = { ...(this.stackSettings.get(name) ?? {}) };
     for (const key of change.remove) delete next[key];
     this.stackSettings.set(name, { ...next, ...change.plain, ...change.secret });
+    const engine = { ...row.engine_settings };
+    for (const key of change.engine.remove) delete engine[key];
+    this.write(name, { engine_settings: { ...engine, ...change.engine.set } });
     this.settingsRevisions.set(name, revision + 1);
     return revision + 1;
   }
