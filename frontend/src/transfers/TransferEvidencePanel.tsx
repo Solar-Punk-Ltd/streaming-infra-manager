@@ -3,6 +3,7 @@ import { plurToBzzExact, type ChequebookOperationDetail } from '@streaming-infra
 import { CopyButton } from '../CopyButton';
 import { hasAttributionConflict, permitsNewTransfer, transferHeadline } from './transferEvidence';
 import { receiptPollingSentence } from './receiptPolling';
+import { operationRefusalSentence } from './transferMessages';
 
 export function TransferValue({ label, value, copy = false }: { label: string; value: string; copy?: boolean }) {
   return <Box>
@@ -23,6 +24,7 @@ export function TransferEvidencePanel({ detail, context = 'saved' }: { detail: C
   const returned = context !== 'saved';
   const prefix = identityConflict ? 'Returned' : returned ? 'Blocking' : 'Saved';
   const polling = receiptPollingSentence(operation);
+  const refusal = operationRefusalSentence(operation);
   const hashes = [...new Set([operation.transactionHash, ...detail.responseEvidence.map(evidence => evidence.transactionHash)].filter((value): value is string => value !== null))];
   return <Stack spacing={1.25}>
     {context === 'busy' && <Typography variant="subtitle2">Another transfer blocks this node</Typography>}
@@ -33,6 +35,7 @@ export function TransferEvidencePanel({ detail, context = 'saved' }: { detail: C
     {identityConflict && <Typography variant="subtitle2">Conflicting returned evidence</Typography>}
     <Alert severity={conflict || identityConflict ? 'warning' : 'info'}>{identityConflict
       ? 'Returned details do not match the saved transfer. Its outcome remains unresolved.' : transferHeadline(detail)}</Alert>
+    {!identityConflict && !conflict && refusal !== null && <Typography variant="body2">{refusal}</Typography>}
     {returned && <>
       <TransferValue label={`${prefix} transfer`} value={`${operation.direction === 'deposit' ? 'Fill chequebook' : 'Withdraw from chequebook'} · ${plurToBzzExact(BigInt(operation.amountPlur))} BZZ`} />
       <TransferValue label={`${prefix} request ID`} value={operation.requestId} copy />

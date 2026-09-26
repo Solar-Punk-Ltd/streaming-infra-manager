@@ -2,6 +2,7 @@ export * from './abrLadder.js';
 export * from './auth.js';
 export * from './chequebook.js';
 export * from './chequebookOperations.js';
+export * from './chequebookRefusals.js';
 export * from './constants.js';
 export * from './deployAttempts.js';
 export * from './deployTargets.js';

@@ -1,4 +1,5 @@
-import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE } from '@streaming-infra-manager/common';
+import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookPreflightSentence, chequebookRefusalSentence, isChequebookPreflightRefusal,
+  type ChequebookOperation, type ChequebookRefusal } from '@streaming-infra-manager/common';
 import type { TransferControllerIssue } from './TransferController';
 
 export const TRANSFER_MESSAGES: Record<TransferControllerIssue, string> = {
@@ -14,4 +15,16 @@ export const TRANSFER_MESSAGES: Record<TransferControllerIssue, string> = {
   terminal_required: 'The current transfer still needs verification. Starting another transfer is blocked.',
   busy: 'This attempt was refused because another transfer blocks the node. Keep the saved request ID.',
   link_unavailable: 'The exact request was recovered, but its local navigation details could not be saved. Keep the request ID.',
+  preparation_refused: 'The manager refused to prepare this transfer, so nothing was sent. Keep the saved request and try again.',
 };
+
+/** What the page says about an issue: a refused submission in its cause's own sentence, anything else in its fixed message. */
+export function transferIssueMessage(issue: TransferControllerIssue, refusal: ChequebookRefusal | null): string {
+  return issue === 'preparation_refused' && refusal ? chequebookRefusalSentence(refusal) : TRANSFER_MESSAGES[issue];
+}
+
+/** Why the last check before sending refused a recorded transfer, or null for any other record. */
+export function operationRefusalSentence(operation: Pick<ChequebookOperation, 'state' | 'failureReason' | 'direction'>): string | null {
+  if (operation.state !== 'rejected' || !isChequebookPreflightRefusal(operation.failureReason)) return null;
+  return chequebookPreflightSentence(operation.failureReason, operation.direction);
+}

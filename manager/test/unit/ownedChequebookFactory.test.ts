@@ -95,6 +95,37 @@ it('journal failure closes the acquired session and exposes only a fixed journal
   assert.equal(h.fixture.transport.destroyed, true); assert.equal(h.fixture.counts().posts, 0);
 });
 
+const walletWith = (balances: { bzzBalance?: string; nativeTokenBalance?: string }): SyntheticBeeHandler => (request, response) => {
+  if (request.url !== '/wallet') return false;
+  response.end(JSON.stringify({ chainID: 100, walletAddress: transferContext.nodeAddress, chequebookContractAddress: transferContext.chequebookAddress,
+    bzzBalance: '10000000000000000', nativeTokenBalance: '1', ...balances }));
+  return true;
+};
+
+it('a wallet with no gas is refused before dispatch, and the operation says so', async t => {
+  const h = harness(t, walletWith({ nativeTokenBalance: '0' }));
+  const result = await h.service.submit(transferIntent());
+  assert.equal(result.operation.state, 'rejected'); assert.equal(result.operation.failureReason, 'preflight_no_gas');
+  assert.equal(result.operation.dispatchStartedAt, null); assert.equal(h.fixture.counts().posts, 0);
+});
+
+it('a deposit larger than the wallet holds is refused before dispatch, and the operation says so', async t => {
+  const h = harness(t, walletWith({ bzzBalance: '1' }));
+  const result = await h.service.submit(transferIntent());
+  assert.equal(result.operation.state, 'rejected'); assert.equal(result.operation.failureReason, 'preflight_insufficient_balance');
+  assert.equal(h.fixture.counts().posts, 0);
+});
+
+it('a withdrawal larger than the chequebook has available is refused before dispatch, and the operation says so', async t => {
+  const h = harness(t, (request, response) => {
+    if (request.url !== '/chequebook/balance') return false;
+    response.end(JSON.stringify({ totalBalance: '10000000000000000', availableBalance: '1' })); return true;
+  });
+  const result = await h.service.submit(transferIntent({ direction: 'withdraw' }));
+  assert.equal(result.operation.state, 'rejected'); assert.equal(result.operation.failureReason, 'preflight_insufficient_balance');
+  assert.equal(h.fixture.counts().posts, 0);
+});
+
 it('a lost POST response stays unknown and exact replay never sends another transfer', async t => {
   const h = harness(t, (request) => { if (request.method !== 'POST') return false; request.socket.destroy(); return true; });
   const intent = transferIntent(); const result = await h.service.submit(intent);
