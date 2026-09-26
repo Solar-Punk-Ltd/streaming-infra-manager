@@ -56,7 +56,7 @@ public host metadata.
 The repository reads the full URL separately only for endpoint redaction and
 for a claimed deployment that is about to write its env file.
 
-An edit page starts its custom endpoint field empty. Leaving an existing custom
+The edit drawer starts its custom endpoint field empty. Leaving an existing custom
 choice unchanged omits the URL from the request and preserves the stored URL.
 Typing a replacement sends that replacement. Choosing the manager or stack
 source clears the stored custom URL, including when an API client sends only
