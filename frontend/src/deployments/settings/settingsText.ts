@@ -194,9 +194,9 @@ export function saveNote(changed: number, refused: readonly string[]): string {
   return `${changed} ${changed === 1 ? 'setting' : 'settings'} changed`;
 }
 
-/** The line over the list in the new-deployment wizard. */
+/** The line over the list in the new-deployment wizard, under the fold's own line saying what the list holds. */
 export const NEW_DEPLOYMENT_SETTINGS_LEAD =
-  "Every key this version declares, with the version's value as the default. Change only what this deployment needs. Every other key keeps the version's value, and the deployment's page can change any of them later.";
+  "Each key shows the version's value as its default. Change only what this deployment needs, and its page can change any of them later.";
 
 /** The line under the list in the new-deployment wizard, a value the create cannot send first. */
 export function newDeploymentSettingsNote(changed: number, refused: readonly string[]): string {
