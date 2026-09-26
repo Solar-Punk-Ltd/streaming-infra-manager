@@ -146,7 +146,7 @@ All command endpoints stream output as Server-Sent Events
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
-`rpc_endpoint_source`, `node_mode` and `engine_settings`. `abr_ladder` belongs
+`rpc_endpoint_source`, `node_mode`, `engine_settings` and `stack_settings`. `abr_ladder` belongs
 to `POST /groups`, where it makes the group an ABR node pool, and a create body
 carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
 and its rules are the ones the route enforces.
@@ -199,6 +199,20 @@ from the moment create returns and the settings route refuses a busy one. It is
 held to the rule the settings drawer applies, so a deployment that runs no media
 server, an ABR node pool among them, is refused rather than storing keys nothing
 would read.
+
+`stack_settings` is create-only too, and `POST /groups` takes it on the same
+terms: a list of `{ key, value }`, each value text, that the new deployment
+starts with instead of its version's values (2026-09-26,
+`feat/deployment-settings-wizard`). It is held to the rules a save of the
+deployment's own settings is held to, against the list `GET
+/versions/:id/settings-catalog` answers for a deployment of the kind, services
+and host the body describes: a key the version does not declare, a key one of
+the deployment's own controls decides, a key named twice and a value the stack
+would read differently are refused, and so is the whole create, each key named
+and no value repeated. Accepted values are stored at the insert, a secret apart
+from the rest, so the first deploy writes them. A group writes them to every
+member, a node pool's rungs included, and a member appended to a group later
+takes those of the group's first member.
 
 `rpc_endpoint` is the chain endpoint this deployment's own Bee nodes use, and
 empty means the one its stack version carries. It exists because the stack's
@@ -411,13 +425,17 @@ the rules the registry applies to them.
 
 Every key a deployment's version declares, with the value its next deploy
 writes, where that comes from, and whether the running containers got it
-(2026-09-26). `docs/features/deployment-settings.md` says what each part does.
+(2026-09-26), and the same list for a deployment not created yet, which the
+new-deployment wizard edits and `stack_settings` on `POST /profiles` and `POST
+/groups` is checked against. `docs/features/deployment-settings.md` says what
+each part does.
 
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running }`, `no-store`. No secret value, only whether one is stored. 409 `settings_not_ready` for a version with no build |
 | PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides or a value the stack would read differently, 409 `deployment_settings_changed` for an older revision |
 | POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys |
+| GET | `/versions/:id/settings-catalog?kind=&components=&host=` | none | `{ versionId, buildId, entries }`, `no-store`. What a deployment not created yet starts with: the version's keys and values, the control that decides each key a control decides, nothing stored, recorded or running. No secret value. `kind` defaults to `custom`, `components` is a comma list, and `host` absent is the manager's own. 400 `validation_error` for a query no create body could describe, 404 `stack_version_not_found`, 409 `settings_not_ready` for a version with no build |
 
 ### Engine control
 
@@ -659,9 +677,11 @@ and, on the manager's own host, the data directories. A stored value for one of
 those is left out of the file and named in the log. A generated secret is the
 exception: a value stored for it replaces the generated one, which stays kept
 for when the value is reset. The API that lists, saves and applies them is
-under "A deployment's own settings" above, and the deployment page edits them
-in its Stack settings card (2026-09-26, `feat/deployment-settings-page`), which
-`docs/features/deployment-settings.md` describes.
+under "A deployment's own settings" above, the deployment page edits them
+in its Stack settings card (2026-09-26, `feat/deployment-settings-page`), and
+the new-deployment wizard sets them before the deployment exists (2026-09-26,
+`feat/deployment-settings-wizard`), which `docs/features/deployment-settings.md`
+describes.
 
 Every successful deploy records, per container it started, what that container
 got: the keys its compose block reads and the keys the version declares that

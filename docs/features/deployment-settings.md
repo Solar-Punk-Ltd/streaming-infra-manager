@@ -1,8 +1,8 @@
 # A deployment's own settings
 
-Status: the store, the record of what each container got, the API, and the page that edits them, as
-of 2026-09-26 on `feat/deployment-settings-page`. The new-deployment wizard does not carry the editor
-yet.
+Status: the store, the record of what each container got, the API, the page that edits them, and the
+new-deployment wizard that creates a deployment with them already set, as of 2026-09-26 on
+`feat/deployment-settings-wizard`.
 
 ## What this is
 
@@ -72,8 +72,9 @@ when it starts.
 ## API
 
 `GET /profiles/:name/settings`, `PUT /profiles/:name/settings` and `POST
-/profiles/:name/settings/apply`, described in `manager/README.md` under "A deployment's own
-settings".
+/profiles/:name/settings/apply`, and for a deployment not created yet `GET
+/versions/:id/settings-catalog` and the `stack_settings` of `POST /profiles` and `POST /groups`, all
+described in `manager/README.md` under "A deployment's own settings".
 
 ## The page
 
@@ -113,6 +114,46 @@ drives it in Chrome, and the mock manager answers the three routes, so `pnpm -C 
 shows it with no manager: main-stage is behind on a saved key, old-demo is stopped with one waiting
 for its Start, and field-unit has no records to compare with.
 
+## In the new-deployment wizard
+
+Plan item C.5: a deployment is created with its settings already set. The wizard's settings step
+ends with an **Advanced settings** fold, folded until opened, because most deployments keep every
+version value. Its line says what it holds, and once values are typed, how many the create sends or
+which value it cannot send.
+
+Opened, it shows the same list, rows and fields as the deployment's page, read from `GET
+/versions/:id/settings-catalog` for the version, the services and the host the create body will
+name. A node pool is asked for as one of its rungs, a Bee node alone. The list is read from the
+settings step on, and again whenever the version, the engine, the services or the host change.
+
+- **Nothing is stored yet**, so there is no banner, no Apply, no revision and no Save. A changed key is
+  marked changed rather than unsaved, and marks nothing to recreate. Undo takes a value back out,
+  which is the whole of going back to the version's value.
+- **A required secret** the version leaves empty says the manager generates it at the first deploy,
+  and a typed one replaces that.
+- **A key a control decides** shows no field and names the control. `HLS_FRAGMENT`, which the engine
+  settings decide, shows the segment length typed above it, so the two never read differently.
+- **A value the manager would refuse** is named under its field, by the same shared rules, and stops
+  Continue and Deploy, the footer naming the key and never the value. Values typed before the list
+  for the current choices was read wait for it.
+- **A key typed under an earlier choice** that the list for the current one does not take, such as
+  an SRS key after switching to OvenMediaEngine, is kept rather than dropped, said to be not sent, and
+  comes back if the earlier choice does. A new goal starts the typed values over.
+
+Deploy sends the typed keys the current list takes as `stack_settings`. The manager checks them
+against the same list with the rules a save uses, `settingEditProblems`, and refuses the whole create
+over one bad key, naming it. Accepted values are stored at the insert, plain and secret apart, so the
+first deploy writes them and the deployment's page lists them as its own at revision 0. A group gives
+every member the same values, a node pool's four rungs included, and a member appended to a group
+later takes those of the group's first member, as it takes that member's engine settings. The review
+names the keys the create sets and never a value.
+
+The editor is `frontend/src/deployments/settings/NewDeploymentSettingsEditor.tsx`, built from the
+same `SettingsList` as the page's editor, and the fold is
+`frontend/src/forms/wizard/steps/AdvancedSettings.tsx`. `frontend/test/wizard-settings-browser.test.mjs`
+drives it in Chrome at 390 pixels through the mock manager, which answers the list and stores what a
+create sends, so `pnpm -C frontend dev:mock` shows it with no manager.
+
 ## Limits
 
 - The stack's sample has no section rule closing "Per-rung Bee nodes", so the start gate settings
@@ -124,3 +165,10 @@ for its Start, and field-unit has no records to compare with.
   A reset puts back what the version sets.
 - A stored secret's default says what the version sets. The list does not say whether the manager
   had generated one before, which is the value a reset of such a key goes back to.
+- The wizard's typed values live only while the dialog is open. Closing it forgets them, as it
+  forgets every other choice made in it.
+- A member appended to a group takes the settings of the group's first member, so a value changed on
+  that member alone after the group was created travels to the new one, as its engine settings do.
+- The wizard checks a typed value against the list it read, and the manager checks it again against
+  the version's current build when the create arrives. A build published in between can refuse a
+  create the wizard let through, and the refusal names the key.
