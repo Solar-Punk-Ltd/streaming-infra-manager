@@ -36,6 +36,8 @@ export type SettingOwner =
   | 'engine-config'
   /** The engine settings of a deployment not created yet, which the new-deployment wizard asks for in a step of its own. */
   | 'engine-settings'
+  /** The web2 admin link of a deployment not created yet, which the new-deployment wizard asks for in a group of its own. */
+  | 'admin-link'
   | 'port-slot'
   | 'data-dir'
   /** A rung setting on a deployment that does not encode the ABR ladder. */
@@ -260,6 +262,7 @@ export const SETTING_OWNER_LABELS: Readonly<Record<SettingOwner, string>> = {
   'feed-topic': "the deployment's feed topic",
   'engine-config': "the engine's own config file",
   'engine-settings': 'the engine settings',
+  'admin-link': 'the Web2 admin group of this step',
   'port-slot': "the deployment's port slot",
   'data-dir': 'the manager, which keeps this deployment\'s data on its own host',
   'abr-only': 'only a deployment that encodes the ABR ladder reads it',

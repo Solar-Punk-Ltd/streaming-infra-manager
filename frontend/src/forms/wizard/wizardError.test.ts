@@ -253,3 +253,40 @@ describe('what is wrong with where a node reaches the chain', () => {
     assert.equal(rpcEndpointError(stream({ rpcEndpointSource: STACK_RPC_ENDPOINT_SOURCE }), context), null);
   });
 });
+
+describe('what is wrong with the web2 admin link', () => {
+  const listed = {
+    catalog: {
+      versionId: 7,
+      buildId: 'build-1',
+      entries: ['ADMIN_API_URL', 'ADMIN_API_TOKEN'].map((key) => ({
+        key, section: 'Admin mode', description: '', declared: true, secret: key.endsWith('TOKEN'), sampleValue: null,
+        versionSet: true, versionValue: null, stored: false, storedValue: null, value: null, source: 'version' as const,
+        owner: null, field: null, services: ['stream-uploader'], running: 'not-running' as const, engineSetting: null,
+      })),
+    },
+    failure: null,
+    reload: async () => undefined,
+  };
+  const linkedContext: WizardContext = {
+    ...context,
+    versions: [{ id: 7, status: 'ready', isDefault: true, tested: true } as WizardContext['versions'][number]],
+    newDeploymentSettings: listed,
+    managerAdminLink: null,
+  };
+  const onWithoutAddress: WizardState = {
+    ...initialWizardState({ goal: 'stream' }, linkedContext),
+    step: 3,
+    name: 'stage',
+    adminLink: { on: true, url: '', tokenSource: 'typed', token: 'synthetic-admin-token-0123456789abcdef' },
+  };
+
+  it('stops the settings step, and the review, on a link switched on without an address', () => {
+    assert.equal(wizardError(onWithoutAddress, linkedContext), 'Web2 admin: type the address, or switch the link off');
+    assert.equal(wizardError({ ...onWithoutAddress, step: 4 }, linkedContext), 'Web2 admin: type the address, or switch the link off');
+  });
+
+  it('says nothing of a link switched off', () => {
+    assert.equal(wizardError({ ...onWithoutAddress, adminLink: { ...onWithoutAddress.adminLink!, on: false } }, linkedContext), null);
+  });
+});

@@ -16,6 +16,7 @@ import CloseIcon from '@mui/icons-material/Close';
 
 import { getErrorMessage } from '@streaming-infra-manager/common';
 
+import { useManagerAdminLink } from '../../adminLink/useManagerAdminLink';
 import type { WizardPrefill } from '../../app/EditorsContext';
 import { navigate } from '../../app/router';
 import { useToast } from '../../app/ToastProvider';
@@ -80,6 +81,7 @@ export function NewDeploymentWizard({
   const projected = useMemo(() => overlayCreatedPool(groups.filter(group => !unavailablePoolIds.has(group.id)),
     (profiles ?? []).filter(profile => profile.group_id == null || !unavailablePoolIds.has(profile.group_id)), createdPool), [groups, profiles, createdPool, unavailablePoolIds]);
   const poolResults = usePoolResults(projected.groups, projected.profiles);
+  const { link: managerAdminLink } = useManagerAdminLink();
   const toast = useToast();
 
   const managerContext = useMemo<WizardContext>(
@@ -91,8 +93,9 @@ export function NewDeploymentWizard({
       beeRpcEndpoint,
       poolResults,
       versions: versions ?? [],
+      managerAdminLink,
     }),
-    [projected, serverHost, hostPassphrase, beeRpcEndpoint, poolResults, versions],
+    [projected, serverHost, hostPassphrase, beeRpcEndpoint, poolResults, versions, managerAdminLink],
   );
 
   const [state, setState] = useState<WizardState>(() =>

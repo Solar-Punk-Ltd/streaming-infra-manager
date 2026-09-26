@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { DeploymentSettingEntry, StackVersion } from '@streaming-infra-manager/common';
+import type { DeploymentSettingEntry, ManagerAdminLink, StackVersion } from '@streaming-infra-manager/common';
 
 import type { NewDeploymentSettingsLoad } from '../../deployments/settings/useNewDeploymentSettings';
 import { createdShapeOf, initialWizardState, type WizardContext, type WizardGoal, type WizardState } from './wizardState';
@@ -184,5 +184,70 @@ describe('stack settings on the wizard create body', () => {
       assert.deepEqual({ kind: body.kind, components: body.components ?? null }, shape, goal);
       t.mock.restoreAll();
     }
+  });
+});
+
+describe('the web2 admin link on the wizard create body', () => {
+  const ADMIN_URL = 'https://admin.example.com';
+  const TOKEN_AT_FLOOR = 'synthetic-admin-token-0123456789abcdef';
+  const WITH_ADMIN: NewDeploymentSettingsLoad = {
+    ...LIST,
+    catalog: {
+      versionId: 7,
+      buildId: 'build-1',
+      entries: [...(LIST.catalog?.entries ?? []), entry({ key: 'ADMIN_API_URL', versionValue: '', value: '' })],
+    },
+  };
+  const LINKED: ManagerAdminLink = { url: ADMIN_URL, tokenStored: true, revision: 2 };
+
+  function linkedContext(managerAdminLink: ManagerAdminLink | null = LINKED): WizardContext {
+    return { ...contextWith(WITH_ADMIN), managerAdminLink };
+  }
+
+  async function sentWith(t: Parameters<typeof sentRequest>[0], state: WizardState, context: WizardContext): Promise<SentRequest> {
+    const sent = await sentRequest(t, state, context);
+    assert.ok(sent, 'the wizard sent a request');
+    return sent;
+  }
+
+  it("carries the address among the stack settings and asks for the manager's stored token, which the page never holds", async (t) => {
+    const { body } = await sentWith(t, stateFor('stream', { stackSettings: { LOG_LEVEL: 'debug' } }), linkedContext());
+
+    assert.deepEqual(body.stack_settings, [{ key: 'LOG_LEVEL', value: 'debug' }, { key: 'ADMIN_API_URL', value: ADMIN_URL }]);
+    assert.equal(body.use_manager_admin_token, true);
+  });
+
+  it('carries a token typed in the group, and no token typed under Advanced settings, which the group takes over', async (t) => {
+    const adminLink = { on: true, url: ADMIN_URL, tokenSource: 'typed' as const, token: TOKEN_AT_FLOOR };
+    const { body } = await sentWith(t, stateFor('stream', { adminLink }), linkedContext());
+
+    assert.deepEqual(body.stack_settings, [
+      { key: 'LOG_LEVEL', value: 'debug' },
+      { key: 'ADMIN_API_URL', value: ADMIN_URL },
+      { key: 'ADMIN_API_TOKEN', value: TOKEN_AT_FLOOR },
+    ]);
+    assert.equal('use_manager_admin_token' in body, false);
+  });
+
+  it('carries an empty address when the link is off, so the uploader runs standalone', async (t) => {
+    const { body } = await sentWith(t, stateFor('stream', { stackSettings: {} }), linkedContext(null));
+
+    assert.deepEqual(body.stack_settings, [{ key: 'ADMIN_API_URL', value: '' }]);
+    assert.equal('use_manager_admin_token' in body, false);
+  });
+
+  it('carries the link for every member of a group', async (t) => {
+    const { path, body } = await sentWith(t, stateFor('stream', { group: true, stackSettings: {} }), linkedContext());
+
+    assert.equal(path, '/groups');
+    assert.deepEqual(body.stack_settings, [{ key: 'ADMIN_API_URL', value: ADMIN_URL }]);
+    assert.equal(body.use_manager_admin_token, true);
+  });
+
+  it('carries nothing of the link for a deployment that runs no uploader', async (t) => {
+    const { body } = await sentWith(t, stateFor('viewer', { stackSettings: {} }), linkedContext());
+
+    assert.equal('stack_settings' in body, false);
+    assert.equal('use_manager_admin_token' in body, false);
   });
 });

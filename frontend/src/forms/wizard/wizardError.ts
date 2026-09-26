@@ -16,6 +16,7 @@ import {
   privateKeyProblem,
   stampIdProblem,
 } from '../validation';
+import { adminLinkError } from './adminLinkChoice';
 import { advancedSettingsError } from './advancedSettings';
 import { segmentLengthError } from './segmentLength';
 import {
@@ -214,6 +215,10 @@ function settingsError(
     const pool = poolError(state, context);
     if (pool) return pool;
   }
+
+  // After the fields above, which decide which list says whether the version takes a link.
+  const adminLink = adminLinkError(state, context);
+  if (adminLink) return adminLink;
 
   // Last, because the fields above decide which list the advanced values are checked against.
   return advancedSettingsError(state, context);

@@ -7,7 +7,13 @@ import { describe, it } from 'node:test';
 
 import { ADMIN_LINK_TEST_OUTCOMES } from '@streaming-infra-manager/common';
 
-import { ADMIN_LINK_TEST_REACH, adminLinkTestSeverity, adminLinkTestText } from './adminLinkText';
+import {
+  ADMIN_LINK_OFF_NOTE,
+  ADMIN_LINK_TEST_REACH,
+  adminLinkTestSeverity,
+  adminLinkTestText,
+  storedTokenDetail,
+} from './adminLinkText';
 
 describe('the sentence for each Test connection outcome', () => {
   it('has one plain sentence for every outcome, with no dash or semicolon', () => {
@@ -37,6 +43,15 @@ describe('the sentence for each Test connection outcome', () => {
     for (const outcome of ['owner-mismatch', 'token-refused', 'not-admin', 'redirected', 'unreachable', 'invalid-address', 'no-token'] as const) {
       assert.equal(adminLinkTestSeverity(outcome), 'error', outcome);
     }
+  });
+
+  it("says what the wizard's switch does in each position, and where the stored token comes from", () => {
+    assert.equal(
+      ADMIN_LINK_OFF_NOTE,
+      'Off, this deployment stores an empty ADMIN_API_URL, so its uploader runs standalone even when its version turns admin mode on.',
+    );
+    assert.equal(storedTokenDetail(true), 'The manager copies it into this deployment when it is created. It never reaches this page.');
+    assert.equal(storedTokenDetail(false), 'The manager stores no token. Save one on Manager settings, or type one here.');
   });
 
   it('says in one line where the test runs from', () => {

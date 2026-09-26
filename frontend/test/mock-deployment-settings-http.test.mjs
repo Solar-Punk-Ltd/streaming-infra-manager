@@ -520,3 +520,44 @@ describe('the mock settings list and create for a deployment not made yet', { co
     }
   });
 });
+
+describe("the mock's create with the manager's stored web2 admin token", { concurrency: false, timeout: 60_000 }, () => {
+  const ADMIN_URL = 'https://admin.offline.example';
+
+  async function managerLink(body) {
+    const current = await request('/manager-settings/admin-link');
+    return call('/manager-settings/admin-link', 'PUT', { expectedRevision: current.revision, ...body });
+  }
+
+  it('refuses the stored token when the manager stores none, and creates nothing', async () => {
+    await managerLink({ url: '' });
+    const name = `mock-linked-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: ADMIN_URL }], use_manager_admin_token: true,
+    });
+
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, 'admin_token_missing');
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it("stores the manager's token for a create that asks, and never answers it", async () => {
+    const token = 'offline-mock-manager-token-0123456789abcdef';
+    assert.equal((await managerLink({ url: ADMIN_URL, token })).status, 200);
+    const name = `mock-linked-${nextProfile++}`;
+
+    const created = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2, stamp_id: 'ab'.repeat(32),
+      stack_settings: [{ key: 'ADMIN_API_URL', value: ADMIN_URL }], use_manager_admin_token: true,
+    });
+    const catalog = await settingsOf(name);
+
+    assert.equal(created.status, 202, JSON.stringify(created.body));
+    assert.equal('use_manager_admin_token' in created.body, false, 'the request is kept off the row');
+    assert.equal(entryOf(catalog, 'ADMIN_API_TOKEN').stored, true);
+    assert.equal(entryOf(catalog, 'ADMIN_API_URL').storedValue, ADMIN_URL);
+    assert.equal(JSON.stringify(catalog).includes(token), false);
+  });
+});

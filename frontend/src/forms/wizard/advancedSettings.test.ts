@@ -142,14 +142,28 @@ describe('the settings list the wizard asks for', () => {
 
 describe('the segment length on the key it decides', () => {
   it('shows the segment length on HLS_FRAGMENT where the step offers one', () => {
-    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: ' 2 ' })), { HLS_FRAGMENT: '2' });
-    assert.deepEqual(controlValuesOf(stateFor('abr-uploader', { segmentSeconds: '1.5' })), { HLS_FRAGMENT: '1.5' });
+    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: ' 2 ' }), contextWith()), { HLS_FRAGMENT: '2' });
+    assert.deepEqual(controlValuesOf(stateFor('abr-uploader', { segmentSeconds: '1.5' }), contextWith()), { HLS_FRAGMENT: '1.5' });
   });
 
   it('shows nothing where the field is empty or not offered', () => {
-    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: '' })), {});
-    assert.deepEqual(controlValuesOf(stateFor('stream', { engine: 'ome', segmentSeconds: '2' })), {});
-    assert.deepEqual(controlValuesOf(stateFor('viewer', { segmentSeconds: '2' })), {});
+    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: '' }), contextWith()), {});
+    assert.deepEqual(controlValuesOf(stateFor('stream', { engine: 'ome', segmentSeconds: '2' }), contextWith()), {});
+    assert.deepEqual(controlValuesOf(stateFor('viewer', { segmentSeconds: '2' }), contextWith()), {});
+  });
+});
+
+describe('the web2 admin address on the key the Web2 admin group decides', () => {
+  const adminLink = { on: true, url: 'https://admin.example.com', tokenSource: 'stored' as const, token: '' };
+
+  it('shows the address on ADMIN_API_URL while the link is on', () => {
+    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: '', adminLink }), contextWith()), {
+      ADMIN_API_URL: 'https://admin.example.com',
+    });
+  });
+
+  it('shows nothing while the link is off', () => {
+    assert.deepEqual(controlValuesOf(stateFor('stream', { segmentSeconds: '', adminLink: { ...adminLink, on: false } }), contextWith()), {});
   });
 });
 

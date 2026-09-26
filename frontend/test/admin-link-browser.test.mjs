@@ -69,7 +69,8 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
   await server.listen();
   t.after(() => endViteServer(t, server));
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
-  const { call, evaluate } = await launchChrome(t, origin);
+  const browser = await launchChrome(t, origin);
+  const { call, evaluate } = browser;
   const evidence = await evidenceDirectory('admin-link-browser-');
   await call('Emulation.setDeviceMetricsOverride', { width: NARROW, height: 900, deviceScaleFactor: 1, mobile: false });
 
@@ -164,5 +165,96 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
 
     assert.match(await cardText(), /Type a token to test it\./);
     assert.equal(await noSidewaysScroll(), true);
+
+    // What the wizard below starts from: an address and a stored token.
+    await fillWhenPresent(evaluate, tokenField, TOKEN, 'the token field');
+    await click(inCard('Save'), 'the Save button');
+    await waitFor(cardText, (text) => text.includes('A token is stored. It is never shown.'), 'the token stored again');
   });
+
+  const dialog = `document.querySelector('.MuiDialog-paper')`;
+  const group = `[...(${dialog}?.querySelectorAll('section') ?? [])].find(section => section.querySelector('h4')?.textContent === 'Web2 admin')`;
+  const groupText = () => evaluate(`(${group})?.innerText ?? ''`);
+  const linkSwitch = `(${group})?.querySelector('input[type=checkbox]')`;
+  const dialogFits = () => evaluate(`(() => {
+    const paper = ${dialog};
+    const content = paper?.querySelector('.MuiDialogContent-root');
+    return Boolean(paper) && paper.scrollWidth <= paper.clientWidth && content.scrollWidth <= content.clientWidth && document.documentElement.scrollWidth <= innerWidth;
+  })()`);
+  const cardRowText = (key) => readWhenPresent(evaluate, `document.querySelector('li[data-setting="${key}"]')`, 'innerText', `the ${key} row`);
+  const searchCard = (text) => fillWhenPresent(evaluate, `document.getElementById('stack-settings')?.querySelector('input[aria-label="Search settings"]')`, text, 'the card search');
+
+  /** Opens the wizard on Stream to Swarm with this name and lands on its settings step. */
+  const startStream = async (name) => {
+    await evaluate(`location.hash = '#/deployments'`);
+    await click(buttonWithText('New deployment'), 'the New deployment button');
+    await click(`[...document.querySelectorAll('[role=radio]')].find(node => node.textContent.trim().startsWith('Stream to Swarm'))`, 'the Stream to Swarm goal');
+    await click(buttonWithText('Continue'), 'the Continue button');
+    await fillWhenPresent(evaluate, found('input[placeholder="main-stage"]'), name, 'the name field', COLD_OPTIMIZE_BUDGET_MS);
+    await click(buttonWithText('Continue'), 'the Continue button');
+    await waitFor(groupText, (text) => text.includes('Link this deployment to the web2 admin'), 'the Web2 admin group', COLD_OPTIMIZE_BUDGET_MS);
+  };
+
+  await t.test("the wizard's Web2 admin group starts on, from the manager's own link", async () => {
+    await startStream('linked-stream');
+
+    assert.equal(await evaluate(`${linkSwitch}.checked`), true);
+    assert.equal(await readWhenPresent(evaluate, `(${group})?.querySelector('input[aria-label="Web2 admin address"]')`, 'value', 'the group address'), ADMIN_URL);
+    assert.equal(await evaluate(`(${group}).querySelector('input[type=radio][aria-label="The manager\\'s stored token"]').checked`), true);
+    assert.match(await groupText(), /The test runs from where the manager runs/);
+
+    await click(`[...(${group}).querySelectorAll('button')].find(button => button.textContent.trim() === 'Test connection')`, 'the group Test connection button');
+    await waitFor(groupText, (text) => text.includes("Linked: the web2 admin took the token and signs its catalog with this deployment's stream address."), 'the linked sentence');
+    assert.equal(await dialogFits(), true, 'the dialog scrolls sideways');
+    await evaluate(`(${group}).scrollIntoView({ block: 'start' })`);
+    await screenshot('wizard-group-on-phone.png');
+  });
+
+  await t.test('points the two keys of Advanced settings at the group rather than editing them twice', async () => {
+    const foldButton = `[...document.querySelectorAll('button[aria-expanded]')].find(button => button.textContent.includes('Advanced settings'))`;
+    await click(foldButton, 'the Advanced settings fold');
+    await fillWhenPresent(evaluate, `${dialog}?.querySelector('input[aria-label="Search settings"]')`, 'ADMIN_API', 'the list search');
+    const rowText = await cardRowText('ADMIN_API_TOKEN');
+
+    assert.match(rowText, /Decided by the Web2 admin group of this step\. It cannot be set here\./);
+    assert.match(await cardRowText('ADMIN_API_URL'), new RegExp(`${ADMIN_URL.replace(/\./g, '\\.')}[\\s\\S]*Decided by the Web2 admin group of this step`));
+    assert.equal(await evaluate(`Boolean(document.getElementById('deployment-setting-ADMIN_API_TOKEN'))`), false, 'no field for the token');
+    await click(foldButton, 'the Advanced settings fold');
+  });
+
+  await t.test("creates the deployment linked, with the manager's token copied in and never shown", async () => {
+    await click(buttonWithText('Continue'), 'the Continue button');
+    await waitFor(body, (text) => text.includes('Check it, then deploy.'), 'the review');
+    assert.match(await body(), new RegExp(`Web2 admin\\s+Linked to ${ADMIN_URL.replace(/\./g, '\\.')}, with the manager's stored token\\.`));
+
+    await click(buttonWithText('Deploy'), 'the Deploy button');
+    await waitFor(body, (text) => text.includes('linked-stream') && text.includes('Stack settings'), 'the linked-stream page with its settings card');
+    await searchCard('ADMIN_API');
+    await waitFor(() => cardRowText('ADMIN_API_TOKEN'), (text) => text.includes('A value is stored for this deployment. It is never shown.'), 'the copied token');
+    assert.match(await cardRowText('ADMIN_API_URL'), /set here/);
+    assert.equal(await evaluate(`document.getElementById('deployment-setting-ADMIN_API_URL').value`), ADMIN_URL);
+    assert.equal((await body()).includes(TOKEN), false);
+  });
+
+  await t.test('creates a deployment with the link switched off, which stores an empty address', async () => {
+    await startStream('standalone-stream');
+    await click(linkSwitch, 'the link switch');
+    await waitFor(groupText, (text) => text.includes('runs standalone'), 'the switched-off note');
+    assert.equal(await dialogFits(), true, 'the dialog scrolls sideways');
+    await evaluate(`(${group}).scrollIntoView({ block: 'start' })`);
+    await screenshot('wizard-group-off-phone.png');
+
+    await click(buttonWithText('Continue'), 'the Continue button');
+    await waitFor(body, (text) => text.includes('Check it, then deploy.'), 'the review');
+    assert.match(await body(), /Web2 admin\s+Not linked\. The uploader runs standalone\./);
+    await click(buttonWithText('Deploy'), 'the Deploy button');
+    await waitFor(body, (text) => text.includes('standalone-stream') && text.includes('Stack settings'), 'the standalone-stream page with its settings card');
+    await searchCard('ADMIN_API_URL');
+    await waitFor(() => cardRowText('ADMIN_API_URL'), (text) => text.includes('set here'), 'the stored empty address');
+    assert.equal(await evaluate(`document.getElementById('deployment-setting-ADMIN_API_URL').value`), '');
+  });
+
+  assert.deepEqual(browser.errors, []);
+  assert.deepEqual(browser.blockedRequests, []);
+  t.diagnostic(`screenshots in ${evidence}`);
 });

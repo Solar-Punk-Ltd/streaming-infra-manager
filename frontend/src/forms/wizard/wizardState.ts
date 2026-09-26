@@ -9,6 +9,7 @@ import {
   generateSrtPassphrase,
   isLadderKind,
   LIGHT_NODE_MODE,
+  type ManagerAdminLink,
   MANAGER_RPC_ENDPOINT_SOURCE,
   type NodeMode,
   OME_SERVICE,
@@ -27,6 +28,7 @@ import type { NewDeploymentSettingsLoad } from '../../deployments/settings/useNe
 import { streamersOf } from '../../deployments/shape';
 import type { PoolResults } from '../../groups/useBeePublishers';
 import type { DeploymentGroup, Profile } from '../../types';
+import type { AdminLinkChoice } from './adminLinkChoice';
 import { DEFAULT_CUSTOM_COMPONENTS, GOALS } from './wizardGoals';
 import { matchingPool } from './poolIdentity';
 import { SEGMENT_LENGTH_FIELD } from './segmentLength';
@@ -92,6 +94,11 @@ export interface WizardState {
    * for the choices on screen takes.
    */
   stackSettings: NewDeploymentSettingValues;
+  /**
+   * The Web2 admin group's choice once the operator touched it, or null while
+   * it follows the manager's own link, which arrives from a read of its own.
+   */
+  adminLink: AdminLinkChoice | null;
   components: string[];
   /** The stack version to deploy on. Null until a default or an explicit choice supplies it. */
   versionId: number | null;
@@ -133,6 +140,12 @@ export interface WizardContext {
    * settings step on for the choices on screen. Absent where nothing reads it.
    */
   newDeploymentSettings?: NewDeploymentSettingsLoad;
+  /**
+   * The web2 admin link the manager gives new deployments, which the Web2
+   * admin group starts from. Null or absent while it is read or when it could
+   * not be, which starts the group off.
+   */
+  managerAdminLink?: ManagerAdminLink | null;
 }
 
 /** The versions a deployment can be made on: the ones that finished building. */
@@ -239,6 +252,7 @@ export function initialWizardState(
     poolString: '',
     segmentSeconds: SEGMENT_LENGTH_FIELD.defaultValue,
     stackSettings: {},
+    adminLink: null,
     components: DEFAULT_CUSTOM_COMPONENTS,
     versionId: defaultVersionIn(context),
   };

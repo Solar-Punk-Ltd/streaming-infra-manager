@@ -43,6 +43,30 @@ export function adminLinkTestSeverity(outcome: AdminLinkTestOutcome): AdminLinkT
 export const ADMIN_LINK_TEST_REACH =
   "The test runs from where the manager runs, so an address only the deployment's own network can reach reads as unreachable here.";
 
+/** The switch of the new-deployment wizard's Web2 admin group. */
+export const ADMIN_LINK_SWITCH_LABEL = 'Link this deployment to the web2 admin';
+
+/** The line at the top of the wizard's Web2 admin group. */
+export const ADMIN_LINK_GROUP_LEAD =
+  "Where this deployment's stream uploader reports its streams. It starts from the link on Manager settings.";
+
+/** Said under the switch while it is off. */
+export const ADMIN_LINK_OFF_NOTE =
+  'Off, this deployment stores an empty ADMIN_API_URL, so its uploader runs standalone even when its version turns admin mode on.';
+
+/** Said in place of the group for a version whose settings declare no web2 admin link. */
+export const ADMIN_LINK_ABSENT = 'This version takes no web2 admin link, so the uploader runs standalone.';
+
+/** Said in place of the group when the version's settings could not be read. */
+export const ADMIN_LINK_UNREAD = "This version's settings could not be read, so the uploader keeps what its version sets.";
+
+/** What the choice of the manager's stored token says, which depends on whether it has one. */
+export function storedTokenDetail(stored: boolean): string {
+  return stored
+    ? 'The manager copies it into this deployment when it is created. It never reaches this page.'
+    : 'The manager stores no token. Save one on Manager settings, or type one here.';
+}
+
 /** The line at the top of the Manager settings card. */
 export const MANAGER_LINK_LEAD =
   'New uploader deployments start linked to this web2 admin, with the switch on in the new-deployment wizard. A deployment keeps what it was created with, so a change here reaches only deployments created after it.';

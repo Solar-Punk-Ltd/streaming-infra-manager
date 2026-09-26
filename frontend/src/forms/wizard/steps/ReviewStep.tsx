@@ -14,6 +14,7 @@ import { ServiceChip } from '../../../components/ServiceChip';
 import { nodeModeLabel, rpcEndpointLabel } from '../../../deployments/nodeText';
 import { shortHex } from '../../../format';
 import { describeVersion, lostApprovalWarning } from '../../../versions/versionText';
+import { adminLinkSummary } from '../adminLinkChoice';
 import { advancedSettingsSummary } from '../advancedSettings';
 import { GOALS } from '../wizardGoals';
 import {
@@ -143,6 +144,10 @@ export function ReviewStep({ state, context }: WizardStepProps) {
           'a pool on another manager, from the pasted string'
         ),
     });
+  }
+  const adminLink = adminLinkSummary(state, context);
+  if (adminLink) {
+    entries.push({ key: 'Web2 admin', value: adminLink });
   }
   const advanced = advancedSettingsSummary(state, context);
   if (advanced) {

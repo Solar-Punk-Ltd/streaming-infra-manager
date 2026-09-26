@@ -217,6 +217,8 @@ export interface CreateGroupBody {
   engine_settings?: EngineSettings;
   /** The stack settings every member is created with. Absent keeps the version's values. */
   stack_settings?: NewDeploymentSetting[];
+  /** True has the manager copy its stored web2 admin token into every member as it is inserted. */
+  use_manager_admin_token?: boolean;
 }
 
 export function createDeploymentGroup(

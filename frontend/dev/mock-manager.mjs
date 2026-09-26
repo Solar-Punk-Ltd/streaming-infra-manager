@@ -648,12 +648,12 @@ const ROUTES = [
       const { problem } = nodeChoicesFor(body);
       if (problem) return refuse(res, problem);
       // Kept off the profile, which every page and event carries.
-      const { stack_settings: stackSettings, ...profileBody } = body;
+      const { stack_settings: stackSettings, use_manager_admin_token: useManagerToken, ...profileBody } = body;
       const shape = { kind: body.kind ?? 'custom', components: body.components ?? null, host: body.host ?? null };
-      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), shape, body.name);
+      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), shape, body.name, useManagerToken === true);
       if (refusal) return send(res, refusal.status, refusal.body);
       const profile = createFromBody(profileBody);
-      storeCreatedSettings(profile, stackSettings);
+      storeCreatedSettings(profile, stackSettings, useManagerToken === true);
       send(res, 202, profile);
     },
   ],
@@ -829,13 +829,13 @@ const ROUTES = [
       const memberShape = isPool ? { kind: 'custom', components: ['bee-uploader'] } : {};
       const { problem } = nodeChoicesFor(body, memberShape);
       if (problem) return refuse(res, problem);
-      const { stack_settings: stackSettings, ...groupBody } = body;
+      const { stack_settings: stackSettings, use_manager_admin_token: useManagerToken, ...groupBody } = body;
       const settingsShape = {
         kind: memberShape.kind ?? body.kind ?? 'custom',
         components: memberShape.components ?? body.components ?? null,
         host: body.host ?? null,
       };
-      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), settingsShape, body.group_name);
+      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), settingsShape, body.group_name, useManagerToken === true);
       if (refusal) return send(res, refusal.status, refusal.body);
       const group = {
         id: takeGroupId(),
@@ -859,7 +859,7 @@ const ROUTES = [
               { group_id: group.id },
             ),
           );
-      for (const profile of profiles) storeCreatedSettings(profile, stackSettings);
+      for (const profile of profiles) storeCreatedSettings(profile, stackSettings, useManagerToken === true);
 
       send(res, 202, { group, profiles });
     },

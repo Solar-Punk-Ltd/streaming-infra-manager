@@ -146,4 +146,9 @@ export interface CreateProfileBody {
    * only: a deployment's page saves them afterwards.
    */
   stack_settings?: NewDeploymentSetting[];
+  /**
+   * True has the manager copy its stored web2 admin token into the deployment
+   * as it is inserted. The token never travels on the request.
+   */
+  use_manager_admin_token?: boolean;
 }
