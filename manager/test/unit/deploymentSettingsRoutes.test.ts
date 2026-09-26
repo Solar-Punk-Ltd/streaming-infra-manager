@@ -166,6 +166,22 @@ describe('PUT /profiles/:name/settings', () => {
     }
   });
 
+  it('refuses a save of the wrong shape without repeating a value in the refusal', async () => {
+    const { app, harness, instanceId } = await appFor();
+    try {
+      const wrongShapes = [{ key: 'ADMIN_API_TOKEN', value: SECRET }, [`ADMIN_API_TOKEN=${SECRET}`], `ADMIN_API_TOKEN=${SECRET}`];
+      for (const entries of wrongShapes) {
+        const refused = await call(app, 'PUT', '/profiles/stage/settings', { expectedInstanceId: instanceId, expectedRevision: 0, entries });
+
+        assert.equal(refused.status, 400);
+        assert.equal(JSON.stringify(refused.body).includes(SECRET), false, 'the refusal repeats the value');
+      }
+      assert.equal(harness.profiles.stackSettings.get('stage'), undefined);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('refuses a request without a session, and stores nothing', async () => {
     const { app, harness, instanceId } = await appFor({ signedIn: false });
     try {
