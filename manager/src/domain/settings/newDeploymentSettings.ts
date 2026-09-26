@@ -98,7 +98,7 @@ function settable(entries: readonly DeploymentSettingEntry[], key: string): bool
 /**
  * The manager's own web2 admin link as the settings of a create that names
  * neither key and asks for no token, for a deployment that runs a stream
- * uploader (Levi, 2026-09-25: every new uploader deployment starts with it).
+ * uploader, so every new uploader deployment starts with it.
  * Only a link with both an address and a stored token, and only for a version
  * that lets a create set both keys, so the default never leaves an address
  * the uploader would refuse to start with or a create refused over it.
