@@ -6,9 +6,10 @@ import { createBeeBridgeQualifier, PRODUCTION_BEE_BRIDGE_QUALIFICATIONS, type Be
 import { DEFAULT_REMOTE_DOCKER_SOCKET, sshDockerForwardCommand, type SshDockerLocator } from './sshDockerForwardCommand.js';
 
 /**
- * How the bridge's image is qualified on a route. Pinned ids keep today's rule,
- * the named catalog entries and nothing else. Without them the manager checks
- * an image the catalog does not list itself, before the first transfer.
+ * How the bridge's image is qualified on a route. Pinned ids keep the rule this
+ * setting always had, the named catalog entries and nothing else. Without them
+ * the manager itself checks an image neither the catalog nor a stored pass
+ * covers, before the first transfer through it.
  */
 export type SelectedBridgeQualification =
   | { readonly kind: 'pinned'; readonly qualify: QualifiedBeeBridgeExecution }

@@ -53,9 +53,11 @@ export function storedPassRecord(pass: { readonly id: string; readonly tuple: Be
 /**
  * The seed: images checked by hand before the manager checked them itself, one
  * entry per image and Docker engine pair. Synthetic records are injected by
- * tests. An image no entry covers is checked automatically the first time a
- * transfer goes through it, and the pass is stored in
- * bee_bridge_qualifications, so this list only saves that first check.
+ * tests. On a route that pins no qualification ids, an image no entry covers
+ * is checked automatically the first time a transfer goes through it and the
+ * pass is stored in bee_bridge_qualifications, so there this list only saves
+ * that first check. A route that pins ids is qualified by the entries it names
+ * and nothing else.
  *
  * The one entry was produced by `manager/scripts/qualify-bee-bridge.mjs` on
  * 2026-09-14. Its `harnessRevision` is the git object id the script had then,
