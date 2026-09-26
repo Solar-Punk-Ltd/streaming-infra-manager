@@ -300,8 +300,9 @@ settings, restart, logs and effective config for OME regardless.
 - `AtAGlanceCard` shows `Engine: SRS · segment 2 s · window 15 s` for a deployment created with
   the manager's own defaults, off the same observations the engine card reads, so a deployment
   that stores neither shows whatever its own stack version falls back to instead.
-- Mock manager: engine settings stored per profile and echoed, restart bumps a fake uptime,
-  logs and config return generated text, live status invents a publisher for running streams.
+- Mock manager: engine settings stored per profile and echoed, restart changes only the
+  container's own clock, logs and config return generated text, and the live block is null with
+  the reason the manager gives.
 
 ## PR split
 
@@ -320,8 +321,8 @@ settings, restart, logs and effective config for OME regardless.
   service, logs are demultiplexed and capped (a stubbed dockerode).
 - Browser pane against the mock: change the segment length in the Stack settings card, save,
   Apply, and watch the deployment go Deploying and back, restart with and without a publisher,
-  logs dialog, config tab, dark mode, the live block on a running stream and its "not published"
-  sentence on an old version.
+  logs dialog, config tab, dark mode, and the live block's reason on a version that does not
+  publish the SRS API port.
 
 ## Done means
 
