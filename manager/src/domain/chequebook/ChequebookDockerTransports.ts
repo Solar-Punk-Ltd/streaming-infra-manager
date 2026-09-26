@@ -5,9 +5,18 @@ import type { LocalDockerLocator } from './acquireLocalDockerBeeStream.js';
 import { createBeeBridgeQualifier, PRODUCTION_BEE_BRIDGE_QUALIFICATIONS, type BeeBridgeQualificationRecord, type QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
 import { DEFAULT_REMOTE_DOCKER_SOCKET, sshDockerForwardCommand, type SshDockerLocator } from './sshDockerForwardCommand.js';
 
+/**
+ * How the bridge's image is qualified on a route. Pinned ids keep today's rule,
+ * the named catalog entries and nothing else. Without them the manager checks
+ * an image the catalog does not list itself, before the first transfer.
+ */
+export type SelectedBridgeQualification =
+  | { readonly kind: 'pinned'; readonly qualify: QualifiedBeeBridgeExecution }
+  | { readonly kind: 'automatic'; readonly catalog: readonly BeeBridgeQualificationRecord[] };
+
 export interface SelectedChequebookTransport {
   readonly locator: Readonly<LocalDockerLocator | SshDockerLocator>;
-  readonly qualify: QualifiedBeeBridgeExecution;
+  readonly qualification: SelectedBridgeQualification;
 }
 
 /** The socket the manager's own Docker client uses when DOCKER_HOST says nothing. */
@@ -76,23 +85,27 @@ export class ChequebookDockerTransports {
       const entry = object(input);
       const fields = Object.keys(entry).sort().join(',');
       if (fields !== 'locator' && fields !== 'locator,qualificationIds') throw new ChequebookConfigurationError();
-      const ids = Object.hasOwn(entry, 'qualificationIds') ? entry.qualificationIds : this.#catalog.map(record => record.id);
+      if (!Object.hasOwn(entry, 'qualificationIds')) return Object.freeze({ locator: locator(alias, entry.locator), qualification: this.automatic() });
+      const ids = entry.qualificationIds;
       if (!Array.isArray(ids) || !ids.length || ids.length > 256 || new Set(ids).size !== ids.length ||
           ids.some(id => typeof id !== 'string' || !this.#catalog.some(record => record.id === id))) throw new ChequebookConfigurationError();
-      const qualify = createBeeBridgeQualifier(this.#catalog, ids);
-      return Object.freeze({ locator: locator(alias, entry.locator), qualify });
+      const qualification = Object.freeze({ kind: 'pinned' as const, qualify: createBeeBridgeQualifier(this.#catalog, ids) });
+      return Object.freeze({ locator: locator(alias, entry.locator), qualification });
     } catch { throw new ChequebookConfigurationError('docker_setting_invalid'); }
   }
 
   private defaultRoute(alias: string): SelectedChequebookTransport {
     try {
-      const qualify = createBeeBridgeQualifier(this.#catalog, this.#catalog.map(record => record.id));
       if (isLocalTarget(alias)) {
         if (!this.defaults.localSocketPath) throw new ChequebookConfigurationError();
-        return Object.freeze({ locator: locator(alias, { kind: 'unix', alias, socketPath: this.defaults.localSocketPath }), qualify });
+        return Object.freeze({ locator: locator(alias, { kind: 'unix', alias, socketPath: this.defaults.localSocketPath }), qualification: this.automatic() });
       }
-      return Object.freeze({ locator: locator(alias, { kind: 'ssh-config', alias, remoteSocketPath: DEFAULT_REMOTE_DOCKER_SOCKET }), qualify });
+      return Object.freeze({ locator: locator(alias, { kind: 'ssh-config', alias, remoteSocketPath: DEFAULT_REMOTE_DOCKER_SOCKET }), qualification: this.automatic() });
     } catch { throw new ChequebookConfigurationError('docker_route_missing'); }
+  }
+
+  private automatic(): SelectedBridgeQualification {
+    return Object.freeze({ kind: 'automatic', catalog: this.#catalog });
   }
 
   private entries(configuration: string): Record<string, unknown> {

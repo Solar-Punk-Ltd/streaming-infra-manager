@@ -14,7 +14,8 @@ import type { SshDockerForwardCommand } from '../../src/domain/chequebook/sshDoc
 import { InMemoryChequebookOperations, transferContext, transferIntent } from '../support/chequebookOperations.js';
 import { qualifiedBridge } from '../support/qualifiedBeeBridge.js';
 import { fakeForwardHarness } from '../support/sshForwardLifecycle.js';
-import { syntheticDockerBee, syntheticTarget } from '../support/syntheticDockerBee.js';
+import { InMemoryBeeBridgeQualifications } from '../support/InMemoryBeeBridgeQualifications.js';
+import { syntheticDockerHost, syntheticTarget } from '../support/syntheticDockerBee.js';
 
 const chainReader = { async chainId() { return 100; }, async transactionCount() { return '8'; }, async transaction() { return null; },
   async receipt() { return null; }, async blockTransactions() { return null; },
@@ -24,45 +25,46 @@ const targetOn = (alias: string, host: string | null): FrozenChequebookTarget =>
 
 function unconfigured(t: TestContext, target: FrozenChequebookTarget, dockerHost: string | undefined, extra: Partial<ChequebookServiceDependencies> = {}) {
   const pool = new pg.Pool({ connectionString: 'postgres://unused' }); t.after(() => pool.end());
-  const fixture = syntheticDockerBee(t);
+  const host = syntheticDockerHost(t);
   const socketPaths: string[] = [];
   const service = createChequebookOperationsService(pool, { rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: undefined, dockerHost }, {
-    repository: new InMemoryChequebookOperations(), qualificationCatalog: [qualifiedBridge()], captureTarget: async () => target,
-    createChainReader: () => chainReader, preparation: { cleanupGraceMs: 20, timeoutMs: 3000 },
-    connectUnix: path => { socketPaths.push(path); return { stream: fixture.transport, connected: Promise.resolve() }; }, ...extra,
+    repository: new InMemoryChequebookOperations(), qualificationCatalog: [qualifiedBridge()], bridgeQualifications: new InMemoryBeeBridgeQualifications(),
+    captureTarget: async () => target, createChainReader: () => chainReader, preparation: { cleanupGraceMs: 20, timeoutMs: 3000 },
+    connectUnix: path => { socketPaths.push(path); return host.connect(); }, ...extra,
   });
   t.after(() => service.shutdown());
-  return { service, fixture, socketPaths };
+  return { service, host, socketPaths };
 }
 
 it('reaches localhost through the manager\'s own Docker socket when nothing is configured', async t => {
   const h = unconfigured(t, targetOn('localhost', null), undefined);
   assert.equal((await h.service.submit(transferIntent())).operation.state, 'submitted');
-  assert.deepEqual(h.socketPaths, ['/var/run/docker.sock']);
-  assert.equal(h.fixture.counts().posts, 1);
+  assert.deepEqual(h.socketPaths, ['/var/run/docker.sock', '/var/run/docker.sock'], 'the image is read on one connection and the bridge runs on another');
+  assert.equal(h.host.posts(), 1);
 });
 
 it('follows DOCKER_HOST to the local socket the manager\'s Docker client uses', async t => {
   const h = unconfigured(t, targetOn('localhost', null), 'unix:///run/user/1000/docker.sock');
   assert.equal((await h.service.submit(transferIntent())).operation.state, 'submitted');
-  assert.deepEqual(h.socketPaths, ['/run/user/1000/docker.sock']);
+  assert.deepEqual([...new Set(h.socketPaths)], ['/run/user/1000/docker.sock']);
 });
 
 it('forwards a remote host\'s Docker socket through the manager\'s ssh configuration for its alias', async t => {
   const remote = fakeForwardHarness();
   const commands: SshDockerForwardCommand[] = [];
-  const fixture = syntheticDockerBee(t, undefined, false);
+  const host = syntheticDockerHost(t);
   remote.dependencies.clock = { now: () => performance.now(), schedule(call, milliseconds) { const timer = setTimeout(call, milliseconds); return () => clearTimeout(timer); } };
-  remote.dependencies.connect = () => ({ stream: fixture.transport, connected: Promise.resolve() });
+  remote.dependencies.connect = () => host.connect();
   remote.dependencies.acquire = acquireDockerBeeStream;
   const spawn = remote.dependencies.spawn;
   remote.dependencies.spawn = (command, ownership) => { commands.push(command); return spawn(command, ownership); };
   const h = unconfigured(t, targetOn('bee-eu-1', 'bee-eu-1'), undefined, { ssh: remote.dependencies });
   assert.equal((await h.service.submit(transferIntent())).operation.state, 'submitted');
-  assert.equal(commands.length, 1);
+  assert.equal(commands.length, 1, 'one forward');
+  assert.equal(host.fixtures.length, 2, 'two connections through it');
   assert.deepEqual(commands[0]!.target, { kind: 'ssh-config', alias: 'bee-eu-1', remoteSocketPath: '/var/run/docker.sock' });
   assert.deepEqual(commands[0]!.args.slice(-2), ['--', 'bee-eu-1']);
   assert.equal(commands[0]!.args.includes('-F'), false, 'the manager\'s own ssh configuration is read');
   assert.deepEqual(h.socketPaths, [], 'no local socket was opened for a remote host');
-  assert.equal(fixture.counts().posts, 1);
+  assert.equal(host.posts(), 1);
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ChequebookDockerTransports } from '../../src/domain/chequebook/ChequebookDockerTransports.js';
+import { ChequebookDockerTransports, type SelectedChequebookTransport } from '../../src/domain/chequebook/ChequebookDockerTransports.js';
 import { DOCKER_BEE_BRIDGE_REVISION } from '../../src/domain/chequebook/dockerBeeBridge.js';
 import { DOCKER_BEE_STREAM_BOUNDS } from '../../src/domain/chequebook/beeBridgeQualification.js';
 import { qualifiedBridge } from '../support/qualifiedBeeBridge.js';
@@ -11,6 +11,10 @@ import { remoteLocator } from '../support/sshForwardLifecycle.js';
 import { syntheticImageId } from '../support/syntheticDockerBee.js';
 
 const local = () => ({ localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath: '/synthetic/docker.sock' }, qualificationIds: ['synthetic-only'] } });
+const pinned = (selected: SelectedChequebookTransport) => {
+  assert.equal(selected.qualification.kind, 'pinned');
+  return selected.qualification.kind === 'pinned' ? selected.qualification.qualify : () => false;
+};
 
 it('does not parse malformed transport configuration until acquisition selects an alias', () => {
   for (const input of ['{broken', 'null', '[]', JSON.stringify(local())]) {
@@ -25,7 +29,7 @@ it('selects only a complete compiled qualification and a frozen exact local loca
   assert.deepEqual(selected.locator, local().localhost.locator); assert.ok(Object.isFrozen(selected.locator));
   const execution = { imageId: syntheticImageId, engineVersion: '29.1.3', platform: qualifiedBridge().platform,
     bridgeRevision: DOCKER_BEE_BRIDGE_REVISION, bridgeLifetimeSeconds: 220, cleanupGraceMs: 5000, streamBounds: DOCKER_BEE_STREAM_BOUNDS };
-  assert.equal(selected.qualify(execution), true); assert.equal(selected.qualify({ ...execution, engineVersion: '29.1.4' }), false);
+  assert.equal(pinned(selected)(execution), true); assert.equal(pinned(selected)({ ...execution, engineVersion: '29.1.4' }), false);
   assert.deepEqual(registry.select('another-alias').locator, { kind: 'ssh-config', alias: 'another-alias', remoteSocketPath: '/var/run/docker.sock' },
     'an alias the configuration does not name gets the default route');
 });
@@ -60,7 +64,7 @@ for (const [name, change] of [
 it('captures the trusted catalog before delayed selection and bounds runtime configuration size', () => {
   const record = qualifiedBridge(); const registry = new ChequebookDockerTransports(JSON.stringify(local()), [record]);
   Object.assign(record, { imageId: `sha256:${'e'.repeat(64)}` });
-  assert.equal(registry.select('localhost').qualify({ imageId: syntheticImageId, engineVersion: '29.1.3', platform: record.platform,
+  assert.equal(pinned(registry.select('localhost'))({ imageId: syntheticImageId, engineVersion: '29.1.3', platform: record.platform,
     bridgeRevision: DOCKER_BEE_BRIDGE_REVISION, bridgeLifetimeSeconds: 220, cleanupGraceMs: 5000, streamBounds: DOCKER_BEE_STREAM_BOUNDS }), true);
   assert.throws(() => new ChequebookDockerTransports(' '.repeat(65537), [qualifiedBridge()]).select('localhost'));
 });
@@ -68,9 +72,6 @@ it('captures the trusted catalog before delayed selection and bounds runtime con
 const refusedAs = (cause: string) => (error: unknown) => {
   assert.ok(error instanceof ChequebookConfigurationError); assert.equal(error.refusal.cause, cause); return true;
 };
-const seedExecution = () => { const seed = PRODUCTION_BEE_BRIDGE_QUALIFICATIONS[0]!;
-  return { imageId: seed.imageId, engineVersion: seed.engineVersion, platform: { ...seed.platform }, bridgeRevision: seed.bridgeRevision,
-    bridgeLifetimeSeconds: 220, cleanupGraceMs: 5000, streamBounds: DOCKER_BEE_STREAM_BOUNDS }; };
 
 describe('the Docker connection a transfer uses when nothing is configured for its host', () => {
   it('uses the manager\'s own local socket for localhost', () => {
@@ -95,9 +96,18 @@ describe('the Docker connection a transfer uses when nothing is configured for i
     assert.throws(() => new ChequebookDockerTransports(undefined).select('deploy@bee-eu-1'), refusedAs('docker_route_missing'));
   });
 
-  it('qualifies the default route with the whole catalog', () => {
-    assert.equal(new ChequebookDockerTransports(undefined).select('bee-eu-1').qualify(seedExecution()), true);
-    assert.equal(new ChequebookDockerTransports(undefined).select('localhost').qualify({ ...seedExecution(), engineVersion: '29.1.4' }), false);
+  it('qualifies the default route automatically, from the whole catalog and the manager\'s own checks', () => {
+    for (const alias of ['bee-eu-1', 'localhost']) {
+      assert.deepEqual(new ChequebookDockerTransports(undefined).select(alias).qualification, { kind: 'automatic', catalog: PRODUCTION_BEE_BRIDGE_QUALIFICATIONS });
+    }
+  });
+
+  it('qualifies a configured entry without ids automatically, and one with ids by exactly those ids', () => {
+    const entry = (qualificationIds?: string[]) => JSON.stringify({ localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath: '/srv/docker.sock' },
+      ...(qualificationIds ? { qualificationIds } : {}) } });
+    assert.equal(new ChequebookDockerTransports(entry(), [qualifiedBridge()]).select('localhost').qualification.kind, 'automatic');
+    const selected = new ChequebookDockerTransports(entry(['synthetic-only']), [qualifiedBridge()]).select('localhost');
+    assert.equal(selected.qualification.kind, 'pinned');
   });
 
   it('lets a configured entry win for the alias it names, in its current format', () => {

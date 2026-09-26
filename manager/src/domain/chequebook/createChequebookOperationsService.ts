@@ -12,6 +12,7 @@ import { ChequebookOperationsService } from './ChequebookOperationsService.js';
 import { ChequebookReceiptPoller, type ReceiptPollerOptions } from './ChequebookReceiptPoller.js';
 import { PostgresChequebookOperationRepository } from './PostgresChequebookOperationRepository.js';
 import { PostgresChequebookTargetOwnership } from './PostgresChequebookTargetOwnership.js';
+import { PostgresBeeBridgeQualifications } from './PostgresBeeBridgeQualifications.js';
 import type { ChequebookOperationRepository } from './ChequebookOperationRepository.js';
 import type { BeeBridgeQualificationRecord } from './beeBridgeQualification.js';
 import { ChequebookDockerTransports, localDockerSocketPath } from './ChequebookDockerTransports.js';
@@ -47,7 +48,8 @@ export function createChequebookOperationsService(pool: Pool, runtime: Chequeboo
   const captureTarget = dependencies.captureTarget ?? ownership.capture.bind(ownership);
   const routes = new ChequebookDockerTransports(runtime.dockerTransports, dependencies.qualificationCatalog,
     { localSocketPath: localDockerSocketPath(runtime.dockerHost) });
-  const transports = new OwnedChequebookTransports(routes, dependencies);
+  const transports = new OwnedChequebookTransports(routes,
+    { ...dependencies, bridgeQualifications: dependencies.bridgeQualifications ?? new PostgresBeeBridgeQualifications(pool) });
   const acquire = transports.acquire.bind(transports);
   const budgets = ownedAcquisitionBudgets(structuredClone(dependencies.preparation ?? {}));
   /** Opens the node's owned connection only to read the endpoint its container runs with. The bridge it opens is closed unused. */

@@ -7,6 +7,7 @@ import { targetLockIdentity, type FrozenChequebookTarget } from './FrozenChequeb
 import { requireBeeBindingTarget } from './DockerBeeBinding.js';
 import { normalizeDockerBeeAcquisitionOptions, type acquireDockerBeeStream, type AcquiredDockerBeeStream,
   type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeExecution } from './acquireDockerBeeStream.js';
+import { isAutomaticBeeBridgeQualification, type AutomaticBeeBridgeQualification } from './automaticBeeBridgeQualification.js';
 import type { ConnectUnixDocker } from './acquireLocalDockerBeeStream.js';
 import { sshDockerForwardCommand, type SshDockerForwardCommand, type SshDockerLocator } from './sshDockerForwardCommand.js';
 import type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, ForwardResource as Resource,
@@ -104,7 +105,8 @@ class ForwardLease extends Duplex {
 
 /** Begins one inactive, fully owned forward. All resource construction is supplied by trusted dependencies. */
 export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, resolveLocator: (alias: string) => Promise<SshDockerLocator>,
-  options: DockerBeeAcquisitionOptions, dependencies: SshDockerDependencies, qualifyImage: QualifiedBeeBridgeExecution = () => false,
+  options: DockerBeeAcquisitionOptions, dependencies: SshDockerDependencies,
+  qualifyImage: QualifiedBeeBridgeExecution | AutomaticBeeBridgeQualification = () => false,
   signal?: AbortSignal, acquisitionDeadlineCap?: number): SshDockerAcquisition {
   const clock = dependencies.clock;
   const uid = dependencies.uid;
@@ -123,7 +125,8 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
   let child: ForwardChild | undefined; let childState: ForwardChildState = 'starting'; let unobserve: (() => void) | undefined;
   let cleanupDelegated = false; let delegatedReceiptReady = false; let delegatedReceipt: SshForwardCleanup | undefined;
   let raw: Duplex | undefined; let acquired: AcquiredDockerBeeStream | undefined; let lease: ForwardLease | undefined;
-  let pendingDirectory = false; let pendingHandshake = false;
+  let probeRaw: Duplex | undefined;
+  let pendingDirectory = false; let pendingHandshake = false; let pendingProbe = false;
   let termSent = false; let killSent = false; let cleanupBusy = false; let rerunCleanup = false;
   let cleanupFault: CleanupReason | undefined; let cleanupDeadline = startedAt;
   let cancelAcquisition: (() => void) | undefined; let cancelLifetime: (() => void) | undefined;
@@ -135,7 +138,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
 
   function remaining(): Resource[] {
     return [...(directory || pendingDirectory ? ['directory' as const] : []), ...(child && childState !== 'exited' ? ['child' as const] : []),
-      ...(pendingHandshake || socket || (raw && !raw.destroyed) || (lease && !lease.destroyed) ? ['socket' as const] : [])];
+      ...(pendingHandshake || pendingProbe || socket || (raw && !raw.destroyed) || (probeRaw && !probeRaw.destroyed) || (lease && !lease.destroyed) ? ['socket' as const] : [])];
   }
   function report(reason?: CleanupReason): void {
     if (outcomeSent) return;
@@ -164,6 +167,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
   }
   function childExited(): boolean { return childState === 'exited'; }
   function disposeStreams(): void {
+    if (probeRaw && !probeRaw.destroyed) probeRaw.destroy();
     if (raw && !raw.destroyed) raw.destroy();
     if (acquired && !acquired.stream.destroyed) acquired.stream.destroy();
     if (lease && !lease.destroyed) lease.destroy();
@@ -228,7 +232,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     if (cleanupDelegated && delegatedReceiptReady && delegatedReceipt?.state !== 'closed') {
       failCleanup(delegatedReceipt?.reason ?? 'cleanup_failed'); report(cleanupFault); return;
     }
-    if (pendingDirectory || pendingHandshake || (child && childState !== 'exited') || !directory || cleanupFault) return;
+    if (pendingDirectory || pendingHandshake || pendingProbe || (child && childState !== 'exited') || !directory || cleanupFault) return;
     if (cleanupDelegated) {
       if (!child || !delegatedReceiptReady) return;
       if (delegatedReceipt?.state !== 'closed') { failCleanup(delegatedReceipt?.reason ?? 'cleanup_failed'); report(cleanupFault); return; }
@@ -268,6 +272,23 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
       await new Promise<void>(resolve => { cancelPoll = clock.schedule(resolve, Math.min(POLL_MS, Math.max(1, acquisitionDeadline - clock.now()))); });
     }
   }
+  /** A second connection through the same forward, before the bridge's, for the check. Its close is its job done. */
+  async function probeThroughForward(automatic: AutomaticBeeBridgeQualification): Promise<QualifiedBeeBridgeExecution> {
+    const connection = dependencies.connect(path!, 'probe');
+    probeRaw = connection.stream; probeRaw.on('error', ignoreLateError);
+    const connected = Promise.resolve(connection.connected); connected.catch(ignoreLateError);
+    active(true); await connected; active(true);
+    if (probeRaw.destroyed) throw new DockerBeeAcquisitionError();
+    pendingProbe = true;
+    try {
+      return await automatic.probe(probeRaw, target, { ...limits, acquisitionTimeoutMs: Math.max(1, Math.floor(acquisitionDeadline - clock.now())) },
+        lifetime.signal, acquisitionDeadline);
+    } finally {
+      pendingProbe = false;
+      if (!probeRaw.destroyed) probeRaw.destroy();
+      if (closing) requestCleanup();
+    }
+  }
   async function work(): Promise<void> {
     active();
     const located = await resolveLocator(targetLockIdentity(target).alias);
@@ -304,7 +325,9 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     child.stderr.on('error', stderrFailed); child.stderr.on('data', stderrData);
     if (closing) { close(); throw new DockerBeeAcquisitionError(); }
     active(); await waitForSocket(); active(true);
-    const connection = dependencies.connect(path);
+    const qualify = isAutomaticBeeBridgeQualification(qualifyImage) ? await probeThroughForward(qualifyImage) : qualifyImage;
+    active(true);
+    const connection = dependencies.connect(path, 'bridge');
     raw = connection.stream; raw.on('error', ignoreLateError);
     const connected = Promise.resolve(connection.connected); connected.catch(ignoreLateError);
     active(true); await connected; active(true);
@@ -313,7 +336,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     pendingHandshake = true;
     try {
       acquired = await dependencies.acquire(raw, target, { ...limits, acquisitionTimeoutMs: Math.max(1, Math.floor(acquisitionDeadline - clock.now())) },
-        qualifyImage, lifetime.signal, acquisitionDeadline);
+        qualify, lifetime.signal, acquisitionDeadline);
     } finally { pendingHandshake = false; if (closing) requestCleanup(); }
     active(true);
     if (acquired.stream.destroyed) throw new DockerBeeAcquisitionError();
