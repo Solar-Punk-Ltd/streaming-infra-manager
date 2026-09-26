@@ -212,8 +212,9 @@ stack version, and validation lives in code:
   since 2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries
   it.
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
-  transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
-  only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
+  transitional, claims a deploy of the engine service, and of the uploader as well when a key the
+  uploader also reads changed (`servicesToRecreate`), then stores the settings and runs that
+  deploy. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
   it to the UI. Since 2026-09-26 it reads the stored settings with their settings revision first,
   moves that revision with its write, and refuses with `engine_settings_changed` when a save from
   the Stack settings card moved it in between.
