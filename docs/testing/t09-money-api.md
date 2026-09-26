@@ -36,7 +36,7 @@ The target revision includes the canonical T01 `profiles.instance_id`, profile c
 
 ## Single-connection submission
 
-A fresh transfer opens one private HTTP session. Its Agent permits exactly one connection creation and refuses every replacement socket. It does not follow redirects or retry requests. Identity reads, final preflight and the one POST share that socket. This provides a connection boundary only for the direct topology described above. It cannot pin a signer behind a layer-7 request-routing proxy.
+A fresh transfer opens one private HTTP session. Its Agent permits exactly one connection creation and refuses every replacement socket. It does not follow redirects or retry requests. Identity reads, final preflight and the one POST share that socket. This provides a connection boundary only for the owned transport described above. It cannot pin a signer behind a layer-7 request-routing proxy.
 
 Preparation requires agreement between `/addresses`, `/wallet` and `/chequebook/address`. The wallet must identify a supported chain, the same node and the same chequebook. The registry reads a latest start block, reads the transaction-count lower bound at that explicit block number, then checks the numbered block hash again. The lower bound does not reserve a nonce.
 
@@ -80,7 +80,7 @@ The shared detail shape contains `operation`, `responseEvidence` and `assertionC
 
 A known hash checks the chain receipt. An unknown or interrupted submission checks Bee pending hashes and the bounded chain scan. Manual resolution also verifies full transaction identity on the trusted chain. None of these paths sends or retries a Bee transaction.
 
-The pending-list adapter opens a separate read-only pinned session and verifies that its fresh node, chain, chequebook and token match the frozen operation. It reads only pending hashes from Bee's v2.8.2 `pendingTransactions` response. Transaction identity comes from chain evidence. A missing profile, replaced node, disabled direct mode or unavailable Bee cannot be reported as an empty pending list. The chain scan can still discover a mined matching candidate, and known-hash or manual checks remain profile-independent. An unavailable pending list cannot qualify a pass as complete no-match evidence for assertion.
+The pending-list adapter opens a separate read-only pinned session and verifies that its fresh node, chain, chequebook and token match the frozen operation. It reads only pending hashes from Bee's v2.8.2 `pendingTransactions` response. Transaction identity comes from chain evidence. A missing profile, replaced node or unavailable Bee cannot be reported as an empty pending list. The chain scan can still discover a mined matching candidate, and known-hash or manual checks remain profile-independent. An unavailable pending list cannot qualify a pass as complete no-match evidence for assertion.
 
 `attribution_conflict` must take display precedence, even when late evidence arrives after a previously settled or asserted state. The frontend must not render that old state as an unqualified verified settlement. Preserve and display all `responseEvidence`. When `additionalEvidenceInResponseJournal` is true, the bounded `candidateHashes` list is not exhaustive. Product copy should say that additional transaction evidence needs review. Do not expose storage terminology as the operator's explanation. No force-settlement or stronger-evidence override exists in this slice.
 
