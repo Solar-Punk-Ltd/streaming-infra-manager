@@ -15,6 +15,7 @@ import { describe, it } from 'node:test';
 import {
   type DeploymentSettingEntry,
   type DeploymentSettingsCatalog,
+  isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
 } from '@streaming-infra-manager/common';
@@ -104,9 +105,14 @@ describe('ownerSentence', () => {
   });
 
   it('reads as a sentence for every control', () => {
-    for (const owner of Object.keys(SETTING_OWNER_LABELS) as SettingOwner[]) {
+    for (const owner of (Object.keys(SETTING_OWNER_LABELS) as SettingOwner[]).filter((candidate) => !isNotReadOwner(candidate))) {
       assert.match(ownerSentence(owner), /^Decided by .+\. It cannot be set here\.$/);
     }
+  });
+
+  it('says who reads an engine setting the deployment does not, rather than naming a control', () => {
+    assert.equal(ownerSentence('abr-only'), 'Only a deployment that encodes the ABR ladder reads it, so it cannot be set here.');
+    assert.equal(ownerSentence('ome-only'), 'Only a deployment that runs OvenMediaEngine reads it, so it cannot be set here.');
   });
 });
 

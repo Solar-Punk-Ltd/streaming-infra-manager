@@ -11,6 +11,8 @@ import {
   engineSettingsFields,
   engineSettingsFieldsFor,
   engineSettingsProblem,
+  engineSettingFieldOf,
+  engineOfSettingKey,
   OME_SETTINGS,
   SRS_SETTINGS,
 } from './engineSettings.js';
@@ -187,10 +189,16 @@ describe('out of range and non numeric values', () => {
   });
 
   it('refuses an empty value, and says how to go back to the default', () => {
-    assert.match(
-      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN) ?? '',
-      /cannot be empty.*default of 2/,
+    assert.equal(
+      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN),
+      'Segment length cannot be empty. Leave it unset to use the default instead.',
     );
+  });
+
+  // The field's own number is not what an unset key falls back to on a host
+  // that sets one, so a refusal naming it would name the wrong default.
+  it('names no default number when it refuses an empty value', () => {
+    assert.doesNotMatch(engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: '' }, PLAIN) ?? '', /\d/);
   });
 
   it('refuses a key the engine does not read', () => {
@@ -641,3 +649,17 @@ describe('what an operator can see about the force-close ceiling', () => {
   });
 });
 
+
+describe('engineSettingFieldOf and engineOfSettingKey', () => {
+  it('find the field a key names, of either engine, and the engine that reads it', () => {
+    assert.equal(engineSettingFieldOf('HLS_FRAGMENT')?.label, 'Segment length');
+    assert.equal(engineSettingFieldOf('OME_HLS_POLL_INTERVAL_MS')?.label, 'Poll interval');
+    assert.equal(engineOfSettingKey('SRT_LATENCY'), SRS_SERVICE);
+    assert.equal(engineOfSettingKey('HLS_SEGMENT_COUNT'), OME_SERVICE);
+  });
+
+  it('answer nothing for a key no engine setting takes', () => {
+    assert.equal(engineSettingFieldOf('LOG_LEVEL'), null);
+    assert.equal(engineOfSettingKey('LOG_LEVEL'), null);
+  });
+});

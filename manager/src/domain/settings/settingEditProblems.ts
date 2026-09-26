@@ -1,7 +1,11 @@
 import {
   type DeploymentSettingEdit,
   type DeploymentSettingEntry,
+  engineSettingFieldOf,
+  engineSettingFieldProblem,
+  isNotReadOwner,
   SETTING_OWNER_LABELS,
+  type SettingOwner,
   settingValueProblem,
   stackSettingFieldProblem,
 } from '@streaming-infra-manager/common';
@@ -14,7 +18,9 @@ import {
  *
  * A sentence names the key and never repeats a secret: the env value rule
  * says nothing of the value, and a field's rule repeats one only for a key
- * that has a field, which no secret has.
+ * that has a field, which no secret has. An engine setting the list lets the
+ * operator set is held to the engine's own rule for that field, and its
+ * sentence carries the key in front of the field's own words.
  */
 export function settingEditProblems(
   edits: readonly DeploymentSettingEdit[],
@@ -35,12 +41,23 @@ export function settingEditProblems(
   return problems;
 }
 
+function ownerRefusal(key: string, owner: SettingOwner): string {
+  return isNotReadOwner(owner)
+    ? `${key} cannot be set here, because ${SETTING_OWNER_LABELS[owner]}.`
+    : `${key} is set by ${SETTING_OWNER_LABELS[owner]}, not here.`;
+}
+
 function editProblem(key: string, value: string | null, entry: DeploymentSettingEntry | undefined): string | null {
   if (!entry) return `${key} is not a setting this deployment's version declares.`;
   if (value === null) return null;
-  if (entry.owner !== null) return `${key} is set by ${SETTING_OWNER_LABELS[entry.owner]}, not here.`;
+  if (entry.owner !== null) return ownerRefusal(key, entry.owner);
   if (!entry.declared) {
     return `${key} is stored for this deployment, but its version no longer declares it. Reset it rather than set it.`;
+  }
+  const engineField = engineSettingFieldOf(key);
+  if (engineField) {
+    const problem = engineSettingFieldProblem(engineField, value);
+    return problem ? `${key}: ${problem}` : null;
   }
   const valueProblem = settingValueProblem(key, value);
   if (valueProblem) return `${key} ${valueProblem}`;

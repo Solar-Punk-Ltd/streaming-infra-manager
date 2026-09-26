@@ -295,6 +295,23 @@ export function engineSettingsFieldsFor(
   );
 }
 
+/** The engine that reads each key, which no two engines share. */
+const ENGINE_OF_KEY: ReadonlyMap<string, EngineName> = new Map([
+  ...SRS_SETTINGS.map((field) => [field.key, SRS_SERVICE] as const),
+  ...OME_SETTINGS.map((field) => [field.key, OME_SERVICE] as const),
+]);
+
+/** The engine that reads this key as one of its settings, or null for a key no engine setting takes. */
+export function engineOfSettingKey(key: string): EngineName | null {
+  return ENGINE_OF_KEY.get(key) ?? null;
+}
+
+/** The field this key names among either engine's settings, or null. */
+export function engineSettingFieldOf(key: string): EngineSettingField | null {
+  const engine = engineOfSettingKey(key);
+  return engine === null ? null : (engineSettingsFields(engine).find((field) => field.key === key) ?? null);
+}
+
 /**
  * The stored keys this deployment still reads, and nothing else.
  *
@@ -359,9 +376,11 @@ const NUMBER_RE = /^\d+(\.\d{1,6})?$/;
 /**
  * What is wrong with one field's value, or null.
  *
- * Exported so the settings drawer can put the message under the input that
+ * Exported so the settings page can put the message under the input that
  * caused it. `engineSettingsProblem` is still the gate, because the keyframe
- * rule spans two fields and no single input owns it.
+ * rule spans two fields and no single input owns it. An empty value names no
+ * default, because the field's own number is not what an unset key falls back
+ * to on a host that sets one.
  */
 export function engineSettingFieldProblem(
   field: EngineSettingField,
@@ -369,7 +388,7 @@ export function engineSettingFieldProblem(
 ): string | null {
   const value = rawValue.trim();
   if (!value) {
-    return `${field.label} cannot be empty. Clear the whole field to go back to the default of ${field.defaultValue}.`;
+    return `${field.label} cannot be empty. Leave it unset to use the default instead.`;
   }
 
   if (field.kind === 'choice') {

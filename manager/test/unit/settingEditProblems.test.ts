@@ -94,3 +94,34 @@ describe('what a save of a deployment settings refuses', () => {
     );
   });
 });
+
+describe('what a save refuses of an engine setting', () => {
+  const ENGINE_ENTRIES = [
+    entry({ key: 'HLS_FRAGMENT', versionSet: true, versionValue: '2', source: 'version' }),
+    entry({ key: 'ABR_FPS', owner: 'abr-only', source: 'version' }),
+    entry({ key: 'HLS_SEGMENT_COUNT', owner: 'ome-only', stored: true, source: 'deployment' }),
+  ];
+
+  it('holds an engine setting the deployment reads to its field, and names the key', () => {
+    assert.deepEqual(settingEditProblems([{ key: 'HLS_FRAGMENT', value: '0.1' }], ENGINE_ENTRIES), [
+      'HLS_FRAGMENT: Segment length must be at least 0.5. Got 0.1.',
+    ]);
+    assert.deepEqual(settingEditProblems([{ key: 'HLS_FRAGMENT', value: '1.5' }], ENGINE_ENTRIES), []);
+  });
+
+  it('refuses an empty engine setting, which only a reset takes back to its default', () => {
+    assert.deepEqual(settingEditProblems([{ key: 'HLS_FRAGMENT', value: '' }], ENGINE_ENTRIES), [
+      'HLS_FRAGMENT: Segment length cannot be empty. Leave it unset to use the default instead.',
+    ]);
+  });
+
+  it('refuses a value for an engine setting the deployment does not read, and says who reads it', () => {
+    assert.deepEqual(settingEditProblems([{ key: 'ABR_FPS', value: '25' }], ENGINE_ENTRIES), [
+      'ABR_FPS cannot be set here, because only a deployment that encodes the ABR ladder reads it.',
+    ]);
+  });
+
+  it('takes a reset of one it does not read, so a value stored for it can be taken out', () => {
+    assert.deepEqual(settingEditProblems([{ key: 'HLS_SEGMENT_COUNT', value: null }], ENGINE_ENTRIES), []);
+  });
+});

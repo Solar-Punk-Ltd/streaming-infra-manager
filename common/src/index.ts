@@ -12,6 +12,7 @@ export * from './engineControl.js';
 export * from './engineDefaults.js';
 export * from './engineOverviewIdentity.js';
 export * from './engineSettings.js';
+export * from './engineSettingEdits.js';
 export * from './engineSettingObservation.js';
 export * from './engines.js';
 export * from './envSafeValue.js';

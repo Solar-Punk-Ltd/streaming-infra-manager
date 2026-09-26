@@ -2,6 +2,7 @@ import {
   type DeploymentSettingEntry,
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
+  isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
   type StackSettingField,
@@ -43,8 +44,16 @@ export function recreatesText(services: readonly string[] | null): string {
   return `recreates ${wordList(services)}`;
 }
 
-/** Why a key has no field of its own here: one of the deployment's controls decides it. */
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Why a key has no field of its own here: one of the deployment's controls
+ * decides it, or it is an engine setting this deployment does not read.
+ */
 export function ownerSentence(owner: SettingOwner): string {
+  if (isNotReadOwner(owner)) return `${capitalized(SETTING_OWNER_LABELS[owner])}, so it cannot be set here.`;
   return `Decided by ${SETTING_OWNER_LABELS[owner]}. It cannot be set here.`;
 }
 
