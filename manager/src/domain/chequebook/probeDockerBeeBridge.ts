@@ -11,6 +11,7 @@ import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 
 /** The check prints a few short lines, so anything longer is not its answer. */
 const CHECK_ANSWER_BYTES = 4096;
+const ignoreLateError = () => {};
 
 export interface BeeBridgeProbe {
   readonly observed: ObservedBeeBridgeTarget;
@@ -58,7 +59,9 @@ async function checkAnswer(conversation: OwnedDockerConversation, containerId: s
   handshake.requireActive();
   const output = createDockerExecDuplex(owned, { maxFrameBytes: CHECK_ANSWER_BYTES, maxOutputBytes: CHECK_ANSWER_BYTES, maxInputBytes: 1,
     totalTimeoutMs: Math.max(1, Math.ceil(conversation.deadline - performance.now())) }, signal);
-  handshake.release();
+  output.on('error', ignoreLateError);
+  try { handshake.release(); }
+  catch (error) { output.destroy(); throw error; }
   return new Promise<string>(resolve => {
     const chunks: Buffer[] = [];
     output.on('data', (chunk: Buffer) => chunks.push(chunk));
