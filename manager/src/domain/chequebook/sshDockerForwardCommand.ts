@@ -131,10 +131,12 @@ function explicitForward(expectedAlias: string, input: unknown, localSocketPath:
 }
 
 /**
- * The default forward through the manager's own ssh configuration, resolved
- * exactly as TargetDocker's `ssh <alias>` is: no -F, so the system config that
- * the manager's image links to its Host blocks is read, and that block
- * supplies the address, user, port, identity and known hosts. The alias goes
+ * The default forward through the manager's own ssh configuration. It reads
+ * the same Host block as TargetDocker's `ssh <alias>`: no -F, so the system
+ * config that the manager's image links to its Host blocks is read, and that
+ * block supplies the address, user, port, identity and known hosts. The
+ * restrictions every forward keeps still apply on top of the block, so one
+ * that relies on ProxyJump or ProxyCommand is not followed. The alias goes
  * after `--`, and one with `@` is refused because ssh would read it as a
  * destination rather than the name of a Host block.
  */

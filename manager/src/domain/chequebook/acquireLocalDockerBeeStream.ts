@@ -60,7 +60,7 @@ function capturedLocator(value: LocalDockerLocator, alias: string): Readonly<Loc
   return Object.freeze(result);
 }
 
-/** Inactive adapter. Resolution, one connection and the handshake share one acquisition allowance. */
+/** Inactive adapter. Resolution, the probe's connection on an automatic route, the bridge's connection and their handshakes share one acquisition allowance. */
 export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarget, resolveLocator: ResolveLocalDockerLocator,
   options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeExecution | AutomaticBeeBridgeQualification = () => false,
   signal?: AbortSignal, connectUnix: ConnectUnixDocker = connectNativeUnixDocker, acquisitionDeadlineCap?: number): Promise<AcquiredDockerBeeStream> {
