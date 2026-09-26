@@ -165,8 +165,8 @@ all described in `manager/README.md` under "A deployment's own settings".
 ## The page
 
 A deployment's page shows these settings in a **Stack settings** card after the Engine card, the
-whole width of the main column. The Engine card's own settings drawer went on 2026-09-26. The card
-keeps its list of what the engine runs with and where each value came from, and its **Settings**
+whole width of the main column. The Engine card has no settings drawer of its own. It keeps its
+list of what the engine runs with and where each value came from, and its **Settings**
 button brings this card into view with the engine settings open and the first one focused. The SRT
 ingest card's step to raise the SRT latency brings the card into view at that setting, focused.
 
