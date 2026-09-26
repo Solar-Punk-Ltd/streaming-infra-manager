@@ -138,6 +138,8 @@ describe('the keys a deployment lists', () => {
 
     assert.deepEqual(catalog.entries.at(-1), { ...entryOf(catalog, 'OLD_KEY'), key: 'OLD_KEY', section: '' });
     assert.equal(entryOf(catalog, 'OLD_KEY').stored, true);
+    assert.equal(entryOf(catalog, 'OLD_KEY').declared, false);
+    assert.equal(entryOf(catalog, 'LOG_LEVEL').declared, true);
   });
 });
 

@@ -59,7 +59,7 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
     isLocalTarget: input.isLocalTarget,
   };
 
-  const entries = declaredKeysOf(input).map((declared) => {
+  const entries = listedKeysOf(input).map(({ sample: declared, isDeclared }) => {
     const key = declared.key;
     const secret = isSecretSettingKey(key);
     const services = readers.get(key) ?? null;
@@ -69,6 +69,7 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
         key,
         section: declared.section,
         description: declared.description,
+        declared: isDeclared,
         secret,
         sampleValue: declared.value ?? declared.example,
         versionSet: key in version,
@@ -100,15 +101,16 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
  * The root sample's keys, then the engine's the root does not declare, then
  * the keys the deployment stores that neither declares any more.
  */
-function declaredKeysOf(input: CatalogInput): SampleCatalogEntry[] {
-  const declared = new Map<string, SampleCatalogEntry>();
-  for (const entry of [...sampleCatalogOf(input.rootSampleText), ...sampleCatalogOf(input.engineSampleText)]) {
-    if (!declared.has(entry.key)) declared.set(entry.key, entry);
+function listedKeysOf(input: CatalogInput): { sample: SampleCatalogEntry; isDeclared: boolean }[] {
+  const listed = new Map<string, { sample: SampleCatalogEntry; isDeclared: boolean }>();
+  for (const sample of [...sampleCatalogOf(input.rootSampleText), ...sampleCatalogOf(input.engineSampleText)]) {
+    if (!listed.has(sample.key)) listed.set(sample.key, { sample, isDeclared: true });
   }
   for (const key of [...Object.keys(input.stored.plain), ...input.stored.secretKeys]) {
-    if (!declared.has(key)) declared.set(key, { key, section: '', description: '', value: null, example: null });
+    if (listed.has(key)) continue;
+    listed.set(key, { sample: { key, section: '', description: '', value: null, example: null }, isDeclared: false });
   }
-  return [...declared.values()];
+  return [...listed.values()];
 }
 
 /** The services whose containers read each key, from the contract or, for an older one, the manager's own list. */

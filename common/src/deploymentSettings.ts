@@ -73,6 +73,8 @@ export interface DeploymentSettingEntry {
   section: string;
   /** The sample's comment block above the key. */
   description: string;
+  /** Whether the version's samples declare the key. A key they do not is listed only because the deployment still stores it. */
+  declared: boolean;
   /** Masked by the page, and never answered in clear. */
   secret: boolean;
   /** What the version's sample assigns, a commented-out example included, or null. */
@@ -130,13 +132,36 @@ export interface DeploymentSettingsCatalog {
   running: boolean;
 }
 
-/** What `PUT /profiles/:name/settings` takes. */
+/** One key of a save: a value to store, or null to go back to what the version sets. */
+export interface DeploymentSettingEdit {
+  key: string;
+  value: string | null;
+}
+
+/** What `PUT /profiles/:name/settings` takes. Keys it leaves out keep what they have. */
 export interface DeploymentSettingsSave {
   expectedInstanceId: string;
   expectedRevision: number;
-  /** Per key, a value to store, or null to go back to what the version sets. Keys left out keep what they have. */
-  values: Record<string, string | null>;
+  entries: DeploymentSettingEdit[];
 }
+
+/** Each control as a sentence names it, for a refusal and for the page's pointer to it. */
+export const SETTING_OWNER_LABELS: Readonly<Record<SettingOwner, string>> = {
+  components: 'the services the deployment runs',
+  stamp: "the deployment's postage stamp",
+  'node-pool': "the deployment's node pool",
+  'chain-endpoint': "the deployment's chain endpoint",
+  'node-mode': "the gateway's node mode",
+  'bee-url': "the deployment's Bee URL",
+  'srt-passphrase': "the deployment's SRT passphrase",
+  'feed-key': "the deployment's feed key",
+  'feed-owner': "the deployment's feed owner",
+  'feed-topic': "the deployment's feed topic",
+  'engine-config': "the engine's own config file",
+  'engine-settings': 'the engine settings',
+  'port-slot': "the deployment's port slot",
+  'data-dir': 'the manager, which keeps this deployment\'s data on its own host',
+};
 
 /** What a save answers. */
 export interface DeploymentSettingsSaved {
