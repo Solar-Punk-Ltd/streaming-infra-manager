@@ -1,5 +1,6 @@
 import {
   ADMIN_API_TOKEN_KEY,
+  ADMIN_API_URL_KEY,
   adminLinkEditProblem,
   type DeploymentSettingEntry,
   type EngineName,
@@ -119,8 +120,10 @@ export function initialStackSettingsFor(
   const token = copyManagerAdminToken ? { current: true, afterReset: true } : before.token;
   const adminProblem = adminLinkEditProblem(settings, { ...before, token });
   if (adminProblem) throw new ProfileConfigError(name, adminProblem);
-  const initial = initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
-  return copyManagerAdminToken ? { ...initial, copyManagerAdminToken } : initial;
+  const values = Object.fromEntries(settings.map(({ key, value }) => [key, value]));
+  const initial = initialStackSettingsOf(values);
+  if (!copyManagerAdminToken) return initial;
+  return { ...initial, copyManagerAdminToken: { url: values[ADMIN_API_URL_KEY] ?? versionValues[ADMIN_API_URL_KEY] ?? '' } };
 }
 
 /** Values by key, split the way the two columns hold them: a secret apart from the rest. */

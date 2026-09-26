@@ -105,6 +105,56 @@ describe("a create that asks for the manager's stored web2 admin token", () => {
     }
   });
 
+  it('is refused for an address on another origin than the stored link, and creates nothing', async () => {
+    const app = await appFor();
+    try {
+      for (const elsewhere of ['https://elsewhere.example.net', 'http://admin.example.com', 'https://admin.example.com:8443']) {
+        const refused = await app.create({ ...LINKED, stack_settings: [{ key: 'ADMIN_API_URL', value: elsewhere }] });
+
+        assert.equal(refused.status, 409, JSON.stringify(refused.body));
+        assert.deepEqual(refused.body, {
+          error: 'admin_token_elsewhere',
+          message:
+            "The manager's stored web2 admin token was saved for another address than this deployment's ADMIN_API_URL, and it goes only to the address it was saved with. Type a token for this address, or use the address saved on Manager settings.",
+        });
+      }
+      const group = await app.createGroup({ ...LINKED, stack_settings: [{ key: 'ADMIN_API_URL', value: 'https://elsewhere.example.net' }] });
+      assert.equal(group.status, 409, JSON.stringify(group.body));
+      assert.equal(app.harness.profiles.rows.size, 0);
+      assert.equal(app.harness.orchestrator.deploys.length, 0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('is refused for a create that gives its uploader no address, where the token would wait for any address', async () => {
+    const app = await appFor();
+    try {
+      const unnamed = await app.create({ use_manager_admin_token: true });
+      const emptied = await app.create({ stack_settings: [{ key: 'ADMIN_API_URL', value: '' }], use_manager_admin_token: true });
+
+      for (const refused of [unnamed, emptied]) {
+        assert.equal(refused.status, 409, JSON.stringify(refused.body));
+        assert.equal((refused.body as { error: string }).error, 'admin_token_elsewhere');
+      }
+      assert.equal(app.harness.profiles.rows.has('stage'), false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('takes an address on the stored link\'s origin with another path', async () => {
+    const app = await appFor();
+    try {
+      const created = await app.create({ ...LINKED, stack_settings: [{ key: 'ADMIN_API_URL', value: `${ADMIN_URL}/v2` }] });
+
+      assert.equal(created.status, 202, JSON.stringify(created.body));
+      assert.equal((await app.harness.profiles.stackSettingsForDeploy('stage')).ADMIN_API_TOKEN, STORED_TOKEN);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('is refused beside a typed token, naming the key and never the token', async () => {
     const app = await appFor();
     try {

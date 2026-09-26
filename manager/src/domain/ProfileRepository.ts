@@ -102,11 +102,18 @@ export interface InitialStackSettings {
   plain: Readonly<Record<string, string>>;
   secret: Readonly<Record<string, string>>;
   /**
-   * Whether the insert copies the manager's stored web2 admin token into the
+   * Asks the insert to copy the manager's stored web2 admin token into the
    * secret settings as `ADMIN_API_TOKEN`, which refuses the whole insert when
-   * none is stored. Left out, nothing is copied.
+   * none is stored or when it was saved for another origin. Left out, nothing
+   * is copied.
    */
-  copyManagerAdminToken?: boolean;
+  copyManagerAdminToken?: ManagerAdminTokenCopy;
+}
+
+/** A copy of the manager's stored token into a new deployment. */
+export interface ManagerAdminTokenCopy {
+  /** The address the new deployment gives its uploader, whose origin has to be the stored link's. */
+  url: string;
 }
 
 /** What a create that names no stack settings stores, so its version's values stand. */
@@ -247,7 +254,7 @@ export class ProfileRepository {
           JSON.stringify(stackSettings.secret),
         ],
       );
-      if (stackSettings.copyManagerAdminToken) await copyManagerAdminToken(client, name);
+      if (stackSettings.copyManagerAdminToken) await copyManagerAdminToken(client, name, stackSettings.copyManagerAdminToken);
       await client.query('COMMIT');
       return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
     } catch (err) {

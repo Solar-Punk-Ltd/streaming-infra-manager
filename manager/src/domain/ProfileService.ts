@@ -470,7 +470,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken)}`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken !== undefined)}`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -1137,7 +1137,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken)}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken !== undefined)}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };

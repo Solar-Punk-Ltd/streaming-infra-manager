@@ -20,6 +20,7 @@ import pg, { type Pool } from 'pg';
 
 import { STANDARD_GROUP_KIND } from '@streaming-infra-manager/common';
 
+import { copyManagerAdminToken } from '../../src/domain/adminLink/adminTokenCopy.js';
 import { ManagerAdminLinkRepository } from '../../src/domain/adminLink/ManagerAdminLinkRepository.js';
 import { DeploymentGroupRepository, type SharedProfileParams } from '../../src/domain/DeploymentGroupRepository.js';
 import { type InitialStackSettings, ProfileRepository } from '../../src/domain/ProfileRepository.js';
@@ -129,7 +130,12 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
   describe("a new deployment's copy of the stored token", () => {
     /** The bundled version the migrations insert first, on a daemon of its own with no ports to reserve. */
     const PLACEMENT = { stackVersionId: 1, slotCap: 99, daemonId: 'synthetic-daemon', table: [] };
-    const LINKED: InitialStackSettings = { plain: { ADMIN_API_URL: ADMIN_URL }, secret: {}, copyManagerAdminToken: true };
+    const LINKED: InitialStackSettings = { plain: { ADMIN_API_URL: ADMIN_URL }, secret: {}, copyManagerAdminToken: { url: ADMIN_URL } };
+    const ELSEWHERE: InitialStackSettings = {
+      plain: { ADMIN_API_URL: 'https://elsewhere.example.net' },
+      secret: {},
+      copyManagerAdminToken: { url: 'https://elsewhere.example.net' },
+    };
 
     async function secretsOf(name: string): Promise<unknown> {
       const row = await pool.query('SELECT stack_settings_secret FROM profiles WHERE name = $1', [name]);
@@ -165,6 +171,42 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
       );
       const rows = await pool.query(`SELECT name FROM profiles WHERE name = 'orphan'`);
       assert.equal(rows.rowCount, 0);
+    });
+
+    it('refuses an insert whose address has another origin than the stored link, and leaves no deployment behind', async () => {
+      await link.write({ url: ADMIN_URL, token: TOKEN }, 0, 'operator');
+
+      await assert.rejects(
+        new ProfileRepository(pool).insertWithFreeSlot('elsewhere', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, ELSEWHERE),
+        (error: Error) => error.name === 'ManagerAdminTokenElsewhereError' && !error.message.includes(TOKEN),
+      );
+      await assert.rejects(
+        new DeploymentGroupRepository(pool).createGroupWithMembers('far', STANDARD_GROUP_KIND, [{ name: 'far-1' }], groupParams(ELSEWHERE)),
+        (error: Error) => error.name === 'ManagerAdminTokenElsewhereError',
+      );
+      const rows = await pool.query(`SELECT name FROM profiles WHERE name IN ('elsewhere', 'far-1')`);
+      assert.equal(rows.rowCount, 0);
+    });
+
+    it('holds the stored link still until the insert commits, so a save cannot swap it in between', async () => {
+      await link.write({ url: ADMIN_URL, token: TOKEN }, 0, 'operator');
+      await new ProfileRepository(pool).insertWithFreeSlot('held', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, {
+        plain: { ADMIN_API_URL: ADMIN_URL },
+        secret: {},
+      });
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await copyManagerAdminToken(client, 'held', { url: ADMIN_URL });
+        const moved = link.write({ url: 'https://elsewhere.example.net', token: null }, 1, 'operator');
+        const settled = await Promise.race([moved.then(() => 'moved'), new Promise((resolve) => setTimeout(() => resolve('waiting'), 300))]);
+        assert.equal(settled, 'waiting');
+        await client.query('COMMIT');
+        await moved;
+        assert.deepEqual(await secretsOf('held'), { ADMIN_API_TOKEN: TOKEN });
+      } finally {
+        client.release();
+      }
     });
 
     it('puts the stored token in every member of a new group at the insert', async () => {

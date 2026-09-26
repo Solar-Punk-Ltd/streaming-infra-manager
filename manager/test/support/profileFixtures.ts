@@ -5,10 +5,11 @@ import {
   type EngineSettings,
   isPendingStamp,
   isSecretSettingKey,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
-import { ManagerAdminTokenMissingError } from '../../src/domain/errors/index.js';
+import { ManagerAdminTokenElsewhereError, ManagerAdminTokenMissingError } from '../../src/domain/errors/index.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
@@ -245,12 +246,13 @@ export class InMemoryProfiles {
   /**
    * What a create stores in both columns, with the manager's token copied in
    * when it asks, as the insert's own SQL copies it. Refuses as that does when
-   * none is stored.
+   * none is stored or when it was saved for another origin.
    */
   initialValuesOf(stackSettings: InitialStackSettings): Record<string, string> {
     const values = { ...stackSettings.plain, ...stackSettings.secret };
     if (!stackSettings.copyManagerAdminToken) return values;
     if (this.managerAdminLink.token === null) throw new ManagerAdminTokenMissingError();
+    if (!sameAdminOrigin(stackSettings.copyManagerAdminToken.url, this.managerAdminLink.url ?? '')) throw new ManagerAdminTokenElsewhereError();
     return { ...values, [ADMIN_API_TOKEN_KEY]: this.managerAdminLink.token };
   }
 

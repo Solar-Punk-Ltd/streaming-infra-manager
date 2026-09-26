@@ -265,7 +265,7 @@ export class DeploymentGroupRepository {
         JSON.stringify(shared.stack_settings.secret),
       ],
     );
-    if (shared.stack_settings.copyManagerAdminToken) await copyManagerAdminToken(client, name);
+    if (shared.stack_settings.copyManagerAdminToken) await copyManagerAdminToken(client, name, shared.stack_settings.copyManagerAdminToken);
     return r.rows[0]!;
   }
 
