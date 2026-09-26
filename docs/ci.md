@@ -9,13 +9,11 @@ Four jobs, all on `ubuntu-latest`, the fourth, `images`, since 2026-09-25. Decis
 requirement on is a repository setting Levi makes after the workflow has run
 once, and he keeps a bypass. Main-branch pushes still require Levi's explicit instruction.
 
-The 2026-09-19 release transition keeps both `main` and `main-v2` in the workflow
-triggers so the candidate is checked before consolidation and the final `main`
-continues to run every job. Levi explicitly authorized this consolidation.
+The workflow triggers name both `main` and `main-v2`, a branch name kept there
+from the 2026-09-19 release transition.
 
-**Where this stands, 2026-09-16, on `main-v2`.** This page was written at
-`6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed.
-The required-checks setting is not on yet, because it waits on a first run.
+**Where this stands.** This page was first written at `6dc33d1` on
+`feat/ai-remediation`, the head of pull request #40, which was merged.
 Every number below says where it was measured, on this laptop, in a Debian
 container or on a runner. Everything else here describes what the workflow files
 declare, which is a different thing from what a runner has done.
@@ -332,8 +330,7 @@ common build per job.
 
 That puts `checks` at about 3 minutes, `database` at about 9, and `browser` at
 about 13. **Estimate about 25 Actions minutes per push, somewhere between 19
-and 30.** The browser job is more than half of it. The first real run replaces
-this estimate with a measurement.
+and 30.** The browser job is more than half of it.
 
 **A decision that is Levi's, not this page's.** Whether all three jobs stay
 required on every push, or the browser job moves to a schedule or a manual
@@ -355,13 +352,10 @@ core. The estimate stays for the reasoning, the measurement is the number.
 `workflow_dispatch` only, four jobs, so one failure never hides another and
 each shows by name in the run.
 
-**Never dispatched, and every run it has had failed.** Checked on GitHub on
-2026-09-16: the workflow has five runs, all of them triggered by push events
-between 2026-09-10 and 2026-09-11, and all five failed. There has been no run
-since 2026-09-11, and no `workflow_dispatch` is recorded at all. So no job in it
-has ever completed on a runner, and the four container harnesses it names have
-never executed anywhere but a laptop. The first real run is Levi's, and it is
-the check of the workflow itself: paths, timings and image pulls may need a fix.
+**Its first five runs failed.** Checked on GitHub on 2026-09-16, the workflow
+had five runs, all of them triggered by push events between 2026-09-10 and
+2026-09-11, and all five failed for the reason below. Its first dispatch was run
+35444459944 on 2026-09-19, described under the integration job.
 
 **It could not have run before 2026-09-11.** From the day the file was written
 it set two of the integration job's paths from `${{ runner.temp }}` in a
