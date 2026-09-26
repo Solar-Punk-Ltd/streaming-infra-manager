@@ -1,4 +1,5 @@
 import {
+  addressOfStreamKey,
   BEE_UPLOADER_SERVICE,
   beePublishersProblem,
   beeUrlProblem,
@@ -22,7 +23,6 @@ import type { UpdateProfileBody } from '../data';
 import type { Profile } from '../types';
 import type { PassphraseMode } from './PassphraseField';
 import {
-  addressForKey,
   addressProblem,
   notesProblem,
   passphraseProblem,
@@ -271,7 +271,7 @@ export function bodyFor(
   // disagrees with it, which is a stream's identity.
   if (shown.key && changed('key') && key) {
     body.private_key = key;
-    body.public_key = addressForKey(key) ?? undefined;
+    body.public_key = addressOfStreamKey(key) ?? undefined;
   }
   if (shown.stamp && changed('stampId')) {
     body.stamp_id = edits.stampId.trim() || undefined;

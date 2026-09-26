@@ -3,6 +3,7 @@ import {
   ADMIN_API_URL_KEY,
   type AdminLinkTestRequest,
   type AdminLinkTokenChoice,
+  addressOfStreamKey,
   adminTokenProblem,
   adminUrlProblem,
   type DeploymentSettingEntry,
@@ -12,7 +13,6 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { ADMIN_LINK_ABSENT, ADMIN_LINK_MANAGER_UNREAD, ADMIN_LINK_UNREAD } from '../../adminLink/adminLinkText';
-import { addressForKey } from '../validation';
 import { chosenKey, needsStreamKey, type WizardContext, type WizardState } from './wizardState';
 
 /**
@@ -171,7 +171,7 @@ export function adminLinkTestOf(state: WizardState, context: WizardContext): Adm
   if (!choice.on || urlProblemOf(choice) !== null) return null;
   const token = tokenOf(choice, context);
   if ('problem' in token) return null;
-  return { url: choice.url, token: token.token, feedOwner: addressForKey(chosenKey(state)) ?? null };
+  return { url: choice.url, token: token.token, feedOwner: addressOfStreamKey(chosenKey(state)) ?? null };
 }
 
 /** The review's line for the link, naming the address and where the token comes from, never the token. Null where the group asks nothing. */

@@ -1,11 +1,11 @@
 import { Button, Stack, TextField, Typography } from '@mui/material';
+import { addressOfStreamKey } from '@streaming-infra-manager/common';
 import { generatePrivateKey } from 'viem/accounts';
 
 import { MONO_STACK } from '../../../app/theme';
 import { shortHex } from '../../../format';
 import { ChoiceGroup } from '../../ChoiceGroup';
 import { FormField } from '../../FormField';
-import { addressForKey } from '../../validation';
 import type { WizardStepProps } from '../wizardState';
 
 /**
@@ -15,7 +15,7 @@ import type { WizardStepProps } from '../wizardState';
  * anywhere else, and the address is what a viewer follows.
  */
 export function StreamKeyChoice({ state, update }: WizardStepProps) {
-  const generatedAddress = addressForKey(state.generatedKey);
+  const generatedAddress = addressOfStreamKey(state.generatedKey);
 
   return (
     <FormField

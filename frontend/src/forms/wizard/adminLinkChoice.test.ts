@@ -13,10 +13,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { DeploymentSettingEntry, ManagerAdminLink, StackVersion } from '@streaming-infra-manager/common';
+import { addressOfStreamKey, type DeploymentSettingEntry, type ManagerAdminLink, type StackVersion } from '@streaming-infra-manager/common';
 
 import type { NewDeploymentSettingsLoad } from '../../deployments/settings/useNewDeploymentSettings';
-import { addressForKey } from '../validation';
 import {
   adminLinkBody,
   adminLinkError,
@@ -182,7 +181,7 @@ describe('what Test connection asks from the group', () => {
     assert.deepEqual(adminLinkTestOf(state, contextWith(DEFAULT)), {
       url: ADMIN_URL,
       token: { source: 'stored' },
-      feedOwner: addressForKey(state.generatedKey),
+      feedOwner: addressOfStreamKey(state.generatedKey),
     });
   });
 
