@@ -890,10 +890,11 @@ curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
 ## Environment
 
 Everything comes from `manager/.env`. `manager/.env.sample` documents the keys
-an operator sets by hand. Three more are used that it does not carry:
+an operator sets by hand. Four more are used that it does not carry:
 `SHLS_ROOT` and `BEE_DATA_ROOT`, which `docker-compose.yml` sets for the `api`
-container, and `WEB_PORT`, which the compose file interpolates for the `web`
-port binding.
+container, `WEB_PORT`, which the compose file interpolates for the `web` port
+binding, and `DOCKER_HOST`, which the compose file leaves unset and the table
+below describes.
 
 **`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** are in
 the sample commented out, because both are optional overrides. Without them a
@@ -905,7 +906,8 @@ committed file.
 
 The keys that decide where the streaming stack lives, the ssh identity the
 manager deploys to other hosts with, the chain endpoint it offers the Bee nodes
-it creates, the address the API binds and where it reads the host's own numbers:
+it creates, the Docker it talks to on its own host, the address the API binds
+and where it reads the host's own numbers:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
