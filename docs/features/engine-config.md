@@ -18,7 +18,7 @@ were accepted on 2026-09-07.
 ## File editing and effective settings
 
 Open the deployment's engine configuration editor to inspect the selected
-version's template or the stored custom file. Save checks the proposed file
+version's template or the stored custom file. Check and apply checks the proposed file
 before storing it and starting the engine recreation. Back to the template
 removes the custom override and recreates the engine from that version's
 normal template. The editor uses a plain text area and accepts at most
@@ -142,7 +142,7 @@ The selected stack can also refuse its own startup command before the manager
 commits RUNNING. That is an apply failure rather than a manager-watch failure.
 If recovery then recreates the previous file successfully, the deployment is
 RUNNING again while the operation remains `failed`, its reason says the
-previous file is back, and the card offers Verify. A failure detected later by
+previous file is back, and the card offers Verify now. A failure detected later by
 the manager's watch ends `reverted` when the same recovery succeeds. These two
 states distinguish where the candidate failed, while both preserve the actual
 recovery outcome.
@@ -155,7 +155,7 @@ recovery outcome.
 | `reverting` | An owned recovery attempt is restoring the recorded previous file and recreating the engine. |
 | `reverted` | The new file failed startup verification and recreation on the previous file completed. |
 | `failed` | Applying the file failed. Read the recorded reason, which also reports a failed recovery attempt when applicable. Verify now starts another explicit attempt. |
-| `interrupted` | The manager could not finish verification or recovery. Verify now recreates on the stored file. Recreate on previous uses the file saved by the interrupted operation. |
+| `interrupted` | The manager could not finish verification or recovery. Verify now recreates on the stored file. Back to the previous file uses the file saved by the interrupted operation. |
 | `superseded` | A newer action or container replaced the operation's authority. The older operation does no further recovery work, and the card says the last file was not verified. Verify now starts an attempt on what is stored. |
 
 The engine card and open editor follow the current stored state. Recovery
