@@ -207,9 +207,10 @@ starts with instead of its version's values (2026-09-26,
 deployment's own settings is held to, against the list `GET
 /versions/:id/settings-catalog` answers for a deployment of the kind, services
 and host the body describes: a key the version does not declare, a key one of
-the deployment's own controls decides, a key named twice and a value the stack
-would read differently are refused, and so is the whole create, each key named
-and no value repeated. Accepted values are stored at the insert, a secret apart
+the deployment's own controls decides, a key named twice, a value the stack
+would read differently and a value outside the bounds or choices the stack
+takes for its key are refused, and so is the whole create, each key named and
+no secret repeated. Accepted values are stored at the insert, a secret apart
 from the rest, so the first deploy writes them. A group writes them to every
 member, a node pool's rungs included, and a member appended to a group later
 takes those of the group's first member.
@@ -437,8 +438,8 @@ defaults, and moves the one revision for the whole save.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running, engine, abr, engineSettingsProblem }`, `no-store`. No secret value, only whether one is stored. `engine` and `abr` say which engine's settings the list takes and whether the rung settings are among them, and an engine setting's entry carries `engineSetting`, where its default comes from and whether the config the engine runs still reads it. `engineSettingsProblem` is the sentence the next deploy would refuse the stored engine settings with, or null, which a change to the host's defaults can bring about under values it took when they were saved. 409 `settings_not_ready` for a version with no build |
-| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides, an engine setting the deployment does not read, a value the stack would read differently, an engine value outside its field, or engine settings the engine would refuse together, 409 `deployment_settings_changed` for an older revision. A save that names no engine setting is taken while `engineSettingsProblem` stands |
-| POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 400 `validation_error` with the `engineSettingsProblem` sentence while it stands, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys |
+| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing, and one refused key refuses the whole save. 400 `validation_error` for a key the version does not declare and the deployment does not store, a key named twice, a key a control of the deployment decides, an engine setting the deployment does not read, a value for a stored key the version no longer declares, which only takes a reset, a value the stack would read differently or outside the bounds or choices the stack takes for its key, an engine value outside its field, or engine settings the engine would refuse together. 409 `deployment_settings_changed` for an older revision, 409 `profile_instance_changed` for a deployment removed and created again under the name, 409 `profile_busy` while it is being removed. A save that names no engine setting is taken while `engineSettingsProblem` stands |
+| POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 400 `validation_error` with the `engineSettingsProblem` sentence while it stands, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys, stops or is removed, 409 `profile_instance_changed` for a deployment removed and created again under the name |
 | GET | `/versions/:id/settings-catalog?kind=&components=&host=` | none | `{ versionId, buildId, entries }`, `no-store`. What a deployment not created yet starts with: the version's keys and values, the control that decides each key a control decides, nothing stored, recorded or running. No secret value. `kind` defaults to `custom`, `components` is a comma list, and `host` absent is the manager's own. 400 `validation_error` for a query no create body could describe, 404 `stack_version_not_found`, 409 `settings_not_ready` for a version with no build |
 
 ### Engine control
