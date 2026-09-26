@@ -46,9 +46,10 @@ describe('the keys a Bee gateway is recorded against', () => {
       RPC_ENDPOINT: 'https://rpc.example.org',
     });
 
-    assert.deepEqual(snapshot.env, {
-      BEE_GATEWAY_RPC_ENDPOINT: 'https://rpc.example.org',
-      BEE_GATEWAY_SWAP_ENABLE: 'true',
-    });
+    // The endpoint can carry a provider's key, so the record holds it as a
+    // digest and the page shows its host alone, the way the deployment's own
+    // endpoint has always been shown.
+    assert.deepEqual(snapshot.env, { BEE_GATEWAY_SWAP_ENABLE: 'true' });
+    assert.deepEqual(Object.keys(snapshot.envDigests).sort(), ['BEE_GATEWAY_RPC_ENDPOINT', 'BEE_GATEWAY_SWAP_ENABLE']);
   });
 });

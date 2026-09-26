@@ -28,9 +28,10 @@ const root = join(mkdtempSync(join(tmpdir(), 'deployment-settings-')), 'stack');
 mkdirSync(root);
 process.env.SHLS_ROOT = root;
 
-const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
+const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 const { managedEnvLines, renderProfileEnv } = await import('../../src/utils/envUtils.js');
 const { settingOwnerOf } = await import('../../src/domain/settings/settingOwners.js');
+const { settingDigest } = await import('../../src/domain/settings/runningRecord.js');
 
 const STAMP = 'a'.repeat(64);
 const OTHER_STAMP = 'b'.repeat(64);
@@ -189,5 +190,32 @@ describe('a deploy of a deployment with stored settings', () => {
 
     assert.equal(envLine('stage', 'API_AUTH_TOKEN'), `API_AUTH_TOKEN=${'c'.repeat(64)}`);
     assert.match(envLine('stage', 'SRS_WEBHOOK_TOKEN') ?? '', /^SRS_WEBHOOK_TOKEN=[0-9a-f]{64}$/);
+  });
+});
+
+describe('what a finished deploy records against each service', () => {
+  it('records a stored setting against the service that reads it, and a secret as a digest alone', async () => {
+    writeFileSync(join(root, '.env'), 'ENGINE=srs\n', 'utf8');
+    const key = `0x${'e'.repeat(64)}`;
+    const stored = makeProfile({ name: 'stage', stamp_id: STAMP, has_private_key: true });
+    const harness = orchestratorHarness([stored]);
+    await harness.versions.setContract(1, {
+      ...structuredClone(ALLOCATION_CONTRACT),
+      serviceEnvKeys: { 'stream-uploader': ['LOG_LEVEL', 'STREAM_KEY', 'UPLOADER_START_GATES'] },
+    });
+    harness.profiles.stackSettings.set('stage', { LOG_LEVEL: 'debug' });
+    harness.profiles.privateKeys.set('stage', key);
+
+    await harness.orchestrator.startDeploy(stored, ['stream-uploader']);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    const uploader = harness.containers.snapshots.find((snapshot) => snapshot.service === 'stream-uploader');
+    assert.ok(uploader, 'the uploader has a record');
+    assert.deepEqual(uploader.env, { LOG_LEVEL: 'debug' });
+    assert.equal(uploader.envDigests.LOG_LEVEL, settingDigest(uploader.envSalt, 'LOG_LEVEL', 'debug'));
+    assert.equal(uploader.envDigests.STREAM_KEY, settingDigest(uploader.envSalt, 'STREAM_KEY', key));
+    // Set nowhere, so compose's own default applied and the record says so by leaving it out.
+    assert.equal(uploader.envDigests.UPLOADER_START_GATES, undefined);
   });
 });

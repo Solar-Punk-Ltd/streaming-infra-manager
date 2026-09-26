@@ -69,7 +69,12 @@ function parseEnvFile(path: string): Record<string, string> {
   return parseEnvText(readFileSync(path, 'utf8'));
 }
 
-function parseEnvText(text: string): Record<string, string> {
+/**
+ * An env file's assignments by key, the way the manager reads them: each line
+ * trimmed, a value quoted end to end unwrapped, comments and blank lines
+ * skipped, and a key assigned twice answering its last value.
+ */
+export function parseEnvText(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const raw of text.split('\n')) {
     const line = raw.trim();

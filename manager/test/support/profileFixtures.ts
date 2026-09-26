@@ -517,6 +517,8 @@ export class FakeContainers {
     service: string;
     ports: Record<string, number>;
     env: Record<string, string>;
+    envDigests: Record<string, string>;
+    envSalt: string;
   }[] = [];
 
   asRepository(): ContainerRepository {
@@ -529,6 +531,8 @@ export class FakeContainers {
       service: snapshot.service,
       ports: snapshot.ports,
       env: snapshot.env,
+      envDigests: snapshot.envDigests,
+      envSalt: snapshot.envSalt,
     });
   }
 

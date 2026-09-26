@@ -4,11 +4,12 @@ import {
   CLIENT_SERVICE,
   type EngineName,
   engineSettingsFields,
-  isSecretSettingKey,
   OME_SERVICE,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
+
+import { isRecordedInClear, newRecordSalt, settingDigest } from './settings/runningRecord.js';
 
 /**
  * The one engine setting the engine container never sees.
@@ -143,27 +144,40 @@ export const SERVICE_PORT_KEYS: Record<string, readonly string[]> = {
 export interface ContainerSnapshot {
   service: string;
   ports: Record<string, number>;
+  /** The keys the service reads that were set, not empty, and may be shown, each with its value. */
   env: Record<string, string>;
+  /** Every key the service reads that was set, an empty one included, as a digest under `envSalt`. */
+  envDigests: Record<string, string>;
+  envSalt: string;
 }
 
 /**
  * What one service's container was started with, as recorded against it.
  *
- * A secret the service reads is left out. The deployment's own row keeps the
- * one copy a deploy reads, and a record that no page shows gains nothing from
- * holding a second.
+ * `keys` are the keys the service reads, from the version's compose files
+ * where its contract carries them, and from the list above where it does not.
+ *
+ * A secret the service reads is kept as a digest and nothing else. The
+ * deployment's own row keeps the one copy a deploy reads, and a record gains
+ * nothing from holding a second: the digest is enough to tell whether a value
+ * changed since the container started.
  */
 export function buildContainerSnapshot(
   service: string,
   env: Record<string, string>,
+  options: { keys?: readonly string[] } = {},
 ): ContainerSnapshot {
-  const envKeys = (SERVICE_ENV_KEYS[service] ?? []).filter((key) => !isSecretSettingKey(key));
+  const envKeys = options.keys ?? SERVICE_ENV_KEYS[service] ?? [];
   const portKeys = SERVICE_PORT_KEYS[service] ?? [];
+  const envSalt = newRecordSalt();
 
   const envSubset: Record<string, string> = {};
+  const envDigests: Record<string, string> = {};
   for (const key of envKeys) {
     const value = env[key];
-    if (value !== undefined && value !== '') envSubset[key] = value;
+    if (value === undefined) continue;
+    envDigests[key] = settingDigest(envSalt, key, value);
+    if (value !== '' && isRecordedInClear(key)) envSubset[key] = value;
   }
 
   const ports: Record<string, number> = {};
@@ -174,5 +188,5 @@ export function buildContainerSnapshot(
     if (Number.isFinite(parsed)) ports[key] = parsed;
   }
 
-  return { service, ports, env: envSubset };
+  return { service, ports, env: envSubset, envDigests, envSalt };
 }
