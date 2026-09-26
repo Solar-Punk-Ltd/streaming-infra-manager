@@ -1,7 +1,8 @@
 # A deployment's own settings
 
-Status: the store, the record of what each container got, and the API, as of 2026-09-26 on
-`feat/deployment-settings-api`. The page that edits them comes next.
+Status: the store, the record of what each container got, the API, and the page that edits them, as
+of 2026-09-26 on `feat/deployment-settings-page`. The new-deployment wizard does not carry the editor
+yet.
 
 ## What this is
 
@@ -74,9 +75,51 @@ when it starts.
 /profiles/:name/settings/apply`, described in `manager/README.md` under "A deployment's own
 settings".
 
+## The page
+
+A deployment's page shows these settings in a **Stack settings** card after the Engine card, the
+whole width of the main column. The Engine card and its settings drawer are unchanged, and the engine
+settings show in this list as keys the engine settings decide.
+
+- **Folded by the sample's sections**, in the order they first appear, with the keys the version no
+  longer declares in a section of their own at the end. A section opens on a click, and a search by
+  key or description opens every section it matches and keeps only the matching keys. A folded
+  section's line counts its keys and says how many are unsaved, cannot be saved or are not applied.
+- **Each key** shows its description, folded to its first words when long, and a field shaped by what
+  it takes: a list for a choice, a switch for true or false, a number field with its bounds, and text
+  otherwise. The version's value is beside it as the default, with a reset to it when the deployment
+  stores a value. A changed key, and a saved one the containers do not have yet, is marked with the
+  services applying it recreates, or with full redeploy.
+- **A secret** is a masked field that starts empty and is never filled from the manager. The page
+  says whether one is stored, generated or set by the version, and it can be replaced or reset.
+- **A key a control of the deployment decides** shows its value and names the control, with no field.
+  A value stored for it before a control decided it can be reset.
+- **A key the version no longer declares** shows its stored value and offers only a reset.
+
+A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
+off. Save sends the changed keys in one request with the revision the page read. A refused save shows
+the manager's sentence under the button. A save refused because another one landed first says the
+settings changed elsewhere and reads them again, and the change has to be made again.
+
+Above the list, the banner names the settings the running containers are behind on and offers Apply,
+and after Apply says what was recreated. On a stopped deployment it says what Start will use, with no
+Apply. Where no container has a record to compare with, which is every deployment deployed before
+this feature, the card says so, because no key of it can show as behind until its next deploy.
+
+The editor is its own component, `frontend/src/deployments/settings/DeploymentSettingsEditor.tsx`,
+and the card only frames it. It fits 390 pixels with no sideways scroll. `frontend/test/deployment-settings-browser.test.mjs`
+drives it in Chrome, and the mock manager answers the three routes, so `pnpm -C frontend dev:mock`
+shows it with no manager: main-stage is behind on a saved key, old-demo is stopped with one waiting
+for its Start, and field-unit has no records to compare with.
+
 ## Limits
 
 - The stack's sample has no section rule closing "Per-rung Bee nodes", so the start gate settings
   that follow it are listed under that section until the sample gains one.
 - A deployment deployed before this feature has records that cannot tell, so its keys read unknown
-  until its next deploy.
+  until its next deploy. Apply has nothing to recreate for such a deployment, so a saved value
+  reaches it at that next deploy, such as a Stop and a Start.
+- The page cannot store an empty secret, because an empty secret field means keep what is stored.
+  A reset puts back what the version sets.
+- A stored secret's default says what the version sets. The list does not say whether the manager
+  had generated one before, which is the value a reset of such a key goes back to.

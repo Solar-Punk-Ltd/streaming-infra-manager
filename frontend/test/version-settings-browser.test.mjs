@@ -156,10 +156,12 @@ test('a version settings page reads, masks and saves at a narrow viewport', asyn
     await waitFor(() => evaluate(`${fieldOf('API_AUTH_TOKEN')}?.type`), (type) => type === 'password', 'the masked token');
   });
 
-  await t.test('a masked field asks the browser not to save or fill it', async () => {
+  await t.test('a masked field asks for a new password, so no browser fills a saved sign-in into it', async () => {
+    // Browsers ignore `off` on a password field, so only `new-password` keeps a saved sign-in out of a secret.
     for (const key of ['API_AUTH_TOKEN', 'SRT_PASSPHRASE']) {
-      assert.equal(await readWhenPresent(evaluate, fieldOf(key), "getAttribute('autocomplete')", `the ${key} field`), 'off');
+      assert.equal(await readWhenPresent(evaluate, fieldOf(key), "getAttribute('autocomplete')", `the ${key} field`), 'new-password');
     }
+    assert.equal(await readWhenPresent(evaluate, fieldOf('API_PORT'), "getAttribute('autocomplete')", 'the API_PORT field'), 'off');
   });
 
   await t.test('a key at the version default says so, and one the manager fills says that', async () => {

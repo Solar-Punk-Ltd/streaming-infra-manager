@@ -53,6 +53,7 @@ import {
   resolveAttempt,
   seedAttempts,
 } from './mock-attempts.mjs';
+import { deploymentSettingsRoutes, recordDeployedSettings } from './mock-deployment-settings.mjs';
 import { engineRoutes } from './mock-engine.mjs';
 import { createMockChequebookJournal } from './mock-chequebook.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
@@ -185,6 +186,7 @@ function deploy(profile, { withUploader, onRunning } = {}) {
     profile.status = 'RUNNING';
     profile.containers = containers;
     resolveAttempt(attempt, publish);
+    recordDeployedSettings(profile);
     onRunning?.();
     changed(profile);
   }, DEPLOY_MS);
@@ -895,6 +897,7 @@ const ROUTES = [
   ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...srtIngestRoutes({ withProfile }),
+  ...deploymentSettingsRoutes({ readBody, withProfile, deploy }),
   ...versionRoutes(readBody, publish),
   ['GET', /^\/events$/, (_req, res) => openStream(res, eventClients)],
   ['GET', /^\/metrics$/, (_req, res) => send(res, 200, metricsSnapshot())],
