@@ -295,8 +295,9 @@ op read "op://<vault>/<item>/password" | \
   docker compose exec -T api node dist/cli.js user:add <username> --password-stdin
 ```
 
-Every later user is added from the Access page in the UI. Anyone signed in can
-add or remove a user, and nobody can remove themselves or the last one left.
+Every later user is added from the Access page in the UI. Only an admin can
+add or remove a user, and nobody can remove themselves, the last user or the
+last admin.
 
 ## Accessing
 
