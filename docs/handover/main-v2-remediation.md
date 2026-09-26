@@ -862,9 +862,10 @@ same investigation, so nothing was created and nothing is flagged.
 paths, and `docs/agents/domain.md` printed a file tree containing them, so a
 session reading either was told they exist. The three pages under `docs/agents/`
 were deleted and `AGENTS.md` rewritten to say what this repository has.)
-`docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
-T22 with T01a and the a/b splits among them, plus its README, and the README's
-order section names all 25.
+On that commit `docs/consensus/issues/` held one file per agreed row, 25 of them,
+T01 through T22 with T01a and the a/b splits among them, plus its README, and
+the README's order section named all 25. Rows T23 to T27 were added on
+2026-09-17.
 
 **One thing the older sections say that is no longer true.** "Preserved local
 state" above lists three review worktrees outside the repository and says the
