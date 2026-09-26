@@ -421,7 +421,18 @@ function catalogOf(profile) {
     running,
     engine: facts?.engine ?? null,
     abr: facts?.abr ?? false,
+    engineSettingsProblem: facts ? storedEngineProblem(profile, facts) : null,
   };
+}
+
+/**
+ * Why the manager's deploy would refuse the engine settings the deployment
+ * stores, by the shared rules and this host's defaults, or null. Turning the
+ * ladder on under a segment length the keyframe rule then refuses is how a
+ * deployment of the mock gets there.
+ */
+function storedEngineProblem(profile, facts) {
+  return engineSettingsSaveProblem(facts.engine, profile.engine_settings, { abr: facts.abr, defaults: facts.defaults.values });
 }
 
 /**
@@ -560,7 +571,7 @@ function apply(res, profile, deploy) {
   if (BUSY_STATUSES.includes(profile.status)) {
     return send(res, 409, { error: 'profile_busy', name: profile.name, status: profile.status });
   }
-  const { drift, running } = catalogOf(profile);
+  const { drift, running, engineSettingsProblem } = catalogOf(profile);
   if (!running) {
     return send(res, 409, {
       error: 'profile_stopped',
@@ -569,6 +580,9 @@ function apply(res, profile, deploy) {
     });
   }
   if (drift.keys.length === 0) return send(res, 200, { recreated: [] });
+  if (engineSettingsProblem) {
+    return send(res, 400, { error: 'validation_error', errors: [engineSettingsProblem], name: profile.name });
+  }
   deploy(profile);
   return send(res, 202, { recreated: drift.fullRedeploy ? 'all' : drift.services });
 }

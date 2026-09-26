@@ -198,6 +198,18 @@ export function engineDraftProblem(catalog: DeploymentSettingsCatalog, draft: De
   return engineSettingsSaveProblem(catalog.engine, engineSettingsOfDraft(catalog, draft), { abr: catalog.abr, defaults });
 }
 
+/**
+ * Why the next deploy would refuse the engine settings the deployment stores,
+ * as the manager lists it, while the draft leaves them as they are, or null.
+ * It keeps no save back, because a save of other keys alone still lands. A
+ * draft that changes an engine setting is judged by `engineDraftProblem`
+ * instead, which says whether the save leaves them whole.
+ */
+export function storedEngineProblem(catalog: DeploymentSettingsCatalog, draft: DeploymentSettingsDraft): string | null {
+  if (catalog.engineSettingsProblem === null || editsEngineSettings(pendingEdits(catalog, draft))) return null;
+  return catalog.engineSettingsProblem;
+}
+
 /** The body of `PUT /profiles/:name/settings` for this draft. */
 export function saveOf(
   catalog: DeploymentSettingsCatalog,

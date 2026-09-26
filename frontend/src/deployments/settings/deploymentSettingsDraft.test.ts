@@ -26,6 +26,7 @@ import {
   pendingEdits,
   saveOf,
   shownValue,
+  storedEngineProblem,
   takesValue,
   valueBeforeEdit,
   valueProblem,
@@ -117,6 +118,7 @@ const CATALOG: DeploymentSettingsCatalog = {
   running: true,
   engine: 'srs',
   abr: false,
+  engineSettingsProblem: null,
 };
 
 describe('valueBeforeEdit', () => {
@@ -414,6 +416,43 @@ describe('engineDraftProblem', () => {
 
     assert.equal(engineDraftProblem(ENGINE_CATALOG, draft), null);
     assert.deepEqual(draftProblems(ENGINE_CATALOG, draft), { HLS_FRAGMENT: 'Segment length must be at least 0.5. Got 0.1.' });
+  });
+});
+
+const CEILING_UNDER_SEGMENT =
+  'The force-close ceiling of 1 seconds is below the segment length of 2 seconds, so every piece would be cut before a keyframe could end one and the engine refuses to start. Raise the ceiling to at least the segment length, or lower the segment length.';
+
+/** A segment length of 2 and a ceiling of 1, stored, with the sentence the manager lists them with because its deploy would refuse them. */
+const REFUSED_CATALOG: DeploymentSettingsCatalog = {
+  ...ENGINE_CATALOG,
+  entries: ENGINE_CATALOG.entries.map((row) => {
+    if (row.key === 'HLS_FRAGMENT') return { ...row, stored: true, storedValue: '2', source: 'deployment' };
+    return row.key === 'HLS_SEGMENT_MAX' ? { ...row, storedValue: '1' } : row;
+  }),
+  engineSettingsProblem: CEILING_UNDER_SEGMENT,
+};
+
+describe('storedEngineProblem', () => {
+  it('names why the next deploy would refuse what is stored, and leaves a save of other keys free to land', () => {
+    const stackOnly = withValue(EMPTY_DRAFT, REFUSED_CATALOG, 'LOG_LEVEL', 'warn');
+
+    assert.equal(storedEngineProblem(REFUSED_CATALOG, EMPTY_DRAFT), CEILING_UNDER_SEGMENT);
+    assert.equal(storedEngineProblem(REFUSED_CATALOG, stackOnly), CEILING_UNDER_SEGMENT);
+    assert.equal(engineDraftProblem(REFUSED_CATALOG, stackOnly), null);
+  });
+
+  it('gives way to what the draft leaves once it changes an engine setting, so the sentence is said once', () => {
+    const fixing = withValue(EMPTY_DRAFT, REFUSED_CATALOG, 'HLS_FRAGMENT', '1');
+    const elsewhere = withValue(EMPTY_DRAFT, REFUSED_CATALOG, 'HLS_WINDOW', '20');
+
+    assert.equal(storedEngineProblem(REFUSED_CATALOG, fixing), null);
+    assert.equal(engineDraftProblem(REFUSED_CATALOG, fixing), null);
+    assert.equal(storedEngineProblem(REFUSED_CATALOG, elsewhere), null);
+    assert.equal(engineDraftProblem(REFUSED_CATALOG, elsewhere), CEILING_UNDER_SEGMENT);
+  });
+
+  it('says nothing while the deploy takes what is stored', () => {
+    assert.equal(storedEngineProblem(ENGINE_CATALOG, EMPTY_DRAFT), null);
   });
 });
 

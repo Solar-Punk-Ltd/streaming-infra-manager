@@ -22,6 +22,7 @@ import {
   bootstrapStackDefaults,
   deleteProfileEnv,
   engineEnvPath,
+  engineSettingsLinesOf,
   managedEnvLines,
   profileEnvPath,
   type ProfileEnvValues,
@@ -398,6 +399,8 @@ export interface NextDeployEnv {
   /** The build tree the next deploy copies. */
   root: string;
   version: StackVersionRecord;
+  /** Why the next deploy would refuse the engine settings the deployment stores, in the words it refuses them with, or null. */
+  engineSettingsProblem: string | null;
 }
 
 interface DeploySecrets {
@@ -716,7 +719,9 @@ export class DeploymentOrchestrator {
    * The environment this deployment's next deploy would give its containers,
    * worked out the way a deploy works it out, and writing nothing: a secret
    * the deploy would generate is left out rather than made, and the engine
-   * config file is named rather than written.
+   * config file is named rather than written. Engine settings the deploy
+   * would refuse are kept in it, with the sentence it would refuse them with,
+   * because the settings page is where they get fixed.
    */
   async nextEnvFor(profile: Profile): Promise<NextDeployEnv> {
     const version = await this.versionForDeploy(profile);
@@ -740,14 +745,21 @@ export class DeploymentOrchestrator {
       engineConfigFile: await this.engineConfigPathFor(profile, engine, version),
       stored,
     });
+    const managed = managedEnvLines(values, baseText, { keepRefusedEngineSettings: true });
     const env = effectiveEnvOf({
       profile,
       contract: version.contract,
       target: targetAlias(profile.host),
-      rootEnvText: renderProfileEnv(baseText, managedEnvLines(values, baseText), stored),
+      rootEnvText: renderProfileEnv(baseText, managed, stored),
       engineEnvText: readIfPresent(engineEnvPath(root, engine)),
     });
-    return { env, generatedKeys: Object.keys(withoutKeys(stackSecrets, Object.keys(stored))), root, version };
+    return {
+      env,
+      generatedKeys: Object.keys(withoutKeys(stackSecrets, Object.keys(stored))),
+      root,
+      version,
+      engineSettingsProblem: engineSettingsLinesOf(values, baseText).problem,
+    };
   }
 
   /**

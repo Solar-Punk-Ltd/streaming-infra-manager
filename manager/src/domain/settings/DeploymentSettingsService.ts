@@ -123,7 +123,9 @@ export class DeploymentSettingsService {
 
   /**
    * Redeploys the containers that are behind on a setting, or all of them when
-   * a changed key reaches the deploy scripts alone, and answers which.
+   * a changed key reaches the deploy scripts alone, and answers which. Refused
+   * while the deploy would refuse the stored engine settings, with its reason,
+   * rather than starting a deploy that fails on them.
    */
   async apply(name: string, expectedInstanceId: string, username: string): Promise<DeploymentSettingsApplied> {
     const profile = await this.profileNamed(name);
@@ -132,9 +134,10 @@ export class DeploymentSettingsService {
       throw new ProfileBusyError(name, profile.status);
     }
 
-    const { drift, running } = (await this.read(profile)).catalog;
+    const { drift, running, engineSettingsProblem } = (await this.read(profile)).catalog;
     if (!running) throw new DeploymentStoppedError(name);
     if (drift.keys.length === 0) return { recreated: [] };
+    if (engineSettingsProblem) throw new ProfileConfigError(name, engineSettingsProblem);
 
     const services = drift.fullRedeploy ? undefined : drift.services;
     await this.orchestrator.startDeploy(profile, services);
@@ -164,6 +167,7 @@ export class DeploymentSettingsService {
       ...versionSettingsFilesAt(next.root, engine),
       stored: { plain: stored.plain, secretKeys: stored.secretKeys },
       engineSettings,
+      engineSettingsProblem: next.engineSettingsProblem,
       revision: stored.revision,
       nextEnv: next.env,
       records: await this.containers.listForProfile(profile.name),

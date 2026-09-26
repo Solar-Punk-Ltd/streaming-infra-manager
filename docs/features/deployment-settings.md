@@ -70,6 +70,15 @@ lands whole or not at all. Turning the ABR ladder off in the deployment's Edit d
 settings out of the engine settings by key, so a value saved from this card while that edit was on
 its way stays.
 
+The host can stop taking engine settings it took when they were saved: a change to its base `.env`
+or to the version's own fallback can drop the ceiling under a saved segment length, and turning the
+ABR ladder on can put a saved segment length under the keyframe rule. The deploy refuses such
+settings with the engine's sentence, as it always has. The list still answers, with that sentence as
+`engineSettingsProblem`, and the card names it above Save. A save that names no engine setting is
+taken as ever, and one that names an engine setting is taken once it leaves them whole, which is how
+they get fixed. Apply is refused with the sentence rather than starting a deploy that would fail on
+it.
+
 A save recreates nothing. Apply then recreates the containers that read what changed: the engine for
 an engine setting, the engine and the uploader for the segment length, which both read, and the
 uploader alone for the OvenMediaEngine poll interval, which only the uploader reads. That comes from
@@ -103,7 +112,8 @@ write, so it can say which settings the running containers are behind on:
 
 Apply redeploys only the containers that are behind. When a changed key reaches the deploy scripts
 alone, it redeploys everything. A stopped deployment's Start uses the stored values anyway, so Apply
-refuses it.
+refuses it. Apply is also refused, with the engine's own sentence, while the deploy would refuse the
+stored engine settings.
 
 A save stores and changes nothing that runs. It names the revision the page read, and a save made
 against an older one is refused. So two operators editing at once cannot overwrite each other unseen.
@@ -154,7 +164,10 @@ ingest card's step to raise the SRT latency brings the card into view at that se
 
 A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
 off. A pair of engine settings the engine would refuse is named once above Save, in the manager's
-words, and keeps Save off until the pair is whole. Save sends the changed keys in one request with
+words, and keeps Save off until the pair is whole. Stored engine settings the next deploy would
+refuse are named there too, saying that Apply is refused and any other deploy fails until they
+change, and keep no save back, so a save of other keys still goes through and so does the one that
+fixes them. Save sends the changed keys in one request with
 the revision the page read. A refused save shows the manager's sentence under the button. A save
 refused because another one landed first says the settings changed elsewhere and reads them again,
 and the change has to be made again.

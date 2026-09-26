@@ -20,6 +20,7 @@ import {
   engineDraftProblem,
   pendingEdits,
   saveOf,
+  storedEngineProblem,
   withReset,
   withValue,
   withoutEdit,
@@ -38,6 +39,7 @@ import {
   saveRefusalOf,
   savedText,
   startedBeforeRecords,
+  storedEngineProblemText,
   type LoadFailure,
 } from './settingsText';
 import { useDeploymentSettings } from './useDeploymentSettings';
@@ -92,7 +94,10 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
  * what the running containers are behind on and offers Apply. The deployment's
  * engine settings are in the same list (Levi, 2026-09-26), shown as the Engine
  * card's drawer showed them, and a pair of them the engine would refuse is
- * named once above Save, which it keeps off.
+ * named once above Save, which it keeps off. Stored engine settings the next
+ * deploy would refuse are named there too and keep no save back, so the save
+ * that fixes them, or one of other keys, still goes through. The manager
+ * refuses Apply while they stand.
  */
 export function DeploymentSettingsEditor({
   profile,
@@ -125,6 +130,7 @@ export function DeploymentSettingsEditor({
   const pending = pendingEdits(catalog, draft);
   const refused = Object.keys(draftProblems(catalog, draft));
   const engineProblem = engineDraftProblem(catalog, draft);
+  const storedProblem = storedEngineProblem(catalog, draft);
   const saveOff = pending.length === 0 || refused.length > 0 || engineProblem !== null;
   // While a deploy or a stop is under way the manager counts the deployment
   // as not running, which would turn the banner into what Start will use in
@@ -217,6 +223,12 @@ export function DeploymentSettingsEditor({
       {engineProblem && (
         <Alert severity="warning" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
           {engineProblem}
+        </Alert>
+      )}
+
+      {storedProblem && (
+        <Alert severity="error" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
+          {storedEngineProblemText(storedProblem)}
         </Alert>
       )}
 

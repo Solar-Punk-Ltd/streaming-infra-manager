@@ -120,6 +120,7 @@ function input(over: Partial<CatalogInput> = {}): CatalogInput {
     engineEnvText: 'LOG_LEVEL=info\n',
     stored: { plain: { ADMIN_API_URL: 'http://admin.internal' }, secretKeys: ['ADMIN_API_TOKEN'] },
     engineSettings: srsSettings(),
+    engineSettingsProblem: null,
     revision: 3,
     nextEnv: RUNNING_ENV,
     records: [record('stream-uploader', RUNNING_ENV), record('bee-uploader', RUNNING_ENV)],

@@ -101,6 +101,14 @@ export function engineFieldHint(field: EngineSettingField): string | null {
 }
 
 /**
+ * Said above Save while the next deploy would refuse the engine settings the
+ * deployment stores, before the manager's own reason, which says what to change.
+ */
+export function storedEngineProblemText(problem: string): string {
+  return `The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. ${problem}`;
+}
+
+/**
  * Said under an engine setting the config the engine runs no longer reads:
  * the deployment's own config file, or the version's template where it runs
  * none of its own.

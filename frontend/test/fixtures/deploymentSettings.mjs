@@ -176,6 +176,33 @@ export function runningCatalog() {
     running: true,
     engine: 'srs',
     abr: false,
+    engineSettingsProblem: null,
+  };
+}
+
+export const REFUSED_ENGINE_INSTANCE = '88888888-8888-4888-8888-888888888888';
+
+/** The manager's sentence for a stored segment length of 3 under the default ceiling of 2.5. */
+export const CEILING_UNDER_STORED_SEGMENT =
+  'The force-close ceiling of 2.5 seconds is below the segment length of 3 seconds, so every piece would be cut before a keyframe could end one and the engine refuses to start. Raise the ceiling to at least the segment length, or lower the segment length.';
+
+/**
+ * A running deployment whose saved segment length of 3 the ceiling it falls
+ * back to now sits under, so the manager's deploy would refuse it, and whose
+ * containers run neither that nor its saved log level yet.
+ */
+export function refusedEngineCatalog() {
+  const rows = entries().map((row) =>
+    row.key === 'HLS_FRAGMENT'
+      ? { ...row, stored: true, storedValue: '3', value: '3', source: 'deployment', running: 'differs' }
+      : row,
+  );
+  return {
+    ...runningCatalog(),
+    instanceId: REFUSED_ENGINE_INSTANCE,
+    entries: rows,
+    drift: { keys: ['LOG_LEVEL', 'HLS_FRAGMENT'], services: ['srs', 'stream-uploader'], fullRedeploy: false },
+    engineSettingsProblem: CEILING_UNDER_STORED_SEGMENT,
   };
 }
 

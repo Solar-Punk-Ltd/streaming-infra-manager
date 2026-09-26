@@ -381,6 +381,31 @@ describe("the mock's engine settings in a deployment's settings", { concurrency:
     assert.equal(late.body.error, 'deployment_settings_changed');
     assert.deepEqual((await request(`/profiles/${name}`)).engine_settings, { HLS_WINDOW: '20' });
   });
+
+  it('lists stored settings the next deploy would refuse with its sentence, takes other keys, refuses Apply, and takes the fix', async () => {
+    const name = await runningDeployment();
+    assert.equal((await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '0.55' }])).status, 200);
+    // The seeded blocked attempt holds every edit's redeploy on this version until a person releases it.
+    for (const { id, jobId } of (await request('/versions/attempts')).attempts) {
+      await request(`/versions/attempts/${id}/release`, 'POST', { jobId });
+    }
+    // Turning the ladder on holds the saved segment length to the keyframe rule, which 0.55 seconds at 30 frames breaks.
+    await request(`/profiles/${name}`, 'PUT', { stamp_id: 'ab'.repeat(32), bee_publishers: 'synthetic-pool' });
+    await until(`/profiles/${name}`, (profile) => profile.status === 'RUNNING');
+    const refusedPair =
+      'Frame rate 30 times segment length 0.55 is 16.5 frames, which is not a whole number. ' +
+      'Pick values whose product is whole, otherwise the rungs cannot place their keyframes at the same moments and the engine refuses to start.';
+
+    const catalog = await settingsOf(name);
+    const stackOnly = await saveOn(name, [{ key: 'LOG_LEVEL', value: 'warn' }]);
+    const apply = await call(`/profiles/${name}/settings/apply`, 'POST', { expectedInstanceId: catalog.instanceId });
+
+    assert.equal(catalog.engineSettingsProblem, refusedPair);
+    assert.equal(stackOnly.status, 200);
+    assert.deepEqual(apply, { status: 400, body: { error: 'validation_error', errors: [refusedPair], name } });
+    assert.equal((await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '1' }])).status, 200);
+    assert.equal((await settingsOf(name)).engineSettingsProblem, null);
+  });
 });
 
 describe('the mock settings list and create for a deployment not made yet', { concurrency: false, timeout: 60_000 }, () => {

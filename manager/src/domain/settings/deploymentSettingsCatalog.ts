@@ -64,6 +64,8 @@ export interface CatalogInput {
   stored: { plain: Readonly<Record<string, string>>; secretKeys: readonly string[] };
   /** The deployment's own engine settings, or null for one that runs no media server. */
   engineSettings: DeploymentEngineSettings | null;
+  /** Why the next deploy would refuse the engine settings the deployment stores, as `nextEnvFor` answers it, or null. */
+  engineSettingsProblem: string | null;
   revision: number;
   /** The environment the next deploy gives the containers, as `effectiveEnvOf` works it out. */
   nextEnv: Readonly<Record<string, string>>;
@@ -88,7 +90,7 @@ export type NewDeploymentCatalogInput = Pick<
 };
 
 /** What one list is worked out from, whether the deployment exists or not. */
-type ListInput = Omit<CatalogInput, 'profile' | 'engine' | 'buildId' | 'revision'> & {
+type ListInput = Omit<CatalogInput, 'profile' | 'engine' | 'buildId' | 'revision' | 'engineSettingsProblem'> & {
   /** The deployment the list is for, which sets the engine settings it reads. Absent for one not created yet. */
   engineReader?: EngineSettingsReader;
 };
@@ -129,6 +131,7 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
     running,
     engine,
     abr,
+    engineSettingsProblem: input.engineSettingsProblem,
   };
 }
 

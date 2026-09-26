@@ -191,6 +191,14 @@ export interface DeploymentSettingsCatalog {
   engine: EngineName | null;
   /** Whether the deployment encodes the ABR ladder, so the rung settings are its own. */
   abr: boolean;
+  /**
+   * Why the next deploy would refuse the engine settings the deployment
+   * stores, in the words it refuses them with, or null. A change to the host's
+   * defaults can bring this about under values it took when they were saved.
+   * While it stands Apply is refused with it, a save that names an engine
+   * setting has to leave them whole, and a save of other keys still lands.
+   */
+  engineSettingsProblem: string | null;
 }
 
 /**

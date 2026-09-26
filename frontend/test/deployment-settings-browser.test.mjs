@@ -12,10 +12,10 @@
  * race, the banner and its Apply, a stopped deployment, and a version with no
  * build yet. The deployment's engine settings are in the same list since Levi
  * ruled the Engine card's drawer out on 2026-09-26, so it also drives those as
- * the drawer showed them, a pair the engine would refuse, and a saved segment
- * length that Apply recreates the engine and the uploader for. All of it at a
- * phone's width, because that is where an operator reads a page during an
- * incident.
+ * the drawer showed them, a pair the engine would refuse, a saved segment
+ * length that Apply recreates the engine and the uploader for, and stored
+ * engine settings the next deploy would refuse. All of it at a phone's width,
+ * because that is where an operator reads a page during an incident.
  *
  * A real headless Chrome over a real Vite, with an offline fixture in place of
  * the manager. Runs through `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser`,
@@ -45,6 +45,9 @@ import { viteCacheFor } from './support/vite-cache.mjs';
 import {
   afterApply,
   afterSave,
+  CEILING_UNDER_STORED_SEGMENT,
+  REFUSED_ENGINE_INSTANCE,
+  refusedEngineCatalog,
   RUNNING_INSTANCE,
   runningCatalog,
   STOPPED_INSTANCE,
@@ -65,6 +68,7 @@ const RUNNING = 'settings-stage';
 const STOPPED = 'parked-stage';
 const NOT_READY = 'fresh-stage';
 const UNRECORDED = 'early-stage';
+const REFUSED_ENGINE = 'stuck-stage';
 
 const RUNNING_SRS = [{ service: 'srs', ports: {} }, { service: 'stream-uploader', ports: {} }, { service: 'bee-uploader', ports: {} }];
 
@@ -85,13 +89,19 @@ const PROFILES = [
   profileNamed(STOPPED, STOPPED_INSTANCE, 'STOPPED'),
   profileNamed(NOT_READY, '66666666-6666-4666-8666-666666666666', 'RUNNING'),
   profileNamed(UNRECORDED, UNRECORDED_INSTANCE, 'RUNNING'),
+  profileNamed(REFUSED_ENGINE, REFUSED_ENGINE_INSTANCE, 'RUNNING'),
 ];
 
 /** The sentence the fixture's manager refuses a staged save with, as `settingEditProblems` words one. */
 const STAGED_REFUSAL = 'ADMIN_API_URL is stored for this deployment, but its version no longer declares it. Reset it rather than set it.';
 
 test('a deployment settings card lists, edits, saves and applies at a phone width', { timeout: 240_000 }, async (t) => {
-  const catalogs = new Map([[RUNNING, runningCatalog()], [STOPPED, stoppedCatalog()], [UNRECORDED, unrecordedCatalog()]]);
+  const catalogs = new Map([
+    [RUNNING, runningCatalog()],
+    [STOPPED, stoppedCatalog()],
+    [UNRECORDED, unrecordedCatalog()],
+    [REFUSED_ENGINE, refusedEngineCatalog()],
+  ]);
   const writes = [];
   const stage = { refuseSave: false, applyBusy: false };
 
@@ -136,6 +146,8 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
             if (apply) {
               if (stage.applyBusy) return json({ error: 'profile_busy', name, status: 'DEPLOYING' }, 409);
+              // The manager's own refusal: its deploy would refuse the stored engine settings.
+              if (catalog.engineSettingsProblem) return json({ error: 'validation_error', errors: [catalog.engineSettingsProblem], name }, 400);
               const applied = afterApply(catalog);
               catalogs.set(name, applied.catalog);
               return json({ recreated: applied.recreated }, 202);
@@ -533,6 +545,31 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await waitFor(() => evaluate(stillWithin(card)), Boolean, 'the settings card still');
     assert.equal(await evaluate(paintedInView(rowOf('HLS_FRAGMENT'))), true, 'the segment length still on screen once the card is still');
     await capture('engine-settings-from-engine-card-phone.png');
+  });
+
+  await t.test('stored engine settings the next deploy would refuse are named above Save, which other keys still pass, and refuse Apply', async () => {
+    const stored = `The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. ${CEILING_UNDER_STORED_SEGMENT}`;
+    const said = (text) => text.split(CEILING_UNDER_STORED_SEGMENT).length - 1;
+    await openDeployment(REFUSED_ENGINE);
+    await waitFor(cardText, (text) => text.includes(stored), 'the stored engine settings named above Save');
+
+    await openEverySection();
+    await typeInto('MAX_QUEUE_SIZE', '300');
+    await waitFor(saveDisabled, (off) => off === false, 'Save on for a stack key alone');
+    assert.equal(said(await cardText()), 1, 'the sentence is said once');
+    await waitFor(() => evaluate(stillWithin(card)), Boolean, 'the settings card still');
+    await screenshot('engine-stored-refused-phone.png', buttonIn(card, 'Save'), 'end');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
+
+    const before = writes.length;
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the apply request');
+    await waitFor(cardText, (text) => said(text) === 2, "Apply refused with the manager's sentence");
+
+    await typeInto('HLS_FRAGMENT', '2');
+    await waitFor(cardText, (text) => !text.includes(stored), 'the stored sentence gone once the draft fixes the pair');
+    await waitFor(saveDisabled, (off) => off === false, 'Save on for the fix');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
   });
 
   await t.test('a stopped deployment is told Start will use the changes, with no Apply', async () => {

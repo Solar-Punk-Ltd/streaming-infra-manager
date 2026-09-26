@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 
 import type { DeploymentSettingEntry, DeploymentSettingsCatalog } from '@streaming-infra-manager/common';
 import { Router } from 'express';
@@ -29,7 +29,9 @@ import { throwawayRoot } from '../support/throwawayRoot.js';
 const root = throwawayRoot('deployment-settings-engine-');
 process.env.SHLS_ROOT = root;
 // The host's own segment length and ceiling, which are what an unset half of the pair falls back to here.
-writeFileSync(join(root, '.env'), 'ENGINE=srs\nLOG_LEVEL=debug\nHLS_FRAGMENT=0.5\nHLS_SEGMENT_MAX=1\n', 'utf8');
+const HOST_ENV = 'ENGINE=srs\nLOG_LEVEL=debug\nHLS_FRAGMENT=0.5\nHLS_SEGMENT_MAX=1\n';
+const hostEnvPath = join(root, '.env');
+writeFileSync(hostEnvPath, HOST_ENV, 'utf8');
 writeFileSync(join(root, '.env.sample'), '# === Stream Uploader ===\nLOG_LEVEL=debug\n', 'utf8');
 mkdirSync(join(root, 'engines', 'srs'), { recursive: true });
 writeFileSync(join(root, 'engines', 'srs', '.env.sample'), '# === ABR ladder ===\nABR_FPS=30\n', 'utf8');
@@ -237,5 +239,89 @@ describe('applying a saved engine setting', () => {
     assert.deepEqual(answer.body, { recreated: ['stream-uploader'] });
     assert.ok(run.includes('stream-uploader'), run.join(' '));
     assert.equal(run.includes('ome'), false, run.join(' '));
+  });
+});
+
+// A change to the version's .env is enough to get here: the host's ceiling
+// drops under a segment length the deployment saved while the host still took
+// it. The deploy refuses such settings, and the page is the way to fix them, so
+// the list, a save and Apply have to keep answering.
+describe('engine settings this host no longer takes', () => {
+  const CEILING_UNDER_THE_SAVED_SEGMENT = HOST_ENV.replace('HLS_SEGMENT_MAX=1', 'HLS_SEGMENT_MAX=0.5');
+  const REFUSED =
+    'The force-close ceiling of 0.5 seconds is below the segment length of 1 seconds, so every piece would be cut ' +
+    'before a keyframe could end one and the engine refuses to start. Raise the ceiling to at least the segment ' +
+    'length, or lower the segment length.';
+
+  afterEach(() => writeFileSync(hostEnvPath, HOST_ENV, 'utf8'));
+
+  /** A running deployment that saved a segment length of 1, on a host whose ceiling then dropped to 0.5. */
+  async function refusedByThisHost() {
+    const deployment = await running();
+    assert.equal((await save(deployment.app, 0, [{ key: 'HLS_FRAGMENT', value: '1' }])).status, 200);
+    writeFileSync(hostEnvPath, CEILING_UNDER_THE_SAVED_SEGMENT, 'utf8');
+    return deployment;
+  }
+
+  it('lists them with the sentence the deploy refuses them with, and the value it would write', async () => {
+    const { app } = await refusedByThisHost();
+    try {
+      const catalog = await listed(app);
+
+      assert.equal(catalog.engineSettingsProblem, REFUSED);
+      assert.equal(entryOf(catalog, 'HLS_FRAGMENT').value, '1');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('stores a save that fixes them, which clears the sentence', async () => {
+    const { app, harness } = await refusedByThisHost();
+    try {
+      const fixed = await save(app, 1, [{ key: 'HLS_FRAGMENT', value: '0.5' }]);
+
+      assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+      assert.deepEqual(harness.profiles.rows.get('stage')!.engine_settings, { HLS_FRAGMENT: '0.5' });
+      assert.equal((await listed(app)).engineSettingsProblem, null);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('stores a save of a stack key alone while they wait for a fix', async () => {
+    const { app, harness } = await refusedByThisHost();
+    try {
+      const saved = await save(app, 1, [{ key: 'LOG_LEVEL', value: 'warn' }]);
+
+      assert.equal(saved.status, 200, JSON.stringify(saved.body));
+      assert.deepEqual(harness.profiles.stackSettings.get('stage'), { LOG_LEVEL: 'warn' });
+      assert.equal((await listed(app)).engineSettingsProblem, REFUSED);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses Apply with that sentence, and deploys nothing', async () => {
+    const { app, harness } = await refusedByThisHost();
+    try {
+      const refused = await call(app, 'POST', '/profiles/stage/settings/apply', { expectedInstanceId: INSTANCE_ID });
+
+      assert.equal(refused.status, 400, JSON.stringify(refused.body));
+      assert.deepEqual(refused.body, { error: 'validation_error', errors: [REFUSED], name: 'stage' });
+      assert.equal(harness.runner.runs.length, 1, 'only the first deploy ran');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('leaves the deploy refusing them, as it always has', async () => {
+    const { app, harness } = await refusedByThisHost();
+    try {
+      await assert.rejects(harness.orchestrator.startDeploy(harness.profiles.rows.get('stage')!, undefined), {
+        message: `refusing to write the engine settings to the env file: ${REFUSED}`,
+      });
+    } finally {
+      await app.close();
+    }
   });
 });

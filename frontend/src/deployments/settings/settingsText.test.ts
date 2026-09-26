@@ -55,6 +55,7 @@ import {
   secretNote,
   sectionSummary,
   startedBeforeRecords,
+  storedEngineProblemText,
   wordList,
 } from './settingsText';
 
@@ -81,7 +82,7 @@ function entry(overrides: Partial<DeploymentSettingEntry> & { key: string }): De
 }
 
 function catalogWith(drift: DeploymentSettingsCatalog['drift'], running: boolean): DeploymentSettingsCatalog {
-  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running, engine: 'srs', abr: false };
+  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running, engine: 'srs', abr: false, engineSettingsProblem: null };
 }
 
 describe('wordList', () => {
@@ -406,6 +407,7 @@ describe('the words themselves', () => {
       notInConfigNote(true),
       notInConfigNote(false),
       engineDefaultText(entry({ key: 'SRT_LATENCY', versionValue: '2000', engineSetting: { defaultSource: 'manager', notInConfig: false } }), fieldOf('SRT_LATENCY')),
+      storedEngineProblemText('The force-close ceiling of 1 seconds is below the segment length of 2 seconds.'),
     ];
     for (const sentence of sentences) {
       assert.equal(/[—;]/.test(sentence), false, sentence);
@@ -445,6 +447,13 @@ describe('the words of an engine setting', () => {
     assert.equal(engineFieldHint(fieldOf('HLS_FRAGMENT')), 'A number from 0.5 to 30. Use a period for decimals.');
     assert.equal(engineFieldHint(fieldOf('SRT_LATENCY')), 'A whole number from 20 to 10000.');
     assert.equal(engineFieldHint(fieldOf('ABR_PRESET')), null);
+  });
+
+  it("says the saved engine settings cannot be deployed and what that holds up, then gives the manager's own reason", () => {
+    assert.equal(
+      storedEngineProblemText('The force-close ceiling of 1 seconds is below the segment length of 2 seconds.'),
+      'The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. The force-close ceiling of 1 seconds is below the segment length of 2 seconds.',
+    );
   });
 
   it('says a value has no effect while the config the engine runs does not read it', () => {
