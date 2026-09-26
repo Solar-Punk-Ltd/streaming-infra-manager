@@ -22,7 +22,7 @@ new uploader starts, first against the code at `0c0354c` for decision D16, then
 in `50363c5` for the further ruling that the chequebook check never refuses a
 start, which `667aee5` built.
 
-Updated 2026-09-26 on `feat/chequebook-funding-any-host`, for Levi's ruling of
+Updated 2026-09-26 at `9e4e8c8f` (pull request #61), for Levi's ruling of
 2026-09-25 that funding must work on any host a clone deploys to. A transfer no
 longer needs `CHEQUEBOOK_RPC_ENDPOINTS` or `CHEQUEBOOK_DOCKER_TRANSPORTS`: it
 reads the chain through the node's own endpoint, reaches Docker the way the
