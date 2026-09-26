@@ -1,5 +1,7 @@
 import { Request, Response, Router } from 'express';
 
+import type { NewDeploymentSetting } from '@streaming-infra-manager/common';
+
 import { ProfileService } from '../../domain/ProfileService.js';
 import { definedSettingValues } from '../../schemas/engineSettingValues.js';
 import {
@@ -53,6 +55,7 @@ export function createGroupsRouter(
         stack_version_id: body.stack_version_id,
         engine_settings:
           body.engine_settings && definedSettingValues(body.engine_settings),
+        stack_settings: body.stack_settings as NewDeploymentSetting[] | undefined,
       });
       res.status(202).json(result);
     }),

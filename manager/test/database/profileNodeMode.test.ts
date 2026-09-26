@@ -22,7 +22,7 @@ import {
   DeploymentGroupRepository,
   type SharedProfileParams,
 } from '../../src/domain/DeploymentGroupRepository.js';
-import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { NO_STACK_SETTINGS, ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import type { Profile } from '../../src/types/index.js';
 
 const port = Number(process.env.T04B_TEST_PG_PORT);
@@ -115,6 +115,7 @@ const sharedParams = (
   rpc_endpoint: over.rpc_endpoint ?? null,
   stack_version_id: 1,
   engine_settings: {},
+  stack_settings: NO_STACK_SETTINGS,
   slot_cap: 99,
   daemon_id: 'synthetic-daemon',
   table: [],

@@ -70,6 +70,19 @@ export interface StackSettingsChange {
   remove: string[];
 }
 
+/**
+ * The stack settings a deployment is created with, split by whether each key
+ * is a secret the way the two columns hold them, so its first deploy writes
+ * them as a save would have.
+ */
+export interface InitialStackSettings {
+  plain: Readonly<Record<string, string>>;
+  secret: Readonly<Record<string, string>>;
+}
+
+/** What a create that names no stack settings stores, so its version's values stand. */
+export const NO_STACK_SETTINGS: InitialStackSettings = { plain: {}, secret: {} };
+
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
@@ -141,6 +154,8 @@ export class ProfileRepository {
    * from a full-replace PUT body, and a body that has never heard of engine
    * settings would clear them. An empty object is what an API create with no
    * opinion sends, and it leaves the column at the default the migration set.
+   * `stackSettings` is one of its own for the same reason, and its two empty
+   * halves are what the migration's defaults hold.
    */
   async insertWithFreeSlot(
     name: string,
@@ -149,6 +164,7 @@ export class ProfileRepository {
     data: ProfileWriteData,
     placement: NewProfilePlacement,
     engineSettings: EngineSettings = {},
+    stackSettings: InitialStackSettings = NO_STACK_SETTINGS,
   ): Promise<Profile | null> {
     const dataWithNullFields = nullify(data);
     const client = await this.pool.connect();
@@ -169,10 +185,11 @@ export class ProfileRepository {
            name, port_slot, kind, notes, status,
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
            srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, rpc_endpoint_source,
-           node_mode, stack_version_id, engine_settings, deployment_phase
+           node_mode, stack_version_id, engine_settings, stack_settings, stack_settings_secret,
+           deployment_phase
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                 COALESCE($18::text, 'stack'), $19, $20, $21::jsonb,
+                 COALESCE($18::text, 'stack'), $19, $20, $21::jsonb, $22::jsonb, $23::jsonb,
                  CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
@@ -197,6 +214,8 @@ export class ProfileRepository {
           dataWithNullFields.node_mode,
           placement.stackVersionId,
           JSON.stringify(engineSettings),
+          JSON.stringify(stackSettings.plain),
+          JSON.stringify(stackSettings.secret),
         ],
       );
       await client.query('COMMIT');

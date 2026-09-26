@@ -1,12 +1,20 @@
-import { engineForComponents, type NewDeploymentSettingsCatalog } from '@streaming-infra-manager/common';
+import {
+  engineForComponents,
+  isSecretSettingKey,
+  type NewDeploymentSetting,
+  type NewDeploymentSettingsCatalog,
+} from '@streaming-infra-manager/common';
 
+import { ProfileConfigError } from '../errors/ProfileConfigError.js';
 import { StackSettingsNotReadyError } from '../errors/StackSettingsNotReadyError.js';
 import { isLocalTarget, targetAlias } from '../ports/DeployTargets.js';
+import { type InitialStackSettings, NO_STACK_SETTINGS } from '../ProfileRepository.js';
 import { deployRootProblem, stackRootOf } from '../versions/stackPaths.js';
 import type { StackVersionRecord } from '../versions/StackVersionRepository.js';
 import { versionSuppliedSecrets } from '../versions/versionSuppliedSecrets.js';
 
 import { newDeploymentSettingsCatalogOf } from './deploymentSettingsCatalog.js';
+import { settingEditProblems } from './settingEditProblems.js';
 import { versionSettingsFilesAt } from './versionSettingsFiles.js';
 
 /** The deployment a list is worked out for before it exists, as its create body would describe it. */
@@ -43,3 +51,28 @@ export function newDeploymentSettingsCatalogFor(
   });
 }
 
+/**
+ * The stack settings a new deployment is created with, held to the rules a
+ * save of its settings page is held to, against the list its version gives a
+ * deployment of this shape, and split the way the two columns hold them.
+ * Refused whole, each key named and no value repeated. A create that names
+ * none reads nothing, so it is never refused over a version's files.
+ */
+export function initialStackSettingsFor(
+  name: string,
+  version: StackVersionRecord,
+  shape: NewDeploymentShape,
+  settings: readonly NewDeploymentSetting[],
+): InitialStackSettings {
+  if (settings.length === 0) return NO_STACK_SETTINGS;
+  const { entries } = newDeploymentSettingsCatalogFor(version, shape);
+  const problems = settingEditProblems(settings, entries);
+  if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
+  const plain: Record<string, string> = {};
+  const secret: Record<string, string> = {};
+  for (const { key, value } of settings) {
+    if (isSecretSettingKey(key)) secret[key] = value;
+    else plain[key] = value;
+  }
+  return { plain, secret };
+}

@@ -9,6 +9,7 @@ import { Pool, PoolClient } from 'pg';
 import { DeploymentGroup, Profile } from '../types/interfaces.js';
 import { ProfileKind } from '../types/types.js';
 import { AllSlotsUsedError } from './errors/index.js';
+import type { InitialStackSettings } from './ProfileRepository.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
 import { portPlacementProblem } from './versions/stackContract.js';
 import { PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
@@ -45,6 +46,8 @@ export interface SharedProfileParams {
    * no key, so the version's own fallbacks stand for the whole group.
    */
   engine_settings: EngineSettings;
+  /** Every member starts with the same stack settings. Empty halves store none, so the version's values stand. */
+  stack_settings: InitialStackSettings;
   /** The highest slot a member may get: the version's own maximum, never above the manager's. */
   slot_cap: number;
   /** The daemon the members' ports belong to, from `docker info`. */
@@ -233,10 +236,10 @@ export class DeploymentGroupRepository {
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
          srt_passphrase, group_id, stack_version_id, engine_settings,
-         node_mode, rpc_endpoint_source, rpc_endpoint
+         node_mode, rpc_endpoint_source, rpc_endpoint, stack_settings, stack_settings_secret
        )
        VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb,
-               $16, COALESCE($17::text, 'stack'), $18)
+               $16, COALESCE($17::text, 'stack'), $18, $19::jsonb, $20::jsonb)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -257,6 +260,8 @@ export class DeploymentGroupRepository {
         shared.node_mode,
         shared.rpc_endpoint_source,
         shared.rpc_endpoint,
+        JSON.stringify(shared.stack_settings.plain),
+        JSON.stringify(shared.stack_settings.secret),
       ],
     );
     return r.rows[0]!;

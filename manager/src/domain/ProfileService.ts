@@ -28,6 +28,7 @@ import {
   ladderMemberNames,
   keptRpcEndpointSource,
   liveUnavailableReason,
+  type NewDeploymentSetting,
   type NodeMode,
   effectiveNodeMode,
   nodeModeProblem,
@@ -106,7 +107,8 @@ import {
   localPublisherHost,
   type LocalPublisherHostReader,
 } from './localHost.js';
-import { ProfileRepository } from './ProfileRepository.js';
+import { NO_STACK_SETTINGS, ProfileRepository } from './ProfileRepository.js';
+import { initialStackSettingsFor } from './settings/newDeploymentSettings.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
@@ -201,6 +203,11 @@ function nextFreeMemberNames(
     n += 1;
   }
   return names;
+}
+
+/** What the create log says of the stack settings a deployment was given: their keys, never a value. */
+function stackSettingsNote(settings: readonly NewDeploymentSetting[] | null | undefined): string {
+  return settings?.length ? ` with stack settings ${settings.map(({ key }) => key).join(', ')}` : '';
 }
 
 /**
@@ -368,6 +375,8 @@ export class ProfileService {
     stack_version_id?: number | null;
     /** Absent leaves the column empty, so the version's own fallbacks stand. */
     engine_settings?: EngineSettings | null;
+    /** Absent stores none, so the version's values stand. Checked against the list its version gives this deployment. */
+    stack_settings?: readonly NewDeploymentSetting[] | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
@@ -413,6 +422,12 @@ export class ProfileService {
     if (Object.keys(engineSettings).length > 0) {
       this.assertCreatableEngineSettings(input, version, engineSettings);
     }
+    const stackSettings = initialStackSettingsFor(
+      input.name,
+      version,
+      { kind: input.kind, components: createdComponents, host: input.host },
+      input.stack_settings ?? [],
+    );
 
     let row;
     try {
@@ -438,6 +453,7 @@ export class ProfileService {
         },
         await this.placementFor(version, input.host ?? null, input.components),
         engineSettings,
+        stackSettings,
       );
     } catch (err) {
       const pgErr = err as PgError;
@@ -455,7 +471,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings)}`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -1014,6 +1030,8 @@ export class ProfileService {
      * the version's own fallbacks stand for the whole group.
      */
     engine_settings?: EngineSettings | null;
+    /** What every member is created with, checked against the list its version gives such a member. Absent stores none. */
+    stack_settings?: readonly NewDeploymentSetting[] | null;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
@@ -1052,6 +1070,12 @@ export class ProfileService {
         engineSettings,
       );
     }
+    const stackSettings = initialStackSettingsFor(
+      input.group_name,
+      version,
+      { kind: input.kind, components: memberComponents, host: input.host },
+      input.stack_settings ?? [],
+    );
 
     // The same two questions the single create asks, over the services the
     // members are actually given: a pool's rungs are Bee nodes whatever the
@@ -1111,6 +1135,7 @@ export class ProfileService {
       rpc_endpoint: input.rpc_endpoint ?? null,
       stack_version_id: version.id,
       engine_settings: engineSettings,
+      stack_settings: stackSettings,
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,
@@ -1129,7 +1154,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings)}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };
@@ -1504,6 +1529,7 @@ export class ProfileService {
       stack_version_id: canonical.stack_version_id,
       // So an appended member cuts the same segments as the siblings it joins.
       engine_settings: canonical.engine_settings,
+      stack_settings: NO_STACK_SETTINGS,
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,

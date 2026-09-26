@@ -14,7 +14,9 @@ import { ContainerRepository, type ContainerRow } from '../../src/domain/Contain
 import {
   EngineOverviewSnapshot,
   EngineSettingsWriteOwner,
+  type InitialStackSettings,
   NewProfilePlacement,
+  NO_STACK_SETTINGS,
   ProfileRepository,
   type ProfileRemovalClaim,
   ProfileWriteData,
@@ -193,6 +195,7 @@ export class InMemoryProfiles {
     data: ProfileWriteData,
     placement: NewProfilePlacement,
     engineSettings: EngineSettings = {},
+    stackSettings: InitialStackSettings = NO_STACK_SETTINGS,
   ): Promise<Profile | null> {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
     const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
@@ -226,8 +229,15 @@ export class InMemoryProfiles {
       stack_version_id: placement.stackVersionId,
     });
     const row = this.storeFixture(fixture);
+    this.storeInitialStackSettings(name, stackSettings);
     this.reservations.planNow(placement.daemonId, name, portPlanFor(placement.table, slot), `allocated with ${name}`);
     return row;
+  }
+
+  /** Both columns as one set, the way `stackSettings` keeps them, and nothing for a create that named none. */
+  storeInitialStackSettings(name: string, stackSettings: InitialStackSettings): void {
+    const values = { ...stackSettings.plain, ...stackSettings.secret };
+    if (Object.keys(values).length > 0) this.stackSettings.set(name, values);
   }
 
   async transitionStatus(
