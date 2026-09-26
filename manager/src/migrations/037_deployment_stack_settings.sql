@@ -12,9 +12,10 @@
 -- key the deployment takes from its version. A key held with an empty string
 -- is an explicit `KEY=` line.
 --
--- `settings_revision` moves on every change to either column, and a save names
--- the revision it was made against, so two operators editing at once cannot
--- overwrite each other unseen.
+-- `settings_revision` moves on every change to either column, and on every save
+-- of the engine settings, from the settings page or the engine settings route.
+-- A save names the revision it was made against, so two operators editing at
+-- once cannot overwrite each other unseen.
 --
 -- Going back to an older manager needs no step: it never reads the columns, so
 -- its deploys write the version's values again.
