@@ -334,6 +334,8 @@ export class InMemoryGroups {
     if (slot === null) {
       throw new AllSlotsUsedError(shared.slot_cap);
     }
+    // Asked before anything is stored, because the real group's transaction rolls back whole.
+    this.profiles.initialValuesOf(shared.stack_settings);
     if (shared.private_key) this.profiles.privateKeys.set(name, shared.private_key);
     if (shared.srt_passphrase) this.profiles.passphrases.set(name, shared.srt_passphrase);
     const fixture = makeProfile({

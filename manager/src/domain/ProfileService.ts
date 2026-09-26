@@ -201,8 +201,9 @@ function nextFreeMemberNames(
 }
 
 /** What the create log says of the stack settings a deployment was given: their keys, never a value. */
-function stackSettingsNote(settings: readonly NewDeploymentSetting[] | null | undefined): string {
-  return settings?.length ? ` with stack settings ${settings.map(({ key }) => key).join(', ')}` : '';
+function stackSettingsNote(settings: readonly NewDeploymentSetting[] | null | undefined, managerAdminToken = false): string {
+  const typed = settings?.length ? ` with stack settings ${settings.map(({ key }) => key).join(', ')}` : '';
+  return managerAdminToken ? `${typed} and the manager's web2 admin token` : typed;
 }
 
 /**
@@ -372,6 +373,8 @@ export class ProfileService {
     engine_settings?: EngineSettings | null;
     /** Absent stores none, so the version's values stand. Checked against the list its version gives this deployment. */
     stack_settings?: readonly NewDeploymentSetting[] | null;
+    /** True copies the manager's stored web2 admin token into the deployment at its insert. */
+    use_manager_admin_token?: boolean | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
@@ -422,6 +425,7 @@ export class ProfileService {
       version,
       { kind: input.kind, components: createdComponents, host: input.host },
       input.stack_settings ?? [],
+      input.use_manager_admin_token === true,
     );
 
     let row;
@@ -466,7 +470,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings)}`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken)}`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -1008,6 +1012,8 @@ export class ProfileService {
     engine_settings?: EngineSettings | null;
     /** What every member is created with, checked against the list its version gives such a member. Absent stores none. */
     stack_settings?: readonly NewDeploymentSetting[] | null;
+    /** True copies the manager's stored web2 admin token into every member at its insert. */
+    use_manager_admin_token?: boolean | null;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
@@ -1051,6 +1057,7 @@ export class ProfileService {
       version,
       { kind: input.kind, components: memberComponents, host: input.host },
       input.stack_settings ?? [],
+      input.use_manager_admin_token === true,
     );
 
     // The same two questions the single create asks, over the services the
@@ -1130,7 +1137,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings)}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken)}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };

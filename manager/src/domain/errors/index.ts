@@ -12,6 +12,7 @@ export { EngineSettingsChangedError } from './EngineSettingsChangedError.js';
 export { DeploymentSettingsChangedError } from './DeploymentSettingsChangedError.js';
 export { DeploymentStoppedError } from './DeploymentStoppedError.js';
 export { ManagerSettingsChangedError } from './ManagerSettingsChangedError.js';
+export { ManagerAdminTokenMissingError } from './ManagerAdminTokenMissingError.js';
 export { AdminLinkInputError } from './AdminLinkInputError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';

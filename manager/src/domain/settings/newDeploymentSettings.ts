@@ -1,5 +1,7 @@
 import {
+  ADMIN_API_TOKEN_KEY,
   adminLinkEditProblem,
+  type DeploymentSettingEntry,
   type EngineName,
   engineForComponents,
   isSecretSettingKey,
@@ -71,31 +73,54 @@ export function newDeploymentSettingsCatalogFor(
 }
 
 /**
+ * Why the manager's stored web2 admin token cannot be copied into a
+ * deployment created with these settings, or null: the create types a token
+ * of its own too, or the version gives the operator no `ADMIN_API_TOKEN` to set.
+ */
+function managerTokenProblem(settings: readonly NewDeploymentSetting[], entries: readonly DeploymentSettingEntry[]): string | null {
+  if (settings.some(({ key }) => key === ADMIN_API_TOKEN_KEY)) {
+    return `${ADMIN_API_TOKEN_KEY} is typed for this deployment and also asked for from the manager's stored token. Send one of the two.`;
+  }
+  const entry = entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (!entry?.declared) return `${ADMIN_API_TOKEN_KEY} is not a setting this deployment's version declares, so the manager's stored token has nowhere to go.`;
+  if (entry.owner !== null) return `${ADMIN_API_TOKEN_KEY} is not one this deployment sets, so the manager's stored token has nowhere to go.`;
+  return null;
+}
+
+/**
  * The stack settings a new deployment is created with, held to the rules a
  * save of its settings page is held to, against the list its version gives a
  * deployment of this shape, and split the way the two columns hold them. That
  * includes the web2 admin rule, judged on what the version gives the two keys
- * and what the create sets for them. Refused whole, each key named and no
- * value repeated. A create that names none reads nothing, so it is never
- * refused over a version's files.
+ * and what the create sets for them, the manager's stored token counted when
+ * the create asks for it. Refused whole, each key named and no value
+ * repeated. A create that names none and asks for nothing reads nothing, so
+ * it is never refused over a version's files.
+ *
+ * @param copyManagerAdminToken whether the insert copies the manager's stored
+ *   web2 admin token into the deployment, which never passes through here.
  */
 export function initialStackSettingsFor(
   name: string,
   version: StackVersionRecord,
   shape: NewDeploymentShape,
   settings: readonly NewDeploymentSetting[],
+  copyManagerAdminToken = false,
 ): InitialStackSettings {
-  if (settings.length === 0) return NO_STACK_SETTINGS;
+  if (settings.length === 0 && !copyManagerAdminToken) return NO_STACK_SETTINGS;
   const sources = sourcesOf(version, shape);
-  const problems = settingEditProblems(settings, catalogOf(version, shape, sources).entries);
+  const { entries } = catalogOf(version, shape, sources);
+  const problems = settingEditProblems(settings, entries);
+  const tokenProblem = copyManagerAdminToken ? managerTokenProblem(settings, entries) : null;
+  if (tokenProblem) problems.push(tokenProblem);
   if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
   const versionValues = versionValuesOf(sources.files);
-  const adminProblem = adminLinkEditProblem(
-    settings,
-    adminLinkBeforeOf({ current: versionValues, version: versionValues, requiredSecrets: sources.required }),
-  );
+  const before = adminLinkBeforeOf({ current: versionValues, version: versionValues, requiredSecrets: sources.required });
+  const token = copyManagerAdminToken ? { current: true, afterReset: true } : before.token;
+  const adminProblem = adminLinkEditProblem(settings, { ...before, token });
   if (adminProblem) throw new ProfileConfigError(name, adminProblem);
-  return initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
+  const initial = initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
+  return copyManagerAdminToken ? { ...initial, copyManagerAdminToken } : initial;
 }
 
 /** Values by key, split the way the two columns hold them: a secret apart from the rest. */

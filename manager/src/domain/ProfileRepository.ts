@@ -8,6 +8,7 @@ import {
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
+import { copyManagerAdminToken } from './adminLink/adminTokenCopy.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
 import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, OPERATION_HOLD_FOR_OWNER_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
@@ -100,6 +101,12 @@ export interface EngineSettingsChange {
 export interface InitialStackSettings {
   plain: Readonly<Record<string, string>>;
   secret: Readonly<Record<string, string>>;
+  /**
+   * Whether the insert copies the manager's stored web2 admin token into the
+   * secret settings as `ADMIN_API_TOKEN`, which refuses the whole insert when
+   * none is stored. Left out, nothing is copied.
+   */
+  copyManagerAdminToken?: boolean;
 }
 
 /** What a create that names no stack settings stores, so its version's values stand. */
@@ -240,6 +247,7 @@ export class ProfileRepository {
           JSON.stringify(stackSettings.secret),
         ],
       );
+      if (stackSettings.copyManagerAdminToken) await copyManagerAdminToken(client, name);
       await client.query('COMMIT');
       return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
     } catch (err) {
