@@ -173,11 +173,11 @@ and Stack settings:
   recreates the containers that read what changed: the engine, the uploader with it for the
   segment length, and the uploader alone for the poll interval. Until 2026-09-26 the drawer's
   Save, **Apply and recreate engine**, stored and recreated in one step.
-- **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
-  few seconds. Settings are not changed.` With live status available the dialog says whether a
-  publisher is connected right now.
+- **Restart** asks first: `Restart SRS for stream1?`, then `The publisher, if there is one, is
+  disconnected for a few seconds and reconnects on its own if OBS is set to retry. Settings are not
+  changed.` With live status available the dialog says whether a publisher is connected right now.
 - **Logs** opens a dialog with the last 200 lines of the engine container, a Refresh button and a
-  service switch (srs, stream-uploader, bee-uploader) so the same dialog serves the whole stack.
+  switch between the deployment's containers, so the same dialog serves the whole stack.
 - **Effective config** (inside the Logs dialog as a second tab): the generated `srs.conf` as the
   container is running it, read-only, with a copy button. It is the fastest way to see which
   values actually applied.
