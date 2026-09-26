@@ -149,7 +149,10 @@ https address with a host and no user name, password or `#` part, and `ADMIN_API
 The two web2 admin keys also answer to a rule together, because the uploader turns admin mode on
 from the address alone and then refuses to start without a token: a save that names either key and
 leaves an address with no token anywhere, stored, set by the version or generated, is refused with
-both keys named. A save of other keys is not held to it.
+both keys named. A save of other keys is not held to it. A token the deployment stores goes only to
+the origin of the address it was stored for, so a save that moves `ADMIN_API_URL` to another origin
+has to come with a new token or a cleared one, and a deploy that would give the uploader another
+origin is refused.
 [The web2 admin link](web2-admin-link.md) has the rest of that feature.
 
 ## API

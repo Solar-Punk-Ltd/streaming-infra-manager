@@ -143,7 +143,7 @@ export interface WizardContext {
   /**
    * The web2 admin link the manager gives new deployments, which the Web2
    * admin group starts from. Null or absent while it is read or when it could
-   * not be, which starts the group off.
+   * not be, which `managerAdminLinkStatus` tells apart.
    */
   managerAdminLink?: ManagerAdminLink | null;
   /** Whether that link is still being read, or could not be. Absent is read. */

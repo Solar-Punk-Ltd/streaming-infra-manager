@@ -33,8 +33,8 @@ function streamAddressOf(profile: Profile): string | null {
 /**
  * Test connection, from a page: an address typed there with a typed token or
  * the manager's stored one, and what a deployment's next deploy would give its
- * uploader. The stored token never leaves the manager, and an answer is the
- * outcome code alone. The log line names who asked and the outcome, never the
+ * uploader. A stored token never reaches a page and is presented only to the
+ * origin it was stored for, and an answer is the outcome code alone. The log line names who asked and the outcome, never the
  * address or a token.
  */
 export class AdminLinkTester {

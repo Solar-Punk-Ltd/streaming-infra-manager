@@ -127,7 +127,9 @@ export function leavesAdminLinkToManager(settings: readonly NewDeploymentSetting
  * and what the create sets for them, the manager's stored token counted when
  * the create asks for it. Refused whole, each key named and no secret
  * repeated. A create that names none and asks for nothing reads nothing, so
- * it is never refused over a version's files.
+ * it is never refused over a version's files. A token the create stores,
+ * typed or copied, is recorded for the origin of the address the deployment
+ * starts with.
  *
  * @param copyManagerAdminToken whether the insert copies the manager's stored
  *   web2 admin token into the deployment, which never passes through here.

@@ -12,7 +12,8 @@ import { validateBodyRefusingUnknown, validateParams } from '../middleware/valid
  * stream uploader would be given, asked from where the manager runs.
  *
  * Two routes. One tests an address typed on the Manager settings page or in
- * the new-deployment wizard, with a typed token or the manager's stored one.
+ * the new-deployment wizard, with a typed token or the manager's stored one,
+ * which it presents only on the origin the token was saved for.
  * The other tests what a deployment's next deploy would give its uploader,
  * whose token never leaves the manager. Both answer an outcome code and
  * nothing the admin said, and sit behind the session like every router here.

@@ -13,7 +13,9 @@ admin](../manager/README.md#linking-uploaders-to-the-web2-admin) of
 
 Status, 2026-09-26. Built on `feat/admin-link-out-of-the-box`, branched from
 `feat/deployment-settings-engine` at `02f699d4`, plan item D of the plan that
-makes every stack setting configurable.
+makes every stack setting configurable. The rule that a stored token goes only
+to the address it was stored for, and the manager's link for a scripted create,
+were added on the same branch after its review, as of `88369bf1`.
 
 ## The two keys, and the rule they answer to together
 
@@ -52,12 +54,60 @@ that exists.
 
 A create that asks for the stored token sends `use_manager_admin_token: true`
 and never the token. Inside the transaction that inserts the deployment, or each
-member of a group, one statement copies the token from `manager_admin_link` into
-the new row's `stack_settings_secret` as `ADMIN_API_TOKEN`
+member of a group, the insert reads the manager's link and locks its row, then
+one statement copies the token from `manager_admin_link` into the new row's
+`stack_settings_secret` as `ADMIN_API_TOKEN`
 (`manager/src/domain/adminLink/adminTokenCopy.ts`). When the manager stores
 none by then, the whole insert rolls back, the port slot with it, and the create
-is refused with `admin_token_missing`. The token goes from one column to the
-other and never through the manager's process or a page.
+is refused with `admin_token_missing`. When the new deployment's `ADMIN_API_URL`,
+the one the create sends or else its version's, is on another origin than the
+link's, or empty, it is refused the same way with `admin_token_elsewhere`. The
+lock holds until the insert ends, so a save of the link waits for it and cannot
+swap in a token saved for another address. The token goes from one column to
+the other and never through the manager's process or a page.
+
+A create through the API for a deployment that runs a stream uploader, naming
+neither key and not asking for the token, is given the manager's link the same
+way: its address as `ADMIN_API_URL` and the stored token copied in. Only when
+the manager stores both an address and a token, and only for a version that
+lets a create set both keys, so the default never leaves an address the
+uploader refuses to start with.
+
+## Where a stored token may go
+
+A stored token goes only to the origin, meaning the scheme, host and port, of
+the address it was stored for. `sameAdminOrigin` in `common/src/adminLink.ts`
+compares the two as the WHATWG URL parser normalizes them: the host
+lowercased, a default port dropped, IPv6 and IPv4 forms rewritten. A path may
+change. A host with a trailing dot is another
+origin, which refuses more and never less. An address with no origin, empty
+included, matches nothing.
+
+- **The manager's link.** A save that moves the address to another origin has
+  to come with a new token or a cleared one, or it is refused with a sentence
+  saying so. Test connection with the stored token asks nothing at an address
+  on another origin and answers `stored-token-elsewhere`, so an unsaved
+  address there needs a typed token. The store reads the address and the token
+  together, so the two a test compares are the ones one read found.
+- **A deployment's own token.** Migration 042 adds `profiles.admin_token_origin`,
+  the origin its own stored `ADMIN_API_TOKEN` was stored for, written by a
+  create that types the token or copies the manager's, by a save that stores
+  or takes out the token, and for a member added to a group from its siblings.
+  An empty string is a token stored with no address, which goes to none until
+  it is typed again with one. A save that moves `ADMIN_API_URL` to another
+  origin, a reset that puts back the version's address elsewhere included, has
+  to come with a new token or a cleared one. A deploy that would give the
+  uploader another origin, because the version's own address moved under it,
+  is refused with a sentence naming both keys, and the card's Test connection
+  answers `stored-token-elsewhere` without asking anything. A token stored
+  before the column existed is recorded by its next deploy, for the address
+  that deploy gives the uploader.
+
+The pages say it before the manager refuses. The Manager settings card names it
+under the token field and keeps Save and Test connection off. The wizard's
+group says the manager's stored token was saved for another address, holds
+Continue, and offers a button that moves to a token typed there with focus in
+its field.
 
 ## Test connection
 
@@ -99,7 +149,10 @@ signed-in user learns an outcome code and nothing else.
 - **The new-deployment wizard's Web2 admin group**, for every goal that runs a
   stream uploader: `frontend/src/forms/wizard/adminLinkChoice.ts` and
   `steps/AdminLinkGroup.tsx`. It follows the manager's link until the operator
-  touches it. Switched off, the create stores an empty `ADMIN_API_URL`. Under
+  touches it, and holds Continue while that link is read. Switched off, the
+  create stores an empty `ADMIN_API_URL`. When the link cannot be read and the
+  operator leaves the group alone, the group says so with Try again and the
+  create sends neither key, so the manager adds its own link. Under
   Advanced settings the two keys point at the group, with the owner kind
   `admin-link`, which only the wizard's list uses.
 - **A deployment's Stack settings card**, where the two keys are ordinary
@@ -113,15 +166,27 @@ and so on, and every sentence can be seen with `pnpm -C frontend dev:mock`.
 
 ## Limits
 
-- A create through the API that does not name the admin link gets the version's
-  values, not the manager's link. The wizard always names it for a deployment
-  that runs an uploader.
+- A create through the API is given the manager's link only when the manager
+  stores an address and a token. An address alone is not given to it, since the
+  uploader would refuse to start with no token.
+- A create through the API that names neither key can be refused with
+  `admin_token_elsewhere` or `admin_token_missing` when the manager's link
+  changes between the read that chose it and the insert.
 - The card's test uses the saved values. A change that is not saved yet is
   tested once it is saved, and the block says so while one is pending.
-- A signed-in user can present the manager's stored token to an address typed in
-  the wizard, in a test or in a create, so whoever can sign in can send that
-  token to a server of their own. The same user can already deploy containers on
-  the host.
+- A signed-in user can still save the manager's link with an address and a new
+  token of their own, or type a token for any address. The stored token itself
+  goes only to the origin it was saved for. The same user can already deploy
+  containers on the host.
+- The origin rule guards the tokens the manager stores, the manager's and a
+  deployment's own. A token the version's base `.env` sets travels with that
+  file's own address and is not held to it.
+- A token stored before migration 042 is recorded by its next deploy for the
+  address that deploy gives the uploader, so an address its version moved
+  before that deploy is taken as the one it was stored for.
+- The card's test compares no owner for a deployment whose stream key comes
+  from its version's base `.env`, because the manager holds no address for that
+  key and has no keccak-256 to derive one.
 - A query string in the address passes the field and reaches the uploader, which
   puts its paths after the query and so asks the wrong thing. Test connection
   builds its requests the same way and answers `not-admin` for it.

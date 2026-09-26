@@ -7,13 +7,16 @@
  * is set. The Manager settings page's card: an address and a token set once
  * for every new uploader deployment, a token that is never shown and only said
  * to be stored, a value the manager would refuse named under its field, Test
- * connection, and clearing the stored token. The new-deployment wizard's Web2
- * admin group: on from the manager's link, the two keys of Advanced settings
- * pointed at it, a deployment created linked with the manager's token copied
- * in, and one created with the link off, which stores an empty address. And a
- * deployment's Stack settings card: Test connection right after the two keys,
- * with every outcome's sentence for what the next deploy would give the
- * uploader.
+ * connection, an address on another origin that asks for the token again, and
+ * clearing the stored token. The new-deployment wizard's Web2 admin group: on
+ * from the manager's link, a move to a typed token when the address leaves the
+ * stored token's origin, the two keys of Advanced settings pointed at it, a
+ * deployment created linked with the manager's token copied in, one created
+ * with a token typed there, and one created with the link off, which stores an
+ * empty address. And a deployment's Stack settings card: a save that moves the
+ * address and leaves the token refused, and Test connection right after the
+ * two keys, with every outcome's sentence for what the next deploy would give
+ * the uploader.
  *
  * A real headless Chrome over a real Vite, proxying to the real dev mock
  * manager, whose Test connection reads its outcome off the address, so every

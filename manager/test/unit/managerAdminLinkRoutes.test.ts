@@ -8,7 +8,8 @@
  *
  * The address is answered in clear. The token never is, only whether one is
  * stored, and no refusal repeats either. A save names the revision it read,
- * so two operators editing at once cannot overwrite each other unseen.
+ * so two operators editing at once cannot overwrite each other unseen, and an
+ * address on another origin has to come with a new token or a cleared one.
  */
 import assert from 'node:assert/strict';
 import http from 'node:http';

@@ -13,7 +13,9 @@
  * offline: `https://unreachable.admin.offline.example` answers `unreachable`,
  * `https://owner-mismatch.admin.offline.example` answers `owner-mismatch`, and
  * so on for each outcome. Any other address takes the token, and is linked
- * when there is a stream address to compare with the admin's owner.
+ * when there is a stream address to compare with the admin's owner. The stored
+ * token is not presented at an address on another origin than the link's, as
+ * the manager does not present it there.
  */
 import {
   ADMIN_LINK_TEST_OUTCOMES,

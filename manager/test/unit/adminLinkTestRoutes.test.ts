@@ -9,8 +9,8 @@
  * manager/.
  *
  * An answer is an outcome code and nothing else. The stored token never
- * leaves the manager, and neither the address nor any token reaches an answer
- * or a log line.
+ * leaves the manager for another origin than the one it was saved for, and
+ * neither the address nor any token reaches an answer or a log line.
  */
 import assert from 'node:assert/strict';
 import http from 'node:http';

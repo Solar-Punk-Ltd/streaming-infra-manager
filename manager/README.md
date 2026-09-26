@@ -551,7 +551,7 @@ defaults, and moves the one revision for the whole save.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running, engine, abr, engineSettingsProblem }`, `no-store`. No secret value, only whether one is stored. `engine` and `abr` say which engine's settings the list takes and whether the rung settings are among them, and an engine setting's entry carries `engineSetting`, where its default comes from and whether the config the engine runs still reads it. `engineSettingsProblem` is the sentence the next deploy would refuse the stored engine settings with, or null, which a change to the host's defaults can bring about under values it took when they were saved. 409 `settings_not_ready` for a version with no build |
-| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing, and one refused key refuses the whole save. 400 `validation_error` for a key the version does not declare and the deployment does not store, a key named twice, a key a control of the deployment decides, an engine setting the deployment does not read, a value for a stored key the version no longer declares, which only takes a reset, a value the stack would read differently or outside the bounds or choices the stack takes for its key, an engine value outside its field, engine settings the engine would refuse together, or a web2 admin address left with no token anywhere. 409 `deployment_settings_changed` for an older revision, 409 `profile_instance_changed` for a deployment removed and created again under the name, 409 `profile_busy` while it is being removed. A save that names no engine setting is taken while `engineSettingsProblem` stands |
+| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing, and one refused key refuses the whole save. 400 `validation_error` for a key the version does not declare and the deployment does not store, a key named twice, a key a control of the deployment decides, an engine setting the deployment does not read, a value for a stored key the version no longer declares, which only takes a reset, a value the stack would read differently or outside the bounds or choices the stack takes for its key, an engine value outside its field, engine settings the engine would refuse together, a web2 admin address left with no token anywhere, or a web2 admin address moved to another origin than the one a stored token was stored for. 409 `deployment_settings_changed` for an older revision, 409 `profile_instance_changed` for a deployment removed and created again under the name, 409 `profile_busy` while it is being removed. A save that names no engine setting is taken while `engineSettingsProblem` stands |
 | POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 400 `validation_error` with the `engineSettingsProblem` sentence while it stands, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys, stops or is removed, 409 `profile_instance_changed` for a deployment removed and created again under the name |
 | GET | `/versions/:id/settings-catalog?kind=&components=&host=` | none | `{ versionId, buildId, entries }`, `no-store`. What a deployment not created yet starts with: the version's keys and values, the control that decides each key a control decides, nothing stored, recorded or running. No secret value. `kind` defaults to `custom`, `components` is a comma list, and `host` absent is the manager's own. 400 `validation_error` for a query no create body could describe, 404 `stack_version_not_found`, 409 `settings_not_ready` for a version with no build |
 | POST | `/profiles/:name/settings/admin-link/test` | none | `{ outcome }`, `no-store`. Test connection for what the next deploy would give the uploader, described in [Linking uploaders to the web2 admin](#linking-uploaders-to-the-web2-admin). 404 `profile_not_found` |
@@ -579,6 +579,17 @@ with no token anywhere is refused with both keys named. A token counts when the
 deployment stores one, when its version sets one, or when the manager generates
 one because the version requires it. A save of other keys is not held to this.
 
+**Where a stored token goes.** A token the manager stores, its own or a
+deployment's, goes only to the origin, meaning the scheme, host and port, of
+the address it was stored for. A path may change. A save that moves the
+address to another origin has to come with a new token or a cleared one, or it
+is refused with a sentence saying so, and that holds for a reset that puts back
+the version's address elsewhere too. Each deployment records the origin its own
+token was stored for, migration 042, so a deploy that would give the uploader
+another origin, because the version's own address moved under it, is refused
+the same way. A token stored before that migration is recorded by its next
+deploy. A token the version's base `.env` sets is not held to this.
+
 **The owner rule.** The admin signs its catalog with its `FEED_PRIVATE_KEY`,
 and the uploader signs every feed it writes with the deployment's stream key,
 `STREAM_KEY`. The two have to derive one address. The uploader reads the admin's
@@ -591,7 +602,9 @@ with, or point it at the admin that signs with its own.
 one card, Web2 admin link for new deployments: the address, and a token field
 that starts empty under a line saying whether a token is stored. Typing
 replaces the stored token, Clear takes it out, and leaving the field empty
-keeps it. Every new uploader deployment starts with this link. It reaches only
+keeps it. Every new uploader deployment starts with this link, a create through
+the API that names neither key included, where the manager stores both an
+address and a token and the version lets a create set both keys. It reaches only
 deployments created after it is set, because a deployment keeps what it was
 created with in its own settings. The address is stored in clear and the token
 the way a deployment's own secrets are, in a single-row table, migration 041,
@@ -603,10 +616,16 @@ web2 admin, on when the manager has a link of its own and off otherwise, the
 address prefilled from it and editable, and either the manager's stored token
 or one typed there. The stored token never reaches the browser: the create
 sends `use_manager_admin_token` and the manager copies the token into the new
-deployment's secret settings inside the insert's own transaction, and refuses
-the whole create with 409 `admin_token_missing` when it stores none by then.
-Switched off, the deployment stores an empty `ADMIN_API_URL`, so its uploader
-runs standalone even when its version's base `.env` turns admin mode on. Under
+deployment's secret settings inside the insert's own transaction. It refuses
+the whole create with 409 `admin_token_missing` when it stores none by then,
+and with 409 `admin_token_elsewhere` when the new deployment's address is on
+another origin than the one the token was saved for, or empty. The group says
+so before that, and offers to type a token for the address instead. The group
+waits for the manager's link before Continue, and when that link cannot be
+read and the operator leaves the group alone, the create sends neither key, so
+the manager adds its own. Switched off, the deployment stores an empty
+`ADMIN_API_URL`, so its uploader runs standalone even when its version's base
+`.env` turns admin mode on. Under
 Advanced settings the two keys point at this group rather than being editable
 twice. A deployment's own Stack settings card edits both keys afterwards, the
 token hidden.
@@ -619,8 +638,9 @@ internal lookup of a stream nobody declared, `GET
 with the token, and where there is a stream address to compare, the admin's
 public `GET <address>/api/config` without it. The card's test uses what the
 deployment's next deploy would give its uploader, the saved values, and the
-deployment's stream address. It answers one of these, and the page says one
-sentence for each:
+deployment's stream address. A stored token is presented only to the origin it
+was stored for. It answers one of these, and the page says one sentence for
+each:
 
 | Outcome | What it means |
 | ------- | ------------- |
@@ -635,6 +655,7 @@ sentence for each:
 | `invalid-address` | The address is not an http or https one the uploader can use. |
 | `not-linked` | The deployment has no address, so its uploader runs standalone. |
 | `no-token` | There is an address and no token to test with. |
+| `stored-token-elsewhere` | The stored token was saved for another origin, so nothing was asked. A token typed for this address can be tested. |
 
 The admin's own 404 for that lookup is `{ "error": "stream_not_found" }` and its
 401 is `{ "error": "unauthenticated" }`, and the test reads those codes rather
@@ -653,14 +674,16 @@ tests or edits the link needs a session.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/manager-settings/admin-link` | none | `{ url, tokenStored, revision }`, `no-store`. `url` null is no default |
-| PUT | `/manager-settings/admin-link` | `{ expectedRevision, url, token? }`, `url` empty for no default, `token` left out to keep the stored one, null to clear it | The link as it stands after. 400 `validation_error` for an address or a token the uploader would refuse, or a token with no address, 409 `manager_settings_changed` for an older revision |
-| POST | `/manager-settings/admin-link/test` | `{ url, token: { source: 'stored' } or { source: 'typed', value }, feedOwner? }` | `{ outcome }`, `no-store`. `no-token` when the manager stores no token. 400 `validation_error` for an address or a typed token the uploader would refuse |
+| PUT | `/manager-settings/admin-link` | `{ expectedRevision, url, token? }`, `url` empty for no default, `token` left out to keep the stored one, null to clear it | The link as it stands after. 400 `validation_error` for an address or a token the uploader would refuse, a token with no address, or an address on another origin that keeps the stored token, 409 `manager_settings_changed` for an older revision |
+| POST | `/manager-settings/admin-link/test` | `{ url, token: { source: 'stored' } or { source: 'typed', value }, feedOwner? }` | `{ outcome }`, `no-store`. `no-token` when the manager stores no token, `stored-token-elsewhere` for the stored token and an address on another origin. 400 `validation_error` for an address or a typed token the uploader would refuse |
 | POST | `/profiles/:name/settings/admin-link/test` | none | `{ outcome }` for what the deployment's next deploy would give its uploader |
 
 `POST /profiles` and `POST /groups` take `use_manager_admin_token: true` beside
-`stack_settings`. It is refused beside a typed `ADMIN_API_TOKEN`, and for a
-version that gives the operator no `ADMIN_API_TOKEN` to set. The design and its
-limits are in [docs/features/web2-admin-link.md](../docs/features/web2-admin-link.md).
+`stack_settings`. It is refused beside a typed `ADMIN_API_TOKEN`, for a version
+that gives the operator no `ADMIN_API_TOKEN` to set, and with 409
+`admin_token_elsewhere` for an address on another origin than the stored
+link's. The design and its limits are in
+[docs/features/web2-admin-link.md](../docs/features/web2-admin-link.md).
 
 ### Engine control
 

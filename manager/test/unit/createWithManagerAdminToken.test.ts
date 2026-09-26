@@ -4,8 +4,10 @@
  *
  * Unit test, no database and no deploy script. `pnpm test` in manager/. The
  * copy itself happens in the insert's own SQL, which the database test
- * `managerAdminLink.test.ts` proves. This proves the create asks for it and
- * refuses what cannot work.
+ * `managerAdminLink.test.ts` proves. This proves the create asks for it,
+ * refuses what cannot work, an address on another origin than the one the
+ * token was saved for included, and gives a create for an uploader that names
+ * neither key the manager's own link.
  *
  * The stored token never reaches the browser: the create says to use it, the
  * manager puts it in the new deployment's secret settings at insert, and no
