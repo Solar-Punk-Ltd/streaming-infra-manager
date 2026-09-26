@@ -381,6 +381,7 @@ export class InMemoryGroups {
       this.profiles.rows.delete(name);
       this.profiles.rpcEndpoints.delete(name);
       this.profiles.stackSettings.delete(name);
+      this.profiles.adminTokenOrigins.delete(name);
       this.profiles.reservations.dropProfile(name);
     }
   }

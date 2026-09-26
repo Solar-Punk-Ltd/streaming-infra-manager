@@ -237,10 +237,11 @@ export class DeploymentGroupRepository {
          name, port_slot, kind, notes, status,
          components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
          srt_passphrase, group_id, stack_version_id, engine_settings,
-         node_mode, rpc_endpoint_source, rpc_endpoint, stack_settings, stack_settings_secret
+         node_mode, rpc_endpoint_source, rpc_endpoint, stack_settings, stack_settings_secret,
+         admin_token_origin
        )
        VALUES ($1, $2, $3, $4, 'STOPPED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb,
-               $16, COALESCE($17::text, 'stack'), $18, $19::jsonb, $20::jsonb)
+               $16, COALESCE($17::text, 'stack'), $18, $19::jsonb, $20::jsonb, $21)
        RETURNING ${PROFILE_COLUMNS}`,
       [
         name,
@@ -263,6 +264,7 @@ export class DeploymentGroupRepository {
         shared.rpc_endpoint,
         JSON.stringify(shared.stack_settings.plain),
         JSON.stringify(shared.stack_settings.secret),
+        shared.stack_settings.adminTokenOrigin ?? null,
       ],
     );
     if (shared.stack_settings.copyManagerAdminToken) await copyManagerAdminToken(client, name, shared.stack_settings.copyManagerAdminToken);

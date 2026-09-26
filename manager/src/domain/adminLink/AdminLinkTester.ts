@@ -40,7 +40,7 @@ function streamAddressOf(profile: Profile): string | null {
 export class AdminLinkTester {
   constructor(
     private readonly store: Pick<ManagerAdminLinkStore, 'storedLink'>,
-    private readonly profiles: Pick<ProfileRepository, 'findByName'>,
+    private readonly profiles: Pick<ProfileRepository, 'findByName' | 'stackSettingsOf'>,
     private readonly orchestrator: Pick<DeploymentOrchestrator, 'nextEnvFor'>,
     private readonly probe: AdminLinkProbe = probeAdminLink,
   ) {}
@@ -64,16 +64,20 @@ export class AdminLinkTester {
     return this.probe({ url: request.url, token: stored.token, feedOwner: request.feedOwner ?? null });
   }
 
-  /** Tests what the deployment's next deploy would give its uploader. */
+  /**
+   * Tests what the deployment's next deploy would give its uploader. A token
+   * the deployment stores is presented only to the origin it was stored for,
+   * which is what the deploy holds it to as well.
+   */
   async testDeployment(name: string, username: string): Promise<AdminLinkTestAnswer> {
     const profile = await this.profiles.findByName(name);
     if (!profile) throw new ProfileNotFoundError(name);
     const { env } = await this.orchestrator.nextEnvFor(profile);
-    const outcome = await this.outcomeFor({
-      url: env[ADMIN_API_URL_KEY] ?? '',
-      token: env[ADMIN_API_TOKEN_KEY] ?? '',
-      feedOwner: streamAddressOf(profile),
-    });
+    const url = env[ADMIN_API_URL_KEY] ?? '';
+    const storedWith = (await this.profiles.stackSettingsOf(name))?.adminTokenOrigin ?? null;
+    const outcome = storedWith !== null && url !== '' && !sameAdminOrigin(url, storedWith)
+      ? 'stored-token-elsewhere'
+      : await this.outcomeFor({ url, token: env[ADMIN_API_TOKEN_KEY] ?? '', feedOwner: streamAddressOf(profile) });
     logger.info(`[AdminLink] ${username} tested the web2 admin link of ${name}: ${outcome}`);
     return { outcome };
   }

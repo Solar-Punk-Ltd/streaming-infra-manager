@@ -29,6 +29,9 @@ process.env.SHLS_ROOT = root;
 const { orchestratorHarness } = await import('../support/orchestratorHarness.js');
 const { profileServiceHarness } = await import('../support/profileServiceHarness.js');
 const { createDeploymentSettingsRouter } = await import('../../src/api/routes/deploymentSettings.js');
+const { createAdminLinkTestRouter } = await import('../../src/api/routes/adminLinkTest.js');
+const { AdminLinkTester } = await import('../../src/domain/adminLink/AdminLinkTester.js');
+const { InMemoryManagerAdminLink } = await import('../support/InMemoryManagerAdminLink.js');
 const { createProfilesRouter } = await import('../../src/api/routes/profiles.js');
 const { DeploymentSettingsService } = await import('../../src/domain/settings/DeploymentSettingsService.js');
 const { call, startRouterTestApp } = await import('../support/routerTestApp.js');
@@ -36,6 +39,12 @@ const { call, startRouterTestApp } = await import('../support/routerTestApp.js')
 const INSTANCE_ID = '6f1c2b1e-3a4d-4c5e-9f60-7a8b9c0d1e2f';
 const ADMIN_URL = 'https://admin.example.com';
 const TOKEN = 'synthetic-admin-token-0123456789abcdef';
+const ELSEWHERE = 'https://elsewhere.example.net';
+const OTHER_TOKEN = 'synthetic-other-admin-token-9876543210fedcba';
+const MOVED =
+  'ADMIN_API_URL moves to another address than the one ADMIN_API_TOKEN was stored with, and the manager sends a stored token only to the address it was stored with. Type ADMIN_API_TOKEN again for the new address, or clear it.';
+const DEPLOY_REFUSAL =
+  'ADMIN_API_URL gives the uploader another address than the one ADMIN_API_TOKEN was stored with, and the manager sends a stored token only to the address it was stored with. Type ADMIN_API_TOKEN again for this address on the Stack settings card, or clear it.';
 const REFUSAL =
   'ADMIN_API_URL is set and ADMIN_API_TOKEN is not, and the stream uploader refuses to start that way. Set ADMIN_API_TOKEN, or leave ADMIN_API_URL empty.';
 
@@ -89,11 +98,19 @@ async function settingsApp(contract: { requiredSecrets?: string[] } = {}) {
     next();
   });
   outer.use(createDeploymentSettingsRouter(service));
+  const probed: string[] = [];
+  const tester = new AdminLinkTester(new InMemoryManagerAdminLink(), harness.profiles.asRepository(), harness.orchestrator, async ({ url }) => {
+    probed.push(url);
+    return 'token-accepted';
+  });
+  outer.use(createAdminLinkTestRouter(tester));
   const app = await startRouterTestApp(outer);
   let revision = 0;
   return {
     harness,
+    probed,
     close: () => app.close(),
+    test: async () => (await call(app, 'POST', '/profiles/stage/settings/admin-link/test', {})).body,
     save: async (entries: { key: string; value: string | null }[]) => {
       const answer = await call(app, 'PUT', '/profiles/stage/settings', { expectedInstanceId: INSTANCE_ID, expectedRevision: revision, entries });
       if (answer.status === 200) revision = (answer.body as { revision: number }).revision;
@@ -134,11 +151,12 @@ describe('a save of the web2 admin keys', () => {
     }
   });
 
-  it('takes an address alone once a token is stored', async () => {
+  it('takes an address alone once a token is stored for it', async () => {
+    writeVersion({ url: ADMIN_URL });
     const app = await settingsApp();
     try {
       accepted(await app.save([{ key: 'ADMIN_API_TOKEN', value: TOKEN }]));
-      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }]));
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: `${ADMIN_URL}/v2` }]));
     } finally {
       await app.close();
     }
@@ -220,6 +238,88 @@ describe('a save of the web2 admin keys', () => {
   });
 });
 
+describe("a deployment's stored token and the address it was stored with", () => {
+  it('refuses a save that moves the address to another origin and leaves the token behind, and stores nothing', async () => {
+    const app = await settingsApp();
+    try {
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+      for (const elsewhere of [ELSEWHERE, 'http://admin.example.com', 'https://admin.example.com:8443']) {
+        assert.equal(refusalOf(await app.save([{ key: 'ADMIN_API_URL', value: elsewhere }])), MOVED);
+      }
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: TOKEN });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('takes the move with a new token or a cleared one, and a new path on the same origin', async () => {
+    const app = await settingsApp();
+    try {
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: `${ADMIN_URL}/v2` }]));
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ELSEWHERE }, { key: 'ADMIN_API_TOKEN', value: OTHER_TOKEN }]));
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), ELSEWHERE);
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: '' }, { key: 'ADMIN_API_TOKEN', value: '' }]));
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), null);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses a reset of the address that puts back the version\'s address on another origin', async () => {
+    writeVersion({ url: ELSEWHERE });
+    const app = await settingsApp();
+    try {
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+      assert.equal(refusalOf(await app.save([{ key: 'ADMIN_API_URL', value: null }])), MOVED);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses an address for a token stored with none, which was stored for no address', async () => {
+    const app = await settingsApp();
+    try {
+      accepted(await app.save([{ key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+      assert.equal(refusalOf(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }])), MOVED);
+      accepted(await app.save([{ key: 'ADMIN_API_URL', value: ADMIN_URL }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses the deploy and asks nothing on Test connection once the version moves the address it inherits', async () => {
+    writeVersion({ url: ADMIN_URL });
+    const app = await settingsApp();
+    try {
+      accepted(await app.save([{ key: 'ADMIN_API_TOKEN', value: TOKEN }]));
+      assert.deepEqual(await app.test(), { outcome: 'token-accepted' });
+      writeVersion({ url: ELSEWHERE });
+
+      assert.deepEqual(await app.test(), { outcome: 'stored-token-elsewhere' });
+      assert.deepEqual(app.probed, [ADMIN_URL]);
+      await assert.rejects(app.harness.orchestrator.startDeploy(app.harness.profiles.rows.get('stage')!, undefined), {
+        message: DEPLOY_REFUSAL,
+      });
+      assert.equal(app.harness.runner.runs.length, 0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('binds a token stored before origins were recorded to the address its next deploy gives it', async () => {
+    writeVersion({ url: ADMIN_URL });
+    const app = await settingsApp();
+    try {
+      app.harness.profiles.stackSettings.set('stage', { ADMIN_API_TOKEN: TOKEN });
+      await app.harness.orchestrator.startDeploy(app.harness.profiles.rows.get('stage')!, undefined);
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), ADMIN_URL);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe('a create with the web2 admin keys', () => {
   async function createApp() {
     const harness = profileServiceHarness();
@@ -242,11 +342,12 @@ describe('a create with the web2 admin keys', () => {
     }
   });
 
-  it('takes an address with a token typed beside it', async () => {
+  it('takes an address with a token typed beside it, and stores the token for that address', async () => {
     const app = await createApp();
     try {
-      const created = await app.create([{ key: 'ADMIN_API_URL', value: ADMIN_URL }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]);
+      const created = await app.create([{ key: 'ADMIN_API_URL', value: `${ADMIN_URL}/v2` }, { key: 'ADMIN_API_TOKEN', value: TOKEN }]);
       assert.equal(created.status, 202, JSON.stringify(created.body));
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), ADMIN_URL);
     } finally {
       await app.close();
     }

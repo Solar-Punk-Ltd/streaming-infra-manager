@@ -134,6 +134,9 @@ export class InMemoryProfiles {
   /** The `stack_settings` and `stack_settings_secret` columns together, as the deploy reads them. */
   readonly stackSettings = new Map<string, Record<string, string>>();
 
+  /** Each deployment's `admin_token_origin`, left out where it is null. */
+  readonly adminTokenOrigins = new Map<string, string | null>();
+
   /** Each deployment's `settings_revision`, 0 until its first save. */
   readonly settingsRevisions = new Map<string, number>();
 
@@ -260,6 +263,7 @@ export class InMemoryProfiles {
   storeInitialStackSettings(name: string, stackSettings: InitialStackSettings): void {
     const values = this.initialValuesOf(stackSettings);
     if (Object.keys(values).length > 0) this.stackSettings.set(name, values);
+    if (stackSettings.adminTokenOrigin !== undefined) this.adminTokenOrigins.set(name, stackSettings.adminTokenOrigin);
   }
 
   async transitionStatus(
@@ -544,7 +548,12 @@ export class InMemoryProfiles {
       secretKeys: secretKeys.sort(),
       engine: { ...row.engine_settings },
       revision: this.settingsRevisions.get(name) ?? 0,
+      adminTokenOrigin: this.adminTokenOrigins.get(name) ?? null,
     };
+  }
+
+  async bindAdminTokenOrigin(name: string, origin: string): Promise<void> {
+    if ((this.adminTokenOrigins.get(name) ?? null) === null) this.adminTokenOrigins.set(name, origin);
   }
 
   async updateStackSettings(
@@ -558,6 +567,7 @@ export class InMemoryProfiles {
     const next = { ...(this.stackSettings.get(name) ?? {}) };
     for (const key of change.remove) delete next[key];
     this.stackSettings.set(name, { ...next, ...change.plain, ...change.secret });
+    if (change.adminTokenOrigin !== undefined) this.adminTokenOrigins.set(name, change.adminTokenOrigin);
     const engine = { ...row.engine_settings };
     for (const key of change.engine.remove) delete engine[key];
     this.write(name, { engine_settings: { ...engine, ...change.engine.set } });

@@ -1,6 +1,7 @@
 /**
- * The manager's own web2 admin link, migration 041's single-row table, against
- * a real PostgreSQL.
+ * The manager's own web2 admin link, migration 041's single-row table, and
+ * migration 042's record of where a deployment's token goes, against a real
+ * PostgreSQL.
  *
  * `pnpm test:database` in manager/, or on its own with T11_TEST_PG_PORT set.
  *
@@ -10,7 +11,9 @@
  * no address even from a write that skipped the service. And that a new
  * deployment, or every member of a new group, that asks for the stored token
  * gets it in its secret settings inside the insert's own transaction, or is
- * not created at all.
+ * not created at all, and only for an address on the origin it was saved for.
+ * And that migration 042 records the origin a deployment's own token is for,
+ * which a save moves only when it stores or takes out the token.
  */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -238,6 +241,63 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
       });
 
       assert.deepEqual(await secretsOf('plain'), {});
+    });
+  });
+
+  describe("the origin a deployment's own stored token is for", () => {
+    const PLACEMENT = { stackVersionId: 1, slotCap: 99, daemonId: 'synthetic-daemon', table: [] };
+
+    async function originOf(name: string): Promise<unknown> {
+      const row = await pool.query('SELECT admin_token_origin FROM profiles WHERE name = $1', [name]);
+      return row.rows[0]?.admin_token_origin;
+    }
+
+    it('is recorded at the insert, for a typed token and for the copied one, and null where none is stored', async () => {
+      await link.write({ url: ADMIN_URL, token: TOKEN }, 0, 'operator');
+      const profiles = new ProfileRepository(pool);
+
+      await profiles.insertWithFreeSlot('typed', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, {
+        plain: { ADMIN_API_URL: ADMIN_URL },
+        secret: { ADMIN_API_TOKEN: TOKEN },
+        adminTokenOrigin: ADMIN_URL,
+      });
+      await profiles.insertWithFreeSlot('copied', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, {
+        plain: { ADMIN_API_URL: ADMIN_URL },
+        secret: {},
+        copyManagerAdminToken: { url: ADMIN_URL },
+        adminTokenOrigin: ADMIN_URL,
+      });
+      await profiles.insertWithFreeSlot('bare', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, { plain: {}, secret: {} });
+
+      assert.equal(await originOf('typed'), ADMIN_URL);
+      assert.equal(await originOf('copied'), ADMIN_URL);
+      assert.equal(await originOf('bare'), null);
+      assert.equal((await profiles.stackSettingsOf('typed'))?.adminTokenOrigin, ADMIN_URL);
+    });
+
+    it('moves with a save that stores or takes out the token, and stays through one that does not', async () => {
+      const profiles = new ProfileRepository(pool);
+      const row = await profiles.insertWithFreeSlot('saved', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, { plain: {}, secret: {} });
+      assert.ok(row);
+      const empty = { plain: {}, secret: {}, remove: [], engine: { set: {}, remove: [] } };
+      const guard = (expectedRevision: number) => ({ instanceId: row.instance_id, expectedRevision });
+
+      await profiles.updateStackSettings('saved', { ...empty, secret: { ADMIN_API_TOKEN: TOKEN }, adminTokenOrigin: ADMIN_URL }, guard(0));
+      assert.equal(await originOf('saved'), ADMIN_URL);
+      await profiles.updateStackSettings('saved', { ...empty, plain: { LOG_LEVEL: 'debug' } }, guard(1));
+      assert.equal(await originOf('saved'), ADMIN_URL);
+      await profiles.updateStackSettings('saved', { ...empty, remove: ['ADMIN_API_TOKEN'], adminTokenOrigin: null }, guard(2));
+      assert.equal(await originOf('saved'), null);
+    });
+
+    it('is recorded by a deploy only where nothing is recorded yet', async () => {
+      const profiles = new ProfileRepository(pool);
+      await profiles.insertWithFreeSlot('legacy', 'streamer', 'DEPLOYING', {}, PLACEMENT, {}, { plain: {}, secret: { ADMIN_API_TOKEN: TOKEN } });
+
+      await profiles.bindAdminTokenOrigin('legacy', ADMIN_URL);
+      await profiles.bindAdminTokenOrigin('legacy', 'https://elsewhere.example.net');
+
+      assert.equal(await originOf('legacy'), ADMIN_URL);
     });
   });
 });

@@ -106,7 +106,7 @@ import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
 import { deployOwnerOf } from './versions/buildLedger.js';
 import { portPlacementProblem } from './versions/stackContract.js';
-import type { NewProfilePlacement } from './ProfileRepository.js';
+import type { InitialStackSettings, NewProfilePlacement, StoredStackSettings } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import type {
@@ -198,6 +198,12 @@ function nextFreeMemberNames(
     n += 1;
   }
   return names;
+}
+
+/** The origin a sibling's stored web2 admin token is for, where one is recorded, for a member that copies its settings. */
+function adminTokenOriginOf(stored: StoredStackSettings | null): Pick<InitialStackSettings, 'adminTokenOrigin'> {
+  const origin = stored?.adminTokenOrigin ?? null;
+  return origin === null ? {} : { adminTokenOrigin: origin };
 }
 
 /** What the create log says of the stack settings a deployment was given: their keys, never a value. */
@@ -1512,9 +1518,13 @@ export class ProfileService {
       stack_version_id: canonical.stack_version_id,
       // So an appended member cuts the same segments as the siblings it joins,
       // and runs with the same stack settings, the secret ones included, which
-      // the member rows do not carry either.
+      // the member rows do not carry either, and its web2 admin token goes only
+      // where theirs does.
       engine_settings: canonical.engine_settings,
-      stack_settings: initialStackSettingsOf(await this.repo.stackSettingsForDeploy(canonical.name)),
+      stack_settings: {
+        ...initialStackSettingsOf(await this.repo.stackSettingsForDeploy(canonical.name)),
+        ...adminTokenOriginOf(await this.repo.stackSettingsOf(canonical.name)),
+      },
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,

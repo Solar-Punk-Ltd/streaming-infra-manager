@@ -84,7 +84,7 @@ export function adminLinkEditProblem(edits: readonly AdminLinkEdit[], before: Ad
  * The origin a request to this address goes to, scheme, host and port as the
  * URL parser normalizes them, or null for an address that has none.
  */
-function adminOriginOf(url: string): string | null {
+export function adminOriginOf(url: string): string | null {
   if (!URL.canParse(url)) return null;
   const { origin } = new URL(url);
   return origin === 'null' ? null : origin;
@@ -126,4 +126,14 @@ export function storedTokenMoveProblem(edits: readonly AdminLinkEdit[], stored: 
   const url = urlEdit.value ?? stored.afterReset ?? '';
   if (url === '' || sameAdminOrigin(url, stored.url)) return null;
   return `${ADMIN_API_URL_KEY} moves to another address than the one ${ADMIN_API_TOKEN_KEY} was stored with, and the manager sends a stored token only to the address it was stored with. Type ${ADMIN_API_TOKEN_KEY} again for the new address, or clear it.`;
+}
+
+/**
+ * Why a deploy that gives the uploader this address would send a stored token
+ * elsewhere than the origin it was stored for, or null. An empty address sends
+ * the token nowhere.
+ */
+export function storedTokenElsewhereProblem(url: string, storedWith: string): string | null {
+  if (url === '' || sameAdminOrigin(url, storedWith)) return null;
+  return `${ADMIN_API_URL_KEY} gives the uploader another address than the one ${ADMIN_API_TOKEN_KEY} was stored with, and the manager sends a stored token only to the address it was stored with. Type ${ADMIN_API_TOKEN_KEY} again for this address on the Stack settings card, or clear it.`;
 }

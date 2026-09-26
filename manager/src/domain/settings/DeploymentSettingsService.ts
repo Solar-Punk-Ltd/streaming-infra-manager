@@ -1,6 +1,9 @@
 import {
+  ADMIN_API_TOKEN_KEY,
   type AdminLinkBefore,
+  adminLinkAfterEdits,
   adminLinkEditProblem,
+  adminOriginOf,
   assembleEngineSettingObservations,
   defaultServicesFor,
   type DeploymentSettingsApplied,
@@ -18,6 +21,7 @@ import {
   isSecretSettingKey,
   type NewDeploymentSettingsCatalog,
   type StackContract,
+  storedTokenMoveProblem,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../types/index.js';
@@ -96,7 +100,8 @@ export class DeploymentSettingsService {
    * save lands, and the stack keys and the engine settings of one save move
    * the revision once, together. A save that names either web2 admin key is
    * refused when it leaves an address and no token, which the uploader would
-   * refuse to start with.
+   * refuse to start with, and when it moves the address to another origin
+   * than the one the stored token was stored for and leaves the token.
    */
   async save(name: string, save: DeploymentSettingsSave, username: string): Promise<DeploymentSettingsSaved> {
     const profile = await this.profileNamed(name);
@@ -111,10 +116,16 @@ export class DeploymentSettingsService {
     if (stored.revision !== save.expectedRevision) throw new DeploymentSettingsChangedError(name);
     const engineProblem = engineSaveProblem(save, stored, engineSettings);
     if (engineProblem) throw new ProfileConfigError(name, engineProblem);
-    const adminProblem = adminLinkEditProblem(save.entries, adminLink);
+    const adminProblem =
+      adminLinkEditProblem(save.entries, adminLink) ??
+      storedTokenMoveProblem(save.entries, {
+        url: stored.adminTokenOrigin ?? adminLink.url.current,
+        tokenStored: stored.secretKeys.includes(ADMIN_API_TOKEN_KEY),
+        afterReset: adminLink.url.afterReset,
+      });
     if (adminProblem) throw new ProfileConfigError(name, adminProblem);
 
-    const revision = await this.profiles.updateStackSettings(name, changeOf(save), {
+    const revision = await this.profiles.updateStackSettings(name, changeOf(save, adminLink), {
       instanceId: save.expectedInstanceId,
       expectedRevision: save.expectedRevision,
     });
@@ -242,10 +253,15 @@ function engineSaveProblem(
 /**
  * A save as the columns take it: an engine setting to the engine settings,
  * any other value by whether its key is a secret, and every reset key out of
- * wherever it is kept.
+ * wherever it is kept. A token the save stores is recorded for the origin of
+ * the address the save leaves, and a token it takes out takes that with it.
  */
-function changeOf(save: DeploymentSettingsSave): StackSettingsChange {
+function changeOf(save: DeploymentSettingsSave, adminLink: AdminLinkBefore): StackSettingsChange {
   const change: StackSettingsChange = { plain: {}, secret: {}, remove: [], engine: { set: {}, remove: [] } };
+  const token = save.entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (token) {
+    change.adminTokenOrigin = token.value ? (adminOriginOf(adminLinkAfterEdits(save.entries, adminLink).url) ?? '') : null;
+  }
   for (const { key, value } of save.entries) {
     if (engineSettingFieldOf(key)) {
       if (value === null) change.engine.remove.push(key);

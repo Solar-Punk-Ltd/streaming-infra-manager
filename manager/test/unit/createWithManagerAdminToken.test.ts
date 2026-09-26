@@ -70,6 +70,7 @@ describe("a create that asks for the manager's stored web2 admin token", () => {
       assert.equal(created.status, 202, JSON.stringify(created.body));
       assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: STORED_TOKEN });
       assert.deepEqual((await app.harness.profiles.stackSettingsOf('stage'))?.secretKeys, ['ADMIN_API_TOKEN']);
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), ADMIN_URL);
       assert.equal(JSON.stringify(created.body).includes(STORED_TOKEN), false);
     } finally {
       await app.close();
