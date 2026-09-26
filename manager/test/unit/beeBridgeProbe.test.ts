@@ -33,11 +33,12 @@ const onHost = (alias: string): FrozenChequebookTarget =>
   ({ ...structuredClone(syntheticTarget), alias, profile: { ...structuredClone(syntheticTarget.profile), host: alias === 'localhost' ? null : alias } });
 const syntheticTuple = { imageId: syntheticImageId, engineVersion: '29.1.3', platform: { os: 'linux', architecture: 'amd64', variant: '' } };
 
-function unqualified(t: TestContext, options: { checkAnswer?: string; alias?: string; answer?: SyntheticDockerAnswer; seeded?: boolean; ssh?: boolean } = {}) {
+function unqualified(t: TestContext, options: { checkAnswer?: string; alias?: string; answer?: SyntheticDockerAnswer; seeded?: boolean; ssh?: boolean;
+  store?: (log: string[]) => InMemoryBeeBridgeQualifications } = {}) {
   const pool = new pg.Pool({ connectionString: 'postgres://unused' }); t.after(() => pool.end());
   const log: string[] = [];
   const host = syntheticDockerHost(t, undefined, options.answer, { checkAnswer: options.checkAnswer, log });
-  const store = new InMemoryBeeBridgeQualifications(log);
+  const store = options.store?.(log) ?? new InMemoryBeeBridgeQualifications(log);
   const repository = new InMemoryChequebookOperations();
   const remote = fakeForwardHarness();
   remote.dependencies.clock = { now: () => performance.now(), schedule(call, milliseconds) { const timer = setTimeout(call, milliseconds); return () => clearTimeout(timer); } };
@@ -76,6 +77,22 @@ describe('automatic qualification of a Bee image nothing has checked', { timeout
     assert.ok(stored > h.log.indexOf('docker start check'), 'the pass follows the check');
     assert.ok(stored < h.log.indexOf('docker exec bridge'), 'and precedes the bridge exec');
     assert.ok(stored < h.log.findIndex(line => line.startsWith('bee ')), 'and every Bee request');
+  });
+
+  it('reads the stored pass again before the bridge runs, and refuses when the check passed but no pass was stored', async t => {
+    class LosesEveryWrite extends InMemoryBeeBridgeQualifications {
+      override async record(): Promise<void> {}
+    }
+    const h = unqualified(t, { store: log => new LosesEveryWrite(log) });
+    await assert.rejects(h.service.submit(transferIntent()), error => {
+      assert.ok(error instanceof ChequebookPreparationError);
+      assert.equal(error.refusal.cause, 'unavailable');
+      return true;
+    });
+    assert.deepEqual(h.host.dockerRequests().filter(request => request.exec).map(request => request.exec), ['check'], 'the check ran and the bridge did not');
+    assert.deepEqual(h.host.beeRequests(), [], 'no Bee request');
+    assert.equal(h.host.posts(), 0, 'no send');
+    assert.equal(h.repository.rows.size, 0, 'nothing admitted');
   });
 
   it('needs no check for a tuple the store already passed, and still reads it on its own connection first', async t => {
