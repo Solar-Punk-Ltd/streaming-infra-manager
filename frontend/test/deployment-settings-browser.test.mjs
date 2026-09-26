@@ -211,7 +211,15 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   const engineCard = `[...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root')`;
   const engineCardText = () => evaluate(`(${engineCard})?.innerText ?? ''`);
   const rowOf = (key) => `document.querySelector('li[data-setting="${key}"]')`;
-  const fieldOf = (key) => `document.querySelector('[aria-label="${key}"]')`;
+  const fieldOf = (key) => `document.getElementById('deployment-setting-${key}')`;
+  // What a screen reader is told about a field: the name and the description
+  // Chrome itself works out, rather than the attributes they come from.
+  const accessible = async (key) => {
+    const { root } = await call('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector: `#deployment-setting-${key}` });
+    const { nodes } = await call('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    return { name: nodes[0]?.name?.value ?? '', description: nodes[0]?.description?.value ?? '' };
+  };
   const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
   const buttonIn = (scope, label) => `[...((${scope})?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
   const saveDisabled = () => readWhenPresent(evaluate, buttonIn(card, 'Save'), 'disabled', 'the Save button');
@@ -329,13 +337,24 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(fragment, /^Segment length\s+HLS_FRAGMENT/);
     assert.match(fragment, /The shortest a piece of the stream may be/);
     assert.match(fragment, /seconds/);
-    assert.match(fragment, /A number from 0\.5 to 30\. Use a period for decimals\./);
+    assert.match(fragment, /A number of seconds from 0\.5 to 30\. Use a period for decimals\./);
     assert.match(fragment, /Default: 2 seconds, set on this host/);
     assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.value`), '2');
     assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.inputMode`), 'decimal');
     assert.match(await rowText('SRT_LATENCY'), /Default: 2000 milliseconds, the manager's own/);
     assert.equal(await evaluate(`${fieldOf('SRT_LATENCY')}.inputMode`), 'numeric');
     assert.match(await rowText('HLS_WINDOW'), /This version's config does not read this setting, so a value here has no effect on this version\./);
+  });
+
+  await t.test('an engine field is named by its label and its key, and says its unit and bounds', async () => {
+    assert.deepEqual(await accessible('HLS_FRAGMENT'), {
+      name: 'Segment length HLS_FRAGMENT',
+      description: 'A number of seconds from 0.5 to 30. Use a period for decimals.',
+    });
+    assert.deepEqual(await accessible('SRT_LATENCY'), {
+      name: 'SRT latency SRT_LATENCY',
+      description: 'A whole number of milliseconds from 20 to 10000.',
+    });
   });
 
   await t.test('a key the version no longer declares is listed with only a reset', async () => {
@@ -394,11 +413,17 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');
   });
 
-  await t.test('an engine value the engine would refuse is named under its field in its own words', async () => {
+  await t.test('an engine value the engine would refuse is named under its field in its own words, and read out', async () => {
     await typeInto('HLS_FRAGMENT', '0.1');
     await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('Segment length must be at least 0.5. Got 0.1.'), 'the refusal under the field');
     await waitFor(saveDisabled, (off) => off === true, 'a Save that stops at the refused value');
     assert.match(await cardText(), /One value cannot be saved as written: HLS_FRAGMENT/);
+    assert.equal((await accessible('HLS_FRAGMENT')).description, 'Segment length must be at least 0.5. Got 0.1.');
+    assert.equal(
+      await evaluate(`document.getElementById('deployment-setting-HLS_FRAGMENT-helper-text')?.getAttribute('aria-live')`),
+      'polite',
+      'the line under the field is a live region, so the refusal is read out as it appears',
+    );
 
     await typeInto('HLS_FRAGMENT', '2');
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');

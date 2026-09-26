@@ -7,7 +7,7 @@ import type { DeploymentSettingEntry } from '@streaming-infra-manager/common';
 import { DeploymentSettingRow, type SettingRowState } from './DeploymentSettingRow';
 import { type EngineFields, filteredSections, isSectionOpen, sectionIdHolding, sectionsOf } from './settingsSections';
 import { SettingsSectionFold } from './SettingsSectionFold';
-import { settingFieldId } from './SettingValueField';
+import { settingFieldId } from './settingFieldIds';
 import { noMatchText, type SectionCounts, type SettingsEditTarget } from './settingsText';
 
 const UNTOUCHED_ROW: SettingRowState = { edit: undefined, pending: false, behind: false, problem: null };

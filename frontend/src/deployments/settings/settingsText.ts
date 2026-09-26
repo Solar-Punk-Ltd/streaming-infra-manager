@@ -98,9 +98,18 @@ export function engineDefaultText(entry: DeploymentSettingEntry, field: EngineSe
   return `Default: ${value}${unit}, ${origin}`;
 }
 
-/** What an engine setting's number field takes, for the line under it, or null for a list, which shows its choices. */
+/**
+ * What an engine setting's number field takes, in its unit, for the line
+ * under it, or null for a list, which shows its choices. The unit beside the
+ * field is drawn and not read out, so this line is where a screen reader
+ * hears it.
+ */
 export function engineFieldHint(field: EngineSettingField): string | null {
-  return field.kind === 'choice' ? null : fieldHint({ kind: field.kind, min: field.min, max: field.max });
+  if (field.kind === 'choice') return null;
+  const what = field.kind === 'integer' ? 'A whole number' : 'A number';
+  const unit = field.unit === null ? '' : field.unit.startsWith('per ') ? ` ${field.unit}` : ` of ${field.unit}`;
+  const decimals = field.kind === 'number' ? ' Use a period for decimals.' : '';
+  return `${what}${unit}${boundsText(field.min, field.max)}.${decimals}`;
 }
 
 /**

@@ -131,7 +131,7 @@ test('the wizard creates a deployment with its own settings at a phone width', {
   const fold = `document.getElementById((${foldButton})?.getAttribute('aria-controls') ?? '')`;
   const foldText = () => evaluate(`(${foldButton})?.closest('section')?.innerText ?? ''`);
   const rowOf = (key) => `document.querySelector('li[data-setting="${key}"]')`;
-  const fieldOf = (key) => `document.querySelector('[aria-label="${key}"]')`;
+  const fieldOf = (key) => `document.getElementById('deployment-setting-${key}')`;
   const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
   const search = (text) => fillWhenPresent(evaluate, `${dialog}?.querySelector('input[aria-label="Search settings"]')`, text, 'the search field');
   const choose = (key, value) => waitFor(() => evaluate(`(() => {

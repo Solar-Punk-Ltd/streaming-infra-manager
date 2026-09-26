@@ -460,9 +460,12 @@ describe('the words of an engine setting', () => {
     );
   });
 
-  it('says what a number field takes, and nothing for a list, which shows its choices', () => {
-    assert.equal(engineFieldHint(fieldOf('HLS_FRAGMENT')), 'A number from 0.5 to 30. Use a period for decimals.');
-    assert.equal(engineFieldHint(fieldOf('SRT_LATENCY')), 'A whole number from 20 to 10000.');
+  // The unit beside the field is drawn, not read out, so the hint is where a screen reader hears it.
+  it('says what a number field takes in its unit, and nothing for a list, which shows its choices', () => {
+    assert.equal(engineFieldHint(fieldOf('HLS_FRAGMENT')), 'A number of seconds from 0.5 to 30. Use a period for decimals.');
+    assert.equal(engineFieldHint(fieldOf('SRT_LATENCY')), 'A whole number of milliseconds from 20 to 10000.');
+    assert.equal(engineFieldHint(fieldOf('ABR_FPS')), 'A whole number of frames per second from 1 to 120.');
+    assert.equal(engineFieldHint(fieldOf('ABR_THREADS')), 'A whole number per rung from 0 to 64.');
     assert.equal(engineFieldHint(fieldOf('ABR_PRESET')), null);
   });
 

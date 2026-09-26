@@ -7,6 +7,7 @@ import { MONO_STACK } from '../../app/theme';
 import { canReset, type SettingEdit, shownValue } from './deploymentSettingsDraft';
 import { EngineSettingValueField } from './EngineSettingValueField';
 import { SettingDescription } from './SettingDescription';
+import { settingKeyId, settingLabelId } from './settingFieldIds';
 import { SettingValueField } from './SettingValueField';
 import {
   OWNED_STORED_NOTE,
@@ -97,10 +98,15 @@ export function DeploymentSettingRow({
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
         {engineRow ? (
           <Stack direction="row" alignItems="baseline" spacing={1} flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+            <Typography id={settingLabelId(entry.key)} variant="body2" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
               {engineRow.field.label}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_STACK, wordBreak: 'break-all' }}>
+            <Typography
+              id={settingKeyId(entry.key)}
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontFamily: MONO_STACK, wordBreak: 'break-all' }}
+            >
               {entry.key}
             </Typography>
           </Stack>
