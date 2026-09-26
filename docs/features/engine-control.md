@@ -161,14 +161,14 @@ and Storage:
   the node pool. For OME: **Segment duration** and **Segment count** (`HLS_SEGMENT_DURATION`,
   `HLS_SEGMENT_COUNT`), **Poll interval** (`OME_HLS_POLL_INTERVAL_MS`). Each field is named by its
   label with the key beside it, shows its unit, the default an unset one falls back to on this
-  host, and a one line explanation from the stack's sample files. The card validates what the
-  entrypoint validates: positive numbers, integers where required, a ceiling at or over the
-  segment length, and for ABR `frame rate × segment length` must be a whole number or the engine
-  refuses to start. A pair it would refuse is named once above Save, which stays off. A save
-  stores and recreates nothing, and the card's Apply recreates the containers that read what
-  changed: the engine, the uploader with it for the segment length, and the uploader alone for
-  the poll interval. Until 2026-09-26 the drawer's Save, **Apply and recreate engine**, stored
-  and recreated in one step.
+  host, and its help, a one line explanation copied from the stack's sample files into the field
+  list. The card validates what the entrypoint validates: positive numbers, integers where
+  required, a ceiling at or over the segment length, and for ABR `frame rate × segment length`
+  must be a whole number or the engine refuses to start. A pair it would refuse is named once
+  above Save, which stays off. A save stores and recreates nothing, and the card's Apply
+  recreates the containers that read what changed: the engine, the uploader with it for the
+  segment length, and the uploader alone for the poll interval. Until 2026-09-26 the drawer's
+  Save, **Apply and recreate engine**, stored and recreated in one step.
 - **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
   few seconds. Settings are not changed.` With live status available the dialog says whether a
   publisher is connected right now.
