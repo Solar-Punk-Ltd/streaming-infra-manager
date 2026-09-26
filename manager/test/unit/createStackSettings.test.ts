@@ -175,6 +175,23 @@ describe('POST /profiles with stack settings', () => {
     }
   });
 
+  it('refuses stack settings of the wrong shape, for a deployment and a group, repeating no value', async () => {
+    const harness = profileServiceHarness();
+    const app = await appFor(harness);
+    try {
+      const wrongShapes = [{ key: 'ADMIN_API_TOKEN', value: TOKEN }, [`ADMIN_API_TOKEN=${TOKEN}`], `ADMIN_API_TOKEN=${TOKEN}`];
+      for (const stack_settings of wrongShapes) {
+        const single = refusalOf(await app.create({ name: 'stage', kind: 'streamer', stack_settings }));
+        const group = refusalOf(await app.createGroup({ group_name: 'pool', size: 2, kind: 'streamer', stack_settings }));
+
+        assert.equal(single.includes(TOKEN), false, 'the create refusal repeats the value');
+        assert.equal(group.includes(TOKEN), false, 'the group refusal repeats the value');
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   it('refuses a key named twice', async () => {
     const harness = profileServiceHarness();
     const app = await appFor(harness);

@@ -25,6 +25,13 @@ export const PLAIN_TEXT_INPUT = {
   style: { fontFamily: MONO_STACK, fontSize: 13 },
 } as const;
 
+/**
+ * Browsers ignore `off` on a password field and fill a saved sign-in into it,
+ * which would store the operator's manager password as this setting. A field
+ * that asks for a new password is never filled from a saved one.
+ */
+const MASKED_AUTOCOMPLETE = 'new-password';
+
 export function settingFieldId(key: string): string {
   return `deployment-setting-${key}`;
 }
@@ -79,6 +86,7 @@ function TextInput({ entry, value, disabled, problem, onChange, masked }: FieldP
       onChange={(event) => onChange(event.target.value)}
       inputProps={{
         ...PLAIN_TEXT_INPUT,
+        ...(masked ? { autoComplete: MASKED_AUTOCOMPLETE } : {}),
         'aria-label': entry.key,
         ...(numeric ? { inputMode: entry.field?.kind === 'integer' ? 'numeric' : 'decimal' } : {}),
       }}

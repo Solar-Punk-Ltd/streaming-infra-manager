@@ -260,7 +260,9 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   await t.test('a secret is never shown, only whether one is stored, in a masked field', async () => {
     assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.type`), 'password');
     assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.value`), '');
-    assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.getAttribute('autocomplete')`), 'off');
+    // Browsers ignore `off` on a password field, so only `new-password` keeps a saved sign-in out of a secret.
+    assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.getAttribute('autocomplete')`), 'new-password');
+    assert.equal(await evaluate(`${fieldOf('MAX_QUEUE_SIZE')}.getAttribute('autocomplete')`), 'off');
     assert.match(await rowText('ADMIN_API_TOKEN'), /A value is stored for this deployment\. It is never shown\./);
     assert.match(await rowText('API_AUTH_TOKEN'), /The manager generated a value for this deployment\./);
     assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), 'password');
