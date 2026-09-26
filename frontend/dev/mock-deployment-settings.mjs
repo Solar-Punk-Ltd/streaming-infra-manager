@@ -32,6 +32,7 @@
 import {
   ADMIN_API_TOKEN_KEY,
   ADMIN_API_URL_KEY,
+  addressOfStreamKey,
   adminLinkAfterEdits,
   adminLinkEditProblem,
   adminOriginOf,
@@ -757,14 +758,17 @@ export function deploymentSettingsRoutes({ readBody, withProfile, deploy }) {
 /**
  * What Test connection answers for what the deployment's next deploy would
  * give its uploader: the address it stores or its version sets, whether a
- * token is stored or generated, and its stream address, as the manager reads
- * them. A stored token is not presented to another origin than the one it was
- * stored for. The outcome itself is the mock's, off the address.
+ * token is stored or generated, and the address of its stream key, its own or
+ * the one its version sets, as the manager reads them. A stored token is not
+ * presented to another origin than the one it was stored for. The outcome
+ * itself is the mock's, off the address.
  */
 function deploymentTestOutcome(profile) {
   const store = storeOf(profile);
-  const url = nextValuesOf(profile, store)[ADMIN_API_URL_KEY] ?? '';
+  const values = nextValuesOf(profile, store);
+  const url = values[ADMIN_API_URL_KEY] ?? '';
   if (store.adminTokenOrigin !== null && url !== '' && !sameAdminOrigin(url, store.adminTokenOrigin)) return 'stored-token-elsewhere';
   const hasToken = store.secrets.has(ADMIN_API_TOKEN_KEY) || isGenerated(ADMIN_API_TOKEN_KEY, profile);
-  return mockTestOutcome({ url, hasToken, feedOwner: profile.has_private_key ? (profile.public_key ?? null) : null });
+  const feedOwner = profile.has_private_key ? (profile.public_key ?? null) : addressOfStreamKey(values.STREAM_KEY ?? '');
+  return mockTestOutcome({ url, hasToken, feedOwner });
 }

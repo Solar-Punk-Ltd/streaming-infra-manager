@@ -1,8 +1,8 @@
 import {
+  addressOfStreamKey,
   SRT_PASSPHRASE_MESSAGE,
   SRT_PASSPHRASE_RE,
 } from '@streaming-infra-manager/common';
-import { privateKeyToAccount } from 'viem/accounts';
 
 /**
  * The field rules the wizard and the drawers check before anything is sent.
@@ -53,7 +53,7 @@ export function privateKeyProblem(value: string): Problem {
   if (!PRIVATE_KEY_RE.test(value)) return `Stream key: ${PRIVATE_KEY_RULE}`;
   // The right shape is not enough: all zeros, or a value past the curve order,
   // derives no address, and saving it would wipe the stream's public key.
-  return addressForKey(value) === null
+  return addressOfStreamKey(value) === null
     ? 'Stream key: not a usable key, no address can be derived from it'
     : null;
 }
@@ -81,14 +81,4 @@ export function groupSizeProblem(value: string): Problem {
   return Number.isInteger(count) && count >= 1
     ? null
     : 'How many: a whole number, 1 or more';
-}
-
-/** The public address a stream key signs with, or null when it is not a key. */
-export function addressForKey(privateKey: string): string | null {
-  if (!PRIVATE_KEY_RE.test(privateKey.trim())) return null;
-  try {
-    return privateKeyToAccount(privateKey.trim() as `0x${string}`).address;
-  } catch {
-    return null;
-  }
 }

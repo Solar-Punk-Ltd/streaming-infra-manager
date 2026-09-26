@@ -1,4 +1,5 @@
 import { Button, Stack, TextField, Typography } from '@mui/material';
+import { addressOfStreamKey } from '@streaming-infra-manager/common';
 import { useState } from 'react';
 import { generatePrivateKey } from 'viem/accounts';
 
@@ -6,7 +7,7 @@ import { MONO_STACK } from '../app/theme';
 import { shortHex } from '../format';
 import { streamKeyMasked } from './deploymentEdits';
 import { FormField } from './FormField';
-import { addressForKey, privateKeyProblem } from './validation';
+import { privateKeyProblem } from './validation';
 
 const MASK = '••••••••';
 
@@ -35,7 +36,7 @@ export function StreamKeyField({
 }) {
   const [replacing, setReplacing] = useState(false);
   const masked = streamKeyMasked({ hasStoredKey, typed: value, replacing });
-  const address = masked ? storedAddress : addressForKey(value);
+  const address = masked ? storedAddress : addressOfStreamKey(value);
   const problem = value.trim() && !masked ? privateKeyProblem(value) : null;
 
   return (

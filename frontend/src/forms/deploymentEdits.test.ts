@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  addressOfStreamKey,
   CUSTOM_RPC_ENDPOINT_SOURCE,
   LIGHT_NODE_MODE,
   MANAGER_RPC_ENDPOINT_SOURCE,
@@ -27,7 +28,6 @@ import {
   srtPassphraseMasked,
   streamKeyMasked,
 } from './deploymentEdits';
-import { addressForKey } from './validation';
 
 function viewer(over: Partial<Profile> = {}): Profile {
   return {
@@ -276,7 +276,7 @@ describe('the stream key in the Edit drawer', () => {
     );
 
     assert.equal(body.private_key, TYPED_KEY);
-    assert.equal(body.public_key, addressForKey(TYPED_KEY));
+    assert.equal(body.public_key, addressOfStreamKey(TYPED_KEY));
   });
 
   /** The manager keeps the stored key when a save says nothing about it. */

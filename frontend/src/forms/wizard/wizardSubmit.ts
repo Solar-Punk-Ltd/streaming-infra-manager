@@ -1,5 +1,6 @@
 import {
   ABR_LADDER_SIZE,
+  addressOfStreamKey,
   CUSTOM_RPC_ENDPOINT_SOURCE,
 } from '@streaming-infra-manager/common';
 
@@ -10,7 +11,6 @@ import {
   type CreateGroupBody,
 } from '../../data';
 import type { CreateProfileBody, Profile } from '../../types';
-import { addressForKey } from '../validation';
 import { adminLinkBody } from './adminLinkChoice';
 import { advancedSettingsBody } from './advancedSettings';
 import { matchingPool, type CreatedPool } from './poolIdentity';
@@ -140,7 +140,7 @@ function sharedBody(state: WizardState, context: WizardContext) {
     notes: notesOf(state),
     feed_owner: feedOwnerOf(state, context),
     private_key: key || undefined,
-    public_key: (key && addressForKey(key)) || undefined,
+    public_key: (key && addressOfStreamKey(key)) || undefined,
     srt_passphrase: passphrase ?? undefined,
     stack_version_id: versionOf(state),
     engine_settings: offersSegmentLength(state)
