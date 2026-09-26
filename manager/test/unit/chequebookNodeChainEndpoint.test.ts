@@ -118,15 +118,77 @@ describe('the chain registry with a node\'s own endpoint', () => {
     await registry.forSavedNode(100, node, async () => assert.fail('the configured endpoint wins'));
   });
 
-  it('forgets a remembered endpoint that answers another chain', async () => {
-    let chain = 100; let reads = 0;
-    const registry = new ChequebookChainRegistry(undefined, () => reader(chain));
-    await registry.forPreparedNode(100, node, 'https://node-rpc.example.invalid');
-    chain = 1;
-    await assert.rejects(registry.forSavedNode(100, node, async () => { reads++; return 'https://node-rpc.example.invalid'; }), refusedAs('wrong_chain'));
-    chain = 100;
-    await registry.forSavedNode(100, node, async () => { reads++; return 'https://node-rpc.example.invalid'; });
-    assert.equal(reads, 1, 'the endpoint that answered another chain was read again rather than trusted');
+  describe('when the remembered endpoint fails', () => {
+    const remembered = 'https://remembered.example.invalid';
+    const fresh = 'https://fresh.example.invalid';
+    /** A registry that remembers `remembered` for the node, over endpoints whose answers each test sets. */
+    async function rememberedRegistry() {
+      const answers = new Map<string, number | 'down'>([[remembered, 100], [fresh, 100]]);
+      const created: string[] = [];
+      const registry = new ChequebookChainRegistry(undefined, endpoint => {
+        created.push(endpoint);
+        const answer = answers.get(endpoint) ?? 100;
+        return reader(answer === 'down' ? 100 : answer, answer === 'down');
+      });
+      await registry.forPreparedNode(100, node, remembered);
+      created.length = 0;
+      let reads = 0;
+      const readAgain = (endpoint: string | null | Error) => async () => {
+        reads++;
+        if (endpoint instanceof Error) throw endpoint;
+        return endpoint;
+      };
+      return { registry, answers, created, readAgain, reads: () => reads };
+    }
+
+    it('reads the node once when the remembered endpoint does not answer, and uses the fresh one that verifies', async () => {
+      const h = await rememberedRegistry();
+      h.answers.set(remembered, 'down');
+      await h.registry.forSavedNode(100, node, h.readAgain(fresh));
+      assert.equal(h.reads(), 1, 'a remembered endpoint that stopped answering is not the last word');
+      assert.deepEqual(h.created, [remembered, fresh]);
+      await h.registry.forSavedNode(100, node, h.readAgain(remembered));
+      assert.equal(h.reads(), 1, 'the fresh endpoint that verified replaced the remembered one');
+      assert.deepEqual(h.created, [remembered, fresh, fresh]);
+    });
+
+    it('reads the node once when the remembered endpoint answers another chain', async () => {
+      const h = await rememberedRegistry();
+      h.answers.set(remembered, 1);
+      await h.registry.forSavedNode(100, node, h.readAgain(fresh));
+      assert.equal(h.reads(), 1);
+      assert.deepEqual(h.created, [remembered, fresh]);
+    });
+
+    it('keeps the remembered endpoint when the fresh one does not verify either', async () => {
+      const h = await rememberedRegistry();
+      h.answers.set(remembered, 'down');
+      h.answers.set(fresh, 1);
+      await assert.rejects(h.registry.forSavedNode(100, node, h.readAgain(fresh)), refusedAs('wrong_chain'));
+      assert.equal(h.reads(), 1, 'read once, no more');
+      h.answers.set(remembered, 100);
+      await h.registry.forSavedNode(100, node, h.readAgain(fresh));
+      assert.equal(h.reads(), 1, 'the remembered endpoint answered again and was used without another read');
+      assert.deepEqual(h.created, [remembered, fresh, remembered]);
+    });
+
+    it('reports the remembered endpoint\'s failure when the node cannot be read or names no endpoint', async () => {
+      for (const readResult of [new Error('private container diagnostic'), null, 'ws://not-usable.example.invalid']) {
+        const h = await rememberedRegistry();
+        h.answers.set(remembered, 'down');
+        await assert.rejects(h.registry.forSavedNode(100, node, h.readAgain(readResult)), refusedAs('chain_unreachable'), String(readResult));
+        assert.equal(h.reads(), 1);
+      }
+    });
+
+    it('still reports a remembered endpoint that does not answer when the node names the same one', async () => {
+      const h = await rememberedRegistry();
+      h.answers.set(remembered, 'down');
+      await assert.rejects(h.registry.forSavedNode(100, node, h.readAgain(remembered)), refusedAs('chain_unreachable'));
+      assert.equal(h.reads(), 1, 'the node was read once rather than the remembered endpoint being trusted');
+      await assert.rejects(h.registry.forSavedNode(100, node, h.readAgain(remembered)), refusedAs('chain_unreachable'));
+      assert.equal(h.reads(), 2, 'and read again on the next check');
+    });
   });
 
   it('says the endpoint is missing when the saved transfer\'s node cannot be read', async () => {

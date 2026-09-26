@@ -1,6 +1,5 @@
 import { ChainReadError } from '../errors/ChainReadError.js';
 import { ChequebookConfigurationError } from '../errors/ChequebookConfigurationError.js';
-import { TransferRefusalError } from '../errors/TransferRefusalError.js';
 import { ChainRpc } from './ChainRpc.js';
 import { tokenAddressForChain } from './transactionIdentity.js';
 
@@ -74,23 +73,28 @@ export class ChequebookChainRegistry {
     } catch (error) { throw ChainReadError.keeping(error); }
   }
 
-  /** A saved transfer's later reads: the configured endpoint, or else its node's, remembered or read again. */
+  /**
+   * A saved transfer's later reads: the configured endpoint, or else its node's.
+   * A remembered endpoint that fails in any way sends the manager to read the
+   * node once more, and what it reads replaces the remembered endpoint only
+   * after it verified. Until then the remembered one is kept, and its failure is
+   * what is reported when the node cannot be read or names nothing usable.
+   */
   async forSavedNode(chainId: number, nodeAddress: string, readNodeEndpoint: ReadNodeChainEndpoint, signal?: AbortSignal): Promise<ChequebookChainReader> {
     if (this.#endpoints.has(chainId) || !tokenAddressForChain(chainId)) return this.forChain(chainId, signal);
     const key = nodeKey(chainId, nodeAddress);
     try {
       const remembered = this.#nodeEndpoints.get(key);
+      let rememberedFailure: unknown = null;
       if (remembered) {
         try { return await this.verified(remembered, chainId, signal); }
-        catch (error) {
-          if (TransferRefusalError.carried(error)?.cause === 'wrong_chain') this.#nodeEndpoints.delete(key);
-          throw error;
-        }
+        catch (error) { rememberedFailure = error; }
       }
+      const unusable = (fallback: ChainReadError) => rememberedFailure ? ChainReadError.keeping(rememberedFailure) : fallback;
       let endpoint: string | null;
       try { endpoint = await readNodeEndpoint(signal); }
-      catch (error) { throw ChainReadError.keeping(error, 'chain_endpoint_missing'); }
-      if (!usableChainEndpoint(endpoint)) throw new ChainReadError('chain_endpoint_missing');
+      catch (error) { throw unusable(ChainReadError.keeping(error, 'chain_endpoint_missing')); }
+      if (!usableChainEndpoint(endpoint)) throw unusable(new ChainReadError('chain_endpoint_missing'));
       const reader = await this.verified(endpoint, chainId, signal);
       this.#nodeEndpoints.set(key, endpoint);
       return reader;
